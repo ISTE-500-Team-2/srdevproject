@@ -151,7 +151,8 @@ CREATE TABLE user_certifications (
     status VARCHAR(20),
     statusDesc VARCHAR(255),
     FOREIGN KEY (userID) REFERENCES user(userID),
-    FOREIGN KEY (certID) REFERENCES certifications(certID)
+    FOREIGN KEY (certID) REFERENCES certifications(certID),
+    UNIQUE (userID, certID)
 );
 
 -- ROLE TABLE
