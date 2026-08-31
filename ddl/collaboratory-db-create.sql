@@ -1,4 +1,4 @@
--- Collaboratory 
+-- ISTE 501 - Team Arbor: Create Tables for Collaboratory Database
 
 DROP TABLE IF EXISTS
     reservation,
