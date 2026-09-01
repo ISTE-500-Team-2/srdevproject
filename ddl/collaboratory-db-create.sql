@@ -15,12 +15,12 @@ DROP TABLE IF EXISTS
     certifications,
     role,
     membership_tiers,
-    user
+    "user"
 CASCADE;
 
 -- USER TABLE
 
-CREATE TABLE user (
+CREATE TABLE "user" (
     userID INT PRIMARY KEY,
     firstName VARCHAR(50) NOT NULL,
     lastName VARCHAR(50) NOT NULL,
@@ -29,7 +29,7 @@ CREATE TABLE user (
     phone VARCHAR(15) NOT NULL,
     status VARCHAR(20),
     statusDesc VARCHAR(255),
-    registration_date DATETIME
+    registration_date TIMESTAMP
 );
 
 -- MEMBERSHIP TIERS TABLE
@@ -47,8 +47,8 @@ CREATE TABLE user_membership (
     membershipID INT PRIMARY KEY,
     userID INT,
     tierID INT,
-    startDate DATETIME,
-    end_date DATETIME,
+    startDate TIMESTAMP,
+    end_date TIMESTAMP,
     status VARCHAR(20),
     statusDesc VARCHAR(255),
     FOREIGN KEY (userID) REFERENCES user(userID),
@@ -63,10 +63,10 @@ CREATE TABLE payment (
     userID INT,
     price DECIMAL(10, 2) NOT NULL,
     paymentStatus VARCHAR(20),
-    paymentDate DATETIME,
+    paymentDate TIMESTAMP,
     autoRenewStatus BOOLEAN DEFAULT FALSE,
     FOREIGN KEY (membershipID) REFERENCES user_membership(membershipID),
-    FOREIGN KEY (userID) REFERENCES user(userID)
+    FOREIGN KEY (userID) REFERENCES "user"(userID)
 );
 
 -- DAY PASS TABLE
@@ -75,13 +75,13 @@ CREATE TABLE day_pass (
     dayID INT PRIMARY KEY,
     userID INT,
     paymentID INT,
-    validDate DATETIME,
-    purchaseDate DATETIME,
+    validDate TIMESTAMP,
+    purchaseDate TIMESTAMP,
     status VARCHAR(20),
     statusDesc VARCHAR(255),
-    FOREIGN KEY (userID) REFERENCES user(userID),
+    FOREIGN KEY (userID) REFERENCES "user"(userID),
     FOREIGN KEY (paymentID) REFERENCES payment(paymentID)
-)
+);
 
 -- CHECK IN TABLE
 
@@ -89,10 +89,10 @@ CREATE TABLE check_in (
     checkInID INT PRIMARY KEY,
     userID INT,
     location VARCHAR(100) NOT NULL,
-    checkInTime DATETIME NOT NULL,
+    checkInTime TIMESTAMP NOT NULL,
     status VARCHAR(20),
     statusDesc VARCHAR(255),
-    FOREIGN KEY (userID) REFERENCES user(userID)
+    FOREIGN KEY (userID) REFERENCES "user"(userID)
 );
 
 -- GUEST TABLE
@@ -103,10 +103,10 @@ CREATE TABLE guest (
     firstName VARCHAR(50) NOT NULL,
     lastName VARCHAR(50) NOT NULL,
     email VARCHAR(100) UNIQUE NOT NULL,
-    visitDate DATETIME NOT NULL,
+    visitDate TIMESTAMP NOT NULL,
     status VARCHAR(20),
     statusDesc VARCHAR(255),
-    FOREIGN KEY (hostID) REFERENCES user(userID)
+    FOREIGN KEY (hostID) REFERENCES "user"(userID)
 );
 
 -- WAIVER TABLE
@@ -116,7 +116,7 @@ CREATE TABLE waiver (
     name VARCHAR(100),
     version VARCHAR(50),
     description VARCHAR(255),
-    effectiveDate DATETIME
+    effectiveDate TIMESTAMP
 );
 
 -- USER WAIVER TABLE
@@ -125,9 +125,9 @@ CREATE TABLE user_waiver (
     userWaiverID INT PRIMARY KEY,
     userID INT,
     waiverID INT,
-    signDate DATETIME,
+    signDate TIMESTAMP,
     approval BOOLEAN,
-    FOREIGN KEY (userID) REFERENCES user(userID),
+    FOREIGN KEY (userID) REFERENCES "user"(userID),
     FOREIGN KEY (waiverID) REFERENCES waiver(waiverID)
 );
 
@@ -137,8 +137,8 @@ CREATE TABLE certifications (
     certID INT PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     description VARCHAR(255),
-    effectiveDate DATETIME,
-    endDate DATETIME
+    effectiveDate TIMESTAMP,
+    endDate TIMESTAMP
 );
 
 -- USER CERTIFICATIONS TABLE
@@ -147,10 +147,10 @@ CREATE TABLE user_certifications (
     userCertID INT PRIMARY KEY,
     userID INT,
     certID INT,
-    renewalDate DATETIME,
+    renewalDate TIMESTAMP,
     status VARCHAR(20),
     statusDesc VARCHAR(255),
-    FOREIGN KEY (userID) REFERENCES user(userID),
+    FOREIGN KEY (userID) REFERENCES "user"(userID),
     FOREIGN KEY (certID) REFERENCES certifications(certID),
     UNIQUE (userID, certID)
 );
@@ -169,8 +169,8 @@ CREATE TABLE user_role (
     rID INT PRIMARY KEY,
     userID INT,
     roleID INT,
-    assignedAt DATETIME,
-    FOREIGN KEY (userID) REFERENCES user(userID),
+    assignedAt TIMESTAMP,
+    FOREIGN KEY (userID) REFERENCES "user"(userID),
     FOREIGN KEY (roleID) REFERENCES role(roleID)
 );
 
@@ -193,11 +193,11 @@ CREATE TABLE reservation (
     equipmentID INT,
     waiverID INT,
     location VARCHAR(100) NOT NULL,
-    startTime DATETIME NOT NULL,
-    endTime DATETIME NOT NULL,
+    startTime TIMESTAMP NOT NULL,
+    endTime TIMESTAMP NOT NULL,
     status VARCHAR(20),
     statusDesc VARCHAR(255),
-    FOREIGN KEY (userID) REFERENCES user(userID),
+    FOREIGN KEY (userID) REFERENCES "user"(userID),
     FOREIGN KEY (equipmentID) REFERENCES equipment(equipmentID),
     FOREIGN KEY (waiverID) REFERENCES waiver(waiverID)
 );
