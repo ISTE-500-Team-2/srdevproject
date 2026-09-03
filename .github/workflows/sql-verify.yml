@@ -60,7 +60,7 @@ jobs:
 
           expected="$(printf '%s\n' \
             'tables=15' \
-            'foreign_keys=17' \
+            'foreign_keys=18' \
             'users=2' \
             'membership_tiers=6' \
             'roles=4' \
