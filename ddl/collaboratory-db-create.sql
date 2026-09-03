@@ -179,9 +179,11 @@ CREATE TABLE user_role (
 
 CREATE TABLE equipment (
     equipmentID INT PRIMARY KEY,
+    certID INT,
     name VARCHAR(100) NOT NULL,
     status VARCHAR(20),
-    waiverRequired BOOLEAN
+    waiverRequired BOOLEAN,
+    FOREIGN KEY (certID) REFERENCES certifications(certID)
 );
 
 
