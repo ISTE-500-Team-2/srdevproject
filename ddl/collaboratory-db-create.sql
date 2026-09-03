@@ -113,8 +113,8 @@ CREATE TABLE guest (
 
 CREATE TABLE waiver (
     waiverID INT PRIMARY KEY,
-    name VARCHAR(100),
-    version VARCHAR(50),
+    name VARCHAR(100) NOT NULL,
+    version VARCHAR(50) NOT NULL,
     description VARCHAR(255),
     effectiveDate TIMESTAMP
 );
