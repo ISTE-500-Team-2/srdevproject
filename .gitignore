@@ -1,0 +1,4 @@
+.DS_Store
+.env
+.team-dev.env
+*.local.env
