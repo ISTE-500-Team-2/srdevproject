@@ -51,7 +51,7 @@ CREATE TABLE user_membership (
     end_date TIMESTAMP,
     status VARCHAR(20),
     statusDesc VARCHAR(255),
-    FOREIGN KEY (userID) REFERENCES user(userID),
+    FOREIGN KEY (userID) REFERENCES "user"(userID),
     FOREIGN KEY (tierID) REFERENCES membership_tiers(tierID)
 );
 

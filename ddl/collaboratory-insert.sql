@@ -18,7 +18,7 @@ INSERT INTO membership_tiers (tierID, tierName, tierPrice, allottedMonths) VALUE
 INSERT INTO role (roleID, role, description) VALUES
 (1, 'admin', 'Administrator'),
 (2, 'member', 'Regular member'),
-(3, 'student', 'Student member')
+(3, 'student', 'Student member'),
 (4, 'staff', 'Staff');
 
 -- Sample data for equipment table
