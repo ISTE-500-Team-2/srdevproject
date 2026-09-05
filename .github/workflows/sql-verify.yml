@@ -1,0 +1,70 @@
+name: Verify PostgreSQL scripts
+
+on:
+  pull_request:
+    paths:
+      - "ddl/**"
+      - ".github/workflows/sql-verify.yml"
+  push:
+    branches:
+      - database-integration
+    paths:
+      - "ddl/**"
+      - ".github/workflows/sql-verify.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16.14-bookworm@sha256:64154d0babcb1741988719e703419af0382b19953706149f9872fbd0f438efa8
+        env:
+          POSTGRES_PASSWORD: verification-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply and verify database scripts
+        env:
+          PGPASSWORD: verification-only
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres \
+            -f ddl/collaboratory-create.sql
+          psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d collaboratoryarbor \
+            -f ddl/collaboratory-db-create.sql
+          psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d collaboratoryarbor \
+            -f ddl/collaboratory-insert.sql
+
+          result="$(psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres \
+            -d collaboratoryarbor -Atc "
+          SELECT 'tables=' || count(*) FROM information_schema.tables
+           WHERE table_schema='public' AND table_type='BASE TABLE';
+          SELECT 'foreign_keys=' || count(*) FROM information_schema.table_constraints
+           WHERE table_schema='public' AND constraint_type='FOREIGN KEY';
+          SELECT 'users=' || count(*) FROM \"user\";
+          SELECT 'membership_tiers=' || count(*) FROM membership_tiers;
+          SELECT 'roles=' || count(*) FROM role;
+          SELECT 'equipment=' || count(*) FROM equipment;")"
+
+          expected="$(printf '%s\n' \
+            'tables=15' \
+            'foreign_keys=18' \
+            'users=2' \
+            'membership_tiers=6' \
+            'roles=4' \
+            'equipment=3')"
+
+          printf '%s\n' "${result}"
+          test "${result}" = "${expected}"
