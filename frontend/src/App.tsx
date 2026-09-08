@@ -12,7 +12,22 @@ import { ProfilePage } from './pages/ProfilePage';
 import { ReservationsPage } from './pages/ReservationsPage';
 
 function RequireUser() {
-  const { user } = useAuth();
+  const { user, loading, error, refresh } = useAuth();
+  if (loading)
+    return (
+      <main className="page-shell" role="status">
+        Loading your account…
+      </main>
+    );
+  if (error)
+    return (
+      <main className="page-shell">
+        <p role="alert">{error}</p>
+        <button className="button" onClick={() => void refresh()}>
+          Retry
+        </button>
+      </main>
+    );
   return user ? <Outlet /> : <Navigate to="/login" replace />;
 }
 
@@ -34,7 +49,9 @@ export default function App() {
             <Route path="certifications" element={<CertificationsPage />} />
             <Route path="classes" element={<ClassesPage />} />
             <Route path="profile" element={<ProfilePage />} />
-            <Route element={<RequireAdmin />}><Route path="admin" element={<AdminDashboardPage />} /></Route>
+            <Route element={<RequireAdmin />}>
+              <Route path="admin" element={<AdminDashboardPage />} />
+            </Route>
           </Route>
         </Route>
         <Route path="*" element={<NotFoundPage />} />

@@ -14,12 +14,13 @@ export function AdminDashboardPage() {
 
   const saveLayout = () => {
     setEditing(false);
-    setToast('Dashboard layout saved for this prototype.');
+    setToast('Layout preview updated in this tab; not saved.');
     window.setTimeout(() => setToast(null), 2600);
   };
 
   return (
     <div className="admin-dashboard page-enter">
+      <p className="form-notice">Design preview: all charts, attendance, and revenue below are sample data. Staff management and reporting are not connected yet.</p>
       <section className="dashboard-intro dashboard-intro--admin">
         <div>
           <p className="eyebrow">Operations overview</p>
@@ -30,7 +31,7 @@ export function AdminDashboardPage() {
           {editing ? (
             <>
               <button className="button button--quiet" onClick={() => setEditing(false)}><RotateCcw aria-hidden="true" /> Cancel</button>
-              <button className="button button--primary" onClick={saveLayout}><Save aria-hidden="true" /> Save dashboard</button>
+              <button className="button button--primary" onClick={saveLayout}><Save aria-hidden="true" /> Preview layout</button>
             </>
           ) : (
             <button className="button button--quiet" onClick={() => setEditing(true)}><Edit3 aria-hidden="true" /> Edit dashboard</button>
@@ -63,7 +64,7 @@ export function AdminDashboardPage() {
                 {expandedClass === item.id ? (
                   <div className="admin-class__details">
                     <p>{item.description}</p>
-                    <button className="text-button">Open roster</button>
+                    <button className="text-button" disabled>Roster not connected</button>
                   </div>
                 ) : null}
               </article>

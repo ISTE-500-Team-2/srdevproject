@@ -1,122 +1,185 @@
-import { ArrowUpRight, CalendarDays, ChevronRight, FileCheck2, RefreshCw, ShieldCheck, Sparkles } from 'lucide-react';
+import {
+  ArrowUpRight,
+  CalendarDays,
+  ChevronRight,
+  FileCheck2,
+  LogIn,
+} from 'lucide-react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { classes, equipment } from '../data/mockData';
-
-const summaries = [
-  { title: 'Pending waivers', icon: FileCheck2, body: 'No pending waivers', prompt: 'You’re all set!', to: '/certifications' },
-  { title: 'Active reservations', icon: CalendarDays, body: 'No active reservations', prompt: 'Start creating', to: '/reservations' },
-  { title: 'Upcoming classes', icon: ShieldCheck, body: 'No upcoming classes', prompt: 'Sign up now', to: '/classes' },
-];
+import { api, errorMessage } from '../lib/api';
+import { useApi } from '../lib/useApi';
+import type { LiveEquipment, Overview } from '../lib/contracts';
+import { Toast } from '../components/Toast';
 
 export function MemberHomePage() {
   const { user } = useAuth();
-
+  const overview = useApi<Overview>('/me/overview');
+  const catalog = useApi<LiveEquipment[]>('/equipment');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [toast, setToast] = useState<string | null>(null);
+  const summary = overview.data;
+  const accessLabel = summary?.entitlement.membership
+    ? 'Active membership'
+    : summary?.entitlement.dayPass
+      ? 'Day pass active'
+      : 'No active access';
+  const checkIn = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await api('/me/check-ins', {
+        method: 'POST',
+        body: { location: 'Collaboratory member portal' },
+      });
+      overview.reload();
+      setToast('Check-in saved. Welcome to the Collaboratory!');
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <div className="member-home page-enter">
       <section className="dashboard-intro">
         <div>
           <p className="eyebrow">Member dashboard</p>
-          <h1>Welcome back, {user?.firstName ?? 'John'}</h1>
+          <h1>Welcome back, {user?.firstName}</h1>
         </div>
-        <span className="membership-pill">Monthly Member</span>
+        {summary ? (
+          <span className="membership-pill">{accessLabel}</span>
+        ) : null}
       </section>
-
-      <section className="member-summary" aria-label="Account summary">
-        <div className="member-summary__cards">
-          {summaries.map((card) => {
-            const Icon = card.icon;
-            return (
-              <article className="summary-card" key={card.title}>
+      {overview.loading ? <p role="status">Loading account activity…</p> : null}
+      {overview.error ? (
+        <p role="alert" className="form-error">
+          {overview.error} <button onClick={overview.reload}>Retry</button>
+        </p>
+      ) : null}
+      {error ? (
+        <p role="alert" className="form-error">
+          {error}
+        </p>
+      ) : null}
+      {summary ? (
+        <section className="member-summary" aria-label="Account summary">
+          <div className="member-summary__cards">
+            {[
+              {
+                title: 'Pending waivers',
+                count: summary.pendingWaivers,
+                to: '/certifications',
+                prompt: 'Review your policies',
+                Icon: FileCheck2,
+              },
+              {
+                title: 'Active reservations',
+                count: summary.activeReservations,
+                to: '/reservations',
+                prompt: 'Manage your bookings',
+                Icon: CalendarDays,
+              },
+            ].map(({ title, count, to, prompt, Icon }) => (
+              <article className="summary-card" key={title}>
                 <div className="summary-card__heading">
-                  <span className="summary-card__icon"><Icon aria-hidden="true" /></span>
-                  <h2>{card.title}</h2>
-                  <strong>0</strong>
+                  <span className="summary-card__icon">
+                    <Icon aria-hidden="true" />
+                  </span>
+                  <h2>{title}</h2>
+                  <strong>{count}</strong>
                 </div>
-                <Link to={card.to} className="summary-card__action">
-                  <span><strong>{card.body}</strong><em>{card.prompt}</em></span>
+                <Link to={to} className="summary-card__action">
+                  <span>{prompt}</span>
                   <ChevronRight aria-hidden="true" />
                 </Link>
               </article>
-            );
-          })}
-        </div>
-
-        <aside className="membership-card">
-          <div className="membership-card__glow" aria-hidden="true" />
-          <div className="membership-card__heading"><Sparkles aria-hidden="true" /><span>Your membership perks</span></div>
-          <span className="membership-card__tier">Monthly</span>
-          <hr />
-          <strong>Free use of basic tools</strong>
-          <ul><li>3D Printer</li><li>Laser Engraver</li><li>And more!</li></ul>
-          <Link to="/profile">Manage your membership <ArrowUpRight aria-hidden="true" /></Link>
-        </aside>
-      </section>
-
+            ))}
+            <article className="summary-card">
+              <h2>Visit check-in</h2>
+              <p>
+                {summary.canCheckIn
+                  ? 'Your access and required waivers are current.'
+                  : summary.reasons.join('. ') + '.'}
+              </p>
+              <button
+                className="button button--primary"
+                onClick={() => void checkIn()}
+                disabled={busy || !summary.canCheckIn}
+              >
+                <LogIn aria-hidden="true" />
+                {busy ? 'Checking…' : 'Check in'}
+              </button>
+            </article>
+          </div>
+          <aside className="membership-card">
+            <div className="membership-card__heading">Your access</div>
+            <span className="membership-card__tier">{accessLabel}</span>
+            <hr />
+            <p>
+              Equipment eligibility is checked against your membership or day
+              pass, certifications, and required waivers.
+            </p>
+            <Link to="/profile">
+              Account details <ArrowUpRight aria-hidden="true" />
+            </Link>
+          </aside>
+        </section>
+      ) : null}
       <div className="dashboard-divider" />
-
-      <section className="discovery-grid">
-        <ClassDiscovery />
-        <EquipmentDiscovery />
-      </section>
-    </div>
-  );
-}
-
-function ClassDiscovery() {
-  return (
-    <div>
-      <div className="discovery-heading">
-        <h2>Most Popular Classes</h2>
-        <Link to="/classes">View all classes <ArrowUpRight aria-hidden="true" /></Link>
-      </div>
-      <div className="class-card-grid">
-        {classes.slice(0, 2).map((item) => (
-          <article className="class-card" key={item.id}>
-            <div className="class-card__image">
-              <img src={item.image} alt="" />
-              <span>{item.enrolled} / {item.capacity} slots</span>
-            </div>
-            <div className="class-card__body">
-              <div><h3>{item.title}</h3><p>{item.description}</p></div>
-              <time>{item.date}<small>{item.time}</small></time>
-            </div>
-            <Link to="/classes" aria-label={'View ' + item.title}>
-              View class <ChevronRight aria-hidden="true" />
-            </Link>
-          </article>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function EquipmentDiscovery() {
-  return (
-    <div>
-      <div className="discovery-heading">
-        <h2>Try Something New! <RefreshCw aria-hidden="true" /></h2>
-        <Link to="/reservations">Check out all equipment <ArrowUpRight aria-hidden="true" /></Link>
-      </div>
-      <div className="equipment-preview-grid">
-        {equipment.slice(1, 3).map((item) => (
-          <article className="equipment-preview" key={item.id}>
-            <div className="equipment-preview__image">
-              <img src={item.image} alt={item.name + ' ' + item.type} />
-            </div>
-            <div className="equipment-preview__body">
-              <div><p className="eyebrow">{item.type}</p><h3>{item.name}</h3></div>
-              <div>
-                <span>{item.trainingRequired ? 'Training required' : 'Member ready'}</span>
-                <strong>${item.rate.toFixed(2)}/hour</strong>
+      <section>
+        <div className="discovery-heading">
+          <h2>Equipment</h2>
+          <Link to="/reservations">
+            View all equipment <ArrowUpRight aria-hidden="true" />
+          </Link>
+        </div>
+        {catalog.loading ? <p role="status">Loading equipment…</p> : null}
+        {catalog.error ? (
+          <p role="alert">
+            {catalog.error} <button onClick={catalog.reload}>Retry</button>
+          </p>
+        ) : null}
+        <div className="equipment-preview-grid">
+          {catalog.data?.slice(0, 3).map((item) => (
+            <article className="equipment-preview" key={item.id}>
+              <div className="equipment-preview__image">
+                <img src={item.image} alt={item.name} />
               </div>
-            </div>
-            <Link to="/reservations" aria-label={'Reserve ' + item.name}>
-              Reserve <ChevronRight aria-hidden="true" />
-            </Link>
-          </article>
-        ))}
-      </div>
+              <div className="equipment-preview__body">
+                <div>
+                  <p className="eyebrow">{item.type}</p>
+                  <h3>{item.name}</h3>
+                </div>
+                <small>{item.availability}</small>
+              </div>
+              <Link to="/reservations">
+                Choose a time <ChevronRight aria-hidden="true" />
+              </Link>
+            </article>
+          ))}
+        </div>
+        {!catalog.loading && !catalog.error && !catalog.data?.length ? (
+          <p className="empty-state">No equipment is listed yet.</p>
+        ) : null}
+      </section>
+      <section className="panel feature-notice">
+        <h2>Recent check-ins</h2>
+        {summary?.recentCheckIns.length ? (
+          <ul>
+            {summary.recentCheckIns.map((item) => (
+              <li key={item.id}>
+                {new Date(item.checkedInAt).toLocaleString()} · {item.location}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p>No recent check-ins.</p>
+        )}
+      </section>
+      <Toast message={toast} onClose={() => setToast(null)} />
     </div>
   );
 }
