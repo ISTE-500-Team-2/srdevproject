@@ -4,10 +4,11 @@ export interface UserView {
   lastName: string;
   email: string;
   phone: string;
-  role: 'member' | 'admin';
+  role: "member" | "admin";
   roles: string[];
   status: string;
-  membership: 'Monthly' | 'Day Pass' | 'Staff' | 'None';
+  accessStatus: "active" | "suspended" | "revoked";
+  membership: "Monthly" | "Day Pass" | "Staff" | "None";
 }
 
 export class AppError extends Error {
@@ -20,13 +21,13 @@ export class AppError extends Error {
   }
 }
 
-export function positiveId(value: unknown, name = 'id'): number {
+export function positiveId(value: unknown, name = "id"): number {
   const n =
-    typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value;
-  if (typeof n !== 'number' || !Number.isSafeInteger(n) || n <= 0) {
+    typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value;
+  if (typeof n !== "number" || !Number.isSafeInteger(n) || n <= 0) {
     throw new AppError(
       400,
-      'INVALID_INPUT',
+      "INVALID_INPUT",
       `${name} must be a positive integer.`,
     );
   }
@@ -40,13 +41,13 @@ export function textField(
   min = 1,
 ): string {
   if (
-    typeof value !== 'string' ||
+    typeof value !== "string" ||
     value.trim().length < min ||
     value.trim().length > max
   ) {
     throw new AppError(
       400,
-      'INVALID_INPUT',
+      "INVALID_INPUT",
       `${name} must contain ${min}–${max} characters.`,
     );
   }
@@ -54,18 +55,18 @@ export function textField(
 }
 
 export function emailField(value: unknown): string {
-  const email = textField(value, 'Email', 100).toLowerCase();
+  const email = textField(value, "Email", 100).toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
-    throw new AppError(400, 'INVALID_INPUT', 'Enter a valid email address.');
+    throw new AppError(400, "INVALID_INPUT", "Enter a valid email address.");
   return email;
 }
 
 export function passwordField(value: unknown): string {
-  if (typeof value !== 'string' || value.length < 8 || value.length > 128) {
+  if (typeof value !== "string" || value.length < 8 || value.length > 128) {
     throw new AppError(
       400,
-      'INVALID_INPUT',
-      'Password must contain 8–128 characters.',
+      "INVALID_INPUT",
+      "Password must contain 8–128 characters.",
     );
   }
   return value;
@@ -78,7 +79,7 @@ export function reservationWindow(
 ): { start: Date; end: Date } {
   const parse = (v: unknown) => {
     const parts =
-      typeof v === 'string'
+      typeof v === "string"
         ? /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/.exec(
             v,
           )
@@ -86,8 +87,8 @@ export function reservationWindow(
     if (!parts)
       throw new AppError(
         400,
-        'INVALID_INPUT',
-        'Reservation times must be ISO dates with a time zone.',
+        "INVALID_INPUT",
+        "Reservation times must be ISO dates with a time zone.",
       );
     const year = Number(parts[1]),
       month = Number(parts[2]),
@@ -101,11 +102,11 @@ export function reservationWindow(
       Number(parts[5]) > 59 ||
       Number(parts[6] ?? 0) > 59
     ) {
-      throw new AppError(400, 'INVALID_INPUT', 'Invalid reservation time.');
+      throw new AppError(400, "INVALID_INPUT", "Invalid reservation time.");
     }
     const d = new Date(v as string);
     if (!Number.isFinite(d.getTime()))
-      throw new AppError(400, 'INVALID_INPUT', 'Invalid reservation time.');
+      throw new AppError(400, "INVALID_INPUT", "Invalid reservation time.");
     return d;
   };
   const a = parse(start);
@@ -113,8 +114,8 @@ export function reservationWindow(
   if (a <= now || b <= a || b.getTime() - a.getTime() > 24 * 60 * 60 * 1000) {
     throw new AppError(
       400,
-      'INVALID_INPUT',
-      'Choose a future start and a duration of up to 24 hours.',
+      "INVALID_INPUT",
+      "Choose a future start and a duration of up to 24 hours.",
     );
   }
   return { start: a, end: b };

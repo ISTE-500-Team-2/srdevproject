@@ -1,5 +1,7 @@
 # MVC verification — September 8, 2026
 
+Historical foundation checkpoint. For the later primary-MVP extension, use [PRIMARY-VERIFICATION.md](PRIMARY-VERIFICATION.md).
+
 ## Passed
 
 - Backend TypeScript build and **4 unit tests**.

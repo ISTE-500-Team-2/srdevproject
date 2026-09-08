@@ -1,108 +1,98 @@
-import { Check, ChevronDown, Edit3, Filter, RotateCcw, Save, Users } from 'lucide-react';
-import { useState } from 'react';
-import { BarChart, LineChart } from '../components/Charts';
-import { Toast } from '../components/Toast';
-import { classes, machineRevenueSeries, revenueSeries, usageSeries } from '../data/mockData';
+import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { useApi } from "../lib/useApi";
+import type { Audit, Page } from "../lib/staffContracts";
+import { AuditList, LoadState, Pager } from "../components/Management";
+import { StaffUsers } from "./StaffUsers";
+import { StaffPlans } from "./StaffPlans";
+import { StaffPayments } from "./StaffPayments";
+import { StaffPolicies } from "./StaffPolicies";
+import { AdminAnalyticsPreviewPage } from "./AdminAnalyticsPreviewPage";
 
-const labels = ['Apr 12', 'Apr 13', 'Apr 14', 'Apr 15', 'Apr 16', 'Apr 17'];
-
+const tabs = [
+  ["members", "Members"],
+  ["plans", "Plans"],
+  ["payments", "Payment history"],
+  ["policies", "Policies"],
+  ["audit", "Change log"],
+  ["preview", "Analytics preview"],
+];
 export function AdminDashboardPage() {
-  const [expandedClass, setExpandedClass] = useState<number | null>(null);
-  const [editing, setEditing] = useState(false);
-  const [period, setPeriod] = useState('Weekly');
-  const [toast, setToast] = useState<string | null>(null);
-
-  const saveLayout = () => {
-    setEditing(false);
-    setToast('Layout preview updated in this tab; not saved.');
-    window.setTimeout(() => setToast(null), 2600);
-  };
-
+  const [params, setParams] = useSearchParams();
+  const tab = params.get("tab") ?? "members";
   return (
-    <div className="admin-dashboard page-enter">
-      <p className="form-notice">Design preview: all charts, attendance, and revenue below are sample data. Staff management and reporting are not connected yet.</p>
-      <section className="dashboard-intro dashboard-intro--admin">
+    <div className="management-page page-enter">
+      <section className="dashboard-intro">
         <div>
-          <p className="eyebrow">Operations overview</p>
-          <h1>Welcome back, Admin</h1>
-        </div>
-        <div className="admin-toolbar">
-          <button className="button button--quiet"><Filter aria-hidden="true" /> Filter</button>
-          {editing ? (
-            <>
-              <button className="button button--quiet" onClick={() => setEditing(false)}><RotateCcw aria-hidden="true" /> Cancel</button>
-              <button className="button button--primary" onClick={saveLayout}><Save aria-hidden="true" /> Preview layout</button>
-            </>
-          ) : (
-            <button className="button button--quiet" onClick={() => setEditing(true)}><Edit3 aria-hidden="true" /> Edit dashboard</button>
-          )}
+          <p className="eyebrow">Staff workspace</p>
+          <h1>Membership & access management</h1>
         </div>
       </section>
-
-      <div className={'admin-layout' + (editing ? ' is-editing' : '')}>
-        <aside className="admin-sidebar panel">
-          <div className="active-users">
-            <span><Users aria-hidden="true" /></span>
-            <div><small>Right now</small><strong>Active Users: 56</strong></div>
-            <i aria-label="Systems operational"><Check aria-hidden="true" /></i>
-          </div>
-          <div className="admin-class-list">
-            {classes.map((item) => (
-              <article className="admin-class" key={item.id}>
-                <button onClick={() => setExpandedClass(expandedClass === item.id ? null : item.id)} aria-expanded={expandedClass === item.id}>
-                  <span>
-                    <strong>{item.title}</strong>
-                    <small>Instructor: {item.instructor}</small>
-                    <small>Equipment: {item.equipment}</small>
-                  </span>
-                  <span className="admin-class__meta">
-                    <b>{item.enrolled} / {item.capacity} slots</b>
-                    <time>{item.date}<small>{item.time}</small></time>
-                    <ChevronDown aria-hidden="true" />
-                  </span>
-                </button>
-                {expandedClass === item.id ? (
-                  <div className="admin-class__details">
-                    <p>{item.description}</p>
-                    <button className="text-button" disabled>Roster not connected</button>
-                  </div>
-                ) : null}
-              </article>
-            ))}
-          </div>
-          <div className="admin-class-list__footer">
-            <span>Class details</span>
-            <strong>All Classes <Filter aria-hidden="true" /></strong>
-          </div>
-        </aside>
-
-        <section className="admin-metrics">
-          <article className="metric-card metric-card--wide panel">
-            <LineChart values={revenueSeries} labels={labels} max={6000} />
-            <div className="metric-card__footer">
-              <div><small>Gross Revenue</small><strong>$3,982.00</strong></div>
-              <div className="metric-controls"><select aria-label="Chart type"><option>Line Chart</option><option>Area Chart</option></select><select value={period} onChange={(event) => setPeriod(event.target.value)} aria-label="Period"><option>Weekly</option><option>Monthly</option><option>Quarterly</option></select></div>
-            </div>
-          </article>
-
-          <article className="metric-card panel">
-            <LineChart values={machineRevenueSeries} labels={labels.slice(1)} max={3000} height={220} compact />
-            <div className="metric-card__footer">
-              <div><small>Machine Revenue · All Machines</small><strong>$1,874.02</strong></div>
-              <select aria-label="Machine revenue period"><option>Weekly</option><option>Monthly</option></select>
-            </div>
-          </article>
-
-          <article className="metric-card panel">
-            <BarChart values={usageSeries} labels={labels.slice(1)} max={15} />
-            <div className="metric-card__footer">
-              <div><small>Machine Usage · All Machines</small><strong>52.8 hours</strong></div>
-              <select aria-label="Machine usage period"><option>Weekly</option><option>Monthly</option></select>
-            </div>
-          </article>
-        </section>
-      </div>
-      <Toast message={toast} onClose={() => setToast(null)} />
+      <nav className="management-tabs" aria-label="Staff sections">
+        {tabs.map(([key, label]) => (
+          <button
+            key={key}
+            className={tab === key ? "is-selected" : ""}
+            aria-current={tab === key ? "page" : undefined}
+            onClick={() => setParams({ tab: key! })}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+      {tab === "plans" ? (
+        <StaffPlans />
+      ) : tab === "payments" ? (
+        <StaffPayments />
+      ) : tab === "policies" ? (
+        <StaffPolicies />
+      ) : tab === "audit" ? (
+        <ChangeLog />
+      ) : tab === "preview" ? (
+        <AdminAnalyticsPreviewPage />
+      ) : (
+        <StaffUsers />
+      )}
     </div>
+  );
+}
+function ChangeLog() {
+  const [offset, setOffset] = useState(0),
+    [userId, setUserId] = useState("");
+  const records = useApi<Page<Audit>>(
+    `/admin/audit?offset=${offset}${userId ? `&userId=${encodeURIComponent(userId)}` : ""}`,
+  );
+  return (
+    <section>
+      <h2>Staff change log</h2>
+      <p>
+        Who changed what, when, and why. Expand an entry for its before/after
+        values.
+      </p>
+      <form
+        className="management-search"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setUserId(String(new FormData(e.currentTarget).get("userId") ?? ""));
+          setOffset(0);
+        }}
+      >
+        <label>
+          Filter by member ID <input name="userId" type="number" min="1" />
+        </label>
+        <button className="button button--quiet">Filter changes</button>
+      </form>
+      <LoadState {...records} />
+      {records.data ? (
+        <>
+          <AuditList items={records.data.items} />
+          <Pager
+            offset={offset}
+            nextOffset={records.data.nextOffset}
+            onChange={setOffset}
+          />
+        </>
+      ) : null}
+    </section>
   );
 }

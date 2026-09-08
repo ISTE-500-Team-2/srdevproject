@@ -2,6 +2,8 @@
 
 This branch integrates the team's React frontend with Express 5 and PostgreSQL 16. It is a working architectural slice, not completion of the entire sponsor MVP. It does not depend on Figma MCP or public GCCIS DNS.
 
+For the primary membership/staff extension, read [TEAM-HANDOFF.md](TEAM-HANDOFF.md), the [work log](IMPLEMENTATION-LOG.md), and [current verification](PRIMARY-VERIFICATION.md).
+
 ## Architecture
 
 ```mermaid
@@ -30,11 +32,14 @@ flowchart LR
 - Certification records, profile-name/phone updates, membership/day-pass access status.
 - Web check-in validates access and current waivers, then records the user, timestamp and location.
 
+- Staff plan creation/edit/archive, dated membership/day-pass issuance and manual renewals, facility access changes, member profile management and administrator-controlled staff roles.
+- Payment-history records/transitions, full-length policy publishing, and transaction-linked audit history. See the handoff for assumptions and limits.
+
 ## Intentionally not complete
 
 - Class registration and admin charts remain **clearly labeled design previews**. Sample enrollment/revenue is not live operational data.
-- Studio leasing, billing/payments, plan purchases, email notifications, password reset, staff CRUD, physical readers, and production operational tooling are not implemented.
-- Registration creates an account, **not** a paid membership. Staff administration for granting access is still needed; the isolated demo has seeded access.
+- Studio leasing, payment processing/automated billing, self-service online purchases, email notifications, password reset, physical readers, and production operational tooling are not implemented. Staff membership issuance and external-payment record keeping are implemented; they do not move money.
+- Registration creates an account, **not** a paid membership. Staff can now grant dated access from the Staff workspace; the one-click demo identities have seeded access.
 - Figma MCP is a separate outstanding integration. Designs originate from the team's exported mockups.
 
 ## Data compatibility and rules
@@ -80,7 +85,7 @@ From the repository root:
 docker compose -f compose.mvc.yml up --build -d
 ```
 
-Open **http://localhost:8081**. Choose **Member demo**, reserve the 3D Printer for a future time within the next 30 days, then reload the page. Cancel the booking, review/sign the sample waiver and check in from Home. Admin demo gives a staff-role session, but its analytics page remains a labeled preview.
+Open **http://localhost:8081**. Choose **Member demo**, reserve the 3D Printer for a future time within the next 30 days, then reload the page. Cancel the booking, review/sign the sample waiver and check in from Home. Admin demo opens the operational Staff workspace; the separate Analytics preview tab remains sample data.
 
 The Compose project is `arbor-mvc`; its database and volume are separate from the migrated dev/staging/production stack. Only loopback ports 8081 (app) and 25432 (database) are published. Development-only trust authentication is limited to this synthetic-data instance; do not expose these ports or use this Compose configuration with real data. Repeated startup preserves its database. `docker compose -f compose.mvc.yml down` stops the demo without deleting its data volume.
 

@@ -1,18 +1,54 @@
-import type { Request, Response } from 'express';
-import type { Pool } from 'pg';
-import { transaction } from '../db.js';
-import { AppError, positiveId, textField } from '../domain.js';
-import { authState } from '../middleware/auth.js';
-import { UserModel } from '../models/UserModel.js';
-import { EligibilityModel } from '../models/EligibilityModel.js';
-import { AccessService } from '../services/AccessService.js';
-import { MemberModel } from '../models/MemberModel.js';
+import type { Request, Response } from "express";
+import type { Pool } from "pg";
+import { transaction } from "../db.js";
+import { AppError, positiveId, textField } from "../domain.js";
+import { authState } from "../middleware/auth.js";
+import { UserModel } from "../models/UserModel.js";
+import { EligibilityModel } from "../models/EligibilityModel.js";
+import { AccessService } from "../services/AccessService.js";
+import { MemberModel } from "../models/MemberModel.js";
+import { StaffModel } from "../models/StaffModel.js";
+import { page } from "./StaffController.js";
+import { pageOffset } from "../staffDomain.js";
 
 export class MemberController {
   constructor(
     private pool: Pool,
     private timeZone: string,
   ) {}
+  plans = async (_req: Request, res: Response) => {
+    res.json({
+      data: await new StaffModel(this.pool, this.timeZone).plans(true),
+    });
+  };
+  memberships = async (_req: Request, res: Response) => {
+    const model = new StaffModel(this.pool, this.timeZone),
+      user = authState(res).user;
+    const [memberships, passes] = await Promise.all([
+      model.memberships(user.id),
+      model.passes(user.id),
+    ]);
+    res.json({
+      data: {
+        memberships,
+        passes,
+        timeZone: this.timeZone,
+        accessStatus: user.accessStatus,
+      },
+    });
+  };
+  payments = async (req: Request, res: Response) => {
+    const offset = pageOffset(req.query.offset);
+    res.json({
+      data: page(
+        await new StaffModel(this.pool, this.timeZone).payments(
+          authState(res).user.id,
+          offset,
+        ),
+        offset,
+      ),
+    });
+  };
   certifications = async (_req: Request, res: Response) => {
     res.json({
       data: await new MemberModel(this.pool).certifications(
@@ -24,9 +60,9 @@ export class MemberController {
     res.json({
       data: await new UserModel(this.pool).updateProfile(
         authState(res).user.id,
-        textField(req.body.firstName, 'First name', 50),
-        textField(req.body.lastName, 'Last name', 50),
-        textField(req.body.phone, 'Phone', 15),
+        textField(req.body.firstName, "First name", 50),
+        textField(req.body.lastName, "Last name", 50),
+        textField(req.body.phone, "Phone", 15),
       ),
     });
   };
@@ -43,8 +79,8 @@ export class MemberController {
     if (req.body.accepted !== true)
       throw new AppError(
         400,
-        'CONSENT_REQUIRED',
-        'Explicit agreement is required.',
+        "CONSENT_REQUIRED",
+        "Explicit agreement is required.",
       );
     const waivers = await new EligibilityModel(
       this.pool,
@@ -53,8 +89,8 @@ export class MemberController {
     if (!waivers.some((w) => w.id === id))
       throw new AppError(
         404,
-        'NOT_FOUND',
-        'This is not a current required waiver.',
+        "NOT_FOUND",
+        "This is not a current required waiver.",
       );
     await new MemberModel(this.pool).signWaiver(userId, id);
     res.json({
@@ -73,12 +109,14 @@ export class MemberController {
       new MemberModel(this.pool).recentCheckIns(userId),
     ]);
     const reasons: string[] = [];
+    if (authState(res).user.accessStatus !== "active")
+      reasons.push("Facility access is suspended or revoked; contact staff");
     if (!entitlement.membership && !entitlement.dayPass)
-      reasons.push('Active membership or day pass required');
+      reasons.push("Active membership or day pass required");
     if (!waivers.length)
-      reasons.push('Required policies have not been configured');
+      reasons.push("Required policies have not been configured");
     else if (waivers.some((w) => !w.signed))
-      reasons.push('Required policies and waivers need your signature');
+      reasons.push("Required policies and waivers need your signature");
     res.json({
       data: {
         entitlement,
@@ -92,7 +130,7 @@ export class MemberController {
   };
   checkIn = async (req: Request, res: Response) => {
     const userId = authState(res).user.id;
-    const location = textField(req.body.location, 'Location', 100);
+    const location = textField(req.body.location, "Location", 100);
     const record = await transaction(this.pool, async (db) => {
       const access = new AccessService(db, this.timeZone);
       await access.assertActiveUser(userId);

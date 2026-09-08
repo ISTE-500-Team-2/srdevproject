@@ -1,10 +1,12 @@
 # Collaboratory MVC — quick handoff
 
+**Updated primary workflows:** see [TEAM-HANDOFF.md](TEAM-HANDOFF.md) for the staff/member walkthrough, API/schema details, operating rules and remaining sponsor decisions. The original equipment walkthrough below still works.
+
 ## Run the attached source package
 
 Requirements: Docker and Docker Compose.
 
-1. Extract the ZIP and open a terminal in `Collaboratory-MVC`.
+1. Extract the ZIP and open a terminal in its source root (the folder containing `compose.mvc.yml`).
 2. Run `docker compose -f compose.mvc.yml up --build -d`.
 3. Open **http://localhost:8081** and select **Member demo**.
 
@@ -19,7 +21,7 @@ The database is isolated development data. It persists across app/container rest
 5. Home → Check in. The new timestamp appears in recent check-ins.
 6. Profile → change a name or phone → Save. Reload to see persistence.
 
-Newly registered accounts do not automatically receive membership access. The one-click demo identities are explicitly enabled only for development. The Admin demo has a real staff-role session, but its charts are still sample previews.
+Newly registered accounts do not automatically receive membership access. Staff can now issue it through **Admin demo → Staff workspace → Members**. Create/edit offers under **Plans**, inspect recorded payments under **Payment history**, and review policy versions/change logs. The analytics tab is still a labeled sample preview. One-click demo identities are explicitly enabled only for development.
 
 ## Current VM demo (Max's configured Mac)
 
@@ -34,6 +36,9 @@ Then open **http://localhost:8081** on that Mac. If the MVC session's forwarding
 ## Read next
 
 - [Architecture, API, setup and remaining work](MVC.md)
-- [Verified tests and limits](VERIFICATION-2026-09-08.md)
+- [Historical foundation verification](VERIFICATION-2026-09-08.md)
+- [Primary workflow verification](PRIMARY-VERIFICATION.md)
+- [Detailed team handoff](TEAM-HANDOFF.md)
+- [Requirements and testing evidence](REQUIREMENTS-TRACEABILITY.md)
 
-The current team database, the original React-only branch and the rollback VM are preserved. This package is the MVC foundation and working member/equipment/reservation slice, not a completed full application.
+The current team database, the original React-only branch and the rollback VM are preserved. This package includes the MVC foundation, primary membership/staff-access workflows and the equipment-reservation slice. It is not completion of every secondary feature or sponsor approval of the operating rules.

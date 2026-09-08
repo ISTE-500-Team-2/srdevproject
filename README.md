@@ -2,7 +2,9 @@
 
 ## MVC application
 
-The integration branch connects React views to Express controllers/services and PostgreSQL models. See [MVC architecture, setup, scope and verification](docs/MVC.md).
+The integration branch connects React views to Express controllers/services and PostgreSQL models, including staff-managed membership/day-pass issuance, facility access, payment records and policy versions.
+
+**Team starting point: [Detailed handoff and walkthrough](docs/TEAM-HANDOFF.md).** Also see the [implementation log](docs/IMPLEMENTATION-LOG.md), [requirements/evidence matrix](docs/REQUIREMENTS-TRACEABILITY.md), [primary verification results](docs/PRIMARY-VERIFICATION.md), and [MVC architecture](docs/MVC.md).
 
 Quick start: `docker compose -f compose.mvc.yml up --build -d`, then open http://localhost:8081. This is an isolated development demo, not the existing team database.
 

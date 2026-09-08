@@ -9,6 +9,7 @@ export interface User {
   roles: string[];
   membership: 'Monthly' | 'Day Pass' | 'Staff' | 'None';
   status: string;
+  accessStatus: 'active' | 'suspended' | 'revoked';
 }
 export interface Session {
   user: User;

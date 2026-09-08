@@ -382,7 +382,7 @@ test('rerunning setup preserves users, reservations and applied migration histor
   assert.equal(
     (await pool.query('SELECT COUNT(*)::int AS count FROM app_migration'))
       .rows[0].count,
-    1,
+    2,
   );
   const newUser = client();
   await newUser.register();

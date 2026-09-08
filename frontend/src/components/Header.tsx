@@ -14,6 +14,7 @@ import { errorMessage } from '../lib/api';
 
 const navItems = [
   { label: 'Home', to: '/' },
+  { label: 'Membership', to: '/membership' },
   { label: 'Reservations', to: '/reservations' },
   { label: 'Certifications & Waivers', to: '/certifications' },
   { label: 'Classes', to: '/classes' },
@@ -100,7 +101,7 @@ export function Header() {
         <div className="site-header__actions">
           {user?.role === 'admin' ? (
             <NavLink className="site-header__admin-link" to="/admin">
-              Admin preview
+              Staff workspace
             </NavLink>
           ) : null}
           <button

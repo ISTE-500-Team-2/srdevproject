@@ -10,6 +10,8 @@ import { MemberHomePage } from './pages/MemberHomePage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { ReservationsPage } from './pages/ReservationsPage';
+import { MembershipPage } from './pages/MembershipPage';
+import './management.css';
 
 function RequireUser() {
   const { user, loading, error, refresh } = useAuth();
@@ -49,6 +51,7 @@ export default function App() {
             <Route path="certifications" element={<CertificationsPage />} />
             <Route path="classes" element={<ClassesPage />} />
             <Route path="profile" element={<ProfilePage />} />
+            <Route path="membership" element={<MembershipPage />} />
             <Route element={<RequireAdmin />}>
               <Route path="admin" element={<AdminDashboardPage />} />
             </Route>

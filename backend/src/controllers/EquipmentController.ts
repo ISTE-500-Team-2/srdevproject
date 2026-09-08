@@ -1,8 +1,8 @@
-import type { Request, Response } from 'express';
-import type { Pool } from 'pg';
-import { EquipmentModel } from '../models/EquipmentModel.js';
-import { EligibilityModel } from '../models/EligibilityModel.js';
-import { authState } from '../middleware/auth.js';
+import type { Request, Response } from "express";
+import type { Pool } from "pg";
+import { EquipmentModel } from "../models/EquipmentModel.js";
+import { EligibilityModel } from "../models/EligibilityModel.js";
+import { authState } from "../middleware/auth.js";
 
 export class EquipmentController {
   constructor(
@@ -23,15 +23,17 @@ export class EquipmentController {
           !!item.certId &&
           !(await eligibility.certification(userId, item.certId, new Date()));
         const reasons: string[] = [];
-        if (item.status !== 'available') reasons.push('Equipment unavailable');
+        if (authState(res).user.accessStatus !== "active")
+          reasons.push("Facility access is suspended or revoked");
+        if (item.status !== "available") reasons.push("Equipment unavailable");
         if (!entitlement.membership && !entitlement.dayPass)
-          reasons.push('Membership or day pass required');
-        if (trainingRequired) reasons.push('Current certification required');
+          reasons.push("Membership or day pass required");
+        if (trainingRequired) reasons.push("Current certification required");
         if (
           item.waiverRequired &&
           (!waivers.length || waivers.some((w) => !w.signed))
         )
-          reasons.push('Signed waivers required');
+          reasons.push("Signed waivers required");
         return {
           id: item.id,
           name: item.name,
@@ -45,8 +47,8 @@ export class EquipmentController {
           location: item.location,
           canReserve: reasons.length === 0,
           availability: reasons.length
-            ? reasons.join(' · ')
-            : 'Choose a time to check availability',
+            ? reasons.join(" · ")
+            : "Choose a time to check availability",
         };
       }),
     );

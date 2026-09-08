@@ -122,8 +122,8 @@ export function MemberHomePage() {
               Equipment eligibility is checked against your membership or day
               pass, certifications, and required waivers.
             </p>
-            <Link to="/profile">
-              Account details <ArrowUpRight aria-hidden="true" />
+            <Link to="/membership">
+              Membership & payment records <ArrowUpRight aria-hidden="true" />
             </Link>
           </aside>
         </section>

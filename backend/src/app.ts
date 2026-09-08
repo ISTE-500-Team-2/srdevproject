@@ -25,7 +25,7 @@ export function createApp(
   });
   app.use(
     '/api',
-    express.json({ limit: '32kb' }),
+    express.json({ limit: '96kb' }),
     checkOrigin(config),
     apiRoutes(pool, config),
   );

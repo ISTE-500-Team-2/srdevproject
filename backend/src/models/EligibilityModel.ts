@@ -1,4 +1,4 @@
-import type { Database } from '../db.js';
+import type { Database } from "../db.js";
 
 export class EligibilityModel {
   constructor(
@@ -14,6 +14,7 @@ export class EligibilityModel {
       `
       SELECT EXISTS (SELECT 1 FROM user_membership WHERE userid=$1 AND status='active'
                      AND startdate <= $2::timestamptz AT TIME ZONE 'UTC'
+                     AND end_date > $2::timestamptz AT TIME ZONE 'UTC'
                      AND end_date >= $3::timestamptz AT TIME ZONE 'UTC') AS membership,
              EXISTS (SELECT 1 FROM day_pass WHERE userid=$1 AND status='active'
                      AND validdate::date = ($2::timestamptz AT TIME ZONE $4)::date

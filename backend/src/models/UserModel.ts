@@ -1,5 +1,5 @@
-import type { Database } from '../db.js';
-import type { UserView } from '../domain.js';
+import type { Database } from "../db.js";
+import type { UserView } from "../domain.js";
 
 export class UserModel {
   constructor(private db: Database) {}
@@ -8,7 +8,7 @@ export class UserModel {
     const { rows } = await this.db.query<UserView>(
       `
       SELECT u.userid AS id, u.firstname AS "firstName", u.lastname AS "lastName", u.email,
-             u.phone, COALESCE(u.status, '') AS status,
+             u.phone, COALESCE(u.status, '') AS status,u.accessstatus AS "accessStatus",
              CASE WHEN EXISTS (SELECT 1 FROM user_role ur JOIN role r USING (roleid)
                                WHERE ur.userid=u.userid AND r.role IN ('admin','staff')) THEN 'admin' ELSE 'member' END AS role,
              COALESCE((SELECT json_agg(r.role ORDER BY r.role) FROM user_role ur JOIN role r USING (roleid) WHERE ur.userid=u.userid), '[]') AS roles,
@@ -66,7 +66,7 @@ export class UserModel {
     phone: string,
   ): Promise<UserView | null> {
     await this.db.query(
-      'UPDATE "user" SET firstname=$2, lastname=$3, phone=$4 WHERE userid=$1',
+      'UPDATE "user" SET firstname=$2, lastname=$3, phone=$4,revision=revision+1 WHERE userid=$1',
       [id, firstName, lastName, phone],
     );
     return this.findById(id);
