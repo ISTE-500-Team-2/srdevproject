@@ -36,10 +36,10 @@ INSERT INTO role_permission (rolePermissionID, roleID, permissionID, resourceNam
 (3, 1, 3, 'all_tables', 'global', TRUE),
 (4, 1, 4, 'all_tables', 'global', TRUE);
 
--- Staff: read and update only.
+-- Staff: add and read only.
 INSERT INTO role_permission (rolePermissionID, roleID, permissionID, resourceName, scopeType, isAllowed) VALUES
-(5, 4, 2, 'all_tables', 'global', TRUE),
-(6, 4, 3, 'all_tables', 'global', TRUE);
+(5, 4, 1, 'all_tables', 'global', TRUE),
+(6, 4, 2, 'all_tables', 'global', TRUE);
 
 -- Member: read only their own table records (personal scope).
 INSERT INTO role_permission (rolePermissionID, roleID, permissionID, resourceName, scopeType, isAllowed) VALUES
