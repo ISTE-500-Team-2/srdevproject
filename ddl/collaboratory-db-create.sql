@@ -53,7 +53,7 @@ CREATE TABLE user_membership (
     end_date TIMESTAMP,
     status VARCHAR(20),
     statusDesc VARCHAR(255),
-    FOREIGN KEY (userID) REFERENCES user(userID),
+    FOREIGN KEY (userID) REFERENCES "user"(userID),
     FOREIGN KEY (tierID) REFERENCES membership_tiers(tierID)
 );
 
@@ -115,8 +115,8 @@ CREATE TABLE guest (
 
 CREATE TABLE waiver (
     waiverID INT PRIMARY KEY,
-    name VARCHAR(100),
-    version VARCHAR(50),
+    name VARCHAR(100) NOT NULL,
+    version VARCHAR(50) NOT NULL,
     description VARCHAR(255),
     effectiveDate TIMESTAMP
 );
@@ -205,9 +205,11 @@ CREATE TABLE role_permission (
 
 CREATE TABLE equipment (
     equipmentID INT PRIMARY KEY,
+    certID INT,
     name VARCHAR(100) NOT NULL,
     status VARCHAR(20),
-    waiverRequired BOOLEAN
+    waiverRequired BOOLEAN,
+    FOREIGN KEY (certID) REFERENCES certifications(certID)
 );
 
 
