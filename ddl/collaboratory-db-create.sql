@@ -8,6 +8,8 @@ DROP TABLE IF EXISTS
     guest,
     user_waiver,
     user_certifications,
+    role_permission,
+    permission,
     user_role,
     user_membership,
     equipment,
@@ -171,7 +173,31 @@ CREATE TABLE user_role (
     roleID INT,
     assignedAt TIMESTAMP,
     FOREIGN KEY (userID) REFERENCES "user"(userID),
-    FOREIGN KEY (roleID) REFERENCES role(roleID)
+    FOREIGN KEY (roleID) REFERENCES role(roleID),
+    UNIQUE (userID, roleID)
+);
+
+-- PERMISSION TABLE
+
+CREATE TABLE permission (
+    permissionID INT PRIMARY KEY,
+    permissionName VARCHAR(50) NOT NULL UNIQUE,
+    description VARCHAR(255)
+);
+
+-- ROLE PERMISSION TABLE
+
+CREATE TABLE role_permission (
+    rolePermissionID INT PRIMARY KEY,
+    roleID INT NOT NULL,
+    permissionID INT NOT NULL,
+    resourceName VARCHAR(50) NOT NULL,
+    scopeType VARCHAR(20) NOT NULL DEFAULT 'personal',
+    isAllowed BOOLEAN NOT NULL DEFAULT TRUE,
+    FOREIGN KEY (roleID) REFERENCES role(roleID),
+    FOREIGN KEY (permissionID) REFERENCES permission(permissionID),
+    CHECK (scopeType IN ('global', 'personal')),
+    UNIQUE (roleID, permissionID, resourceName, scopeType)
 );
 
 

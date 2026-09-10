@@ -21,6 +21,34 @@ INSERT INTO role (roleID, role, description) VALUES
 (3, 'student', 'Student member'),
 (4, 'staff', 'Staff');
 
+-- Sample data for permission table
+INSERT INTO permission (permissionID, permissionName, description) VALUES
+(1, 'create', 'Create a table record'),
+(2, 'read', 'Read a table record'),
+(3, 'update', 'Update a table record'),
+(4, 'delete', 'Delete a table record');
+
+-- Sample data for role_permission table
+-- Admin: full CRUD on all tables.
+INSERT INTO role_permission (rolePermissionID, roleID, permissionID, resourceName, scopeType, isAllowed) VALUES
+(1, 1, 1, 'all_tables', 'global', TRUE),
+(2, 1, 2, 'all_tables', 'global', TRUE),
+(3, 1, 3, 'all_tables', 'global', TRUE),
+(4, 1, 4, 'all_tables', 'global', TRUE);
+
+-- Staff: add and read only.
+INSERT INTO role_permission (rolePermissionID, roleID, permissionID, resourceName, scopeType, isAllowed) VALUES
+(5, 4, 1, 'all_tables', 'global', TRUE),
+(6, 4, 2, 'all_tables', 'global', TRUE);
+
+-- Member: read only their own table records (personal scope).
+INSERT INTO role_permission (rolePermissionID, roleID, permissionID, resourceName, scopeType, isAllowed) VALUES
+(7, 2, 2, 'all_tables', 'personal', TRUE);
+
+-- Student: read only their own table records (personal scope).
+INSERT INTO role_permission (rolePermissionID, roleID, permissionID, resourceName, scopeType, isAllowed) VALUES
+(8, 3, 2, 'all_tables', 'personal', TRUE);
+
 -- Sample data for equipment table
 INSERT INTO equipment (equipmentID, name, status, waiverRequired) VALUES
 (1, 'Welding Station', 'available', true),
