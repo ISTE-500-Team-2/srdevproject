@@ -1,5 +1,7 @@
 # Team ARBOR Senior Development Project
 
+**Connecting to the shared VM or database? Start with the [RLES team access guide](docs/rles-team-quick-start.md).**
+
 ## MVC application
 
 The integration branch connects React views to Express controllers/services and PostgreSQL models, including staff-managed membership/day-pass issuance, facility access, payment records and policy versions.
