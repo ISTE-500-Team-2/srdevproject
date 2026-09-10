@@ -1,5 +1,7 @@
 # Team ARBOR Senior Development Project
 
+**Connecting to the shared VM or database? Start with the [RLES team access guide](docs/rles-team-quick-start.md).**
+
 ## Database scripts
 
 The PostgreSQL 16 scripts are under `ddl/`:
