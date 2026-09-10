@@ -25,6 +25,8 @@ export async function createBrowserBridge() {
     throw error;
   }
   const app = createApp(pool, {
+    // jsdom has a different Uint8Array realm from Node's Buffer subclass.
+    jwtKey: new Uint8Array(randomBytes(32)),
     port: 8080,
     host: '127.0.0.1',
     secureCookies: false,

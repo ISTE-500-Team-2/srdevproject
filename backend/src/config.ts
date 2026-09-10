@@ -1,3 +1,5 @@
+import { readJwtKey } from './jwtKey.js';
+
 export interface AppConfig {
   port: number;
   host: string;
@@ -5,6 +7,7 @@ export interface AppConfig {
   demoLogin: boolean;
   allowedOrigins: string[];
   timeZone: string;
+  jwtKey: Uint8Array;
 }
 
 export function readConfig(): AppConfig {
@@ -18,6 +21,7 @@ export function readConfig(): AppConfig {
   if (production && !process.env.APP_ORIGIN)
     throw new Error('APP_ORIGIN is required in production');
   return {
+    jwtKey: readJwtKey(),
     port,
     host: process.env.HOST ?? '127.0.0.1',
     secureCookies: production,

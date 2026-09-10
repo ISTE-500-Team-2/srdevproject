@@ -5,6 +5,7 @@ export default defineConfig({
   test: {
     include: ['test/integration/**/*.test.tsx'],
     environment: 'jsdom',
+    setupFiles: ['./test/integration/setup.ts'],
     testTimeout: 120000,
     hookTimeout: 120000,
   },

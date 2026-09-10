@@ -28,9 +28,11 @@ services:
       PGDATABASE: arbor_mvc_dev
       ENABLE_DEMO_LOGIN: "true"
       APP_ORIGIN: http://localhost:8081
+      JWT_DEV_KEY_FILE: /app/.local/jwt-signing.key
     command: ["sh", "-c", "node backend/dist/scripts/init-demo.js && node backend/dist/server.js"]
     ports: ["127.0.0.1:8081:8080"]
     networks: [mvc]
+    volumes: ["mvc-auth:/app/.local"]
     depends_on:
       db: {condition: service_healthy}
     healthcheck:
@@ -43,3 +45,4 @@ networks:
     driver: bridge
 volumes:
   mvc-data:
+  mvc-auth:

@@ -12,6 +12,10 @@ Start here for the membership/access implementation. The packaged `BUILD-INFO.tx
 - **Member Membership page:** current/scheduled/expired/suspended/revoked entitlement history, plan benefits, available offers and personal payment records.
 - Existing account login, profile updates, equipment reservations/cancellation, waiver signing and web check-in remain connected.
 
+## Authentication update — September 10
+
+The backend now uses **signed JWTs**, as agreed in the team’s backend discussion. Cookies carry the JWT; they are not a replacement for JWT authentication. Existing CSRF, logout revocation, account-status and live role checks remain in place. See [JWT-AUTH.md](JWT-AUTH.md) for key configuration, expiry and upgrade behavior. This does not integrate PR #3’s permission tables.
+
 ## Start the isolated demo
 
 From the extracted source/repository root:
@@ -88,7 +92,7 @@ Authentication account status (`user.status`) and facility access (`user.accesss
 
 ```mermaid
 flowchart LR
-  UI[React staff/member views] --> API[Express routes + session/CSRF checks]
+  UI[React staff/member views] --> API[Express routes + JWT/CSRF checks]
   API --> C[StaffController / MemberController]
   C --> S[StaffService: permissions + business transactions]
   S --> M[StaffModel: parameterized SQL]
@@ -114,7 +118,7 @@ flowchart LR
 
 ## API reference
 
-All endpoints are under `/api`. Responses use `{data: ...}`; failures use `{error:{code,message}}`. Staff writes require the existing session cookie, CSRF header, permitted origin, JSON and a human-readable reason. Membership `startsAt` accepts an ISO timestamp with timezone and up to three fractional-second digits (milliseconds); day-pass `validDate` uses `YYYY-MM-DD`. Never put session values into shared notes.
+All endpoints are under `/api`. Responses use `{data: ...}`; failures use `{error:{code,message}}`. Staff writes require a validated JWT in the HttpOnly cookie, CSRF header, permitted origin, JSON and a human-readable reason. Membership `startsAt` accepts an ISO timestamp with timezone and up to three fractional-second digits (milliseconds); day-pass `validDate` uses `YYYY-MM-DD`. Never put session values into shared notes.
 
 | Method/path | Behavior |
 | --- | --- |

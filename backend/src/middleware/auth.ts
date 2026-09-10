@@ -30,10 +30,11 @@ export function requireStaff(_req: Request, res: Response, next: NextFunction) {
   next();
 }
 
-export function requireUser(pool: Pool) {
+export function requireUser(pool: Pool, config: AppConfig) {
+  const sessions = new SessionModel(pool, config.jwtKey);
   return async (req: Request, res: Response, next: NextFunction) => {
     const token = sessionToken(req);
-    const session = await new SessionModel(pool).find(token);
+    const session = await sessions.find(token);
     const user = session
       ? await new UserModel(pool).findById(session.userId)
       : null;

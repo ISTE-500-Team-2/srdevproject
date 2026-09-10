@@ -20,7 +20,7 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   const equipment = new EquipmentController(pool, config.timeZone);
   const reservations = new ReservationController(pool, config.timeZone);
   const staff = new StaffController(pool, config.timeZone);
-  const protectedRoute = requireUser(pool);
+  const protectedRoute = requireUser(pool, config);
   const rateLimit = authRateLimit();
   routes.get("/health", async (_req, res) => {
     await pool.query("SELECT 1");

@@ -13,6 +13,7 @@ const database = 'arbor_' + randomBytes(6).toString('hex') + '_mvc_test';
 const adminPool = new Pool({ connectionTimeoutMillis: 5000 });
 const pool = new Pool({ database, connectionTimeoutMillis: 5000, max: 10 });
 const config: AppConfig = {
+  jwtKey: randomBytes(32),
   port: 8080,
   host: '127.0.0.1',
   secureCookies: false,

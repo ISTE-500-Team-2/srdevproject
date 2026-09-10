@@ -41,3 +41,12 @@ jobs:
       - run: npm run test:integration --prefix backend
       - run: npm run test:integration --prefix frontend
       - run: docker build -t collaboratory-mvc:verification .
+      - name: Start isolated Docker JWT demo
+        run: |
+          docker tag collaboratory-mvc:verification arbor-jwt-ci-app
+          docker compose -p arbor-jwt-ci -f compose.mvc.yml up -d --no-build --wait
+      - name: Verify JWT login survives container recreation
+        run: node backend/test/container-auth.mjs
+      - name: Clean up disposable CI demo
+        if: always()
+        run: docker compose -p arbor-jwt-ci -f compose.mvc.yml down --volumes

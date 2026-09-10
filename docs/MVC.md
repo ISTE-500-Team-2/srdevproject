@@ -23,7 +23,7 @@ flowchart LR
 
 ## Implemented slice
 
-- Registration and password verification; persistent database sessions restored after refresh.
+- Registration and password verification; signed JWT authentication restored after refresh.
 - Server-derived member/staff roles. Typing `admin` in an email or changing local storage never grants privileges.
 - Equipment catalog loaded from PostgreSQL, including current eligibility explanations.
 - Create, list and cancel your own equipment reservations. Changes persist after reload and application restart.
@@ -71,7 +71,7 @@ All responses use `{ "data": ... }`, except logout (204). Errors use `{ "error":
 - `GET /api/me/overview`, `/api/me/certifications`, `/api/me/waivers`
 - `PATCH /api/me/profile`; `POST /api/me/waivers/:id/sign` with accepted=true; `POST /api/me/check-ins` with location
 
-Authentication uses an opaque HttpOnly, SameSite=Lax cookie; only its hash is stored in PostgreSQL. Mutations require JSON, permitted Origin, and session-bound CSRF verification after login. Session lifetime is 12 hours, or seven days with Remember me. API responses are not cached. Account status and roles are fetched from the database on each protected request. Scrypt hashes replace the prototype's arbitrary-email login.
+Authentication uses signed HS256 JWTs, matching the team’s Node.js + JSON Web Tokens decision. The JWT is transported in an HttpOnly, SameSite=Lax cookie (Secure in production), not browser storage. Signature, algorithm, token type, issuer, audience, subject, token ID, issue/not-before time and expiry are validated before looking up the JWT hash in PostgreSQL. The existing app_session table is retained as an issued-token/revocation registry and CSRF store; the token is no longer opaque. Mutations still require JSON, permitted Origin, and session-bound CSRF verification. Token lifetime is 12 hours, or seven days with Remember me; logout and re-login revoke the previous token immediately. Account status and roles are fetched from the database on each protected request, not trusted from JWT role claims. API responses are not cached. Scrypt password verification is unchanged. See [JWT authentication and key setup](JWT-AUTH.md).
 
 `ENABLE_DEMO_LOGIN=true` adds an isolated-development shortcut. It is off by default and rejected when `NODE_ENV=production`. The demo Compose file is deliberately not a production configuration.
 
@@ -87,7 +87,7 @@ docker compose -f compose.mvc.yml up --build -d
 
 Open **http://localhost:8081**. Choose **Member demo**, reserve the 3D Printer for a future time within the next 30 days, then reload the page. Cancel the booking, review/sign the sample waiver and check in from Home. Admin demo opens the operational Staff workspace; the separate Analytics preview tab remains sample data.
 
-The Compose project is `arbor-mvc`; its database and volume are separate from the migrated dev/staging/production stack. Only loopback ports 8081 (app) and 25432 (database) are published. Development-only trust authentication is limited to this synthetic-data instance; do not expose these ports or use this Compose configuration with real data. Repeated startup preserves its database. `docker compose -f compose.mvc.yml down` stops the demo without deleting its data volume.
+The Compose project is `arbor-mvc`; its database and volume are separate from the migrated dev/staging/production stack. Only loopback ports 8081 (app) and 25432 (database) are published. Development-only trust authentication is limited to this synthetic-data instance; do not expose these ports or use this Compose configuration with real data. Repeated startup preserves its database and the private signing key in the mvc-auth volume. `docker compose -f compose.mvc.yml down` stops the demo without deleting its data volume.
 
 For hot reload, start only the database service and then:
 
@@ -102,7 +102,7 @@ In another terminal, `npm run dev --prefix frontend`, then open http://localhost
 
 ## Production path (not deployed by this work)
 
-Build the image, supply the database connection through the deployment's protected configuration, set `NODE_ENV=production`, `APP_ORIGIN` to the HTTPS origin and `APP_TIME_ZONE`. Run the additive migration explicitly against a verified backup/reconciled schema, then start the app. Secure cookies require HTTPS. Keep the database private and the demo endpoint disabled. Do not use `setup:demo` or the destructive legacy DDL on an existing deployment. The image listens on 8080 for the assigned GCCIS forwarding path; the isolated review demo does not occupy that port on the VM.
+Build the image, supply the database connection through the deployment's protected configuration, set `NODE_ENV=production`, `APP_ORIGIN` to the HTTPS origin and `APP_TIME_ZONE`. Mount a provisioned signing key through the deployment’s secret manager and point `JWT_SECRET_FILE` to that file; production fails closed without a key of at least 32 random bytes. Never put key material in source, command arguments or logs. Run the additive migration explicitly against a verified backup/reconciled schema, then start the app. Secure cookies require HTTPS. Keep the database private and the demo endpoint disabled. Do not use `setup:demo` or the destructive legacy DDL on an existing deployment. The image listens on 8080 for the assigned GCCIS forwarding path; the isolated review demo does not occupy that port on the VM.
 
 ## Verification
 
@@ -115,6 +115,6 @@ PGHOST=127.0.0.1 PGPORT=25432 PGUSER=arbor_mvc PGDATABASE=arbor_mvc_dev npm run 
 
 Integration suites create fresh, uniquely named `_mvc_test` databases, then drop only those databases on completion. They never reset an existing database. The PostgreSQL test user needs permission to create databases and the `btree_gist` extension.
 
-Backend integration tests cover registration/session recovery, profile persistence, logout, authorization/CSRF/Origin failures, reservation reload and ownership, concurrent conflict rejection, adjacent intervals, direct-SQL overlap protection, access eligibility, waiver agreement, check-in logging, day-pass boundaries and migration rerun preservation. The frontend integration test drives real React components in jsdom through Express HTTP handlers into real PostgreSQL, including a complete remount to verify session/booking persistence. It is **not browser visual QA**.
+Backend integration tests cover signed-JWT issuance and validation, invalid signatures/claims, logout/re-login revocation, signing-key rotation, registry expiry, registration/session recovery, profile persistence, logout, authorization/CSRF/Origin failures, reservation reload and ownership, concurrent conflict rejection, adjacent intervals, direct-SQL overlap protection, access eligibility, waiver agreement, check-in logging, day-pass boundaries and migration rerun preservation. The frontend integration test drives real React components in jsdom through Express HTTP handlers into real PostgreSQL, including a complete remount to verify session/booking persistence. It is **not browser visual QA**.
 
 Primary implementation references: [Express 5 routing](https://expressjs.com/en/guide/migrating-5/), [node-postgres transactions](https://node-postgres.com/features/transactions), [PostgreSQL range constraints](https://www.postgresql.org/docs/16/rangetypes.html).

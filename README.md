@@ -4,7 +4,7 @@
 
 ## MVC application
 
-The integration branch connects React views to Express controllers/services and PostgreSQL models, including staff-managed membership/day-pass issuance, facility access, payment records and policy versions.
+The integration branch connects React views to Express controllers/services and PostgreSQL models, including JWT authentication, staff-managed membership/day-pass issuance, facility access, payment records and policy versions. See [JWT authentication and key setup](docs/JWT-AUTH.md).
 
 **Team starting point: [Detailed handoff and walkthrough](docs/TEAM-HANDOFF.md).** Also see the [implementation log](docs/IMPLEMENTATION-LOG.md), [requirements/evidence matrix](docs/REQUIREMENTS-TRACEABILITY.md), [primary verification results](docs/PRIMARY-VERIFICATION.md), and [MVC architecture](docs/MVC.md).
 

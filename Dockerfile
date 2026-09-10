@@ -22,6 +22,7 @@ COPY --from=build /app/frontend/dist ./frontend/dist
 COPY database ./database
 COPY ddl/collaboratory-db-create.sql ./ddl/collaboratory-db-create.sql
 RUN chmod -R a+rX /app/backend/dist /app/frontend/dist /app/database /app/ddl
+RUN mkdir -p /app/.local && chown node:node /app/.local && chmod 700 /app/.local
 USER node
 EXPOSE 8080
 CMD ["node", "backend/dist/server.js"]

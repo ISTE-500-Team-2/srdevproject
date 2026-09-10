@@ -15,6 +15,7 @@ const adminPool = new Pool({ connectionTimeoutMillis: 5000 }),
 let server: ReturnType<ReturnType<typeof createApp>["listen"]>;
 let created = false;
 const config = {
+  jwtKey: randomBytes(32),
   port: 8080,
   host: "127.0.0.1",
   secureCookies: false,

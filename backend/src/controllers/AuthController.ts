@@ -28,7 +28,7 @@ export class AuthController {
         'ACCOUNT_INACTIVE',
         'This account does not currently have access.',
       );
-    const sessions = new SessionModel(this.pool);
+    const sessions = new SessionModel(this.pool, this.config.jwtKey);
     // A successful login rotates the browser's previous session.
     const previous = sessionToken(req);
     if (previous) await sessions.remove(previous);
@@ -77,7 +77,7 @@ export class AuthController {
     res.json({ data: { user, csrfToken } });
   };
   logout = async (_req: Request, res: Response) => {
-    await new SessionModel(this.pool).remove(authState(res).token);
+    await new SessionModel(this.pool, this.config.jwtKey).remove(authState(res).token);
     res.clearCookie(cookieName, {
       httpOnly: true,
       secure: this.config.secureCookies,
