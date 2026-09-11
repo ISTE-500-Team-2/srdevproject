@@ -1,5 +1,12 @@
+import { Link } from "react-router-dom";
+
 //All links contained in the navbar.
-const NavbarLinks = [
+//Label is the text that will be displayed in the element.
+//path is the url or path to the linked page.
+//children is an array of similarly formatted and organized links below the parent.
+//child links will be displayed upon hovering over the parent link, once the feature
+//is implemented. For now, we only have the main links.
+const navbarLinks = [
     {
         label: "Home",
         path: "/"
@@ -33,3 +40,19 @@ const NavbarLinks = [
         ]
     }, //Certifications
 ];
+
+export function Navbar(){
+    return(
+        <nav id="main-navbar">
+            <ul>
+                {navbarLinks.map((mainlink) => (
+                    <li key={mainlink.label}>
+                        <div className="main-navbar-link-wrapper">
+                            <Link to={mainlink.path}>{mainlink.label}</Link>
+                        </div>
+                    </li>
+                ))}
+            </ul>
+        </nav>
+    ); //return
+}//export
