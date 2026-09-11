@@ -4,10 +4,10 @@ import type { Pool } from 'pg';
 import type { AppConfig } from '../config.js';
 import { transaction } from '../db.js';
 import { AppError, emailField, passwordField, textField } from '../domain.js';
-import { hashPassword, verifyPassword } from '../passwords.js';
+import { hashPassword, verifyPassword, needsPasswordUpgrade } from '../passwords.js';
 import { UserModel } from '../models/UserModel.js';
 import { SessionModel } from '../models/SessionModel.js';
-import { authState, cookieName, sessionToken } from '../middleware/auth.js';
+import { authState, cookieName, refreshToken } from '../middleware/auth.js';
 
 export class AuthController {
   private dummyHash = hashPassword(randomBytes(32).toString('hex'));
@@ -28,20 +28,32 @@ export class AuthController {
         'ACCOUNT_INACTIVE',
         'This account does not currently have access.',
       );
-    const sessions = new SessionModel(this.pool, this.config.jwtKey);
-    // A successful login rotates the browser's previous session.
-    const previous = sessionToken(req);
-    if (previous) await sessions.remove(previous);
-    const session = await sessions.create(userId, remember);
-    res.cookie(cookieName, session.token, {
-      httpOnly: true,
-      secure: this.config.secureCookies,
-      sameSite: 'lax',
-      path: '/api',
-      ...(remember ? { maxAge: session.ttl } : {}),
+    const session = await transaction(this.pool, async db => {
+      const sessions = new SessionModel(db,this.config.jwtKey,this.config.accessTokenSeconds,this.config.refreshTokenSeconds);
+      const previous = refreshToken(req);
+      if (previous) await sessions.revokeRefresh(previous);
+      return sessions.create(userId, remember);
     });
-    res.json({ data: { user, csrfToken: session.csrfToken } });
+    this.respond(res,session);
   }
+  private respond(res: Response, session: {token:string;refreshToken:string;csrfToken:string;ttl:number;user:unknown;persistent:boolean}) {
+    res.set('Cache-Control','no-store');
+    res.clearCookie('arbor_session',{path:'/api'});
+    res.cookie(cookieName,session.refreshToken,{httpOnly:true,secure:this.config.secureCookies,sameSite:'lax',path:'/api',...(session.persistent ? {maxAge:(this.config.refreshTokenSeconds ?? 30*86400)*1000} : {})});
+    res.json({data:{user:session.user,csrfToken:session.csrfToken,accessToken:session.token,expiresIn:session.ttl/1000}});
+  }
+  csrf = async (req: Request,res: Response) => {
+    res.set('Cache-Control','no-store');
+    const csrfToken = await new SessionModel(this.pool,this.config.jwtKey).refreshCsrf(refreshToken(req));
+    if (!csrfToken) throw new AppError(401,'UNAUTHENTICATED','Sign in to continue.');
+    res.json({data:{csrfToken}});
+  };
+  refresh = async (req: Request,res: Response) => {
+    const session = await transaction(this.pool,db => new SessionModel(db,this.config.jwtKey,this.config.accessTokenSeconds,this.config.refreshTokenSeconds).rotate(refreshToken(req),req.get('X-CSRF-Token') ?? ''));
+    if (!session) throw new AppError(401,'UNAUTHENTICATED','Sign in to continue.');
+    this.respond(res,session);
+  };
+
   login = async (req: Request, res: Response) => {
     const email = emailField(req.body.email);
     const password = passwordField(req.body.password);
@@ -56,6 +68,10 @@ export class AuthController {
         'INVALID_CREDENTIALS',
         'Email or password is incorrect.',
       );
+    if (needsPasswordUpgrade(account.password) && Buffer.byteLength(password,'utf8') <= 72) {
+      const upgraded = await hashPassword(password);
+      await this.pool.query('UPDATE "user" SET password=$1 WHERE userid=$2 AND password=$3',[upgraded,account.id,account.password]);
+    }
     await this.establish(req, res, account.id, req.body.remember === true);
   };
   register = async (req: Request, res: Response) => {
@@ -73,11 +89,12 @@ export class AuthController {
     await this.establish(req, res, id, false);
   };
   current = async (_req: Request, res: Response) => {
+    res.set("Cache-Control","no-store");
     const { user, csrfToken } = authState(res);
     res.json({ data: { user, csrfToken } });
   };
   logout = async (_req: Request, res: Response) => {
-    await new SessionModel(this.pool, this.config.jwtKey).remove(authState(res).token);
+    await new SessionModel(this.pool, this.config.jwtKey,this.config.accessTokenSeconds,this.config.refreshTokenSeconds).remove(authState(res).token);
     res.clearCookie(cookieName, {
       httpOnly: true,
       secure: this.config.secureCookies,

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID, scryptSync } from 'node:crypto';
 import { before, after, test } from 'node:test';
 import { decodeJwt, decodeProtectedHeader, jwtVerify, SignJWT, type JWTPayload } from 'jose';
 import { Pool } from 'pg';
@@ -36,10 +36,10 @@ after(async () => {
 });
 
 function browserToken(res: request.Response) {
-  return (res.headers['set-cookie']?.[0] ?? '').split(';')[0]!.slice(cookieName.length + 1);
+  return res.body.data.accessToken as string;
 }
 function current(token: string, instance = app) {
-  return request(instance).get('/api/auth/session').set('Cookie', `${cookieName}=${token}`);
+  return request(instance).get('/api/auth/session').set('Authorization', `Bearer ${token}`);
 }
 async function register() {
   const email = randomUUID() + '@example.invalid';
@@ -52,7 +52,7 @@ async function register() {
 }
 function claims(userId: number): JWTPayload {
   const now = Math.floor(Date.now() / 1000);
-  return { sub: String(userId), iss: jwtIssuer, aud: jwtAudience, jti: randomUUID(), iat: now, nbf: now, exp: now + 3600 };
+  return { sub: String(userId), iss: jwtIssuer, aud: jwtAudience, jti: randomUUID(), iat: now, nbf: now, exp: now + 900, role:'member', roles:['member'] };
 }
 function signed(payload: JWTPayload, key = config.jwtKey, alg = 'HS256', typ = 'JWT') {
   return new SignJWT(payload).setProtectedHeader({ alg, typ }).sign(key);
@@ -61,7 +61,7 @@ async function track(token: string, userId: number) {
   // Keep even invalid test JWTs in the registry, with a live DB expiry, to
   // prove rejection is caused by JWT verification and not a missing hash.
   await pool.query(
-    `INSERT INTO app_session(token_hash,userid,csrf_token,expires_at) VALUES($1,$2,$3,NOW()+INTERVAL '8 days')`,
+    `INSERT INTO app_session(token_hash,userid,csrf_token,expires_at,family_id) VALUES($1,$2,$3,NOW()+INTERVAL '8 days',(SELECT id FROM app_refresh_family WHERE userid=$2 AND NOT revoked LIMIT 1))`,
     [tokenHash(token), userId, randomBytes(32).toString('hex')],
   );
 }
@@ -73,18 +73,19 @@ test('registration and remembered login issue signed JWTs with bounded expiry an
   assert.equal(verified.payload.sub, String(account.userId));
   assert.equal(verified.payload.exp! - verified.payload.iat!, sessionLifetimeSeconds);
   assert.equal(typeof verified.payload.jti, 'string');
-  assert.equal('roles' in verified.payload, false);
+  assert.deepEqual(verified.payload.roles, ['member']);
+  assert.equal(verified.payload.role, 'member');
   assert.equal('email' in verified.payload, false);
-  const cookie = account.res.headers['set-cookie'][0];
+  const cookie = account.res.headers['set-cookie'].find((c:string)=>c.startsWith(cookieName+'='))!;
   assert.ok(cookie.includes('HttpOnly') && cookie.includes('SameSite=Lax') && cookie.includes('Path=/api'));
   assert.equal(cookie.includes('Max-Age'), false);
   const remembered = await request(app).post('/api/auth/login').send({ email: account.email, password: account.password, remember: true });
   assert.equal(remembered.status, 200);
   const payload = (await jwtVerify(browserToken(remembered), config.jwtKey)).payload;
-  assert.equal(payload.exp! - payload.iat!, rememberedLifetimeSeconds);
-  assert.ok(remembered.headers['set-cookie'][0].includes(`Max-Age=${rememberedLifetimeSeconds}`));
+  assert.equal(payload.exp! - payload.iat!, sessionLifetimeSeconds);
+  assert.ok(remembered.headers['set-cookie'].find((c:string)=>c.startsWith(cookieName+'='))!.includes(`Max-Age=${rememberedLifetimeSeconds}`));
   const secure = await request(createApp(pool, { ...config, secureCookies: true })).post('/api/auth/login').send({ email: account.email, password: account.password });
-  assert.ok(secure.headers['set-cookie'][0].includes('Secure'));
+  assert.ok(secure.headers['set-cookie'].find((c:string)=>c.startsWith(cookieName+'='))!.includes('Secure'));
   const stored = await pool.query('SELECT token_hash,expires_at FROM app_session WHERE token_hash=$1', [tokenHash(account.token)]);
   assert.equal(stored.rows[0].token_hash.length, 64);
   assert.equal(new Date(stored.rows[0].expires_at).getTime(), verified.payload.exp! * 1000);
@@ -115,7 +116,7 @@ test('invalid signatures, algorithms, identity/expiry claims and old opaque toke
     ['old opaque token', randomBytes(32).toString('base64url')],
     ['malformed JWT', 'invalid.jwt.value'],
   ];
-  for (const name of ['exp', 'nbf', 'iat', 'sub', 'jti', 'iss', 'aud']) {
+  for (const name of ['exp', 'nbf', 'iat', 'sub', 'jti', 'iss', 'aud', 'role', 'roles']) {
     const missing = { ...base };
     delete missing[name];
     cases.push(['missing ' + name, await signed(missing)]);
@@ -131,7 +132,7 @@ test('invalid signatures, algorithms, identity/expiry claims and old opaque toke
 test('logout revokes a captured JWT, and re-login rotates the previous JWT and CSRF token', async () => {
   const account = await register();
   const signedIn = await request(app).post('/api/auth/login')
-    .set('Cookie', `${cookieName}=${account.token}`)
+    .set('Cookie', account.res.headers['set-cookie'].find((c:string)=>c.startsWith(cookieName+'='))!.split(';')[0])
     .send({ email: account.email, password: account.password });
   assert.equal(signedIn.status, 200);
   const token = browserToken(signedIn);
@@ -140,7 +141,7 @@ test('logout revokes a captured JWT, and re-login rotates the previous JWT and C
   assert.equal((await current(account.token)).status, 401);
   assert.equal((await current(token)).status, 200);
   const logout = await request(app).post('/api/auth/logout')
-    .set('Cookie', `${cookieName}=${token}`)
+    .set('Authorization', `Bearer ${token}`)
     .set('X-CSRF-Token', signedIn.body.data.csrfToken).send({});
   assert.equal(logout.status, 204);
   assert.equal((await current(token)).status, 401, 'captured token must not work after logout');
@@ -155,7 +156,7 @@ test('JWT subject is bound to the registry account, roles/status are live, and u
   const result = await current(privilegedClaim);
   assert.equal(result.status, 200);
   assert.equal(result.body.data.user.role, 'member');
-  assert.equal((await request(app).get('/api/admin/users').set('Cookie', `${cookieName}=${privilegedClaim}`)).status, 403);
+  assert.equal((await request(app).get('/api/admin/users').set('Authorization', `Bearer ${privilegedClaim}`)).status, 403);
   await pool.query("UPDATE \"user\" SET status='inactive' WHERE userid=$1", [account.userId]);
   assert.equal((await current(account.token)).status, 403);
   const other = await register();
@@ -167,7 +168,7 @@ test('JWT subject is bound to the registry account, roles/status are live, and u
 test('valid JWTs retain CSRF and Origin enforcement on writes', async () => {
   const account = await register();
   const logout = (csrf?: string, origin = 'http://localhost:8080') => {
-    let call = request(app).post('/api/auth/logout').set('Cookie', `${cookieName}=${account.token}`).set('Origin', origin);
+    let call = request(app).post('/api/auth/logout').set('Authorization', `Bearer ${account.token}`).set('Origin', origin);
     if (csrf) call = call.set('X-CSRF-Token', csrf);
     return call.send({});
   };
@@ -184,4 +185,58 @@ test('same key survives app restart; a rotated signing key and expired registry 
   assert.equal((await current(account.token, createApp(pool, { ...config, jwtKey: randomBytes(32) }))).status, 401);
   await pool.query("UPDATE app_session SET expires_at=NOW()-INTERVAL '1 minute' WHERE token_hash=$1", [tokenHash(account.token)]);
   assert.equal((await current(account.token)).status, 401);
+});
+
+function refreshCookie(res: request.Response) { return res.headers['set-cookie'].find((c:string)=>c.startsWith(cookieName+'='))!.split(';')[0]!; }
+function renew(cookie: string, csrf: string) { return request(app).post('/api/auth/refresh').set('Cookie',cookie).set('X-CSRF-Token',csrf).send({}); }
+test('refresh rotates once; replay commits family revocation for old and new access tokens', async () => {
+  const a = await register(), cookie=refreshCookie(a.res);
+  assert.equal((await request(app).get('/api/auth/session').set('Cookie',cookie)).status,401,'refresh cookie is not an access credential');
+  const refreshed = await renew(cookie,a.csrf);
+  assert.equal(refreshed.status,200);
+  assert.notEqual(refreshCookie(refreshed),cookie);
+  assert.equal((await current(browserToken(refreshed))).status,200);
+  assert.equal((await renew(cookie,a.csrf)).status,401);
+  assert.equal((await current(browserToken(refreshed))).status,401);
+  assert.equal((await renew(refreshCookie(refreshed),a.csrf)).status,401);
+});
+test('refresh rejects missing CSRF, bad origin, expiration and inactive account', async () => {
+  const a=await register(), cookie=refreshCookie(a.res);
+  assert.equal((await renew(cookie,'')).status,401);
+  assert.equal((await request(app).post('/api/auth/refresh').set('Cookie',cookie).set('X-CSRF-Token',a.csrf).set('Origin','https://untrusted.example').send({})).status,403);
+  await pool.query("UPDATE app_refresh_family SET expires_at=NOW()-INTERVAL '1 minute' WHERE userid=$1",[a.userId]);
+  assert.equal((await renew(cookie,a.csrf)).status,401);
+  const b=await register();
+  await pool.query(`UPDATE "user" SET status='inactive' WHERE userid=$1`,[b.userId]);
+  assert.equal((await renew(refreshCookie(b.res),b.csrf)).status,401);
+});
+test('concurrent refresh reuse cannot issue two valid successors', async () => {
+  const a=await register(), cookie=refreshCookie(a.res);
+  const results=await Promise.all([renew(cookie,a.csrf),renew(cookie,a.csrf)]);
+  assert.deepEqual(results.map(r=>r.status).sort(),[200,401]);
+  const success=results.find(r=>r.status===200)!;
+  assert.equal((await current(browserToken(success))).status,401);
+});
+test('refresh reloads role claims and logout revokes refresh as well as access', async () => {
+  const a=await register();
+  await pool.query(`UPDATE user_role SET roleid=(SELECT roleid FROM role WHERE role='staff') WHERE userid=$1`,[a.userId]);
+  const renewed=await renew(refreshCookie(a.res),a.csrf);
+  assert.equal(renewed.status,200);
+  assert.equal(decodeJwt(browserToken(renewed)).role,'staff');
+  const ended=await request(app).post('/api/auth/logout').set('Authorization','Bearer '+browserToken(renewed)).set('X-CSRF-Token',a.csrf).send({});
+  assert.equal(ended.status,204);
+  assert.equal((await renew(refreshCookie(renewed),a.csrf)).status,401);
+});
+
+test('legacy scrypt credentials upgrade after successful login; configurable expiry is honored', async () => {
+  const a=await register(), salt=randomBytes(16).toString('hex');
+  const legacy='scrypt$'+salt+'$'+scryptSync(a.password,salt,64,{N:32768,r:8,p:1,maxmem:67108864}).toString('hex');
+  await pool.query('UPDATE "user" SET password=$1 WHERE userid=$2',[legacy,a.userId]);
+  const custom=createApp(pool,{...config,accessTokenSeconds:60,refreshTokenSeconds:3600});
+  const login=await request(custom).post('/api/auth/login').send({email:a.email,password:a.password,remember:true});
+  assert.equal(login.status,200);
+  const claims=decodeJwt(browserToken(login));
+  assert.equal(claims.exp!-claims.iat!,60);
+  assert.match((await pool.query('SELECT password FROM "user" WHERE userid=$1',[a.userId])).rows[0].password,/^\$2b\$12\$/);
+  assert.ok(login.headers['set-cookie'].some((c:string)=>c.includes('Max-Age=3600')));
 });

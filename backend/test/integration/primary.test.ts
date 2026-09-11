@@ -43,6 +43,7 @@ function client() {
   let csrf = "",
     id = 0;
   const accept = (r: request.Response) => {
+    agent.set('Authorization', 'Bearer '+r.body.data.accessToken);
     csrf = r.body.data.csrfToken;
     id = r.body.data.user.id;
   };

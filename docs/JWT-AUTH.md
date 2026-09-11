@@ -1,25 +1,20 @@
 # JWT authentication
 
-This implements the team's Node.js + JSON Web Tokens decision, confirmed in [Matt's September 8 backend message](https://discord.com/channels/1461394966998814781/1546906482837291158/1546941376233480304). It replaces the opaque token implementation previously on this branch.
+Implements the authentication contract in the team's [System Architecture](https://docs.google.com/document/d/1CeyE5pD_pmIZr6uXAO0zj9VhvVfYmsID3w42Trb4ly4/edit), security model. This corrects the earlier JWT-cookie implementation.
 
 ## Request flow
 
-1. Registration, password login and development-only demo login issue a signed HS256 JWT through [jose](https://github.com/panva/jose). The payload contains `sub` (user ID), unique `jti`, `iss`, `aud`, `iat`, `nbf` and `exp`; no password, email or authorization grants.
-2. The browser sends it in the `arbor_session` HttpOnly, SameSite=Lax cookie scoped to `/api`. Production also sets Secure. **JWT is the token format; the cookie is its transport.** There is no localStorage token, JavaScript-readable access token or new Authorization-header interface.
-3. Protected endpoints verify the signature with an explicit HS256-only allowlist, JWT type, issuer/audience, required claims and time limits. Invalid tokens produce the same 401 response without logging the token. No token-supplied algorithm, key URL or role is trusted.
-4. The verified token hash and subject must match an unexpired `app_session` row. This existing table is the issued-token/revocation registry and holds the session-bound CSRF value. Only the JWT hash is stored, not the signed token. This deliberately retains server-side revocation; it is **not a stateless JWT design**.
-5. Account status and roles are fetched from PostgreSQL on every request. Staff mutations also retain their transactional authorization checks. Role changes and account deactivation take effect without waiting for JWT expiry.
+1. Password registration uses bcrypt with cost 12 through [bcryptjs](https://github.com/dcodeIO/bcrypt.js). Reject new passwords longer than 72 UTF-8 bytes rather than silently truncating them. Previously stored scrypt credentials remain verifiable and upgrade on successful login when within that limit; longer legacy passwords remain scrypt until a password-reset workflow is available. Plaintext fixtures never authenticate through password login.
+2. Login/register/demo return `user`, `csrfToken`, `accessToken`, and `expiresIn`. HS256 access JWTs contain `sub`, `role`, `roles`, `jti`, `iss`, `aud`, `iat`, `nbf`, and `exp`. Default lifetime is 15 minutes. React holds the access token in module memory only and sends `Authorization: Bearer ...`; no localStorage, sessionStorage or access-token cookie.
+3. The independent random refresh token is stored in an HttpOnly, SameSite=Lax `arbor_refresh` cookie scoped to `/api`, Secure in production. Refresh family lifetime is 30 days, absolute from sign-in. Remember me makes the cookie persistent; otherwise it is browser-session scoped, with the same server-side maximum.
+4. On reload/401, the client fetches `/auth/csrf`, then POSTs JSON to `/auth/refresh` with the CSRF header and browser-owned cookie. Same-origin response access and Origin/Fetch-Metadata/JSON checks protect renewal. Concurrent requests within one page share a renewal promise. The cookie alone never authorizes ordinary API requests.
+5. Rotation locks the family transactionally, consumes the old refresh token and issues a new refresh/access pair. Reusing a consumed refresh token with valid CSRF revokes the entire family, including all its access tokens. This is deliberately strict: cross-tab simultaneous refresh, or a lost response followed by retry of the consumed token, can require sign-in again. No grace/replay window is implemented.
+6. Protected routes verify signature, HS256-only algorithm, token type, required identity/role/time claims and issuer/audience. The token hash/subject must match an unexpired registry row belonging to an active refresh family. Current account status/roles are fetched from PostgreSQL; role claims are a snapshot, never a substitute for current permission checks.
+7. Writes retain CSRF and origin checks. Logout revokes the entire refresh family and clears the refresh cookie. A successful re-login revokes the prior family presented by that browser; other browser families remain independent.
 
-The frontend's response contract (`user`, `csrfToken`) and `/auth/session` route remain unchanged. JSON writes still require the existing Origin/Fetch-Metadata checks and matching CSRF header; JWTs do not replace CSRF protection when transported in cookies.
+## Lifetime configuration
 
-## Expiry and revocation
-
-- Normal login: signed token expires after 12 hours; the cookie is browser-session scoped.
-- Remember me: token and persistent cookie expire after seven days.
-- Logout deletes the registry entry and clears the cookie. A captured copy of that JWT no longer authenticates.
-- Successful re-login invalidates the token previously presented by that browser and issues a fresh JWT ID and CSRF token. Other independently logged-in browsers are unchanged.
-- There is no refresh-token endpoint or automatic renewal in this change; expiry requires signing in again.
-- Changing the signing key invalidates all previously signed tokens. Multi-key rollover is not implemented.
+`JWT_ACCESS_SECONDS`: default 900, allowed 1–3600. `JWT_REFRESH_SECONDS`: default 2592000, allowed 1–7776000. These are nonsecret duration settings. Refresh rotation never extends the family's absolute expiry. Expired families and their token rows are cleaned on login. Signing-key replacement invalidates existing access tokens, but unrevoked refresh families can issue new ones; incident response must also revoke families when needed. Multi-key rollover is not implemented.
 
 ## Signing key configuration
 
@@ -31,10 +26,10 @@ The frontend's response contract (`user`, `csrfToken`) and `/auth/session` route
 
 ## Upgrade and scope
 
-No SQL migration or database reset is needed. Applied migrations remain unchanged; `app_session` already stores a SHA-256 hash, user ID, CSRF value and expiry. Old opaque tokens cannot pass JWT verification, so users sign in again once when upgrading. Existing application data is unaffected; expired registry rows are cleaned up during login as before.
+Apply additive migration `004_refresh_tokens.sql` with the normal migration command, after migration 003. It adds refresh families/hashed rotation records and the session-family foreign key; existing business data and historical migrations remain unchanged. No reset is needed. Legacy access cookies are rejected and cleared on the next successful login, so users sign in once after upgrade. This code change does not deploy or reset the shared database.
 
-PR #3's `permission` / `role_permission` integration, refresh-token rotation, password recovery and production deployment remain separate work. This JWT correction does not merge either PR, deploy the app or modify the shared database.
+Password recovery, full six-role RBAC coverage, cross-tab renewal coordination, and production deployment remain separate work. Existing waiver/training role restrictions remain unchanged pending specification reconciliation.
 
 ## Verification
 
-`backend/test/integration/jwt.test.ts` exercises real HTTP authentication against disposable PostgreSQL, including invalid JWTs deliberately given live registry rows. This distinguishes signature/claim validation from rejection merely because a hash was absent. It covers expiry, required claims, algorithm/type restrictions, captured-token replay after logout/re-login, subject binding, live roles/status, CSRF/origin checks, restart/key rotation and registry expiry. `backend/test/jwtKey.test.ts` covers persistent private development keys and fail-closed production setup. Existing member/staff and React-to-PostgreSQL suites run unchanged apart from supplying a per-test signing key.
+Unit and PostgreSQL HTTP tests cover bcrypt/UTF-8 limits, legacy credential upgrade, configurable lifetimes, signed claims, tampering, expiry, live roles/status, subject binding, no cookie-only access, refresh rotation/reuse/concurrency, origin/CSRF, logout and restart. React-to-PostgreSQL tests exercise member and real staff workflows, memory-cleared reload and empty persistent browser storage. Docker CI verifies both access and refresh after container recreation. No physical-device or production deployment validation is implied.
