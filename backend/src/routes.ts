@@ -12,7 +12,7 @@ import {
   authRateLimit,
 } from "./middleware/auth.js";
 import { StaffController } from "./controllers/StaffController.js";
-import { requireAdmin, requireOwnershipOrAdmin } from "./auth.js";
+import { requireOwnershipOrAdmin } from "./auth.js";
 
 export function apiRoutes(pool: Pool, config: AppConfig) {
   const routes = Router();
@@ -51,7 +51,7 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.get("/plans", member.plans);
   routes.get("/me/memberships", member.memberships);
   routes.get("/me/payments", member.payments);
-  routes.use("/admin", requireStaff, requireAdmin);
+  routes.use("/admin", requireStaff);
   routes.get("/admin/plans", staff.plans);
   routes.post("/admin/plans", requireCsrf, staff.createPlan);
   routes.patch("/admin/plans/:id", requireCsrf, staff.updatePlan);
