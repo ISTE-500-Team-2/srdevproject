@@ -39,6 +39,14 @@ const navbarLinks = [
             }
         ]
     }, //Certifications
+    {
+        label: "Profile",
+        path: "/profile"
+    },
+    {
+        label: "Classes",
+        path: "/classes"
+    }
 ];
 
 export function Navbar(){
