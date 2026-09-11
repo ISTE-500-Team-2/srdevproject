@@ -37,10 +37,15 @@ export class StaffService {
         actorId,
       ]);
       const actor = await new UserModel(db).findById(actorId);
+      const actorIsStaffOrAdmin = Boolean(
+        actor &&
+          Array.isArray(actor.roles) &&
+          actor.roles.some((role) => role === "staff" || role === "admin"),
+      );
       if (
         !actor ||
         actor.status !== "active" ||
-        actor.role !== "admin" ||
+        !actorIsStaffOrAdmin ||
         (adminOnly && !actor.roles.includes("admin"))
       )
         throw new AppError(
