@@ -3,7 +3,11 @@
 -- Sample data for user table
 INSERT INTO "user" (userID, firstName, lastName, email, password, phone, status, statusDesc, registration_date) VALUES
 (1, 'John', 'Doe', 'johndoe@example.com', 'johndoe', '123-456-7890', 'active', 'Active member', NOW()),
-(2, 'Jane', 'Smith', 'janesmith@example.com', 'janesmith', '234-567-8901', 'active', 'Active member', NOW());
+(2, 'Jane', 'Smith', 'janesmith@example.com', 'janesmith', '234-567-8901', 'active', 'Active member', NOW()),
+(3, 'Jonathan', 'Deen', 'JDeen1999@gmail.com', '1!J$$D!@', '(410) 490-3322', 'active', 'XX', TIMESTAMP '2026-09-11 00:00:00'),
+(4, 'Mary', 'Ambrose', 'RoseyM@gmail.com', 'MaryLamb428', '(443) 972-1738', 'active', 'XX', TIMESTAMP '2026-09-11 00:00:00'),
+(5, 'Mark', 'Barlow', 'MarkBar13@yahoo.com', 'mYp@ssw0rd111', '(410) 371-9425', 'inactive', 'banned for inappropriate behavior', TIMESTAMP '2026-09-11 00:00:00'),
+(6, 'Katie', 'Cox', 'KatKat@yahoo.com', '123barry987', '(410) 822-5087', 'active', 'XX', TIMESTAMP '2026-09-11 00:00:00');
 
 -- Sample data for membership_tiers table
 INSERT INTO membership_tiers (tierID, tierName, tierPrice, allottedMonths) VALUES
@@ -12,7 +16,9 @@ INSERT INTO membership_tiers (tierID, tierName, tierPrice, allottedMonths) VALUE
 (3, 'Premium Monthly', 29.99, 1),
 (4, 'Premium Yearly', 149.99, 12),
 (5, 'Student Monthly', 9.99, 1),
-(6, 'Student Yearly', 49.99, 12);
+(6, 'Student Yearly', 49.99, 12),
+(7, 'Monthly Membership', 15.99, 1),
+(8, 'Yearly Membership', 99.99, 12);
 
 -- Sample data for role table
 INSERT INTO role (roleID, role, description) VALUES
@@ -60,7 +66,25 @@ INSERT INTO user_role (rID, userID, roleID, assignedAt) VALUES
 (2, 2, 2, NOW());
 
 -- Sample data for equipment table
-INSERT INTO equipment (equipmentID, name, status, waiverRequired) VALUES
-(1, 'Welding Station', 'available', true),
-(2, 'CNC Machine', 'available', true),
-(3, '3D Printer', 'available', false);
+INSERT INTO equipment (equipmentID, certID, name, status, waiverRequired) VALUES
+(1, NULL, 'Welding Station', 'available', true),
+(2, NULL, 'CNC Machine', 'available', true),
+(3, NULL, '3D Printer', 'available', false),
+(4, NULL, 'Rachel (3D printer)', 'available', false),
+(5, NULL, 'Spock (Wood Lathe)', 'available', true),
+(6, NULL, 'Kirk (Metal Lathe)', 'available', true),
+(7, NULL, 'Joey (Large CNC)', 'available', true);
+
+INSERT INTO certifications (certID, name, description, effectiveDate, endDate) VALUES
+(1, 'Metal Lathe Certification', 'This certification verifies that the holder has successfully completed formal training in the safe and effective operation of a metal lathe.', TIMESTAMP '2026-09-11 00:00:00', TIMESTAMP '2027-09-11 00:00:00'),
+(2, 'CNC Certification', 'This certification verifies that the holder has successfully completed formal training in the safe and effective operation of a CNC machine.', TIMESTAMP '2026-09-11 00:00:00', TIMESTAMP '2027-09-11 00:00:00');
+
+INSERT INTO waiver (waiverID, name, version, description, effectiveDate) VALUES
+(1, 'Metal Lathe Waiver', '1.0', 'This waiver acknowledges that the participant has been informed of, understands, and accepts the inherent risks associated with operating a metal lathe.', TIMESTAMP '2026-09-11 00:00:00'),
+(2, 'CNC Waiver', '1.0', 'This waiver acknowledges that the participant has been informed of, understands, and accepts the inherent risks associated with operating a CNC machine.', TIMESTAMP '2026-09-11 00:00:00');
+
+INSERT INTO guest (guestID, hostID, firstName, lastName, email, visitDate, status, statusDesc) VALUES
+(1, 1, 'Jonathan', 'Deen', 'JDeen1999@gmail.com', TIMESTAMP '2026-08-23 00:00:00', 'active', 'XX'),
+(2, 1, 'Mary', 'Ambrose', 'RoseyM@gmail.com', TIMESTAMP '2026-08-29 00:00:00', 'active', 'XX');
+
+
