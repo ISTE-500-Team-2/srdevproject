@@ -49,6 +49,8 @@ test('password hashes are salted and legacy plaintext is not accepted', async ()
   const input = randomBytes(24).toString('hex');
   const a = await hashPassword(input),
     b = await hashPassword(input);
+  assert.match(a,/^\$2b\$12\$/);
+  await assert.rejects(hashPassword('é'.repeat(37)), /72 UTF-8 bytes/);
   assert.ok(a !== b);
   assert.ok(!a.includes(input));
   assert.ok(await verifyPassword(input, a));

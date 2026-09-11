@@ -8,8 +8,15 @@ export interface AppConfig {
   allowedOrigins: string[];
   timeZone: string;
   jwtKey: Uint8Array;
+  accessTokenSeconds?: number;
+  refreshTokenSeconds?: number;
 }
 
+function lifetime(name: string, fallback: number, max: number) {
+  const n = Number(process.env[name] ?? fallback);
+  if (!Number.isSafeInteger(n) || n < 1 || n > max) throw new Error(`Invalid ${name}`);
+  return n;
+}
 export function readConfig(): AppConfig {
   const port = Number(process.env.PORT ?? 8080);
   if (!Number.isInteger(port) || port < 1 || port > 65535)
@@ -22,6 +29,8 @@ export function readConfig(): AppConfig {
     throw new Error('APP_ORIGIN is required in production');
   return {
     jwtKey: readJwtKey(),
+    accessTokenSeconds: lifetime("JWT_ACCESS_SECONDS",900,3600),
+    refreshTokenSeconds: lifetime("JWT_REFRESH_SECONDS",2592000,7776000),
     port,
     host: process.env.HOST ?? '127.0.0.1',
     secureCookies: production,

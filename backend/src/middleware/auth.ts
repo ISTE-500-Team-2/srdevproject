@@ -6,8 +6,8 @@ import { AppError, type UserView } from "../domain.js";
 import { SessionModel } from "../models/SessionModel.js";
 import { UserModel } from "../models/UserModel.js";
 
-export const cookieName = "arbor_session";
-export function sessionToken(req: Request): string {
+export const cookieName = "arbor_refresh";
+export function refreshToken(req: Request): string {
   return (
     (req.headers.cookie ?? "")
       .split(";")
@@ -15,6 +15,10 @@ export function sessionToken(req: Request): string {
       .find((s) => s.startsWith(`${cookieName}=`))
       ?.slice(cookieName.length + 1) ?? ""
   );
+}
+export function sessionToken(req: Request): string {
+  const header = req.get('Authorization') ?? '';
+  return header.startsWith('Bearer ') ? header.slice(7) : '';
 }
 export interface AuthState {
   user: UserView;
@@ -35,7 +39,7 @@ export function requireStaff(_req: Request, res: Response, next: NextFunction) {
 }
 
 export function requireUser(pool: Pool, config: AppConfig) {
-  const sessions = new SessionModel(pool, config.jwtKey);
+  const sessions = new SessionModel(pool, config.jwtKey, config.accessTokenSeconds, config.refreshTokenSeconds);
   return async (req: Request, res: Response, next: NextFunction) => {
     const token = sessionToken(req);
     const session = await sessions.find(token);

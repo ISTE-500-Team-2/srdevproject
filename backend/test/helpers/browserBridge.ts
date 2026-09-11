@@ -39,6 +39,7 @@ export async function createBrowserBridge() {
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const agent = request.agent(server);
+  let directToken = '';
   return {
     pool,
     fetch: async (input: string | URL | Request, init: RequestInit = {}) => {
@@ -62,11 +63,14 @@ export async function createBrowserBridge() {
               ? agent.patch(url)
               : null;
       if (!call) throw new Error('Unsupported test method.');
+      if (directToken && !new Headers(init.headers).has('Accept')) call = call.set('Authorization','Bearer '+directToken);
       call = call.set('Origin', 'http://localhost:8080');
       const headers = new Headers(init.headers);
       headers.forEach((value, key) => call!.set(key, value));
       if (init.body) call = call.send(String(init.body));
       const response = await call;
+      if (response.body?.data?.accessToken) directToken=response.body.data.accessToken;
+      if (url==='/api/auth/logout' && response.status===204) directToken='';
       return new Response(
         response.status === 204 ? null : JSON.stringify(response.body),
         {
