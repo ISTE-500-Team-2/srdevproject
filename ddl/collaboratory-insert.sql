@@ -86,5 +86,3 @@ INSERT INTO waiver (waiverID, name, version, description, effectiveDate) VALUES
 INSERT INTO guest (guestID, hostID, firstName, lastName, email, visitDate, status, statusDesc) VALUES
 (1, 1, 'Jonathan', 'Deen', 'JDeen1999@gmail.com', TIMESTAMP '2026-08-23 00:00:00', 'active', 'XX'),
 (2, 1, 'Mary', 'Ambrose', 'RoseyM@gmail.com', TIMESTAMP '2026-08-29 00:00:00', 'active', 'XX');
-
-

@@ -61,10 +61,10 @@ jobs:
           expected="$(printf '%s\n' \
             'tables=17' \
             'foreign_keys=20' \
-            'users=2' \
-            'membership_tiers=6' \
+            'users=6' \
+            'membership_tiers=8' \
             'roles=4' \
-            'equipment=3')"
+            'equipment=7')"
 
           printf '%s\n' "${result}"
           test "${result}" = "${expected}"
