@@ -15,7 +15,7 @@ Quick start: `docker compose -f compose.mvc.yml up --build -d`, then open http:/
 The PostgreSQL 16 scripts are under `ddl/`:
 
 - `collaboratory-create.sql` recreates a local database named `collaboratoryarbor`.
-- `collaboratory-db-create.sql` recreates the 15 application tables.
+- `collaboratory-db-create.sql` recreates the 17 application tables.
 - `collaboratory-insert.sql` loads synthetic development data.
 
 For a disposable local database only:
