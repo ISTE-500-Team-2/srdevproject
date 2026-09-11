@@ -72,7 +72,7 @@ export function Header() {
           className={`site-nav ${mobileOpen ? 'site-nav--open' : ''}`}
           aria-label="Primary navigation"
         >
-          {navItems.map((item) => (
+          {[...navItems, ...(user?.roles.some(role => role === 'staff' || role === 'admin') ? [{label: 'Staff workspace', to: '/admin'}] : [])].map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -99,7 +99,7 @@ export function Header() {
         </NavLink>
 
         <div className="site-header__actions">
-          {user?.role === 'admin' ? (
+          {user?.roles.some(role => role === 'staff' || role === 'admin') ? (
             <NavLink className="site-header__admin-link" to="/admin">
               Staff workspace
             </NavLink>

@@ -4,7 +4,7 @@ export interface UserView {
   lastName: string;
   email: string;
   phone: string;
-  role: "member" | "admin";
+  role: "member" | "staff" | "admin";
   roles: string[];
   status: string;
   accessStatus: "active" | "suspended" | "revoked";

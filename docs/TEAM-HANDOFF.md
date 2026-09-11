@@ -14,7 +14,7 @@ Start here for the membership/access implementation. The packaged `BUILD-INFO.tx
 
 ## Authentication update — September 10
 
-The backend now uses **signed JWTs**, as agreed in the team’s backend discussion. Cookies carry the JWT; they are not a replacement for JWT authentication. Existing CSRF, logout revocation, account-status and live role checks remain in place. See [JWT-AUTH.md](JWT-AUTH.md) for key configuration, expiry and upgrade behavior. This does not integrate PR #3’s permission tables.
+The backend now uses **signed JWTs**, as agreed in the team’s backend discussion. Cookies carry the JWT; they are not a replacement for JWT authentication. Existing CSRF, logout revocation, account-status and live role checks remain in place. See [JWT-AUTH.md](JWT-AUTH.md) for key configuration, expiry and upgrade behavior. Staff writes now consult PR #3’s permission tables inside their transactions; member ownership and read routes retain their existing server-side checks. This is not yet the complete six-role RBAC implementation.
 
 ## Start the isolated demo
 
@@ -55,7 +55,7 @@ The existing Mac-to-VM demo uses a loopback SSH forward. At the final handoff re
 | Publish/retire policy versions | No | No | Yes |
 | Change own staff role/facility-access flag | No | No | No |
 
-“Admin” in the React session's coarse `role` means access to the staff workspace; the server also checks the actual `roles` array before administrator-only operations. Roles and account status are re-read from PostgreSQL, including for existing sessions. Public registration cannot create a staff role. An administrator promotes an existing registered account; this does not send invitations or email.
+React distinguishes `staff` from `admin` and grants workspace entry from the actual `roles` array; the server also checks the actual `roles` array before administrator-only operations. Roles and account status are re-read from PostgreSQL, including for existing sessions. Public registration cannot create a staff role. An administrator promotes an existing registered account; this does not send invitations or email.
 
 Authentication account status (`user.status`) and facility access (`user.accessstatus`) are intentionally distinct. These new controls change facility access, not the account's password/login lifecycle. Legacy inactive accounts still need an explicit operational account-reactivation process; changing the facility flag does not activate them.
 
@@ -201,3 +201,11 @@ These are the isolated synthetic demo's non-secret connection settings. Tests cr
 - Figma MCP is still separate and unconnected; existing designs came from the team's exported mockups.
 - [REQUIREMENTS-TRACEABILITY.md](REQUIREMENTS-TRACEABILITY.md) maps the supplied brief to evidence and gaps. It must be reconciled with the team's final feature list and assigned human owners before submission.
 - Gate Review evidence/slides do not replace the sponsor Quad Chart and sponsor presentation. No course submission, email or GitHub push is performed by this implementation.
+
+## September 11 permission correction
+
+Staff transactional writes load database permission grants by role and resource. Explicit applicable deny rules override grants; staff cannot write role/permission assignments even with a wildcard grant. The generic ownership helper requires a server-resolved owner, while `/me/profile` uses the authenticated identity directly. Staff navigation is also available in the mobile menu.
+
+Team Drive FR-035 and FR-054/055 explicitly require staff operational writes; the Business Dictionary describes limited administrative privileges. Preserve existing member-management capabilities with scoped grants instead of global writes. Migration 003 is additive and does not reset data or overwrite existing permission decisions.
+
+BR-011 and the architecture restrict waiver/training changes to administrators, while FR-046/047 allow staff writes. This PR preserves the existing administrator-only waiver publishing gate pending reconciliation; it does not implement training management or decide that conflict. No full six-role, delegated reservation creation, or deployment completion is claimed.

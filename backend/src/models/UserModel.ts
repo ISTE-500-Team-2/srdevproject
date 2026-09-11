@@ -9,8 +9,13 @@ export class UserModel {
       `
       SELECT u.userid AS id, u.firstname AS "firstName", u.lastname AS "lastName", u.email,
              u.phone, COALESCE(u.status, '') AS status,u.accessstatus AS "accessStatus",
-             CASE WHEN EXISTS (SELECT 1 FROM user_role ur JOIN role r USING (roleid)
-                               WHERE ur.userid=u.userid AND r.role IN ('admin','staff')) THEN 'admin' ELSE 'member' END AS role,
+             CASE
+               WHEN EXISTS (SELECT 1 FROM user_role ur JOIN role r USING (roleid)
+                            WHERE ur.userid=u.userid AND r.role = 'admin') THEN 'admin'
+               WHEN EXISTS (SELECT 1 FROM user_role ur JOIN role r USING (roleid)
+                            WHERE ur.userid=u.userid AND r.role = 'staff') THEN 'staff'
+               ELSE 'member'
+             END AS role,
              COALESCE((SELECT json_agg(r.role ORDER BY r.role) FROM user_role ur JOIN role r USING (roleid) WHERE ur.userid=u.userid), '[]') AS roles,
              CASE WHEN EXISTS (SELECT 1 FROM user_membership um WHERE um.userid=u.userid AND um.status='active'
                                AND um.startdate <= NOW() AT TIME ZONE 'UTC' AND um.end_date > NOW() AT TIME ZONE 'UTC')

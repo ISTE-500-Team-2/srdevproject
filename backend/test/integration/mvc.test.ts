@@ -370,6 +370,7 @@ test('a day pass grants access only on its valid local calendar day', async () =
 });
 
 test('rerunning setup preserves users, reservations and applied migration history', async () => {
+  const migrationsBefore = (await pool.query('SELECT name, checksum FROM app_migration ORDER BY name')).rows;
   const before = (
     await pool.query('SELECT COUNT(*)::int AS count FROM reservation')
   ).rows[0].count;
@@ -380,12 +381,22 @@ test('rerunning setup preserves users, reservations and applied migration histor
       .count,
     before,
   );
-  assert.equal(
-    (await pool.query('SELECT COUNT(*)::int AS count FROM app_migration'))
-      .rows[0].count,
-    2,
-  );
+  assert.deepEqual((await pool.query('SELECT name, checksum FROM app_migration ORDER BY name')).rows, migrationsBefore);
   const newUser = client();
   await newUser.register();
   assert.ok(newUser.id > 2);
+});
+
+test('additive RBAC migration upgrades existing MVC data without resetting users or reservations', async () => {
+  const before = (await pool.query('SELECT (SELECT count(*) FROM "user") AS users, (SELECT count(*) FROM reservation) AS reservations')).rows[0];
+  // This suite owns this disposable DB. Recreate the pre-PR3 schema state.
+  await pool.query('DROP TABLE role_permission; DROP TABLE permission');
+  await pool.query("DELETE FROM app_migration WHERE name='003_rbac_permissions.sql'");
+  await migrate(pool);
+  assert.deepEqual((await pool.query('SELECT (SELECT count(*) FROM "user") AS users, (SELECT count(*) FROM reservation) AS reservations')).rows[0], before);
+  const grants = await pool.query("SELECT rp.* FROM role_permission rp JOIN role r ON r.roleid=rp.roleid WHERE r.role='staff' AND rp.resourcename='payment' AND rp.permissionid=3");
+  assert.equal(grants.rows.length, 1);
+  await pool.query("UPDATE role_permission SET isallowed=false WHERE resourcename='payment'");
+  await migrate(pool);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM role_permission WHERE resourcename='payment' AND isallowed")).rows[0].n,0);
 });

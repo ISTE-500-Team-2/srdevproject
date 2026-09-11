@@ -25,7 +25,11 @@ export const authState = (res: Response): AuthState =>
   res.locals.auth as AuthState;
 
 export function requireStaff(_req: Request, res: Response, next: NextFunction) {
-  if (authState(res).user.role !== "admin")
+  const user = authState(res).user;
+  const hasStaffOrAdminRole = Array.isArray(user.roles)
+    && user.roles.some((role) => role === "staff" || role === "admin");
+
+  if (!hasStaffOrAdminRole)
     throw new AppError(403, "STAFF_REQUIRED", "Staff permission is required.");
   next();
 }
