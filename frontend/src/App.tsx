@@ -33,9 +33,9 @@ function RequireUser() {
   return user ? <Outlet /> : <Navigate to="/login" replace />;
 }
 
-function RequireAdmin() {
+function RequireStaff() {
   const { user } = useAuth();
-  return user?.role === 'admin' ? <Outlet /> : <Navigate to="/" replace />;
+  return user?.roles.some(role => role === 'staff' || role === 'admin') ? <Outlet /> : <Navigate to="/" replace />;
 }
 
 export default function App() {
@@ -52,7 +52,7 @@ export default function App() {
             <Route path="classes" element={<ClassesPage />} />
             <Route path="profile" element={<ProfilePage />} />
             <Route path="membership" element={<MembershipPage />} />
-            <Route element={<RequireAdmin />}>
+            <Route element={<RequireStaff />}>
               <Route path="admin" element={<AdminDashboardPage />} />
             </Route>
           </Route>

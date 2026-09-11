@@ -12,7 +12,6 @@ import {
   authRateLimit,
 } from "./middleware/auth.js";
 import { StaffController } from "./controllers/StaffController.js";
-import { requireOwnershipOrAdmin } from "./auth.js";
 
 export function apiRoutes(pool: Pool, config: AppConfig) {
   const routes = Router();
@@ -43,7 +42,7 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.post("/reservations", requireCsrf, reservations.create);
   routes.post("/reservations/:id/cancel", requireCsrf, reservations.cancel);
   routes.get("/me/overview", member.overview);
-  routes.patch("/me/profile", requireCsrf, requireOwnershipOrAdmin, member.profile);
+  routes.patch("/me/profile", requireCsrf, member.profile);
   routes.get("/me/waivers", member.waivers);
   routes.get("/me/certifications", member.certifications);
   routes.post("/me/waivers/:id/sign", requireCsrf, member.signWaiver);

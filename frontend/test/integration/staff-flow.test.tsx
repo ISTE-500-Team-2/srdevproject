@@ -70,6 +70,10 @@ test("staff React flow creates a plan, issues access/payment, survives reload, s
     204,
   );
   expect((await direct("/auth/demo", { role: "admin" })).status).toBe(200);
+  // Exercise a real staff identity, not an administrator standing in for staff.
+  await bridge.pool.query(`UPDATE user_role SET roleid=(SELECT roleid FROM role WHERE role='staff') WHERE userid=(SELECT userid FROM "user" WHERE email='demo.admin@collaboratory.invalid')`);
+  const staffSession = (await (await bridge.fetch('/api/auth/session')).json()).data;
+  expect(staffSession.user.role).toBe('staff');
   const user = userEvent.setup();
   mount("/admin?tab=plans");
   const create = await screen.findByRole(
@@ -77,6 +81,7 @@ test("staff React flow creates a plan, issues access/payment, survives reload, s
     { name: "Create a plan" },
     { timeout: 20000 },
   );
+  expect(within(screen.getByRole('navigation', {name:'Primary navigation'})).getByRole('link', {name:'Staff workspace'})).toBeTruthy();
   const name = "UI monthly plan";
   await user.type(within(create).getByLabelText("Plan name"), name);
   fireEvent.change(within(create).getByLabelText("Price (USD)"), {

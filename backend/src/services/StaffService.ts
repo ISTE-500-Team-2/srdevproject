@@ -5,6 +5,7 @@ import { AppError, type UserView } from "../domain.js";
 import { UserModel } from "../models/UserModel.js";
 import { StaffModel } from "../models/StaffModel.js";
 import type { IssueInput, PlanInput } from "../staffDomain.js";
+import { PermissionModel } from "../models/PermissionModel.js";
 import { planInput } from "../staffDomain.js";
 
 const missing = () =>
@@ -25,6 +26,8 @@ export class StaffService {
   private async write<T>(
     actorId: number,
     adminOnly: boolean,
+    resource: string,
+    action: string,
     work: (model: StaffModel, actor: UserView, db: Database) => Promise<T>,
   ) {
     return transaction(this.pool, async (db) => {
@@ -55,6 +58,8 @@ export class StaffService {
             ? "Administrator permission is required."
             : "Staff permission is required.",
         );
+      if (!(await new PermissionModel(db).allows(actor, resource, action)))
+        throw new AppError(403, "PERMISSION_REQUIRED", "This operation is not permitted for your role.");
       return work(new StaffModel(db, this.timeZone), actor, db);
     });
   }
@@ -77,7 +82,7 @@ export class StaffService {
   }
 
   createPlan(actorId: number, input: PlanInput, reason: string) {
-    return this.write(actorId, false, async (model) => {
+    return this.write(actorId, false, "plan", "create", async (model) => {
       const record = await model.createPlan(input);
       await model.audit(
         actorId,
@@ -99,7 +104,7 @@ export class StaffService {
     revision: number,
     reason: string,
   ) {
-    return this.write(actorId, false, async (model) => {
+    return this.write(actorId, false, "plan", "update", async (model) => {
       const before = await model.plan(id);
       if (!before) throw missing();
       this.expectRevision(before.revision, revision);
@@ -133,7 +138,7 @@ export class StaffService {
     revision: number,
     reason: string,
   ) {
-    return this.write(actorId, false, async (model, actor) => {
+    return this.write(actorId, false, "user", "update", async (model, actor) => {
       const before = await this.target(model, actor, id);
       this.expectRevision(before.revision, revision);
       const after = await model.updatePerson(
@@ -164,7 +169,7 @@ export class StaffService {
     revision: number,
     reason: string,
   ) {
-    return this.write(actorId, false, async (model, actor) => {
+    return this.write(actorId, false, "user_access", "update", async (model, actor) => {
       if (actorId === id)
         throw new AppError(
           409,
@@ -195,7 +200,7 @@ export class StaffService {
     revision: number,
     reason: string,
   ) {
-    return this.write(actorId, true, async (model, actor) => {
+    return this.write(actorId, true, "user_role", "update", async (model, actor) => {
       if (actorId === id)
         throw new AppError(
           409,
@@ -238,7 +243,7 @@ export class StaffService {
     const fingerprint = createHash("sha256")
       .update(JSON.stringify({ userId, ...input }))
       .digest("hex");
-    return this.write(actorId, false, async (model, actor, db) => {
+    return this.write(actorId, false, "entitlement", "create", async (model, actor, db) => {
       const user = await this.target(model, actor, userId);
       const previous = await model.request(input.requestId);
       if (previous) {
@@ -382,7 +387,7 @@ export class StaffService {
     revision: number,
     reason: string,
   ) {
-    return this.write(actorId, false, async (model, actor) => {
+    return this.write(actorId, false, "entitlement", "update", async (model, actor) => {
       await this.target(model, actor, userId);
       const before = await model.entitlement(kind, id);
       if (!before || before.userId !== userId) throw missing();
@@ -423,7 +428,7 @@ export class StaffService {
     revision: number,
     reason: string,
   ) {
-    return this.write(actorId, false, async (model, actor) => {
+    return this.write(actorId, false, "payment", "update", async (model, actor) => {
       const before = await model.payment(id);
       if (!before || before.userId == null) throw missing();
       await this.target(model, actor, before.userId);
@@ -474,7 +479,7 @@ export class StaffService {
       reason: string;
     },
   ) {
-    return this.write(actorId, true, async (model) => {
+    return this.write(actorId, true, "waiver", "create", async (model) => {
       const after = await model.createPolicy(
         input.name,
         input.version,
@@ -497,7 +502,7 @@ export class StaffService {
     });
   }
   retirePolicy(actorId: number, id: number, reason: string) {
-    return this.write(actorId, true, async (model, _actor, db) => {
+    return this.write(actorId, true, "waiver", "update", async (model, _actor, db) => {
       const before = (await model.policies()).find((p) => p.id === id);
       if (!before) throw missing();
       await db.query("UPDATE waiver SET isactive=false WHERE waiverid=$1", [

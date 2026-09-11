@@ -36,9 +36,15 @@ INSERT INTO role_permission (rolePermissionID, roleID, permissionID, resourceNam
 (3, 1, 3, 'all_tables', 'global', TRUE),
 (4, 1, 4, 'all_tables', 'global', TRUE);
 
--- Staff: read only.
+-- Staff: read plus scoped operational writes; no RBAC-management or waiver/training write grant.
 INSERT INTO role_permission (rolePermissionID, roleID, permissionID, resourceName, scopeType, isAllowed) VALUES
 (5, 4, 2, 'all_tables', 'global', TRUE);
+
+INSERT INTO role_permission (rolePermissionID, roleID, permissionID, resourceName, scopeType, isAllowed) VALUES
+(9,4,1,'plan','global',TRUE),(10,4,3,'plan','global',TRUE),
+(11,4,3,'user','global',TRUE),(12,4,3,'user_access','global',TRUE),
+(13,4,1,'entitlement','global',TRUE),(14,4,3,'entitlement','global',TRUE),
+(15,4,3,'payment','global',TRUE),(16,4,1,'reservation','global',TRUE),(17,4,3,'reservation','global',TRUE);
 
 -- Member: read only their own table records (personal scope).
 INSERT INTO role_permission (rolePermissionID, roleID, permissionID, resourceName, scopeType, isAllowed) VALUES

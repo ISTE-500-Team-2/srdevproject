@@ -209,6 +209,12 @@ test("primary authorization: member isolation, staff restrictions, role changes 
     (await member.get("/auth/session")).body.data.user.firstName,
     "Updated",
   );
+  // Permissions are reloaded for each transaction; a live revoke beats role membership.
+  await pool.query(`UPDATE role_permission SET isallowed=false WHERE roleid=(SELECT roleid FROM role WHERE role='staff') AND resourcename='user' AND permissionid=3`);
+  const fresh = (await person(admin, member.id)).user;
+  assert.equal((await staff.patch(`/admin/users/${member.id}/profile`, {...edit, revision:fresh.revision})).status,403);
+  await pool.query(`UPDATE role_permission SET isallowed=true WHERE roleid=(SELECT roleid FROM role WHERE role='staff') AND resourcename='user' AND permissionid=3`);
+  assert.equal((await staff.patch(`/admin/users/${member.id}/profile`, {...edit, revision:fresh.revision})).status,200);
   target = (await person(admin, staff.id)).user;
   assert.equal(
     (
