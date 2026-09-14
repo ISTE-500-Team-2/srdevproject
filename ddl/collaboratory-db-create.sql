@@ -29,6 +29,7 @@ CREATE TABLE "user" (
     email VARCHAR(100) UNIQUE NOT NULL,
     password VARCHAR(255) NOT NULL,
     phone VARCHAR(15) NOT NULL,
+    dob DATE,
     status VARCHAR(20),
     statusDesc VARCHAR(255),
     registration_date TIMESTAMP
