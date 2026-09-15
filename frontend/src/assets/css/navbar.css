@@ -1,0 +1,9 @@
+/*
+The stylesheet for the navbar specifically.
+*/
+
+#main-navbar {
+    position: sticky;
+    top: 0;
+    padding: 1rem;
+}
