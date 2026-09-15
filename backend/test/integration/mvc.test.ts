@@ -54,9 +54,10 @@ function client() {
     async demo(role = 'member') {
       const res = await agent.post('/api/auth/demo').send({ role });
       assert.equal(res.status, 200);
+      agent.set('Authorization', 'Bearer '+res.body.data.accessToken);
       csrf = res.body.data.csrfToken;
       id = res.body.data.user.id;
-      cookie = (res.headers['set-cookie']?.[0] ?? '').split(';')[0]!;
+      cookie = res.body.data.accessToken;
       return res;
     },
     async register() {
@@ -73,17 +74,19 @@ function client() {
           role: 'admin',
         });
       assert.equal(res.status, 201);
+      agent.set('Authorization', 'Bearer '+res.body.data.accessToken);
       csrf = res.body.data.csrfToken;
       id = res.body.data.user.id;
-      cookie = (res.headers['set-cookie']?.[0] ?? '').split(';')[0]!;
+      cookie = res.body.data.accessToken;
       return { email, password, res };
     },
     async login(email: string, password: string) {
       const res = await agent.post('/api/auth/login').send({ email, password });
       assert.equal(res.status, 200);
+      agent.set('Authorization', 'Bearer '+res.body.data.accessToken);
       csrf = res.body.data.csrfToken;
       id = res.body.data.user.id;
-      cookie = (res.headers['set-cookie']?.[0] ?? '').split(';')[0]!;
+      cookie = res.body.data.accessToken;
       return res;
     },
     post(path: string, body: unknown = {}) {
@@ -127,7 +130,7 @@ test('registration, DB session recovery, profile persistence and logout', async 
   const { email, password, res } = await user.register();
   assert.equal(res.body.data.user.role, 'member');
   assert.equal('password' in res.body.data.user, false);
-  const cookie = res.headers['set-cookie']?.[0] ?? '';
+  const cookie = res.headers['set-cookie']?.find((c:string)=>c.startsWith('arbor_refresh=')) ?? '';
   assert.ok(cookie.includes('HttpOnly'));
   assert.ok(cookie.includes('SameSite=Lax'));
   const stored = await pool.query(
@@ -215,7 +218,7 @@ test('reservation saves to PostgreSQL, survives a new app instance, and only its
   // Recover the same browser session against a fresh controller/router instance.
   const recovered = await restored
     .get('/api/reservations')
-    .set('Cookie', cookie);
+    .set('Authorization', 'Bearer '+cookie);
   assert.equal(recovered.status, 200);
   assert.ok(recovered.body.data.some((item: { id: number }) => item.id === id));
   const other = client();

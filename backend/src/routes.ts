@@ -34,6 +34,8 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.post("/auth/login", rateLimit, auth.login);
   routes.post("/auth/register", rateLimit, auth.register);
   if (config.demoLogin) routes.post("/auth/demo", rateLimit, auth.demo);
+  routes.get("/auth/csrf", auth.csrf);
+  routes.post("/auth/refresh", rateLimit, auth.refresh);
   routes.get("/auth/session", protectedRoute, auth.current);
   routes.post("/auth/logout", protectedRoute, requireCsrf, auth.logout);
   routes.use(protectedRoute);
