@@ -2,12 +2,12 @@
 
 -- Sample data for user table
 INSERT INTO "user" (userID, firstName, lastName, email, password, phone, status, statusDesc, registration_date) VALUES
-(1, 'John', 'Doe', 'johndoe@example.com', 'johndoe', '123-456-7890', 'active', 'Active member', NOW()),
-(2, 'Jane', 'Smith', 'janesmith@example.com', 'janesmith', '234-567-8901', 'active', 'Active member', NOW()),
-(3, 'Jonathan', 'Deen', 'JDeen1999@gmail.com', '1!J$$D!@', '(410) 490-3322', 'active', 'XX', TIMESTAMP '2026-09-11 00:00:00'),
-(4, 'Mary', 'Ambrose', 'RoseyM@gmail.com', 'MaryLamb428', '(443) 972-1738', 'active', 'XX', TIMESTAMP '2026-09-11 00:00:00'),
-(5, 'Mark', 'Barlow', 'MarkBar13@yahoo.com', 'mYp@ssw0rd111', '(410) 371-9425', 'inactive', 'banned for inappropriate behavior', TIMESTAMP '2026-09-11 00:00:00'),
-(6, 'Katie', 'Cox', 'KatKat@yahoo.com', '123barry987', '(410) 822-5087', 'active', 'XX', TIMESTAMP '2026-09-11 00:00:00');
+(1, 'John', 'Doe', 'johndoe@example.com', '$2b$12$H3kmbSt8hzszu0IwGybgdu0JXuOvUM7k7BQ.7hXYt1ciZWkG0aF5m', '123-456-7890', 'active', 'Active member', NOW()),
+(2, 'Jane', 'Smith', 'janesmith@example.com', '$2b$12$dVAhgCB9s89Zcho02kgq0e6Mnh/65G0E9SwcmOKy.Oqtt0NSTmnOG', '234-567-8901', 'active', 'Active member', NOW()),
+(3, 'Jonathan', 'Deen', 'JDeen1999@gmail.com', '$2b$12$f4j/j5Srkvr0OwL9W5bn2exXtQgZb2plgS/kS1VzuURwvzAqMhD5i', '(410) 490-3322', 'active', 'XX', TIMESTAMP '2026-09-11 00:00:00'),
+(4, 'Mary', 'Ambrose', 'RoseyM@gmail.com', '$2b$12$WZrJHSH9jhzOvJ4fev//les/5fZAsICc37Jl/wQWXt6lJkoGhXQTS', '(443) 972-1738', 'active', 'XX', TIMESTAMP '2026-09-11 00:00:00'),
+(5, 'Mark', 'Barlow', 'MarkBar13@yahoo.com', '$2b$12$bNnPJC9C7yDSttF2Q4sW8.gjenA.T1.iRkWX.2DSXImFzMhDyFF66', '(410) 371-9425', 'inactive', 'banned for inappropriate behavior', TIMESTAMP '2026-09-11 00:00:00'),
+(6, 'Katie', 'Cox', 'KatKat@yahoo.com', '$2b$12$reXiTfL/2eCJYo/4Bb.ZX.Upf/TA4Nf.T6i76oJ2J/13uuhHHbXW.', '(410) 822-5087', 'active', 'XX', TIMESTAMP '2026-09-11 00:00:00');
 
 -- Sample data for membership_tiers table
 INSERT INTO membership_tiers (tierID, tierName, tierPrice, allottedMonths) VALUES
