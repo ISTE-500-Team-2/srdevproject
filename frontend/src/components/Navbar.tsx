@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import "../assets/css/navbar.css";
 
 //All links contained in the navbar.
 //Label is the text that will be displayed in the element.
@@ -14,30 +15,30 @@ const navbarLinks = [
     {
         label: "Reservations",
         path: "/reservations",
-        children: [
-            {
-                label: "Equipment",
-                path: "/reservations/equipment"
-            },
-            {
-                label: "Studio Spaces",
-                path: "/reservations/spaces"
-            }
-        ] //children
+        // children: [
+        //     {
+        //         label: "Equipment",
+        //         path: "/reservations/equipment"
+        //     },
+        //     {
+        //         label: "Studio Spaces",
+        //         path: "/reservations/spaces"
+        //     }
+        // ] //children
     }, //reservations
     {
         label: "Certifications",
         path: "/certifications",
-        children: [
-            {
-                label: "My Certifications",
-                path: "/profile"
-            },
-            {
-                label: "Classes",
-                path: "/certifications/profile"
-            }
-        ]
+        // children: [
+        //     {
+        //         label: "My Certifications",
+        //         path: "/profile"
+        //     },
+        //     {
+        //         label: "Classes",
+        //         path: "/certifications/profile"
+        //     }
+        // ]
     }, //Certifications
     {
         label: "Profile",
