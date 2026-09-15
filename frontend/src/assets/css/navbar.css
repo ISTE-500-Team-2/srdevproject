@@ -7,3 +7,10 @@ The stylesheet for the navbar specifically.
     top: 0;
     padding: 1rem;
 }
+
+/* Removes the bullets */
+#main-navbar ul {
+    list-style-type: none;
+    padding: 0;
+    margin: 0;
+}
