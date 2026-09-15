@@ -3,7 +3,7 @@ import type { Request, Response } from 'express';
 import type { Pool } from 'pg';
 import type { AppConfig } from '../config.js';
 import { transaction } from '../db.js';
-import { AppError, emailField, passwordField, textField } from '../domain.js';
+import { AppError, dateOfBirthField, emailField, passwordField, textField } from '../domain.js';
 import { hashPassword, verifyPassword } from '../passwords.js';
 import { UserModel } from '../models/UserModel.js';
 import { SessionModel } from '../models/SessionModel.js';
@@ -64,11 +64,31 @@ export class AuthController {
       lastName: textField(req.body.lastName, 'Last name', 50),
       phone: textField(req.body.phone, 'Phone', 15),
       email: emailField(req.body.email),
+      dob: dateOfBirthField(req.body.dob),
       password: await hashPassword(passwordField(req.body.password)),
     };
-    const id = await transaction(this.pool, (db) =>
-      new UserModel(db).create(input),
-    );
+    let id: number;
+
+    try {
+      id = await transaction(this.pool, (db) =>
+        new UserModel(db).create(input),
+      );
+    } catch (error) {
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        error.code === '23505'
+      ) {
+        throw new AppError(
+          409,
+          'EMAIL_ALREADY_REGISTERED',
+          'An account with that email address already exists.',
+        );
+      }
+
+      throw error;
+    }
     res.status(201);
     await this.establish(req, res, id, false);
   };

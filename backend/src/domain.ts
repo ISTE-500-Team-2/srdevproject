@@ -61,6 +61,53 @@ export function emailField(value: unknown): string {
   return email;
 }
 
+export function dateOfBirthField(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new AppError(
+      400,
+      "INVALID_INPUT",
+      "Date of birth is required.",
+    );
+  }
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+
+  if (!match) {
+    throw new AppError(
+      400,
+      "INVALID_INPUT",
+      "Date of birth must use YYYY-MM-DD format.",
+    );
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() + 1 !== month ||
+    date.getUTCDate() !== day
+  ) {
+    throw new AppError(
+      400,
+      "INVALID_INPUT",
+      "Enter a valid date of birth.",
+    );
+  }
+
+  if (date > new Date()) {
+    throw new AppError(
+      400,
+      "INVALID_INPUT",
+      "Date of birth cannot be in the future.",
+    );
+  }
+
+  return value;
+}
+
 export function passwordField(value: unknown): string {
   if (typeof value !== "string" || value.length < 8 || value.length > 128) {
     throw new AppError(
@@ -69,6 +116,23 @@ export function passwordField(value: unknown): string {
       "Password must contain 8–128 characters.",
     );
   }
+
+  if (!/[A-Z]/.test(value)) {
+    throw new AppError(
+      400,
+      "INVALID_INPUT",
+      "Password must contain at least one uppercase letter.",
+    );
+  }
+
+  if (!/[^A-Za-z0-9]/.test(value)) {
+    throw new AppError(
+      400,
+      "INVALID_INPUT",
+      "Password must contain at least one special character.",
+    );
+  }
+
   return value;
 }
 
