@@ -4,12 +4,16 @@ on:
   pull_request:
     paths:
       - "ddl/**"
+      - "database/migrations/005_user_dob.sql"
+      - "database/tests/user_dob.sql"
       - ".github/workflows/sql-verify.yml"
   push:
     branches:
       - database-integration
     paths:
       - "ddl/**"
+      - "database/migrations/005_user_dob.sql"
+      - "database/tests/user_dob.sql"
       - ".github/workflows/sql-verify.yml"
 
 permissions:
@@ -68,3 +72,5 @@ jobs:
 
           printf '%s\n' "${result}"
           test "${result}" = "${expected}"
+          psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d collaboratoryarbor \
+            -f database/tests/user_dob.sql

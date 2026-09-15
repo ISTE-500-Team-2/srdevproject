@@ -14,7 +14,7 @@ Start here for the membership/access implementation. The packaged `BUILD-INFO.tx
 
 ## Authentication update — September 10
 
-The backend now uses **signed JWTs**, as agreed in the team’s backend discussion. Cookies carry the JWT; they are not a replacement for JWT authentication. Existing CSRF, logout revocation, account-status and live role checks remain in place. See [JWT-AUTH.md](JWT-AUTH.md) for key configuration, expiry and upgrade behavior. Staff writes now consult PR #3’s permission tables inside their transactions; member ownership and read routes retain their existing server-side checks. This is not yet the complete six-role RBAC implementation.
+The backend now uses **signed JWTs**, as agreed in the team’s backend discussion. Access JWTs live in browser memory and use Authorization headers; HttpOnly cookies carry only rotating refresh tokens. Existing CSRF, logout revocation, account-status and live role checks remain in place. See [JWT-AUTH.md](JWT-AUTH.md) for key configuration, expiry and upgrade behavior. Staff writes now consult PR #3’s permission tables inside their transactions; member ownership and read routes retain their existing server-side checks. This is not yet the complete six-role RBAC implementation.
 
 ## Start the isolated demo
 
@@ -118,7 +118,7 @@ flowchart LR
 
 ## API reference
 
-All endpoints are under `/api`. Responses use `{data: ...}`; failures use `{error:{code,message}}`. Staff writes require a validated JWT in the HttpOnly cookie, CSRF header, permitted origin, JSON and a human-readable reason. Membership `startsAt` accepts an ISO timestamp with timezone and up to three fractional-second digits (milliseconds); day-pass `validDate` uses `YYYY-MM-DD`. Never put session values into shared notes.
+All endpoints are under `/api`. Responses use `{data: ...}`; failures use `{error:{code,message}}`. Staff writes require a validated bearer access JWT, CSRF header, permitted origin, JSON and a human-readable reason. Membership `startsAt` accepts an ISO timestamp with timezone and up to three fractional-second digits (milliseconds); day-pass `validDate` uses `YYYY-MM-DD`. Never put session values into shared notes.
 
 | Method/path | Behavior |
 | --- | --- |

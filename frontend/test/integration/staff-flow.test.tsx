@@ -11,6 +11,7 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
+import { setAccessToken, setCsrfToken } from "../../src/lib/api";
 import App from "../../src/App";
 import { createBrowserBridge } from "../../../backend/test/helpers/browserBridge";
 
@@ -82,6 +83,8 @@ test("staff React flow creates a plan, issues access/payment, survives reload, s
     { timeout: 20000 },
   );
   expect(within(screen.getByRole('navigation', {name:'Primary navigation'})).getByRole('link', {name:'Staff workspace'})).toBeTruthy();
+  expect(window.localStorage.length).toBe(0);
+  expect(window.sessionStorage.length).toBe(0);
   const name = "UI monthly plan";
   await user.type(within(create).getByLabelText("Plan name"), name);
   fireEvent.change(within(create).getByLabelText("Price (USD)"), {
@@ -161,6 +164,7 @@ test("staff React flow creates a plan, issues access/payment, survives reload, s
   ).toEqual({ amount: "35.25", status: "paid" });
 
   cleanup();
+  setAccessToken(null); setCsrfToken(null);
   mount();
   await user.click(
     await screen.findByRole(

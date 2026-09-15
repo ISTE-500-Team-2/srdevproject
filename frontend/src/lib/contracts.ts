@@ -12,6 +12,8 @@ export interface User {
   accessStatus: 'active' | 'suspended' | 'revoked';
 }
 export interface Session {
+  accessToken?: string;
+  expiresIn?: number;
   user: User;
   csrfToken: string;
 }

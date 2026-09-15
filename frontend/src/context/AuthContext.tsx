@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { api, ApiError, errorMessage, setCsrfToken } from '../lib/api';
+import { api, ApiError, errorMessage, setCsrfToken, setAccessToken } from '../lib/api';
 import type { Registration, Session, User } from '../lib/contracts';
 import type { UserRole } from '../types';
 
@@ -33,6 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState('');
   const [demoLogin, setDemoLogin] = useState(false);
   const acceptSession = useCallback((session: Session) => {
+    if (session.accessToken) setAccessToken(session.accessToken);
     setCsrfToken(session.csrfToken);
     setUser(session.user);
     setError('');
@@ -46,6 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (err instanceof ApiError && err.status === 401) {
         setUser(null);
         setCsrfToken(null);
+        setAccessToken(null);
       } else setError(errorMessage(err));
     } finally {
       setLoading(false);
@@ -59,6 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const expired = () => {
       setUser(null);
       setCsrfToken(null);
+        setAccessToken(null);
     };
     window.addEventListener('session-expired', expired);
     return () => window.removeEventListener('session-expired', expired);
@@ -90,6 +93,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     await api<void>('/auth/logout', { method: 'POST' });
     setCsrfToken(null);
+        setAccessToken(null);
     setUser(null);
   }, []);
   const value = useMemo(
