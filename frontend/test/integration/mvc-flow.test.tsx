@@ -65,7 +65,7 @@ test('signup form creates an account with DOB and the new password policy', asyn
   });
 
   await user.type(
-    within(dialog).getByLabelText('Password'),
+    within(dialog).getByLabelText('Password', { exact: false }),
     'ValidPassword!',
   );
 
