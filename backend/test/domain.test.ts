@@ -5,6 +5,7 @@ import {
   AppError,
   dateOfBirthField,
   emailField,
+  newPasswordField,
   passwordField,
   positiveId,
   reservationWindow,
@@ -48,13 +49,21 @@ test('identifiers and emails are validated without coercing arbitrary values', (
   assert.throws(() => emailField('not-an-email'), AppError);
 });
 
-test('registration passwords require length, uppercase, and a special character', () => {
-  assert.equal(passwordField('ValidPassword!'), 'ValidPassword!');
+test('existing passwords are not subject to new-password complexity rules', () => {
+  assert.equal(passwordField('existingpassword123'), 'existingpassword123');
+  assert.equal(passwordField('123barry987'), '123barry987');
 
   assert.throws(() => passwordField('Short!'), AppError);
-  assert.throws(() => passwordField('lowercasepassword!'), AppError);
-  assert.throws(() => passwordField('Password123'), AppError);
   assert.throws(() => passwordField(null), AppError);
+});
+
+test('new passwords require length, uppercase, and a special character', () => {
+  assert.equal(newPasswordField('ValidPassword!'), 'ValidPassword!');
+
+  assert.throws(() => newPasswordField('Short!'), AppError);
+  assert.throws(() => newPasswordField('lowercasepassword!'), AppError);
+  assert.throws(() => newPasswordField('Password123'), AppError);
+  assert.throws(() => newPasswordField(null), AppError);
 });
 
 test('dates of birth require a valid YYYY-MM-DD date that is not in the future', () => {

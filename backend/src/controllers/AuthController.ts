@@ -7,6 +7,7 @@ import {
   AppError,
   dateOfBirthField,
   emailField,
+  newPasswordField,
   passwordField,
   textField,
 } from '../domain.js';
@@ -91,7 +92,7 @@ export class AuthController {
       phone: textField(req.body.phone, 'Phone', 15),
       email: emailField(req.body.email),
       dob: dateOfBirthField(req.body.dob),
-      password: await hashPassword(passwordField(req.body.password)),
+      password: await hashPassword(newPasswordField(req.body.password)),
     };
     let id: number;
 

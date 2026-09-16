@@ -22,6 +22,7 @@ export interface Registration {
   lastName: string;
   email: string;
   phone: string;
+  dob: string;
   password: string;
 }
 export interface LiveEquipment extends Omit<Equipment, 'rate'> {

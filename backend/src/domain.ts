@@ -117,7 +117,21 @@ export function passwordField(value: unknown): string {
     );
   }
 
-  if (!/[A-Z]/.test(value)) {
+  return value;
+}
+
+export function newPasswordField(value: unknown): string {
+  const password = passwordField(value);
+
+  if (password.length < 8) {
+    throw new AppError(
+      400,
+      "INVALID_INPUT",
+      "Password must contain 8–128 characters.",
+    );
+  }
+
+  if (!/[A-Z]/.test(password)) {
     throw new AppError(
       400,
       "INVALID_INPUT",
@@ -125,7 +139,7 @@ export function passwordField(value: unknown): string {
     );
   }
 
-  if (!/[^A-Za-z0-9]/.test(value)) {
+  if (!/[^A-Za-z0-9]/.test(password)) {
     throw new AppError(
       400,
       "INVALID_INPUT",
@@ -133,7 +147,7 @@ export function passwordField(value: unknown): string {
     );
   }
 
-  return value;
+  return password;
 }
 
 export function reservationWindow(

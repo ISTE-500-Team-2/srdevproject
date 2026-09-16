@@ -59,6 +59,7 @@ export function LoginPage() {
         lastName: String(form.get('lastName')),
         phone: String(form.get('phone')),
         email: String(form.get('email')),
+        dob: String(form.get('dob')),
         password: String(form.get('password')),
       });
       navigate('/');
@@ -265,6 +266,15 @@ export function LoginPage() {
             />
           </label>
           <label className="form-field">
+            <span>Date of birth</span>
+            <input
+              name="dob"
+              type="date"
+              required
+              autoComplete="bday"
+            />
+          </label>
+          <label className="form-field">
             <span>Password</span>
             <input
               name="password"
@@ -273,8 +283,12 @@ export function LoginPage() {
               minLength={8}
               maxLength={128}
               autoComplete="new-password"
-              placeholder="At least 8 characters"
+              placeholder="Create a password"
+              aria-describedby="signup-password-requirements"
             />
+            <small id="signup-password-requirements">
+              8–128 characters with at least one uppercase letter and one special character.
+            </small>
           </label>
           {error ? (
             <p role="alert" className="form-error">
