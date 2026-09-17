@@ -1,3 +1,5 @@
+import { WaiverRecordsController } from './controllers/WaiverRecordsController.js';
+import { NotificationPreferencesController } from "./controllers/NotificationPreferencesController.js";
 import { Router } from "express";
 import type { Pool } from "pg";
 import type { AppConfig } from "./config.js";
@@ -16,6 +18,8 @@ import { StaffController } from "./controllers/StaffController.js";
 export function apiRoutes(pool: Pool, config: AppConfig) {
   const routes = Router();
   const auth = new AuthController(pool, config);
+  const notifications = new NotificationPreferencesController(pool);
+  const waiverRecords = new WaiverRecordsController(pool);
   const member = new MemberController(pool, config.timeZone);
   const equipment = new EquipmentController(pool, config.timeZone);
   const reservations = new ReservationController(pool, config.timeZone);
@@ -33,6 +37,8 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   );
   routes.post("/auth/login", rateLimit, auth.login);
   routes.post("/auth/register", rateLimit, auth.register);
+  routes.post("/auth/confirm", rateLimit, auth.confirm);
+  routes.post("/auth/confirmation", rateLimit, auth.confirmation);
   if (config.demoLogin) routes.post("/auth/demo", rateLimit, auth.demo);
   routes.get("/auth/csrf", auth.csrf);
   routes.post("/auth/refresh", rateLimit, auth.refresh);
@@ -44,7 +50,11 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.post("/reservations", requireCsrf, reservations.create);
   routes.post("/reservations/:id/cancel", requireCsrf, reservations.cancel);
   routes.get("/me/overview", member.overview);
+  routes.get("/me/notifications", notifications.get);
+  routes.patch("/me/notifications", requireCsrf, notifications.update);
   routes.patch("/me/profile", requireCsrf, member.profile);
+  routes.get("/me/signed-waivers", waiverRecords.mine);
+  routes.get("/me/signed-waivers/:id/copy", waiverRecords.ownCopy);
   routes.get("/me/waivers", member.waivers);
   routes.get("/me/certifications", member.certifications);
   routes.post("/me/waivers/:id/sign", requireCsrf, member.signWaiver);
@@ -58,6 +68,9 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.patch("/admin/plans/:id", requireCsrf, staff.updatePlan);
   routes.get("/admin/users", staff.users);
   routes.get("/admin/users/:id", staff.user);
+  routes.get("/admin/users/:id/signed-waivers", waiverRecords.member);
+  routes.get("/admin/users/:id/signed-waivers/:waiverId/copy", waiverRecords.memberCopy);
+  routes.patch("/admin/users/:id/signed-waivers/:waiverId/expiry", requireCsrf, waiverRecords.expiry);
   routes.patch("/admin/users/:id/profile", requireCsrf, staff.profile);
   routes.post("/admin/users/:id/access", requireCsrf, staff.access);
   routes.post("/admin/users/:id/role", requireCsrf, staff.role);

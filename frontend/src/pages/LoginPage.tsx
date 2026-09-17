@@ -54,7 +54,7 @@ export function LoginPage() {
     setError('');
     setBusy(true);
     try {
-      await register({
+      const result = await register({
         firstName: String(form.get('firstName')),
         lastName: String(form.get('lastName')),
         phone: String(form.get('phone')),
@@ -62,7 +62,7 @@ export function LoginPage() {
         dob: String(form.get('dob')),
         password: String(form.get('password')),
       });
-      navigate('/');
+      navigate('/confirm-email', {state:{email:result.email,emailSendingEnabled:result.emailSendingEnabled}});
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -203,6 +203,7 @@ export function LoginPage() {
         </div>
       </section>
 
+      <p><button type="button" className="button" onClick={() => navigate('/confirm-email')}>Resend confirmation or correct your email</button></p>
       <Modal
         open={dialog === 'forgot'}
         title="Reset your password"

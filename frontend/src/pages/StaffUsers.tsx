@@ -1,3 +1,4 @@
+import { SignedWaiverRecords } from '../components/SignedWaiverRecords';
 import { useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { api, ApiError } from "../lib/api";
@@ -138,6 +139,7 @@ function UserDetail({
       ) : null}
       {d && u ? (
         <>
+          {isAdmin ? <SignedWaiverRecords userId={id} onChanged={() => refresh("Waiver expiration saved.")} /> : null}
           <section className="panel management-panel">
             <h2>
               {u.firstName} {u.lastName} · Member #{u.id}

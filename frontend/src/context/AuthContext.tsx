@@ -22,7 +22,8 @@ interface AuthContextValue {
     remember: boolean,
   ) => Promise<UserRole>;
   loginAs: (role: UserRole) => Promise<UserRole>;
-  register: (input: Registration) => Promise<UserRole>;
+  register: (input: Registration) => Promise<{confirmationRequired:true;email:string;emailSendingEnabled:boolean}>;
+  confirmEmail: (token:string) => Promise<UserRole>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -84,12 +85,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [acceptSession],
   );
   const register = useCallback(
-    async (input: Registration) =>
-      acceptSession(
-        await api<Session>('/auth/register', { method: 'POST', body: input }),
-      ),
-    [acceptSession],
+    async (input: Registration) => api<{confirmationRequired:true;email:string;emailSendingEnabled:boolean}>('/auth/register', {method:'POST',body:{...input,timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone}}),
+    [],
   );
+  const confirmEmail = useCallback(async (token:string) => acceptSession(await api<Session>('/auth/confirm',{method:'POST',body:{token}})),[acceptSession]);
   const logout = useCallback(async () => {
     await api<void>('/auth/logout', { method: 'POST' });
     setCsrfToken(null);
@@ -105,6 +104,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login,
       loginAs,
       register,
+      confirmEmail,
       logout,
       refresh,
     }),
@@ -116,6 +116,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login,
       loginAs,
       register,
+      confirmEmail,
       logout,
       refresh,
     ],
