@@ -1,0 +1,28 @@
+import assert from 'node:assert/strict';
+import { randomBytes } from 'node:crypto';
+import { before, after, test } from 'node:test';
+import { Pool } from 'pg';
+import request from 'supertest';
+import { createApp } from '../../src/app.js';
+import { initializeDemo } from '../../src/scripts/init-demo.js';
+const database='arbor_'+randomBytes(6).toString('hex')+'_mvc_test';
+const admin=new Pool({connectionTimeoutMillis:5000});
+const pool=new Pool({database,connectionTimeoutMillis:5000});
+const token=randomBytes(32).toString('hex');
+const app=createApp(pool,{jwtKey:randomBytes(32),port:8080,host:'127.0.0.1',secureCookies:false,demoLogin:true,allowedOrigins:[],timeZone:'UTC',brevoWebhookToken:token});
+let created=false;
+before(async()=>{if(!process.env.PGHOST||process.env.DATABASE_URL)throw Error('Isolated PostgreSQL required');await admin.query(`CREATE DATABASE "${database}"`);created=true;await initializeDemo(pool);});
+after(async()=>{await pool.end();if(created)await admin.query(`DROP DATABASE "${database}"`);await admin.end();});
+test('webhook authenticates, validates, retains early callbacks and deduplicates retries',async()=>{
+ const event={event:'delivered','message-id':'<controlled@example.invalid>',ts_event:Math.floor(Date.now()/1000)};
+ assert.equal((await request(app).post('/api/webhooks/brevo').send(event)).status,401);
+ const send=(data:unknown)=>request(app).post('/api/webhooks/brevo').set('Authorization','Bearer '+token).send(data);
+ assert.equal((await send(event)).status,204);
+ assert.equal((await send(event)).status,204);
+ assert.equal((await send({...event,event:'hard_bounce'})).status,204);
+ assert.equal((await send({...event,event:'bad'})).status,400);
+ const rows=(await pool.query('SELECT provider_message_id,event_type FROM app_brevo_delivery_event ORDER BY event_type')).rows;
+ assert.equal(rows.length,2);assert.equal(rows[0].provider_message_id,'controlled@example.invalid');
+ assert.equal((await send({...event,event:'unsubscribed',email:'someone-else@example.invalid'})).status,204);
+ assert.equal((await pool.query('SELECT count(*)::int n FROM app_notification_preferences WHERE enabled=false')).rows[0].n,0);
+});

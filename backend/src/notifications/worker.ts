@@ -42,6 +42,12 @@ export async function runNotificationBatch(pool:Pool,send:(notification:PendingN
       const allowed=await pool.query(`SELECT 1 FROM "user" u LEFT JOIN app_notification_preferences p USING(userid)
         WHERE u.userid=$1 AND u.status='active' AND COALESCE(p.enabled,true)`,[row.userId]);
       if(!allowed.rows.length) {await finish('suppressed');result.suppressed++;continue;}
+      if (row.kind === 'account_confirmation') {
+        const current = await pool.query(`SELECT 1 FROM app_email_confirmation c JOIN "user" u USING(userid)
+          WHERE c.userid=$1 AND c.token_hash=$2 AND c.expires_at>$3 AND u.email_confirmed=false`,
+          [row.userId,row.payload.confirmationHash,clock()]);
+        if (!current.rows.length) {await finish('obsolete');result.obsolete++;continue;}
+      }
       if(!await expirationSourceCurrent(pool,row.userId,row.payload,clock())) {await finish('obsolete');result.obsolete++;continue;}
       if(typeof row.payload.expiresAt==='string' && new Date(row.payload.expiresAt)<=clock()) {
         await finish('failed','expired_before_dispatch');result.failed++;continue;
@@ -50,6 +56,12 @@ export async function runNotificationBatch(pool:Pool,send:(notification:PendingN
       if(!response.messageId)throw new NotificationSendError('Provider response missing message id',{retryable:false,ambiguous:true});
       await pool.query(`UPDATE app_notification_outbox SET status='accepted',accepted_at=$2,provider_message_id=$3,lease_until=NULL,last_error=NULL,updated_at=NOW() WHERE id=$1 AND status IN ('sending','uncertain')`,[row.id,clock(),response.messageId]);
       result.accepted++;
+      // A callback can arrive before the HTTP send response. Apply unsubscribe
+      // ownership only after the provider message ID is known locally.
+      await pool.query(`INSERT INTO app_notification_preferences(userid,enabled)
+        SELECT $1,false WHERE EXISTS(SELECT 1 FROM app_brevo_delivery_event
+          WHERE provider_message_id=trim(both '<>' from $2::text) AND event_type='unsubscribed')
+        ON CONFLICT(userid) DO UPDATE SET enabled=false,updated_at=NOW()`,[row.userId,response.messageId]);
     }catch(error) {
       // Never persist raw provider responses, URLs or message contents.
       const known=error instanceof NotificationSendError;

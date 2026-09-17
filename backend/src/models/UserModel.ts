@@ -28,9 +28,9 @@ export class UserModel {
 
   async credentials(
     email: string,
-  ): Promise<{ id: number; password: string } | null> {
-    const { rows } = await this.db.query<{ id: number; password: string }>(
-      'SELECT userid AS id, password FROM "user" WHERE lower(email)=$1',
+  ): Promise<{ id: number; password: string; emailConfirmed:boolean } | null> {
+    const { rows } = await this.db.query<{ id: number; password: string; emailConfirmed:boolean }>(
+      'SELECT userid AS id, password,email_confirmed AS "emailConfirmed" FROM "user" WHERE lower(email)=$1',
       [email],
     );
     return rows[0] ?? null;

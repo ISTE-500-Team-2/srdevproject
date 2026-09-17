@@ -1,3 +1,4 @@
+import { SignedWaiverRecords } from '../components/SignedWaiverRecords';
 import { Save, UserRound } from 'lucide-react';
 import { type FormEvent, useState, useEffect } from 'react';
 import { Toast } from '../components/Toast';
@@ -139,6 +140,7 @@ export function ProfilePage() {
         </form>
       </section>
       <NotificationSettings />
+      <SignedWaiverRecords />
       <section className="panel feature-notice">
         <h2>Other account settings</h2>
         <p>

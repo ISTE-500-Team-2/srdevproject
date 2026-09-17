@@ -1,3 +1,4 @@
+import { confirmationToken } from '../helpers/confirmation.js';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID, scryptSync } from 'node:crypto';
 import { before, after, test } from 'node:test';
@@ -44,10 +45,12 @@ function current(token: string, instance = app) {
 async function register() {
   const email = randomUUID() + '@example.invalid';
   const password = `A!${randomBytes(24).toString('hex')}`;
-  const res = await request(app).post('/api/auth/register').send({
+  let res = await request(app).post('/api/auth/register').send({
     email, password, firstName: 'JWT', lastName: 'Test', phone: '0000000000', dob: '2000-01-01',
   });
-  assert.equal(res.status, 201);
+  assert.equal(res.status, 202);
+  res=await request(app).post('/api/auth/confirm').send({token:await confirmationToken(pool,email)});
+  assert.equal(res.status,200);
   return { email, password, userId: res.body.data.user.id as number, token: browserToken(res), csrf: res.body.data.csrfToken as string, res };
 }
 function claims(userId: number): JWTPayload {

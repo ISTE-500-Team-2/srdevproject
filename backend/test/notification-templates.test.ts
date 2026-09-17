@@ -10,7 +10,7 @@ test('every template includes sender/recipient, postal address and opt-out; dyna
   for (const kind of notificationKinds) {
     const result = renderNotification(kind, {resourceName:'<img src=x onerror=alert(1)>',
       waiverText:'Line one\n<script>bad</script>', signature:'Test Member', signedAt:'2030-01-01T00:00:00Z', waiverVersion:'v1',
-      password:'DO_NOT_RENDER', apiKey:'DO_NOT_RENDER'}, context);
+      confirmationUrl:'https://studio.example/confirm-email#'+'a'.repeat(43), password:'DO_NOT_RENDER', apiKey:'DO_NOT_RENDER'}, context);
     assert.ok(result.subject.length > 0);
     assert.ok(result.textContent.includes(context.postalAddress));
     assert.ok(result.textContent.includes(context.recipientEmail));

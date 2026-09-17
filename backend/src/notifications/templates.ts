@@ -1,5 +1,6 @@
 /** Requirement IDs are sourced from the live team Drive sheet, not older Jira numbering. */
 const headings = {
+  account_confirmation: 'Confirm your email address',
   account_created: 'Your account has been created',
   account_creation_failed: 'Account creation could not be completed',
   account_closed: 'Your account has been closed',
@@ -97,6 +98,12 @@ export function renderNotification(kind: NotificationKind, payload: Notification
     const value = dateFields.has(field) ? displayDate(raw, timeZone) : raw;
     if (value) paragraphs.push(`${label}: ${value}`);
   }
+  if (kind === 'account_confirmation') {
+    const link = new URL(text(payload.confirmationUrl));
+    if (!['http:', 'https:'].includes(link.protocol) || link.username || link.password || link.pathname !== '/confirm-email' || !/^#[A-Za-z0-9_-]{43}$/.test(link.hash))
+      throw new Error('Invalid confirmation link');
+    paragraphs.push(`Confirm your email: ${link.href}`, 'This single-use link expires in 24 hours. Open it and choose Confirm email to finish signing in.');
+  }
   if (kind === 'waiver_signed') {
     // FR-063 requires the actual immutable signed snapshot, never just current waiver text.
     const fullText = text(payload.waiverText);
@@ -124,6 +131,7 @@ export function renderNotification(kind: NotificationKind, payload: Notification
   const htmlContent = '<!doctype html><html lang="en"><body>' +
     `<h1>${escapeHtml(heading)}</h1><p>${escapeHtml(identity).replace(/\n/g, '<br>')}</p>` +
     paragraphs.map(p => `<p style="white-space:pre-wrap">${escapeHtml(p)}</p>`).join('') +
+    (kind === 'account_confirmation' ? `<p><a href="${escapeHtml(text(payload.confirmationUrl))}">Confirm email</a></p>` : '') +
     (preferenceLink ? `<p><a href="${escapeHtml(preferenceLink)}">Manage notification preferences</a></p>` : '') +
     '</body></html>';
   return { subject, htmlContent, textContent: `${identity}\n\n${paragraphs.join('\n\n')}` };

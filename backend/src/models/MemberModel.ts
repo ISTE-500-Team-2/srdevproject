@@ -15,6 +15,11 @@ export class MemberModel {
     ).rows;
   }
   async signWaiver(userId: number, waiverId: number) {
+    // Caller provides the transaction. Preserve expired signatures and their
+    // immutable copies while permitting a new explicit agreement.
+    await this.db.query("SELECT pg_advisory_xact_lock(hashtext('arbor-waiver-sign'),hashtext($1))",[`${userId}:${waiverId}`]);
+    await this.db.query(`UPDATE user_waiver SET approval=false WHERE userid=$1 AND waiverid=$2
+      AND approval=true AND expires_at<=NOW()`,[userId,waiverId]);
     const result = await this.db.query(
       `INSERT INTO user_waiver (userid,waiverid,signdate,approval)
       VALUES ($1,$2,NOW() AT TIME ZONE 'UTC',true) ON CONFLICT (userid,waiverid) WHERE approval=true DO NOTHING RETURNING userwaiverid AS id, signdate AT TIME ZONE 'UTC' AS "signedAt"`,

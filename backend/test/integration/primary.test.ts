@@ -1,3 +1,4 @@
+import { confirmationToken } from '../helpers/confirmation.js';
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
@@ -58,7 +59,7 @@ function client() {
       accept(r);
     },
     async register() {
-      const r = await agent.post("/api/auth/register").send({
+      let r = await agent.post("/api/auth/register").send({
         firstName: "Primary",
         lastName: "Test",
         phone: "0000000000",
@@ -66,7 +67,9 @@ function client() {
         password: `A!${randomBytes(24).toString("hex")}`,
         dob: "2000-01-01",
       });
-      assert.equal(r.status, 201);
+      assert.equal(r.status, 202);
+      r=await agent.post("/api/auth/confirm").send({token:await confirmationToken(pool,r.body.data.email)});
+      assert.equal(r.status,200);
       accept(r);
     },
     get: (path: string) => agent.get("/api" + path),

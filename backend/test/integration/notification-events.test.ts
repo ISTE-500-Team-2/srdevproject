@@ -1,3 +1,4 @@
+import { confirmationToken } from '../helpers/confirmation.js';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { before, after, test } from 'node:test';
@@ -20,8 +21,10 @@ after(async () => {await pool.end();if(created) await admin.query(`DROP DATABASE
 
 test('registration queues one event; preference ownership, CSRF, validation and global opt-out work', async () => {
   const registration={firstName:'Notice',lastName:'Tester',email:'notice@example.invalid',phone:'0000000000',dob:'2000-01-01',password:'StrongPassword123!',timeZone:'Pacific/Auckland'};
-  const response=await request(app).post('/api/auth/register').send(registration);
-  assert.equal(response.status,201);
+  let response=await request(app).post('/api/auth/register').send(registration);
+  assert.equal(response.status,202);
+  response=await request(app).post("/api/auth/confirm").send({token:await confirmationToken(pool,registration.email)});
+  assert.equal(response.status,200);
   const {user,csrfToken,accessToken}=response.body.data;
   const agent=request.agent(app).set('Authorization','Bearer '+accessToken);
   assert.deepEqual((await agent.get('/api/me/notifications')).body.data,{enabled:true,timeZone:'Pacific/Auckland'});
@@ -31,7 +34,7 @@ test('registration queues one event; preference ownership, CSRF, validation and 
   assert.equal((await request(app).post('/api/auth/register').send(registration)).status,409);
   assert.equal((await pool.query("SELECT count(*)::int AS n FROM app_notification_outbox WHERE userid=$1 AND kind='account_created'",[user.id])).rows[0].n,1);
   assert.equal((await agent.patch('/api/me/notifications').set('X-CSRF-Token',csrfToken).send({enabled:false,timeZone:'UTC',userId:1})).status,200);
-  assert.equal((await pool.query('SELECT status FROM app_notification_outbox WHERE userid=$1',[user.id])).rows[0].status,'suppressed');
+  assert.equal((await pool.query("SELECT status FROM app_notification_outbox WHERE userid=$1 AND kind='account_created'",[user.id])).rows[0].status,'suppressed');
   const waivers=(await agent.get('/api/me/waivers')).body.data;
   assert.ok(waivers.length);
   for(let i=0;i<2;i++) assert.equal((await agent.post(`/api/me/waivers/${waivers[0].id}/sign`).set('X-CSRF-Token',csrfToken).send({accepted:true})).status,200);
