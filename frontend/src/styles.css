@@ -2706,3 +2706,13 @@ p {
     padding: 24px;
   }
 }
+
+/* Database-backed member flows share the prototype's panels and controls. */
+.saved-records { display: grid; gap: 1rem; margin: 1rem 0; }
+.saved-record { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; padding: 1.25rem; }
+.saved-record p { margin: .4rem 0; }
+.feature-notice { padding: 1.5rem; margin: 1.5rem 0; }
+.policy-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.sample-data-banner { padding: .7rem 1rem; background: #fff1cc; color: #4a3600; text-align: center; font-size: .9rem; }
+.credentials-page > section:first-child, .credentials-page > p { grid-column: 1 / -1; }
+button:disabled { cursor: not-allowed; opacity: .6; }

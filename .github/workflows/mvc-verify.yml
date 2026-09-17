@@ -1,0 +1,52 @@
+name: Verify MVC application
+on:
+  pull_request:
+    paths: ['backend/**', 'frontend/**', 'database/**', 'ddl/**', 'Dockerfile', 'compose.mvc.yml', '.github/workflows/mvc-verify.yml']
+  push:
+    branches: [feat/mvc-integration]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16.14-bookworm@sha256:64154d0babcb1741988719e703419af0382b19953706149f9872fbd0f438efa8
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGDATABASE: postgres
+      DEBUG_PRINT_LIMIT: 1200
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - run: npm ci --prefix backend
+      - run: npm ci --prefix frontend
+      - run: npm run check --prefix backend
+      - run: npm run check --prefix frontend
+      - run: npm run test:integration --prefix backend
+      - run: npm run test:integration --prefix frontend
+      - run: docker build -t collaboratory-mvc:verification .
+      - name: Start isolated Docker JWT demo
+        run: |
+          docker tag collaboratory-mvc:verification arbor-jwt-ci-app
+          docker compose -p arbor-jwt-ci -f compose.mvc.yml up -d --no-build --wait
+      - name: Verify JWT login survives container recreation
+        run: node backend/test/container-auth.mjs
+      - name: Clean up disposable CI demo
+        if: always()
+        run: docker compose -p arbor-jwt-ci -f compose.mvc.yml down --volumes

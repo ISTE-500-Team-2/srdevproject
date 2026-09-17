@@ -1,0 +1,48 @@
+name: arbor-mvc
+services:
+  db:
+    restart: unless-stopped
+    image: postgres:16.14-bookworm@sha256:64154d0babcb1741988719e703419af0382b19953706149f9872fbd0f438efa8
+    environment:
+      POSTGRES_USER: arbor_mvc
+      POSTGRES_DB: arbor_mvc_dev
+      # Isolated synthetic-data development database, not the migrated stack.
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports: ["127.0.0.1:25432:5432"]
+    volumes: ["mvc-data:/var/lib/postgresql/data"]
+    networks: [mvc]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arbor_mvc -d arbor_mvc_dev"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  app:
+    restart: unless-stopped
+    build: .
+    environment:
+      NODE_ENV: development
+      HOST: 0.0.0.0
+      PORT: 8080
+      PGHOST: db
+      PGUSER: arbor_mvc
+      PGDATABASE: arbor_mvc_dev
+      ENABLE_DEMO_LOGIN: "true"
+      APP_ORIGIN: http://localhost:8081
+      JWT_DEV_KEY_FILE: /app/.local/jwt-signing.key
+    command: ["sh", "-c", "node backend/dist/scripts/init-demo.js && node backend/dist/server.js"]
+    ports: ["127.0.0.1:8081:8080"]
+    networks: [mvc]
+    volumes: ["mvc-auth:/app/.local"]
+    depends_on:
+      db: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+networks:
+  mvc:
+    driver: bridge
+volumes:
+  mvc-data:
+  mvc-auth:

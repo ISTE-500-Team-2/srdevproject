@@ -1,0 +1,12 @@
+.DS_Store
+.env
+.team-dev.env
+*.local.env
+
+node_modules/
+dist/
+*.tsbuildinfo
+coverage/
+.env*
+!.env.example
+.local/
