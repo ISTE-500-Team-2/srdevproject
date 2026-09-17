@@ -31,6 +31,66 @@ function mount(path = '/login') {
   );
 }
 
+test('signup form creates an account with DOB and the new password policy', async () => {
+  vi.stubGlobal('fetch', bridge.fetch);
+  const user = userEvent.setup();
+  mount();
+
+  await user.click(
+    await screen.findByRole(
+      'button',
+      { name: 'Sign up' },
+      { timeout: 20000 },
+    ),
+  );
+
+  const dialog = screen.getByRole('dialog', { name: 'Create your account' });
+
+  expect(
+    within(dialog).getByText(
+      /8–128 characters with at least one uppercase letter and one special character/i,
+    ),
+  ).toBeTruthy();
+
+  await user.type(within(dialog).getByLabelText('First name'), 'Signup');
+  await user.type(within(dialog).getByLabelText('Last name'), 'Test');
+  await user.type(
+    within(dialog).getByLabelText('Email'),
+    'signup-ui@example.invalid',
+  );
+  await user.type(within(dialog).getByLabelText('Phone'), '0000000000');
+
+  fireEvent.change(within(dialog).getByLabelText('Date of birth'), {
+    target: { value: '2000-01-01' },
+  });
+
+  await user.type(
+    within(dialog).getByLabelText('Password', { exact: false }),
+    'ValidPassword!',
+  );
+
+  await user.click(
+    within(dialog).getByRole('button', { name: 'Create account' }),
+  );
+
+  await screen.findByRole(
+    'heading',
+    { name: /Welcome back/ },
+    { timeout: 20000 },
+  );
+
+  const account = await bridge.pool.query(
+    `SELECT email, dob::text AS dob FROM "user" WHERE email=$1`,
+    ['signup-ui@example.invalid'],
+  );
+
+  expect(account.rowCount).toBe(1);
+  expect(account.rows[0].email).toBe('signup-ui@example.invalid');
+  expect(account.rows[0].dob).toBe('2000-01-01');
+
+  cleanup();
+}, 120000);
+
 test('React → Express controllers/models → PostgreSQL: login, save, refresh, cancel, waive and check in', async () => {
   vi.stubGlobal('fetch', bridge.fetch);
   const config = await fetch('/api/config');

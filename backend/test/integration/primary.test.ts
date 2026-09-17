@@ -63,7 +63,8 @@ function client() {
         lastName: "Test",
         phone: "0000000000",
         email: randomUUID() + "@example.invalid",
-        password: randomBytes(24).toString("hex"),
+        password: `A!${randomBytes(24).toString("hex")}`,
+        dob: "2000-01-01",
       });
       assert.equal(r.status, 201);
       accept(r);

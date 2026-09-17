@@ -43,9 +43,9 @@ function current(token: string, instance = app) {
 }
 async function register() {
   const email = randomUUID() + '@example.invalid';
-  const password = randomBytes(24).toString('hex');
+  const password = `A!${randomBytes(24).toString('hex')}`;
   const res = await request(app).post('/api/auth/register').send({
-    email, password, firstName: 'JWT', lastName: 'Test', phone: '0000000000',
+    email, password, firstName: 'JWT', lastName: 'Test', phone: '0000000000', dob: '2000-01-01',
   });
   assert.equal(res.status, 201);
   return { email, password, userId: res.body.data.user.id as number, token: browserToken(res), csrf: res.body.data.csrfToken as string, res };

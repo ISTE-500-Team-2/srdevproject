@@ -62,7 +62,7 @@ function client() {
     },
     async register() {
       const email = randomBytes(8).toString('hex') + '@example.invalid',
-        password = randomBytes(24).toString('hex');
+        password = `A!${randomBytes(24).toString('hex')}`;
       const res = await agent
         .post('/api/auth/register')
         .send({
@@ -71,6 +71,7 @@ function client() {
           firstName: 'Test',
           lastName: 'Member',
           phone: '0000000000',
+          dob: '2000-01-01',
           role: 'admin',
         });
       assert.equal(res.status, 201);
@@ -160,8 +161,10 @@ test('registration, DB session recovery, profile persistence and logout', async 
       firstName: 'Duplicate',
       lastName: 'Member',
       phone: '0000000000',
+      dob: '2000-01-01',
     });
   assert.equal(duplicate.status, 409);
+  assert.equal(duplicate.body.error.code, 'EMAIL_ALREADY_REGISTERED');
 });
 
 test('unauthenticated, missing CSRF, cross-origin and malformed writes are rejected', async () => {
