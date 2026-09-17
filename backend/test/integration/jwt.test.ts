@@ -1,7 +1,7 @@
 import { confirmationToken } from '../helpers/confirmation.js';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID, scryptSync } from 'node:crypto';
-import { before, after, test } from 'node:test';
+import { before, beforeEach, after, test } from 'node:test';
 import { decodeJwt, decodeProtectedHeader, jwtVerify, SignJWT, type JWTPayload } from 'jose';
 import { Pool } from 'pg';
 import request from 'supertest';
@@ -30,6 +30,7 @@ before(async () => {
   await initializeDemo(pool);
   app = createApp(pool, config);
 });
+beforeEach(() => { app = createApp(pool, config); });
 after(async () => {
   await pool.end();
   if (created) await admin.query(`DROP DATABASE "${database}"`);

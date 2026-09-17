@@ -2,7 +2,7 @@ import { confirmationToken } from '../helpers/confirmation.js';
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { before, after, test } from "node:test";
+import { before, beforeEach, after, test } from "node:test";
 import { Pool } from "pg";
 import request from "supertest";
 import { createApp } from "../../src/app.js";
@@ -30,6 +30,9 @@ before(async () => {
   await adminPool.query(`CREATE DATABASE "${database}"`);
   created = true;
   await initializeDemo(pool);
+});
+beforeEach(async () => {
+  if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
   server = createApp(pool, config).listen(0, "127.0.0.1");
   await once(server, "listening");
 });
