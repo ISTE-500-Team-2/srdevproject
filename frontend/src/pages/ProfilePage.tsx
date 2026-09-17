@@ -1,9 +1,43 @@
 import { Save, UserRound } from 'lucide-react';
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useState, useEffect } from 'react';
 import { Toast } from '../components/Toast';
 import { useAuth } from '../context/AuthContext';
 import { api, errorMessage } from '../lib/api';
 import type { User } from '../lib/contracts';
+
+function NotificationSettings() {
+  const [settings,setSettings] = useState<{enabled:boolean;timeZone:string} | null>(null);
+  const [error,setError] = useState('');
+  const [saved,setSaved] = useState(false);
+  const [busy,setBusy] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    api<{enabled:boolean;timeZone:string}>('/me/notifications',{signal:controller.signal})
+      .then(setSettings).catch(err => {if (!controller.signal.aborted) setError(errorMessage(err));});
+    return () => controller.abort();
+  },[]);
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!settings) return;
+    setBusy(true); setSaved(false); setError('');
+    try {
+      setSettings(await api('/me/notifications',{method:'PATCH',body:settings}));
+      setSaved(true);
+    } catch(err) {setError(errorMessage(err));} finally {setBusy(false);}
+  };
+  return <section className="profile-panel panel">
+    <h2>Email notifications</h2>
+    <p>Choose whether to receive account, booking, payment, waiver, and expiration emails. Turning this off disables all notification emails.</p>
+    {settings ? <form onSubmit={save}>
+      <label><input type="checkbox" checked={settings.enabled} onChange={e => {setSaved(false);setSettings({...settings,enabled:e.target.checked});}} /> Receive email notifications</label>
+      <label className="form-field"><span>Time zone for reminders</span><input required maxLength={100} value={settings.timeZone} onChange={e => {setSaved(false);setSettings({...settings,timeZone:e.target.value});}} placeholder="America/New_York" /></label>
+      <button type="button" className="button" onClick={() => {setSaved(false);setSettings({...settings,timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone});}}>Use this device’s time zone</button>
+      <button type="submit" className="button button--primary" disabled={busy}>{busy ? 'Saving…' : 'Save notification settings'}</button>
+    </form> : !error ? <p>Loading notification settings…</p> : null}
+    {error ? <p role="alert" className="form-error">{error}</p> : null}
+    {saved ? <p role="status">Notification settings saved.</p> : null}
+  </section>;
+}
 
 export function ProfilePage() {
   const { user, refresh } = useAuth();
@@ -104,10 +138,11 @@ export function ProfilePage() {
           </button>
         </form>
       </section>
+      <NotificationSettings />
       <section className="panel feature-notice">
         <h2>Other account settings</h2>
         <p>
-          Email changes, password reset, billing, and notification preferences
+          Email changes, password reset, and billing
           are not available in this version.
         </p>
       </section>

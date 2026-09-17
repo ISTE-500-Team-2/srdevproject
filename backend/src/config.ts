@@ -1,4 +1,5 @@
 import { readJwtKey } from './jwtKey.js';
+import { readNotificationConfig, type NotificationConfig } from './notifications/config.js';
 
 export interface AppConfig {
   port: number;
@@ -10,6 +11,7 @@ export interface AppConfig {
   jwtKey: Uint8Array;
   accessTokenSeconds?: number;
   refreshTokenSeconds?: number;
+  notifications?: NotificationConfig;
 }
 
 function lifetime(name: string, fallback: number, max: number) {
@@ -28,6 +30,7 @@ export function readConfig(): AppConfig {
   if (production && !process.env.APP_ORIGIN)
     throw new Error('APP_ORIGIN is required in production');
   return {
+    notifications: readNotificationConfig(),
     jwtKey: readJwtKey(),
     accessTokenSeconds: lifetime("JWT_ACCESS_SECONDS",900,3600),
     refreshTokenSeconds: lifetime("JWT_REFRESH_SECONDS",2592000,7776000),

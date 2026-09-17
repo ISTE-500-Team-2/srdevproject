@@ -1,3 +1,4 @@
+import { NotificationPreferencesController } from "./controllers/NotificationPreferencesController.js";
 import { Router } from "express";
 import type { Pool } from "pg";
 import type { AppConfig } from "./config.js";
@@ -16,6 +17,7 @@ import { StaffController } from "./controllers/StaffController.js";
 export function apiRoutes(pool: Pool, config: AppConfig) {
   const routes = Router();
   const auth = new AuthController(pool, config);
+  const notifications = new NotificationPreferencesController(pool);
   const member = new MemberController(pool, config.timeZone);
   const equipment = new EquipmentController(pool, config.timeZone);
   const reservations = new ReservationController(pool, config.timeZone);
@@ -44,6 +46,8 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.post("/reservations", requireCsrf, reservations.create);
   routes.post("/reservations/:id/cancel", requireCsrf, reservations.cancel);
   routes.get("/me/overview", member.overview);
+  routes.get("/me/notifications", notifications.get);
+  routes.patch("/me/notifications", requireCsrf, notifications.update);
   routes.patch("/me/profile", requireCsrf, member.profile);
   routes.get("/me/waivers", member.waivers);
   routes.get("/me/certifications", member.certifications);

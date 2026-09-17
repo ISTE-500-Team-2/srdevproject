@@ -86,7 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const register = useCallback(
     async (input: Registration) =>
       acceptSession(
-        await api<Session>('/auth/register', { method: 'POST', body: input }),
+        await api<Session>('/auth/register', { method: 'POST', body: {...input,timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone} }),
       ),
     [acceptSession],
   );

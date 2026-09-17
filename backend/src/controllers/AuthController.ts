@@ -1,3 +1,4 @@
+import { enqueueNotification, updateNotificationPreferences, validTimeZone } from '../notifications/store.js';
 import { randomBytes } from 'node:crypto';
 import type { Request, Response } from 'express';
 import type { Pool } from 'pg';
@@ -86,6 +87,8 @@ export class AuthController {
     await this.establish(req, res, account.id, req.body.remember === true);
   };
   register = async (req: Request, res: Response) => {
+    const timeZone = req.body.timeZone ?? this.config.timeZone;
+    if (!validTimeZone(timeZone)) throw new AppError(400,'INVALID_INPUT','Choose a valid IANA time zone.');
     const input = {
       firstName: textField(req.body.firstName, 'First name', 50),
       lastName: textField(req.body.lastName, 'Last name', 50),
@@ -97,9 +100,12 @@ export class AuthController {
     let id: number;
 
     try {
-      id = await transaction(this.pool, (db) =>
-        new UserModel(db).create(input),
-      );
+      id = await transaction(this.pool, async (db) => {
+        const userId = await new UserModel(db).create(input);
+        await updateNotificationPreferences(db,userId,{enabled:true,timeZone});
+        await enqueueNotification(db, {userId, kind: 'account_created', dedupeKey: `account-created:${userId}`, payload: {firstName: input.firstName}});
+        return userId;
+      });
     } catch (error) {
       if (
         typeof error === 'object' &&

@@ -15,11 +15,12 @@ export class MemberModel {
     ).rows;
   }
   async signWaiver(userId: number, waiverId: number) {
-    await this.db.query(
+    const result = await this.db.query(
       `INSERT INTO user_waiver (userid,waiverid,signdate,approval)
-      VALUES ($1,$2,NOW() AT TIME ZONE 'UTC',true) ON CONFLICT (userid,waiverid) WHERE approval=true DO NOTHING`,
+      VALUES ($1,$2,NOW() AT TIME ZONE 'UTC',true) ON CONFLICT (userid,waiverid) WHERE approval=true DO NOTHING RETURNING userwaiverid AS id, signdate AT TIME ZONE 'UTC' AS "signedAt"`,
       [userId, waiverId],
     );
+    return result.rows[0] ?? null;
   }
   async activeReservationCount(userId: number): Promise<number> {
     const { rows } = await this.db.query<{ count: number }>(

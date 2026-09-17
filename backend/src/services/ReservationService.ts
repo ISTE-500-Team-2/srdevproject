@@ -1,3 +1,4 @@
+import { enqueueNotification } from '../notifications/store.js';
 import type { Pool } from 'pg';
 import { transaction } from '../db.js';
 import { AppError, positiveId, reservationWindow } from '../domain.js';
@@ -51,7 +52,7 @@ export class ReservationService {
           'RESERVATION_CONFLICT',
           'That equipment is already reserved for part of this time.',
         );
-      return model.create({
+      const reservation = await model.create({
         userId,
         equipmentId,
         waiverId: waivers[0]?.id ?? null,
@@ -59,6 +60,8 @@ export class ReservationService {
         start,
         end,
       });
+      await enqueueNotification(db,{userId,kind:'reservation_created',dedupeKey:`reservation-created:${reservation.id}`,payload:{reservationId:reservation.id,resourceName:reservation.equipmentName,startsAt:start.toISOString(),endsAt:end.toISOString()}});
+      return reservation;
     });
   }
 }
