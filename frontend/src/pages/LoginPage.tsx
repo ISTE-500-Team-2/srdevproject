@@ -13,10 +13,18 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
+
+  // Shared between the login form and the sign-up modal. If a user opens one
+  // dialog right after an error in the other, this can show a stale message
+  // tied to the wrong flow — consider splitting per-form if that comes up.
   const [error, setError] = useState('');
   const [dialog, setDialog] = useState<'forgot' | 'signup' | null>(null);
   const [busy, setBusy] = useState(false);
 
+  
+  // Demo-only shortcut: logs straight in as a given role, bypassing the
+  // credential form entirely. Only reachable via the buttons gated on
+  // `demoLogin` below, so this has no effect outside the demo build.
   const continueAs = async (role: UserRole) => {
     setBusy(true);
     setError('');
@@ -32,6 +40,9 @@ export function LoginPage() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    // Manual empty-field check because the inputs below don't have
+    // `required` set (the <form> itself uses noValidate). If `required` is
+    // ever added to the email/password inputs, this check becomes redundant.
     if (!identifier.trim() || !password.trim()) {
       setError('Enter both your email and password to continue.');
       return;
@@ -50,6 +61,11 @@ export function LoginPage() {
 
   const handleRegister = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    // Uncontrolled form — read straight from FormData instead of state,
+    // unlike the login form above. Validation here is entirely the HTML5
+    // required/minLength/maxLength/type attributes on the inputs (see the
+    // sign-up modal markup below); there's no extra JS-side check before
+    // this fires.
     const form = new FormData(event.currentTarget);
     setError('');
     setBusy(true);
