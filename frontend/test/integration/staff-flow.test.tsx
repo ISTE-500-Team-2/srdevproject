@@ -44,7 +44,7 @@ async function direct(path: string, body: unknown, csrf?: string) {
 
 test("staff React flow creates a plan, issues access/payment, survives reload, shows member history and enforces suspension", async () => {
   vi.stubGlobal("fetch", bridge.fetch);
-  const password = randomBytes(24).toString("hex"),
+  const password = `A!${randomBytes(24).toString("hex")}`,
     email = randomUUID() + "@example.invalid";
   const registration = await direct("/auth/register", {
     firstName: "Taylor",
@@ -52,6 +52,7 @@ test("staff React flow creates a plan, issues access/payment, survives reload, s
     email,
     password,
     phone: "0000000000",
+    dob: "2000-01-01",
   });
   expect(registration.status).toBe(201);
   const session = (await registration.json()).data,

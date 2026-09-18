@@ -42,17 +42,19 @@ export class UserModel {
     email: string;
     phone: string;
     password: string;
+    dob: string;
   }): Promise<number> {
     const { rows } = await this.db.query<{ id: number }>(
       `
-      INSERT INTO "user" (firstname,lastname,email,password,phone,status,statusdesc,registration_date)
-      VALUES ($1,$2,$3,$4,$5,'active','Registered',NOW() AT TIME ZONE 'UTC') RETURNING userid AS id`,
+      INSERT INTO "user" (firstname,lastname,email,password,phone,dob,status,statusdesc,registration_date)
+      VALUES ($1,$2,$3,$4,$5,$6,'active','Registered',NOW() AT TIME ZONE 'UTC') RETURNING userid AS id`,
       [
         input.firstName,
         input.lastName,
         input.email,
         input.password,
         input.phone,
+        input.dob,
       ],
     );
     const id = rows[0]!.id;

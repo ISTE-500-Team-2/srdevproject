@@ -3,7 +3,10 @@ import { randomBytes } from 'node:crypto';
 import { test } from 'node:test';
 import {
   AppError,
+  dateOfBirthField,
   emailField,
+  newPasswordField,
+  passwordField,
   positiveId,
   reservationWindow,
 } from '../src/domain.js';
@@ -45,6 +48,33 @@ test('identifiers and emails are validated without coercing arbitrary values', (
   assert.equal(emailField('  Member@Example.org  '), 'member@example.org');
   assert.throws(() => emailField('not-an-email'), AppError);
 });
+
+test('existing passwords are not subject to new-password complexity rules', () => {
+  assert.equal(passwordField('existingpassword123'), 'existingpassword123');
+  assert.equal(passwordField('123barry987'), '123barry987');
+
+  assert.throws(() => passwordField('Short!'), AppError);
+  assert.throws(() => passwordField(null), AppError);
+});
+
+test('new passwords require length, uppercase, and a special character', () => {
+  assert.equal(newPasswordField('ValidPassword!'), 'ValidPassword!');
+
+  assert.throws(() => newPasswordField('Short!'), AppError);
+  assert.throws(() => newPasswordField('lowercasepassword!'), AppError);
+  assert.throws(() => newPasswordField('Password123'), AppError);
+  assert.throws(() => newPasswordField(null), AppError);
+});
+
+test('dates of birth require a valid YYYY-MM-DD date that is not in the future', () => {
+  assert.equal(dateOfBirthField('2000-01-01'), '2000-01-01');
+
+  assert.throws(() => dateOfBirthField('01/01/2000'), AppError);
+  assert.throws(() => dateOfBirthField('2000-02-30'), AppError);
+  assert.throws(() => dateOfBirthField('2999-01-01'), AppError);
+  assert.throws(() => dateOfBirthField(undefined), AppError);
+});
+
 test('password hashes are salted and legacy plaintext is not accepted', async () => {
   const input = randomBytes(24).toString('hex');
   const a = await hashPassword(input),
