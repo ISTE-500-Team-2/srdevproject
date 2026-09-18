@@ -14,6 +14,7 @@ import { MemoryRouter } from 'react-router-dom';
 import App from '../../src/App';
 import { api } from '../../src/lib/api';
 import { createBrowserBridge } from '../../../backend/test/helpers/browserBridge';
+import { confirmationToken } from '../../../backend/test/helpers/confirmation';
 
 let bridge: Awaited<ReturnType<typeof createBrowserBridge>>;
 beforeAll(async () => {
@@ -75,6 +76,17 @@ test('signup form creates an account with DOB and the new password policy', asyn
     within(dialog).getByRole('button', { name: 'Create account' }),
   );
 
+  await screen.findByRole(
+    'heading',
+    { name: 'Confirm your email' },
+    { timeout: 20000 },
+  );
+  const token = await confirmationToken(bridge.pool, email);
+  cleanup();
+  mount('/confirm-email#' + token);
+  await user.click(
+    await screen.findByRole('button', { name: 'Confirm email' }),
+  );
   await screen.findByRole(
     'heading',
     { name: /Welcome back/ },

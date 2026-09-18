@@ -1,3 +1,4 @@
+import { ConfirmEmailPage } from './pages/ConfirmEmailPage';
 import { Navigate, Outlet, Route, Routes } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -42,6 +43,7 @@ export default function App() {
   return (
     <AuthProvider>
       <Routes>
+        <Route path="/confirm-email" element={<ConfirmEmailPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/loading" element={<LoadingPage />} />
         <Route element={<RequireUser />}>

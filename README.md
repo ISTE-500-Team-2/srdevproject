@@ -29,3 +29,9 @@ psql -v ON_ERROR_STOP=1 -U postgres -d collaboratoryarbor -f ddl/collaboratory-i
 Both creation scripts are destructive. Do not run them over staging, production, or a development database containing work that has not been backed up.
 
 The CI workflow validates the scripts against PostgreSQL 16 and checks for 15 tables, 18 foreign keys, and the expected synthetic seed counts.
+
+## Email notification implementation
+
+See [Brevo notification setup and review scope](docs/EMAIL-NOTIFICATIONS.md) for
+the opt-in worker, user preferences, scheduling defaults, and remaining live
+activation/confirmation-link work. Real sending stays disabled in the demo stack.

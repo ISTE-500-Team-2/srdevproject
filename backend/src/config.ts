@@ -1,4 +1,5 @@
 import { readJwtKey } from './jwtKey.js';
+import { readNotificationConfig, type NotificationConfig } from './notifications/config.js';
 
 export interface AppConfig {
   port: number;
@@ -10,6 +11,8 @@ export interface AppConfig {
   jwtKey: Uint8Array;
   accessTokenSeconds?: number;
   refreshTokenSeconds?: number;
+  notifications?: NotificationConfig;
+  brevoWebhookToken?: string;
 }
 
 function lifetime(name: string, fallback: number, max: number) {
@@ -22,12 +25,17 @@ export function readConfig(): AppConfig {
   if (!Number.isInteger(port) || port < 1 || port > 65535)
     throw new Error('Invalid PORT');
   const production = process.env.NODE_ENV === 'production';
+  const brevoWebhookToken = process.env.BREVO_WEBHOOK_TOKEN;
+  if (brevoWebhookToken && brevoWebhookToken.length < 32)
+    throw new Error('BREVO_WEBHOOK_TOKEN must contain at least 32 characters');
   const demoLogin = process.env.ENABLE_DEMO_LOGIN === 'true';
   if (production && demoLogin)
     throw new Error('Demo login is forbidden in production');
   if (production && !process.env.APP_ORIGIN)
     throw new Error('APP_ORIGIN is required in production');
   return {
+    notifications: readNotificationConfig(),
+    brevoWebhookToken,
     jwtKey: readJwtKey(),
     accessTokenSeconds: lifetime("JWT_ACCESS_SECONDS",900,3600),
     refreshTokenSeconds: lifetime("JWT_REFRESH_SECONDS",2592000,7776000),

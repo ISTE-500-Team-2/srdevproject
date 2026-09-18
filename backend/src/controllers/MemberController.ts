@@ -1,3 +1,4 @@
+import { enqueueNotification } from '../notifications/store.js';
 import type { Request, Response } from "express";
 import type { Pool } from "pg";
 import { transaction } from "../db.js";
@@ -92,7 +93,12 @@ export class MemberController {
         "NOT_FOUND",
         "This is not a current required waiver.",
       );
-    await new MemberModel(this.pool).signWaiver(userId, id);
+    await transaction(this.pool, async db => {
+      // Snapshot the signed version in the same transaction as its signature.
+      const waiver = (await db.query('SELECT name,version,description FROM waiver WHERE waiverid=$1 FOR SHARE',[id])).rows[0];
+      const signature = await new MemberModel(db).signWaiver(userId, id);
+      if (signature) await enqueueNotification(db, {userId,kind:'waiver_signed',dedupeKey:`waiver-signed:${signature.id}`,payload:{waiverId:id,waiverName:waiver.name,waiverVersion:waiver.version,waiverText:waiver.description,signature:`${authState(res).user.firstName} ${authState(res).user.lastName} (electronic agreement)`,signedAt:new Date(signature.signedAt).toISOString()}});
+    });
     res.json({
       data: await new EligibilityModel(this.pool, this.timeZone).waivers(
         userId,
