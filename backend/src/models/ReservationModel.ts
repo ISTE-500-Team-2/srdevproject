@@ -63,6 +63,7 @@ export class ReservationModel {
         AND starttime > NOW() AT TIME ZONE 'UTC' RETURNING reservationid AS id`,
       [id, userId],
     );
-    return rows[0] ?? null;
+    if (!rows[0]) return null;
+    return (await this.db.query(`SELECT ${selection} FROM reservation r JOIN equipment e USING(equipmentid) WHERE r.reservationid=$1`,[id])).rows[0] ?? null;
   }
 }

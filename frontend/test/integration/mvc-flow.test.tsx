@@ -1,3 +1,4 @@
+import { confirmationToken } from '../../../backend/test/helpers/confirmation';
 // @vitest-environment jsdom
 import { afterAll, beforeAll, expect, test, vi } from 'vitest';
 import {
@@ -73,11 +74,12 @@ test('signup form creates an account with DOB and the new password policy', asyn
     within(dialog).getByRole('button', { name: 'Create account' }),
   );
 
-  await screen.findByRole(
-    'heading',
-    { name: /Welcome back/ },
-    { timeout: 20000 },
-  );
+  await screen.findByRole('heading',{name:'Confirm your email'},{timeout:20000});
+  const token=await confirmationToken(bridge.pool,'signup-ui@example.invalid');
+  cleanup();
+  mount('/confirm-email#'+token);
+  await user.click(await screen.findByRole('button',{name:'Confirm email'}));
+  await screen.findByRole('heading',{name:/Welcome back/},{timeout:20000});
 
   const account = await bridge.pool.query(
     `SELECT email, dob::text AS dob FROM "user" WHERE email=$1`,

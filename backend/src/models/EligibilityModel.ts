@@ -42,7 +42,7 @@ export class EligibilityModel {
       SELECT w.waiverid AS id,w.name,w.version,COALESCE(w.description,'') AS description,
              uw.userwaiverid IS NOT NULL AS signed, uw.signdate AT TIME ZONE 'UTC' AS "signedAt"
       FROM current_waivers w LEFT JOIN LATERAL (
-        SELECT userwaiverid,signdate FROM user_waiver WHERE userid=$1 AND waiverid=w.waiverid AND approval=true
+        SELECT userwaiverid,signdate FROM user_waiver WHERE userid=$1 AND waiverid=w.waiverid AND approval=true AND (expires_at IS NULL OR expires_at>NOW())
         ORDER BY signdate DESC LIMIT 1
       ) uw ON true ORDER BY w.name`,
       [userId],
