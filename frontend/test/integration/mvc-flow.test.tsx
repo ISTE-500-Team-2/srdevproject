@@ -1,5 +1,5 @@
-import { confirmationToken } from '../../../backend/test/helpers/confirmation';
 // @vitest-environment jsdom
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, expect, test, vi } from 'vitest';
 import {
   cleanup,
@@ -14,6 +14,7 @@ import { MemoryRouter } from 'react-router-dom';
 import App from '../../src/App';
 import { api } from '../../src/lib/api';
 import { createBrowserBridge } from '../../../backend/test/helpers/browserBridge';
+import { confirmationToken } from '../../../backend/test/helpers/confirmation';
 
 let bridge: Awaited<ReturnType<typeof createBrowserBridge>>;
 beforeAll(async () => {
@@ -35,6 +36,7 @@ function mount(path = '/login') {
 test('signup form creates an account with DOB and the new password policy', async () => {
   vi.stubGlobal('fetch', bridge.fetch);
   const user = userEvent.setup();
+  const email = randomUUID() + '@example.invalid';
   mount();
 
   await user.click(
@@ -57,7 +59,7 @@ test('signup form creates an account with DOB and the new password policy', asyn
   await user.type(within(dialog).getByLabelText('Last name'), 'Test');
   await user.type(
     within(dialog).getByLabelText('Email'),
-    'signup-ui@example.invalid',
+    email,
   );
   await user.type(within(dialog).getByLabelText('Phone'), '0000000000');
 
@@ -74,20 +76,35 @@ test('signup form creates an account with DOB and the new password policy', asyn
     within(dialog).getByRole('button', { name: 'Create account' }),
   );
 
-  await screen.findByRole('heading',{name:'Confirm your email'},{timeout:20000});
-  const token=await confirmationToken(bridge.pool,'signup-ui@example.invalid');
+  await screen.findByRole(
+    'heading',
+    { name: 'Confirm your email' },
+    { timeout: 20000 },
+  );
+  const token = await confirmationToken(bridge.pool, email);
   cleanup();
-  mount('/confirm-email#'+token);
-  await user.click(await screen.findByRole('button',{name:'Confirm email'}));
-  await screen.findByRole('heading',{name:/Welcome back/},{timeout:20000});
+  mount('/confirm-email#' + token);
+  await user.click(
+    await screen.findByRole('button', { name: 'Confirm email' }),
+  );
+  await screen.findByRole(
+    'heading',
+    { name: /Welcome back/ },
+    { timeout: 20000 },
+  );
+  await screen.findByText(
+    /Signup, welcome to The Crafty Studio - your account is ready/,
+    {},
+    { timeout: 20000 },
+  );
 
   const account = await bridge.pool.query(
     `SELECT email, dob::text AS dob FROM "user" WHERE email=$1`,
-    ['signup-ui@example.invalid'],
+    [email],
   );
 
   expect(account.rowCount).toBe(1);
-  expect(account.rows[0].email).toBe('signup-ui@example.invalid');
+  expect(account.rows[0].email).toBe(email);
   expect(account.rows[0].dob).toBe('2000-01-01');
 
   cleanup();
