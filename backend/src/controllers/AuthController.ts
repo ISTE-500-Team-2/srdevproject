@@ -108,15 +108,6 @@ export class AuthController {
       dob: dateOfBirthField(req.body.dob),
       password: await hashPassword(newPasswordField(req.body.password)),
     };
-<<<<<<< HEAD
-    const id = await transaction(this.pool, (db) =>
-      new UserModel(db).create(input),
-    );
-    const notification = renderNotificationTemplate('accountCreation', {
-      firstName: input.firstName,
-      email: input.email,
-    });
-=======
     let id: number;
 
     try {
@@ -139,7 +130,10 @@ export class AuthController {
 
       throw error;
     }
->>>>>>> origin
+    const notification = renderNotificationTemplate('accountCreation', {
+      firstName: input.firstName,
+      email: input.email,
+    });
     res.status(201);
     await this.establish(req, res, id, false, notification);
   };
