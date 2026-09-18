@@ -39,7 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (session.accessToken) setAccessToken(session.accessToken);
     setCsrfToken(session.csrfToken);
     setUser(session.user);
-    setNotification(session.notification ?? null);
+    if (session.notification) setNotification(session.notification);
     setError('');
     return session.user.role;
   }, []);

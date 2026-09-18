@@ -1,11 +1,17 @@
+
 export type NotificationKey =
   | 'accountCreation'
+  | 'accountCreationFailed'
   | 'waiverSigned'
   | 'reservationConfirmed'
   | 'reservationCancelled'
+  | 'studioCancellation'
   | 'paymentReceipt'
+  | 'transactionFailed'
   | 'systemIssue'
-  | 'refundIssued';
+  | 'refundIssued'
+  | 'dayPassIssued'
+  | 'membershipIssued';
 
 export type NotificationVariables = Record<string, string | number | undefined>;
 
@@ -14,7 +20,9 @@ export interface NotificationTemplate {
   body: string;
 }
 
-const BRANDING = `The Crafty Studio\n123 Maker Lane\nhello@thecraftystudio.com`;
+const BRANDING = `The Crafty Studio
+1449 Wiseburg Road, White Hall, Maryland 21161
+arborcollaboratory@yahoo.com`;
 
 const interpolate = (template: string, variables: NotificationVariables) =>
   template.replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (_match, name) => {
@@ -22,45 +30,223 @@ const interpolate = (template: string, variables: NotificationVariables) =>
     return value === undefined || value === null ? '' : String(value);
   });
 
-export const notificationTemplates: Record<NotificationKey, NotificationTemplate> = {
+export const notificationTemplates: Record<
+  NotificationKey,
+  NotificationTemplate
+> = {
   accountCreation: {
-    subject: '{{firstName}}, welcome to The Crafty Studio — your account is ready',
-    body: `Hello {{firstName}},\n\nWelcome to The Crafty Studio! Your studio account has been created successfully.\n\nYour account email: {{email}}\n\nWe’re excited to help you reserve equipment, sign waivers, and make the most of your studio time.\n\nBest,\n${BRANDING}`,
+    subject:
+      '{{firstName}}, welcome to The Crafty Studio - your account is ready',
+    body: `Hello {{firstName}},
+
+Welcome to The Crafty Studio! Your studio account has been created successfully.
+
+Your account email: {{email}}
+
+We are excited to help you reserve equipment, sign waivers, and make the most of your studio time.
+
+Best,
+${BRANDING}`,
+  },
+  accountCreationFailed: {
+    subject: 'We could not create your The Crafty Studio account',
+    body: `Hello {{firstName}},
+
+We could not create your The Crafty Studio account for {{email}}.
+
+Reason: {{reason}}
+
+Please review your information and try again, or contact the studio team if you need help.
+
+Best,
+${BRANDING}`,
   },
   waiverSigned: {
     subject: '{{firstName}}, your signed waiver is on file at The Crafty Studio',
-    body: `Hello {{firstName}},\n\nThis message confirms that your signed waiver, {{waiverName}}, has been received and stored by The Crafty Studio.\n\nYour signed waiver was recorded on {{signatureDate}}. A copy of the signed waiver has been attached to this notification for your records.\n\nThank you for keeping your account current and safe.\n\nBest,\n${BRANDING}`,
+    body: `Hello {{firstName}},
+
+This message confirms that your signed waiver, {{waiverName}}, has been received and stored by The Crafty Studio.
+
+Your signed waiver was recorded on {{signatureDate}}. You can review the signed policy from your Certifications & waivers account records.
+
+Thank you for keeping your account current and safe.
+
+Best,
+${BRANDING}`,
   },
   reservationConfirmed: {
     subject: '{{firstName}}, your reservation is confirmed at The Crafty Studio',
-    body: `Hello {{firstName}},\n\nYour reservation has been confirmed at The Crafty Studio.\n\nReservation ID: {{reservationId}}\nEquipment: {{equipmentName}}\nStatus: Confirmed\n\nWe look forward to seeing you soon.\n\nBest,\n${BRANDING}`,
+    body: `Hello {{firstName}},
+
+Your reservation has been confirmed at The Crafty Studio.
+
+Reservation ID: {{reservationId}}
+Equipment: {{equipmentName}}
+Status: Confirmed
+
+We look forward to seeing you soon.
+
+Best,
+${BRANDING}`,
   },
   reservationCancelled: {
-    subject: '{{firstName}}, your The Crafty Studio reservation has been cancelled',
-    body: `Hello {{firstName}},\n\nThis notice confirms that your reservation for {{equipmentName}} at The Crafty Studio has been cancelled.\n\nReservation ID: {{reservationId}}\nStatus: Cancelled\n\nIf this change was unexpected, please contact the studio team for assistance.\n\nBest,\n${BRANDING}`,
+    subject:
+      '{{firstName}}, your The Crafty Studio reservation has been cancelled',
+    body: `Hello {{firstName}},
+
+This notice confirms that your reservation at The Crafty Studio has been cancelled.
+
+Reservation ID: {{reservationId}}
+Resource: {{resourceName}}
+Status: Cancelled
+
+If this change was unexpected, please contact the studio team for assistance.
+
+Best,
+${BRANDING}`,
+  },
+  studioCancellation: {
+    subject:
+      '{{firstName}}, your The Crafty Studio studio reservation has been cancelled',
+    body: `Hello {{firstName}},
+
+This notice confirms that your studio reservation has been cancelled.
+
+Studio: {{studioName}}
+Reservation ID: {{reservationId}}
+Cancelled On: {{cancelledDate}}
+Reason: {{reason}}
+
+If this change was unexpected, please contact the studio team for assistance.
+
+Best,
+${BRANDING}`,
   },
   paymentReceipt: {
     subject: '{{firstName}}, your payment receipt from The Crafty Studio',
-    body: `Hello {{firstName}},\n\nThis is your payment receipt from The Crafty Studio.\n\nReceipt Number: {{receiptNumber}}\nAmount: $` + '{{amount}}' + `\nPayment Date: {{paymentDate}}\nDescription: {{description}}\n\nThank you for supporting The Crafty Studio.\n\nBest,\n${BRANDING}`,
+    body:
+      `Hello {{firstName}},
+
+This is your payment receipt from The Crafty Studio.
+
+Receipt Number: {{receiptNumber}}
+Amount: $` +
+      '{{amount}}' +
+      `
+Payment Date: {{paymentDate}}
+Description: {{description}}
+
+Thank you for supporting The Crafty Studio.
+
+Best,
+${BRANDING}`,
+  },
+  transactionFailed: {
+    subject:
+      '{{firstName}}, your The Crafty Studio transaction could not be completed',
+    body:
+      `Hello {{firstName}},
+
+We could not complete your transaction at The Crafty Studio.
+
+Transaction ID: {{transactionId}}
+Amount: $` +
+      '{{amount}}' +
+      `
+Reason: {{reason}}
+
+No access changes were applied from this failed transaction. Please try again or contact the studio team for help.
+
+Best,
+${BRANDING}`,
   },
   systemIssue: {
     subject: '{{firstName}}, a system update from The Crafty Studio',
-    body: `Hello {{firstName}},\n\nWe want to let you know about a system issue affecting {{serviceName}} at The Crafty Studio.\n\nIssue: {{issueSummary}}\nImpact: {{impact}}\nUpdate: {{resolution}}\n\nWe appreciate your patience and will continue to share updates as needed.\n\nBest,\n${BRANDING}`,
+    body: `Hello {{firstName}},
+
+We want to let you know about a system issue affecting {{serviceName}} at The Crafty Studio.
+
+Issue: {{issueSummary}}
+Impact: {{impact}}
+Update: {{resolution}}
+
+We appreciate your patience and will continue to share updates as needed.
+
+Best,
+${BRANDING}`,
   },
   refundIssued: {
     subject: '{{firstName}}, your refund has been processed by The Crafty Studio',
-    body: `Hello {{firstName}},\n\nA refund has been issued for your The Crafty Studio account.\n\nRefund ID: {{refundId}}\nAmount: $` + '{{amount}}' + `\nReason: {{reason}}\nProcessed On: {{processedDate}}\n\nPlease allow a few business days for the funds to appear in your account.\n\nBest,\n${BRANDING}`,
+    body:
+      `Hello {{firstName}},
+
+A refund has been issued for your The Crafty Studio account.
+
+Refund ID: {{refundId}}
+Amount: $` +
+      '{{amount}}' +
+      `
+Reason: {{reason}}
+Processed On: {{processedDate}}
+
+Please allow a few business days for the funds to appear in your account.
+
+Best,
+${BRANDING}`,
+  },
+  dayPassIssued: {
+    subject: '{{firstName}}, your The Crafty Studio day pass is active',
+    body:
+      `Hello {{firstName}},
+
+A day pass has been issued for your The Crafty Studio account.
+
+Pass ID: {{dayPassId}}
+Valid Date: {{validDate}}
+Amount: $` +
+      '{{amount}}' +
+      `
+
+Please make sure required policies and waivers are signed before checking in.
+
+Best,
+${BRANDING}`,
+  },
+  membershipIssued: {
+    subject: '{{firstName}}, your The Crafty Studio membership is active',
+    body:
+      `Hello {{firstName}},
+
+A membership has been issued for your The Crafty Studio account.
+
+Membership ID: {{membershipId}}
+Plan: {{planName}}
+Start Date: {{startDate}}
+End Date: {{endDate}}
+Amount: $` +
+      '{{amount}}' +
+      `
+
+Thank you for being part of the studio community.
+
+Best,
+${BRANDING}`,
   },
 };
 
 export const ALL_NOTIFICATION_KEYS: NotificationKey[] = [
   'accountCreation',
+  'accountCreationFailed',
   'waiverSigned',
   'reservationConfirmed',
   'reservationCancelled',
+  'studioCancellation',
   'paymentReceipt',
+  'transactionFailed',
   'systemIssue',
   'refundIssued',
+  'dayPassIssued',
+  'membershipIssued',
 ];
 
 export function renderNotificationTemplate(
