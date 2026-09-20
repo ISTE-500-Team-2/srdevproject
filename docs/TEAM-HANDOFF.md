@@ -1,3 +1,5 @@
+> **Local setup:** Use [the cross-platform development launcher](LOCAL-DEVELOPMENT.md) for new frontend/API work. It replaces the manual environment commands below.
+
 # Collaboratory — primary MVP handoff
 
 Start here for the membership/access implementation. The packaged `BUILD-INFO.txt` identifies the exact source commit. This extends the earlier MVC foundation; it is not a claim that every mockup, secondary feature, or sponsor decision is finished.

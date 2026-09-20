@@ -33,7 +33,7 @@ test('resend/change requires pending credentials, invalidates old link, enforces
  assert.equal((await request(app).post('/api/auth/confirmation').send({...input,newEmail:'new@example.invalid'})).status,429);
  await pool.query("UPDATE app_email_confirmation SET created_at=NOW()-INTERVAL '2 minutes'");
  const bad=await request(app).post('/api/auth/confirmation').send({...input,password:'WrongPassword123!',newEmail:'new@example.invalid'});
- assert.equal(bad.status,202);assert.equal(await confirmationToken(pool,input.email),old);
+ assert.equal(bad.status,202);assert.equal(bad.body.data.emailSendingEnabled,false);assert.match(bad.body.data.message,/No confirmation email will be sent/);assert.equal(await confirmationToken(pool,input.email),old);
  const res=await request(app).post('/api/auth/confirmation').send({...input,newEmail:'new@example.invalid'});
  assert.equal(res.status,202);
  assert.equal((await request(app).post('/api/auth/confirm').send({token:old})).status,400);
