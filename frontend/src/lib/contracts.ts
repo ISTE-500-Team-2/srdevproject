@@ -16,6 +16,11 @@ export interface Session {
   expiresIn?: number;
   user: User;
   csrfToken: string;
+  notification?: NotificationMessage;
+}
+export interface NotificationMessage {
+  subject: string;
+  body: string;
 }
 export interface Registration {
   firstName: string;

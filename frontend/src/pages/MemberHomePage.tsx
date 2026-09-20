@@ -5,7 +5,7 @@ import {
   FileCheck2,
   LogIn,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api, errorMessage } from '../lib/api';
@@ -14,7 +14,7 @@ import type { LiveEquipment, Overview } from '../lib/contracts';
 import { Toast } from '../components/Toast';
 
 export function MemberHomePage() {
-  const { user } = useAuth();
+  const { user, notification, clearNotification } = useAuth();
   const overview = useApi<Overview>('/me/overview');
   const catalog = useApi<LiveEquipment[]>('/equipment');
   const [busy, setBusy] = useState(false);
@@ -42,6 +42,11 @@ export function MemberHomePage() {
       setBusy(false);
     }
   };
+  useEffect(() => {
+    if (!notification) return;
+    setToast(notification.subject);
+    clearNotification();
+  }, [clearNotification, notification]);
   return (
     <div className="member-home page-enter">
       <section className="dashboard-intro">

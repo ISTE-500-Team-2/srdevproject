@@ -21,6 +21,7 @@ import {
 import { UserModel } from '../models/UserModel.js';
 import { SessionModel } from '../models/SessionModel.js';
 import { authState, cookieName, refreshToken } from '../middleware/auth.js';
+import { renderNotificationTemplate, type NotificationTemplate } from '../notifications.js';
 
 export class AuthController {
   private dummyHash = hashPassword(randomBytes(32).toString('hex'));
@@ -33,6 +34,7 @@ export class AuthController {
     res: Response,
     userId: number,
     remember: boolean,
+    notification?: NotificationTemplate,
   ) {
     const user = await new UserModel(this.pool).findById(userId);
     if (!user || user.status !== 'active')
@@ -49,13 +51,25 @@ export class AuthController {
       if (previous) await sessions.revokeRefresh(previous);
       return sessions.create(userId, remember);
     });
-    this.respond(res,session);
+    this.respond(res, session, notification);
   }
-  private respond(res: Response, session: {token:string;refreshToken:string;csrfToken:string;ttl:number;user:unknown;persistent:boolean}) {
+  private respond(
+    res: Response,
+    session: {token:string;refreshToken:string;csrfToken:string;ttl:number;user:unknown;persistent:boolean},
+    notification?: NotificationTemplate,
+  ) {
     res.set('Cache-Control','no-store');
     res.clearCookie('arbor_session',{path:'/api'});
     res.cookie(cookieName,session.refreshToken,{httpOnly:true,secure:this.config.secureCookies,sameSite:'lax',path:'/api',...(session.persistent ? {maxAge:(this.config.refreshTokenSeconds ?? 30*86400)*1000} : {})});
-    res.json({data:{user:session.user,csrfToken:session.csrfToken,accessToken:session.token,expiresIn:session.ttl/1000}});
+    res.json({
+      data: {
+        user: session.user,
+        csrfToken: session.csrfToken,
+        accessToken: session.token,
+        expiresIn: session.ttl / 1000,
+        ...(notification ? { notification } : {}),
+      },
+    });
   }
   csrf = async (req: Request,res: Response) => {
     res.set('Cache-Control','no-store');
@@ -126,15 +140,25 @@ export class AuthController {
 
       throw error;
     }
+    const notification = renderNotificationTemplate('accountCreation', {
+      firstName: input.firstName,
+      email: input.email,
+    });
     res.set('Cache-Control','no-store');
-    res.status(202).json({data:{confirmationRequired:true,email:input.email,emailSendingEnabled:!!this.config.notifications}});
+    res.status(202).json({data:{confirmationRequired:true,email:input.email,emailSendingEnabled:!!this.config.notifications,notification}});
   };
   confirm = async (req: Request,res: Response) => {
-    const session = await transaction(this.pool,async db => {
+    const { session, notification } = await transaction(this.pool,async db => {
       const userId=await consumeEmailConfirmation(db,req.body.token);
-      return new SessionModel(db,this.config.jwtKey,this.config.accessTokenSeconds,this.config.refreshTokenSeconds).create(userId,false);
+      const session = await new SessionModel(db,this.config.jwtKey,this.config.accessTokenSeconds,this.config.refreshTokenSeconds).create(userId,false);
+      const user = await new UserModel(db).findById(userId);
+      const notification = renderNotificationTemplate('accountCreation', {
+        firstName: user?.firstName ?? '',
+        email: user?.email ?? '',
+      });
+      return { session, notification };
     });
-    this.respond(res,session);
+    this.respond(res,session,notification);
   };
   confirmation = async (req: Request,res: Response) => {
     const email=emailField(req.body.email);

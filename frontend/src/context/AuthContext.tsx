@@ -8,11 +8,12 @@ import {
   type ReactNode,
 } from 'react';
 import { api, ApiError, errorMessage, setCsrfToken, setAccessToken } from '../lib/api';
-import type { Registration, Session, User } from '../lib/contracts';
+import type { NotificationMessage, Registration, Session, User } from '../lib/contracts';
 import type { UserRole } from '../types';
 
 interface AuthContextValue {
   user: User | null;
+  notification: NotificationMessage | null;
   loading: boolean;
   error: string;
   demoLogin: boolean;
@@ -26,10 +27,12 @@ interface AuthContextValue {
   confirmEmail: (token:string) => Promise<UserRole>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
+  clearNotification: () => void;
 }
 const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [notification, setNotification] = useState<NotificationMessage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [demoLogin, setDemoLogin] = useState(false);
@@ -37,6 +40,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (session.accessToken) setAccessToken(session.accessToken);
     setCsrfToken(session.csrfToken);
     setUser(session.user);
+    if (session.notification) setNotification(session.notification);
     setError('');
     return session.user.role;
   }, []);
@@ -94,10 +98,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setCsrfToken(null);
         setAccessToken(null);
     setUser(null);
+    setNotification(null);
+  }, []);
+  const clearNotification = useCallback(() => {
+    setNotification(null);
   }, []);
   const value = useMemo(
     () => ({
       user,
+      notification,
       loading,
       error,
       demoLogin,
@@ -107,9 +116,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       confirmEmail,
       logout,
       refresh,
+      clearNotification,
     }),
     [
       user,
+      notification,
       loading,
       error,
       demoLogin,
@@ -119,6 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       confirmEmail,
       logout,
       refresh,
+      clearNotification,
     ],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
