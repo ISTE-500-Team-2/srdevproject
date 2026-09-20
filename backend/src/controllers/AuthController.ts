@@ -183,7 +183,9 @@ export class AuthController {
       }
     }
     res.set('Cache-Control','no-store');
-    res.status(202).json({data:{message:'If the supplied credentials match an unconfirmed account, a confirmation email has been queued. Check your inbox and spam folder.'}});
+    res.status(202).json({data:{emailSendingEnabled:!!this.config.notifications,message:this.config.notifications
+      ? 'If the supplied credentials match an unconfirmed account and notifications are enabled, a confirmation email has been queued for sending. Check your inbox and spam folder.'
+      : 'Email delivery is disabled in this environment. No confirmation email will be sent. Use a development demo account or run the email-enabled setup.'}});
   };
   current = async (_req: Request, res: Response) => {
     res.set("Cache-Control","no-store");

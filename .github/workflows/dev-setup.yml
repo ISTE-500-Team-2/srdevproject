@@ -1,0 +1,40 @@
+name: Team development setup
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  launcher-unit:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.18.0'
+      - run: npm run test:dev
+      - run: npm run dev:email
+        id: missing-key
+        continue-on-error: true
+      - name: Missing key must stop startup
+        if: steps.missing-key.outcome != 'failure'
+        run: node -e "process.exit(1)"
+  launcher-docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.18.0'
+      - run: npm run test:dev:smoke
+      - name: Stop disposable CI database
+        if: always()
+        env:
+          DEV_DB_PORT: '25434'
+          DEV_DB_NAME: arbor_mvc_dev
+        run: docker compose -p arbor-team-demo -f compose.dev.yml down
