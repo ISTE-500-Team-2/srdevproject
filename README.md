@@ -35,3 +35,7 @@ The CI workflow validates the scripts against PostgreSQL 16 and checks for 15 ta
 See [Brevo notification setup and review scope](docs/EMAIL-NOTIFICATIONS.md) for
 the opt-in worker, user preferences, scheduling defaults, and remaining live
 activation/confirmation-link work. Real sending stays disabled in the demo stack.
+
+## Monthly studio rentals
+
+See [studio rentals](docs/studio-rentals.md) for member bookings, the staff payment desk, policy configuration and optional Stripe test-mode setup.
