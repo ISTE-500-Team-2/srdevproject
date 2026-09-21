@@ -71,7 +71,11 @@ test("member books monthly studio, staff confirms real manual receipt, cancellat
   );
   await screen.findByText("paid", { exact: true });
   vi.spyOn(window, "confirm").mockReturnValue(true);
-  await userEvent.click(screen.getByRole("button", { name: "Cancel rental" }));
+  const cancel = screen.getByRole("button", { name: "Cancel rental" });
+  // The refresh renders returned rental data before its action finally clears
+  // busy. Wait for the same enabled control a person can actually interact with.
+  await waitFor(() => expect(cancel.hasAttribute("disabled")).toBe(false));
+  await userEvent.click(cancel);
   await screen.findByText("Rental cancelled. Check its refund status below.");
   const cancelled = (await bridge.pool.query("SELECT * FROM app_studio_rental"))
     .rows[0];
