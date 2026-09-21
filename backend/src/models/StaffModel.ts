@@ -8,7 +8,7 @@ export interface Plan extends PlanInput {
 const planColumns =
   "tierid AS id,tiername AS name,kind,tierprice::text AS price,allottedmonths AS months,benefits,active,revision";
 const personColumns = `u.userid AS id,u.firstname AS "firstName",u.lastname AS "lastName",u.email,u.phone,u.status,
-  u.accessstatus AS "accessStatus",u.accessreason AS "accessReason",u.revision,
+  u.primary_role AS "primaryRole",u.is_student AS "isStudent",u.accessstatus AS "accessStatus",u.accessreason AS "accessReason",u.revision,
   COALESCE((SELECT json_agg(r.role ORDER BY r.role) FROM user_role ur JOIN role r USING(roleid) WHERE ur.userid=u.userid),'[]') AS roles`;
 
 export class StaffModel {
@@ -101,20 +101,16 @@ export class StaffModel {
     );
     return result.rowCount ? this.person(id) : undefined;
   }
-  async setRole(id: number, role: string) {
-    // Preserve unrelated classifications, e.g. student; replace authorization roles only.
-    await this.db.query(
-      `DELETE FROM user_role WHERE userid=$1 AND roleid IN(SELECT roleid FROM role WHERE role IN('admin','staff','member'))`,
-      [id],
-    );
-    await this.db.query(
-      `INSERT INTO user_role(userid,roleid,assignedat) SELECT $1,roleid,NOW() AT TIME ZONE 'UTC' FROM role WHERE role=$2`,
-      [id, role],
-    );
-    await this.db.query(
-      'UPDATE "user" SET revision=revision+1 WHERE userid=$1',
-      [id],
-    );
+  async setRole(id: number, role: string, roles?: string[], isStudent?: boolean) {
+    if (roles) {
+      // Explicit multi-role editor replaces managed roles only; retain unknown legacy classifications.
+      await this.db.query(`DELETE FROM user_role WHERE userid=$1 AND roleid IN
+        (SELECT roleid FROM role WHERE role IN ('member','admin','staff','subscriber','day_pass','instructor','student'))`,[id]);
+    }
+    await this.db.query(`INSERT INTO user_role(userid,roleid,assignedat)
+      SELECT $1,roleid,NOW() AT TIME ZONE 'UTC' FROM role WHERE role=ANY($2::text[])
+      AND NOT EXISTS(SELECT 1 FROM user_role ur WHERE ur.userid=$1 AND ur.roleid=role.roleid)`,[id,roles ?? [role]]);
+    await this.db.query('UPDATE "user" SET primary_role=$2,is_student=COALESCE($3,is_student),revision=revision+1 WHERE userid=$1',[id,role,isStudent ?? null]);
     return this.person(id);
   }
   async roleExists(role: string) {

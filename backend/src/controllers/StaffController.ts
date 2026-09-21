@@ -123,13 +123,24 @@ export class StaffController {
     });
   };
   role = async (req: Request, res: Response) => {
+    const allowed = ["member","staff","admin","subscriber","day_pass","instructor"] as const;
+    const primary = oneOf(req.body.primaryRole ?? req.body.role,allowed,"Primary role");
+    const roles = req.body.roles === undefined ? undefined : req.body.roles;
+    if (roles !== undefined && (!Array.isArray(roles) || roles.length === 0 || roles.length > allowed.length ||
+      roles.some((r: unknown) => typeof r !== 'string' || !allowed.includes(r as typeof allowed[number])) ||
+      new Set(roles).size !== roles.length || !roles.includes(primary)))
+      throw new AppError(400,"INVALID_INPUT","Select distinct roles including the primary role.");
+    if (req.body.isStudent !== undefined && typeof req.body.isStudent !== 'boolean')
+      throw new AppError(400,"INVALID_INPUT","Student classification must be true or false.");
     res.json({
       data: await this.service.role(
         authState(res).user.id,
         positiveId(req.params.id),
-        oneOf(req.body.role, ["member", "staff", "admin"] as const, "Role"),
+        primary,
         revisionField(req.body.revision),
         reasonField(req.body.reason),
+        roles,
+        req.body.isStudent,
       ),
     });
   };
