@@ -55,6 +55,7 @@ export async function seedDemo(pool: Pool) {
         [email],
       );
       const id = rows[0]!.id;
+      await db.query('UPDATE "user" SET primary_role=$2 WHERE userid=$1',[id,role]);
       await db.query(
         `INSERT INTO user_role (userid,roleid,assignedat)
         SELECT $1,$2,NOW() AT TIME ZONE 'UTC' WHERE NOT EXISTS (SELECT 1 FROM user_role WHERE userid=$1 AND roleid=$2)`,

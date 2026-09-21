@@ -28,6 +28,7 @@ type Rental = {
   payment_method: string;
   hold_until: string;
   refund_cents: number;
+  refund_id?: string | null;
   cancellation_policy: string;
   email?: string;
 };
@@ -509,7 +510,7 @@ function StaffRental({
         ["refund_pending", "refund_failed"].includes(r.payment_status) && (
           <button
             className="button"
-            disabled={busy}
+            disabled={busy || !!(r.refund_id && r.payment_status === "refund_failed")}
             onClick={() =>
               void perform(
                 `/studio-management/rentals/${r.id}/retry-refund`,
@@ -517,7 +518,7 @@ function StaffRental({
               )
             }
           >
-            Retry test card refund
+            {r.refund_id && r.payment_status === "refund_failed" ? "Reconcile failed refund with Stripe" : "Retry test card refund"}
           </button>
         )}
     </article>

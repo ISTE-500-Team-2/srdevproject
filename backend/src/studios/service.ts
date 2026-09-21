@@ -187,6 +187,7 @@ export class StudioService {
     try {
       rental = await transaction(this.pool, async (db) => {
         const user = await this.actor(db, userid);
+        if (!(await new PermissionModel(db).allows(user,"reservation","create",userid))) throw new AppError(403,"PERMISSION_DENIED","Reservation permission is required.");
         if (user.roles.some((r) => r.toLowerCase() === "instructor"))
           throw new AppError(
             403,
@@ -376,7 +377,8 @@ export class StudioService {
         );
     }
     const result = await transaction(this.pool, async (db) => {
-      await this.actor(db, userid);
+      const user = await this.actor(db, userid);
+      if (!(await new PermissionModel(db).allows(user,"reservation","update",userid))) throw new AppError(403,"PERMISSION_DENIED","Cancellation permission is required.");
       let r = (
         await db.query(
           "SELECT * FROM app_studio_rental WHERE id=$1 AND userid=$2 FOR UPDATE",
@@ -487,7 +489,9 @@ export class StudioService {
     try {
       const refund = await this.stripe.refund(r);
       await transaction(this.pool, (db) => this.applyRefund(db, refund));
-    } catch {
+      if (["failed", "canceled"].includes(refund.status ?? "")) throw new AppError(409,"REFUND_RECONCILE","Stripe reports a terminal refund failure. Staff must reconcile the original-method refund in Stripe; no new refund was issued.");
+    } catch (error) {
+      if (error instanceof AppError && error.code === "REFUND_RECONCILE") throw error;
       await this.pool.query(
         "UPDATE app_studio_rental SET payment_status='refund_failed' WHERE id=$1 AND payment_status='refund_pending'",
         [id],
@@ -595,7 +599,7 @@ export class StudioService {
           f.id,
           f.status === "succeeded"
             ? "refunded"
-            : f.status === "failed"
+            : ["failed","canceled"].includes(f.status ?? "")
               ? "refund_failed"
               : "refund_pending",
           f.amount,
@@ -643,7 +647,10 @@ export class StudioService {
         event.type === "checkout.session.completed" ||
         event.type === "checkout.session.async_payment_succeeded"
       )
-        await this.complete(event.data.object as Stripe.Checkout.Session, db);
+      {
+        const session = event.data.object as Stripe.Checkout.Session;
+        if (session.metadata?.studioRentalId) await this.complete(session, db);
+      }
       if (event.type === "checkout.session.expired") {
         const s = event.data.object as Stripe.Checkout.Session;
         await db.query(

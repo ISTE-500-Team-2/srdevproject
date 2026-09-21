@@ -1,3 +1,4 @@
+import { requirePermission } from '../middleware/permissions.js';
 import { Router, type Request, type Response } from "express";
 import type { Pool } from "pg";
 import { AppError, positiveId } from "../domain.js";
@@ -15,8 +16,9 @@ export function studioRoutes(
       zone,
       config ? new StudioStripe(config) : undefined,
     );
+  const permit = (resource: string, action: string, scope: 'own'|'global' = 'own') => requirePermission(pool,resource,action,scope);
   const user = (res: Response) => authState(res).user.id;
-  router.get("/studios", async (_req, res) =>
+  router.get("/studios", permit("reservation","read"), async (_req, res) =>
     res.json({
       data: {
         studios: await service.list(),
@@ -25,30 +27,32 @@ export function studioRoutes(
       },
     }),
   );
-  router.get("/studio-rentals", async (_req, res) =>
+  router.get("/studio-rentals", permit("reservation","read"), async (_req, res) =>
     res.json({ data: await service.mine(user(res)) }),
   );
-  router.post("/studio-rentals", requireCsrf, async (req, res) =>
+  router.post("/studio-rentals", permit("reservation","create"), requireCsrf, async (req, res) =>
     res.status(201).json({ data: await service.create(user(res), req.body) }),
   );
   router.post(
     "/studio-rentals/:id/payment-status",
+    permit("reservation","read"),
     requireCsrf,
     async (req, res) =>
       res.json({
         data: await service.syncPayment(user(res), positiveId(req.params.id)),
       }),
   );
-  router.post("/studio-rentals/:id/cancel", requireCsrf, async (req, res) =>
+  router.post("/studio-rentals/:id/cancel", permit("reservation","update"), requireCsrf, async (req, res) =>
     res.json({
       data: await service.cancel(user(res), positiveId(req.params.id)),
     }),
   );
-  router.get("/studio-management/rentals", async (_req, res) =>
+  router.get("/studio-management/rentals", permit("payment","update","global"), async (_req, res) =>
     res.json({ data: await service.staffList(user(res)) }),
   );
   router.patch(
     "/studio-management/studios/:id",
+    permit("role","update","global"),
     requireCsrf,
     async (req, res) =>
       res.json({
@@ -61,6 +65,7 @@ export function studioRoutes(
   );
   router.post(
     "/studio-management/rentals/:id/payment",
+    permit("payment","update","global"),
     requireCsrf,
     async (req, res) =>
       res.json({
@@ -73,6 +78,7 @@ export function studioRoutes(
   );
   router.post(
     "/studio-management/rentals/:id/refund",
+    permit("payment","update","global"),
     requireCsrf,
     async (req, res) =>
       res.json({
@@ -85,6 +91,7 @@ export function studioRoutes(
   );
   router.post(
     "/studio-management/rentals/:id/retry-refund",
+    permit("payment","update","global"),
     requireCsrf,
     async (req, res) => {
       await service.staffList(user(res));

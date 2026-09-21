@@ -338,3 +338,22 @@ test("test checkout reconciles paid sessions; refund failures stay visible and r
     "refunded",
   );
 });
+
+test('revoked own reservation grant blocks studio create inside transaction', async () => {
+ await pool.query(`UPDATE role_permission SET isallowed=false WHERE roleid=(SELECT roleid FROM role WHERE role='member') AND permissionid=(SELECT permissionid FROM permission WHERE permissionname='create') AND resourcename='reservation' AND scopetype='personal'`);
+ try {await assert.rejects(service.create(member,input(8)),{code:'PERMISSION_DENIED'});}
+ finally {await pool.query(`UPDATE role_permission SET isallowed=true WHERE roleid=(SELECT roleid FROM role WHERE role='member') AND permissionid=(SELECT permissionid FROM permission WHERE permissionname='create') AND resourcename='reservation' AND scopetype='personal'`);}
+});
+test('unrelated checkout events are acknowledged without claiming a studio rental', async () => {
+ await service.webhook({id:'evt_unrelated',livemode:false,type:'checkout.session.completed',data:{object:{id:'cs_membership',payment_status:'paid',metadata:{membershipId:'123'}}}} as any);
+});
+test('terminal provider refund failure is persisted and requires reconciliation, not endless retry', async () => {
+ const provider = new StudioStripe({key:'sk_test_fixture',webhookSecret:'whsec_fixture',origin:'http://localhost'});
+ const svc = new StudioService(pool,'America/New_York',provider);
+ const r = (await pool.query(`INSERT INTO app_studio_rental(studio_id,userid,starts_on,ends_on,amount_cents,cancellation_policy,status,payment_method,payment_status,payment_intent,refund_cents,request_key,hold_until) VALUES(8,$1,'2032-01-01','2032-02-01',20000,'full_before_start','cancelled','stripe_test','refund_pending','pi_terminal',20000,$2,now()) RETURNING *`,[member,randomUUID()])).rows[0];
+ for(const status of ['failed','canceled']) {
+ provider.refund = (async () => ({id:'re_terminal',metadata:{studioRentalId:String(r.id)},amount:20000,currency:'usd',payment_intent:'pi_terminal',status})) as any;
+ await assert.rejects(svc.retryRefund(r.id),{code:'REFUND_RECONCILE'});
+ assert.equal((await pool.query('SELECT payment_status FROM app_studio_rental WHERE id=$1',[r.id])).rows[0].payment_status,'refund_failed');
+ }
+});

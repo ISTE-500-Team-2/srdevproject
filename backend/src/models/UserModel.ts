@@ -8,7 +8,7 @@ export class UserModel {
     const { rows } = await this.db.query<UserView>(
       `
       SELECT u.userid AS id, u.firstname AS "firstName", u.lastname AS "lastName", u.email,
-             u.phone, COALESCE(u.status, '') AS status,u.accessstatus AS "accessStatus",
+             u.primary_role AS "primaryRole",u.is_student AS "isStudent",u.phone, COALESCE(u.status, '') AS status,u.accessstatus AS "accessStatus",
              CASE
                WHEN EXISTS (SELECT 1 FROM user_role ur JOIN role r USING (roleid)
                             WHERE ur.userid=u.userid AND r.role = 'admin') THEN 'admin'

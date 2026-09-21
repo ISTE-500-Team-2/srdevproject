@@ -6,6 +6,8 @@ export interface UserView {
   phone: string;
   role: "member" | "staff" | "admin";
   roles: string[];
+  primaryRole?: string;
+  isStudent?: boolean;
   status: string;
   accessStatus: "active" | "suspended" | "revoked";
   membership: "Monthly" | "Day Pass" | "Staff" | "None";

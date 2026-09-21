@@ -24,3 +24,15 @@ test("refund terms distinguish start day and no-refund terms", () => {
     0,
   );
 });
+
+test("refund adapter reconciles terminal failures without issuing a second refund", async () => {
+  const {StudioStripe} = await import('../src/studios/stripe.js');
+  const provider = new StudioStripe({key:'sk_test_fixture',webhookSecret:'whsec_fixture',origin:'http://localhost'});
+  let created = 0;
+  provider.sdk.refunds.create = (async () => {created++; throw Error('must not create')}) as any;
+  for(const status of ['failed','canceled','succeeded','pending']) {
+    provider.sdk.refunds.list = (async () => ({data:[{id:'re_1',metadata:{studioRentalId:'1'},amount:200,status}]})) as any;
+    assert.equal((await provider.refund({id:1,payment_intent:'pi_1',refund_cents:200})).status,status);
+  }
+  assert.equal(created,0);
+});
