@@ -69,6 +69,10 @@ export class StudioStripe {
       payment_intent: r.payment_intent,
       limit: 100,
     });
+    // A staff dashboard refund may omit our metadata. The provider list is scoped
+    // to this rental's original payment intent; only its full quoted refund counts.
+    const recovered = prior.data.find(f => f.status === "succeeded" && f.currency === "usd" && f.amount === r.refund_cents);
+    if (recovered) return {...recovered, metadata: {...recovered.metadata, studioRentalId: String(r.id)}};
     const matching = prior.data.find(
       (f) =>
         f.metadata?.studioRentalId === String(r.id) &&

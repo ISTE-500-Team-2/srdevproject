@@ -510,7 +510,7 @@ function StaffRental({
         ["refund_pending", "refund_failed"].includes(r.payment_status) && (
           <button
             className="button"
-            disabled={busy || !!(r.refund_id && r.payment_status === "refund_failed")}
+            disabled={busy}
             onClick={() =>
               void perform(
                 `/studio-management/rentals/${r.id}/retry-refund`,
@@ -518,7 +518,7 @@ function StaffRental({
               )
             }
           >
-            {r.refund_id && r.payment_status === "refund_failed" ? "Reconcile failed refund with Stripe" : "Retry test card refund"}
+            {r.refund_id && r.payment_status === "refund_failed" ? "Recheck refund after Stripe reconciliation" : "Retry test card refund"}
           </button>
         )}
     </article>

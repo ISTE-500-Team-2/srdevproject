@@ -36,3 +36,16 @@ test("refund adapter reconciles terminal failures without issuing a second refun
   }
   assert.equal(created,0);
 });
+
+
+test("dashboard refund recovery trusts successful original-intent full refund, not stale failure", async () => {
+ const {StudioStripe} = await import('../src/studios/stripe.js');
+ const provider = new StudioStripe({key:'sk_test_fixture',webhookSecret:'whsec_fixture',origin:'http://localhost'});
+ provider.sdk.refunds.list = (async (params: any) => {assert.equal(params.payment_intent,'pi_original');return {data:[
+ {id:'re_failed',status:'failed',currency:'usd',amount:200,metadata:{studioRentalId:'1'}},
+ {id:'re_dashboard',status:'succeeded',currency:'usd',amount:200,metadata:{}}
+ ]}}) as any;
+ provider.sdk.refunds.create = (async () => {throw Error('must not issue duplicate')}) as any;
+ const found = await provider.refund({id:1,payment_intent:'pi_original',refund_cents:200});
+ assert.equal(found.id,'re_dashboard');assert.equal(found.metadata.studioRentalId,'1');
+});
