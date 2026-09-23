@@ -134,28 +134,33 @@ export function renderNotification(kind: NotificationKind, payload: Notification
     (kind === 'account_confirmation' ? `<p><a href="${escapeHtml(text(payload.confirmationUrl))}">Confirm email</a></p>` : '') +
     (preferenceLink ? `<p><a href="${escapeHtml(preferenceLink)}">Manage notification preferences</a></p>` : '') +
     '</body></html>';
-  if (kind === 'account_confirmation') {
-    const link = escapeHtml(text(payload.confirmationUrl));
+  if (kind === 'account_confirmation' || kind === 'account_created') {
+    const isConfirmation = kind === 'account_confirmation';
+    const dashboardUrl = preferenceLink ? new URL('/', preferenceLink).href : '';
+    const link = escapeHtml(isConfirmation ? text(payload.confirmationUrl) : dashboardUrl);
+    const title = isConfirmation ? 'One last step: confirm your email.' : 'Your account is ready.';
+    const intro = isConfirmation ? 'Thanks for creating your account. Open the link below, then choose <strong>Confirm email</strong> to finish signing in.' : 'Your email is confirmed and your studio account is ready. Open your dashboard to get started.';
+    const buttonLabel = isConfirmation ? 'Confirm my email' : 'Open my dashboard';
     const name = escapeHtml(context.recipientName || 'there');
     const sender = escapeHtml(context.senderName);
     const expiry = text(payload.expiresAt);
     const expiryLabel = expiry ? escapeHtml(displayDate(expiry, timeZone)) : '24 hours after you signed up';
     htmlContent = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Confirm your email</title></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title></head>
 <body style="margin:0;padding:0;background-color:#f5f2ed;color:#292018;font-family:Arial,Helvetica,sans-serif">
-<div style="display:none;max-height:0;overflow:hidden;opacity:0">One quick step to finish setting up your account.</div>
+<div style="display:none;max-height:0;overflow:hidden;opacity:0">${isConfirmation ? 'One quick step to finish setting up your account.' : 'You’re all set. Welcome to the studio.'}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f5f2ed"><tr><td align="center" style="padding:32px 16px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background-color:#ffffff;border:1px solid #ddd4c8;border-radius:12px">
 <tr><td style="padding:24px 28px;background-color:#291607;color:#ffffff;border-radius:12px 12px 0 0;font-size:19px;font-weight:bold">${sender}</td></tr>
 <tr><td style="padding:32px 28px">
 <p style="margin:0 0 12px;color:#876022;font-size:12px;font-weight:bold;letter-spacing:1px">WELCOME TO THE STUDIO</p>
-<h1 style="margin:0 0 24px;font-size:28px;line-height:1.25;color:#292018">One last step: confirm your email.</h1>
+<h1 style="margin:0 0 24px;font-size:28px;line-height:1.25;color:#292018">${title}</h1>
 <p style="margin:0 0 16px;font-size:16px;line-height:1.6">Hi ${name},</p>
-<p style="margin:0 0 24px;font-size:16px;line-height:1.6">Thanks for creating your account. Open the link below, then choose <strong>Confirm email</strong> to finish signing in.</p>
-<table role="presentation" cellpadding="0" cellspacing="0"><tr><td bgcolor="#a85d00" style="border-radius:6px"><a href="${link}" style="display:inline-block;padding:16px 24px;border:1px solid #a85d00;border-radius:6px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:bold">Confirm my email</a></td></tr></table>
-<p style="margin:24px 0 8px;font-size:14px;line-height:1.6;color:#63584e">This link works once and expires ${expiryLabel}.</p>
-<p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#63584e">Didn’t create this account? You can ignore this email.</p>
-<div style="border-top:1px solid #e7dfd4;padding-top:20px"><p style="margin:0 0 8px;font-size:13px;color:#63584e">Button not working? Copy this link into your browser:</p><p style="margin:0;font-size:12px;line-height:1.6;word-break:break-all;overflow-wrap:anywhere"><a href="${link}" style="color:#754500">${link}</a></p></div>
+<p style="margin:0 0 24px;font-size:16px;line-height:1.6">${intro}</p>
+${link ? `<table role="presentation" cellpadding="0" cellspacing="0"><tr><td bgcolor="#a85d00" style="border-radius:6px"><a href="${link}" style="display:inline-block;padding:16px 24px;border:1px solid #a85d00;border-radius:6px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:bold">${buttonLabel}</a></td></tr></table>` : ''}
+${isConfirmation ? `<p style="margin:24px 0 8px;font-size:14px;line-height:1.6;color:#63584e">This link works once and expires ${expiryLabel}.</p>
+<p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#63584e">Didn’t create this account? You can ignore this email.</p>` : ''}
+${link ? `<div style="border-top:1px solid #e7dfd4;padding-top:20px"><p style="margin:0 0 8px;font-size:13px;color:#63584e">Button not working? Copy this link into your browser:</p><p style="margin:0;font-size:12px;line-height:1.6;word-break:break-all;overflow-wrap:anywhere"><a href="${link}" style="color:#754500">${link}</a></p></div>` : ''}
 </td></tr>
 <tr><td style="padding:20px 28px;background-color:#faf8f5;border-top:1px solid #e7dfd4;font-size:12px;line-height:1.7;color:#63584e">
 <p style="margin:0 0 8px">From: ${sender} &lt;${escapeHtml(context.senderEmail)}&gt;<br>To: ${escapeHtml(context.recipientName || context.recipientEmail)} &lt;${escapeHtml(context.recipientEmail)}&gt;</p>
