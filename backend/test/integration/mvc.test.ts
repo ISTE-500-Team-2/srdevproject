@@ -428,3 +428,52 @@ test('additive RBAC migration upgrades existing MVC data without resetting users
   await migrate(pool);
   assert.equal((await pool.query("SELECT count(*)::int AS n FROM role_permission WHERE resourcename='payment' AND isallowed")).rows[0].n,0);
 });
+
+
+test('profile patches preserve omitted/custom fields and clear only explicitly named fields', async () => {
+  app = createApp(pool, config);
+  const user = client();
+  await user.register();
+  const names = { firstName: 'Profile', lastName: 'Member', phone: '1111111111' };
+  let response = await user.patch('/me/profile', {
+    ...names,
+    address: { City: 'Baltimore', 'Custom gate code': 'Blue 7' },
+    contactPreferences: { 'Preferred contact method': 'email', 'SMS allowed': false },
+  });
+  assert.equal(response.status, 200);
+  // Older clients know only about name/phone: they must not erase new fields.
+  response = await user.patch('/me/profile', names);
+  assert.equal(response.status, 200);
+  assert.equal(response.body.data.address['Custom gate code'], 'Blue 7');
+  assert.equal(response.body.data.contactPreferences['SMS allowed'], false);
+  // The current UI submits only its visible fields, not every custom field.
+  response = await user.patch('/me/profile', {
+    ...names, address: { City: 'White Hall' },
+    contactPreferences: { 'Preferred contact method': 'phone' },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.body.data.address.City, 'White Hall');
+  assert.equal(response.body.data.address['Custom gate code'], 'Blue 7');
+  assert.equal(response.body.data.contactPreferences['SMS allowed'], false);
+  // Empty object is a no-op; blank/null field values explicitly remove that key.
+  response = await user.patch('/me/profile', {
+    ...names, address: { City: '   ', 'Custom gate code': null }, contactPreferences: {},
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.data.address, {});
+  assert.equal(response.body.data.contactPreferences['Preferred contact method'], 'phone');
+  assert.equal(response.body.data.contactPreferences['SMS allowed'], false);
+  response = await user.patch('/me/profile', { ...names, contactPreferences: null });
+  assert.equal(response.status, 400);
+  // Atomic JSONB merge keeps concurrent edits to different keys.
+  const edits = await Promise.all([
+    user.patch('/me/profile', { ...names, address: { City: 'Baltimore' } }),
+    user.patch('/me/profile', { ...names, address: { State: 'MD' } }),
+  ]);
+  assert.ok(edits.every(r => r.status === 200));
+  response = await user.agent.get('/api/me/profile');
+  assert.deepEqual(response.body.data.address, { City: 'Baltimore', State: 'MD' });
+  assert.equal('status' in response.body.data.user, false);
+  assert.equal('conductFlag' in response.body.data.user, false);
+  assert.equal(response.body.data.studioContact.phone, process.env.STUDIO_CONTACT_PHONE?.trim() || null);
+});

@@ -57,6 +57,7 @@ export function ProfilePage() {
   }, []);
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!profile) return;
     const form = new FormData(event.currentTarget);
     const fields = (prefix: string): ProfileFields =>
       Object.fromEntries(
@@ -183,7 +184,7 @@ export function ProfilePage() {
           <button
             className="button button--primary"
             type="submit"
-            disabled={busy}
+            disabled={busy || !profile}
           >
             <Save aria-hidden="true" />
             {busy ? 'Saving…' : 'Save changes'}
@@ -199,12 +200,12 @@ export function ProfilePage() {
               {profile.studioContact.email}
             </a>
           </p>
-          <p>
+          {profile.studioContact.phone ? <p>
             Phone:{' '}
             <a href={`tel:${profile.studioContact.phone}`}>
               {profile.studioContact.phone}
             </a>
-          </p>
+          </p> : null}
         </section>
       ) : null}
       <NotificationSettings />

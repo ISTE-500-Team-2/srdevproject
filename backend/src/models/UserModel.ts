@@ -1,17 +1,17 @@
 import type { Database } from "../db.js";
-import type { ProfileFields, UserView } from "../domain.js";
+import type { ProfileFieldPatch, ProfileFields, UserView } from "../domain.js";
 
 export interface UserProfileView {
   user: Omit<UserView, "status" | "accessStatus">;
   address: ProfileFields;
   contactPreferences: ProfileFields;
-  studioContact: { name: string; email: string; phone: string };
+  studioContact: { name: string; email: string; phone: string | null };
 }
 
 export const studioContact = {
   name: "The Crafty Studio",
   email: process.env.STUDIO_CONTACT_EMAIL ?? "arborcollaboratory@yahoo.com",
-  phone: process.env.STUDIO_CONTACT_PHONE ?? "410-555-0149",
+  phone: process.env.STUDIO_CONTACT_PHONE?.trim() || null,
 };
 
 export class UserModel {
@@ -84,11 +84,11 @@ export class UserModel {
     firstName: string,
     lastName: string,
     phone: string,
-    address: ProfileFields,
-    contactPreferences: ProfileFields,
+    address: ProfileFieldPatch,
+    contactPreferences: ProfileFieldPatch,
   ): Promise<UserView | null> {
     await this.db.query(
-      'UPDATE "user" SET firstname=$2, lastname=$3, phone=$4, profile_address=$5, contact_preferences=$6, revision=revision+1 WHERE userid=$1',
+      'UPDATE "user" SET firstname=$2, lastname=$3, phone=$4, profile_address=jsonb_strip_nulls(profile_address || $5::jsonb), contact_preferences=jsonb_strip_nulls(contact_preferences || $6::jsonb), revision=revision+1 WHERE userid=$1',
       [
         id,
         firstName,

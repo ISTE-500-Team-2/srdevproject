@@ -14,7 +14,7 @@ export interface UserProfile {
   user: User;
   address: ProfileFields;
   contactPreferences: ProfileFields;
-  studioContact: { name: string; email: string; phone: string };
+  studioContact: { name: string; email: string; phone: string | null };
 }
 export interface Session {
   accessToken?: string;
