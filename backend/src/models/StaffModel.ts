@@ -9,7 +9,7 @@ const planColumns =
   "tierid AS id,tiername AS name,kind,tierprice::text AS price,allottedmonths AS months,benefits,active,revision";
 const personColumns = `u.userid AS id,u.firstname AS "firstName",u.lastname AS "lastName",u.email,u.phone,u.status,
   u.accessstatus AS "accessStatus",u.accessreason AS "accessReason",u.revision,
-  COALESCE(u.assholeflag,false) AS "assholeFlag",
+  COALESCE(u.conductflag,false) AS "conductFlag",
   u.profile_address AS address,u.contact_preferences AS "contactPreferences",
   COALESCE((SELECT json_agg(r.role ORDER BY r.role) FROM user_role ur JOIN role r USING(roleid) WHERE ur.userid=u.userid),'[]') AS roles`;
 
