@@ -38,7 +38,9 @@ body {
   min-height: 100vh;
   background-color: var(--paper);
   background-image: linear-gradient(rgba(250, 248, 245, 0.88), rgba(250, 248, 245, 0.88)), url('/assets/paper-texture.webp');
-  background-size: auto, 960px auto;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
   background-attachment: fixed;
   color: var(--ink);
 }
@@ -779,7 +781,9 @@ p {
   padding: 42px 20px;
   background-color: var(--paper);
   background-image: linear-gradient(rgba(250, 248, 245, 0.84), rgba(250, 248, 245, 0.92)), url('/assets/paper-texture.webp');
-  background-size: auto, 950px auto;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 
 .login-page__ambient {
@@ -2731,3 +2735,7 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 .email-confirm-button:disabled { opacity: .65; cursor: wait; }
 .email-confirm-error { margin-top: 22px; color: #9c2626; }
 .email-confirm-error a { color: #754500; text-decoration: underline; }
+
+.email-confirm-help { color: #63584e; font-size: 14px; text-align: left; }
+.email-confirm-help summary { cursor: pointer; text-align: center; }
+.email-confirm-help[open] summary { margin-bottom: 20px; }
