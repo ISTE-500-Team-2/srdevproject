@@ -38,7 +38,8 @@ body {
   min-height: 100vh;
   background-color: var(--paper);
   background-image: linear-gradient(rgba(250, 248, 245, 0.88), rgba(250, 248, 245, 0.88)), url('/assets/paper-texture.webp');
-  background-size: cover;
+  /* The 3:2 texture has ~5% transparent edges; overscan to keep them off-screen. */
+  background-size: cover, max(112vw, 168vh) auto;
   background-position: center;
   background-repeat: no-repeat;
   background-attachment: fixed;
@@ -781,9 +782,11 @@ p {
   padding: 42px 20px;
   background-color: var(--paper);
   background-image: linear-gradient(rgba(250, 248, 245, 0.84), rgba(250, 248, 245, 0.92)), url('/assets/paper-texture.webp');
-  background-size: cover;
+  /* The 3:2 texture has ~5% transparent edges; overscan to keep them off-screen. */
+  background-size: cover, max(112vw, 168vh) auto;
   background-position: center;
   background-repeat: no-repeat;
+  background-attachment: fixed;
 }
 
 .login-page__ambient {
