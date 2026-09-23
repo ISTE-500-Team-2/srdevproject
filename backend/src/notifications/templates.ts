@@ -134,13 +134,14 @@ export function renderNotification(kind: NotificationKind, payload: Notification
     (kind === 'account_confirmation' ? `<p><a href="${escapeHtml(text(payload.confirmationUrl))}">Confirm email</a></p>` : '') +
     (preferenceLink ? `<p><a href="${escapeHtml(preferenceLink)}">Manage notification preferences</a></p>` : '') +
     '</body></html>';
-  if (kind === 'account_confirmation' || kind === 'account_created') {
+  if (kind === 'account_confirmation' || kind === 'account_created' || kind === 'waiver_signed') {
     const isConfirmation = kind === 'account_confirmation';
+    const isWaiver = kind === 'waiver_signed';
     const dashboardUrl = preferenceLink ? new URL('/', preferenceLink).href : '';
-    const link = escapeHtml(isConfirmation ? text(payload.confirmationUrl) : dashboardUrl);
-    const title = isConfirmation ? 'One last step: confirm your email.' : 'Your account is ready.';
-    const intro = isConfirmation ? 'Thanks for creating your account. Open the link below, then choose <strong>Confirm email</strong> to finish signing in.' : 'Your email is confirmed and your studio account is ready. Open your dashboard to get started.';
-    const buttonLabel = isConfirmation ? 'Confirm my email' : 'Open my dashboard';
+    const link = escapeHtml(isConfirmation ? text(payload.confirmationUrl) : isWaiver ? preferenceLink : dashboardUrl);
+    const title = isConfirmation ? 'One last step: confirm your email.' : isWaiver ? 'Your signed waiver copy.' : 'Your account is ready.';
+    const intro = isConfirmation ? 'Thanks for creating your account. Open the link below, then choose <strong>Confirm email</strong> to finish signing in.' : isWaiver ? 'Your agreement has been recorded. Keep the signed copy below for your records. You can also download it from your profile.' : 'Your email is confirmed and your studio account is ready. Open your dashboard to get started.';
+    const buttonLabel = isConfirmation ? 'Confirm my email' : isWaiver ? 'View my signed waivers' : 'Open my dashboard';
     const name = escapeHtml(context.recipientName || 'there');
     const sender = escapeHtml(context.senderName);
     const expiry = text(payload.expiresAt);
@@ -148,15 +149,23 @@ export function renderNotification(kind: NotificationKind, payload: Notification
     htmlContent = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title></head>
 <body style="margin:0;padding:0;background-color:#f5f2ed;color:#292018;font-family:Arial,Helvetica,sans-serif">
-<div style="display:none;max-height:0;overflow:hidden;opacity:0">${isConfirmation ? 'One quick step to finish setting up your account.' : 'You’re all set. Welcome to the studio.'}</div>
+<div style="display:none;max-height:0;overflow:hidden;opacity:0">${isConfirmation ? 'One quick step to finish setting up your account.' : isWaiver ? 'Your signed agreement and recorded details, all in one place.' : 'You’re all set. Welcome to the studio.'}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f5f2ed"><tr><td align="center" style="padding:32px 16px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background-color:#ffffff;border:1px solid #ddd4c8;border-radius:12px">
 <tr><td style="padding:24px 28px;background-color:#291607;color:#ffffff;border-radius:12px 12px 0 0;font-size:19px;font-weight:bold">${sender}</td></tr>
 <tr><td style="padding:32px 28px">
-<p style="margin:0 0 12px;color:#876022;font-size:12px;font-weight:bold;letter-spacing:1px">WELCOME TO THE STUDIO</p>
+<p style="margin:0 0 12px;color:#876022;font-size:12px;font-weight:bold;letter-spacing:1px">${isWaiver ? 'YOUR SIGNED AGREEMENT' : 'WELCOME TO THE STUDIO'}</p>
 <h1 style="margin:0 0 24px;font-size:28px;line-height:1.25;color:#292018">${title}</h1>
 <p style="margin:0 0 16px;font-size:16px;line-height:1.6">Hi ${name},</p>
 <p style="margin:0 0 24px;font-size:16px;line-height:1.6">${intro}</p>
+${isWaiver ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px;background-color:#faf8f5;border:1px solid #e7dfd4;border-radius:8px"><tr><td style="padding:20px;font-size:14px;line-height:1.7;overflow-wrap:anywhere">
+<p style="margin:0 0 8px"><strong>Waiver:</strong> ${escapeHtml(text(payload.waiverName) || 'Signed agreement')}</p>
+<p style="margin:0 0 8px"><strong>Version:</strong> ${escapeHtml(text(payload.waiverVersion))}</p>
+<p style="margin:0 0 8px"><strong>Signed by:</strong> ${escapeHtml(text(payload.signature))}</p>
+<p style="margin:0"><strong>Signed at:</strong> ${escapeHtml(displayDate(text(payload.signedAt), timeZone))}</p>
+</td></tr></table>
+<h2 style="margin:0 0 12px;font-size:20px;color:#292018">Signed waiver document</h2>
+<div style="margin:0 0 28px;padding:20px;border:1px solid #e7dfd4;border-radius:8px;font-size:14px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere">${escapeHtml(text(payload.waiverText))}</div>` : ''}
 ${link ? `<table role="presentation" cellpadding="0" cellspacing="0"><tr><td bgcolor="#a85d00" style="border-radius:6px"><a href="${link}" style="display:inline-block;padding:16px 24px;border:1px solid #a85d00;border-radius:6px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:bold">${buttonLabel}</a></td></tr></table>` : ''}
 ${isConfirmation ? `<p style="margin:24px 0 8px;font-size:14px;line-height:1.6;color:#63584e">This link works once and expires ${expiryLabel}.</p>
 <p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#63584e">Didn’t create this account? You can ignore this email.</p>` : ''}
