@@ -12,10 +12,10 @@ function mount() {
   refresh.mockResolvedValue(undefined);
   return render(<ProfilePage />);
 }
-test('successful save shows persistent inline feedback and a viewport-level toast; editing clears it', async () => {
+test('successful save shows exactly one viewport-level notification; editing clears it', async () => {
   const { container } = mount();
   fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
-  await waitFor(() => expect(container.querySelector('.form-success')?.textContent).toBe('Changes saved.'));
+  await waitFor(() => expect(screen.getAllByText('Changes saved.')).toHaveLength(1));
   expect(document.querySelector('.toast')?.parentElement).toBe(document.body);
   expect(refresh).toHaveBeenCalledOnce();
   fireEvent.change(screen.getByLabelText('First name'), { target: { value:'Updated' } });
