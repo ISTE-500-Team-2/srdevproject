@@ -4,7 +4,7 @@ import { type FormEvent, useState, useEffect } from 'react';
 import { Toast } from '../components/Toast';
 import { useAuth } from '../context/AuthContext';
 import { api, errorMessage } from '../lib/api';
-import type { User } from '../lib/contracts';
+import type { ProfileFields, UserProfile } from '../lib/contracts';
 
 function NotificationSettings() {
   const [settings,setSettings] = useState<{enabled:boolean;timeZone:string} | null>(null);
@@ -42,23 +42,42 @@ function NotificationSettings() {
 
 export function ProfilePage() {
   const { user, refresh } = useAuth();
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    api<UserProfile>('/me/profile', { signal: controller.signal })
+      .then(setProfile)
+      .catch((err) => {
+        if (!controller.signal.aborted) setError(errorMessage(err));
+      });
+    return () => controller.abort();
+  }, []);
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    const fields = (prefix: string): ProfileFields =>
+      Object.fromEntries(
+        [...form.entries()]
+          .filter(([key]) => key.startsWith(prefix))
+          .map(([key, value]) => [key.slice(prefix.length), String(value)]),
+      );
     setBusy(true);
     setError('');
     try {
-      await api<User>('/me/profile', {
+      const saved = await api<UserProfile>('/me/profile', {
         method: 'PATCH',
         body: {
           firstName: String(form.get('firstName')),
           lastName: String(form.get('lastName')),
           phone: String(form.get('phone')),
+          address: fields('address.'),
+          contactPreferences: fields('contact.'),
         },
       });
+      setProfile(saved);
       setToast('Your profile was saved.');
       await refresh();
     } catch (err) {
@@ -83,7 +102,10 @@ export function ProfilePage() {
         </div>
       </section>
       <section className="profile-panel panel">
-        <form onSubmit={save}>
+        <form
+          key={`${user?.id ?? 'guest'}-${user?.firstName ?? ''}-${user?.lastName ?? ''}-${user?.phone ?? ''}-${JSON.stringify(profile?.address ?? {})}-${JSON.stringify(profile?.contactPreferences ?? {})}`}
+          onSubmit={save}
+        >
           <h2>
             <UserRound aria-hidden="true" /> Personal information
           </h2>
@@ -123,6 +145,35 @@ export function ProfilePage() {
                 autoComplete="tel"
               />
             </label>
+            {['Street address', 'City', 'State', 'Postal code'].map((label) => (
+              <label key={label} className="form-field">
+                <span>{label}</span>
+                <input
+                  name={`address.${label}`}
+                  defaultValue={String(profile?.address[label] ?? '')}
+                  maxLength={200}
+                  autoComplete={
+                    label === 'Street address'
+                      ? 'street-address'
+                      : label === 'City'
+                        ? 'address-level2'
+                        : label === 'State'
+                          ? 'address-level1'
+                          : 'postal-code'
+                  }
+                />
+              </label>
+            ))}
+            {['Preferred contact method', 'Best time to contact'].map((label) => (
+              <label key={label} className="form-field">
+                <span>{label}</span>
+                <input
+                  name={`contact.${label}`}
+                  defaultValue={String(profile?.contactPreferences[label] ?? '')}
+                  maxLength={200}
+                />
+              </label>
+            ))}
           </div>
           {error ? (
             <p className="form-error" role="alert">
@@ -139,6 +190,23 @@ export function ProfilePage() {
           </button>
         </form>
       </section>
+      {profile ? (
+        <section className="profile-panel panel">
+          <h2>{profile.studioContact.name}</h2>
+          <p>
+            Email:{' '}
+            <a href={`mailto:${profile.studioContact.email}`}>
+              {profile.studioContact.email}
+            </a>
+          </p>
+          <p>
+            Phone:{' '}
+            <a href={`tel:${profile.studioContact.phone}`}>
+              {profile.studioContact.phone}
+            </a>
+          </p>
+        </section>
+      ) : null}
       <NotificationSettings />
       <SignedWaiverRecords />
       <section className="panel feature-notice">
