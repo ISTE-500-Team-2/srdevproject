@@ -10,6 +10,38 @@ export interface UserView {
   accessStatus: "active" | "suspended" | "revoked";
   membership: "Monthly" | "Day Pass" | "Staff" | "None";
 }
+export type ProfileFields = Record<string, string | boolean>;
+export interface PublicUserView
+  extends Omit<UserView, "status" | "accessStatus"> {}
+export function publicUser(user: UserView): PublicUserView {
+  const { status: _status, accessStatus: _accessStatus, ...safe } = user;
+  return safe;
+}
+export function profileFields(value: unknown, name: string): ProfileFields {
+  if (value == null) return {};
+  if (typeof value !== "object" || Array.isArray(value))
+    throw new AppError(400, "INVALID_INPUT", `${name} must be an object.`);
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length > 20)
+    throw new AppError(400, "INVALID_INPUT", `${name} can contain up to 20 fields.`);
+  const result: ProfileFields = {};
+  for (const [key, raw] of entries) {
+    const field = key.trim();
+    if (!/^[A-Za-z0-9 _.-]{1,50}$/.test(field))
+      throw new AppError(400, "INVALID_INPUT", `${name} field names must be 1-50 simple characters.`);
+    if (typeof raw === "boolean") {
+      result[field] = raw;
+    } else if (typeof raw === "string") {
+      const text = raw.trim();
+      if (text.length > 200)
+        throw new AppError(400, "INVALID_INPUT", `${field} must contain 200 characters or fewer.`);
+      if (text) result[field] = text;
+    } else if (raw != null) {
+      throw new AppError(400, "INVALID_INPUT", `${name} values must be text or true/false.`);
+    }
+  }
+  return result;
+}
 
 export class AppError extends Error {
   constructor(
