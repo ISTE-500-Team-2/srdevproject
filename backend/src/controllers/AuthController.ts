@@ -11,6 +11,7 @@ import {
   emailField,
   newPasswordField,
   passwordField,
+  publicUser,
   textField,
 } from '../domain.js';
 import {
@@ -63,7 +64,7 @@ export class AuthController {
     res.cookie(cookieName,session.refreshToken,{httpOnly:true,secure:this.config.secureCookies,sameSite:'lax',path:'/api',...(session.persistent ? {maxAge:(this.config.refreshTokenSeconds ?? 30*86400)*1000} : {})});
     res.json({
       data: {
-        user: session.user,
+        user: publicUser(session.user as ReturnType<typeof authState>["user"]),
         csrfToken: session.csrfToken,
         accessToken: session.token,
         expiresIn: session.ttl / 1000,
@@ -188,7 +189,7 @@ export class AuthController {
   current = async (_req: Request, res: Response) => {
     res.set("Cache-Control","no-store");
     const { user, csrfToken } = authState(res);
-    res.json({ data: { user, csrfToken } });
+    res.json({ data: { user: publicUser(user), csrfToken } });
   };
   logout = async (_req: Request, res: Response) => {
     await new SessionModel(this.pool, this.config.jwtKey,this.config.accessTokenSeconds,this.config.refreshTokenSeconds).remove(authState(res).token);
