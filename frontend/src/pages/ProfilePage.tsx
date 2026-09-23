@@ -43,12 +43,15 @@ function NotificationSettings() {
 export function ProfilePage() {
   const { user, refresh } = useAuth();
   const [toast, setToast] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     setBusy(true);
+    setSaved(false);
+    setToast(null);
     setError('');
     try {
       await api<User>('/me/profile', {
@@ -59,7 +62,8 @@ export function ProfilePage() {
           phone: String(form.get('phone')),
         },
       });
-      setToast('Your profile was saved.');
+      setSaved(true);
+      setToast('Changes saved.');
       await refresh();
     } catch (err) {
       setError(errorMessage(err));
@@ -83,7 +87,7 @@ export function ProfilePage() {
         </div>
       </section>
       <section className="profile-panel panel">
-        <form onSubmit={save}>
+        <form onSubmit={save} onChange={() => { setSaved(false); setToast(null); setError(''); }}>
           <h2>
             <UserRound aria-hidden="true" /> Personal information
           </h2>
@@ -137,6 +141,7 @@ export function ProfilePage() {
             <Save aria-hidden="true" />
             {busy ? 'Saving…' : 'Save changes'}
           </button>
+          {saved ? <p className="form-success" role="status">Changes saved.</p> : null}
         </form>
       </section>
       <NotificationSettings />
