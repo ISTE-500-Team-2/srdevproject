@@ -1,5 +1,18 @@
 import type { Database } from "../db.js";
-import type { UserView } from "../domain.js";
+import type { ProfileFields, UserView } from "../domain.js";
+
+export interface UserProfileView {
+  user: Omit<UserView, "status" | "accessStatus">;
+  address: ProfileFields;
+  contactPreferences: ProfileFields;
+  studioContact: { name: string; email: string; phone: string };
+}
+
+export const studioContact = {
+  name: "The Crafty Studio",
+  email: process.env.STUDIO_CONTACT_EMAIL ?? "arborcollaboratory@yahoo.com",
+  phone: process.env.STUDIO_CONTACT_PHONE ?? "410-555-0149",
+};
 
 export class UserModel {
   constructor(private db: Database) {}
@@ -71,11 +84,71 @@ export class UserModel {
     firstName: string,
     lastName: string,
     phone: string,
+    address: ProfileFields,
+    contactPreferences: ProfileFields,
   ): Promise<UserView | null> {
     await this.db.query(
-      'UPDATE "user" SET firstname=$2, lastname=$3, phone=$4,revision=revision+1 WHERE userid=$1',
-      [id, firstName, lastName, phone],
+      'UPDATE "user" SET firstname=$2, lastname=$3, phone=$4, profile_address=$5, contact_preferences=$6, revision=revision+1 WHERE userid=$1',
+      [
+        id,
+        firstName,
+        lastName,
+        phone,
+        JSON.stringify(address),
+        JSON.stringify(contactPreferences),
+      ],
     );
     return this.findById(id);
+  }
+
+  async profile(id: number): Promise<UserProfileView | null> {
+    const { rows } = await this.db.query<{
+      id: number;
+      firstName: string;
+      lastName: string;
+      email: string;
+      phone: string;
+      role: UserView["role"];
+      roles: string[];
+      membership: UserView["membership"];
+      address: ProfileFields;
+      contactPreferences: ProfileFields;
+    }>(
+      `
+      SELECT u.userid AS id, u.firstname AS "firstName", u.lastname AS "lastName", u.email, u.phone,
+             CASE
+               WHEN EXISTS (SELECT 1 FROM user_role ur JOIN role r USING (roleid)
+                            WHERE ur.userid=u.userid AND r.role = 'admin') THEN 'admin'
+               WHEN EXISTS (SELECT 1 FROM user_role ur JOIN role r USING (roleid)
+                            WHERE ur.userid=u.userid AND r.role = 'staff') THEN 'staff'
+               ELSE 'member'
+             END AS role,
+             COALESCE((SELECT json_agg(r.role ORDER BY r.role) FROM user_role ur JOIN role r USING (roleid) WHERE ur.userid=u.userid), '[]') AS roles,
+             CASE WHEN EXISTS (SELECT 1 FROM user_membership um WHERE um.userid=u.userid AND um.status='active'
+                               AND um.startdate <= NOW() AT TIME ZONE 'UTC' AND um.end_date > NOW() AT TIME ZONE 'UTC')
+                  THEN 'Monthly' ELSE 'None' END AS membership,
+             u.profile_address AS address,
+             u.contact_preferences AS "contactPreferences"
+      FROM "user" u WHERE u.userid=$1`,
+      [id],
+    );
+    const row = rows[0];
+    return row
+      ? {
+          user: {
+            id: row.id,
+            firstName: row.firstName,
+            lastName: row.lastName,
+            email: row.email,
+            phone: row.phone,
+            role: row.role,
+            roles: row.roles,
+            membership: row.membership,
+          },
+          address: row.address ?? {},
+          contactPreferences: row.contactPreferences ?? {},
+          studioContact,
+        }
+      : null;
   }
 }
