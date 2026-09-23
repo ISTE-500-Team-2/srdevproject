@@ -146,12 +146,31 @@ test('registration, DB session recovery, profile persistence and logout', async 
     firstName: 'Updated',
     lastName: 'Member',
     phone: '1111111111',
+    address: { City: 'Baltimore', 'Custom gate code': 'Blue 7' },
+    contactPreferences: { 'Preferred contact method': 'email' },
     role: 'admin',
   });
   assert.equal(update.status, 200);
+  assert.equal(update.body.data.address.City, 'Baltimore');
+  assert.equal(update.body.data.address['Custom gate code'], 'Blue 7');
+  assert.equal(update.body.data.contactPreferences['Preferred contact method'], 'email');
+  assert.equal(update.body.data.studioContact.name, 'The Crafty Studio');
+  assert.equal('status' in update.body.data.user, false);
+  assert.equal('conductFlag' in update.body.data.user, false);
+  const readProfile = await user.agent.get('/api/me/profile');
+  assert.equal(readProfile.body.data.address.City, 'Baltimore');
+  assert.equal((await user.agent.get('/api/studio/contact')).body.data.email, 'arborcollaboratory@yahoo.com');
   const session = await user.agent.get('/api/auth/session');
   assert.equal(session.body.data.user.firstName, 'Updated');
   assert.equal(session.body.data.user.role, 'member');
+  assert.equal('status' in session.body.data.user, false);
+  assert.equal('conductFlag' in session.body.data.user, false);
+  await pool.query('UPDATE "user" SET conductflag=true WHERE userid=$1', [user.id]);
+  const admin = client();
+  await admin.demo('admin');
+  const staffDetail = await admin.agent.get(`/api/admin/users/${user.id}`);
+  assert.equal(staffDetail.body.data.user.status, 'active');
+  assert.equal(staffDetail.body.data.user.conductFlag, true);
   assert.equal((await user.post('/auth/logout')).status, 204);
   assert.equal((await user.agent.get('/api/auth/session')).status, 401);
   const signedIn = await user.login(email, password);
