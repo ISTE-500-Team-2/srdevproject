@@ -50,6 +50,8 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.post("/reservations", requireCsrf, reservations.create);
   routes.post("/reservations/:id/cancel", requireCsrf, reservations.cancel);
   routes.get("/me/overview", member.overview);
+  routes.get("/me/profile", member.me);
+  routes.get("/studio/contact", member.studioContact);
   routes.get("/me/notifications", notifications.get);
   routes.patch("/me/notifications", requireCsrf, notifications.update);
   routes.patch("/me/profile", requireCsrf, member.profile);

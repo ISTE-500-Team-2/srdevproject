@@ -8,8 +8,13 @@ export interface User {
   role: UserRole;
   roles: string[];
   membership: 'Monthly' | 'Day Pass' | 'Staff' | 'None';
-  status: string;
-  accessStatus: 'active' | 'suspended' | 'revoked';
+}
+export type ProfileFields = Record<string, string | boolean>;
+export interface UserProfile {
+  user: User;
+  address: ProfileFields;
+  contactPreferences: ProfileFields;
+  studioContact: { name: string; email: string; phone: string | null };
 }
 export interface Session {
   accessToken?: string;
