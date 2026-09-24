@@ -38,7 +38,10 @@ body {
   min-height: 100vh;
   background-color: var(--paper);
   background-image: linear-gradient(rgba(250, 248, 245, 0.88), rgba(250, 248, 245, 0.88)), url('/assets/paper-texture.webp');
-  background-size: auto, 960px auto;
+  /* The 3:2 texture has ~5% transparent edges; overscan to keep them off-screen. */
+  background-size: cover, max(112vw, 168vh) auto;
+  background-position: center;
+  background-repeat: no-repeat;
   background-attachment: fixed;
   color: var(--ink);
 }
@@ -779,7 +782,11 @@ p {
   padding: 42px 20px;
   background-color: var(--paper);
   background-image: linear-gradient(rgba(250, 248, 245, 0.84), rgba(250, 248, 245, 0.92)), url('/assets/paper-texture.webp');
-  background-size: auto, 950px auto;
+  /* The 3:2 texture has ~5% transparent edges; overscan to keep them off-screen. */
+  background-size: cover, max(112vw, 168vh) auto;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
 }
 
 .login-page__ambient {
@@ -2716,3 +2723,23 @@ p {
 .sample-data-banner { padding: .7rem 1rem; background: #fff1cc; color: #4a3600; text-align: center; font-size: .9rem; }
 .credentials-page > section:first-child, .credentials-page > p { grid-column: 1 / -1; }
 button:disabled { cursor: not-allowed; opacity: .6; }
+
+/* Email-link landing: one primary action, with recovery only after an error. */
+.email-confirm-screen { min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; background: #f5f2ed; color: #292018; }
+.email-confirm-card { width: 100%; max-width: 480px; border: 1px solid #ddd4c8; border-radius: 16px; overflow: hidden; background: white; box-shadow: 0 12px 36px #29160712; }
+.email-confirm-brand { padding: 22px 28px; background: #291607; color: white; font-size: 20px; font-weight: 700; }
+.email-confirm-content { padding: 36px 28px; text-align: center; }
+.email-confirm-icon { font-size: 42px; color: #a85d00; margin-bottom: 16px; }
+.email-confirm-content h1 { font-size: clamp(26px, 5vw, 32px); line-height: 1.2; margin: 0 0 16px; }
+.email-confirm-content > p { color: #63584e; margin: 0 0 28px; line-height: 1.6; }
+.email-confirm-button { display: block; width: 100%; padding: 18px 24px; border: 0; border-radius: 8px; background: #a85d00; color: white; font: inherit; font-size: 20px; font-weight: 700; cursor: pointer; }
+.email-confirm-button:hover { background: #874a00; }
+.email-confirm-button:focus-visible { outline: 3px solid #291607; outline-offset: 4px; }
+.email-confirm-button:disabled { opacity: .65; cursor: wait; }
+.email-confirm-error { margin-top: 22px; color: #9c2626; }
+.email-confirm-error a { color: #754500; text-decoration: underline; }
+
+.email-confirm-help { color: #63584e; font-size: 14px; text-align: left; }
+.email-confirm-help summary { cursor: pointer; text-align: center; }
+.email-confirm-help[open] summary { margin-bottom: 20px; }
+
