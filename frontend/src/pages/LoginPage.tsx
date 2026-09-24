@@ -203,7 +203,6 @@ export function LoginPage() {
         </div>
       </section>
 
-      <p><button type="button" className="button" onClick={() => navigate('/confirm-email')}>Resend confirmation or correct your email</button></p>
       <Modal
         open={dialog === 'forgot'}
         title="Reset your password"
