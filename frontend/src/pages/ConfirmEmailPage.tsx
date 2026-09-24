@@ -19,17 +19,43 @@ export function ConfirmEmailPage() {
     try {const result=await api<{message:string}>('/auth/confirmation',{method:'POST',body:{email,password:String(form.get('password')), ...(next ? {newEmail:next} : {})}});setMessage(result.message);}
     catch(err){setError(errorMessage(err));}finally{setBusy(false);}
   }
-  return <main className="page-shell"><section className="panel"><h1>Confirm your email</h1>
-    {token ? <><p>Choose Confirm email to activate your account and sign in.</p><button className="button button--primary" disabled={busy} onClick={() => void confirm()}>Confirm email</button></> :
-      <p>Your account needs email confirmation before you can sign in. Check your inbox and spam folder for “Confirm your email address”.</p>}
-    {location.state?.emailSendingEnabled === false ? <p role="status">Email delivery is disabled in this environment. Your account is saved but cannot be confirmed until email delivery is enabled. Use a development demo account or contact the team.</p> : null}
-    {error ? <p className="form-error" role="alert">{error}</p> : null}{message ? <p role="status">{message}</p> : null}
-    <h2>Need another email?</h2><p>Enter your signup email and password to resend, or provide a corrected email. If you change it successfully, use that new address for future requests.</p>
-    <form onSubmit={resend} className="stack-form">
-      <label className="form-field"><span>Signup email</span><input type="email" required value={email} onChange={e=>setEmail(e.target.value)} autoComplete="email" /></label>
-      <label className="form-field"><span>Password</span><input name="password" type="password" required autoComplete="current-password" /></label>
-      <label className="form-field"><span>Corrected email (optional)</span><input name="newEmail" type="email" /></label>
-      <button className="button" disabled={busy}>Send confirmation email</button>
-    </form><Link to="/login">Back to login</Link>
-  </section></main>;
+  if (token) return <main className="email-confirm-screen">
+    <section className="email-confirm-card" aria-labelledby="email-confirm-title">
+      <div className="email-confirm-brand">The Crafty Studio</div>
+      <div className="email-confirm-content">
+        <div className="email-confirm-icon" aria-hidden="true">✉</div>
+        <h1 id="email-confirm-title">Confirm your email</h1>
+        <p>One click and you’re ready to get started.</p>
+        <button className="email-confirm-button" disabled={busy} onClick={() => void confirm()}>
+          {busy ? 'Confirming…' : 'Confirm email'}
+        </button>
+        {error ? <div role="alert" className="email-confirm-error"><p>{error}</p>
+          <a href="/confirm-email">Request a new confirmation email</a></div> : null}
+      </div>
+    </section>
+  </main>;
+  const deliveryDisabled = location.state?.emailSendingEnabled === false;
+  return <main className="email-confirm-screen">
+    <section className="email-confirm-card" aria-labelledby="email-confirm-title">
+      <div className="email-confirm-brand">The Crafty Studio</div>
+      <div className="email-confirm-content">
+        <div className="email-confirm-icon" aria-hidden="true">✉</div>
+        <h1 id="email-confirm-title">{deliveryDisabled ? 'Email unavailable' : location.state?.email ? 'Confirmation sent' : 'Check your email'}</h1>
+        <p role="status">{deliveryDisabled ? 'Your account is saved. Please contact the studio to finish confirming your email.' : 'Open your email and select Confirm my email to continue.'}</p>
+        <details className="email-confirm-help">
+          <summary>Didn’t get the email?</summary>
+          <p>Check your spam folder, or request a new link below.</p>
+          {error ? <p className="form-error" role="alert">{error}</p> : null}
+          {message ? <p role="status">{message}</p> : null}
+          <form onSubmit={resend} className="stack-form">
+            <label className="form-field"><span>Signup email</span><input type="email" required value={email} onChange={e=>setEmail(e.target.value)} autoComplete="email" /></label>
+            <label className="form-field"><span>Password</span><input name="password" type="password" required autoComplete="current-password" /></label>
+            <label className="form-field"><span>Corrected email (optional)</span><input name="newEmail" type="email" /></label>
+            <button className="button" disabled={busy}>Send confirmation email</button>
+          </form>
+          <Link to="/login">Back to login</Link>
+        </details>
+      </div>
+    </section>
+  </main>;
 }
