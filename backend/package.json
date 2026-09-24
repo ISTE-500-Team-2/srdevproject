@@ -21,7 +21,8 @@
     "bcryptjs": "3.0.3",
     "express": "5.2.1",
     "jose": "6.2.12",
-    "pg": "8.23.0"
+    "pg": "8.23.0",
+    "stripe": "22.6.2"
   },
   "devDependencies": {
     "@types/express": "5.0.6",

@@ -1,3 +1,4 @@
+import {studioWebhook} from './studios/routes.js';
 import express, { type ErrorRequestHandler } from 'express';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -24,6 +25,7 @@ export function createApp(
     res.set('Cache-Control', 'no-store');
     next();
   });
+  app.post('/api/webhooks/stripe-studios',express.raw({type:'application/json',limit:'96kb'}),studioWebhook(pool,config.timeZone,config.studioStripe));
   app.use(
     '/api/webhooks/brevo',
     express.json({ limit: '64kb' }),
