@@ -45,9 +45,18 @@ EMAIL_FROM=arborcollaboratory@yahoo.com
 EMAIL_REPLY_TO=arborcollaboratory@yahoo.com
 EMAIL_FROM_NAME=The Crafty Studio
 EMAIL_POSTAL_ADDRESS=1449 Wiseburg Road, White Hall, Maryland 21161
-EMAIL_WORKER_INTERVAL_MS=60000
+EMAIL_WORKER_INTERVAL_MS=1000
 BREVO_WEBHOOK_TOKEN=<independent random secret, at least 32 characters>
 ```
+
+The RIT deployment explicitly uses `EMAIL_WORKER_INTERVAL_MS=1000` (one second),
+the minimum accepted interval. Keep this backend runtime override when recreating
+the container; Git merges do not update a running container’s environment. The
+code fallback remains 60000 ms when the variable is absent. Only one tick runs
+at a time per process, and database leases coordinate job claims. Idle ticks
+poll PostgreSQL; they do not send empty requests to Brevo. This reduces queue
+polling latency, not provider or inbox delivery time. Retry/backoff rules and
+daily sending quotas are unchanged.
 
 The worker scans expiration sources at startup and daily, and dispatches every
 minute by default. It schedules at 09:00 in the user's zone **eight calendar days**
