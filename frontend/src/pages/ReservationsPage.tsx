@@ -1,3 +1,4 @@
+import { useAuth } from '../context/AuthContext';
 import { CalendarDays, Filter, ShieldAlert } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -9,6 +10,8 @@ import { useApi } from '../lib/useApi';
 import { reservationInput } from '../lib/reservationInput';
 
 export function ReservationsPage() {
+  const {user}=useAuth();
+  const canBookForOthers=!!user?.roles.some(r=>['staff','admin'].includes(r)) && !user.roles.includes('instructor');
   const catalog = useApi<LiveEquipment[]>('/equipment');
   const bookings = useApi<Reservation[]>('/reservations');
   const [filter, setFilter] = useState('all');
@@ -34,8 +37,9 @@ export function ReservationsPage() {
         String(form.get('start')),
         Number(form.get('duration')),
       );
-      await api<Reservation>('/reservations', { method: 'POST', body: input });
-      setToast('Reservation saved for ' + selected.name + '.');
+      const target=String(form.get('memberId')??'').trim();
+      const result=await api<Reservation>('/reservations', { method: 'POST', body: {...input,...(canBookForOthers&&target?{userId:Number(target)}:{})} });
+      setToast('Reservation saved for ' + selected.name + (result.userId!==user?.id?' for member #'+result.userId:'') + '.');
       setSelected(null);
       bookings.reload();
       catalog.reload();
@@ -140,7 +144,7 @@ export function ReservationsPage() {
         </div>
         <p>
           Times shown in {zone}. Reservations are saved to your account; no
-          payment is collected.
+          payment is collected. Equipment cancellation requires at least 24 hours notice; memberships do not replace reservations.
         </p>
         {bookings.loading ? <p role="status">Loading reservations…</p> : null}
         {bookings.error ? (
@@ -167,7 +171,7 @@ export function ReservationsPage() {
                 </span>
               </div>
               {['pending', 'confirmed'].includes(item.status) &&
-              new Date(item.startTime).getTime() > Date.now() ? (
+              new Date(item.startTime).getTime() >= Date.now()+24*60*60*1000 ? (
                 <button
                   className="button button--quiet"
                   disabled={busy}
@@ -182,7 +186,7 @@ export function ReservationsPage() {
       </section>
       <section className="panel feature-notice">
         <h2>Studio spaces</h2>
-        <p>Studio leasing is not available in this version.</p>
+        <p>Studio rentals are separate from hourly equipment reservations.</p>
       </section>
       <Modal
         open={!!selected}
@@ -201,6 +205,11 @@ export function ReservationsPage() {
                 <span>{rateLabel(selected.rate)}</span>
               </div>
             </div>
+            {canBookForOthers&&<label className="form-field">
+              <span>Book for member ID (optional)</span>
+              <input name="memberId" type="number" min="1" step="1" placeholder="Leave blank to book for yourself" />
+              <small>Use the member ID from User management. Their membership, training and waivers will be checked. The booking appears in their account.</small>
+            </label>}
             <label className="form-field">
               <span>Start date and time ({zone})</span>
               <input name="start" type="datetime-local" required />
@@ -208,13 +217,10 @@ export function ReservationsPage() {
             <label className="form-field">
               <span>Duration</span>
               <select name="duration" defaultValue="1">
-                <option value="1">1 hour</option>
-                <option value="2">2 hours</option>
-                <option value="3">3 hours</option>
-                <option value="5">5 hours</option>
+                {Array.from({length:24},(_,i)=><option key={i+1} value={i+1}>{i+1} {i===0?'hour':'hours'}</option>)}
               </select>
             </label>
-            {!selected.canReserve ? (
+            {!selected.canReserve && !canBookForOthers ? (
               <p className="form-notice">
                 {selected.availability}.{' '}
                 <Link to="/certifications">
@@ -224,7 +230,7 @@ export function ReservationsPage() {
               </p>
             ) : null}
             <p className="form-caption">
-              Your access and this time slot are checked when you book. No
+              The booking member’s access and this time slot are checked when you book. No
               payment will be collected.
             </p>
             {error ? (
