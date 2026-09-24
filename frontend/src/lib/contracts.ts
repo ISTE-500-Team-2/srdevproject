@@ -7,6 +7,8 @@ export interface User {
   phone: string;
   role: UserRole;
   roles: string[];
+  primaryRole?: string;
+  isStudent?: boolean;
   membership: 'Monthly' | 'Day Pass' | 'Staff' | 'None';
   status: string;
   accessStatus: 'active' | 'suspended' | 'revoked';

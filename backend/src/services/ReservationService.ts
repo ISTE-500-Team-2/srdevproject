@@ -1,3 +1,5 @@
+import { UserModel } from '../models/UserModel.js';
+import { PermissionModel } from '../models/PermissionModel.js';
 import { enqueueNotification } from '../notifications/store.js';
 import type { Pool } from 'pg';
 import { transaction } from '../db.js';
@@ -21,6 +23,11 @@ export class ReservationService {
     return transaction(this.pool, async (db) => {
       const access = new AccessService(db, this.timeZone);
       await access.assertActiveUser(userId);
+      const actor = await new UserModel(db).findById(userId);
+      if (!actor || actor.roles.includes('instructor'))
+        throw new AppError(403,'INSTRUCTOR_BOOKING_FORBIDDEN','Instructor accounts cannot create reservations.');
+      if (!await new PermissionModel(db).allows(actor,'reservation','create',userId))
+        throw new AppError(403,'PERMISSION_REQUIRED','Reservation permission is required.');
       // Lock the equipment row before checking the interval: concurrent requests serialize.
       const equipment = await new EquipmentModel(db).findForUpdate(equipmentId);
       if (!equipment)
