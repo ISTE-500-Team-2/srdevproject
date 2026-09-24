@@ -436,6 +436,8 @@ export class StaffService {
   ) {
     return this.write(actorId, false, "payment", "update", async (model, actor, db) => {
       const before = await model.payment(id);
+      if ((await this.pool.query('SELECT id FROM app_membership_invoice WHERE payment_id=$1',[id])).rowCount)
+        throw new AppError(409,'PROVIDER_PAYMENT','Use the Stripe billing refund workflow for this payment.');
       if (!before || before.userId == null) throw missing();
       await this.target(model, actor, before.userId);
       this.expectRevision(before.revision, revision);

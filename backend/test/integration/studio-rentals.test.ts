@@ -367,6 +367,7 @@ test('studio notices wait for payment, target member and staff once, and respect
  try {
   await service.manualPay(admin,rental.id,'notification acceptance receipt');
   await assert.rejects(service.manualPay(admin,rental.id,'notification acceptance receipt'),{code:'PAYMENT_STATE'});
+  assert.equal((await notices('payment_receipt')).length,1,'staff-recorded payment queues a separate receipt');
   let rows=await notices('studio_reservation_confirmed');
   assert.deepEqual(rows.map(r=>[r.userid,r.status]),[[member,'pending'],[admin,'suppressed']].sort((a,b)=>Number(a[0])-Number(b[0])));
   await service.cancel(member,rental.id);

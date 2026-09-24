@@ -328,6 +328,7 @@ export class StudioService {
           [id, ref],
         )
       ).rows[0];
+      await this.receipt(db, result, ref);
       await this.event(db, result, actor, "manual_payment_recorded", {
         reference: ref,
       });
@@ -582,10 +583,19 @@ export class StudioService {
           [r.id, session.id, intent],
         )
       ).rows[0];
+      await this.receipt(db, r, intent);
       await this.event(db, r, null, "stripe_payment_confirmed");
       await this.notices(db, this.dates(r), "studio_reservation_confirmed");
     };
     return db ? work(db) : transaction(this.pool, work);
+  }
+  async receipt(db: Database, r: any, reference: string) {
+    await enqueueNotification(db, {
+      userId: r.userid, kind: "payment_receipt", dedupeKey: `studio-payment:${r.id}`,
+      payload: {amount: (r.amount_cents / 100).toFixed(2), currency: "USD",
+        reference, reservationId: r.id, method: r.payment_method === "stripe_test" ? "Card (test mode)" : "Staff-recorded payment",
+        startsAt: this.dates(r).starts_on, endsAt: this.dates(r).ends_on},
+    });
   }
   async applyRefund(db: Database, f: Stripe.Refund) {
     if (!f.metadata?.studioRentalId || f.currency !== "usd") return;

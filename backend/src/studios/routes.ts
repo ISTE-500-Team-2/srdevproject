@@ -1,3 +1,4 @@
+import {MembershipBilling} from '../billing/service.js';
 import { requirePermission } from '../middleware/permissions.js';
 import { Router, type Request, type Response } from "express";
 import type { Pool } from "pg";
@@ -129,6 +130,7 @@ export function studioWebhook(
       );
     }
     await new StudioService(pool, zone, provider).webhook(event);
+    await new MembershipBilling(pool,provider).webhook(event);
     res.json({ received: true });
   };
 }
