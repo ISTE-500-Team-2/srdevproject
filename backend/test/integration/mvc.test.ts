@@ -396,6 +396,61 @@ test('rerunning setup preserves users, reservations and applied migration histor
   assert.ok(newUser.id > 2);
 });
 
+test('SDTA-123: staff books for an eligible member; owner, notification and audit identify the correct people',async()=>{
+ const member=client(),staff=client();await member.demo();await staff.demo('admin');
+ await pool.query("UPDATE user_role SET roleid=(SELECT roleid FROM role WHERE role='staff') WHERE userid=$1",[staff.id]);
+ const input={...interval(await equipment(),12),userId:member.id};
+ const result=await staff.post('/reservations',input);
+ assert.equal(result.status,201,JSON.stringify(result.body));
+ assert.equal(result.body.data.userId,member.id);
+ const audit=await pool.query("SELECT actor_id,subject_id FROM app_staff_audit WHERE action='reservation.created' AND entity_id=$1",[result.body.data.id]);
+ assert.equal(audit.rows[0].actor_id,staff.id);assert.equal(audit.rows[0].subject_id,member.id);
+ const notice=await pool.query('SELECT userid FROM app_notification_outbox WHERE dedupe_key=$1',['reservation-created:'+result.body.data.id]);
+ assert.equal(notice.rows[0].userid,member.id);
+ await pool.query("UPDATE user_role SET roleid=(SELECT roleid FROM role WHERE role='admin') WHERE userid=$1",[staff.id]);
+});
+
+test('SDTA-123: members cannot spoof another owner; staff cannot bypass the recipient entitlement or suspension',async()=>{
+ const member=client(),staff=client(),unqualified=client();await member.demo();await staff.demo('admin');await unqualified.register();
+ const input={...interval(await equipment(),13),userId:unqualified.id};
+ assert.equal((await member.post('/reservations',input)).status,403);
+ let res=await staff.post('/reservations',input);assert.equal(res.body.error.code,'MEMBERSHIP_REQUIRED');
+ await pool.query("UPDATE \"user\" SET accessstatus='suspended' WHERE userid=$1",[unqualified.id]);
+ res=await staff.post('/reservations',input);assert.equal(res.body.error.code,'ACCESS_BLOCKED');
+});
+
+test('SDTA-123: hourly API validation accepts four hours and rejects fractional durations',async()=>{
+ const member=client();await member.demo();
+ let res=await member.post('/reservations',interval(await equipment(),14,0.5));
+ assert.equal(res.status,400);assert.equal(res.body.error.code,'HOURLY_DURATION_REQUIRED');
+ res=await member.post('/reservations',interval(await equipment(),14,4));assert.equal(res.status,201,JSON.stringify(res.body));
+});
+
+test('SDTA-123: cancellation rejects less than 24h notice without changing record or queuing confirmation',async()=>{
+ const member=client();await member.demo();
+ const result=await member.post('/reservations',interval(await equipment(),0.5));assert.equal(result.status,201);
+ const id=result.body.data.id;
+ const cancelled=await member.post('/reservations/'+id+'/cancel');assert.equal(cancelled.status,409);assert.equal(cancelled.body.error.code,'CANCELLATION_NOTICE_REQUIRED');
+ assert.equal((await pool.query('SELECT status FROM reservation WHERE reservationid=$1',[id])).rows[0].status,'confirmed');
+ assert.equal((await pool.query('SELECT id FROM app_notification_outbox WHERE dedupe_key=$1',['reservation-cancelled:'+id])).rowCount,0);
+});
+
+test('SDTA-123: cancellation boundary is inclusive at exactly 24h and exclusive immediately below',async()=>{
+ const {ReservationModel}=await import('../../src/models/ReservationModel.js');
+ const db=await pool.connect();await db.query('BEGIN');
+ try {
+  const member=client();await member.demo();
+  const eq=await equipment();
+  for(const seconds of [86400,86399]) {
+   const result=await db.query(`INSERT INTO reservation(userid,equipmentid,location,starttime,endtime,status)
+    VALUES($1,$2,'Boundary test',(NOW()+$3*interval '1 second') AT TIME ZONE 'UTC',(NOW()+($3+3600)*interval '1 second') AT TIME ZONE 'UTC','confirmed') RETURNING reservationid`,[member.id,eq,seconds]);
+   const cancelled=await new ReservationModel(db).cancel(result.rows[0].reservationid,member.id);
+   assert.equal(!!cancelled,seconds===86400);
+   await db.query('DELETE FROM reservation WHERE reservationid=$1',[result.rows[0].reservationid]);
+  }
+ }finally{await db.query('ROLLBACK');db.release();}
+});
+
 test('additive RBAC migration upgrades existing MVC data without resetting users or reservations', async () => {
   const before = (await pool.query('SELECT (SELECT count(*) FROM "user") AS users, (SELECT count(*) FROM reservation) AS reservations')).rows[0];
   // This suite owns this disposable DB. Recreate the pre-PR3 schema state.
