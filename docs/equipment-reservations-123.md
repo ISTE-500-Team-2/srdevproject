@@ -57,3 +57,15 @@ rates or new cooldown policy were introduced. Existing notification worker sends
 queued messages in configured environments; tests use isolated databases only.
 Rollback: restore previous application image (no migration to undo), noting that
 the older backend does not enforce the new 24-hour cancellation cutoff.
+
+
+## Additional combined-branch QA — September 24
+
+Tested the equipment branch together with SDTA-201 route protection in an unpushed local integration branch against isolated PostgreSQL, not RIT production.
+
+- Real Chrome, 1366×768: found the shared booking modal trapped in the animated page stacking context. Its backdrop missed the header and its submit button extended below the viewport. Rendered Modal through a portal into document.body; verified backdrop covers the viewport and submit button bottom is 646px within a 768px viewport.
+- Actual browser member flow: four-hour booking persisted and appeared in My reservations; submitting the identical slot produced the overlap error without another booking; cancellation changed the saved booking to cancelled.
+- Actual browser protection: member was denied /admin; sign-out returned to login; navigating directly to /reservations after logout returned to login.
+- After the modal fix, combined tests passed: 57 backend integration, 16 frontend API/PostgreSQL integration, 28 frontend unit tests. Frontend production build passed. Equipment branch frontend check separately passed all 12 unit tests and build, including two new modal regressions.
+- The exact 24-hour cancellation boundary, staff-on-behalf ownership and eligibility, role revocation and expiry are covered by automated tests, not claimed as additional visual walkthroughs here.
+- Neither feature has been merged or deployed by this QA. Original Matt approval predates this modal follow-up; review the new commit before release.
