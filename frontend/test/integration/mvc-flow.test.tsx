@@ -78,7 +78,7 @@ test('signup form creates an account with DOB and the new password policy', asyn
 
   await screen.findByRole(
     'heading',
-    { name: 'Confirm your email' },
+    { name: 'Email unavailable' },
     { timeout: 20000 },
   );
   const token = await confirmationToken(bridge.pool, email);
