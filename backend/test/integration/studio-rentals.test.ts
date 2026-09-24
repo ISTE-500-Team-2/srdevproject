@@ -357,3 +357,23 @@ test('terminal provider refund failure is persisted and requires reconciliation,
  assert.equal((await pool.query('SELECT payment_status FROM app_studio_rental WHERE id=$1',[r.id])).rows[0].payment_status,'refund_failed');
  }
 });
+
+// Ticket FR-029/FR-030: acceptance is queue delivery, not a claim of inbox delivery.
+test('studio notices wait for payment, target member and staff once, and respect opt-outs', async () => {
+ const rental=await service.create(member,input(8,{startDate:'2030-06-01'}));
+ const notices=async(kind:string)=>(await pool.query('SELECT userid,status,payload FROM app_notification_outbox WHERE kind=$1 AND payload->>\'reservationId\'=$2 ORDER BY userid',[kind,String(rental.id)])).rows;
+ assert.equal((await notices('studio_reservation_confirmed')).length,0,'a hold is not a confirmed booking');
+ await pool.query(`INSERT INTO app_notification_preferences(userid,enabled,time_zone) VALUES($1,false,'America/New_York') ON CONFLICT(userid) DO UPDATE SET enabled=false`,[admin]);
+ try {
+  await service.manualPay(admin,rental.id,'notification acceptance receipt');
+  await assert.rejects(service.manualPay(admin,rental.id,'notification acceptance receipt'),{code:'PAYMENT_STATE'});
+  let rows=await notices('studio_reservation_confirmed');
+  assert.deepEqual(rows.map(r=>[r.userid,r.status]),[[member,'pending'],[admin,'suppressed']].sort((a,b)=>Number(a[0])-Number(b[0])));
+  await service.cancel(member,rental.id);
+  await service.cancel(member,rental.id);
+  rows=await notices('studio_reservation_cancelled');
+  assert.deepEqual(rows.map(r=>[r.userid,r.status]),[[member,'pending'],[admin,'suppressed']].sort((a,b)=>Number(a[0])-Number(b[0])));
+  assert.match(rows.find(r=>r.userid===member).payload.instructions,/refund_pending/);
+  assert.match(rows.find(r=>r.userid===member).payload.instructions,/original payment method/);
+ } finally {await pool.query('UPDATE app_notification_preferences SET enabled=true WHERE userid=$1',[admin]);}
+});
