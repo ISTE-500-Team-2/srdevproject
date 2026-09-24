@@ -1,3 +1,4 @@
+import {MembershipBilling} from '../components/MembershipBilling';
 import { useState } from "react";
 import { useApi } from "../lib/useApi";
 import type {
@@ -22,6 +23,7 @@ export function MembershipPage() {
   return (
     <div className="page-enter management-page">
       <h1>Membership & passes</h1>
+      <MembershipBilling plans={plans.data??[]}/>
       <LoadState {...history} />
       {history.data ? (
         <section className="panel management-panel">
