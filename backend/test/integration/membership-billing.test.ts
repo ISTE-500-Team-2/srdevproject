@@ -101,3 +101,31 @@ test('staff original-card refund is idempotent; pending is not confirmed and mem
  assert.equal((await pool.query("SELECT paymentstatus FROM payment WHERE reference=$1",[id])).rows[0].paymentstatus,'refunded');
  assert.equal((await pool.query("SELECT * FROM app_notification_outbox WHERE dedupe_key='membership-refund:in_first'")).rowCount,1);
 });
+
+test('concurrent duplicate deliveries issue exactly one period and receipt',async()=>{
+ invoice={...invoice,id:'in_parallel',billing_reason:'subscription_cycle',lines:{has_more:false,data:[{amount:5000,period:{start:Date.parse('2030-03-01')/1000,end:Date.parse('2030-04-01')/1000}}]}};
+ await Promise.all(Array.from({length:6},(_,n)=>service.webhook(event('evt_parallel_'+n,'invoice.paid',invoice))));
+ assert.equal((await pool.query("SELECT * FROM app_membership_invoice WHERE id='in_parallel'")).rowCount,1);
+ assert.equal((await pool.query("SELECT * FROM payment WHERE reference='in_parallel'")).rowCount,1);
+ assert.equal((await pool.query("SELECT * FROM app_notification_outbox WHERE dedupe_key='membership-receipt:in_parallel'")).rowCount,1);
+});
+
+test('wrong quote, currency, subscription and overlapping period fail closed and remain retryable',async()=>{
+ const good=invoice;
+ for(const [label,patch] of Object.entries({amount:{amount_paid:1},currency:{currency:'eur'},subscription:{parent:{subscription_details:{subscription:'sub_other'}}},lines:{lines:{has_more:false,data:[{amount:1,period:good.lines.data[0].period}]}}})) {
+  invoice={...good,...patch,id:'in_invalid_'+label};
+  await assert.rejects(service.webhook(event('evt_invalid_'+label,'invoice.paid',{...invoice,parent:good.parent})),{code:'PAYMENT_MISMATCH'});
+  assert.equal((await pool.query('SELECT id FROM app_membership_stripe_event WHERE id=$1',['evt_invalid_'+label])).rowCount,0);
+ }
+ invoice={...good,id:'in_overlap'};
+ await assert.rejects(service.webhook(event('evt_overlap','invoice.paid',invoice)),{code:'MEMBERSHIP_OVERLAP'});
+ assert.equal((await pool.query("SELECT id FROM app_membership_invoice WHERE id LIKE 'in_invalid_%' OR id='in_overlap'")).rowCount,0);
+ invoice=good;
+});
+
+test('renewal notices deduplicate different event ids for the same upcoming period',async()=>{
+ const upcoming={...invoice,period_end:Date.parse('2030-04-01')/1000};
+ await service.webhook(event('evt_upcoming_1','invoice.upcoming',upcoming));
+ await service.webhook(event('evt_upcoming_2','invoice.upcoming',upcoming));
+ assert.equal((await pool.query('SELECT * FROM app_notification_outbox WHERE dedupe_key=$1',[`membership-renewal:${row.id}:${upcoming.period_end}`])).rowCount,1);
+});
