@@ -2,12 +2,16 @@
 
 Verified September 24, 2026. This is the implemented setup, not a claim that staging or production applications are complete. See [team SSH quick start](rles-team-quick-start.md) for the existing tunnel configuration.
 
+## Credential handoff status
+
+On September 24, 2026, individual credentials, this guide, the SSH quick-start and the public CA were emailed separately to all seven addresses in the team contract (including Max). This records sending, not confirmation that recipients opened the emails or connected successfully. No passwords are included in the repository.
+
 ## Team access
 
 Website accounts and roles are separate from SSH and database accounts. Changing database authentication does not grant or remove website admin permissions.
 
 1. Keep your existing authorized SSH key. The SSH destination remains `arbor-collaboratory` (Ubuntu-8802 via the existing Serveo jump route). Existing teammate keys are tunnel-only; no VM shell or Docker access is granted.
-2. Obtain **your own** development database password privately from the infrastructure owner. The passwords have been generated, but have not been sent to teammates. Never use another person's login or put passwords in Git, Jira, chat, shell commands, or this document.
+2. Obtain **your own** development database password privately from the infrastructure owner. Individual passwords are supplied separately in private onboarding messages, not in this document. Assigned passwords can be used directly; choosing a new password is optional during this development handoff. Never use another person's login or put passwords in Git, Jira, chat, shell commands, or this document.
 3. Open the tunnel:
 
    ```sh
@@ -41,8 +45,8 @@ Website accounts and roles are separate from SSH and database accounts. Changing
 - Edwin: `arbor_dev_edwin`
 - Declan: `arbor_dev_declan`
 - Antwoine: `arbor_dev_antwoine`
-- GitHub identity `rkamalaraj`: `arbor_dev_rkamalaraj`
-- GitHub identity `eoh7792`: `arbor_dev_eoh7792`
+- Raika (GitHub `rkamalaraj`): `arbor_dev_rkamalaraj`
+- Elise (GitHub `eoh7792`): `arbor_dev_eoh7792`
 
 These accounts inherit `arbor_developers`: SELECT/INSERT/UPDATE/DELETE on development tables and USAGE/SELECT on development sequences. No superuser, database creation, role creation, schema DDL, or access to another environment. Schema migrations remain an administrator deployment operation.
 
@@ -91,7 +95,7 @@ Never disable certificate verification to make deployment work. The deployed nod
 The private operational directory on Ubuntu-8802 is `/home/student/arbor-security-20260924` (mode 0700). It contains credentials, private signing material, recovery snapshots and runtime env files. **Do not copy that directory into Git or attach it to Jira.** Only the public CA certificate belongs in this repository.
 
 - `before/`: five custom-format database backups, role/global SQL, database authentication configs, and pre-change container/network snapshots. Every custom dump was restored successfully into a network-disabled disposable PostgreSQL server.
-- `team-accounts/`: separate private handoff files for each named developer. Deliver only the intended user's credential through an approved private method; then have them change it.
+- `team-accounts/`: separate private handoff files for each named developer. Deliver only the intended user's credential through an approved private method; they may use the assigned password directly, or request a change.
 - `arbor-email-app.env`, `arbor-mvc-current.env`: application runtime settings including restricted database passwords.
 - `arbor-email-db.env`, `arbor-mvc-db-1.env`: secure database initialization settings; no `POSTGRES_HOST_AUTH_METHOD=trust`.
 - `public.jwt.key`, `demo.jwt.key`: separate runtime signing keys.
@@ -144,7 +148,7 @@ A full pre-change restoration is an emergency maintenance procedure: stop affect
 
 ## Remaining work / claims we are NOT making
 
-- Named credentials still need private handoff and verification on teammates' own devices; the shared developer login must then be retired.
+- Named credentials are delivered individually; verification on teammates' own devices is still required before retiring the shared developer login.
 - Staging and production database/storage foundations exist, but their databases remain without the application schema and no staging/production application parity is established. The currently public site still uses `arbor_email_dev`; this work did not rename or migrate it.
 - RIT-managed at-rest encryption remains unverified. TLS is not evidence of disk encryption. Obtain confirmation from RIT before closing that criterion.
 - This does not close the scheduler's 98% on-time requirement or address the separate Orange Pi incident.
