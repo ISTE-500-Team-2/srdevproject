@@ -66,6 +66,7 @@ export function ProfilePage() {
           .map(([key, value]) => [key.slice(prefix.length), String(value)]),
       );
     setBusy(true);
+    setToast(null);
     setError('');
     try {
       const saved = await api<UserProfile>('/me/profile', {
@@ -79,7 +80,7 @@ export function ProfilePage() {
         },
       });
       setProfile(saved);
-      setToast('Your profile was saved.');
+      setToast('Changes saved.');
       await refresh();
     } catch (err) {
       setError(errorMessage(err));
@@ -103,10 +104,8 @@ export function ProfilePage() {
         </div>
       </section>
       <section className="profile-panel panel">
-        <form
-          key={`${user?.id ?? 'guest'}-${user?.firstName ?? ''}-${user?.lastName ?? ''}-${user?.phone ?? ''}-${JSON.stringify(profile?.address ?? {})}-${JSON.stringify(profile?.contactPreferences ?? {})}`}
-          onSubmit={save}
-        >
+      setProfile(saved);
+      setToast('Changes saved.');
           <h2>
             <UserRound aria-hidden="true" /> Personal information
           </h2>

@@ -25,6 +25,8 @@ export interface Person {
   address: Record<string, string | boolean>;
   contactPreferences: Record<string, string | boolean>;
   roles: string[];
+  primaryRole?: string;
+  isStudent?: boolean;
   revision: number;
 }
 export interface Entitlement {
