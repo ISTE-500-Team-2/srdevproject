@@ -21,7 +21,7 @@ export function ConfirmEmailPage() {
   }
   return <main className="page-shell"><section className="panel"><h1>Confirm your email</h1>
     {token ? <><p>Choose Confirm email to activate your account and sign in.</p><button className="button button--primary" disabled={busy} onClick={() => void confirm()}>Confirm email</button></> :
-      <p>Your account needs email confirmation before you can sign in. Check your inbox and spam folder for “Confirm your email address”.</p>}
+      <p>{location.state?.emailSendingEnabled === false ? 'Your account is saved, but email delivery is disabled here. No confirmation email will be sent.' : 'Your account needs email confirmation before you can sign in. When email delivery is enabled, check your inbox and spam folder for “Confirm your email address”.'}</p>}
     {location.state?.emailSendingEnabled === false ? <p role="status">Email delivery is disabled in this environment. Your account is saved but cannot be confirmed until email delivery is enabled. Use a development demo account or contact the team.</p> : null}
     {error ? <p className="form-error" role="alert">{error}</p> : null}{message ? <p role="status">{message}</p> : null}
     <h2>Need another email?</h2><p>Enter your signup email and password to resend, or provide a corrected email. If you change it successfully, use that new address for future requests.</p>
