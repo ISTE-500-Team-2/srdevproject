@@ -34,7 +34,7 @@ test('profile form saves visible fields without deleting custom values and omits
   await user.clear(screen.getByLabelText('City'));
   await user.type(screen.getByLabelText('City'), 'White Hall');
   await user.click(screen.getByRole('button', {name:'Save changes'}));
-  await screen.findByText('Your profile was saved.');
+  await screen.findByText('Changes saved.');
   await waitFor(async () => {
     const result = await bridge.pool.query('SELECT profile_address,contact_preferences FROM "user" WHERE userid=$1',[id]);
     expect(result.rows[0].profile_address).toEqual({City:'White Hall','Custom gate code':'Blue 7'});
