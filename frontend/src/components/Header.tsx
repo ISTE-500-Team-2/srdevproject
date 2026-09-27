@@ -59,7 +59,6 @@ export function Header() {
   return (
     <>
       <header className="site-header">
-        <h1>Help Me!</h1>
         <button
           className="icon-button site-header__mobile-toggle"
           onClick={() => setMobileOpen((value) => !value)}
