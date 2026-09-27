@@ -22,6 +22,8 @@ export interface Person {
   accessStatus: "active" | "suspended" | "revoked";
   accessReason: string;
   roles: string[];
+  primaryRole?: string;
+  isStudent?: boolean;
   revision: number;
 }
 export interface Entitlement {

@@ -200,6 +200,8 @@ export class StaffService {
     role: string,
     revision: number,
     reason: string,
+    roles?: string[],
+    isStudent?: boolean,
   ) {
     return this.write(actorId, true, "user_role", "update", async (model, actor) => {
       if (actorId === id)
@@ -210,6 +212,7 @@ export class StaffService {
         );
       const before = await this.target(model, actor, id);
       this.expectRevision(before.revision, revision);
+      const assigned = roles ?? [...new Set([...before.roles.filter((r: string) => r !== before.primaryRole),role])];
       if (!(await model.roleExists(role)))
         throw new AppError(
           409,
@@ -218,7 +221,7 @@ export class StaffService {
         );
       if (
         before.roles.includes("admin") &&
-        role !== "admin" &&
+        !assigned.includes("admin") &&
         (await model.activeAdmins()) <= 1
       )
         throw new AppError(
@@ -226,7 +229,7 @@ export class StaffService {
           "LAST_ADMIN",
           "The final active administrator cannot be removed.",
         );
-      const after = await model.setRole(id, role);
+      const after = await model.setRole(id, role, assigned, isStudent);
       await model.audit(
         actorId,
         id,
