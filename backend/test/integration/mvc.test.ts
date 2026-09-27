@@ -397,27 +397,6 @@ test('a day pass grants access only on its valid local calendar day', async () =
   );
 });
 
-test('rerunning setup preserves users, reservations and applied migration history', async () => {
-  const migrationsBefore = (await pool.query('SELECT name, checksum FROM app_migration ORDER BY name')).rows;
-  const before = (
-    await pool.query('SELECT COUNT(*)::int AS count FROM reservation')
-  ).rows[0].count;
-  await initializeDemo(pool);
-  await migrate(pool);
-  assert.equal(
-    (await pool.query('SELECT COUNT(*)::int AS count FROM reservation')).rows[0]
-      .count,
-    before,
-  );
-  assert.deepEqual((await pool.query('SELECT name, checksum FROM app_migration ORDER BY name')).rows, migrationsBefore);
-  const newUser = client();
-  await newUser.register();
-  assert.ok(newUser.id > 2);
-});
-
-
-
-
 test('profile patches preserve omitted/custom fields and clear only explicitly named fields', async () => {
   app = createApp(pool, config);
   const user = client();
@@ -466,7 +445,26 @@ test('profile patches preserve omitted/custom fields and clear only explicitly n
   assert.equal(response.body.data.studioContact.phone, process.env.STUDIO_CONTACT_PHONE?.trim() || null);
 });
 
-// This destructive legacy-schema check runs last; later tests need the current grants.
+test('rerunning setup preserves users, reservations and applied migration history', async () => {
+  const migrationsBefore = (await pool.query('SELECT name, checksum FROM app_migration ORDER BY name')).rows;
+  const before = (
+    await pool.query('SELECT COUNT(*)::int AS count FROM reservation')
+  ).rows[0].count;
+  await initializeDemo(pool);
+  await migrate(pool);
+  assert.equal(
+    (await pool.query('SELECT COUNT(*)::int AS count FROM reservation')).rows[0]
+      .count,
+    before,
+  );
+  assert.deepEqual((await pool.query('SELECT name, checksum FROM app_migration ORDER BY name')).rows, migrationsBefore);
+  const newUser = client();
+  await newUser.register();
+  assert.ok(newUser.id > 2);
+});
+
+
+
 test('additive RBAC migration upgrades existing MVC data without resetting users or reservations', async () => {
   const before = (await pool.query('SELECT (SELECT count(*) FROM "user") AS users, (SELECT count(*) FROM reservation) AS reservations')).rows[0];
   // This suite owns this disposable DB. Recreate the pre-PR3 schema state.
