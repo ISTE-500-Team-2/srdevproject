@@ -148,6 +148,10 @@ function UserDetail({
               {u.email} · {u.roles.join(", ")} · Primary: {u.primaryRole ?? "member"}{u.isStudent ? " · Student" : ""} · Facility access:{" "}
               <strong>{u.accessStatus}</strong>
             </p>
+            <p>
+              Account status: <strong>{u.status}</strong> · Conduct flag:{" "}
+              <strong>{u.conductFlag ? "Yes" : "No"}</strong>
+            </p>
             {u.accessReason ? <p>Access note: {u.accessReason}</p> : null}
             {!canManage ? (
               <p>Only an administrator can change this staff account.</p>

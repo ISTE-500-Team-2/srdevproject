@@ -52,6 +52,8 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.post("/reservations", permit("reservation","create","own"), requireCsrf, reservations.create);
   routes.post("/reservations/:id/cancel", permit("reservation","update","own"), requireCsrf, reservations.cancel);
   routes.get("/me/overview", permit("user","read","own"), member.overview);
+  routes.get("/me/profile", permit("user","read","own"), member.me);
+  routes.get("/studio/contact", member.studioContact);
   routes.get("/me/notifications", permit("notification","read","own"), notifications.get);
   routes.patch("/me/notifications", permit("notification","update","own"), requireCsrf, notifications.update);
   routes.patch("/me/profile", permit("user","update","own"), requireCsrf, member.profile);
@@ -64,6 +66,7 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.get("/plans", permit("plan","read","own"), member.plans);
   routes.get("/me/memberships", permit("entitlement","read","own"), member.memberships);
   routes.get("/me/payments", permit("payment","read","own"), member.payments);
+
   routes.use("/admin", requireStaff);
   routes.get("/admin/plans", permit("plan","read","global"), staff.plans);
   routes.post("/admin/plans", permit("plan","create","global"), requireCsrf, staff.createPlan);
