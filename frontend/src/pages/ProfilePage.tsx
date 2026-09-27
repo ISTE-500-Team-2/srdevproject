@@ -49,6 +49,7 @@ export function ProfilePage() {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     setBusy(true);
+    setToast(null);
     setError('');
     try {
       await api<User>('/me/profile', {
@@ -59,7 +60,7 @@ export function ProfilePage() {
           phone: String(form.get('phone')),
         },
       });
-      setToast('Your profile was saved.');
+      setToast('Changes saved.');
       await refresh();
     } catch (err) {
       setError(errorMessage(err));
@@ -83,7 +84,7 @@ export function ProfilePage() {
         </div>
       </section>
       <section className="profile-panel panel">
-        <form onSubmit={save}>
+        <form onSubmit={save} onChange={() => { setToast(null); setError(''); }}>
           <h2>
             <UserRound aria-hidden="true" /> Personal information
           </h2>
