@@ -415,19 +415,7 @@ test('rerunning setup preserves users, reservations and applied migration histor
   assert.ok(newUser.id > 2);
 });
 
-test('additive RBAC migration upgrades existing MVC data without resetting users or reservations', async () => {
-  const before = (await pool.query('SELECT (SELECT count(*) FROM "user") AS users, (SELECT count(*) FROM reservation) AS reservations')).rows[0];
-  // This suite owns this disposable DB. Recreate the pre-PR3 schema state.
-  await pool.query('DROP TABLE role_permission; DROP TABLE permission');
-  await pool.query("DELETE FROM app_migration WHERE name='003_rbac_permissions.sql'");
-  await migrate(pool);
-  assert.deepEqual((await pool.query('SELECT (SELECT count(*) FROM "user") AS users, (SELECT count(*) FROM reservation) AS reservations')).rows[0], before);
-  const grants = await pool.query("SELECT rp.* FROM role_permission rp JOIN role r ON r.roleid=rp.roleid WHERE r.role='staff' AND rp.resourcename='payment' AND rp.permissionid=3");
-  assert.equal(grants.rows.length, 1);
-  await pool.query("UPDATE role_permission SET isallowed=false WHERE resourcename='payment'");
-  await migrate(pool);
-  assert.equal((await pool.query("SELECT count(*)::int AS n FROM role_permission WHERE resourcename='payment' AND isallowed")).rows[0].n,0);
-});
+
 
 
 test('profile patches preserve omitted/custom fields and clear only explicitly named fields', async () => {
@@ -476,4 +464,19 @@ test('profile patches preserve omitted/custom fields and clear only explicitly n
   assert.equal('status' in response.body.data.user, false);
   assert.equal('conductFlag' in response.body.data.user, false);
   assert.equal(response.body.data.studioContact.phone, process.env.STUDIO_CONTACT_PHONE?.trim() || null);
+});
+
+// This destructive legacy-schema check runs last; later tests need the current grants.
+test('additive RBAC migration upgrades existing MVC data without resetting users or reservations', async () => {
+  const before = (await pool.query('SELECT (SELECT count(*) FROM "user") AS users, (SELECT count(*) FROM reservation) AS reservations')).rows[0];
+  // This suite owns this disposable DB. Recreate the pre-PR3 schema state.
+  await pool.query('DROP TABLE role_permission; DROP TABLE permission');
+  await pool.query("DELETE FROM app_migration WHERE name='003_rbac_permissions.sql'");
+  await migrate(pool);
+  assert.deepEqual((await pool.query('SELECT (SELECT count(*) FROM "user") AS users, (SELECT count(*) FROM reservation) AS reservations')).rows[0], before);
+  const grants = await pool.query("SELECT rp.* FROM role_permission rp JOIN role r ON r.roleid=rp.roleid WHERE r.role='staff' AND rp.resourcename='payment' AND rp.permissionid=3");
+  assert.equal(grants.rows.length, 1);
+  await pool.query("UPDATE role_permission SET isallowed=false WHERE resourcename='payment'");
+  await migrate(pool);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM role_permission WHERE resourcename='payment' AND isallowed")).rows[0].n,0);
 });
