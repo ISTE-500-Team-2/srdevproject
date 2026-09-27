@@ -64,6 +64,7 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.get("/plans", permit("plan","read","own"), member.plans);
   routes.get("/me/memberships", permit("entitlement","read","own"), member.memberships);
   routes.get("/me/payments", permit("payment","read","own"), member.payments);
+
   routes.get("/me/profile", permit("user","read","own"), member.me);
   routes.get("/studio/contact", member.studioContact);
   routes.use("/admin", requireStaff);
