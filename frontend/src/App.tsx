@@ -1,3 +1,4 @@
+import { StudiosPage } from './pages/StudiosPage';
 import { RequireUser, RequireStaff } from './components/RouteGuards';
 import { ConfirmEmailPage } from './pages/ConfirmEmailPage';
 import { Route, Routes } from 'react-router-dom';
@@ -26,6 +27,7 @@ export default function App() {
           <Route element={<AppShell />}>
             <Route index element={<MemberHomePage />} />
             <Route path="reservations" element={<ReservationsPage />} />
+            <Route path="studios" element={<StudiosPage />} />
             <Route path="certifications" element={<CertificationsPage />} />
             <Route path="classes" element={<ClassesPage />} />
             <Route path="profile" element={<ProfilePage />} />

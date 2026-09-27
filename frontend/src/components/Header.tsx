@@ -16,6 +16,7 @@ const navItems = [
   { label: 'Home', to: '/' },
   { label: 'Membership', to: '/membership' },
   { label: 'Reservations', to: '/reservations' },
+  { label: 'Studios', to: '/studios' },
   { label: 'Certifications & Waivers', to: '/certifications' },
   { label: 'Classes', to: '/classes' },
 ];
