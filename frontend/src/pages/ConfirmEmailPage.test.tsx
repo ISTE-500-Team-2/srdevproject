@@ -23,3 +23,10 @@ test('failure offers recovery without showing forms on the token landing', async
   expect(screen.getByRole('link', { name: 'Request a new confirmation email' }).getAttribute('href')).toBe('/confirm-email');
   expect(screen.queryByRole('textbox')).toBeNull();
 });
+test('disabled local email is explicit without restoring the old recovery form', () => {
+  render(<MemoryRouter initialEntries={[{ pathname: '/confirm-email', state: { email: 'test@example.test', emailSendingEnabled: false } }]}><ConfirmEmailPage /></MemoryRouter>);
+  expect(screen.getByRole('heading', { name: 'Email unavailable' })).toBeTruthy();
+  expect(screen.getByRole('status').textContent).toContain('Your account is saved');
+  expect(screen.queryByRole('heading', { name: 'Confirmation sent' })).toBeNull();
+  expect(screen.getByText('Didn’t get the email?').closest('details')?.open).toBe(false);
+});
