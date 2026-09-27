@@ -17,6 +17,7 @@ const server = createApp(pool, config, frontend).listen(
   config.port,
   config.host,
   () => {
+    console.log(`Email delivery: ${config.notifications ? 'ON (Brevo worker; provider delivery is not guaranteed)' : 'OFF (signup confirmation cannot be delivered)'}`);
     console.log(
       `Collaboratory MVC listening on ${config.host}:${config.port}; demo login ${config.demoLogin ? 'enabled' : 'disabled'}`,
     );

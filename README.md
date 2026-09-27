@@ -2,6 +2,13 @@
 
 **Connecting to the shared VM or database? Start with the [RLES team access guide](docs/rles-team-quick-start.md).**
 
+## Local development
+
+Start Docker Desktop, then run `npm run dev` from the repo root. Open
+http://localhost:5173 and use Member/Admin demo. Mac and Windows use the same command.
+For real signup emails, use `npm run dev:email` after configuring `.env.local`.
+**[Setup, email mode, and troubleshooting](docs/LOCAL-DEVELOPMENT.md).**
+
 ## MVC application
 
 The integration branch connects React views to Express controllers/services and PostgreSQL models, including JWT authentication, staff-managed membership/day-pass issuance, facility access, payment records and policy versions. See [JWT authentication and key setup](docs/JWT-AUTH.md).
