@@ -463,8 +463,6 @@ test('rerunning setup preserves users, reservations and applied migration histor
   assert.ok(newUser.id > 2);
 });
 
-
-
 test('additive RBAC migration upgrades existing MVC data without resetting users or reservations', async () => {
   const before = (await pool.query('SELECT (SELECT count(*) FROM "user") AS users, (SELECT count(*) FROM reservation) AS reservations')).rows[0];
   // This suite owns this disposable DB. Recreate the pre-PR3 schema state.
