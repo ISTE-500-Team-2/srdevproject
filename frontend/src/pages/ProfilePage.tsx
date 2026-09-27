@@ -104,8 +104,10 @@ export function ProfilePage() {
         </div>
       </section>
       <section className="profile-panel panel">
-      setProfile(saved);
-      setToast('Changes saved.');
+        <form
+          key={`${user?.id ?? 'guest'}-${user?.firstName ?? ''}-${user?.lastName ?? ''}-${user?.phone ?? ''}-${JSON.stringify(profile?.address ?? {})}-${JSON.stringify(profile?.contactPreferences ?? {})}`}
+          onSubmit={save} onChange={() => { setToast(null); setError(''); }}
+        >
           <h2>
             <UserRound aria-hidden="true" /> Personal information
           </h2>
