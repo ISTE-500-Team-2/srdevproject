@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import App from '../../src/App';
 import { setAccessToken, setCsrfToken } from '../../src/lib/api';
@@ -13,7 +13,7 @@ async function login(role:string) {
   const r=await bridge.fetch('/api/auth/demo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role})});
   expect(r.status).toBe(200);const {data}=await r.json();setAccessToken(data.accessToken);setCsrfToken(data.csrfToken);return data;
 }
-test.each(['/','/profile','/admin','/membership','/reservations','/certifications','/classes'])('signed-out deep link %s renders login, not protected page',async(path)=>{
+test.each(['/','/profile','/admin','/membership','/reservations','/certifications','/classes','/studios'])('signed-out deep link %s renders login, not protected page',async(path)=>{
   mount(path);await screen.findByLabelText('Password');
   expect(screen.queryByRole('navigation',{name:'Primary navigation'})).toBeNull();
 });
@@ -43,6 +43,7 @@ test('revoked server session is removed on page return without reloading the bro
 test('profile save still displays its success popup after refreshing the session',async()=>{
   await login('member');mount('/profile');
   const save=await screen.findByRole('button',{name:'Save changes'});
+  await waitFor(() => expect((save as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(save);await screen.findByText('Changes saved.');
   // A completed background auth refresh must not unmount and erase the popup.
   fireEvent.focus(window);
