@@ -1,6 +1,8 @@
 # Team ARBOR — Shared VM and Development Access
 
-Updated September 9, 2026.
+Updated September 24, 2026.
+
+**Database security update:** all database TCP connections now require TLS. Use your named development account and the public CA in the [database access guide](rles-database-access.md). Existing SSH keys and tunnel ports are unchanged. The old shared database login remains transitional until private credential handoff is complete.
 
 ## Use the current shared VM
 
@@ -69,17 +71,18 @@ Keep that terminal open. A quiet terminal without a shell prompt is normal. The 
 
 - PostgreSQL host: `127.0.0.1`, port: `15432`
 - Database: `collaboratory_dev`
-- Development database username: `arbor_dev_team`
+- Development database username: your named `arbor_dev_*` login; see the [account list](rles-database-access.md#named-development-accounts).
+- TLS mode: **verify-full**; root certificate: `docs/certificates/rles-database-ca.crt`.
 - MinIO S3 API: `http://127.0.0.1:19000`
 - MinIO console: `http://127.0.0.1:19001`
 - MinIO bucket: `collaboratory-dev`
 
 Obtain the service credentials through the infrastructure owner's approved secure credential-sharing method. Enter them in the client's password field; do not put them in commands, GitHub, Jira, or chat.
 
-If `psql` is installed, this read-only check prompts locally for the database password:
+If `psql` is installed, run from the repository root and replace the example Matt username with your own. This read-only check prompts locally for the database password:
 
 ```sh
-psql -W -h 127.0.0.1 -p 15432 -U arbor_dev_team -d collaboratory_dev -c "SELECT current_database(), current_user;"
+psql -W "host=127.0.0.1 port=15432 dbname=collaboratory_dev user=arbor_dev_matt sslmode=verify-full sslrootcert=docs/certificates/rles-database-ca.crt" -c "SELECT current_database(), current_user;"
 ```
 
 Development schema updates are separate from access setup. Opening this tunnel or merging a pull request does not automatically reset or migrate the shared database. Staging and production are not exposed by these forwards.
