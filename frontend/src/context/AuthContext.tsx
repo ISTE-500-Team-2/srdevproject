@@ -5,6 +5,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  useRef,
   type ReactNode,
 } from 'react';
 import { api, ApiError, errorMessage, setCsrfToken, setAccessToken } from '../lib/api';
@@ -26,7 +27,7 @@ interface AuthContextValue {
   register: (input: Registration) => Promise<{confirmationRequired:true;email:string;emailSendingEnabled:boolean}>;
   confirmEmail: (token:string) => Promise<UserRole>;
   logout: () => Promise<void>;
-  refresh: () => Promise<void>;
+  refresh: (blocking?: boolean) => Promise<void>;
   clearNotification: () => void;
 }
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -36,7 +37,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [demoLogin, setDemoLogin] = useState(false);
+  const revision = useRef(0);
   const acceptSession = useCallback((session: Session) => {
+    revision.current++;
+    setLoading(false);
     if (session.accessToken) setAccessToken(session.accessToken);
     setCsrfToken(session.csrfToken);
     setUser(session.user);
@@ -44,18 +48,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError('');
     return session.user.role;
   }, []);
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (blocking = false) => {
+    const requestRevision = ++revision.current;
+    if (blocking) setLoading(true);
     setError('');
     try {
-      acceptSession(await api<Session>('/auth/session'));
+      const session = await api<Session>('/auth/session');
+      if (requestRevision !== revision.current) return;
+      // acceptSession advances the revision; loading belongs to this response.
+      setLoading(false);
+      acceptSession(session);
     } catch (err) {
+      if (requestRevision !== revision.current) return;
       if (err instanceof ApiError && err.status === 401) {
         setUser(null);
         setCsrfToken(null);
         setAccessToken(null);
       } else setError(errorMessage(err));
     } finally {
-      setLoading(false);
+      if (requestRevision === revision.current) setLoading(false);
     }
   }, [acceptSession]);
   useEffect(() => {
@@ -64,6 +75,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .then((config) => setDemoLogin(config.demoLogin))
       .catch(() => setDemoLogin(false));
     const expired = () => {
+      revision.current++;
+      setLoading(false);
+      setError('');
+      setNotification(null);
       setUser(null);
       setCsrfToken(null);
         setAccessToken(null);
@@ -94,7 +109,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
   const confirmEmail = useCallback(async (token:string) => acceptSession(await api<Session>('/auth/confirm',{method:'POST',body:{token}})),[acceptSession]);
   const logout = useCallback(async () => {
+    // Invalidate in-flight session reads before and after server revocation.
+    revision.current++;
     await api<void>('/auth/logout', { method: 'POST' });
+    revision.current++;
+    setLoading(false);
     setCsrfToken(null);
         setAccessToken(null);
     setUser(null);
