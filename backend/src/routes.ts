@@ -1,3 +1,4 @@
+import {studioRoutes} from './studios/routes.js';
 import { requirePermission } from './middleware/permissions.js';
 import { WaiverRecordsController } from './controllers/WaiverRecordsController.js';
 import { NotificationPreferencesController } from "./controllers/NotificationPreferencesController.js";
@@ -47,6 +48,8 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.get("/auth/session", protectedRoute, auth.current);
   routes.post("/auth/logout", protectedRoute, requireCsrf, auth.logout);
   routes.use(protectedRoute);
+  routes.use(studioRoutes(pool,config.timeZone,config.studioStripe));
+
   routes.get("/equipment", permit("equipment","read","own"), equipment.list);
   routes.get("/reservations", permit("reservation","read","own"), reservations.list);
   routes.post("/reservations", permit("reservation","create","own"), requireCsrf, reservations.create);
