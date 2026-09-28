@@ -6,6 +6,7 @@ import type { AppConfig } from "./config.js";
 import { AuthController } from "./controllers/AuthController.js";
 import { EquipmentController } from "./controllers/EquipmentController.js";
 import { ReservationController } from "./controllers/ReservationController.js";
+import { RoomController } from "./controllers/RoomController.js";
 import { MemberController } from "./controllers/MemberController.js";
 import {
   requireUser,
@@ -22,6 +23,7 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   const waiverRecords = new WaiverRecordsController(pool);
   const member = new MemberController(pool, config.timeZone);
   const equipment = new EquipmentController(pool, config.timeZone);
+  const rooms = new RoomController(pool);
   const reservations = new ReservationController(pool, config.timeZone);
   const staff = new StaffController(pool, config.timeZone);
   const protectedRoute = requireUser(pool, config);
@@ -46,6 +48,7 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.post("/auth/logout", protectedRoute, requireCsrf, auth.logout);
   routes.use(protectedRoute);
   routes.get("/equipment", equipment.list);
+  routes.get("/rooms", rooms.list);
   routes.get("/reservations", reservations.list);
   routes.post("/reservations", requireCsrf, reservations.create);
   routes.post("/reservations/:id/cancel", requireCsrf, reservations.cancel);
