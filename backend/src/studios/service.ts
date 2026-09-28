@@ -452,6 +452,17 @@ export class StudioService {
     else {
       if (session.status === "open" && new Date(r.hold_until) <= new Date())
         session = await this.stripe.sdk.checkout.sessions.expire(session.id);
+      // Completed delayed-payment checkouts cannot be expired through Stripe.
+      // Reconcile a failed intent if its webhook was missed; keep processing or
+      // ambiguous payments held rather than releasing dates prematurely.
+      if(session.status==='complete' && session.payment_status==='unpaid' && session.payment_intent) {
+        const pi=typeof session.payment_intent==='string'?session.payment_intent:session.payment_intent.id;
+        const intent=await this.stripe.sdk.paymentIntents.retrieve(pi);
+        if(intent.id!==pi||intent.livemode||intent.amount!==r.amount_cents||intent.currency!=='usd')
+          throw new AppError(400,'PAYMENT_MISMATCH','Payment intent does not match rental.');
+        if(intent.status==='canceled'||intent.status==='requires_payment_method'&&intent.last_payment_error)
+          await this.failedCheckout(session);
+      }
       if (session.status === "expired")
         await this.pool.query(
           "UPDATE app_studio_rental SET status='expired' WHERE id=$1 AND status='pending' AND payment_status='unpaid'",
@@ -589,6 +600,20 @@ export class StudioService {
     };
     return db ? work(db) : transaction(this.pool, work);
   }
+  async failedCheckout(session: Stripe.Checkout.Session, db?: Database) {
+    const work=async(db:Database)=>{
+      const r=(await db.query("SELECT * FROM app_studio_rental WHERE checkout_id=$1 OR id::text=$2 FOR UPDATE",[session.id,session.metadata?.studioRentalId??''])).rows[0];
+      if(!r)return;
+      if(session.livemode||session.mode!=='payment'||session.amount_total!==r.amount_cents||session.currency!=='usd'||session.client_reference_id!==String(r.id)||r.checkout_id&&session.id!==r.checkout_id)
+        throw new AppError(400,'PAYMENT_MISMATCH','Failed checkout does not match rental.');
+      if(session.payment_status==='paid'){await this.complete(session,db);return;}
+      if(session.status!=='complete'||session.payment_status!=='unpaid'||r.status!=='pending'||r.payment_status!=='unpaid')return;
+      await db.query("UPDATE app_studio_rental SET status='expired',checkout_id=$2 WHERE id=$1",[r.id,session.id]);
+      await this.event(db,r,null,'stripe_payment_failed',{checkoutId:session.id});
+      await enqueueNotification(db,{userId:r.userid,kind:'payment_failed',dedupeKey:`studio-payment-failed:${r.id}`,payload:{reservationId:r.id,reference:session.id,instructions:'The studio payment failed. The dates have been released; start a new booking to try again.'}});
+    };
+    return db?work(db):transaction(this.pool,work);
+  }
   async receipt(db: Database, r: any, reference: string) {
     await enqueueNotification(db, {
       userId: r.userid, kind: "payment_receipt", dedupeKey: `studio-payment:${r.id}`,
@@ -665,6 +690,16 @@ export class StudioService {
       {
         const session = event.data.object as Stripe.Checkout.Session;
         if (session.metadata?.studioRentalId) await this.complete(session, db);
+      }
+      if(event.type==='checkout.session.async_payment_failed') {
+        const announced=event.data.object as Stripe.Checkout.Session;
+        const r=(await db.query("SELECT id FROM app_studio_rental WHERE checkout_id=$1 OR id::text=$2 FOR UPDATE",[announced.id,announced.metadata?.studioRentalId??''])).rows[0];
+        if(r){
+          if(!this.stripe)throw new AppError(503,'PAYMENTS_UNAVAILABLE','Stripe is not configured.');
+          const current=await this.stripe.sdk.checkout.sessions.retrieve(announced.id);
+          if(current.id!==announced.id)throw new AppError(400,'PAYMENT_MISMATCH','Checkout identity mismatch.');
+          await this.failedCheckout(current,db);
+        }
       }
       if (event.type === "checkout.session.expired") {
         const s = event.data.object as Stripe.Checkout.Session;

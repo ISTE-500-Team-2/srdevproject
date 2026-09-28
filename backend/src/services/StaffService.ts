@@ -248,6 +248,8 @@ export class StaffService {
       .update(JSON.stringify({ userId, ...input }))
       .digest("hex");
     return this.write(actorId, false, "entitlement", "create", async (model, actor, db) => {
+      // Same lock as online checkout/issuance, taken before target/plan locks.
+      await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,userId]);
       const user = await this.target(model, actor, userId);
       const previous = await model.request(input.requestId);
       if (previous) {

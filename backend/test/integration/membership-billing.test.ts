@@ -102,7 +102,7 @@ test('staff original-card refund is idempotent; pending is not confirmed and mem
  await service.refund(other,id,'Repeat refund safely');
  assert.equal(calls,1);
  assert.equal((await pool.query("SELECT paymentstatus FROM payment WHERE reference=$1",[id])).rows[0].paymentstatus,'refunded');
- assert.equal((await pool.query("SELECT * FROM app_notification_outbox WHERE dedupe_key='membership-refund:in_first'")).rowCount,1);
+ assert.equal((await pool.query("SELECT * FROM app_notification_outbox WHERE dedupe_key='membership-refund:in_first:re_membership'")).rowCount,1);
 });
 
 test('concurrent duplicate deliveries issue exactly one period and receipt',async()=>{

@@ -135,22 +135,39 @@ export class PassBilling {
  }
  async applyRefund(db:Database,f:Stripe.Refund){
   const r=(await db.query('SELECT * FROM app_pass_checkout WHERE payment_intent=$1 FOR UPDATE',[objectId(f.payment_intent)])).rows[0];
-  if(!r||r.refund_status==='succeeded')return;
+  if(!r)return;
+  const failed=['failed','canceled'].includes(f.status??'');
+  if(r.refund_status==='succeeded'&&!(r.refund_id===f.id&&failed))return;
+  if(r.refund_id===f.id&&(r.refund_status===f.status||['failed','canceled'].includes(r.refund_status)&&f.status==='pending'))return;
   if(f.amount!==r.amount_cents||f.currency!=='usd')throw new AppError(409,'RECONCILE_REQUIRED','Refund amount mismatch.');
   await db.query('UPDATE app_pass_checkout SET refund_id=$2,refund_status=$3 WHERE id=$1',[r.id,f.id,f.status]);
   if(f.status==='succeeded'){
    await db.query("UPDATE payment SET paymentstatus='refunded',updated_at=now(),revision=revision+1 WHERE paymentid=$1",[r.payment_id]);
    await this.finishCancel(db,r);
    await new StaffModel(db).audit(r.userid,r.userid,'daypass.refunded','payment',r.payment_id,'Original-card refund confirmed',null,{refundId:f.id,amount:f.amount});
-   await enqueueNotification(db,{userId:r.userid,kind:'payment_refunded',dedupeKey:'daypass-refund:'+r.id,payload:{reference:f.id,amount:(f.amount/100).toFixed(2),currency:'USD',method:'Original card (test mode)'}});
+   await enqueueNotification(db,{userId:r.userid,kind:'payment_refunded',dedupeKey:'daypass-refund:'+r.id+':'+f.id,payload:{reference:f.id,amount:(f.amount/100).toFixed(2),currency:'USD',method:'Original card (test mode)'}});
   }
+  if(failed){
+   await db.query("UPDATE payment SET paymentstatus='paid',updated_at=now(),revision=revision+1 WHERE paymentid=$1 AND paymentstatus='refunded'",[r.payment_id]);
+   await db.query("UPDATE app_notification_outbox SET status='obsolete',updated_at=now() WHERE dedupe_key=ANY($1::text[]) AND status='pending'",[[`daypass-refund:${r.id}`,`daypass-refund:${r.id}:${f.id}`]]);
+   await enqueueNotification(db,{userId:r.userid,kind:'payment_status_changed',dedupeKey:`daypass-refund-failed:${r.id}:${f.id}`,payload:{paymentId:r.payment_id,reference:f.id,instructions:'The original-card day-pass refund failed. Contact staff for reconciliation. Cancelled access remains cancelled.'}});
+  }
+ }
+ async refundEvent(db:Database,obj:Stripe.Refund){
+  const pi=objectId(obj.payment_intent);
+  if(!pi)throw new AppError(400,'PAYMENT_MISMATCH','Refund payment intent missing.');
+  const row=(await db.query('SELECT id FROM app_pass_checkout WHERE payment_intent=$1 FOR UPDATE',[pi])).rows[0];
+  if(!row)return;
+  const f=await this.provider().sdk.refunds.retrieve(obj.id);
+  if(f.id!==obj.id||objectId(f.payment_intent)!==pi)throw new AppError(400,'PAYMENT_MISMATCH','Refund identity mismatch.');
+  await this.applyRefund(db,f);
  }
  async webhook(event:Stripe.Event){
   if(event.livemode)throw new AppError(400,'LIVE_PAYMENT_FORBIDDEN','Test events only.');
   const sdk=this.provider().sdk,obj=event.data.object as any;
   await transaction(this.pool,async db=>{
    if(!(await db.query('INSERT INTO app_pass_stripe_event(id) VALUES($1) ON CONFLICT DO NOTHING RETURNING id',[event.id])).rowCount)return;
-   if(['refund.created','refund.updated','refund.failed'].includes(event.type)){await this.applyRefund(db,await sdk.refunds.retrieve(obj.id));return;}
+   if(['refund.created','refund.updated','refund.failed'].includes(event.type)){await this.refundEvent(db,obj);return;}
    if(!event.type.startsWith('checkout.session.'))return;
    // Ignore other products' Checkout events without an unnecessary provider call.
    const known=(await db.query('SELECT id FROM app_pass_checkout WHERE checkout_id=$1 OR id::text=$2',[obj.id,obj.metadata?.dayPassCheckoutId??''])).rows[0];

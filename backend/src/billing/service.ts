@@ -200,15 +200,59 @@ export class MembershipBilling {
   async applyRefund(db:Database,f:Stripe.Refund) {
     const r=(await db.query(`SELECT i.*,b.userid,b.amount_cents FROM app_membership_invoice i
       JOIN app_membership_billing b ON b.id=i.billing_id WHERE i.payment_intent=$1 FOR UPDATE OF i`,[objectId(f.payment_intent)])).rows[0];
-    if(!r||f.amount!==r.amount_cents||f.currency!=='usd'||r.refund_status==='succeeded') return;
+    if(!r) return;
+    if(f.amount!==r.amount_cents||f.currency!=='usd') throw new AppError(409,'RECONCILE_REQUIRED','Refund does not match the original invoice payment.');
+    const failed=['failed','canceled'].includes(f.status??'');
+    if(r.refund_status==='succeeded' && !(r.refund_id===f.id && failed)) return;
+    if(r.refund_id===f.id && (r.refund_status===f.status || ['failed','canceled'].includes(r.refund_status)&&f.status==='pending')) return;
     await db.query('UPDATE app_membership_invoice SET refund_id=$2,refund_status=$3 WHERE id=$1',[r.id,f.id,f.status]);
     if(f.status==='succeeded') {
       await db.query("UPDATE payment SET paymentstatus='refunded',updated_at=now(),revision=revision+1 WHERE paymentid=$1",[r.payment_id]);
-      await enqueueNotification(db,{userId:r.userid,kind:'payment_refunded',dedupeKey:'membership-refund:'+r.id,
+      await enqueueNotification(db,{userId:r.userid,kind:'payment_refunded',dedupeKey:'membership-refund:'+r.id+':'+f.id,
         payload:{reference:f.id,amount:(f.amount/100).toFixed(2),currency:'USD',method:'Original card (test mode)'}});
+    }
+    if(failed) {
+      // The charge remains paid, but the attempted refund did not return money.
+      await db.query("UPDATE payment SET paymentstatus='paid',updated_at=now(),revision=revision+1 WHERE paymentid=$1 AND paymentstatus='refunded'",[r.payment_id]);
+      await db.query("UPDATE app_notification_outbox SET status='obsolete',updated_at=now() WHERE dedupe_key=ANY($1::text[]) AND status='pending'",[[`membership-refund:${r.id}`,`membership-refund:${r.id}:${f.id}`]]);
+      await enqueueNotification(db,{userId:r.userid,kind:'payment_status_changed',dedupeKey:`membership-refund-failed:${r.id}:${f.id}`,payload:{paymentId:r.payment_id,reference:f.id,instructions:'The original-card membership refund failed. Contact staff for reconciliation.'}});
     }
     // Refunding a charge does not silently cancel a subscription or revoke a
     // paid period. Those are separate staff/member actions with their own policy.
+  }
+  async refundEvent(db:Database,obj:Stripe.Refund) {
+    const sdk=this.provider().sdk,pi=objectId(obj.payment_intent);
+    if(!pi)throw new AppError(400,'PAYMENT_MISMATCH','Refund payment intent missing.');
+    await db.query("SELECT pg_advisory_xact_lock(hashtext('membership-refund'),hashtext($1))",[pi]);
+    let record=(await db.query('SELECT id FROM app_membership_invoice WHERE payment_intent=$1 FOR UPDATE',[pi])).rows[0];
+    if(!record) {
+      const linked=await sdk.invoicePayments.list({payment:{type:'payment_intent',payment_intent:pi},status:'paid',limit:100});
+      if(linked.has_more)throw new AppError(409,'RECONCILE_REQUIRED','Invoice payment mapping needs reconciliation.');
+      for(const payment of linked.data) {
+        const invoiceId=objectId(payment.invoice);
+        const r=(await db.query(`SELECT i.*,b.amount_cents FROM app_membership_invoice i JOIN app_membership_billing b ON b.id=i.billing_id WHERE i.id=$1 FOR UPDATE OF i`,[invoiceId])).rows[0];
+        if(!r)continue;
+        if(linked.data.length!==1||payment.livemode||payment.currency!=='usd'||payment.amount_paid!==r.amount_cents||payment.payment.type!=='payment_intent'||objectId(payment.payment.payment_intent)!==pi||r.payment_intent&&r.payment_intent!==pi)
+          throw new AppError(409,'RECONCILE_REQUIRED','Refund invoice mapping does not match its original payment.');
+        await db.query('UPDATE app_membership_invoice SET payment_intent=$2 WHERE id=$1',[r.id,pi]);
+        record=r;
+      }
+      // A refund can arrive before invoice.paid. Keep our event retryable rather
+      // than acknowledging it and losing the update before an invoice exists.
+      if(!record)for(const payment of linked.data) {
+        const invoiceId=objectId(payment.invoice);if(!invoiceId)continue;
+        const invoice=await sdk.invoices.retrieve(invoiceId);
+        const sid=objectId(invoice.parent?.subscription_details?.subscription);
+        if(sid&&(await db.query('SELECT id FROM app_membership_billing WHERE subscription_id=$1',[sid])).rowCount)
+          throw new AppError(409,'INVOICE_PENDING','Paid invoice must be recorded before its refund can be reconciled.');
+      }
+    }
+    if(!record)return;
+    // Retrieve while the invoice is locked; concurrent stale deliveries cannot
+    // retrieve an old state and apply it after a newer correction.
+    const current=await sdk.refunds.retrieve(obj.id);
+    if(current.id!==obj.id||objectId(current.payment_intent)!==pi)throw new AppError(400,'PAYMENT_MISMATCH','Refund identity mismatch.');
+    await this.applyRefund(db,current);
   }
   async webhook(event:Stripe.Event) {
     if(event.livemode) throw new AppError(400,'LIVE_PAYMENT_FORBIDDEN','Test events only.');
@@ -220,7 +264,7 @@ export class MembershipBilling {
         await db.query("UPDATE app_membership_billing SET status='expired' WHERE checkout_id=$1 AND status='pending' AND subscription_id IS NULL",[s.id]);return;
       }
       const obj=event.data.object as any;
-      if(['refund.created','refund.updated','refund.failed'].includes(event.type)){await this.applyRefund(db,await sdk.refunds.retrieve(obj.id));return;}
+      if(['refund.created','refund.updated','refund.failed'].includes(event.type)){await this.refundEvent(db,obj);return;}
       const sid=event.type.startsWith('customer.subscription.') ? obj.id : event.type.startsWith('invoice.') ? objectId(obj.parent?.subscription_details?.subscription) : event.type.startsWith('checkout.session.') ? objectId(obj.subscription) : undefined;
       if(!sid) return;
       // Retrieve authoritative current state so late/out-of-order events cannot

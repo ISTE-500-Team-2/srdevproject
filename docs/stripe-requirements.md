@@ -121,6 +121,33 @@ stale success, retry failure feedback, replacement reconciliation, and an old
 failure arriving after replacement. Stripe responses in these regressions are
 mocked; this is not a claim of reproducing a late bank failure in the sandbox.
 
+## Four follow-up review fixes (2026-09-28)
+
+- Failed delayed studio Checkout now releases unpaid booking dates on
+  `checkout.session.async_payment_failed`. Reconciliation also releases a confirmed
+  failed PaymentIntent when the webhook was missed, but preserves processing holds.
+  A stale failure cannot expire an already-paid checkout.
+- Dashboard membership refunds resolve the original invoice through Stripe
+  InvoicePayments when the local invoice has not yet bound its PaymentIntent.
+  Mapping mismatches fail explicitly; a known subscription's refund arriving before
+  invoice persistence remains retryable instead of being silently acknowledged.
+- Membership and day-pass late refund failures correct the ledger and refund state,
+  suppress pending success notices and queue a correction. Canonical refund state
+  is retrieved under the record lock. Cancelled day-pass access stays cancelled.
+- Staff issuance takes the same per-user transaction lock as online issuance before
+  checking existing memberships/passes, preventing concurrent duplicate access.
+
+Six regressions failed against the previous code and passed after the fixes.
+Four additional boundary checks cover missed/stale studio events and invalid/early
+invoice mappings. All ten new tests use real isolated PostgreSQL with mocked Stripe
+responses; they do not claim a new real-provider payment run.
+
+Verification: backend build and 32 unit tests passed. The full integration run
+passed 89/91, with two sample-login setup errors caused by a missing SQL fixture in
+this isolated container. Mounting the fixture and rerunning that file passed 2/2,
+so all 91 integration cases passed across the runs. No migration, merge, live
+payment or public deployment was performed.
+
 ## Deployment and rollback
 
 Review PR #22 and use permanent sandbox webhook routing before offering Checkout.
