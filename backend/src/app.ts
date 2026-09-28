@@ -67,13 +67,19 @@ export function createApp(
       return;
     }
     if (error?.code === '23P01') {
+      const isCooldown =
+        error?.constraint === 'app_equipment_reservation_user_cooldown' ||
+        error?.constraint === 'app_room_reservation_user_cooldown';
       res
         .status(409)
         .json({
           error: {
-            code: 'RESERVATION_CONFLICT',
-            message:
-              'That equipment is already reserved for part of this time.',
+            code: isCooldown
+              ? 'RESERVATION_COOLDOWN'
+              : 'RESERVATION_CONFLICT',
+            message: isCooldown
+              ? 'Leave a cooldown between reservations for the same resource.'
+              : 'That resource is already reserved for part of this time.',
           },
         });
       return;
