@@ -39,7 +39,7 @@ test('explicit renewal consent and current server price required; checkout retri
  assert.equal(checkoutParams.payment_method_types,undefined);
  row=(await pool.query('SELECT * FROM app_membership_billing WHERE userid=$1',[userid])).rows[0];
  assert.equal((await pool.query('SELECT * FROM app_membership_invoice')).rowCount,0);
- sub={id:'sub_billing',livemode:false,customer:'cus_billing',status:'active',cancel_at_period_end:false,metadata:{membershipBillingId:row.id},items:{data:[{quantity:1,current_period_end:Date.parse('2030-02-01')/1000,price:{unit_amount:5000,currency:'usd',recurring:{interval:'month',interval_count:1}}}]}};
+ sub={billing_cycle_anchor:Date.parse('2030-01-01')/1000,id:'sub_billing',livemode:false,customer:'cus_billing',status:'active',cancel_at_period_end:false,metadata:{membershipBillingId:row.id},items:{data:[{quantity:1,current_period_end:Date.parse('2030-02-01')/1000,price:{unit_amount:5000,currency:'usd',recurring:{interval:'month',interval_count:1}}}]}};
  invoice={id:'in_first',livemode:false,status:'paid',currency:'usd',customer:'cus_billing',amount_paid:5000,billing_reason:'subscription_create',parent:{subscription_details:{subscription:sub.id}},lines:{has_more:false,data:[{amount:5000,period:{start:Date.parse('2030-01-01')/1000,end:Date.parse('2030-02-01')/1000}}]}};
 });
 test('checkout is not access; verified paid invoice issues membership and one receipt across duplicate events',async()=>{
@@ -68,7 +68,9 @@ test('ownership, cancellation and out-of-order subscription event preserve cance
  await assert.rejects(service.portal(other,row.id),{code:'NOT_FOUND'});
  await service.cancel(userid,row.id);
  await service.webhook(event('evt_late','customer.subscription.updated',{...sub,cancel_at_period_end:false}));
- assert.equal((await service.mine(userid))[0].cancelAtPeriodEnd,true);
+ assert.equal(new Date((await service.mine(userid))[0].cancellationEffectiveAt).getTime()/1000,sub.cancel_at);
+ assert.ok(sub.cancel_at>=Math.floor(Date.now()/1000)+30*86400);
+ const effective=sub.cancel_at;await service.cancel(userid,row.id);assert.equal(sub.cancel_at,effective);
  assert.equal((await pool.query('SELECT * FROM app_membership_invoice')).rowCount,2);
 });
 test('reject live events and invoice/customer/amount mismatches without recording success',async()=>{
@@ -83,6 +85,7 @@ test('webhook route rejects unsigned calls and billing routes require login',asy
  const app=createApp(pool,{port:8080,host:'127.0.0.1',demoLogin:false,secureCookies:false,timeZone:'America/New_York',jwtKey:new Uint8Array(randomBytes(32)),allowedOrigins:['http://localhost'],studioStripe:provider.config});
  await request(app).post('/api/webhooks/stripe-studios').send({id:'fake'}).expect(400);
  await request(app).get('/api/me/billing').expect(401);
+ assert.equal((await pool.query("SELECT * FROM app_payment_security_event WHERE kind='stripe.invalid_signature'")).rowCount,1);
 });
 
 test('staff original-card refund is idempotent; pending is not confirmed and members cannot refund',async()=>{
@@ -128,4 +131,15 @@ test('renewal notices deduplicate different event ids for the same upcoming peri
  await service.webhook(event('evt_upcoming_1','invoice.upcoming',upcoming));
  await service.webhook(event('evt_upcoming_2','invoice.upcoming',upcoming));
  assert.equal((await pool.query('SELECT * FROM app_notification_outbox WHERE dedupe_key=$1',[`membership-renewal:${row.id}:${upcoming.period_end}`])).rowCount,1);
+});
+
+test('billing portal cannot bypass application cancellation policy',async()=>{
+ let config:any,session:any;
+ (provider.sdk.billingPortal.configurations.create as any)=async(p:any)=>{config=p;return {id:'bpc_methods_only'};};
+ (provider.sdk.billingPortal.sessions.create as any)=async(p:any)=>{session=p;return {url:'https://billing.stripe.com/test'};};
+ await service.portal(userid,row.id);
+ assert.equal(config.features.subscription_cancel.enabled,false);
+ assert.equal(config.features.subscription_update.enabled,false);
+ assert.equal(config.features.payment_method_update.enabled,true);
+ assert.equal(session.configuration,'bpc_methods_only');assert.equal(session.customer,'cus_billing');
 });

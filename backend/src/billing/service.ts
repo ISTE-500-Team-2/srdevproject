@@ -1,3 +1,5 @@
+import {quote} from './pricing.js';
+import {cancellationBoundary} from './policy.js';
 import {randomUUID} from 'node:crypto';
 import type {Pool} from 'pg';
 import type Stripe from 'stripe';
@@ -20,7 +22,7 @@ export class MembershipBilling {
   async mine(userid:number) {
     return (await this.pool.query(`SELECT id,tierid AS "planId",plan_snapshot AS plan,status,
       cancel_at_period_end AS "cancelAtPeriodEnd",current_period_end AS "currentPeriodEnd",
-      amount_cents AS "amountCents" FROM app_membership_billing WHERE userid=$1 ORDER BY created_at DESC LIMIT 100`,[userid])).rows;
+      cancellation_effective_at AS "cancellationEffectiveAt",cancellation_confirmed AS "cancellationConfirmed",amount_cents AS "amountCents" FROM app_membership_billing WHERE userid=$1 ORDER BY created_at DESC LIMIT 100`,[userid])).rows;
   }
   async checkout(userid:number, body:any) {
     const provider=this.provider(), planId=positiveId(body.planId);
@@ -32,7 +34,10 @@ export class MembershipBilling {
       if(!plan?.active || plan.kind!=='membership' || plan.months!==1)
         throw new AppError(400,'MONTHLY_PLAN_REQUIRED','Choose an active one-month membership plan.');
       if(plan.revision!==body.expectedRevision) throw new AppError(409,'PRICE_CHANGED','Refresh and review the current monthly price.');
-      const amount=Math.round(Number(plan.price)*100);
+      const through=(await db.query("SELECT to_char(now()+interval '1 month','YYYY-MM-DD') AS date")).rows[0].date;
+      const offer=await quote(db,userid,plan,through),amount=offer.amountCents;
+      if(offer.pricingRevision && (body.pricingRevision!==offer.pricingRevision||body.amountCents!==amount))
+        throw new AppError(409,'PRICE_CHANGED','Refresh and review your eligible monthly price.');
       if(!Number.isSafeInteger(amount)||amount<50||amount>10000000) throw new AppError(400,'INVALID_PRICE','Staff must configure a supported monthly rate.');
       const old=(await db.query("SELECT * FROM app_membership_billing WHERE userid=$1 AND status NOT IN ('canceled','incomplete_expired','expired') FOR UPDATE",[userid])).rows[0];
       if(old) {
@@ -43,7 +48,7 @@ export class MembershipBilling {
       const existing=await db.query("SELECT membershipid FROM user_membership WHERE userid=$1 AND status IN ('active','suspended') AND end_date>NOW() AT TIME ZONE 'UTC'",[userid]);
       if(existing.rowCount) throw new AppError(409,'MEMBERSHIP_EXISTS','Contact staff before replacing an existing membership. No automatic billing was started.');
       const r=(await db.query(`INSERT INTO app_membership_billing(id,userid,tierid,plan_snapshot,amount_cents)
-        VALUES($1,$2,$3,$4,$5) RETURNING *`,[randomUUID(),userid,planId,JSON.stringify(plan),amount])).rows[0];
+        VALUES($1,$2,$3,$4,$5) RETURNING *`,[randomUUID(),userid,planId,JSON.stringify({...plan,price:(amount/100).toFixed(2),priceBasis:offer.basis}),amount])).rows[0];
       return {...r,email:user.email};
     });
     // Stable server-owned ID makes retries safe; an unresolved checkout is never
@@ -75,10 +80,26 @@ export class MembershipBilling {
     if(!row) throw new AppError(404,'NOT_FOUND','Membership billing record not found.');
     if(terminal.has(row.status)) return;
     if(row.subscription_id) {
+      // Save a stable cancellation intent before the network request. A timeout
+      // can then retry the exact same provider operation without moving the date.
+      const effective=await transaction(this.pool,async db=>{
+        await db.query("SELECT pg_advisory_xact_lock(hashtext('membership-stripe'),hashtext($1))",[row.subscription_id]);
+        const current=(await db.query('SELECT * FROM app_membership_billing WHERE id=$1 FOR UPDATE',[row.id])).rows[0];
+        if(current.cancellation_effective_at)return Math.floor(new Date(current.cancellation_effective_at).getTime()/1000);
+        const canonical=await provider.sdk.subscriptions.retrieve(row.subscription_id);
+        if(canonical.livemode)throw new AppError(400,'LIVE_PAYMENT_FORBIDDEN','Test subscriptions only.');
+        const requested=Math.floor(Date.now()/1000);
+        const date=cancellationBoundary(canonical.items.data[0]!.current_period_end,canonical.billing_cycle_anchor,requested);
+        await db.query('UPDATE app_membership_billing SET cancellation_requested_at=to_timestamp($2),cancellation_effective_at=to_timestamp($3) WHERE id=$1',[row.id,requested,date]);
+        return date;
+      });
       await transaction(this.pool,async db=>{
         await db.query("SELECT pg_advisory_xact_lock(hashtext('membership-stripe'),hashtext($1))",[row.subscription_id]);
-        const sub=await provider.sdk.subscriptions.update(row.subscription_id,{cancel_at_period_end:true});
+        const sub=await provider.sdk.subscriptions.update(row.subscription_id,{cancel_at:effective,proration_behavior:'none'},
+          {idempotencyKey:'membership-cancel:'+row.id});
         await this.syncSubscription(db,sub);
+        await enqueueNotification(db,{userId:userid,kind:'membership_cancelled',dedupeKey:'membership-cancel:'+row.id,
+          payload:{membershipName:row.plan_snapshot.name,endsAt:new Date(effective*1000).toISOString(),instructions:'Automatic billing ends on the displayed cancellation date after the 30-day notice period. Existing paid access remains valid.'}});
       });
     } else if(row.checkout_id) {
       let s=await provider.sdk.checkout.sessions.retrieve(row.checkout_id);
@@ -91,7 +112,12 @@ export class MembershipBilling {
     const p=this.provider();
     const r=(await this.pool.query('SELECT customer_id FROM app_membership_billing WHERE id::text=$1 AND userid=$2',[id,userid])).rows[0];
     if(!r?.customer_id) throw new AppError(404,'NOT_FOUND','A verified billing account is required.');
-    const s=await p.sdk.billingPortal.sessions.create({customer:r.customer_id,return_url:p.config.origin+'/membership'});
+    // Never expose the account's default portal cancellation settings: cancellation
+    // must go through the application's 30-day notice policy.
+    const config=await p.sdk.billingPortal.configurations.create({features:{payment_method_update:{enabled:true},
+      subscription_cancel:{enabled:false},subscription_update:{enabled:false},invoice_history:{enabled:true}}},
+      {idempotencyKey:'arbor-payment-method-only-portal-v1'});
+    const s=await p.sdk.billingPortal.sessions.create({customer:r.customer_id,configuration:config.id,return_url:p.config.origin+'/membership'});
     return {url:s.url};
   }
   async syncSubscription(db:Database, sub:Stripe.Subscription) {
@@ -108,8 +134,8 @@ export class MembershipBilling {
     const customer=objectId(sub.customer);
     if(!customer||r.customer_id&&r.customer_id!==customer) throw new AppError(400,'PAYMENT_MISMATCH','Billing customer mismatch.');
     await db.query(`UPDATE app_membership_billing SET subscription_id=$2,customer_id=$3,status=$4,
-      cancel_at_period_end=$5,current_period_end=to_timestamp($6) WHERE id=$1`,
-      [r.id,sub.id,customer,sub.status,sub.cancel_at_period_end,item.current_period_end]);
+      cancel_at_period_end=$5,current_period_end=to_timestamp($6),cancellation_confirmed=COALESCE(($7::bigint IS NOT NULL AND $7=extract(epoch FROM cancellation_effective_at)::bigint),false) WHERE id=$1`,
+      [r.id,sub.id,customer,sub.status,sub.cancel_at_period_end,item.current_period_end,sub.cancel_at]);
     // Subscription status alone NEVER grants access. Only invoice.paid creates
     // an immutable paid period; a failed renewal cannot extend the previous one.
     return {...r,subscription_id:sub.id,customer_id:customer};

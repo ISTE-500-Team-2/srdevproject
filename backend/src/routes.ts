@@ -50,7 +50,7 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.post("/auth/logout", protectedRoute, requireCsrf, auth.logout);
   routes.use(protectedRoute);
   routes.use(studioRoutes(pool,config.timeZone,config.studioStripe));
-  routes.use(billingRoutes(pool,config.studioStripe));
+  routes.use(billingRoutes(pool,config.studioStripe,config.timeZone));
 
   routes.get("/equipment", permit("equipment","read","own"), equipment.list);
   routes.get("/reservations", permit("reservation","read","own"), reservations.list);
