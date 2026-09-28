@@ -57,4 +57,22 @@ export class AccessService {
       );
     return waivers;
   }
+
+  async assertActiveRoomReservation(userId: number, roomId: number, at = new Date()) {
+    const { rows } = await this.db.query<{ name: string; location: string }>(
+      `SELECT room.name,room.location FROM reservation r JOIN room ON room.roomid=r.roomid
+       WHERE r.userid=$1 AND r.roomid=$2 AND r.status IN ('confirmed','pending')
+         AND r.starttime <= $3::timestamptz AT TIME ZONE 'UTC'
+         AND r.endtime > $3::timestamptz AT TIME ZONE 'UTC'
+       ORDER BY r.starttime DESC LIMIT 1`,
+      [userId, roomId, at],
+    );
+    if (!rows[0])
+      throw new AppError(
+        403,
+        "ROOM_RESERVATION_REQUIRED",
+        "An active room reservation is required to access this room.",
+      );
+    return rows[0];
+  }
 }
