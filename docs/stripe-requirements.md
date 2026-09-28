@@ -102,6 +102,25 @@ provider regression coverage, distinct from the earlier membership/studio rehear
   distinct covered tests to 133 (not counting repeated executions as extra tests).
 - New real-provider smoke checks: four passed; no live payments/public deployment.
 
+## Late studio-refund failure correction
+
+A refund previously recorded as successful can later fail. The ledger now changes
+that same refund from `refunded` to `refund_failed`, keeps the booking cancelled,
+and queues a corrective notice while suppressing any still-pending success notice.
+Refund webhooks retrieve the current Stripe refund under the rental lock, so stale
+payloads cannot undo the current provider state. An old failed attempt cannot
+replace a newer confirmed refund.
+
+Staff retry now reaches the existing reconciliation path: a terminal failed refund
+returns `REFUND_RECONCILE` rather than silently succeeding. It does not blindly
+issue another refund; a confirmed replacement found at Stripe can be reconciled.
+
+The backend build and all 28 affected PostgreSQL integration tests passed after
+this fix. Coverage includes success followed by failure, missing event metadata,
+stale success, retry failure feedback, replacement reconciliation, and an old
+failure arriving after replacement. Stripe responses in these regressions are
+mocked; this is not a claim of reproducing a late bank failure in the sandbox.
+
 ## Deployment and rollback
 
 Review PR #22 and use permanent sandbox webhook routing before offering Checkout.
