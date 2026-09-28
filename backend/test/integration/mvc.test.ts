@@ -248,7 +248,7 @@ test('reservation saves to PostgreSQL, survives a new app instance, and only its
   );
 });
 
-test('concurrent overlapping requests produce one reservation; adjacent times are allowed', async () => {
+test('concurrent overlapping requests produce one reservation; adjacent different-member times are allowed', async () => {
   const one = client(),
     two = client();
   await one.demo();
@@ -266,7 +266,10 @@ test('concurrent overlapping requests produce one reservation; adjacent times ar
       new Date(input.endTime).getTime() + 3_600_000,
     ).toISOString(),
   };
-  assert.equal((await one.post('/reservations', next)).status, 201);
+  assert.equal((await two.post('/reservations', next)).status, 201);
+  const cooldown = await one.post('/reservations', next);
+  assert.equal(cooldown.status, 409);
+  assert.equal(cooldown.body.error.code, 'RESERVATION_COOLDOWN');
   const count = await pool.query(
     `SELECT COUNT(*)::int AS count FROM reservation WHERE equipmentid=$1 AND starttime=$2::timestamptz AT TIME ZONE 'UTC'`,
     [input.equipmentId, input.startTime],
@@ -279,6 +282,67 @@ test('concurrent overlapping requests produce one reservation; adjacent times ar
     ),
     (error: any) => error.code === '23P01',
   );
+  await assert.rejects(
+    pool.query(
+      `INSERT INTO reservation(userid,equipmentid,location,starttime,endtime,status) VALUES($1,$2,'Test',$3::timestamptz AT TIME ZONE 'UTC',$4::timestamptz AT TIME ZONE 'UTC','confirmed')`,
+      [one.id, input.equipmentId, next.startTime, next.endTime],
+    ),
+    (error: any) =>
+      error.code === '23P01' &&
+      error.constraint === 'app_equipment_reservation_user_cooldown',
+  );
+});
+
+test('room reservations reject overlaps, enforce cooldown and gate active room access', async () => {
+  const one = client(),
+    two = client();
+  await one.demo();
+  await two.demo('admin');
+  const roomName = 'Project Room ' + randomBytes(4).toString('hex');
+  const room = (
+    await pool.query(
+      `INSERT INTO room(name,location,capacity,status)
+       VALUES($1,'North hallway',6,'available')
+       RETURNING roomid AS id`,
+      [roomName],
+    )
+  ).rows[0].id as number;
+  const start = new Date(Date.now() + 6 * 86_400_000);
+  const input = {
+    roomId: room,
+    startTime: start.toISOString(),
+    endTime: new Date(start.getTime() + 60 * 60_000).toISOString(),
+  };
+  const booked = await one.post('/reservations', input);
+  assert.equal(booked.status, 201);
+  assert.equal(booked.body.data.resourceType, 'room');
+  const conflict = await two.post('/reservations', input);
+  assert.equal(conflict.status, 409);
+  assert.equal(conflict.body.error.code, 'RESERVATION_CONFLICT');
+  const adjacent = {
+    ...input,
+    startTime: input.endTime,
+    endTime: new Date(new Date(input.endTime).getTime() + 60 * 60_000).toISOString(),
+  };
+  const cooldown = await one.post('/reservations', adjacent);
+  assert.equal(cooldown.status, 409);
+  assert.equal(cooldown.body.error.code, 'RESERVATION_COOLDOWN');
+  assert.equal((await two.post('/reservations', adjacent)).status, 201);
+  const denied = await one.post('/me/check-ins', { roomId: room });
+  assert.equal(denied.status, 403);
+  assert.equal(denied.body.error.code, 'ROOM_RESERVATION_REQUIRED');
+  await pool.query(
+    `INSERT INTO reservation(userid,roomid,location,starttime,endtime,status)
+     VALUES($1,$2,'North hallway',(NOW()-INTERVAL '5 minutes') AT TIME ZONE 'UTC',(NOW()+INTERVAL '30 minutes') AT TIME ZONE 'UTC','confirmed')`,
+    [one.id, room],
+  );
+  const checkin = await one.post('/me/check-ins', { roomId: room });
+  assert.equal(checkin.status, 201);
+  const stored = await pool.query(
+    'SELECT roomid FROM check_in WHERE checkinid=$1',
+    [checkin.body.data.id],
+  );
+  assert.equal(stored.rows[0].roomid, room);
 });
 
 test('membership, certification and waiver eligibility are enforced; check-in is recorded', async () => {

@@ -15,7 +15,7 @@ import { errorMessage } from '../lib/api';
 const navItems = [
   { label: 'Home', to: '/' },
   { label: 'Membership', to: '/membership' },
-  { label: 'Reservations', to: '/reservations' },
+  { label: 'Reservations', to : '/reservations' },
   { label: 'Certifications & Waivers', to: '/certifications' },
   { label: 'Classes', to: '/classes' },
 ];
