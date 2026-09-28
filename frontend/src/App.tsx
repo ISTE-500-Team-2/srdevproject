@@ -1,7 +1,9 @@
+import { StudiosPage } from './pages/StudiosPage';
+import { RequireUser, RequireStaff } from './components/RouteGuards';
 import { ConfirmEmailPage } from './pages/ConfirmEmailPage';
-import { Navigate, Outlet, Route, Routes } from 'react-router-dom';
+import { Route, Routes } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
-import { AuthProvider, useAuth } from './context/AuthContext';
+import { AuthProvider } from './context/AuthContext';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { CertificationsPage } from './pages/CertificationsPage';
 import { ClassesPage } from './pages/ClassesPage';
@@ -14,31 +16,6 @@ import { ReservationsPage } from './pages/ReservationsPage';
 import { MembershipPage } from './pages/MembershipPage';
 import './management.css';
 
-function RequireUser() {
-  const { user, loading, error, refresh } = useAuth();
-  if (loading)
-    return (
-      <main className="page-shell" role="status">
-        Loading your account…
-      </main>
-    );
-  if (error)
-    return (
-      <main className="page-shell">
-        <p role="alert">{error}</p>
-        <button className="button" onClick={() => void refresh()}>
-          Retry
-        </button>
-      </main>
-    );
-  return user ? <Outlet /> : <Navigate to="/login" replace />;
-}
-
-function RequireStaff() {
-  const { user } = useAuth();
-  return user?.roles.some(role => role === 'staff' || role === 'admin') ? <Outlet /> : <Navigate to="/" replace />;
-}
-
 export default function App() {
   return (
     <AuthProvider>
@@ -50,6 +27,7 @@ export default function App() {
           <Route element={<AppShell />}>
             <Route index element={<MemberHomePage />} />
             <Route path="reservations" element={<ReservationsPage />} />
+            <Route path="studios" element={<StudiosPage />} />
             <Route path="certifications" element={<CertificationsPage />} />
             <Route path="classes" element={<ClassesPage />} />
             <Route path="profile" element={<ProfilePage />} />

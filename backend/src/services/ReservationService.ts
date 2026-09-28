@@ -1,3 +1,6 @@
+import { StaffModel } from '../models/StaffModel.js';
+import { UserModel } from '../models/UserModel.js';
+import { PermissionModel } from '../models/PermissionModel.js';
 import { enqueueNotification } from '../notifications/store.js';
 import type { Pool } from 'pg';
 import { transaction } from '../db.js';
@@ -23,9 +26,11 @@ export class ReservationService {
       roomId?: unknown;
       startTime?: unknown;
       endTime?: unknown;
+      userId?: unknown;
     },
   ) {
-    const hasEquipment = input.equipmentId !== undefined && input.equipmentId !== null;
+    const hasEquipment =
+      input.equipmentId !== undefined && input.equipmentId !== null;
     const hasRoom = input.roomId !== undefined && input.roomId !== null;
     if (hasEquipment === hasRoom)
       throw new AppError(
@@ -33,24 +38,68 @@ export class ReservationService {
         'INVALID_INPUT',
         'Choose exactly one equipment item or room.',
       );
+
     const equipmentId = hasEquipment
       ? positiveId(input.equipmentId, 'Equipment')
       : null;
     const roomId = hasRoom ? positiveId(input.roomId, 'Room') : null;
     const { start, end } = reservationWindow(input.startTime, input.endTime);
+    const targetId =
+      input.userId == null ? userId : positiveId(input.userId, 'Member');
+
+    if ((end.getTime() - start.getTime()) % 3_600_000 !== 0)
+      throw new AppError(
+        400,
+        'HOURLY_DURATION_REQUIRED',
+        'Book a whole number of hours (1-24).',
+      );
+
     return transaction(this.pool, async (db) => {
       const access = new AccessService(db, this.timeZone);
       await access.assertActiveUser(userId);
-      await access.assertEntitlement(userId, start, end);
-      const model = new ReservationModel(db);
 
+      const actor = await new UserModel(db).findById(userId);
+      if (!actor || actor.roles.includes('instructor'))
+        throw new AppError(
+          403,
+          'INSTRUCTOR_BOOKING_FORBIDDEN',
+          'Instructor accounts cannot create reservations.',
+        );
+      if (
+        targetId !== userId &&
+        !actor.roles.some((role) => ['staff', 'admin'].includes(role))
+      )
+        throw new AppError(
+          403,
+          'STAFF_REQUIRED',
+          'Only staff can book for another member.',
+        );
+      if (
+        !(await new PermissionModel(db).allows(
+          actor,
+          'reservation',
+          'create',
+          targetId,
+        ))
+      )
+        throw new AppError(
+          403,
+          'PERMISSION_REQUIRED',
+          'Reservation permission is required.',
+        );
+
+      if (targetId !== userId) await access.assertActiveUser(targetId);
+      await access.assertEntitlement(targetId, start, end);
+
+      const model = new ReservationModel(db);
       let waiverId: number | null = null;
       let location: string;
       let resourceName: string;
 
       if (equipmentId) {
-        // Lock the equipment row before checking the interval: concurrent requests serialize.
-        const equipment = await new EquipmentModel(db).findForUpdate(equipmentId);
+        const equipment = await new EquipmentModel(db).findForUpdate(
+          equipmentId,
+        );
         if (!equipment)
           throw new AppError(404, 'NOT_FOUND', 'Equipment not found.');
         if (equipment.status !== 'available')
@@ -61,7 +110,11 @@ export class ReservationService {
           );
         if (
           equipment.certId &&
-          !(await access.eligibility.certification(userId, equipment.certId, end))
+          !(await access.eligibility.certification(
+            targetId,
+            equipment.certId,
+            end,
+          ))
         ) {
           throw new AppError(
             403,
@@ -69,19 +122,21 @@ export class ReservationService {
             `A current ${equipment.certification ?? 'equipment'} certification is required.`,
           );
         }
+
         const waivers = equipment.waiverRequired
-          ? await access.assertWaivers(userId)
+          ? await access.assertWaivers(targetId)
           : [];
         waiverId = waivers[0]?.id ?? null;
         location = equipment.location;
         resourceName = equipment.name;
+
         if (await model.overlaps(equipmentId, start, end))
           throw new AppError(
             409,
             'RESERVATION_CONFLICT',
             'That equipment is already reserved for part of this time.',
           );
-        if (await model.equipmentCooldown(userId, equipmentId, start, end))
+        if (await model.equipmentCooldown(targetId, equipmentId, start, end))
           throw new AppError(
             409,
             'RESERVATION_COOLDOWN',
@@ -96,15 +151,17 @@ export class ReservationService {
             'ROOM_UNAVAILABLE',
             'This room is not available for reservations.',
           );
+
         location = room.location;
         resourceName = room.name;
+
         if (await model.roomOverlaps(room.id, start, end))
           throw new AppError(
             409,
             'RESERVATION_CONFLICT',
             'That room is already reserved for part of this time.',
           );
-        if (await model.roomCooldown(userId, room.id, start, end))
+        if (await model.roomCooldown(targetId, room.id, start, end))
           throw new AppError(
             409,
             'RESERVATION_COOLDOWN',
@@ -113,7 +170,7 @@ export class ReservationService {
       }
 
       const reservation = await model.create({
-        userId,
+        userId: targetId,
         equipmentId: equipmentId ?? undefined,
         roomId: roomId ?? undefined,
         waiverId,
@@ -121,7 +178,30 @@ export class ReservationService {
         start,
         end,
       });
-      await enqueueNotification(db,{userId,kind:'reservation_created',dedupeKey:`reservation-created:${reservation.id}`,payload:{reservationId:reservation.id,resourceName,startsAt:start.toISOString(),endsAt:end.toISOString()}});
+
+      await new StaffModel(db).audit(
+        userId,
+        targetId,
+        'reservation.created',
+        'reservation',
+        reservation.id,
+        targetId === userId
+          ? 'Member booking'
+          : 'Staff booking on behalf of member',
+        null,
+        reservation,
+      );
+      await enqueueNotification(db, {
+        userId: targetId,
+        kind: 'reservation_created',
+        dedupeKey: `reservation-created:${reservation.id}`,
+        payload: {
+          reservationId: reservation.id,
+          resourceName,
+          startsAt: start.toISOString(),
+          endsAt: end.toISOString(),
+        },
+      });
       return reservation;
     });
   }

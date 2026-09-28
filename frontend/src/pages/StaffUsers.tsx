@@ -145,8 +145,12 @@ function UserDetail({
               {u.firstName} {u.lastName} · Member #{u.id}
             </h2>
             <p>
-              {u.email} · {u.roles.join(", ")} · Facility access:{" "}
+              {u.email} · {u.roles.join(", ")} · Primary: {u.primaryRole ?? "member"}{u.isStudent ? " · Student" : ""} · Facility access:{" "}
               <strong>{u.accessStatus}</strong>
+            </p>
+            <p>
+              Account status: <strong>{u.status}</strong> · Conduct flag:{" "}
+              <strong>{u.conductFlag ? "Yes" : "No"}</strong>
             </p>
             {u.accessReason ? <p>Access note: {u.accessReason}</p> : null}
             {!canManage ? (
@@ -238,7 +242,9 @@ function UserDetail({
                     await api(`/admin/users/${id}/role`, {
                       method: "POST",
                       body: {
-                        role: f.get("role"),
+                        primaryRole: f.get("role"),
+                        roles: f.getAll("roles"),
+                        isStudent: f.get("isStudent") === "on",
                         revision: u.revision,
                         reason: f.get("reason"),
                       },
@@ -249,19 +255,21 @@ function UserDetail({
                   <Field label="Account role" name="role">
                     <select
                       name="role"
-                      defaultValue={
-                        u.roles.includes("admin")
-                          ? "admin"
-                          : u.roles.includes("staff")
-                            ? "staff"
-                            : "member"
-                      }
+                      defaultValue={u.primaryRole ?? "member"}
                     >
-                      <option value="member">Member</option>
+                      <option value="member">Community member</option>
+                      <option value="subscriber">Subscriber</option>
+                      <option value="day_pass">Day-pass customer</option>
+                      <option value="instructor">Instructor</option>
                       <option value="staff">Staff</option>
-                      <option value="admin">Administrator</option>
+                      <option value="admin">Super administrator</option>
                     </select>
                   </Field>
+                  <fieldset><legend>Assigned roles (include the primary role)</legend>
+                    {[["member","Community member"],["subscriber","Subscriber"],["day_pass","Day-pass customer"],["instructor","Instructor"],["staff","Staff"],["admin","Super administrator"]].map(([value,label]) =>
+                      <label key={value}><input type="checkbox" name="roles" value={value} defaultChecked={u.roles.includes(value)} />{label}</label>)}
+                  </fieldset>
+                  <label><input type="checkbox" name="isStudent" defaultChecked={u.isStudent} />Student classification</label>
                   <ReasonField />
                 </ActionForm>
               </details>

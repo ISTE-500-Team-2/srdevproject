@@ -1,0 +1,108 @@
+.studios-page {
+  max-width: 1200px;
+  margin: auto;
+}
+.studio-note {
+  padding: 1rem;
+  border-left: 4px solid #ba622c;
+  background: #fff6e9;
+}
+.studio-controls {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin: 1.5rem 0;
+}
+.studio-controls label,
+.studio-card form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0.8rem 0;
+}
+.studio-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 1rem;
+}
+.studio-card {
+  padding: 1.25rem;
+  border: 1px solid #d6c5ac;
+  border-radius: 12px;
+  margin: 1rem 0;
+  background: #fffaf1;
+  overflow-wrap: anywhere;
+}
+.studio-card h3 {
+  margin-top: 0;
+}
+.studio-card ul {
+  padding-left: 1.2rem;
+}
+.studio-card input,
+.studio-card select,
+.studio-controls input,
+.studio-controls select {
+  padding: 0.65rem;
+  border: 1px solid #938674;
+  border-radius: 6px;
+  color: #31271d;
+  background: white;
+  max-width: 100%;
+}
+.studio-card details {
+  margin-top: 1rem;
+}
+.studio-card input[type="checkbox"] {
+  align-self: start;
+}
+.studios-page [role="alert"] {
+  padding: 1rem;
+  background: #ffe9e3;
+  color: #7e2515;
+}
+.studios-page [role="status"] {
+  padding: 1rem;
+  background: #e5f0df;
+}
+
+.studio-calendar-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+  margin: 1rem 0;
+}
+.studio-calendar {
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  width: 100%;
+}
+.studio-calendar th,
+.studio-calendar td {
+  border: 1px solid #d6c5ac;
+  padding: 0.25rem;
+  text-align: center;
+  min-width: 2rem;
+}
+.studio-calendar th:first-child {
+  min-width: 9rem;
+  text-align: left;
+}
+.studio-calendar button {
+  min-width: 1.7rem;
+  min-height: 2rem;
+  background: #e5f0df;
+  border: 1px solid #8ba57d;
+  cursor: pointer;
+}
+.studio-calendar button[aria-pressed="true"] {
+  outline: 2px solid #a95224;
+}
+.studio-calendar abbr {
+  color: #8a2413;
+  font-weight: bold;
+  text-decoration: none;
+}
+.studio-calendar caption {
+  text-align: left;
+  padding: 0.5rem;
+}

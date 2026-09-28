@@ -2,7 +2,7 @@ import { enqueueNotification } from '../notifications/store.js';
 import type { Request, Response } from "express";
 import type { Pool } from "pg";
 import { transaction } from "../db.js";
-import { AppError, positiveId, textField } from "../domain.js";
+import { AppError, positiveId, profileFields, textField } from "../domain.js";
 import { authState } from "../middleware/auth.js";
 import { UserModel } from "../models/UserModel.js";
 import { EligibilityModel } from "../models/EligibilityModel.js";
@@ -57,14 +57,32 @@ export class MemberController {
       ),
     });
   };
-  profile = async (req: Request, res: Response) => {
+  me = async (_req: Request, res: Response) => {
+    res.set("Cache-Control", "no-store");
     res.json({
-      data: await new UserModel(this.pool).updateProfile(
-        authState(res).user.id,
-        textField(req.body.firstName, "First name", 50),
-        textField(req.body.lastName, "Last name", 50),
-        textField(req.body.phone, "Phone", 15),
-      ),
+      data: await new UserModel(this.pool).profile(authState(res).user.id),
+    });
+  };
+  studioContact = async (_req: Request, res: Response) => {
+    const profile = await new UserModel(this.pool).profile(authState(res).user.id);
+    res.json({ data: profile?.studioContact });
+  };
+  profile = async (req: Request, res: Response) => {
+    const address = profileFields(req.body.address, "Address");
+    const contactPreferences = profileFields(
+      req.body.contactPreferences,
+      "Contact preferences",
+    );
+    const updated = await new UserModel(this.pool).updateProfile(
+      authState(res).user.id,
+      textField(req.body.firstName, "First name", 50),
+      textField(req.body.lastName, "Last name", 50),
+      textField(req.body.phone, "Phone", 15),
+      address,
+      contactPreferences,
+    );
+    res.json({
+      data: updated ? await new UserModel(this.pool).profile(updated.id) : null,
     });
   };
   waivers = async (_req: Request, res: Response) => {

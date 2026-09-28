@@ -11,6 +11,7 @@ import {
   emailField,
   newPasswordField,
   passwordField,
+  publicUser,
   textField,
 } from '../domain.js';
 import {
@@ -63,7 +64,7 @@ export class AuthController {
     res.cookie(cookieName,session.refreshToken,{httpOnly:true,secure:this.config.secureCookies,sameSite:'lax',path:'/api',...(session.persistent ? {maxAge:(this.config.refreshTokenSeconds ?? 30*86400)*1000} : {})});
     res.json({
       data: {
-        user: session.user,
+        user: publicUser(session.user as ReturnType<typeof authState>["user"]),
         csrfToken: session.csrfToken,
         accessToken: session.token,
         expiresIn: session.ttl / 1000,
@@ -183,12 +184,14 @@ export class AuthController {
       }
     }
     res.set('Cache-Control','no-store');
-    res.status(202).json({data:{message:'If the supplied credentials match an unconfirmed account, a confirmation email has been queued. Check your inbox and spam folder.'}});
+    res.status(202).json({data:{emailSendingEnabled:!!this.config.notifications,message:this.config.notifications
+      ? 'If the supplied credentials match an unconfirmed account and notifications are enabled, a confirmation email has been queued for sending. Check your inbox and spam folder.'
+      : 'Email delivery is disabled in this environment. No confirmation email will be sent. Use a development demo account or run the email-enabled setup.'}});
   };
   current = async (_req: Request, res: Response) => {
     res.set("Cache-Control","no-store");
     const { user, csrfToken } = authState(res);
-    res.json({ data: { user, csrfToken } });
+    res.json({ data: { user: publicUser(user), csrfToken } });
   };
   logout = async (_req: Request, res: Response) => {
     await new SessionModel(this.pool, this.config.jwtKey,this.config.accessTokenSeconds,this.config.refreshTokenSeconds).remove(authState(res).token);
