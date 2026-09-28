@@ -243,7 +243,14 @@ export class MembershipBilling {
         const invoiceId=objectId(payment.invoice);if(!invoiceId)continue;
         const invoice=await sdk.invoices.retrieve(invoiceId);
         const sid=objectId(invoice.parent?.subscription_details?.subscription);
-        if(sid&&(await db.query('SELECT id FROM app_membership_billing WHERE subscription_id=$1',[sid])).rowCount)
+        if(!sid)continue;
+        const known=(await db.query('SELECT id FROM app_membership_billing WHERE subscription_id=$1',[sid])).rowCount;
+        // Checkout creates this server-owned marker before any subscription
+        // webhook binds its ID locally. Absence of that binding is not evidence
+        // that the refund belongs to another product. Do not commit a processed
+        // receipt until the invoice can actually be reconciled.
+        const sub=known?undefined:await sdk.subscriptions.retrieve(sid);
+        if(known||sub?.metadata.membershipBillingId)
           throw new AppError(409,'INVOICE_PENDING','Paid invoice must be recorded before its refund can be reconciled.');
       }
     }

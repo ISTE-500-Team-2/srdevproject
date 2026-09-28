@@ -148,3 +148,32 @@ test('refund before invoice persistence is retried, not silently acknowledged',a
  await assert.rejects(billing.webhook(e),{code:'INVOICE_PENDING'});
  assert.equal((await pool.query('SELECT id FROM app_membership_stripe_event WHERE id=$1',[e.id])).rowCount,0);
 });
+
+test('refund before subscription binding remains retryable and replay corrects the later invoice',async()=>{
+ const bid=randomUUID(),pi='pi_before_binding',sid='sub_before_binding',iid='in_before_binding';
+ await pool.query('INSERT INTO app_membership_billing(id,userid,tierid,plan_snapshot,amount_cents) VALUES($1,$2,$3,$4,5000)',[bid,member,monthly.id,monthly]);
+ const start=Date.parse('2036-01-01')/1000,end=Date.parse('2036-02-01')/1000;
+ const sub:any={id:sid,livemode:false,metadata:{membershipBillingId:bid},customer:'cus_before_binding',status:'canceled',cancel_at_period_end:false,items:{data:[{quantity:1,current_period_end:end,price:{currency:'usd',unit_amount:5000,recurring:{interval:'month',interval_count:1}}}]}};
+ const inv:any={id:iid,livemode:false,status:'paid',currency:'usd',amount_paid:5000,customer:sub.customer,parent:{subscription_details:{subscription:sid}},billing_reason:'subscription_create',lines:{has_more:false,data:[{amount:5000,period:{start,end}}]}};
+ mappings=[{livemode:false,status:'paid',currency:'usd',amount_paid:5000,invoice:iid,payment:{type:'payment_intent',payment_intent:pi}}];
+ (provider.sdk.invoices.retrieve as any)=async()=>inv;
+ (provider.sdk.subscriptions.retrieve as any)=async()=>sub;
+ canonical={id:'re_before_binding',status:'succeeded',payment_intent:pi,amount:5000,currency:'usd'};
+ const refundEvent=event('refund.created',canonical);
+ await assert.rejects(billing.webhook(refundEvent),{code:'INVOICE_PENDING'});
+ assert.equal((await pool.query('SELECT id FROM app_membership_stripe_event WHERE id=$1',[refundEvent.id])).rowCount,0);
+ await billing.webhook(event('invoice.paid',inv));
+ await billing.webhook(refundEvent);await billing.webhook(refundEvent);
+ const row=(await pool.query('SELECT i.refund_status,p.paymentstatus FROM app_membership_invoice i JOIN payment p ON p.paymentid=i.payment_id WHERE i.id=$1',[iid])).rows[0];
+ assert.equal(row.refund_status,'succeeded');assert.equal(row.paymentstatus,'refunded');
+ assert.equal((await pool.query('SELECT id FROM app_membership_stripe_event WHERE id=$1',[refundEvent.id])).rowCount,1);
+});
+
+test('unrelated subscription refund is acknowledged without blocking other products',async()=>{
+ mappings=[{invoice:'in_unrelated'}];
+ (provider.sdk.invoices.retrieve as any)=async()=>({parent:{subscription_details:{subscription:'sub_unrelated'}}});
+ (provider.sdk.subscriptions.retrieve as any)=async()=>({id:'sub_unrelated',metadata:{},livemode:false});
+ const e=event('refund.created',{id:'re_unrelated',payment_intent:'pi_unrelated'});
+ await billing.webhook(e);
+ assert.equal((await pool.query('SELECT id FROM app_membership_stripe_event WHERE id=$1',[e.id])).rowCount,1);
+});

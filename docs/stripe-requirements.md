@@ -148,6 +148,23 @@ this isolated container. Mounting the fixture and rerunning that file passed 2/2
 so all 91 integration cases passed across the runs. No migration, merge, live
 payment or public deployment was performed.
 
+## Refund before subscription binding
+
+The earlier refund-ordering guard recognized only an already-bound local
+subscription. A refund delivered before that binding was acknowledged and its
+event ID permanently marked processed. The handler now also checks the canonical
+Stripe subscription's server-owned `membershipBillingId` marker. App membership
+refunds whose invoice is not yet stored return `INVOICE_PENDING`; the transaction
+rolls back the processed-event receipt so Stripe can retry the same event after
+subscription/invoice processing. Unrelated subscription refunds are still ignored.
+
+The new regression failed against `fcf463b`. It starts with a pending checkout and
+no local subscription binding, delivers the refund first, processes `invoice.paid`,
+and replays the exact refund event twice. It checks the event is not prematurely
+recorded, the final ledger is refunded, and the duplicate replay is idempotent.
+A second regression checks unrelated subscriptions remain acknowledged. These are
+isolated PostgreSQL tests with mocked Stripe responses, not real-provider runs.
+
 ## Deployment and rollback
 
 Review PR #22 and use permanent sandbox webhook routing before offering Checkout.
