@@ -59,6 +59,17 @@ export class AccessService {
   }
 
   async assertActiveRoomReservation(userId: number, roomId: number, at = new Date()) {
+    const room = await this.db.query<{ status: string }>(
+      "SELECT status FROM room WHERE roomid=$1 FOR SHARE",
+      [roomId],
+    );
+    if (!room.rows[0]) throw new AppError(404, "NOT_FOUND", "Room not found.");
+    if (room.rows[0].status !== "available")
+      throw new AppError(
+        409,
+        "ROOM_UNAVAILABLE",
+        "This room is not available for check-in.",
+      );
     const { rows } = await this.db.query<{ name: string; location: string }>(
       `SELECT room.name,room.location FROM reservation r JOIN room ON room.roomid=r.roomid
        WHERE r.userid=$1 AND r.roomid=$2 AND r.status IN ('confirmed','pending')
