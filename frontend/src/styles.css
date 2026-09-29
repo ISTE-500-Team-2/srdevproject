@@ -1286,22 +1286,19 @@ p {
 }
 
 .equipment-preview__image {
-  height: 245px;
-  display: grid;
+  height: 240px;
   place-items: center;
   padding: 22px;
 }
 
 .equipment-preview__image img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
+  max-height: 95%;
   filter: drop-shadow(0 14px 12px rgba(36, 16, 6, 0.16));
   transition: transform 220ms ease;
 }
 
 .equipment-preview:hover .equipment-preview__image img {
-  transform: translateY(-4px) rotate(-1deg);
+  transform: none;
 }
 
 .equipment-preview__body {
