@@ -128,6 +128,18 @@ async function enableMember(id: number) {
     [id],
   );
 }
+async function signRequiredWaivers(user: ReturnType<typeof client>) {
+  const policies = (await user.agent.get('/api/me/waivers')).body.data;
+  for (const policy of policies)
+    assert.equal(
+      (
+        await user.post('/me/waivers/' + policy.id + '/sign', {
+          accepted: true,
+        })
+      ).status,
+      200,
+    );
+}
 
 test('registration, DB session recovery, profile persistence and logout', async () => {
   const user = client();
@@ -278,6 +290,45 @@ test('concurrent overlapping requests produce one reservation; adjacent differen
     two.post('/reservations', input),
   ]);
   assert.deepEqual(responses.map((r) => r.status).sort(), [201, 409]);
+  const winner = responses[0].status === 201 ? one : two;
+  const loser = responses[0].status === 201 ? two : one;
+  const startsTenMinutesAfterCooldown = new Date(
+    new Date(input.startTime).getTime() - 70 * 60_000,
+  );
+  const endsTenMinutesBefore = new Date(
+    new Date(input.startTime).getTime() - 10 * 60_000,
+  );
+  const cooldownBefore = await winner.post('/reservations', {
+    equipmentId: input.equipmentId,
+    startTime: startsTenMinutesAfterCooldown.toISOString(),
+    endTime: endsTenMinutesBefore.toISOString(),
+  });
+  assert.equal(cooldownBefore.status, 409);
+  assert.equal(cooldownBefore.body.error.code, 'RESERVATION_COOLDOWN');
+  await assert.rejects(
+    pool.query(
+      `INSERT INTO reservation(userid,equipmentid,location,starttime,endtime,status) VALUES($1,$2,'Test',$3::timestamptz AT TIME ZONE 'UTC',$4::timestamptz AT TIME ZONE 'UTC','confirmed')`,
+      [
+        winner.id,
+        input.equipmentId,
+        startsTenMinutesAfterCooldown.toISOString(),
+        endsTenMinutesBefore.toISOString(),
+      ],
+    ),
+    (error: any) =>
+      error.code === '23P01' &&
+      error.constraint === 'app_equipment_reservation_user_cooldown',
+  );
+  const exactBoundary = {
+    equipmentId: input.equipmentId,
+    startTime: new Date(
+      new Date(input.startTime).getTime() - 75 * 60_000,
+    ).toISOString(),
+    endTime: new Date(
+      new Date(input.startTime).getTime() - 15 * 60_000,
+    ).toISOString(),
+  };
+  assert.equal((await winner.post('/reservations', exactBoundary)).status, 201);
   const next = {
     ...input,
     startTime: input.endTime,
@@ -285,10 +336,7 @@ test('concurrent overlapping requests produce one reservation; adjacent differen
       new Date(input.endTime).getTime() + 3_600_000,
     ).toISOString(),
   };
-  assert.equal((await two.post('/reservations', next)).status, 201);
-  const cooldown = await one.post('/reservations', next);
-  assert.equal(cooldown.status, 409);
-  assert.equal(cooldown.body.error.code, 'RESERVATION_COOLDOWN');
+  assert.equal((await loser.post('/reservations', next)).status, 201);
   const count = await pool.query(
     `SELECT COUNT(*)::int AS count FROM reservation WHERE equipmentid=$1 AND starttime=$2::timestamptz AT TIME ZONE 'UTC'`,
     [input.equipmentId, input.startTime],
@@ -300,15 +348,6 @@ test('concurrent overlapping requests produce one reservation; adjacent differen
       [one.id, input.equipmentId, input.startTime, input.endTime],
     ),
     (error: any) => error.code === '23P01',
-  );
-  await assert.rejects(
-    pool.query(
-      `INSERT INTO reservation(userid,equipmentid,location,starttime,endtime,status) VALUES($1,$2,'Test',$3::timestamptz AT TIME ZONE 'UTC',$4::timestamptz AT TIME ZONE 'UTC','confirmed')`,
-      [one.id, input.equipmentId, next.startTime, next.endTime],
-    ),
-    (error: any) =>
-      error.code === '23P01' &&
-      error.constraint === 'app_equipment_reservation_user_cooldown',
   );
 });
 
@@ -338,6 +377,12 @@ test('room reservations reject overlaps, enforce cooldown and gate active room a
   const conflict = await two.post('/reservations', input);
   assert.equal(conflict.status, 409);
   assert.equal(conflict.body.error.code, 'RESERVATION_CONFLICT');
+  const exactBoundary = {
+    ...input,
+    startTime: new Date(start.getTime() - 75 * 60_000).toISOString(),
+    endTime: new Date(start.getTime() - 15 * 60_000).toISOString(),
+  };
+  assert.equal((await one.post('/reservations', exactBoundary)).status, 201);
   const adjacent = {
     ...input,
     startTime: input.endTime,
@@ -347,6 +392,7 @@ test('room reservations reject overlaps, enforce cooldown and gate active room a
   assert.equal(cooldown.status, 409);
   assert.equal(cooldown.body.error.code, 'RESERVATION_COOLDOWN');
   assert.equal((await two.post('/reservations', adjacent)).status, 201);
+  await signRequiredWaivers(one);
   const denied = await one.post('/me/check-ins', { roomId: room });
   assert.equal(denied.status, 403);
   assert.equal(denied.body.error.code, 'ROOM_RESERVATION_REQUIRED');
@@ -355,6 +401,15 @@ test('room reservations reject overlaps, enforce cooldown and gate active room a
      VALUES($1,$2,'North hallway',(NOW()-INTERVAL '5 minutes') AT TIME ZONE 'UTC',(NOW()+INTERVAL '30 minutes') AT TIME ZONE 'UTC','confirmed')`,
     [one.id, room],
   );
+  await pool.query("UPDATE room SET status='unavailable' WHERE roomid=$1", [
+    room,
+  ]);
+  const unavailable = await one.post('/me/check-ins', { roomId: room });
+  assert.equal(unavailable.status, 409);
+  assert.equal(unavailable.body.error.code, 'ROOM_UNAVAILABLE');
+  await pool.query("UPDATE room SET status='available' WHERE roomid=$1", [
+    room,
+  ]);
   const checkin = await one.post('/me/check-ins', { roomId: room });
   assert.equal(checkin.status, 201);
   const stored = await pool.query(
