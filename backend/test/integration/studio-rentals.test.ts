@@ -327,6 +327,7 @@ test("test checkout reconciles paid sessions; refund failures stay visible and r
       },
     },
   };
+  provider.sdk.refunds.retrieve=(async()=>({...stale.data.object,status:"succeeded"})) as any;
   await svc.webhook(stale);
   assert.equal(
     (
@@ -367,6 +368,7 @@ test('studio notices wait for payment, target member and staff once, and respect
  try {
   await service.manualPay(admin,rental.id,'notification acceptance receipt');
   await assert.rejects(service.manualPay(admin,rental.id,'notification acceptance receipt'),{code:'PAYMENT_STATE'});
+  assert.equal((await notices('payment_receipt')).length,1,'staff-recorded payment queues a separate receipt');
   let rows=await notices('studio_reservation_confirmed');
   assert.deepEqual(rows.map(r=>[r.userid,r.status]),[[member,'pending'],[admin,'suppressed']].sort((a,b)=>Number(a[0])-Number(b[0])));
   await service.cancel(member,rental.id);
@@ -376,4 +378,32 @@ test('studio notices wait for payment, target member and staff once, and respect
   assert.match(rows.find(r=>r.userid===member).payload.instructions,/refund_pending/);
   assert.match(rows.find(r=>r.userid===member).payload.instructions,/original payment method/);
  } finally {await pool.query('UPDATE app_notification_preferences SET enabled=true WHERE userid=$1',[admin]);}
+});
+
+
+test('late canonical refund failure corrects refunded state and retry reconciles instead of silently succeeding',async()=>{
+ const provider=new StudioStripe({key:'sk_test_fixture',webhookSecret:'whsec_fixture',origin:'http://localhost'});
+ const svc=new StudioService(pool,'America/New_York',provider);
+ const r=(await pool.query(`INSERT INTO app_studio_rental(studio_id,userid,starts_on,ends_on,amount_cents,cancellation_policy,status,payment_method,payment_status,payment_intent,refund_cents,request_key,hold_until) VALUES(8,$1,'2033-01-01','2033-02-01',20000,'full_before_start','cancelled','stripe_test','refund_pending','pi_late_failure',20000,$2,now()) RETURNING *`,[member,randomUUID()])).rows[0];
+ let current:any={id:'re_late_failure',metadata:{studioRentalId:String(r.id)},payment_intent:'pi_late_failure',amount:20000,currency:'usd',status:'succeeded'};
+ provider.refund=(async()=>current) as any;
+ provider.sdk.refunds.retrieve=(async()=>current) as any;
+ await svc.retryRefund(r.id);
+ const state=async()=>(await pool.query('SELECT payment_status FROM app_studio_rental WHERE id=$1',[r.id])).rows[0].payment_status;
+ assert.equal(await state(),'refunded');
+ current={...current,status:'failed',metadata:{}};
+ const event=(id:string,status:string)=>({id,livemode:false,type:'refund.updated',data:{object:{...current,status}}} as any);
+ await svc.webhook(event('evt_late_failure','failed'));
+ assert.equal(await state(),'refund_failed');
+ await svc.webhook(event('evt_stale_success','succeeded'));
+ assert.equal(await state(),'refund_failed','stale success cannot restore refunded');
+ await assert.rejects(svc.retryRefund(r.id),{code:'REFUND_RECONCILE'});
+ assert.equal((await pool.query("SELECT * FROM app_notification_outbox WHERE dedupe_key=$1",[`studio-refund-failed:${r.id}:re_late_failure`])).rowCount,1);
+ current={...current,id:'re_reconciled',metadata:{studioRentalId:String(r.id)},status:'succeeded'};
+ await svc.retryRefund(r.id);assert.equal(await state(),'refunded');
+ // An old failed refund cannot downgrade a different, successful replacement.
+ provider.sdk.refunds.retrieve=(async()=>({...current,id:'re_late_failure',status:'failed'})) as any;
+ const old=event('evt_old_failure_after_recovery','failed');old.data.object.id='re_late_failure';
+ await svc.webhook(old);assert.equal(await state(),'refunded');
+ assert.equal((await pool.query("SELECT * FROM app_notification_outbox WHERE dedupe_key=$1 AND status='pending'",[`studio-refund:${r.id}:re_reconciled`])).rowCount,1);
 });

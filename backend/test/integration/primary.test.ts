@@ -507,6 +507,21 @@ test("day passes enforce local calendar dates, duplicate prevention, entitlement
   );
 });
 
+
+test("manual card receipt and refund retain staff identity, reference, and timestamps",async()=>{
+ const admin=client(),user=client();await admin.admin();await user.register();
+ const p=await plan(admin),issued=await issue(admin,user,p.id);
+ const route=`/admin/payments/${issued.paymentId}/status`;
+ assert.equal((await admin.post(route,{status:'paid',method:'external_card',reference:'TERMINAL-TEST-42',revision:1,reason:'Card charged on staff terminal'})).status,200);
+ let payment=(await pool.query('SELECT * FROM payment WHERE paymentid=$1',[issued.paymentId])).rows[0];
+ assert.ok(payment.paymentdate);assert.equal(payment.method,'external_card');assert.equal(payment.reference,'TERMINAL-TEST-42');
+ let audit=(await pool.query("SELECT * FROM app_staff_audit WHERE entity_id=$1 AND action='payment.paid'",[issued.paymentId])).rows[0];
+ assert.equal(audit.actor_id,admin.id);assert.ok(audit.created_at);
+ assert.equal((await pool.query("SELECT * FROM app_notification_outbox WHERE userid=$1 AND kind='payment_recorded' AND payload->>'paymentId'=$2",[user.id,String(issued.paymentId)])).rowCount,1);
+ assert.equal((await admin.post(route,{status:'refunded',method:'external_card',reference:'TERMINAL-REFUND-42',revision:2,reason:'Original card refunded on terminal'})).status,200);
+ assert.equal((await pool.query("SELECT * FROM app_notification_outbox WHERE userid=$1 AND kind='payment_refunded'",[user.id])).rowCount,1);
+});
+
 test("payment records are owner-scoped, transition-controlled, audited, and do not execute refunds or revoke access", async () => {
   const admin = client(),
     user = client(),

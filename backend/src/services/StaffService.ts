@@ -248,6 +248,8 @@ export class StaffService {
       .update(JSON.stringify({ userId, ...input }))
       .digest("hex");
     return this.write(actorId, false, "entitlement", "create", async (model, actor, db) => {
+      // Same lock as online checkout/issuance, taken before target/plan locks.
+      await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,userId]);
       const user = await this.target(model, actor, userId);
       const previous = await model.request(input.requestId);
       if (previous) {
@@ -380,7 +382,7 @@ export class StaffService {
       );
       await model.saveRequest(input.requestId, actorId, fingerprint, result);
       await enqueueNotification(db,{userId,kind:plan.kind === 'membership' ? 'membership_issued' : 'day_pass_issued',dedupeKey:`entitlement-issued:${plan.kind}:${id}`,payload:{membershipName:plan.name,startsAt:input.startsAt ?? input.validDate}});
-      await enqueueNotification(db,{userId,kind:input.paymentStatus === 'paid' ? 'payment_recorded' : 'payment_status_changed',dedupeKey:`payment-recorded:${paymentId}`,payload:{paymentId,amount:input.paymentStatus === 'waived' ? '0.00' : plan.price,currency:'USD',instructions:`Payment status: ${input.paymentStatus}`} });
+      await enqueueNotification(db,{userId,kind:input.paymentStatus === 'paid' ? 'payment_recorded' : 'payment_status_changed',dedupeKey:`payment-recorded:${paymentId}`,payload:{paymentId,amount:input.paymentStatus === 'waived' ? '0.00' : plan.price,currency:'USD',method:input.method,reference:input.reference,instructions:`Payment status: ${input.paymentStatus}`} });
       return result;
     });
   }
@@ -436,6 +438,8 @@ export class StaffService {
   ) {
     return this.write(actorId, false, "payment", "update", async (model, actor, db) => {
       const before = await model.payment(id);
+      if ((await this.pool.query('SELECT id::text FROM app_membership_invoice WHERE payment_id=$1 UNION ALL SELECT id::text FROM app_pass_checkout WHERE payment_id=$1 AND amount_cents>0',[id])).rowCount)
+        throw new AppError(409,'PROVIDER_PAYMENT','Use the Stripe billing refund workflow for this payment.');
       if (!before || before.userId == null) throw missing();
       await this.target(model, actor, before.userId);
       this.expectRevision(before.revision, revision);
@@ -452,6 +456,7 @@ export class StaffService {
           "INVALID_PAYMENT_TRANSITION",
           "This payment record cannot move to that status.",
         );
+      if(status==='refunded'&&method!==before.method)throw new AppError(400,'ORIGINAL_METHOD_REQUIRED','Record the refund against the original payment method.');
       const after = await model.updatePayment(
         id,
         status,
@@ -471,7 +476,7 @@ export class StaffService {
         before,
         after,
       );
-      await enqueueNotification(db,{userId:before.userId,kind:status === 'refunded' ? 'payment_refunded' : status === 'paid' ? 'payment_recorded' : 'payment_status_changed',dedupeKey:`payment-status:${id}:${after.revision}`,payload:{paymentId:id,amount:after.amount,currency:'USD',instructions:`Payment status: ${status}`}});
+      await enqueueNotification(db,{userId:before.userId,kind:status === 'refunded' ? 'payment_refunded' : status === 'paid' ? 'payment_recorded' : 'payment_status_changed',dedupeKey:`payment-status:${id}:${after.revision}`,payload:{paymentId:id,amount:after.amount,currency:'USD',method,reference,instructions:`Payment status: ${status}`}});
       return after;
     });
   }

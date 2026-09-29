@@ -49,3 +49,9 @@ test("dashboard refund recovery trusts successful original-intent full refund, n
  const found = await provider.refund({id:1,payment_intent:'pi_original',refund_cents:200});
  assert.equal(found.id,'re_dashboard');assert.equal(found.metadata.studioRentalId,'1');
 });
+
+test('restricted test keys are accepted; live keys are rejected',async()=>{
+ const {StudioStripe}=await import('../src/studios/stripe.js');
+ assert.doesNotThrow(()=>new StudioStripe({key:'rk_test_fixture',webhookSecret:'whsec_fixture',origin:'http://localhost'}));
+ for(const key of ['rk_live_fixture','sk_live_fixture']) assert.throws(()=>new StudioStripe({key,webhookSecret:'whsec_fixture',origin:'http://localhost'}),/Test keys only/);
+});
