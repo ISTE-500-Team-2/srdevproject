@@ -22,7 +22,7 @@ export class SessionModel {
   private async issue(userId: number, familyId: string, csrfToken: string, persistent: boolean) {
     const user = await new UserModel(this.db).findById(userId);
     if (!user || user.status !== 'active') throw new Error('Inactive refresh account');
-    const {token, expiresAt, ttl} = await this.jwt.issue(userId, user.role, user.roles);
+    const {token, expiresAt, ttl} = await this.jwt.issue(userId, user.roles.includes(user.primaryRole ?? "") ? user.primaryRole! : user.roles[0] ?? user.role, user.roles);
     const refreshToken = randomBytes(32).toString('base64url');
     await this.db.query('INSERT INTO app_refresh_token(token_hash,family_id) VALUES($1,$2)',[tokenHash(refreshToken),familyId]);
     await this.db.query('INSERT INTO app_session(token_hash,userid,csrf_token,expires_at,family_id) VALUES($1,$2,$3,$4,$5)',[tokenHash(token),userId,csrfToken,expiresAt,familyId]);

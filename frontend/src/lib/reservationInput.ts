@@ -6,7 +6,7 @@ export function reservationInput(
 ) {
   if (
     !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(localStart) ||
-    ![1, 2, 3, 5].includes(hours)
+    (!Number.isInteger(hours) || hours < 1 || hours > 24)
   )
     throw new RangeError('Choose a start time and duration.');
   const start = new Date(localStart);

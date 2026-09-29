@@ -60,9 +60,10 @@ export class ReservationModel {
     const { rows } = await this.db.query(
       `UPDATE reservation SET status='cancelled',statusdesc='Cancelled by member'
       WHERE reservationid=$1 AND userid=$2 AND status IN ('confirmed','pending')
-        AND starttime > NOW() AT TIME ZONE 'UTC' RETURNING reservationid AS id`,
+        AND starttime >= (NOW() + interval '24 hours') AT TIME ZONE 'UTC' RETURNING reservationid AS id`,
       [id, userId],
     );
-    return rows[0] ?? null;
+    if (!rows[0]) return null;
+    return (await this.db.query(`SELECT ${selection} FROM reservation r JOIN equipment e USING(equipmentid) WHERE r.reservationid=$1`,[id])).rows[0] ?? null;
   }
 }

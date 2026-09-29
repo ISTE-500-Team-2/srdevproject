@@ -1,3 +1,4 @@
+import {BillingConfiguration} from '../components/BillingConfiguration';
 import { useState } from "react";
 import { api } from "../lib/api";
 import { useApi } from "../lib/useApi";
@@ -60,6 +61,7 @@ export function StaffPlans() {
           </button>
         ) : null}
       </div>
+      <BillingConfiguration plans={plans.data??[]}/>
     </section>
   );
 }

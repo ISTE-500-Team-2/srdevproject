@@ -1,3 +1,4 @@
+import {studioWebhook} from './studios/routes.js';
 import express, { type ErrorRequestHandler } from 'express';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -6,6 +7,7 @@ import type { AppConfig } from './config.js';
 import { AppError } from './domain.js';
 import { checkOrigin } from './middleware/auth.js';
 import { apiRoutes } from './routes.js';
+import { brevoWebhook } from './notifications/webhook.js';
 
 export function createApp(
   pool: Pool,
@@ -23,6 +25,13 @@ export function createApp(
     res.set('Cache-Control', 'no-store');
     next();
   });
+  app.post('/api/webhooks/stripe-studios',express.raw({type:'application/json',limit:'96kb'}),studioWebhook(pool,config.timeZone,config.studioStripe));
+  app.use(
+    '/api/webhooks/brevo',
+    express.json({ limit: '64kb' }),
+  );
+  // Provider callbacks authenticate with their own bearer token, not browser CSRF.
+  app.post('/api/webhooks/brevo', brevoWebhook(pool, config.brevoWebhookToken));
   app.use(
     '/api',
     express.json({ limit: '96kb' }),

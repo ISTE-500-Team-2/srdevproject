@@ -1,3 +1,4 @@
+import { confirmationToken } from '../helpers/confirmation.js';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { before, after, test } from 'node:test';
@@ -63,7 +64,7 @@ function client() {
     async register() {
       const email = randomBytes(8).toString('hex') + '@example.invalid',
         password = `A!${randomBytes(24).toString('hex')}`;
-      const res = await agent
+      let res = await agent
         .post('/api/auth/register')
         .send({
           email,
@@ -74,7 +75,9 @@ function client() {
           dob: '2000-01-01',
           role: 'admin',
         });
-      assert.equal(res.status, 201);
+      assert.equal(res.status, 202);
+      res = await agent.post('/api/auth/confirm').send({token:await confirmationToken(pool,email)});
+      assert.equal(res.status,200);
       agent.set('Authorization', 'Bearer '+res.body.data.accessToken);
       csrf = res.body.data.csrfToken;
       id = res.body.data.user.id;
@@ -143,12 +146,31 @@ test('registration, DB session recovery, profile persistence and logout', async 
     firstName: 'Updated',
     lastName: 'Member',
     phone: '1111111111',
+    address: { City: 'Baltimore', 'Custom gate code': 'Blue 7' },
+    contactPreferences: { 'Preferred contact method': 'email' },
     role: 'admin',
   });
   assert.equal(update.status, 200);
+  assert.equal(update.body.data.address.City, 'Baltimore');
+  assert.equal(update.body.data.address['Custom gate code'], 'Blue 7');
+  assert.equal(update.body.data.contactPreferences['Preferred contact method'], 'email');
+  assert.equal(update.body.data.studioContact.name, 'The Crafty Studio');
+  assert.equal('status' in update.body.data.user, false);
+  assert.equal('conductFlag' in update.body.data.user, false);
+  const readProfile = await user.agent.get('/api/me/profile');
+  assert.equal(readProfile.body.data.address.City, 'Baltimore');
+  assert.equal((await user.agent.get('/api/studio/contact')).body.data.email, 'arborcollaboratory@yahoo.com');
   const session = await user.agent.get('/api/auth/session');
   assert.equal(session.body.data.user.firstName, 'Updated');
   assert.equal(session.body.data.user.role, 'member');
+  assert.equal('status' in session.body.data.user, false);
+  assert.equal('conductFlag' in session.body.data.user, false);
+  await pool.query('UPDATE "user" SET conductflag=true WHERE userid=$1', [user.id]);
+  const admin = client();
+  await admin.demo('admin');
+  const staffDetail = await admin.agent.get(`/api/admin/users/${user.id}`);
+  assert.equal(staffDetail.body.data.user.status, 'active');
+  assert.equal(staffDetail.body.data.user.conductFlag, true);
   assert.equal((await user.post('/auth/logout')).status, 204);
   assert.equal((await user.agent.get('/api/auth/session')).status, 401);
   const signedIn = await user.login(email, password);
@@ -375,6 +397,54 @@ test('a day pass grants access only on its valid local calendar day', async () =
   );
 });
 
+test('profile patches preserve omitted/custom fields and clear only explicitly named fields', async () => {
+  app = createApp(pool, config);
+  const user = client();
+  await user.register();
+  const names = { firstName: 'Profile', lastName: 'Member', phone: '1111111111' };
+  let response = await user.patch('/me/profile', {
+    ...names,
+    address: { City: 'Baltimore', 'Custom gate code': 'Blue 7' },
+    contactPreferences: { 'Preferred contact method': 'email', 'SMS allowed': false },
+  });
+  assert.equal(response.status, 200);
+  // Older clients know only about name/phone: they must not erase new fields.
+  response = await user.patch('/me/profile', names);
+  assert.equal(response.status, 200);
+  assert.equal(response.body.data.address['Custom gate code'], 'Blue 7');
+  assert.equal(response.body.data.contactPreferences['SMS allowed'], false);
+  // The current UI submits only its visible fields, not every custom field.
+  response = await user.patch('/me/profile', {
+    ...names, address: { City: 'White Hall' },
+    contactPreferences: { 'Preferred contact method': 'phone' },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.body.data.address.City, 'White Hall');
+  assert.equal(response.body.data.address['Custom gate code'], 'Blue 7');
+  assert.equal(response.body.data.contactPreferences['SMS allowed'], false);
+  // Empty object is a no-op; blank/null field values explicitly remove that key.
+  response = await user.patch('/me/profile', {
+    ...names, address: { City: '   ', 'Custom gate code': null }, contactPreferences: {},
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.data.address, {});
+  assert.equal(response.body.data.contactPreferences['Preferred contact method'], 'phone');
+  assert.equal(response.body.data.contactPreferences['SMS allowed'], false);
+  response = await user.patch('/me/profile', { ...names, contactPreferences: null });
+  assert.equal(response.status, 400);
+  // Atomic JSONB merge keeps concurrent edits to different keys.
+  const edits = await Promise.all([
+    user.patch('/me/profile', { ...names, address: { City: 'Baltimore' } }),
+    user.patch('/me/profile', { ...names, address: { State: 'MD' } }),
+  ]);
+  assert.ok(edits.every(r => r.status === 200));
+  response = await user.agent.get('/api/me/profile');
+  assert.deepEqual(response.body.data.address, { City: 'Baltimore', State: 'MD' });
+  assert.equal('status' in response.body.data.user, false);
+  assert.equal('conductFlag' in response.body.data.user, false);
+  assert.equal(response.body.data.studioContact.phone, process.env.STUDIO_CONTACT_PHONE?.trim() || null);
+});
+
 test('rerunning setup preserves users, reservations and applied migration history', async () => {
   const migrationsBefore = (await pool.query('SELECT name, checksum FROM app_migration ORDER BY name')).rows;
   const before = (
@@ -391,6 +461,61 @@ test('rerunning setup preserves users, reservations and applied migration histor
   const newUser = client();
   await newUser.register();
   assert.ok(newUser.id > 2);
+});
+
+test('SDTA-123: staff books for an eligible member; owner, notification and audit identify the correct people',async()=>{
+ const member=client(),staff=client();await member.demo();await staff.demo('admin');
+ await pool.query("UPDATE user_role SET roleid=(SELECT roleid FROM role WHERE role='staff') WHERE userid=$1",[staff.id]);
+ const input={...interval(await equipment(),12),userId:member.id};
+ const result=await staff.post('/reservations',input);
+ assert.equal(result.status,201,JSON.stringify(result.body));
+ assert.equal(result.body.data.userId,member.id);
+ const audit=await pool.query("SELECT actor_id,subject_id FROM app_staff_audit WHERE action='reservation.created' AND entity_id=$1",[result.body.data.id]);
+ assert.equal(audit.rows[0].actor_id,staff.id);assert.equal(audit.rows[0].subject_id,member.id);
+ const notice=await pool.query('SELECT userid FROM app_notification_outbox WHERE dedupe_key=$1',['reservation-created:'+result.body.data.id]);
+ assert.equal(notice.rows[0].userid,member.id);
+ await pool.query("UPDATE user_role SET roleid=(SELECT roleid FROM role WHERE role='admin') WHERE userid=$1",[staff.id]);
+});
+
+test('SDTA-123: members cannot spoof another owner; staff cannot bypass the recipient entitlement or suspension',async()=>{
+ const member=client(),staff=client(),unqualified=client();await member.demo();await staff.demo('admin');await unqualified.register();
+ const input={...interval(await equipment(),13),userId:unqualified.id};
+ assert.equal((await member.post('/reservations',input)).status,403);
+ let res=await staff.post('/reservations',input);assert.equal(res.body.error.code,'MEMBERSHIP_REQUIRED');
+ await pool.query("UPDATE \"user\" SET accessstatus='suspended' WHERE userid=$1",[unqualified.id]);
+ res=await staff.post('/reservations',input);assert.equal(res.body.error.code,'ACCESS_BLOCKED');
+});
+
+test('SDTA-123: hourly API validation accepts four hours and rejects fractional durations',async()=>{
+ const member=client();await member.demo();
+ let res=await member.post('/reservations',interval(await equipment(),14,0.5));
+ assert.equal(res.status,400);assert.equal(res.body.error.code,'HOURLY_DURATION_REQUIRED');
+ res=await member.post('/reservations',interval(await equipment(),14,4));assert.equal(res.status,201,JSON.stringify(res.body));
+});
+
+test('SDTA-123: cancellation rejects less than 24h notice without changing record or queuing confirmation',async()=>{
+ const member=client();await member.demo();
+ const result=await member.post('/reservations',interval(await equipment(),0.5));assert.equal(result.status,201);
+ const id=result.body.data.id;
+ const cancelled=await member.post('/reservations/'+id+'/cancel');assert.equal(cancelled.status,409);assert.equal(cancelled.body.error.code,'CANCELLATION_NOTICE_REQUIRED');
+ assert.equal((await pool.query('SELECT status FROM reservation WHERE reservationid=$1',[id])).rows[0].status,'confirmed');
+ assert.equal((await pool.query('SELECT id FROM app_notification_outbox WHERE dedupe_key=$1',['reservation-cancelled:'+id])).rowCount,0);
+});
+
+test('SDTA-123: cancellation boundary is inclusive at exactly 24h and exclusive immediately below',async()=>{
+ const {ReservationModel}=await import('../../src/models/ReservationModel.js');
+ const db=await pool.connect();await db.query('BEGIN');
+ try {
+  const member=client();await member.demo();
+  const eq=await equipment();
+  for(const seconds of [86400,86399]) {
+   const result=await db.query(`INSERT INTO reservation(userid,equipmentid,location,starttime,endtime,status)
+    VALUES($1,$2,'Boundary test',(NOW()+$3*interval '1 second') AT TIME ZONE 'UTC',(NOW()+($3+3600)*interval '1 second') AT TIME ZONE 'UTC','confirmed') RETURNING reservationid`,[member.id,eq,seconds]);
+   const cancelled=await new ReservationModel(db).cancel(result.rows[0].reservationid,member.id);
+   assert.equal(!!cancelled,seconds===86400);
+   await db.query('DELETE FROM reservation WHERE reservationid=$1',[result.rows[0].reservationid]);
+  }
+ }finally{await db.query('ROLLBACK');db.release();}
 });
 
 test('additive RBAC migration upgrades existing MVC data without resetting users or reservations', async () => {

@@ -1,3 +1,4 @@
+import { confirmationToken } from '../../../backend/test/helpers/confirmation';
 // @vitest-environment jsdom
 import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
@@ -54,8 +55,10 @@ test("staff React flow creates a plan, issues access/payment, survives reload, s
     phone: "0000000000",
     dob: "2000-01-01",
   });
-  expect(registration.status).toBe(201);
-  const session = (await registration.json()).data,
+  expect(registration.status).toBe(202);
+  const confirmed = await direct("/auth/confirm",{token:await confirmationToken(bridge.pool,email)});
+  expect(confirmed.status).toBe(200);
+  const session = (await confirmed.json()).data,
     id = session.user.id;
   const waivers = (await (await bridge.fetch("/api/me/waivers")).json()).data;
   for (const waiver of waivers)

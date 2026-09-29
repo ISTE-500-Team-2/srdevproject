@@ -1,7 +1,9 @@
+import { SessionModel } from '../../src/models/SessionModel.js';
+import { confirmationToken } from '../helpers/confirmation.js';
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { before, after, test } from "node:test";
+import { before, beforeEach, after, test } from "node:test";
 import { Pool } from "pg";
 import request from "supertest";
 import { createApp } from "../../src/app.js";
@@ -29,6 +31,9 @@ before(async () => {
   await adminPool.query(`CREATE DATABASE "${database}"`);
   created = true;
   await initializeDemo(pool);
+});
+beforeEach(async () => {
+  if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
   server = createApp(pool, config).listen(0, "127.0.0.1");
   await once(server, "listening");
 });
@@ -58,7 +63,7 @@ function client() {
       accept(r);
     },
     async register() {
-      const r = await agent.post("/api/auth/register").send({
+      let r = await agent.post("/api/auth/register").send({
         firstName: "Primary",
         lastName: "Test",
         phone: "0000000000",
@@ -66,7 +71,9 @@ function client() {
         password: `A!${randomBytes(24).toString("hex")}`,
         dob: "2000-01-01",
       });
-      assert.equal(r.status, 201);
+      assert.equal(r.status, 202);
+      r=await agent.post("/api/auth/confirm").send({token:await confirmationToken(pool,r.body.data.email)});
+      assert.equal(r.status,200);
       accept(r);
     },
     get: (path: string) => agent.get("/api" + path),
@@ -500,6 +507,21 @@ test("day passes enforce local calendar dates, duplicate prevention, entitlement
   );
 });
 
+
+test("manual card receipt and refund retain staff identity, reference, and timestamps",async()=>{
+ const admin=client(),user=client();await admin.admin();await user.register();
+ const p=await plan(admin),issued=await issue(admin,user,p.id);
+ const route=`/admin/payments/${issued.paymentId}/status`;
+ assert.equal((await admin.post(route,{status:'paid',method:'external_card',reference:'TERMINAL-TEST-42',revision:1,reason:'Card charged on staff terminal'})).status,200);
+ let payment=(await pool.query('SELECT * FROM payment WHERE paymentid=$1',[issued.paymentId])).rows[0];
+ assert.ok(payment.paymentdate);assert.equal(payment.method,'external_card');assert.equal(payment.reference,'TERMINAL-TEST-42');
+ let audit=(await pool.query("SELECT * FROM app_staff_audit WHERE entity_id=$1 AND action='payment.paid'",[issued.paymentId])).rows[0];
+ assert.equal(audit.actor_id,admin.id);assert.ok(audit.created_at);
+ assert.equal((await pool.query("SELECT * FROM app_notification_outbox WHERE userid=$1 AND kind='payment_recorded' AND payload->>'paymentId'=$2",[user.id,String(issued.paymentId)])).rowCount,1);
+ assert.equal((await admin.post(route,{status:'refunded',method:'external_card',reference:'TERMINAL-REFUND-42',revision:2,reason:'Original card refunded on terminal'})).status,200);
+ assert.equal((await pool.query("SELECT * FROM app_notification_outbox WHERE userid=$1 AND kind='payment_refunded'",[user.id])).rowCount,1);
+});
+
 test("payment records are owner-scoped, transition-controlled, audited, and do not execute refunds or revoke access", async () => {
   const admin = client(),
     user = client(),
@@ -749,6 +771,51 @@ test("waived/void payment records and legacy-invalid plans cannot create incorre
     400,
   );
   assert.equal((await other.get("/me/payments")).body.data.items.length, 1);
+});
+
+test('multi-role editor preserves roles, separates student classification and applies changes to live sessions', async () => {
+  const admin=client(), user=client(); await admin.admin(); await user.register();
+  const update=async(body:Record<string,unknown>) => admin.post(`/admin/users/${user.id}/role`,{
+    revision:(await person(admin,user.id)).user.revision,reason:'Verified role assignment',...body});
+  let r=await update({primaryRole:'member',roles:['member','instructor'],isStudent:true});
+  assert.equal(r.status,200,JSON.stringify(r.body));
+  let current=(await user.get('/auth/session')).body.data.user;
+  assert.deepEqual(current.roles,['instructor','member']);assert.equal(current.primaryRole,'member');assert.equal(current.isStudent,true);
+  // Instructor denial wins even when another role permits reservation creation; malformed body never reaches handler.
+  r=await user.post('/reservations',{});assert.equal(r.status,403);assert.equal(r.body.error.code,'INSTRUCTOR_BOOKING_FORBIDDEN');
+  assert.equal((await user.get('/admin/users')).status,403);
+  // Legacy caller changes the primary role only, retaining additional assignments.
+  r=await update({role:'subscriber'});assert.equal(r.status,200);
+  current=(await user.get('/auth/session')).body.data.user;
+  assert.deepEqual(current.roles,['instructor','subscriber']);assert.equal(current.primaryRole,'subscriber');
+  assert.equal((await update({primaryRole:'staff',roles:['member']})).status,400);
+  assert.equal((await update({primaryRole:'member',roles:['member','member']})).status,400);
+  assert.equal((await update({primaryRole:'student',roles:['student']})).status,400);
+  assert.equal((await update({primaryRole:'member',roles:['member'],isStudent:'yes'})).status,400);
+  r=await update({primaryRole:'member',roles:['member','staff'],isStudent:false});assert.equal(r.status,200);
+  assert.equal((await user.get('/admin/users')).status,200);
+  r=await update({primaryRole:'member',roles:['member']});assert.equal(r.status,200);
+  assert.equal((await user.get('/admin/users')).status,403);
+  // Personal grants cannot authorize a different user's administrative endpoint.
+  assert.equal((await user.get(`/admin/users/${admin.id}`)).status,403);
+});
+
+test('customer roles have personal permissions without receiving staff powers or bypassing eligibility', async () => {
+ const admin=client(),user=client();await admin.admin();await user.register();
+ for(const role of ['member','subscriber','day_pass']) {
+  const r=await admin.post(`/admin/users/${user.id}/role`,{primaryRole:role,roles:[role],revision:(await person(admin,user.id)).user.revision,reason:'Role matrix verification'});
+  assert.equal(r.status,200);
+  assert.equal((await user.get('/me/overview')).status,200);
+  assert.equal((await user.get('/equipment')).status,200);
+  const issued=await new SessionModel(pool,config.jwtKey).create(user.id,false);
+  assert.equal((await request(server).get('/api/auth/session').set('Authorization','Bearer '+issued.token)).status,200,'fresh JWT works for specialized customer role');
+  assert.equal((await user.get('/admin/payments')).status,403);
+  assert.equal((await user.post('/reservations',{})).status,400,'authorized route reaches validation, not a privilege bypass');
+ }
+ // Explicit personal deny is consulted before the handler and takes effect without logging in again.
+ await pool.query(`UPDATE role_permission SET isallowed=false WHERE roleid=(SELECT roleid FROM role WHERE role='day_pass') AND resourcename='equipment' AND permissionid=2`);
+ assert.equal((await user.get('/equipment')).status,403);
+ await pool.query(`UPDATE role_permission SET isallowed=true WHERE roleid=(SELECT roleid FROM role WHERE role='day_pass') AND resourcename='equipment' AND permissionid=2`);
 });
 
 test("bootstrap preserves removed demo administrator permissions and renamed/archived demo plans", async () => {

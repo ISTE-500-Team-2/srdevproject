@@ -23,6 +23,8 @@ export class EquipmentController {
           !!item.certId &&
           !(await eligibility.certification(userId, item.certId, new Date()));
         const reasons: string[] = [];
+        if (authState(res).user.roles.includes("instructor"))
+          reasons.push("Instructor accounts cannot create reservations");
         if (authState(res).user.accessStatus !== "active")
           reasons.push("Facility access is suspended or revoked");
         if (item.status !== "available") reasons.push("Equipment unavailable");
