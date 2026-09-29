@@ -38,7 +38,7 @@ export function Footer() {
     <footer className="site-footer">
       <div className="site-footer__grid">
         {footerLinks.map((group) => (
-          <div key={group.title} className="site-footer-column">
+          <section key={group.title}>
             <h2>{group.title}</h2>
             <ul>
               {group.links.map(([label, to]) => (
@@ -47,7 +47,7 @@ export function Footer() {
                 </li>
               ))}
             </ul>
-          </div>
+          </section>
         ))}
       </div>
       <div className="site-footer__bottom">
