@@ -8,7 +8,7 @@ export interface StudioStripeConfig {
 export function readStudioStripeConfig(): StudioStripeConfig | undefined {
   const key = process.env.STRIPE_TEST_SECRET_KEY;
   if (!key) return undefined;
-  if (!key.startsWith("sk_test_"))
+  if (!/^(sk|rk)_test_/.test(key))
     throw new Error("Studio checkout only accepts a Stripe test key");
   const webhookSecret = process.env.STRIPE_STUDIO_WEBHOOK_SECRET;
   const origin = process.env.APP_ORIGIN;
@@ -26,14 +26,14 @@ export function readStudioStripeConfig(): StudioStripeConfig | undefined {
 export class StudioStripe {
   readonly sdk: Stripe;
   constructor(readonly config: StudioStripeConfig) {
-    if (!config.key.startsWith("sk_test_")) throw new Error("Test keys only");
+    if (!/^(sk|rk)_test_/.test(config.key)) throw new Error("Test keys only");
     this.sdk = new Stripe(config.key, { maxNetworkRetries: 2, timeout: 10000 });
   }
   async checkout(r: any) {
     const session = await this.sdk.checkout.sessions.create(
       {
         mode: "payment",
-        payment_method_types: ["card"],
+        integration_identifier: "arbor-studios-qmrxnpta",
         client_reference_id: String(r.id),
         metadata: { studioRentalId: String(r.id) },
         payment_intent_data: { metadata: { studioRentalId: String(r.id) } },

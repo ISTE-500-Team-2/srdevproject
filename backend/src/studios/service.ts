@@ -328,6 +328,7 @@ export class StudioService {
           [id, ref],
         )
       ).rows[0];
+      await this.receipt(db, result, ref);
       await this.event(db, result, actor, "manual_payment_recorded", {
         reference: ref,
       });
@@ -451,6 +452,17 @@ export class StudioService {
     else {
       if (session.status === "open" && new Date(r.hold_until) <= new Date())
         session = await this.stripe.sdk.checkout.sessions.expire(session.id);
+      // Completed delayed-payment checkouts cannot be expired through Stripe.
+      // Reconcile a failed intent if its webhook was missed; keep processing or
+      // ambiguous payments held rather than releasing dates prematurely.
+      if(session.status==='complete' && session.payment_status==='unpaid' && session.payment_intent) {
+        const pi=typeof session.payment_intent==='string'?session.payment_intent:session.payment_intent.id;
+        const intent=await this.stripe.sdk.paymentIntents.retrieve(pi);
+        if(intent.id!==pi||intent.livemode||intent.amount!==r.amount_cents||intent.currency!=='usd')
+          throw new AppError(400,'PAYMENT_MISMATCH','Payment intent does not match rental.');
+        if(intent.status==='canceled'||intent.status==='requires_payment_method'&&intent.last_payment_error)
+          await this.failedCheckout(session);
+      }
       if (session.status === "expired")
         await this.pool.query(
           "UPDATE app_studio_rental SET status='expired' WHERE id=$1 AND status='pending' AND payment_status='unpaid'",
@@ -582,16 +594,39 @@ export class StudioService {
           [r.id, session.id, intent],
         )
       ).rows[0];
+      await this.receipt(db, r, intent);
       await this.event(db, r, null, "stripe_payment_confirmed");
       await this.notices(db, this.dates(r), "studio_reservation_confirmed");
     };
     return db ? work(db) : transaction(this.pool, work);
   }
+  async failedCheckout(session: Stripe.Checkout.Session, db?: Database) {
+    const work=async(db:Database)=>{
+      const r=(await db.query("SELECT * FROM app_studio_rental WHERE checkout_id=$1 OR id::text=$2 FOR UPDATE",[session.id,session.metadata?.studioRentalId??''])).rows[0];
+      if(!r)return;
+      if(session.livemode||session.mode!=='payment'||session.amount_total!==r.amount_cents||session.currency!=='usd'||session.client_reference_id!==String(r.id)||r.checkout_id&&session.id!==r.checkout_id)
+        throw new AppError(400,'PAYMENT_MISMATCH','Failed checkout does not match rental.');
+      if(session.payment_status==='paid'){await this.complete(session,db);return;}
+      if(session.status!=='complete'||session.payment_status!=='unpaid'||r.status!=='pending'||r.payment_status!=='unpaid')return;
+      await db.query("UPDATE app_studio_rental SET status='expired',checkout_id=$2 WHERE id=$1",[r.id,session.id]);
+      await this.event(db,r,null,'stripe_payment_failed',{checkoutId:session.id});
+      await enqueueNotification(db,{userId:r.userid,kind:'payment_failed',dedupeKey:`studio-payment-failed:${r.id}`,payload:{reservationId:r.id,reference:session.id,instructions:'The studio payment failed. The dates have been released; start a new booking to try again.'}});
+    };
+    return db?work(db):transaction(this.pool,work);
+  }
+  async receipt(db: Database, r: any, reference: string) {
+    await enqueueNotification(db, {
+      userId: r.userid, kind: "payment_receipt", dedupeKey: `studio-payment:${r.id}`,
+      payload: {amount: (r.amount_cents / 100).toFixed(2), currency: "USD",
+        reference, reservationId: r.id, method: r.payment_method === "stripe_test" ? "Card (test mode)" : "Staff-recorded payment",
+        startsAt: this.dates(r).starts_on, endsAt: this.dates(r).ends_on},
+    });
+  }
   async applyRefund(db: Database, f: Stripe.Refund) {
     if (!f.metadata?.studioRentalId || f.currency !== "usd") return;
     const r = (
       await db.query(
-        "UPDATE app_studio_rental SET refund_id=$2,payment_status=$3 WHERE payment_intent=$1 AND status='cancelled' AND refund_cents=$4 AND id=$5 AND payment_status IN ('refund_pending','refund_failed') AND NOT(payment_status='refund_failed' AND $3='refund_pending') RETURNING *",
+        "UPDATE app_studio_rental SET refund_id=$2,payment_status=$3 WHERE payment_intent=$1 AND status='cancelled' AND refund_cents=$4 AND id=$5 AND (payment_status IN ('refund_pending','refund_failed') OR (payment_status='refunded' AND refund_id=$2 AND $3='refund_failed')) AND NOT(payment_status='refund_failed' AND $3='refund_pending') AND (payment_status IS DISTINCT FROM $3 OR refund_id IS DISTINCT FROM $2) RETURNING *",
         [
           typeof f.payment_intent === "string"
             ? f.payment_intent
@@ -612,11 +647,16 @@ export class StudioService {
         refundId: f.id,
         status: f.status,
       });
+      if(r.payment_status==='refund_failed') {
+        await db.query("UPDATE app_notification_outbox SET status='obsolete',updated_at=now() WHERE dedupe_key=ANY($1::text[]) AND status='pending'",[[`studio-refund:${r.id}`,`studio-refund:${r.id}:${f.id}`]]);
+        await enqueueNotification(db,{userId:r.userid,kind:'payment_status_changed',dedupeKey:`studio-refund-failed:${r.id}:${f.id}`,
+          payload:{reservationId:r.id,reference:f.id,amount:(r.refund_cents/100).toFixed(2),currency:'USD',instructions:'The original-card refund failed. Staff must reconcile it; the booking remains cancelled.'}});
+      }
       if (r.payment_status === "refunded")
         await enqueueNotification(db, {
           userId: r.userid,
           kind: "payment_refunded",
-          dedupeKey: `studio-refund:${r.id}`,
+          dedupeKey: `studio-refund:${r.id}:${f.id}`,
           payload: {
             amount: (r.refund_cents / 100).toFixed(2),
             currency: "USD",
@@ -651,6 +691,16 @@ export class StudioService {
         const session = event.data.object as Stripe.Checkout.Session;
         if (session.metadata?.studioRentalId) await this.complete(session, db);
       }
+      if(event.type==='checkout.session.async_payment_failed') {
+        const announced=event.data.object as Stripe.Checkout.Session;
+        const r=(await db.query("SELECT id FROM app_studio_rental WHERE checkout_id=$1 OR id::text=$2 FOR UPDATE",[announced.id,announced.metadata?.studioRentalId??''])).rows[0];
+        if(r){
+          if(!this.stripe)throw new AppError(503,'PAYMENTS_UNAVAILABLE','Stripe is not configured.');
+          const current=await this.stripe.sdk.checkout.sessions.retrieve(announced.id);
+          if(current.id!==announced.id)throw new AppError(400,'PAYMENT_MISMATCH','Checkout identity mismatch.');
+          await this.failedCheckout(current,db);
+        }
+      }
       if (event.type === "checkout.session.expired") {
         const s = event.data.object as Stripe.Checkout.Session;
         await db.query(
@@ -663,9 +713,17 @@ export class StudioService {
         event.type === "refund.created" ||
         event.type === "refund.failed"
       ) {
-        const f = event.data.object as Stripe.Refund;
-        if (!f.metadata?.studioRentalId) return;
-        await this.applyRefund(db, f);
+        const announced = event.data.object as Stripe.Refund;
+        // Match an established refund/intent binding, not untrusted metadata alone.
+        const intent=typeof announced.payment_intent==='string'?announced.payment_intent:announced.payment_intent?.id;
+        const rental=(await db.query("SELECT id FROM app_studio_rental WHERE payment_intent=$1 AND status='cancelled' AND (refund_id=$2 OR id::text=$3) FOR UPDATE",[intent,announced.id,announced.metadata?.studioRentalId??''])).rows[0];
+        if(!rental)return;
+        if(!this.stripe)throw new AppError(503,'PAYMENTS_UNAVAILABLE','Stripe is not configured.');
+        // A delayed success/failure payload must not overwrite Stripe's current state.
+        const current=await this.stripe.sdk.refunds.retrieve(announced.id);
+        if(current.id!==announced.id||(typeof current.payment_intent==='string'?current.payment_intent:current.payment_intent?.id)!==intent)
+          throw new AppError(400,'PAYMENT_MISMATCH','Refund payment intent mismatch.');
+        await this.applyRefund(db,{...current,metadata:{...current.metadata,studioRentalId:String(rental.id)}});
       }
     });
   }

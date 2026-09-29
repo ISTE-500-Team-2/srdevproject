@@ -1,3 +1,5 @@
+import {PassBilling} from '../billing/passes.js';
+import {MembershipBilling} from '../billing/service.js';
 import { requirePermission } from '../middleware/permissions.js';
 import { Router, type Request, type Response } from "express";
 import type { Pool } from "pg";
@@ -122,6 +124,8 @@ export function studioWebhook(
         config.webhookSecret,
       );
     } catch {
+      // Fixed fields only; do not retain attacker bodies, signatures or credentials.
+      await pool.query("INSERT INTO app_payment_security_event(kind) VALUES('stripe.invalid_signature')");
       throw new AppError(
         400,
         "INVALID_SIGNATURE",
@@ -129,6 +133,8 @@ export function studioWebhook(
       );
     }
     await new StudioService(pool, zone, provider).webhook(event);
+    await new MembershipBilling(pool,provider).webhook(event);
+    await new PassBilling(pool,provider,zone).webhook(event);
     res.json({ received: true });
   };
 }

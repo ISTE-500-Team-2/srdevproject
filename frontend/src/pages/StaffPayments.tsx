@@ -1,3 +1,4 @@
+import {BillingRefunds} from '../components/BillingRefunds';
 import { useState } from "react";
 import { api } from "../lib/api";
 import { useApi } from "../lib/useApi";
@@ -31,6 +32,7 @@ export function PaymentEditor({
   payment: Payment;
   onSaved: () => void;
 }) {
+  if(payment.method === "card") return <p>Stripe-managed payment. Use the Stripe membership refund section.</p>;
   const transitions: Record<string, string[]> = {
     pending: ["paid", "void", "waived"],
     paid: ["refunded"],
@@ -97,9 +99,9 @@ export function StaffPayments() {
   return (
     <section>
       <h2>Payment history</h2>
+      <BillingRefunds/>
       <p>
-        Recorded receipts and adjustments. No money is moved by this
-        application.
+        External payment records and adjustments below do not move money. Stripe test refunds use the separate section above.
       </p>
       <form
         className="management-search"
