@@ -53,7 +53,7 @@ BEGIN
       EXCLUDE USING gist (
         userid WITH =,
         equipmentid WITH =,
-        tsrange(starttime - INTERVAL '15 minutes', endtime + INTERVAL '15 minutes','[)') WITH &&
+        tsrange(starttime, endtime + INTERVAL '15 minutes','[)') WITH &&
       )
       WHERE (equipmentid IS NOT NULL AND status IN ('confirmed','pending'));
   END IF;
@@ -68,7 +68,7 @@ BEGIN
       EXCLUDE USING gist (
         userid WITH =,
         roomid WITH =,
-        tsrange(starttime - INTERVAL '15 minutes', endtime + INTERVAL '15 minutes','[)') WITH &&
+        tsrange(starttime, endtime + INTERVAL '15 minutes','[)') WITH &&
       )
       WHERE (roomid IS NOT NULL AND status IN ('confirmed','pending'));
   END IF;
