@@ -37,10 +37,9 @@ test('signed copy remains available with notification opt-out and preserves orig
 });
 test('new policy version flags earlier signatures as outdated until the current version is signed',async()=>{
  const name='Machine Shop Agreement '+randomBytes(3).toString('hex');
- const first=(await pool.query(`INSERT INTO waiver(name,version,description,effectivedate) VALUES($1,'2026.1',$2,NOW() AT TIME ZONE 'UTC') RETURNING waiverid`,[name,'Stay alert. Wear eye protection. Ask staff before using tools. Keep hands clear of moving parts. Stop if anything feels unsafe.'])).rows[0].waiverid;
+ const first=(await pool.query(`INSERT INTO waiver(name,version,description,effectivedate) VALUES($1,'2026.1',$2,(NOW()-INTERVAL '2 minutes') AT TIME ZONE 'UTC') RETURNING waiverid`,[name,'Stay alert. Wear eye protection. Ask staff before using tools. Keep hands clear of moving parts. Stop if anything feels unsafe.'])).rows[0].waiverid;
  assert.equal((await post(`/me/waivers/${first}/sign`,{accepted:true})).status,200);
- const second=(await pool.query(`INSERT INTO waiver(name,version,description,effectivedate) VALUES($1,'2026.2',$2,(NOW()+INTERVAL '1 minute') AT TIME ZONE 'UTC') RETURNING waiverid`,[name,'Stay alert. Wear eye protection. Ask staff before using tools. Tie back loose hair. Keep hands clear of moving parts. Stop if anything feels unsafe.'])).rows[0].waiverid;
- await pool.query('UPDATE waiver SET effectivedate=(NOW()-INTERVAL \'1 minute\') AT TIME ZONE \'UTC\' WHERE waiverid=$1',[second]);
+ const second=(await pool.query(`INSERT INTO waiver(name,version,description,effectivedate) VALUES($1,'2026.2',$2,(NOW()-INTERVAL '1 minute') AT TIME ZONE 'UTC') RETURNING waiverid`,[name,'Stay alert. Wear eye protection. Ask staff before using tools. Tie back loose hair. Keep hands clear of moving parts. Stop if anything feels unsafe.'])).rows[0].waiverid;
  let current=(await get('/me/waivers')).body.data.find((w:any)=>w.name===name);
  assert.equal(current.id,second);
  assert.equal(current.versionId,second);
