@@ -41,17 +41,16 @@ export class ReservationModel {
     return rows[0]!.exists;
   }
   async equipmentCooldown(
-    userId: number,
     equipmentId: number,
     start: Date,
     end: Date,
   ): Promise<boolean> {
     const { rows } = await this.db.query<{ exists: boolean }>(
       `SELECT EXISTS (SELECT 1 FROM reservation
-      WHERE userid=$1 AND equipmentid=$2 AND status IN ('confirmed','pending')
-        AND starttime < ($4::timestamptz AT TIME ZONE 'UTC') + INTERVAL '${RESERVATION_COOLDOWN_MINUTES} minutes'
-        AND endtime > ($3::timestamptz AT TIME ZONE 'UTC') - INTERVAL '${RESERVATION_COOLDOWN_MINUTES} minutes') AS exists`,
-      [userId, equipmentId, start, end],
+      WHERE equipmentid=$1 AND status IN ('confirmed','pending')
+        AND starttime < ($3::timestamptz AT TIME ZONE 'UTC') + INTERVAL '${RESERVATION_COOLDOWN_MINUTES} minutes'
+        AND endtime > ($2::timestamptz AT TIME ZONE 'UTC') - INTERVAL '${RESERVATION_COOLDOWN_MINUTES} minutes') AS exists`,
+      [equipmentId, start, end],
     );
     return rows[0]!.exists;
   }

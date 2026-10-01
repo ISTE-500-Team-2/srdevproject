@@ -279,7 +279,7 @@ test('reservation saves to PostgreSQL, survives a new app instance, and only its
   );
 });
 
-test('concurrent overlapping requests produce one reservation; adjacent different-member times are allowed', async () => {
+test('concurrent overlapping requests produce one reservation; equipment cooldown applies across members', async () => {
   const one = client(),
     two = client();
   await one.demo();
@@ -336,7 +336,15 @@ test('concurrent overlapping requests produce one reservation; adjacent differen
       new Date(input.endTime).getTime() + 3_600_000,
     ).toISOString(),
   };
-  assert.equal((await loser.post('/reservations', next)).status, 201);
+  const adjacent = await loser.post('/reservations', next);
+  assert.equal(adjacent.status, 409);
+  assert.equal(adjacent.body.error.code, 'RESERVATION_COOLDOWN');
+  const afterCooldown = {
+    ...next,
+    startTime: new Date(new Date(next.startTime).getTime() + 15 * 60_000).toISOString(),
+    endTime: new Date(new Date(next.endTime).getTime() + 15 * 60_000).toISOString(),
+  };
+  assert.equal((await loser.post('/reservations', afterCooldown)).status, 201);
   const count = await pool.query(
     `SELECT COUNT(*)::int AS count FROM reservation WHERE equipmentid=$1 AND starttime=$2::timestamptz AT TIME ZONE 'UTC'`,
     [input.equipmentId, input.startTime],

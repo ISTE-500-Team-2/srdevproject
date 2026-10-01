@@ -136,11 +136,11 @@ export class ReservationService {
             'RESERVATION_CONFLICT',
             'That equipment is already reserved for part of this time.',
           );
-        if (await model.equipmentCooldown(targetId, equipmentId, start, end))
+        if (await model.equipmentCooldown(equipmentId, start, end))
           throw new AppError(
             409,
             'RESERVATION_COOLDOWN',
-            `Leave at least ${RESERVATION_COOLDOWN_MINUTES} minutes between your reservations for the same equipment.`,
+            `Leave at least ${RESERVATION_COOLDOWN_MINUTES} minutes between reservations for the same equipment, including other members' bookings.`,
           );
       } else {
         const room = await new RoomModel(db).findForUpdate(roomId!);
