@@ -200,3 +200,13 @@ Docker image build, container recreation, and Docker launcher smoke were not run
 because no Docker daemon was available on this host. These remain checks for the
 existing CI workflow. No container, shared database, hosted application, Google
 Drive document, or remote PR branch was changed during local verification.
+
+## CI container-recreation transport fix
+
+The restart smoke previously reused HTTP keep-alive sockets after synchronously
+recreating the server container. Node could not process the old socket's close
+event during `execFileSync`, so the next request failed with `UND_ERR_SOCKET`
+before any authentication assertion. The smoke now requests `Connection: close`
+for its HTTP calls. It still recreates the container, reuses the original JWT and
+refresh cookie, and checks CSRF enforcement and logout revocation. No retries,
+skipped assertions, production networking changes or extra login were added.
