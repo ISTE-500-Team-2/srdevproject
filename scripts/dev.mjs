@@ -40,8 +40,8 @@ export async function assertFree(port) {
 async function main() {
   const args=process.argv.slice(2);
   if(args.some(a=>a!=='--email')) throw new Error('Usage: npm run dev OR npm run dev:email');
-  const [major,minor]=process.versions.node.split('.').map(Number);
-  if(major<22 || major===22 && minor<18) throw new Error('Install Node 22.18 or newer.');
+  const [major]=process.versions.node.split('.').map(Number);
+  if(major!==24) throw new Error('Install Node 24 LTS (use nvm install && nvm use).');
   const email=args.includes('--email');
   const file=path.join(root,'.env.local');
   const local=email && existsSync(file) ? parseEnv(readFileSync(file,'utf8')) : {};

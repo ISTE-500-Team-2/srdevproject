@@ -77,7 +77,7 @@ Authentication follows the team architecture: bcrypt-12 passwords, 15-minute HS2
 
 ## Development startup
 
-Requirements: Docker/Compose, or Node 22.18+ plus an isolated PostgreSQL 16 server. Node 22 is used by the container build.
+Requirements: Docker/Compose, or Node 24 LTS plus an isolated PostgreSQL 16 server. Node 24 is used by the container build.
 
 From the repository root:
 
