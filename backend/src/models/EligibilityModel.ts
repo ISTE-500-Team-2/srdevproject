@@ -27,11 +27,15 @@ export class EligibilityModel {
   async waivers(userId: number) {
     const { rows } = await this.db.query<{
       id: number;
+      versionId: number;
       name: string;
       version: string;
       description: string;
       signed: boolean;
       signedAt: Date | null;
+      signedVersion: string | null;
+      signedVersionId: number | null;
+      outdatedSignature: boolean;
     }>(
       `
       WITH current_waivers AS (
@@ -39,12 +43,20 @@ export class EligibilityModel {
           AND (effectivedate IS NULL OR effectivedate <= NOW() AT TIME ZONE 'UTC')
         ORDER BY name, effectivedate DESC NULLS LAST, waiverid DESC
       )
-      SELECT w.waiverid AS id,w.name,w.version,COALESCE(w.description,'') AS description,
-             uw.userwaiverid IS NOT NULL AS signed, uw.signdate AT TIME ZONE 'UTC' AS "signedAt"
+      SELECT w.waiverid AS id,w.waiverid AS "versionId",w.name,w.version,COALESCE(w.description,'') AS description,
+             current_sig.userwaiverid IS NOT NULL AS signed,
+             current_sig.signdate AT TIME ZONE 'UTC' AS "signedAt",
+             previous_sig.version AS "signedVersion",
+             previous_sig.waiverid AS "signedVersionId",
+             current_sig.userwaiverid IS NULL AND previous_sig.userwaiverid IS NOT NULL AS "outdatedSignature"
       FROM current_waivers w LEFT JOIN LATERAL (
         SELECT userwaiverid,signdate FROM user_waiver WHERE userid=$1 AND waiverid=w.waiverid AND approval=true AND (expires_at IS NULL OR expires_at>NOW())
         ORDER BY signdate DESC LIMIT 1
-      ) uw ON true ORDER BY w.name`,
+      ) current_sig ON true LEFT JOIN LATERAL (
+        SELECT uw.userwaiverid,uw.signdate,w2.waiverid,w2.version FROM user_waiver uw JOIN waiver w2 USING(waiverid)
+        WHERE uw.userid=$1 AND w2.name=w.name AND uw.approval=true AND (uw.expires_at IS NULL OR uw.expires_at>NOW())
+        ORDER BY uw.signdate DESC,uw.userwaiverid DESC LIMIT 1
+      ) previous_sig ON true ORDER BY w.name`,
       [userId],
     );
     return rows;
