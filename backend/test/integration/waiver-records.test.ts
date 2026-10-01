@@ -35,6 +35,25 @@ test('signed copy remains available with notification opt-out and preserves orig
  const other=await get(`/me/signed-waivers/${signatureId}/copy`,administrator);assert.equal(other.status,404);
  const authorized=await get(`/admin/users/${member.id}/signed-waivers/${signatureId}/copy`,administrator);assert.equal(authorized.status,200);
 });
+test('new policy version flags earlier signatures as outdated until the current version is signed',async()=>{
+ const name='Machine Shop Agreement '+randomBytes(3).toString('hex');
+ const first=(await pool.query(`INSERT INTO waiver(name,version,description,effectivedate) VALUES($1,'2026.1',$2,NOW() AT TIME ZONE 'UTC') RETURNING waiverid`,[name,'Stay alert. Wear eye protection. Ask staff before using tools. Keep hands clear of moving parts. Stop if anything feels unsafe.'])).rows[0].waiverid;
+ assert.equal((await post(`/me/waivers/${first}/sign`,{accepted:true})).status,200);
+ const second=(await pool.query(`INSERT INTO waiver(name,version,description,effectivedate) VALUES($1,'2026.2',$2,(NOW()+INTERVAL '1 minute') AT TIME ZONE 'UTC') RETURNING waiverid`,[name,'Stay alert. Wear eye protection. Ask staff before using tools. Tie back loose hair. Keep hands clear of moving parts. Stop if anything feels unsafe.'])).rows[0].waiverid;
+ await pool.query('UPDATE waiver SET effectivedate=(NOW()-INTERVAL \'1 minute\') AT TIME ZONE \'UTC\' WHERE waiverid=$1',[second]);
+ let current=(await get('/me/waivers')).body.data.find((w:any)=>w.name===name);
+ assert.equal(current.id,second);
+ assert.equal(current.versionId,second);
+ assert.equal(current.signed,false);
+ assert.equal(current.outdatedSignature,true);
+ assert.equal(current.signedVersion,'2026.1');
+ assert.equal(current.signedVersionId,first);
+ assert.equal((await post(`/me/waivers/${second}/sign`,{accepted:true})).status,200);
+ current=(await get('/me/waivers')).body.data.find((w:any)=>w.name===name);
+ assert.equal(current.signed,true);
+ assert.equal(current.outdatedSignature,false);
+ assert.equal(current.signedVersion,'2026.2');
+});
 test('legacy signatures truthfully report unavailable copies',async()=>{
  const legacy=(await pool.query(`INSERT INTO user_waiver(userid,waiverid,signdate,approval) VALUES($1,$2,NOW() AT TIME ZONE 'UTC',false) RETURNING userwaiverid`,[member.id,policyId])).rows[0].userwaiverid;
  const copy=await get(`/me/signed-waivers/${legacy}/copy`);assert.equal(copy.status,409);assert.equal(copy.body.error.code,'SIGNED_COPY_UNAVAILABLE');
