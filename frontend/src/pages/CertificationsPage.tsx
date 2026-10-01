@@ -93,13 +93,18 @@ export function CertificationsPage() {
             <article className="saved-record" key={item.id}>
               <div>
                 <h3>{item.name}</h3>
-                <p>Version {item.version}</p>
+                <p>Version {item.version} · ID {item.versionId}</p>
                 {item.signed ? (
                   <p>
                     <CheckCircle2 aria-hidden="true" /> Signed{' '}
                     {item.signedAt
                       ? new Date(item.signedAt).toLocaleString()
                       : ''}
+                  </p>
+                ) : item.outdatedSignature ? (
+                  <p>
+                    New version needs your signature. Last signed:{' '}
+                    {item.signedVersion ?? 'earlier version'}.
                   </p>
                 ) : (
                   <p>Signature required</p>
@@ -113,7 +118,7 @@ export function CertificationsPage() {
                   setError('');
                 }}
               >
-                {item.signed ? 'View policy' : 'Review and agree'}
+                {item.signed ? 'View policy' : item.outdatedSignature ? 'Review new version' : 'Review and agree'}
               </button>
             </article>
           ))}
