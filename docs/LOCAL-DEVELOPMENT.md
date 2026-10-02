@@ -5,7 +5,9 @@ identical in Mac Terminal and Windows PowerShell. Start in the repository root.
 
 ## Before starting
 
-- Install Node **22.18+** (`node -v`) and Docker Desktop with Compose v2; start Docker.
+- Install Node **24 LTS** (`node -v`) and Docker Desktop with Compose v2; start Docker.
+- With nvm: run `nvm install` then `nvm use` from the repository root (`.nvmrc` selects 24). On Windows, install Node 24 LTS (24.15.0 or newer) or use your Windows version manager. Node 22 and 26 are not the supported project runtime.
+- After switching Node versions, run `npm ci --prefix backend` and `npm ci --prefix frontend` to reinstall dependencies.
 - Use your working branch with the current main changes incorporated. Save your work
   before updating branches. Do not reset your files to follow this guide.
 - Stop old local backend/Vite processes using ports **8080** and **5173**.
