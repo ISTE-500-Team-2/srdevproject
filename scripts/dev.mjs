@@ -37,11 +37,15 @@ export async function assertFree(port) {
     server.listen(port,'127.0.0.1',()=>server.close(resolve));
   });
 }
+export function assertNodeVersion(version = process.versions.node) {
+  const [major, minor] = version.split('.').map(Number);
+  if (major !== 24 || !Number.isInteger(minor) || minor < 15)
+    throw new Error('Install Node 24.15.0 or newer in the 24 LTS line (use nvm install && nvm use).');
+}
 async function main() {
   const args=process.argv.slice(2);
   if(args.some(a=>a!=='--email')) throw new Error('Usage: npm run dev OR npm run dev:email');
-  const [major]=process.versions.node.split('.').map(Number);
-  if(major!==24) throw new Error('Install Node 24 LTS (use nvm install && nvm use).');
+  assertNodeVersion();
   const email=args.includes('--email');
   const file=path.join(root,'.env.local');
   const local=email && existsSync(file) ? parseEnv(readFileSync(file,'utf8')) : {};
