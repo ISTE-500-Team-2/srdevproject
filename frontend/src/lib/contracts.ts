@@ -57,11 +57,16 @@ export interface Reservation {
 }
 export interface Waiver {
   id: number;
+  versionId: number;
   name: string;
   version: string;
   description: string;
   signed: boolean;
   signedAt: string | null;
+  signedVersion: string | null;
+  signedVersionId: number | null;
+  outdatedSignature: boolean;
+  expiredSignature: boolean;
 }
 export interface Certification {
   id: number;
