@@ -150,7 +150,21 @@ test('SQL cooldown prevents concurrent equipment bookings and preserves per-user
       insert(pool, f.second, f.equipment, raceTime + hour),
     ]);
     assert.equal(race.filter(r => r.status === 'fulfilled').length, 1);
-    assert.equal(race.filter(r => r.status === 'rejected' && r.reason.code === '23P01' && r.reason.constraint === equipmentConstraint).length, 1);
+    // Exclusion checking may abort a concurrent insert as a deadlock victim.
+    // Either outcome must still leave exactly one booking, and retrying the
+    // loser must prove the cooldown constraint remains enforced.
+    const loser = race.findIndex(r => r.status === 'rejected');
+    const rejected = race[loser];
+    assert.ok(rejected?.status === 'rejected');
+    assert.ok(rejected.reason.code === '40P01' ||
+      (rejected.reason.code === '23P01' && rejected.reason.constraint === equipmentConstraint));
+    const persisted = await pool.query(`SELECT reservationid FROM reservation
+      WHERE equipmentid=$1 AND starttime >= $2::timestamptz AT TIME ZONE 'UTC'
+      AND starttime <= $3::timestamptz AT TIME ZONE 'UTC' AND status='confirmed'`,
+      [f.equipment, new Date(raceTime), new Date(raceTime + hour)]);
+    assert.equal(persisted.rowCount, 1);
+    await rejectsCooldown(insert(pool, loser === 0 ? f.first : f.second,
+      f.equipment, raceTime + loser * hour));
     const room = (await pool.query('SELECT roomid FROM room ORDER BY roomid LIMIT 1')).rows[0].roomid;
     await insert(pool, f.first, null, origin, { room });
     await rejectsCooldown(insert(pool, f.first, null, origin + hour, { room }), roomConstraint);
