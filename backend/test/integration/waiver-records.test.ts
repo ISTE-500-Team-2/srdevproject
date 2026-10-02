@@ -53,6 +53,31 @@ test('new policy version flags earlier signatures as outdated until the current 
  assert.equal(current.outdatedSignature,false);
  assert.equal(current.signedVersion,'2026.2');
 });
+test('expired current signatures retain accurate history independently of eligibility',async()=>{
+ const name='Expiry history '+randomBytes(3).toString('hex');
+ const first=(await pool.query(`INSERT INTO waiver(name,version,description,effectivedate) VALUES($1,'v1','Original',(NOW()-INTERVAL '2 minutes') AT TIME ZONE 'UTC') RETURNING waiverid`,[name])).rows[0].waiverid;
+ assert.equal((await post(`/me/waivers/${first}/sign`,{accepted:true})).status,200);
+ const second=(await pool.query(`INSERT INTO waiver(name,version,description,effectivedate) VALUES($1,'v2','Current',(NOW()-INTERVAL '1 minute') AT TIME ZONE 'UTC') RETURNING waiverid`,[name])).rows[0].waiverid;
+ assert.equal((await post(`/me/waivers/${second}/sign`,{accepted:true})).status,200);
+ await pool.query("UPDATE user_waiver SET expires_at=NOW()-INTERVAL '1 second' WHERE userid=$1 AND waiverid=$2",[member.id,second]);
+ for(const expireOld of [false,true]) {
+   if(expireOld) await pool.query("UPDATE user_waiver SET expires_at=NOW()-INTERVAL '1 second' WHERE userid=$1 AND waiverid=$2",[member.id,first]);
+   const current=(await get('/me/waivers')).body.data.find((w:any)=>w.name===name);
+   assert.equal(current.signed,false);
+   assert.equal(current.signedVersion,'v2');
+   assert.equal(current.signedVersionId,second);
+   assert.equal(current.outdatedSignature,false);
+   assert.equal(current.expiredSignature,true);
+ }
+ const third=(await pool.query(`INSERT INTO waiver(name,version,description,effectivedate) VALUES($1,'v3','Newest',NOW() AT TIME ZONE 'UTC') RETURNING waiverid`,[name])).rows[0].waiverid;
+ let current=(await get('/me/waivers')).body.data.find((w:any)=>w.name===name);
+ assert.equal(current.id,third); assert.equal(current.signedVersion,'v2');
+ assert.equal(current.outdatedSignature,true); assert.equal(current.expiredSignature,false);
+ assert.equal((await post(`/me/waivers/${third}/sign`,{accepted:true})).status,200);
+ current=(await get('/me/waivers')).body.data.find((w:any)=>w.name===name);
+ assert.equal(current.signed,true); assert.equal(current.signedVersion,'v3');
+ assert.equal(current.outdatedSignature,false); assert.equal(current.expiredSignature,false);
+});
 test('legacy signatures truthfully report unavailable copies',async()=>{
  const legacy=(await pool.query(`INSERT INTO user_waiver(userid,waiverid,signdate,approval) VALUES($1,$2,NOW() AT TIME ZONE 'UTC',false) RETURNING userwaiverid`,[member.id,policyId])).rows[0].userwaiverid;
  const copy=await get(`/me/signed-waivers/${legacy}/copy`);assert.equal(copy.status,409);assert.equal(copy.body.error.code,'SIGNED_COPY_UNAVAILABLE');

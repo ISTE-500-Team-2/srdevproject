@@ -101,6 +101,8 @@ export function CertificationsPage() {
                       ? new Date(item.signedAt).toLocaleString()
                       : ''}
                   </p>
+                ) : item.expiredSignature ? (
+                  <p>Your signature has expired. Review and sign again. Last signed: {item.signedVersion}.</p>
                 ) : item.outdatedSignature ? (
                   <p>
                     New version needs your signature. Last signed:{' '}

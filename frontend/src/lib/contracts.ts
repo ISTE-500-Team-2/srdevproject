@@ -66,6 +66,7 @@ export interface Waiver {
   signedVersion: string | null;
   signedVersionId: number | null;
   outdatedSignature: boolean;
+  expiredSignature: boolean;
 }
 export interface Certification {
   id: number;

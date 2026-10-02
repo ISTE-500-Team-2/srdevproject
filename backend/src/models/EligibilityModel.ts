@@ -36,6 +36,7 @@ export class EligibilityModel {
       signedVersion: string | null;
       signedVersionId: number | null;
       outdatedSignature: boolean;
+      expiredSignature: boolean;
     }>(
       `
       WITH current_waivers AS (
@@ -48,13 +49,15 @@ export class EligibilityModel {
              current_sig.signdate AT TIME ZONE 'UTC' AS "signedAt",
              previous_sig.version AS "signedVersion",
              previous_sig.waiverid AS "signedVersionId",
-             current_sig.userwaiverid IS NULL AND previous_sig.userwaiverid IS NOT NULL AS "outdatedSignature"
+             current_sig.userwaiverid IS NULL AND COALESCE(previous_sig.waiverid <> w.waiverid,false) AS "outdatedSignature",
+             current_sig.userwaiverid IS NULL AND COALESCE(previous_sig.waiverid = w.waiverid
+               AND previous_sig.expires_at <= NOW(),false) AS "expiredSignature"
       FROM current_waivers w LEFT JOIN LATERAL (
         SELECT userwaiverid,signdate FROM user_waiver WHERE userid=$1 AND waiverid=w.waiverid AND approval=true AND (expires_at IS NULL OR expires_at>NOW())
         ORDER BY signdate DESC LIMIT 1
       ) current_sig ON true LEFT JOIN LATERAL (
-        SELECT uw.userwaiverid,uw.signdate,w2.waiverid,w2.version FROM user_waiver uw JOIN waiver w2 USING(waiverid)
-        WHERE uw.userid=$1 AND w2.name=w.name AND uw.approval=true AND (uw.expires_at IS NULL OR uw.expires_at>NOW())
+        SELECT uw.userwaiverid,uw.signdate,uw.expires_at,w2.waiverid,w2.version FROM user_waiver uw JOIN waiver w2 USING(waiverid)
+        WHERE uw.userid=$1 AND w2.name=w.name AND uw.approval=true
         ORDER BY uw.signdate DESC,uw.userwaiverid DESC LIMIT 1
       ) previous_sig ON true ORDER BY w.name`,
       [userId],
