@@ -44,12 +44,12 @@ export class MemberModel {
       )
     ).rows;
   }
-  async createCheckIn(userId: number, location: string) {
+  async createCheckIn(userId: number, location: string, roomId: number | null = null) {
     const { rows } = await this.db.query(
-      `INSERT INTO check_in (userid,location,checkintime,status,statusdesc)
-      VALUES ($1,$2,NOW() AT TIME ZONE 'UTC','approved','Eligibility verified by member portal')
+      `INSERT INTO check_in (userid,roomid,location,checkintime,status,statusdesc)
+      VALUES ($1,$2,$3,NOW() AT TIME ZONE 'UTC','approved','Eligibility verified by member portal')
       RETURNING checkinid AS id,location,checkintime AT TIME ZONE 'UTC' AS "checkedInAt"`,
-      [userId, location],
+      [userId, roomId, location],
     );
     return rows[0]!;
   }

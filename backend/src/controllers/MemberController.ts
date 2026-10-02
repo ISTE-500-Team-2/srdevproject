@@ -154,12 +154,27 @@ export class MemberController {
   };
   checkIn = async (req: Request, res: Response) => {
     const userId = authState(res).user.id;
-    const location = textField(req.body.location, "Location", 100);
+    const requestedRoomId =
+      req.body.roomId === undefined || req.body.roomId === null
+        ? null
+        : positiveId(req.body.roomId, "Room");
     const record = await transaction(this.pool, async (db) => {
       const access = new AccessService(db, this.timeZone);
       await access.assertActiveUser(userId);
       await access.assertEntitlement(userId, new Date());
       await access.assertWaivers(userId);
+      if (requestedRoomId) {
+        const room = await access.assertActiveRoomReservation(
+          userId,
+          requestedRoomId,
+        );
+        return new MemberModel(db).createCheckIn(
+          userId,
+          `${room.name} - ${room.location}`,
+          requestedRoomId,
+        );
+      }
+      const location = textField(req.body.location, "Location", 100);
       return new MemberModel(db).createCheckIn(userId, location);
     });
     res.status(201).json({ data: record });

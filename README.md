@@ -46,3 +46,8 @@ activation/confirmation-link work. Real sending stays disabled in the demo stack
 ## Monthly studio rentals
 
 See [studio rentals](docs/studio-rentals.md) for member bookings, the staff payment desk, policy configuration and optional Stripe test-mode setup.
+
+## Equipment and room scheduling
+
+See [PR #26 scheduling rules, upgrade compatibility, and verification](docs/scheduling-pr26.md)
+for the equipment-wide cooldown, room access, preserved existing bookings, and rollout steps.
