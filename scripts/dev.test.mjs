@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeEnv,frontendEnv,assertFree } from './dev.mjs';
+import { makeEnv,frontendEnv,assertFree,assertNodeVersion } from './dev.mjs';
 import { createServer } from 'node:net';
 test('demo cannot inherit real sending or shared DB settings',()=>{
  const env=makeEnv({DATABASE_URL:'shared',PGSERVICE:'shared',EMAIL_ENABLED:'true',BREVO_API_KEY:'secret',ENABLE_DEMO_LOGIN:'false'}, {},false);
@@ -18,4 +18,11 @@ test('frontend does not receive backend secrets',()=>{
 test('busy ports fail instead of silently selecting another URL',async()=>{
  const s=createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));
  try{await assert.rejects(assertFree(s.address().port),/already in use/);}finally{await new Promise(r=>s.close(r));}
+});
+
+test('launcher enforces the dependency-supported Node 24 minor floor',()=>{
+ for(const version of ['22.18.0','24.0.0','24.14.9','25.0.0','26.0.0'])
+   assert.throws(()=>assertNodeVersion(version),/24.15.0/);
+ for(const version of ['24.15.0','24.15.1','24.21.0'])
+   assert.doesNotThrow(()=>assertNodeVersion(version));
 });

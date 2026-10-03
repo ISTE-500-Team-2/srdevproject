@@ -1,6 +1,9 @@
 import type { Database } from '../db.js';
 
-const selection = `r.reservationid AS id,r.userid AS "userId",r.equipmentid AS "equipmentId",e.name AS "equipmentName",
+export const RESERVATION_COOLDOWN_MINUTES = 15;
+
+const selection = `r.reservationid AS id,r.userid AS "userId",r.equipmentid AS "equipmentId",r.roomid AS "roomId",
+ COALESCE(e.name,room.name) AS "equipmentName",CASE WHEN r.roomid IS NULL THEN 'equipment' ELSE 'room' END AS "resourceType",
  r.starttime AT TIME ZONE 'UTC' AS "startTime",r.endtime AT TIME ZONE 'UTC' AS "endTime",r.location,r.status`;
 
 export class ReservationModel {
@@ -8,7 +11,7 @@ export class ReservationModel {
   async listForUser(userId: number) {
     return (
       await this.db.query(
-        `SELECT ${selection} FROM reservation r JOIN equipment e USING (equipmentid) WHERE r.userid=$1 ORDER BY r.starttime DESC LIMIT 100`,
+        `SELECT ${selection} FROM reservation r LEFT JOIN equipment e USING (equipmentid) LEFT JOIN room ON room.roomid=r.roomid WHERE r.userid=$1 ORDER BY r.starttime DESC LIMIT 100`,
         [userId],
       )
     ).rows;
@@ -27,9 +30,49 @@ export class ReservationModel {
     );
     return rows[0]!.exists;
   }
+  async roomOverlaps(roomId: number, start: Date, end: Date): Promise<boolean> {
+    const { rows } = await this.db.query<{ exists: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM reservation
+      WHERE roomid=$1 AND status IN ('confirmed','pending')
+        AND starttime < $3::timestamptz AT TIME ZONE 'UTC'
+        AND endtime > $2::timestamptz AT TIME ZONE 'UTC') AS exists`,
+      [roomId, start, end],
+    );
+    return rows[0]!.exists;
+  }
+  async equipmentCooldown(
+    equipmentId: number,
+    start: Date,
+    end: Date,
+  ): Promise<boolean> {
+    const { rows } = await this.db.query<{ exists: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM reservation
+      WHERE equipmentid=$1 AND status IN ('confirmed','pending')
+        AND starttime < ($3::timestamptz AT TIME ZONE 'UTC') + INTERVAL '${RESERVATION_COOLDOWN_MINUTES} minutes'
+        AND endtime > ($2::timestamptz AT TIME ZONE 'UTC') - INTERVAL '${RESERVATION_COOLDOWN_MINUTES} minutes') AS exists`,
+      [equipmentId, start, end],
+    );
+    return rows[0]!.exists;
+  }
+  async roomCooldown(
+    userId: number,
+    roomId: number,
+    start: Date,
+    end: Date,
+  ): Promise<boolean> {
+    const { rows } = await this.db.query<{ exists: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM reservation
+      WHERE userid=$1 AND roomid=$2 AND status IN ('confirmed','pending')
+        AND starttime < ($4::timestamptz AT TIME ZONE 'UTC') + INTERVAL '${RESERVATION_COOLDOWN_MINUTES} minutes'
+        AND endtime > ($3::timestamptz AT TIME ZONE 'UTC') - INTERVAL '${RESERVATION_COOLDOWN_MINUTES} minutes') AS exists`,
+      [userId, roomId, start, end],
+    );
+    return rows[0]!.exists;
+  }
   async create(input: {
     userId: number;
-    equipmentId: number;
+    equipmentId?: number;
+    roomId?: number;
     waiverId: number | null;
     location: string;
     start: Date;
@@ -37,12 +80,13 @@ export class ReservationModel {
   }) {
     const { rows } = await this.db.query<{ id: number }>(
       `INSERT INTO reservation
-      (userid,equipmentid,waiverid,location,starttime,endtime,status,statusdesc)
-      VALUES ($1,$2,$3,$4,$5::timestamptz AT TIME ZONE 'UTC',$6::timestamptz AT TIME ZONE 'UTC','confirmed','Created through member portal')
+      (userid,equipmentid,roomid,waiverid,location,starttime,endtime,status,statusdesc)
+      VALUES ($1,$2,$3,$4,$5,$6::timestamptz AT TIME ZONE 'UTC',$7::timestamptz AT TIME ZONE 'UTC','confirmed','Created through member portal')
       RETURNING reservationid AS id`,
       [
         input.userId,
-        input.equipmentId,
+        input.equipmentId ?? null,
+        input.roomId ?? null,
         input.waiverId,
         input.location,
         input.start,
@@ -51,7 +95,7 @@ export class ReservationModel {
     );
     return (
       await this.db.query(
-        `SELECT ${selection} FROM reservation r JOIN equipment e USING (equipmentid) WHERE r.reservationid=$1`,
+        `SELECT ${selection} FROM reservation r LEFT JOIN equipment e USING (equipmentid) LEFT JOIN room ON room.roomid=r.roomid WHERE r.reservationid=$1`,
         [rows[0]!.id],
       )
     ).rows[0]!;
@@ -64,6 +108,6 @@ export class ReservationModel {
       [id, userId],
     );
     if (!rows[0]) return null;
-    return (await this.db.query(`SELECT ${selection} FROM reservation r JOIN equipment e USING(equipmentid) WHERE r.reservationid=$1`,[id])).rows[0] ?? null;
+    return (await this.db.query(`SELECT ${selection} FROM reservation r LEFT JOIN equipment e USING(equipmentid) LEFT JOIN room ON room.roomid=r.roomid WHERE r.reservationid=$1`,[id])).rows[0] ?? null;
   }
 }

@@ -9,6 +9,11 @@ async function call(path, { method = 'GET', cookie, token, csrf, body } = {}) {
     method,
     headers: {
       Origin: origin,
+      // Container recreation closes the old server's sockets while execFileSync
+      // blocks Node from processing their close events. Do not reuse a pooled
+      // connection across that boundary; JWT/refresh persistence is what this
+      // smoke test exercises, not HTTP keep-alive survival.
+      Connection: 'close',
       ...(cookie ? { Cookie: cookie } : {}),
       ...(token ? {Authorization: `Bearer ${token}`} : {}),
       ...(csrf ? { 'X-CSRF-Token': csrf } : {}),

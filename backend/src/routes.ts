@@ -9,6 +9,7 @@ import type { AppConfig } from "./config.js";
 import { AuthController } from "./controllers/AuthController.js";
 import { EquipmentController } from "./controllers/EquipmentController.js";
 import { ReservationController } from "./controllers/ReservationController.js";
+import { RoomController } from "./controllers/RoomController.js";
 import { MemberController } from "./controllers/MemberController.js";
 import {
   requireUser,
@@ -25,6 +26,7 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   const waiverRecords = new WaiverRecordsController(pool);
   const member = new MemberController(pool, config.timeZone);
   const equipment = new EquipmentController(pool, config.timeZone);
+  const rooms = new RoomController(pool);
   const reservations = new ReservationController(pool, config.timeZone);
   const staff = new StaffController(pool, config.timeZone);
   const permit = (resource: string, action: string, scope: "own" | "global" = "global") => requirePermission(pool,resource,action,scope);
@@ -52,26 +54,30 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.use(studioRoutes(pool,config.timeZone,config.studioStripe));
   routes.use(billingRoutes(pool,config.studioStripe,config.timeZone));
 
-  routes.get("/equipment", permit("equipment","read","own"), equipment.list);
-  routes.get("/reservations", permit("reservation","read","own"), reservations.list);
-  routes.post("/reservations", permit("reservation","create","own"), requireCsrf, reservations.create);
-  routes.post("/reservations/:id/cancel", permit("reservation","update","own"), requireCsrf, reservations.cancel);
-  routes.get("/me/overview", permit("user","read","own"), member.overview);
-  routes.get("/me/profile", permit("user","read","own"), member.me);
-  routes.get("/studio/contact", member.studioContact);
-  routes.get("/me/notifications", permit("notification","read","own"), notifications.get);
-  routes.patch("/me/notifications", permit("notification","update","own"), requireCsrf, notifications.update);
-  routes.patch("/me/profile", permit("user","update","own"), requireCsrf, member.profile);
-  routes.get("/me/signed-waivers", permit("waiver","read","own"), waiverRecords.mine);
-  routes.get("/me/signed-waivers/:id/copy", permit("waiver","read","own"), waiverRecords.ownCopy);
-  routes.get("/me/waivers", permit("waiver","read","own"), member.waivers);
-  routes.get("/me/certifications", permit("certification","read","own"), member.certifications);
-  routes.post("/me/waivers/:id/sign", permit("waiver","create","own"), requireCsrf, member.signWaiver);
-  routes.post("/me/check-ins", permit("check_in","create","own"), requireCsrf, member.checkIn);
-  routes.get("/plans", permit("plan","read","own"), member.plans);
-  routes.get("/me/memberships", permit("entitlement","read","own"), member.memberships);
-  routes.get("/me/payments", permit("payment","read","own"), member.payments);
+  routes.get("/equipment", permit("equipment", "read", "own"), equipment.list);
+  routes.get("/rooms", permit("room", "read", "own"), rooms.list);
+  routes.get("/reservations", permit("reservation", "read", "own"), reservations.list);
+  routes.post("/reservations", permit("reservation", "create", "own"), requireCsrf, reservations.create);
+  routes.post("/reservations/:id/cancel", permit("reservation", "update", "own"), requireCsrf, reservations.cancel);
 
+  routes.get("/me/overview", permit("user", "read", "own"), member.overview);
+  routes.get("/me/profile", permit("user", "read", "own"), member.me);
+  routes.get("/studio/contact", member.studioContact);
+
+  routes.get("/me/notifications", permit("notification", "read", "own"), notifications.get);
+  routes.patch("/me/notifications", permit("notification", "update", "own"), requireCsrf, notifications.update);
+
+  routes.patch("/me/profile", permit("user", "update", "own"), requireCsrf, member.profile);
+  routes.get("/me/signed-waivers", permit("waiver", "read", "own"), waiverRecords.mine);
+  routes.get("/me/signed-waivers/:id/copy", permit("waiver", "read", "own"), waiverRecords.ownCopy);
+  routes.get("/me/waivers", permit("waiver", "read", "own"), member.waivers);
+  routes.get("/me/certifications", permit("certification", "read", "own"), member.certifications);
+  routes.post("/me/waivers/:id/sign", permit("waiver", "create", "own"), requireCsrf, member.signWaiver);
+  routes.post("/me/check-ins", permit("check_in", "create", "own"), requireCsrf, member.checkIn);
+
+  routes.get("/plans", permit("plan", "read", "own"), member.plans);
+  routes.get("/me/memberships", permit("entitlement", "read", "own"), member.memberships);
+  routes.get("/me/payments", permit("payment", "read", "own"), member.payments);
   routes.use("/admin", requireStaff);
   routes.get("/admin/plans", permit("plan","read","global"), staff.plans);
   routes.post("/admin/plans", permit("plan","create","global"), requireCsrf, staff.createPlan);
