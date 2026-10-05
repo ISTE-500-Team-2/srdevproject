@@ -211,4 +211,31 @@ test('React → Express controllers/models → PostgreSQL: login, save, refresh,
     (await bridge.pool.query('SELECT COUNT(*)::int AS count FROM check_in'))
       .rows[0].count,
   ).toBe(1);
+  await bridge.pool.query(
+    `UPDATE user_membership SET end_date=(NOW()+INTERVAL '2 years') AT TIME ZONE 'UTC'
+     WHERE userid=(SELECT userid FROM "user" WHERE email='demo.member@collaboratory.invalid')`,
+  );
+  await user.click(
+    within(
+      screen.getByRole('navigation', { name: 'Primary navigation' }),
+    ).getByRole('link', { name: 'Reservations', exact: true }),
+  );
+  await user.click(
+    await screen.findByRole('button', { name: /Lease Paris/ }, { timeout: 20000 }),
+  );
+  const studioDialog = screen.getByRole('dialog', { name: 'Lease Paris' });
+  await screen.findByText('Available for the selected dates.', {}, { timeout: 20000 });
+  await user.click(within(studioDialog).getByRole('button', { name: 'Confirm studio lease' }));
+  await screen.findByText('Studio lease confirmed for Paris.', {}, { timeout: 20000 });
+  const lease = await bridge.pool.query(
+    `SELECT l.lease_id,l.status,l.monthly_rate FROM app_studio_lease l
+     JOIN "user" u USING (userid) WHERE u.email='demo.member@collaboratory.invalid'`,
+  );
+  expect(lease.rowCount).toBe(1);
+  expect(lease.rows[0].monthly_rate).toBe('1200.00');
+  await user.click(await screen.findByRole('button', { name: 'Cancel lease' }));
+  await screen.findByText('Studio lease cancelled.', {}, { timeout: 20000 });
+  expect(
+    (await bridge.pool.query('SELECT status FROM app_studio_lease WHERE lease_id=$1', [lease.rows[0].lease_id])).rows[0].status,
+  ).toBe('cancelled');
 }, 120000);

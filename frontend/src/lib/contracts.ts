@@ -43,6 +43,32 @@ export interface Reservation {
   location: string;
   status: string;
 }
+export interface LiveStudio {
+  id: number;
+  slug: string;
+  name: string;
+  size: 'Small' | 'Medium' | 'Large';
+  description: string;
+  monthlyRate: number;
+  image: string;
+  availableNow: boolean;
+}
+export interface StudioAvailability {
+  id: number;
+  available: boolean;
+}
+export interface StudioLease {
+  id: number;
+  studioId: number;
+  studioName: string;
+  userId: number;
+  startDate: string;
+  endDate: string;
+  months: number;
+  monthlyRate: number;
+  estimatedTotal: number;
+  status: 'confirmed' | 'cancelled';
+}
 export interface Waiver {
   id: number;
   name: string;

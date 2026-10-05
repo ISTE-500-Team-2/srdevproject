@@ -54,7 +54,7 @@ function client() {
     async demo(role = 'member') {
       const res = await agent.post('/api/auth/demo').send({ role });
       assert.equal(res.status, 200);
-      agent.set('Authorization', 'Bearer '+res.body.data.accessToken);
+      agent.set('Authorization', 'Bearer ' + res.body.data.accessToken);
       csrf = res.body.data.csrfToken;
       id = res.body.data.user.id;
       cookie = res.body.data.accessToken;
@@ -75,7 +75,7 @@ function client() {
           role: 'admin',
         });
       assert.equal(res.status, 201);
-      agent.set('Authorization', 'Bearer '+res.body.data.accessToken);
+      agent.set('Authorization', 'Bearer ' + res.body.data.accessToken);
       csrf = res.body.data.csrfToken;
       id = res.body.data.user.id;
       cookie = res.body.data.accessToken;
@@ -84,7 +84,7 @@ function client() {
     async login(email: string, password: string) {
       const res = await agent.post('/api/auth/login').send({ email, password });
       assert.equal(res.status, 200);
-      agent.set('Authorization', 'Bearer '+res.body.data.accessToken);
+      agent.set('Authorization', 'Bearer ' + res.body.data.accessToken);
       csrf = res.body.data.csrfToken;
       id = res.body.data.user.id;
       cookie = res.body.data.accessToken;
@@ -125,13 +125,22 @@ async function enableMember(id: number) {
     [id],
   );
 }
+async function enableStudioMember(id: number) {
+  await pool.query(
+    `INSERT INTO user_membership(userid,tierid,startdate,end_date,status) VALUES($1,1,(NOW()-INTERVAL '1 day') AT TIME ZONE 'UTC',(NOW()+INTERVAL '2 years') AT TIME ZONE 'UTC','active')`,
+    [id],
+  );
+}
+function futureDate(days: number) {
+  return new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+}
 
 test('registration, DB session recovery, profile persistence and logout', async () => {
   const user = client();
   const { email, password, res } = await user.register();
   assert.equal(res.body.data.user.role, 'member');
   assert.equal('password' in res.body.data.user, false);
-  const cookie = res.headers['set-cookie']?.find((c:string)=>c.startsWith('arbor_refresh=')) ?? '';
+  const cookie = res.headers['set-cookie']?.find((c: string) => c.startsWith('arbor_refresh=')) ?? '';
   assert.ok(cookie.includes('HttpOnly'));
   assert.ok(cookie.includes('SameSite=Lax'));
   const stored = await pool.query(
@@ -221,7 +230,7 @@ test('reservation saves to PostgreSQL, survives a new app instance, and only its
   // Recover the same browser session against a fresh controller/router instance.
   const recovered = await restored
     .get('/api/reservations')
-    .set('Authorization', 'Bearer '+cookie);
+    .set('Authorization', 'Bearer ' + cookie);
   assert.equal(recovered.status, 200);
   assert.ok(recovered.body.data.some((item: { id: number }) => item.id === id));
   const other = client();
@@ -276,6 +285,72 @@ test('concurrent overlapping requests produce one reservation; adjacent times ar
     ),
     (error: any) => error.code === '23P01',
   );
+});
+
+test('studio leases enforce membership, availability, calendar terms, rate snapshots, ownership and cancellation', async () => {
+  const owner = client();
+  const competitor = client();
+  const dayPassOnly = client();
+  await owner.register();
+  await competitor.register();
+  await dayPassOnly.register();
+  await enableStudioMember(owner.id);
+  await enableStudioMember(competitor.id);
+  await pool.query(
+    `INSERT INTO day_pass(userid,validdate,purchasedate,status) VALUES($1,(NOW() AT TIME ZONE 'America/New_York')::date,NOW() AT TIME ZONE 'UTC','active')`,
+    [dayPassOnly.id],
+  );
+
+  const catalog = await owner.agent.get('/api/studios');
+  assert.equal(catalog.status, 200);
+  assert.deepEqual(
+    catalog.body.data.map((studio: { name: string; monthlyRate: number }) => [studio.name, studio.monthlyRate]),
+    [['Paris', 1200], ['Coruscant', 750], ['Harkonnen', 350]],
+  );
+  const paris = catalog.body.data.find((studio: { name: string }) => studio.name === 'Paris');
+  const startDate = futureDate(90);
+  assert.equal(
+    (await dayPassOnly.post('/studio-leases', { studioId: paris.id, startDate, months: 1 })).body.error.code,
+    'MEMBERSHIP_REQUIRED',
+  );
+  assert.equal(
+    (await owner.agent.get('/api/studios/availability').query({ startDate: '2030-02-30', months: '1' })).status,
+    400,
+  );
+  const free = await owner.agent.get('/api/studios/availability').query({ startDate, months: '1' });
+  assert.equal(free.status, 200);
+  assert.equal(free.body.data.studios.find((studio: { id: number }) => studio.id === paris.id).available, true);
+
+  const input = { studioId: paris.id, startDate, months: 1 };
+  const responses = await Promise.all([
+    owner.post('/studio-leases', input),
+    competitor.post('/studio-leases', input),
+  ]);
+  assert.deepEqual(responses.map((response) => response.status).sort(), [201, 409]);
+  const success = responses.find((response) => response.status === 201)!;
+  const leaseId = success.body.data.id as number;
+  const winningClient = responses[0]!.status === 201 ? owner : competitor;
+  const losingClient = responses[0]!.status === 201 ? competitor : owner;
+  assert.equal(success.body.data.monthlyRate, 1200);
+  assert.equal(success.body.data.estimatedTotal, 1200);
+  assert.equal(success.body.data.endDate, (await pool.query(
+    'SELECT end_date::text AS date FROM app_studio_lease WHERE lease_id=$1', [leaseId],
+  )).rows[0].date);
+  const adjacent = await winningClient.post('/studio-leases', {
+    ...input,
+    startDate: success.body.data.endDate,
+  });
+  assert.equal(adjacent.status, 201);
+
+  await pool.query('UPDATE app_studio_space SET monthly_rate=1300 WHERE studio_id=$1', [paris.id]);
+  const retained = await winningClient.agent.get('/api/studio-leases');
+  assert.equal(retained.body.data.find((lease: { id: number }) => lease.id === leaseId).monthlyRate, 1200);
+  await pool.query('UPDATE app_studio_space SET monthly_rate=1200 WHERE studio_id=$1', [paris.id]);
+
+  assert.equal((await losingClient.post(`/studio-leases/${leaseId}/cancel`)).status, 404);
+  assert.equal((await winningClient.post(`/studio-leases/${leaseId}/cancel`)).status, 200);
+  const cancelled = await pool.query('SELECT status FROM app_studio_lease WHERE lease_id=$1', [leaseId]);
+  assert.equal(cancelled.rows[0].status, 'cancelled');
 });
 
 test('membership, certification and waiver eligibility are enforced; check-in is recorded', async () => {
@@ -404,5 +479,5 @@ test('additive RBAC migration upgrades existing MVC data without resetting users
   assert.equal(grants.rows.length, 1);
   await pool.query("UPDATE role_permission SET isallowed=false WHERE resourcename='payment'");
   await migrate(pool);
-  assert.equal((await pool.query("SELECT count(*)::int AS n FROM role_permission WHERE resourcename='payment' AND isallowed")).rows[0].n,0);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM role_permission WHERE resourcename='payment' AND isallowed")).rows[0].n, 0);
 });

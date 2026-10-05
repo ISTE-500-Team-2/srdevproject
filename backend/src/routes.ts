@@ -12,6 +12,7 @@ import {
   authRateLimit,
 } from "./middleware/auth.js";
 import { StaffController } from "./controllers/StaffController.js";
+import { StudioController } from "./controllers/StudioController.js";
 
 export function apiRoutes(pool: Pool, config: AppConfig) {
   const routes = Router();
@@ -19,6 +20,7 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   const member = new MemberController(pool, config.timeZone);
   const equipment = new EquipmentController(pool, config.timeZone);
   const reservations = new ReservationController(pool, config.timeZone);
+  const studios = new StudioController(pool, config.timeZone);
   const staff = new StaffController(pool, config.timeZone);
   const protectedRoute = requireUser(pool, config);
   const rateLimit = authRateLimit();
@@ -40,6 +42,11 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.post("/auth/logout", protectedRoute, requireCsrf, auth.logout);
   routes.use(protectedRoute);
   routes.get("/equipment", equipment.list);
+  routes.get("/studios", studios.list);
+  routes.get("/studios/availability", studios.availability);
+  routes.get("/studio-leases", studios.listLeases);
+  routes.post("/studio-leases", requireCsrf, studios.create);
+  routes.post("/studio-leases/:id/cancel", requireCsrf, studios.cancel);
   routes.get("/reservations", reservations.list);
   routes.post("/reservations", requireCsrf, reservations.create);
   routes.post("/reservations/:id/cancel", requireCsrf, reservations.cancel);

@@ -197,7 +197,7 @@ These are the isolated synthetic demo's non-secret connection settings. Tests cr
 ## Remaining work and review artifacts
 
 - Obtain and verify sponsor-authorized policy text, plans/prices, staff permissions and operating rules. Configuration support is not sponsor sign-off.
-- Classes, studio leasing, integrated payments, automated reminders, analytics, hardware readers/door control, password recovery and production operations remain outside this implementation. Analytics and classes remain labeled previews.
+- Classes, integrated payments, automated reminders, analytics, hardware readers/door control, password recovery and production operations remain outside this implementation. Analytics and classes remain labeled previews. Studio leases are available as member self-service whole-month bookings; see [MVC.md](MVC.md) for lease rules and API routes.
 - Figma MCP is still separate and unconnected; existing designs came from the team's exported mockups.
 - [REQUIREMENTS-TRACEABILITY.md](REQUIREMENTS-TRACEABILITY.md) maps the supplied brief to evidence and gaps. It must be reconciled with the team's final feature list and assigned human owners before submission.
 - Gate Review evidence/slides do not replace the sponsor Quad Chart and sponsor presentation. No course submission, email or GitHub push is performed by this implementation.
