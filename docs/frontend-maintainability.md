@@ -86,3 +86,57 @@ Stripe transaction, deployed RLES verification or physical-reader test was run.
 Known draft/refresh, stale-revision and modal-focus issues are deliberately not
 fixed or claimed fixed here. Backend test-only typing cleanup and CI-on-main
 changes from the earlier audit remain separate work.
+
+## Expanded verification — October 4, 2026
+
+After the initial review, reran all checks at application-code head `848f22fd`:
+45 frontend tests/build, 32 backend tests/build, 19 real-backend frontend
+integration tests, 108 backend integration tests, and 5 launcher tests pass
+(**209 tests**). All five GitHub checks passed at that head.
+
+Ran eight real-backend browser workflows against both unchanged `main`
+(`9f69c811`) and the cleanup in **Chromium, Firefox and WebKit**. Each of the
+six combinations used its own freshly initialized disposable PostgreSQL database,
+separate member/admin browser sessions, and no production data or external payment
+or email provider. **48/48 workflow assertions pass**:
+
+- Profile city save, reload persistence and session refresh.
+- Required policy signing and persisted signature.
+- Equipment reservation creation, cancellation and reload persistence.
+- Plan creation and dated day-pass issuance, verified from saved member detail.
+- Administrator studio price/policy configuration and reload persistence.
+- Studio hold, staff manual payment, member cancellation and recorded manual
+  refund, verified from saved rental state.
+- Member rejection by administrator API and the protected staff page.
+- Waiver dialog opening and Escape dismissal.
+
+Additionally, repeated the Chromium workflow set with a lost issuance response:
+the request reached and committed on the backend, then its response was discarded.
+Resubmission retained the request ID and produced exactly one new pass and one new
+payment. This passes on both `main` and cleanup (**2/2 extra retry assertions**;
+the other 16 workflow assertions were repeat confirmations, not new coverage).
+
+### Findings, not hidden by passing workflow assertions
+
+- Checking the unsigned waiver checkbox moves keyboard focus back to Close dialog
+  on both versions, in all three engines. This confirms the deferred modal-focus
+  defect; a passing Escape check does not imply a complete accessibility audit.
+- Firefox recorded one permission-error event during the deliberate denied API
+  probe on each version. WebKit recorded eight auth/session/overview/equipment
+  access-control error events during navigation on each version. The normalized
+  event sequences match baseline; workflows still complete. Root cause is not
+  established here, and these runs are not described as console-error-free.
+- The separate backend test TypeScript check (`tsc -p backend/test/tsconfig.json`)
+  still reports the same **29 errors** identified by the prior audit. Backend
+  source/tests are unchanged by this PR; the normal backend check does not include
+  this additional compiler gate.
+- Public site still returns **HTTP 503**. No deployed RLES, physical reader,
+  live email-delivery or real Stripe verification is possible/claimed. WebKit is
+  engine coverage, not a physical Safari/iPhone test. Classes and analytics remain
+  previews, not completed functionality.
+
+No cleanup-specific regression was found in these checks. This is evidence for the
+listed workflows, not a guarantee that every feature or edge case is correct.
+Local harnesses, results and logs are retained with the original screenshot
+artifacts under `iste501/evidence/frontend-maintainability-20261004/expanded` in
+the review workspace. No application behavior changed during expanded verification.
