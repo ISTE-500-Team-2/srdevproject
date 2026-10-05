@@ -24,7 +24,7 @@ export function MembershipPage() {
   return (
     <div className="page-enter management-page">
       <h1>Membership & passes</h1>
-      <MembershipBilling plans={plans.data??[]}/><PassBilling/>
+      <MembershipBilling/><PassBilling/>
       <LoadState {...history} />
       {history.data ? (
         <section className="panel management-panel">

@@ -5,7 +5,7 @@ import {api,errorMessage} from '../lib/api';
 import type {Plan} from '../lib/staffContracts';
 import {LoadState,dollars} from './Management';
 interface Billing {id:string;status:string;plan:Plan;amountCents:number;cancelAtPeriodEnd:boolean;currentPeriodEnd:string|null;cancellationEffectiveAt?:string|null;cancellationConfirmed?:boolean}
-export function MembershipBilling(_props:{plans:Plan[]}) {
+export function MembershipBilling() {
  const offers=useApi<Offer[]>('/me/billing/offers');
  const eligiblePlans=(offers.data??[]).filter(p=>p.kind==='membership'&&p.months===1&&p.active&&p.amountCents>=50&&p.amountCents<=10000000);
  const state=useApi<{enabled:boolean;records:Billing[]}>('/me/billing');
