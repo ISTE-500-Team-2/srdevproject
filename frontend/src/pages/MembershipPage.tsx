@@ -8,13 +8,8 @@ import type {
   Payment,
   Plan,
 } from "../lib/staffContracts";
-import {
-  EntitlementList,
-  LoadState,
-  Pager,
-  PaymentList,
-  dollars,
-} from "../components/Management";
+import { EntitlementList, LoadState, Pager, PaymentList } from "../components/Management";
+import { dollars } from "../lib/display";
 
 export function MembershipPage() {
   const history = useApi<MembershipHistory>("/me/memberships"),

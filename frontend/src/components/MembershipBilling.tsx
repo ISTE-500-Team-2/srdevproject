@@ -1,10 +1,10 @@
-import type {Offer} from './PassBilling';
+import type { Billing, Offer } from '../lib/billingContracts';
 import {useState} from 'react';
 import {useApi} from '../lib/useApi';
 import {api,errorMessage} from '../lib/api';
-import type {Plan} from '../lib/staffContracts';
-import {LoadState,dollars} from './Management';
-interface Billing {id:string;status:string;plan:Plan;amountCents:number;cancelAtPeriodEnd:boolean;currentPeriodEnd:string|null;cancellationEffectiveAt?:string|null;cancellationConfirmed?:boolean}
+import { LoadState } from "./Management";
+import { dollars } from "../lib/display";
+
 export function MembershipBilling() {
  const offers=useApi<Offer[]>('/me/billing/offers');
  const eligiblePlans=(offers.data??[]).filter(p=>p.kind==='membership'&&p.months===1&&p.active&&p.amountCents>=50&&p.amountCents<=10000000);

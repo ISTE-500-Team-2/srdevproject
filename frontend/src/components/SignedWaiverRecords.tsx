@@ -1,8 +1,10 @@
+import type { SignedWaiver } from '../lib/billingContracts';
 import {useState} from 'react';
 import {api,errorMessage} from '../lib/api';
 import {useApi} from '../lib/useApi';
-import {ActionForm,Field,LoadState,ReasonField,localInput,dateTime} from './Management';
-interface SignedWaiver {id:number;waiverId:number;name:string;version:string;signedAt:string;expiresAt:string|null;approved:boolean;copyAvailable:boolean}
+import { ActionForm, Field, LoadState, ReasonField } from "./Management";
+import { localInput, dateTime } from "../lib/display";
+
 export function SignedWaiverRecords({userId,onChanged}:{userId?:number;onChanged?:()=>void}) {
   const path=userId?`/admin/users/${userId}/signed-waivers`:'/me/signed-waivers';
   const records=useApi<SignedWaiver[]>(path);

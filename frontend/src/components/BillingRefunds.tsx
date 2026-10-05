@@ -1,7 +1,9 @@
+import type { Invoice } from '../lib/billingContracts';
 import {useApi} from '../lib/useApi';
 import {api} from '../lib/api';
-import {ActionForm,ReasonField,LoadState,dollars} from './Management';
-interface Invoice {id:string;userId:number;planName:string;amountCents:number;periodStart:string;periodEnd:string;refundStatus:string|null}
+import { ActionForm, ReasonField, LoadState } from "./Management";
+import { dollars } from "../lib/display";
+
 export function BillingRefunds() {
  const invoices=useApi<Invoice[]>('/billing-management/invoices');
  return <section className="panel management-panel"><h3>Stripe test membership payments</h3>

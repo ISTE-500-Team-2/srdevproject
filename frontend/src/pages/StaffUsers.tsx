@@ -10,20 +10,8 @@ import type {
   Person,
   Plan,
 } from "../lib/staffContracts";
-import {
-  ActionForm,
-  AuditList,
-  EntitlementList,
-  Field,
-  LoadState,
-  Pager,
-  PaymentList,
-  ReasonField,
-  dateTime,
-  dollars,
-  localInput,
-  zonedDay,
-} from "../components/Management";
+import { ActionForm, AuditList, EntitlementList, Field, LoadState, Pager, PaymentList, ReasonField } from "../components/Management";
+import { dateTime, dollars, localInput, zonedDay } from "../lib/display";
 import { PaymentEditor, PaymentMethod } from "./StaffPayments";
 
 export function StaffUsers() {
