@@ -3,14 +3,8 @@ import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
 import { useApi } from "../lib/useApi";
 import type { Policy } from "../lib/staffContracts";
-import {
-  ActionForm,
-  Field,
-  LoadState,
-  ReasonField,
-  dateTime,
-  localInput,
-} from "../components/Management";
+import { ActionForm, Field, LoadState, ReasonField } from "../components/Management";
+import { dateTime, localInput } from "../lib/display";
 
 export function StaffPolicies() {
   const policies = useApi<Policy[]>("/admin/policies"),
