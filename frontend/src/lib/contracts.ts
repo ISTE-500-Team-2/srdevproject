@@ -48,12 +48,16 @@ export interface LiveEquipment extends Omit<Equipment, 'rate'> {
 export interface Reservation {
   id: number;
   userId: number;
-  equipmentId: number;
+  equipmentId: number | null;
+  roomId?: number | null;
   equipmentName: string;
+  resourceType?: 'equipment' | 'room';
   startTime: string;
   endTime: string;
   location: string;
   status: string;
+  memberName?: string;
+  memberEmail?: string;
 }
 export interface Waiver {
   id: number;
