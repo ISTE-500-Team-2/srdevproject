@@ -1,5 +1,5 @@
-import {PassBilling} from '../components/PassBilling';
-import {MembershipBilling} from '../components/MembershipBilling';
+import { PassBilling } from "../components/PassBilling";
+import { MembershipBilling } from "../components/MembershipBilling";
 import { useState } from "react";
 import { useApi } from "../lib/useApi";
 import type {
@@ -8,7 +8,12 @@ import type {
   Payment,
   Plan,
 } from "../lib/staffContracts";
-import { EntitlementList, LoadState, Pager, PaymentList } from "../components/Management";
+import {
+  EntitlementList,
+  LoadState,
+  Pager,
+  PaymentList,
+} from "../components/Management";
 import { dollars } from "../lib/display";
 
 export function MembershipPage() {
@@ -19,7 +24,8 @@ export function MembershipPage() {
   return (
     <div className="page-enter management-page">
       <h1>Membership & passes</h1>
-      <MembershipBilling/><PassBilling/>
+      <MembershipBilling />
+      <PassBilling />
       <LoadState {...history} />
       {history.data ? (
         <section className="panel management-panel">

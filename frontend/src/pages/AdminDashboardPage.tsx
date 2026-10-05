@@ -15,13 +15,18 @@ const tabs = [
   { key: "payments", label: "Payment history", component: StaffPayments },
   { key: "policies", label: "Policies", component: StaffPolicies },
   { key: "audit", label: "Change log", component: ChangeLog },
-  { key: "preview", label: "Analytics preview", component: AdminAnalyticsPreviewPage },
+  {
+    key: "preview",
+    label: "Analytics preview",
+    component: AdminAnalyticsPreviewPage,
+  },
 ] as const;
 export function AdminDashboardPage() {
   const [params, setParams] = useSearchParams();
   const tab = params.get("tab") ?? "members";
   // Unknown tab URLs still display members without selecting a known tab.
-  const TabContent = tabs.find(item => item.key === tab)?.component ?? StaffUsers;
+  const TabContent =
+    tabs.find((item) => item.key === tab)?.component ?? StaffUsers;
   return (
     <div className="management-page page-enter">
       <section className="dashboard-intro">

@@ -1,11 +1,11 @@
-import { useEffect,useState } from "react";
+import { useEffect, useState } from "react";
 import { AvailabilityCalendar } from "../components/studios/AvailabilityCalendar";
 import { StaffRental } from "../components/studios/StaffRental";
 import { StudioConfig } from "../components/studios/StudioConfig";
 import { useAuth } from "../context/AuthContext";
-import { api,errorMessage } from "../lib/api";
-import type { Rental,Studio } from '../lib/studioContracts';
-import { dateOnly,money,nextMonth,policy } from '../lib/studioDisplay';
+import { api, errorMessage } from "../lib/api";
+import type { Rental, Studio } from "../lib/studioContracts";
+import { dateOnly, money, nextMonth, policy } from "../lib/studioDisplay";
 import "./studios.css";
 
 export function StudiosPage() {

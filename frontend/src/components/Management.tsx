@@ -2,7 +2,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { errorMessage } from "../lib/api";
 import type { Audit, Entitlement, Page, Payment } from "../lib/staffContracts";
 
-import { dateTime, dollars } from '../lib/display';
+import { dateTime, dollars } from "../lib/display";
 
 export function Field({
   label,

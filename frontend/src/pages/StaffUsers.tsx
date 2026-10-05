@@ -1,11 +1,7 @@
 import { useState } from "react";
-import { LoadState,Pager } from "../components/Management";
+import { LoadState, Pager } from "../components/Management";
 import { UserDetail } from "../components/staff/UserDetail";
-import type {
-Page,
-Person,
-Plan
-} from "../lib/staffContracts";
+import type { Page, Person, Plan } from "../lib/staffContracts";
 import { useApi } from "../lib/useApi";
 
 export function StaffUsers() {

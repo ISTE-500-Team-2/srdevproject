@@ -1,12 +1,8 @@
 import { useState } from "react";
-import { BillingRefunds } from '../components/BillingRefunds';
-import {
-LoadState,
-Pager,
-PaymentList
-} from "../components/Management";
+import { BillingRefunds } from "../components/BillingRefunds";
+import { LoadState, Pager, PaymentList } from "../components/Management";
 import { PaymentEditor } from "../components/staff/PaymentControls";
-import type { Page,Payment } from "../lib/staffContracts";
+import type { Page, Payment } from "../lib/staffContracts";
 import { useApi } from "../lib/useApi";
 
 export function StaffPayments() {
@@ -18,9 +14,10 @@ export function StaffPayments() {
   return (
     <section>
       <h2>Payment history</h2>
-      <BillingRefunds/>
+      <BillingRefunds />
       <p>
-        External payment records and adjustments below do not move money. Stripe test refunds use the separate section above.
+        External payment records and adjustments below do not move money. Stripe
+        test refunds use the separate section above.
       </p>
       <form
         className="management-search"

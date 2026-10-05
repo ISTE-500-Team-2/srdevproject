@@ -1,6 +1,6 @@
 import { api } from "../../lib/api";
 import type { Payment } from "../../lib/staffContracts";
-import { ActionForm,Field,ReasonField } from "../Management";
+import { ActionForm, Field, ReasonField } from "../Management";
 
 export function PaymentMethod({ value = "unspecified" }: { value?: string }) {
   return (
@@ -22,7 +22,10 @@ export function PaymentEditor({
   payment: Payment;
   onSaved: () => void;
 }) {
-  if(payment.method === "card") return <p>Stripe-managed payment. Use the Stripe membership refund section.</p>;
+  if (payment.method === "card")
+    return (
+      <p>Stripe-managed payment. Use the Stripe membership refund section.</p>
+    );
   const transitions: Record<string, string[]> = {
     pending: ["paid", "void", "waived"],
     paid: ["refunded"],

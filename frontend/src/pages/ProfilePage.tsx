@@ -1,54 +1,123 @@
-import { SignedWaiverRecords } from '../components/SignedWaiverRecords';
-import { Save, UserRound } from 'lucide-react';
-import { type FormEvent, useState, useEffect } from 'react';
-import { Toast } from '../components/Toast';
-import { useAuth } from '../context/AuthContext';
-import { api, errorMessage } from '../lib/api';
-import type { ProfileFields, UserProfile } from '../lib/contracts';
+import { SignedWaiverRecords } from "../components/SignedWaiverRecords";
+import { Save, UserRound } from "lucide-react";
+import { type FormEvent, useState, useEffect } from "react";
+import { Toast } from "../components/Toast";
+import { useAuth } from "../context/AuthContext";
+import { api, errorMessage } from "../lib/api";
+import type { ProfileFields, UserProfile } from "../lib/contracts";
 
 function NotificationSettings() {
-  const [settings,setSettings] = useState<{enabled:boolean;timeZone:string} | null>(null);
-  const [error,setError] = useState('');
-  const [saved,setSaved] = useState(false);
-  const [busy,setBusy] = useState(false);
+  const [settings, setSettings] = useState<{
+    enabled: boolean;
+    timeZone: string;
+  } | null>(null);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
-    api<{enabled:boolean;timeZone:string}>('/me/notifications',{signal:controller.signal})
-      .then(setSettings).catch(err => {if (!controller.signal.aborted) setError(errorMessage(err));});
+    api<{ enabled: boolean; timeZone: string }>("/me/notifications", {
+      signal: controller.signal,
+    })
+      .then(setSettings)
+      .catch((err) => {
+        if (!controller.signal.aborted) setError(errorMessage(err));
+      });
     return () => controller.abort();
-  },[]);
+  }, []);
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!settings) return;
-    setBusy(true); setSaved(false); setError('');
+    setBusy(true);
+    setSaved(false);
+    setError("");
     try {
-      setSettings(await api('/me/notifications',{method:'PATCH',body:settings}));
+      setSettings(
+        await api("/me/notifications", { method: "PATCH", body: settings }),
+      );
       setSaved(true);
-    } catch(err) {setError(errorMessage(err));} finally {setBusy(false);}
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
   };
-  return <section className="profile-panel panel">
-    <h2>Email notifications</h2>
-    <p>Choose whether to receive account, booking, payment, waiver, and expiration emails. Turning this off disables all notification emails.</p>
-    {settings ? <form onSubmit={save}>
-      <label><input type="checkbox" checked={settings.enabled} onChange={e => {setSaved(false);setSettings({...settings,enabled:e.target.checked});}} /> Receive email notifications</label>
-      <label className="form-field"><span>Time zone for reminders</span><input required maxLength={100} value={settings.timeZone} onChange={e => {setSaved(false);setSettings({...settings,timeZone:e.target.value});}} placeholder="America/New_York" /></label>
-      <button type="button" className="button" onClick={() => {setSaved(false);setSettings({...settings,timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone});}}>Use this device’s time zone</button>
-      <button type="submit" className="button button--primary" disabled={busy}>{busy ? 'Saving…' : 'Save notification settings'}</button>
-    </form> : !error ? <p>Loading notification settings…</p> : null}
-    {error ? <p role="alert" className="form-error">{error}</p> : null}
-    {saved ? <p role="status">Notification settings saved.</p> : null}
-  </section>;
+  return (
+    <section className="profile-panel panel">
+      <h2>Email notifications</h2>
+      <p>
+        Choose whether to receive account, booking, payment, waiver, and
+        expiration emails. Turning this off disables all notification emails.
+      </p>
+      {settings ? (
+        <form onSubmit={save}>
+          <label>
+            <input
+              type="checkbox"
+              checked={settings.enabled}
+              onChange={(e) => {
+                setSaved(false);
+                setSettings({ ...settings, enabled: e.target.checked });
+              }}
+            />{" "}
+            Receive email notifications
+          </label>
+          <label className="form-field">
+            <span>Time zone for reminders</span>
+            <input
+              required
+              maxLength={100}
+              value={settings.timeZone}
+              onChange={(e) => {
+                setSaved(false);
+                setSettings({ ...settings, timeZone: e.target.value });
+              }}
+              placeholder="America/New_York"
+            />
+          </label>
+          <button
+            type="button"
+            className="button"
+            onClick={() => {
+              setSaved(false);
+              setSettings({
+                ...settings,
+                timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+              });
+            }}
+          >
+            Use this device’s time zone
+          </button>
+          <button
+            type="submit"
+            className="button button--primary"
+            disabled={busy}
+          >
+            {busy ? "Saving…" : "Save notification settings"}
+          </button>
+        </form>
+      ) : !error ? (
+        <p>Loading notification settings…</p>
+      ) : null}
+      {error ? (
+        <p role="alert" className="form-error">
+          {error}
+        </p>
+      ) : null}
+      {saved ? <p role="status">Notification settings saved.</p> : null}
+    </section>
+  );
 }
 
 export function ProfilePage() {
   const { user, refresh } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
-    api<UserProfile>('/me/profile', { signal: controller.signal })
+    api<UserProfile>("/me/profile", { signal: controller.signal })
       .then(setProfile)
       .catch((err) => {
         if (!controller.signal.aborted) setError(errorMessage(err));
@@ -67,20 +136,20 @@ export function ProfilePage() {
       );
     setBusy(true);
     setToast(null);
-    setError('');
+    setError("");
     try {
-      const saved = await api<UserProfile>('/me/profile', {
-        method: 'PATCH',
+      const saved = await api<UserProfile>("/me/profile", {
+        method: "PATCH",
         body: {
-          firstName: String(form.get('firstName')),
-          lastName: String(form.get('lastName')),
-          phone: String(form.get('phone')),
-          address: fields('address.'),
-          contactPreferences: fields('contact.'),
+          firstName: String(form.get("firstName")),
+          lastName: String(form.get("lastName")),
+          phone: String(form.get("phone")),
+          address: fields("address."),
+          contactPreferences: fields("contact."),
         },
       });
       setProfile(saved);
-      setToast('Changes saved.');
+      setToast("Changes saved.");
       await refresh();
     } catch (err) {
       setError(errorMessage(err));
@@ -105,8 +174,12 @@ export function ProfilePage() {
       </section>
       <section className="profile-panel panel">
         <form
-          key={`${user?.id ?? 'guest'}-${user?.firstName ?? ''}-${user?.lastName ?? ''}-${user?.phone ?? ''}-${JSON.stringify(profile?.address ?? {})}-${JSON.stringify(profile?.contactPreferences ?? {})}`}
-          onSubmit={save} onChange={() => { setToast(null); setError(''); }}
+          key={`${user?.id ?? "guest"}-${user?.firstName ?? ""}-${user?.lastName ?? ""}-${user?.phone ?? ""}-${JSON.stringify(profile?.address ?? {})}-${JSON.stringify(profile?.contactPreferences ?? {})}`}
+          onSubmit={save}
+          onChange={() => {
+            setToast(null);
+            setError("");
+          }}
         >
           <h2>
             <UserRound aria-hidden="true" /> Personal information
@@ -134,7 +207,7 @@ export function ProfilePage() {
             </label>
             <label className="form-field form-field--wide">
               <span>Email</span>
-              <input type="email" value={user?.email ?? ''} readOnly />
+              <input type="email" value={user?.email ?? ""} readOnly />
             </label>
             <label className="form-field form-field--wide">
               <span>Phone</span>
@@ -147,35 +220,39 @@ export function ProfilePage() {
                 autoComplete="tel"
               />
             </label>
-            {['Street address', 'City', 'State', 'Postal code'].map((label) => (
+            {["Street address", "City", "State", "Postal code"].map((label) => (
               <label key={label} className="form-field">
                 <span>{label}</span>
                 <input
                   name={`address.${label}`}
-                  defaultValue={String(profile?.address[label] ?? '')}
+                  defaultValue={String(profile?.address[label] ?? "")}
                   maxLength={200}
                   autoComplete={
-                    label === 'Street address'
-                      ? 'street-address'
-                      : label === 'City'
-                        ? 'address-level2'
-                        : label === 'State'
-                          ? 'address-level1'
-                          : 'postal-code'
+                    label === "Street address"
+                      ? "street-address"
+                      : label === "City"
+                        ? "address-level2"
+                        : label === "State"
+                          ? "address-level1"
+                          : "postal-code"
                   }
                 />
               </label>
             ))}
-            {['Preferred contact method', 'Best time to contact'].map((label) => (
-              <label key={label} className="form-field">
-                <span>{label}</span>
-                <input
-                  name={`contact.${label}`}
-                  defaultValue={String(profile?.contactPreferences[label] ?? '')}
-                  maxLength={200}
-                />
-              </label>
-            ))}
+            {["Preferred contact method", "Best time to contact"].map(
+              (label) => (
+                <label key={label} className="form-field">
+                  <span>{label}</span>
+                  <input
+                    name={`contact.${label}`}
+                    defaultValue={String(
+                      profile?.contactPreferences[label] ?? "",
+                    )}
+                    maxLength={200}
+                  />
+                </label>
+              ),
+            )}
           </div>
           {error ? (
             <p className="form-error" role="alert">
@@ -188,7 +265,7 @@ export function ProfilePage() {
             disabled={busy || !profile}
           >
             <Save aria-hidden="true" />
-            {busy ? 'Saving…' : 'Save changes'}
+            {busy ? "Saving…" : "Save changes"}
           </button>
         </form>
       </section>
@@ -196,17 +273,19 @@ export function ProfilePage() {
         <section className="profile-panel panel">
           <h2>{profile.studioContact.name}</h2>
           <p>
-            Email:{' '}
+            Email:{" "}
             <a href={`mailto:${profile.studioContact.email}`}>
               {profile.studioContact.email}
             </a>
           </p>
-          {profile.studioContact.phone ? <p>
-            Phone:{' '}
-            <a href={`tel:${profile.studioContact.phone}`}>
-              {profile.studioContact.phone}
-            </a>
-          </p> : null}
+          {profile.studioContact.phone ? (
+            <p>
+              Phone:{" "}
+              <a href={`tel:${profile.studioContact.phone}`}>
+                {profile.studioContact.phone}
+              </a>
+            </p>
+          ) : null}
         </section>
       ) : null}
       <NotificationSettings />
@@ -214,8 +293,8 @@ export function ProfilePage() {
       <section className="panel feature-notice">
         <h2>Other account settings</h2>
         <p>
-          Email changes, password reset, and billing
-          are not available in this version.
+          Email changes, password reset, and billing are not available in this
+          version.
         </p>
       </section>
       <Toast message={toast} onClose={() => setToast(null)} />

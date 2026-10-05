@@ -2,14 +2,18 @@ import { useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { api } from "../../lib/api";
 import { dateTime } from "../../lib/display";
-import type {
-Entitlement,
-MemberDetail,
-Plan
-} from "../../lib/staffContracts";
+import type { Entitlement, MemberDetail, Plan } from "../../lib/staffContracts";
 import { useApi } from "../../lib/useApi";
-import { ActionForm,AuditList,EntitlementList,Field,LoadState,PaymentList,ReasonField } from "../Management";
-import { SignedWaiverRecords } from '../SignedWaiverRecords';
+import {
+  ActionForm,
+  AuditList,
+  EntitlementList,
+  Field,
+  LoadState,
+  PaymentList,
+  ReasonField,
+} from "../Management";
+import { SignedWaiverRecords } from "../SignedWaiverRecords";
 import { PaymentEditor } from "./PaymentControls";
 
 import { IssueAccess } from "./IssueAccess";
@@ -49,13 +53,20 @@ export function UserDetail({
       ) : null}
       {d && u ? (
         <>
-          {isAdmin ? <SignedWaiverRecords userId={id} onChanged={() => refresh("Waiver expiration saved.")} /> : null}
+          {isAdmin ? (
+            <SignedWaiverRecords
+              userId={id}
+              onChanged={() => refresh("Waiver expiration saved.")}
+            />
+          ) : null}
           <section className="panel management-panel">
             <h2>
               {u.firstName} {u.lastName} · Member #{u.id}
             </h2>
             <p>
-              {u.email} · {u.roles.join(", ")} · Primary: {u.primaryRole ?? "member"}{u.isStudent ? " · Student" : ""} · Facility access:{" "}
+              {u.email} · {u.roles.join(", ")} · Primary:{" "}
+              {u.primaryRole ?? "member"}
+              {u.isStudent ? " · Student" : ""} · Facility access:{" "}
               <strong>{u.accessStatus}</strong>
             </p>
             <p>
@@ -175,11 +186,35 @@ export function UserDetail({
                       <option value="admin">Super administrator</option>
                     </select>
                   </Field>
-                  <fieldset><legend>Assigned roles (include the primary role)</legend>
-                    {[["member","Community member"],["subscriber","Subscriber"],["day_pass","Day-pass customer"],["instructor","Instructor"],["staff","Staff"],["admin","Super administrator"]].map(([value,label]) =>
-                      <label key={value}><input type="checkbox" name="roles" value={value} defaultChecked={u.roles.includes(value)} />{label}</label>)}
+                  <fieldset>
+                    <legend>Assigned roles (include the primary role)</legend>
+                    {[
+                      ["member", "Community member"],
+                      ["subscriber", "Subscriber"],
+                      ["day_pass", "Day-pass customer"],
+                      ["instructor", "Instructor"],
+                      ["staff", "Staff"],
+                      ["admin", "Super administrator"],
+                    ].map(([value, label]) => (
+                      <label key={value}>
+                        <input
+                          type="checkbox"
+                          name="roles"
+                          value={value}
+                          defaultChecked={u.roles.includes(value)}
+                        />
+                        {label}
+                      </label>
+                    ))}
                   </fieldset>
-                  <label><input type="checkbox" name="isStudent" defaultChecked={u.isStudent} />Student classification</label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      name="isStudent"
+                      defaultChecked={u.isStudent}
+                    />
+                    Student classification
+                  </label>
                   <ReasonField />
                 </ActionForm>
               </details>

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Rental } from "../../lib/studioContracts";
-import { dateOnly,money } from "../../lib/studioDisplay";
+import { dateOnly, money } from "../../lib/studioDisplay";
 
 export function StaffRental({
   rental: r,
@@ -68,10 +68,11 @@ export function StaffRental({
               )
             }
           >
-            {r.refund_id && r.payment_status === "refund_failed" ? "Recheck refund after Stripe reconciliation" : "Retry test card refund"}
+            {r.refund_id && r.payment_status === "refund_failed"
+              ? "Recheck refund after Stripe reconciliation"
+              : "Retry test card refund"}
           </button>
         )}
     </article>
   );
 }
-
