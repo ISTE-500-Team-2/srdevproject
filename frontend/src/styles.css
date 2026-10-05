@@ -187,12 +187,6 @@ p {
   background: rgba(255, 255, 255, 0.56);
 }
 
-.button--confirmed {
-  border-color: #4a9256;
-  background: #e4f5e7;
-  color: #205d2a;
-}
-
 .button--wide {
   width: 100%;
 }
@@ -1083,16 +1077,6 @@ p {
   box-shadow: 0 16px 35px rgba(36, 16, 6, 0.22);
 }
 
-.membership-card__glow {
-  position: absolute;
-  right: -90px;
-  top: -100px;
-  width: 250px;
-  height: 250px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(247, 150, 29, 0.36), transparent 68%);
-}
-
 .membership-card__heading {
   position: relative;
   display: flex;
@@ -1142,12 +1126,6 @@ p {
 
 .membership-card a svg {
   width: 15px;
-}
-
-.discovery-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 24px;
 }
 
 .discovery-heading {
@@ -1208,63 +1186,10 @@ p {
   box-shadow: var(--shadow);
 }
 
-.class-card__image {
-  position: relative;
-  height: 245px;
-  overflow: hidden;
-}
-
-.class-card__image img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transition: transform 500ms ease;
-}
-
-.class-card:hover .class-card__image img {
-  transform: scale(1.035);
-}
-
-.class-card__image span {
-  position: absolute;
-  right: 12px;
-  bottom: 12px;
-  border-radius: 99px;
-  padding: 5px 10px;
-  background: rgba(36, 16, 6, 0.92);
-  color: white;
-  font-size: 0.72rem;
-}
-
-.class-card__body {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 12px;
-  padding: 16px 18px 8px;
-}
-
 .class-card h3,
 .equipment-preview h3 {
   margin-bottom: 6px;
   font-size: 1.35rem;
-}
-
-.class-card p {
-  margin-bottom: 0;
-  color: var(--ink-soft);
-  font-size: 0.86rem;
-}
-
-.class-card time {
-  text-align: right;
-  white-space: nowrap;
-}
-
-.class-card time small {
-  display: block;
-  margin-top: 4px;
-  color: var(--ink-soft);
-  font-size: 0.68rem;
 }
 
 .class-card > a,
@@ -1686,177 +1611,8 @@ p {
   gap: 56px;
 }
 
-.credentials-page__records {
-  min-width: 0;
-}
-
-.display-heading {
-  margin-bottom: 22px;
-  font-size: clamp(2rem, 4vw, 3rem);
-}
-
-.credential-table {
-  padding: 22px;
-}
-
-.credential-table__header,
-.credential-table__row {
-  display: grid;
-  grid-template-columns: 1.25fr 1.05fr 0.9fr;
-  align-items: center;
-}
-
-.credential-table__header {
-  padding: 0 14px 14px;
-  font-size: 1.15rem;
-  font-weight: 500;
-}
-
-.credential-table__header span + span {
-  border-left: 1px solid var(--border);
-  padding-left: 16px;
-}
-
-.credential-table__row {
-  min-height: 48px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: rgba(255, 255, 255, 0.46);
-}
-
-.credential-table__row + .credential-table__row {
-  margin-top: 14px;
-}
-
-.credential-table__row > span {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 14px;
-}
-
-.credential-table__row > span + span {
-  align-self: stretch;
-  border-left: 1px solid var(--border);
-}
-
-.credential-table__row svg {
-  width: 18px;
-  flex: 0 0 auto;
-}
-
-.status-good {
-  color: #2a7434;
-}
-
-.status-bad {
-  color: var(--red);
-}
-
 .is-muted {
   color: #b1aaa6;
-}
-
-.training-panel {
-  align-self: start;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 22px;
-  background: rgba(255, 253, 250, 0.72);
-  box-shadow: var(--shadow-small);
-}
-
-.training-panel__heading {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 22px;
-}
-
-.training-panel__heading h1 {
-  font-size: clamp(1.9rem, 3.5vw, 2.7rem);
-}
-
-.training-group + .training-group {
-  margin-top: 10px;
-  border-top: 1px solid var(--border-strong);
-  padding-top: 10px;
-}
-
-.training-group__toggle {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border: 0;
-  padding: 4px 0 12px;
-  background: transparent;
-  font-weight: 700;
-  text-align: left;
-  cursor: pointer;
-}
-
-.training-group__toggle svg {
-  width: 18px;
-}
-
-.training-group__content {
-  display: grid;
-  gap: 16px;
-  padding-bottom: 12px;
-  animation: details-in 180ms ease both;
-}
-
-.training-card {
-  border: 1px solid var(--border-strong);
-  border-radius: 10px;
-  padding: 18px;
-  background: rgba(255, 255, 255, 0.42);
-}
-
-.training-card__top {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.training-card h3 {
-  margin-bottom: 8px;
-  font-size: 1.35rem;
-}
-
-.training-card__top strong {
-  font-size: 1.2rem;
-}
-
-.training-card p {
-  margin-bottom: 8px;
-  color: var(--ink-soft);
-}
-
-.training-card p:first-of-type {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 0.82rem;
-}
-
-.training-card p svg {
-  width: 15px;
-}
-
-.training-card .button {
-  margin-top: 10px;
-}
-
-.training-panel__empty {
-  margin: 0;
-  padding: 12px 0 20px;
-  color: var(--ink-soft);
 }
 
 /* Reservations */
@@ -1875,13 +1631,6 @@ p {
 
 .reservation-section__heading h1 {
   font-size: clamp(2rem, 3.2vw, 3.7rem);
-}
-
-.reservation-section__tools,
-.carousel-buttons {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .select-control {
@@ -1942,10 +1691,6 @@ p {
 
 .reservation-card__image {
   aspect-ratio: 1 / 0.9;
-}
-
-.studio-card__image {
-  aspect-ratio: 1.55 / 1;
 }
 
 .reservation-card img {
@@ -2249,44 +1994,6 @@ p {
   color: var(--ink-soft);
 }
 
-.profile-layout {
-  display: grid;
-  grid-template-columns: 280px minmax(0, 760px);
-  gap: 30px;
-  align-items: start;
-}
-
-.profile-nav {
-  display: grid;
-  gap: 6px;
-}
-
-.profile-nav button {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  border: 0;
-  border-radius: 9px;
-  padding: 13px 14px;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-}
-
-.profile-nav button:hover,
-.profile-nav button.is-active {
-  background: rgba(74, 40, 20, 0.09);
-}
-
-.profile-nav button.is-active {
-  box-shadow: inset 3px 0 var(--orange);
-  font-weight: 700;
-}
-
-.profile-nav svg {
-  width: 18px;
-}
-
 .profile-panel {
   min-height: 450px;
   padding: 30px;
@@ -2306,72 +2013,6 @@ p {
 
 .profile-panel .button--primary {
   justify-self: start;
-}
-
-.profile-callout {
-  display: flex;
-  align-items: flex-start;
-  gap: 16px;
-  border: 1px solid #91b599;
-  border-radius: 10px;
-  padding: 20px;
-  background: #eff9f1;
-}
-
-.profile-callout > svg {
-  width: 28px;
-  flex: 0 0 auto;
-  color: #397446;
-}
-
-.profile-callout p,
-.membership-detail p {
-  margin: 6px 0 0;
-  color: var(--ink-soft);
-}
-
-.membership-detail {
-  display: grid;
-  justify-items: start;
-  gap: 8px;
-  border-left: 4px solid var(--orange);
-  padding: 10px 0 10px 20px;
-}
-
-.membership-detail > span {
-  color: var(--ink-soft);
-  font-size: 0.8rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.membership-detail > strong {
-  font-size: 1.7rem;
-}
-
-.membership-detail .button {
-  margin-top: 10px;
-}
-
-.preference-list {
-  display: grid;
-  gap: 2px;
-}
-
-.preference-list label {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  border-bottom: 1px solid #ded4cd;
-  padding: 15px 2px;
-  cursor: pointer;
-}
-
-.preference-list input {
-  width: 18px;
-  height: 18px;
-  accent-color: var(--espresso);
 }
 
 .not-found {
@@ -2491,24 +2132,6 @@ p {
   .studio-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-
-  .profile-layout {
-    max-width: 800px;
-  }
-
-  .profile-nav {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  .profile-nav button {
-    flex-direction: column;
-    align-items: flex-start;
-    font-size: 0.84rem;
-  }
-
-  .profile-nav button.is-active {
-    box-shadow: inset 0 -3px var(--orange);
-  }
 }
 
 @media (max-width: 760px) {
@@ -2592,11 +2215,6 @@ p {
     gap: 18px;
   }
 
-  .reservation-section__tools {
-    align-items: stretch;
-    justify-content: space-between;
-  }
-
   .select-control {
     min-width: 0;
     flex: 1;
@@ -2615,15 +2233,6 @@ p {
     min-height: 0;
   }
 
-  .profile-nav button {
-    align-items: center;
-    flex-direction: row;
-  }
-
-  .profile-nav button.is-active {
-    box-shadow: inset 3px 0 var(--orange);
-  }
-
   .profile-panel {
     min-height: 0;
     padding: 22px;
@@ -2636,15 +2245,6 @@ p {
   .reservation-form__summary img {
     width: 96px;
     height: 78px;
-  }
-
-  .credential-table {
-    overflow-x: auto;
-  }
-
-  .credential-table__header,
-  .credential-table__row {
-    min-width: 630px;
   }
 
   .modal-backdrop {
@@ -2676,10 +2276,6 @@ p {
   .site-header__mobile-toggle,
   .account-menu > .icon-button {
     width: 36px;
-  }
-
-  .reservation-section__tools {
-    flex-wrap: wrap;
   }
 
   .select-control {
