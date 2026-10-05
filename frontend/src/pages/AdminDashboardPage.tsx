@@ -10,16 +10,18 @@ import { StaffPolicies } from "./StaffPolicies";
 import { AdminAnalyticsPreviewPage } from "./AdminAnalyticsPreviewPage";
 
 const tabs = [
-  ["members", "Members"],
-  ["plans", "Plans"],
-  ["payments", "Payment history"],
-  ["policies", "Policies"],
-  ["audit", "Change log"],
-  ["preview", "Analytics preview"],
-];
+  { key: "members", label: "Members", component: StaffUsers },
+  { key: "plans", label: "Plans", component: StaffPlans },
+  { key: "payments", label: "Payment history", component: StaffPayments },
+  { key: "policies", label: "Policies", component: StaffPolicies },
+  { key: "audit", label: "Change log", component: ChangeLog },
+  { key: "preview", label: "Analytics preview", component: AdminAnalyticsPreviewPage },
+] as const;
 export function AdminDashboardPage() {
   const [params, setParams] = useSearchParams();
   const tab = params.get("tab") ?? "members";
+  // Unknown tab URLs still display members without selecting a known tab.
+  const TabContent = tabs.find(item => item.key === tab)?.component ?? StaffUsers;
   return (
     <div className="management-page page-enter">
       <section className="dashboard-intro">
@@ -29,30 +31,18 @@ export function AdminDashboardPage() {
         </div>
       </section>
       <nav className="management-tabs" aria-label="Staff sections">
-        {tabs.map(([key, label]) => (
+        {tabs.map(({ key, label }) => (
           <button
             key={key}
             className={tab === key ? "is-selected" : ""}
             aria-current={tab === key ? "page" : undefined}
-            onClick={() => setParams({ tab: key! })}
+            onClick={() => setParams({ tab: key })}
           >
             {label}
           </button>
         ))}
       </nav>
-      {tab === "plans" ? (
-        <StaffPlans />
-      ) : tab === "payments" ? (
-        <StaffPayments />
-      ) : tab === "policies" ? (
-        <StaffPolicies />
-      ) : tab === "audit" ? (
-        <ChangeLog />
-      ) : tab === "preview" ? (
-        <AdminAnalyticsPreviewPage />
-      ) : (
-        <StaffUsers />
-      )}
+      <TabContent />
     </div>
   );
 }

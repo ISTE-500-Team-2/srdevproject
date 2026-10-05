@@ -1,3 +1,5 @@
+import { lineCoordinates } from '../lib/chartCoordinates';
+
 interface LineChartProps {
   values: number[];
   labels: string[];
@@ -6,17 +8,10 @@ interface LineChartProps {
   compact?: boolean;
 }
 
-function points(values: number[], max: number, width: number, height: number) {
-  const usableHeight = height - 42;
-  const step = width / Math.max(values.length - 1, 1);
-  return values
-    .map((value, index) => `${index * step},${usableHeight - (value / max) * (usableHeight - 12)}`)
-    .join(' ');
-}
-
 export function LineChart({ values, labels, max, height = 270, compact = false }: LineChartProps) {
   const width = 900;
-  const linePoints = points(values, max, width, height);
+  const coordinates = lineCoordinates(values, max, width, height);
+  const linePoints = coordinates.map(({ x, y }) => `${x},${y}`).join(' ');
   const areaPoints = `0,${height - 42} ${linePoints} ${width},${height - 42}`;
   const ticks = compact ? [0, max / 2, max] : [0, max / 3, (max * 2) / 3, max];
 
@@ -42,13 +37,9 @@ export function LineChart({ values, labels, max, height = 270, compact = false }
         })}
         <polygon points={areaPoints} fill={`url(#area-${compact ? 'small' : 'large'})`} />
         <polyline points={linePoints} className="chart-line" />
-        {values.map((value, index) => {
-          const [x, y] = points([0, value], max, (width / Math.max(values.length - 1, 1)) * index, height)
-            .split(' ')
-            .at(-1)!
-            .split(',');
-          return <circle key={`${value}-${index}`} cx={x} cy={y} r="4" className="chart-dot" />;
-        })}
+        {coordinates.map(({ x, y }, index) => (
+          <circle key={`${values[index]}-${index}`} cx={x} cy={y} r="4" className="chart-dot" />
+        ))}
         {labels.map((label, index) => (
           <text
             key={label}

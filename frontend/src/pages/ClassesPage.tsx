@@ -1,10 +1,13 @@
 import { CalendarDays, Clock3, Filter, Users } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { classes } from '../data/mockData';
 
 export function ClassesPage() {
   const [query, setQuery] = useState('');
-  const visible = useMemo(() => classes.filter((item) => (item.title + ' ' + item.equipment + ' ' + item.instructor).toLowerCase().includes(query.toLowerCase())), [query]);
+  const normalizedQuery = query.toLowerCase();
+  const visible = classes.filter(item =>
+    `${item.title} ${item.equipment} ${item.instructor}`.toLowerCase().includes(normalizedQuery),
+  );
 
   return (
     <div className="classes-page page-enter">

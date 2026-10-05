@@ -23,6 +23,10 @@ const navItems = [
 
 export function Header() {
   const { user, logout } = useAuth();
+  const hasStaffWorkspace = user?.roles.some(role => role === 'staff' || role === 'admin');
+  const visibleNavItems = hasStaffWorkspace
+    ? [...navItems, { label: 'Staff workspace', to: '/admin' }]
+    : navItems;
   const [error, setError] = useState('');
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -73,7 +77,7 @@ export function Header() {
           className={`site-nav ${mobileOpen ? 'site-nav--open' : ''}`}
           aria-label="Primary navigation"
         >
-          {[...navItems, ...(user?.roles.some(role => role === 'staff' || role === 'admin') ? [{label: 'Staff workspace', to: '/admin'}] : [])].map((item) => (
+          {visibleNavItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -100,7 +104,7 @@ export function Header() {
         </NavLink>
 
         <div className="site-header__actions">
-          {user?.roles.some(role => role === 'staff' || role === 'admin') ? (
+          {hasStaffWorkspace ? (
             <NavLink className="site-header__admin-link" to="/admin">
               Staff workspace
             </NavLink>
