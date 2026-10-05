@@ -645,6 +645,50 @@ test('SDTA-123: cancellation boundary is inclusive at exactly 24h and exclusive 
  }finally{await db.query('ROLLBACK');db.release();}
 });
 
+test('FR-001/035: staff and admins bulk manage reservations with audit trail',async()=>{
+ const member=client(),staff=client(),admin=client();await member.demo();await staff.demo('admin');await admin.demo('admin');
+ await pool.query("UPDATE user_role SET roleid=(SELECT roleid FROM role WHERE role='staff') WHERE userid=$1",[staff.id]);
+ const eq=await equipment();
+ const created=await staff.post('/reservations',{...interval(eq,15),userId:member.id});
+ assert.equal(created.status,201,JSON.stringify(created.body));
+ const id=created.body.data.id;
+ const all=await staff.agent.get('/api/admin/reservations?userId='+member.id+'&equipmentId='+eq);
+ assert.equal(all.status,200,JSON.stringify(all.body));
+ assert.ok(all.body.data.items.some((item:{id:number})=>item.id===id));
+ const filteredOut=await staff.agent.get('/api/admin/reservations?userId='+staff.id+'&equipmentId='+eq);
+ assert.equal(filteredOut.status,200);
+ assert.equal(filteredOut.body.data.items.some((item:{id:number})=>item.id===id),false);
+ const newStart=new Date(Date.now()+16*86_400_000);
+ const updated=await staff.patch('/admin/reservations/'+id,{
+  userId:member.id,equipmentId:eq,roomId:null,
+  startTime:newStart.toISOString(),
+  endTime:new Date(newStart.getTime()+2*3_600_000).toISOString(),
+ });
+ assert.equal(updated.status,200,JSON.stringify(updated.body));
+ assert.equal(updated.body.data.userId,member.id);
+ assert.equal(new Date(updated.body.data.endTime).getTime()-new Date(updated.body.data.startTime).getTime(),2*3_600_000);
+ const auditUpdate=await pool.query("SELECT actor_id,subject_id,before_state,after_state FROM app_staff_audit WHERE action='reservation.override.updated' AND entity_id=$1",[id]);
+ assert.equal(auditUpdate.rows[0].actor_id,staff.id);
+ assert.equal(auditUpdate.rows[0].subject_id,member.id);
+ assert.equal(auditUpdate.rows[0].before_state.status,'confirmed');
+ const cancelled=await admin.post('/admin/reservations/'+id+'/cancel');
+ assert.equal(cancelled.status,200,JSON.stringify(cancelled.body));
+ assert.equal(cancelled.body.data.status,'cancelled');
+ const auditCancel=await pool.query("SELECT actor_id,subject_id,before_state,after_state FROM app_staff_audit WHERE action='reservation.override.cancelled' AND entity_id=$1",[id]);
+ assert.equal(auditCancel.rows[0].actor_id,admin.id);
+ assert.equal(auditCancel.rows[0].subject_id,member.id);
+ assert.equal(auditCancel.rows[0].after_state.status,'cancelled');
+});
+
+test('BR-006: instructor cannot create staff reservation overrides',async()=>{
+ const member=client(),instructor=client();await member.demo();await instructor.demo('admin');
+ await pool.query("UPDATE user_role SET roleid=(SELECT roleid FROM role WHERE role='instructor') WHERE userid=$1",[instructor.id]);
+ const res=await instructor.post('/reservations',{...interval(await equipment(),17),userId:member.id});
+ assert.equal(res.status,403);
+ assert.equal(res.body.error.code,'INSTRUCTOR_BOOKING_FORBIDDEN');
+ assert.equal((await instructor.agent.get('/api/admin/reservations')).status,403);
+});
+
 test('additive RBAC migration upgrades existing MVC data without resetting users or reservations', async () => {
   const before = (await pool.query('SELECT (SELECT count(*) FROM "user") AS users, (SELECT count(*) FROM reservation) AS reservations')).rows[0];
   // This suite owns this disposable DB. Recreate the pre-PR3 schema state.
