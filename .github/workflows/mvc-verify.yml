@@ -1,9 +1,9 @@
 name: Verify MVC application
 on:
   pull_request:
-    paths: ['backend/**', 'frontend/**', 'database/**', 'ddl/**', 'Dockerfile', 'compose.mvc.yml', '.github/workflows/mvc-verify.yml']
+    paths: ['backend/**', 'frontend/**', 'database/**', 'ddl/**', 'Dockerfile', 'compose.mvc.yml', '.github/workflows/mvc-verify.yml', 'deploy/**']
   push:
-    branches: [feat/mvc-integration]
+    branches: [main, feat/mvc-integration]
 permissions:
   contents: read
 jobs:
@@ -40,6 +40,9 @@ jobs:
       - run: npm run check --prefix frontend
       - run: npm run test:integration --prefix backend
       - run: npm run test:integration --prefix frontend
+      - run: python3 -m unittest discover -s deploy/reader -v
+      - run: bash -n deploy/deploy-arbor.sh
+      - run: python3 deploy/test_deploy.py
       - run: docker build -t collaboratory-mvc:verification .
       - name: Start isolated Docker JWT demo
         run: |

@@ -1,17 +1,17 @@
-import { StaffModel } from '../models/StaffModel.js';
-import { UserModel } from '../models/UserModel.js';
-import { PermissionModel } from '../models/PermissionModel.js';
-import { enqueueNotification } from '../notifications/store.js';
-import type { Pool } from 'pg';
-import { transaction } from '../db.js';
-import { AppError, positiveId, reservationWindow } from '../domain.js';
-import { EquipmentModel } from '../models/EquipmentModel.js';
+import { StaffModel } from "../models/StaffModel.js";
+import { UserModel } from "../models/UserModel.js";
+import { PermissionModel } from "../models/PermissionModel.js";
+import { enqueueNotification } from "../notifications/store.js";
+import type { Pool } from "pg";
+import { transaction } from "../db.js";
+import { AppError, positiveId, reservationWindow } from "../domain.js";
+import { EquipmentModel } from "../models/EquipmentModel.js";
 import {
   ReservationModel,
   RESERVATION_COOLDOWN_MINUTES,
-} from '../models/ReservationModel.js';
-import { RoomModel } from '../models/RoomModel.js';
-import { AccessService } from './AccessService.js';
+} from "../models/ReservationModel.js";
+import { RoomModel } from "../models/RoomModel.js";
+import { AccessService } from "./AccessService.js";
 
 export class ReservationService {
   constructor(
@@ -35,23 +35,23 @@ export class ReservationService {
     if (hasEquipment === hasRoom)
       throw new AppError(
         400,
-        'INVALID_INPUT',
-        'Choose exactly one equipment item or room.',
+        "INVALID_INPUT",
+        "Choose exactly one equipment item or room.",
       );
 
     const equipmentId = hasEquipment
-      ? positiveId(input.equipmentId, 'Equipment')
+      ? positiveId(input.equipmentId, "Equipment")
       : null;
-    const roomId = hasRoom ? positiveId(input.roomId, 'Room') : null;
+    const roomId = hasRoom ? positiveId(input.roomId, "Room") : null;
     const { start, end } = reservationWindow(input.startTime, input.endTime);
     const targetId =
-      input.userId == null ? userId : positiveId(input.userId, 'Member');
+      input.userId == null ? userId : positiveId(input.userId, "Member");
 
     if ((end.getTime() - start.getTime()) % 3_600_000 !== 0)
       throw new AppError(
         400,
-        'HOURLY_DURATION_REQUIRED',
-        'Book a whole number of hours (1-24).',
+        "HOURLY_DURATION_REQUIRED",
+        "Book a whole number of hours (1-24).",
       );
 
     return transaction(this.pool, async (db) => {
@@ -59,33 +59,33 @@ export class ReservationService {
       await access.assertActiveUser(userId);
 
       const actor = await new UserModel(db).findById(userId);
-      if (!actor || actor.roles.includes('instructor'))
+      if (!actor || actor.roles.includes("instructor"))
         throw new AppError(
           403,
-          'INSTRUCTOR_BOOKING_FORBIDDEN',
-          'Instructor accounts cannot create reservations.',
+          "INSTRUCTOR_BOOKING_FORBIDDEN",
+          "Instructor accounts cannot create reservations.",
         );
       if (
         targetId !== userId &&
-        !actor.roles.some((role) => ['staff', 'admin'].includes(role))
+        !actor.roles.some((role) => ["staff", "admin"].includes(role))
       )
         throw new AppError(
           403,
-          'STAFF_REQUIRED',
-          'Only staff can book for another member.',
+          "STAFF_REQUIRED",
+          "Only staff can book for another member.",
         );
       if (
         !(await new PermissionModel(db).allows(
           actor,
-          'reservation',
-          'create',
+          "reservation",
+          "create",
           targetId,
         ))
       )
         throw new AppError(
           403,
-          'PERMISSION_REQUIRED',
-          'Reservation permission is required.',
+          "PERMISSION_REQUIRED",
+          "Reservation permission is required.",
         );
 
       if (targetId !== userId) await access.assertActiveUser(targetId);
@@ -101,12 +101,12 @@ export class ReservationService {
           equipmentId,
         );
         if (!equipment)
-          throw new AppError(404, 'NOT_FOUND', 'Equipment not found.');
-        if (equipment.status !== 'available')
+          throw new AppError(404, "NOT_FOUND", "Equipment not found.");
+        if (equipment.status !== "available")
           throw new AppError(
             409,
-            'EQUIPMENT_UNAVAILABLE',
-            'This equipment is not available for reservations.',
+            "EQUIPMENT_UNAVAILABLE",
+            "This equipment is not available for reservations.",
           );
         if (
           equipment.certId &&
@@ -118,8 +118,8 @@ export class ReservationService {
         ) {
           throw new AppError(
             403,
-            'CERTIFICATION_REQUIRED',
-            `A current ${equipment.certification ?? 'equipment'} certification is required.`,
+            "CERTIFICATION_REQUIRED",
+            `A current ${equipment.certification ?? "equipment"} certification is required.`,
           );
         }
 
@@ -133,23 +133,23 @@ export class ReservationService {
         if (await model.overlaps(equipmentId, start, end))
           throw new AppError(
             409,
-            'RESERVATION_CONFLICT',
-            'That equipment is already reserved for part of this time.',
+            "RESERVATION_CONFLICT",
+            "That equipment is already reserved for part of this time.",
           );
         if (await model.equipmentCooldown(equipmentId, start, end))
           throw new AppError(
             409,
-            'RESERVATION_COOLDOWN',
+            "RESERVATION_COOLDOWN",
             `Leave at least ${RESERVATION_COOLDOWN_MINUTES} minutes between reservations for the same equipment, including other members' bookings.`,
           );
       } else {
         const room = await new RoomModel(db).findForUpdate(roomId!);
-        if (!room) throw new AppError(404, 'NOT_FOUND', 'Room not found.');
-        if (room.status !== 'available')
+        if (!room) throw new AppError(404, "NOT_FOUND", "Room not found.");
+        if (room.status !== "available")
           throw new AppError(
             409,
-            'ROOM_UNAVAILABLE',
-            'This room is not available for reservations.',
+            "ROOM_UNAVAILABLE",
+            "This room is not available for reservations.",
           );
 
         location = room.location;
@@ -158,13 +158,13 @@ export class ReservationService {
         if (await model.roomOverlaps(room.id, start, end))
           throw new AppError(
             409,
-            'RESERVATION_CONFLICT',
-            'That room is already reserved for part of this time.',
+            "RESERVATION_CONFLICT",
+            "That room is already reserved for part of this time.",
           );
         if (await model.roomCooldown(targetId, room.id, start, end))
           throw new AppError(
             409,
-            'RESERVATION_COOLDOWN',
+            "RESERVATION_COOLDOWN",
             `Leave at least ${RESERVATION_COOLDOWN_MINUTES} minutes between your reservations for the same room.`,
           );
       }
@@ -182,18 +182,18 @@ export class ReservationService {
       await new StaffModel(db).audit(
         userId,
         targetId,
-        'reservation.created',
-        'reservation',
+        "reservation.created",
+        "reservation",
         reservation.id,
         targetId === userId
-          ? 'Member booking'
-          : 'Staff booking on behalf of member',
+          ? "Member booking"
+          : "Staff booking on behalf of member",
         null,
         reservation,
       );
       await enqueueNotification(db, {
         userId: targetId,
-        kind: 'reservation_created',
+        kind: "reservation_created",
         dedupeKey: `reservation-created:${reservation.id}`,
         payload: {
           reservationId: reservation.id,
@@ -223,51 +223,66 @@ export class ReservationService {
       await access.assertActiveUser(actorId);
 
       const actor = await new UserModel(db).findById(actorId);
-      if (!actor || actor.roles.includes('instructor'))
+      if (!actor || actor.roles.includes("instructor"))
         throw new AppError(
           403,
-          'INSTRUCTOR_BOOKING_FORBIDDEN',
-          'Instructor accounts cannot create reservations.',
+          "INSTRUCTOR_BOOKING_FORBIDDEN",
+          "Instructor accounts cannot create reservations.",
         );
-      if (!actor.roles.some((role) => ['staff', 'admin'].includes(role)))
+      if (!actor.roles.some((role) => ["staff", "admin"].includes(role)))
         throw new AppError(
           403,
-          'STAFF_REQUIRED',
-          'Only staff can modify another member reservation.',
+          "STAFF_REQUIRED",
+          "Only staff can modify another member reservation.",
         );
 
       const model = new ReservationModel(db, this.timeZone);
       const before = await model.find(reservationId, true);
       if (!before)
-        throw new AppError(404, 'NOT_FOUND', 'Reservation not found.');
-      if (!['confirmed', 'pending'].includes(before.status))
+        throw new AppError(404, "NOT_FOUND", "Reservation not found.");
+      if (!["confirmed", "pending"].includes(before.status))
         throw new AppError(
           409,
-          'INVALID_STATUS',
-          'Only active reservations can be modified.',
+          "INVALID_STATUS",
+          "Only active reservations can be modified.",
         );
-      const expectedRevision = positiveId(input.expectedRevision, 'revision');
+      if (
+        (
+          await db.query(
+            "SELECT id FROM app_training_class WHERE reservation_id=$1",
+            [reservationId],
+          )
+        ).rowCount
+      )
+        throw new AppError(
+          409,
+          "CLASS_WORKFLOW_REQUIRED",
+          "Cancel and reschedule this training through Classes to preserve enrollment records.",
+        );
+      const expectedRevision = positiveId(input.expectedRevision, "revision");
       if (before.revision !== expectedRevision)
         throw new AppError(
           409,
-          'STALE_RECORD',
-          'This reservation changed. Refresh it before saving.',
+          "STALE_RECORD",
+          "This reservation changed. Refresh it before saving.",
         );
 
       const targetId =
-        input.userId == null ? before.userId : positiveId(input.userId, 'Member');
+        input.userId == null
+          ? before.userId
+          : positiveId(input.userId, "Member");
       if (
         !(await new PermissionModel(db).allows(
           actor,
-          'reservation',
-          'update',
+          "reservation",
+          "update",
           targetId,
         ))
       )
         throw new AppError(
           403,
-          'PERMISSION_REQUIRED',
-          'Reservation update permission is required.',
+          "PERMISSION_REQUIRED",
+          "Reservation update permission is required.",
         );
 
       const equipmentId =
@@ -275,18 +290,18 @@ export class ReservationService {
           ? before.equipmentId
           : input.equipmentId === null
             ? null
-            : positiveId(input.equipmentId, 'Equipment');
+            : positiveId(input.equipmentId, "Equipment");
       const roomId =
         input.roomId === undefined
           ? before.roomId
           : input.roomId === null
             ? null
-            : positiveId(input.roomId, 'Room');
+            : positiveId(input.roomId, "Room");
       if (!!equipmentId === !!roomId)
         throw new AppError(
           400,
-          'INVALID_INPUT',
-          'Choose exactly one equipment item or room.',
+          "INVALID_INPUT",
+          "Choose exactly one equipment item or room.",
         );
 
       const { start, end } = reservationWindow(
@@ -296,8 +311,8 @@ export class ReservationService {
       if ((end.getTime() - start.getTime()) % 3_600_000 !== 0)
         throw new AppError(
           400,
-          'HOURLY_DURATION_REQUIRED',
-          'Book a whole number of hours (1-24).',
+          "HOURLY_DURATION_REQUIRED",
+          "Book a whole number of hours (1-24).",
         );
 
       await access.assertActiveUser(targetId);
@@ -308,23 +323,29 @@ export class ReservationService {
       let resourceName: string;
 
       if (equipmentId) {
-        const equipment = await new EquipmentModel(db).findForUpdate(equipmentId);
+        const equipment = await new EquipmentModel(db).findForUpdate(
+          equipmentId,
+        );
         if (!equipment)
-          throw new AppError(404, 'NOT_FOUND', 'Equipment not found.');
-        if (equipment.status !== 'available')
+          throw new AppError(404, "NOT_FOUND", "Equipment not found.");
+        if (equipment.status !== "available")
           throw new AppError(
             409,
-            'EQUIPMENT_UNAVAILABLE',
-            'This equipment is not available for reservations.',
+            "EQUIPMENT_UNAVAILABLE",
+            "This equipment is not available for reservations.",
           );
         if (
           equipment.certId &&
-          !(await access.eligibility.certification(targetId, equipment.certId, end))
+          !(await access.eligibility.certification(
+            targetId,
+            equipment.certId,
+            end,
+          ))
         )
           throw new AppError(
             403,
-            'CERTIFICATION_REQUIRED',
-            `A current ${equipment.certification ?? 'equipment'} certification is required.`,
+            "CERTIFICATION_REQUIRED",
+            `A current ${equipment.certification ?? "equipment"} certification is required.`,
           );
         const waivers = equipment.waiverRequired
           ? await access.assertWaivers(targetId)
@@ -335,36 +356,40 @@ export class ReservationService {
         if (await model.overlaps(equipmentId, start, end, reservationId))
           throw new AppError(
             409,
-            'RESERVATION_CONFLICT',
-            'That equipment is already reserved for part of this time.',
+            "RESERVATION_CONFLICT",
+            "That equipment is already reserved for part of this time.",
           );
-        if (await model.equipmentCooldown(equipmentId, start, end, reservationId))
+        if (
+          await model.equipmentCooldown(equipmentId, start, end, reservationId)
+        )
           throw new AppError(
             409,
-            'RESERVATION_COOLDOWN',
+            "RESERVATION_COOLDOWN",
             `Leave at least ${RESERVATION_COOLDOWN_MINUTES} minutes between reservations for the same equipment, including other members' bookings.`,
           );
       } else {
         const room = await new RoomModel(db).findForUpdate(roomId!);
-        if (!room) throw new AppError(404, 'NOT_FOUND', 'Room not found.');
-        if (room.status !== 'available')
+        if (!room) throw new AppError(404, "NOT_FOUND", "Room not found.");
+        if (room.status !== "available")
           throw new AppError(
             409,
-            'ROOM_UNAVAILABLE',
-            'This room is not available for reservations.',
+            "ROOM_UNAVAILABLE",
+            "This room is not available for reservations.",
           );
         location = room.location;
         resourceName = room.name;
         if (await model.roomOverlaps(room.id, start, end, reservationId))
           throw new AppError(
             409,
-            'RESERVATION_CONFLICT',
-            'That room is already reserved for part of this time.',
+            "RESERVATION_CONFLICT",
+            "That room is already reserved for part of this time.",
           );
-        if (await model.roomCooldown(targetId, room.id, start, end, reservationId))
+        if (
+          await model.roomCooldown(targetId, room.id, start, end, reservationId)
+        )
           throw new AppError(
             409,
-            'RESERVATION_COOLDOWN',
+            "RESERVATION_COOLDOWN",
             `Leave at least ${RESERVATION_COOLDOWN_MINUTES} minutes between your reservations for the same room.`,
           );
       }
@@ -379,20 +404,20 @@ export class ReservationService {
         end,
       });
       if (!reservation)
-        throw new AppError(404, 'NOT_FOUND', 'Reservation not found.');
+        throw new AppError(404, "NOT_FOUND", "Reservation not found.");
       await new StaffModel(db).audit(
         actorId,
         targetId,
-        'reservation.override.updated',
-        'reservation',
+        "reservation.override.updated",
+        "reservation",
         reservation.id,
-        'Staff reservation override',
+        "Staff reservation override",
         before,
         reservation,
       );
       await enqueueNotification(db, {
         userId: targetId,
-        kind: 'reservation_updated',
+        kind: "reservation_updated",
         dedupeKey: `reservation-updated:${reservation.id}:${reservation.revision}`,
         payload: {
           reservationId: reservation.id,
@@ -410,56 +435,69 @@ export class ReservationService {
       const access = new AccessService(db, this.timeZone);
       await access.assertActiveUser(actorId);
       const actor = await new UserModel(db).findById(actorId);
-      if (!actor || actor.roles.includes('instructor'))
+      if (!actor || actor.roles.includes("instructor"))
         throw new AppError(
           403,
-          'INSTRUCTOR_BOOKING_FORBIDDEN',
-          'Instructor accounts cannot create reservations.',
+          "INSTRUCTOR_BOOKING_FORBIDDEN",
+          "Instructor accounts cannot create reservations.",
         );
-      if (!actor.roles.some((role) => ['staff', 'admin'].includes(role)))
+      if (!actor.roles.some((role) => ["staff", "admin"].includes(role)))
         throw new AppError(
           403,
-          'STAFF_REQUIRED',
-          'Only staff can cancel another member reservation.',
+          "STAFF_REQUIRED",
+          "Only staff can cancel another member reservation.",
         );
 
       const model = new ReservationModel(db);
       const before = await model.find(reservationId, true);
       if (!before)
-        throw new AppError(404, 'NOT_FOUND', 'Reservation not found.');
+        throw new AppError(404, "NOT_FOUND", "Reservation not found.");
       if (
         !(await new PermissionModel(db).allows(
           actor,
-          'reservation',
-          'update',
+          "reservation",
+          "update",
           before.userId,
         ))
       )
         throw new AppError(
           403,
-          'PERMISSION_REQUIRED',
-          'Reservation update permission is required.',
+          "PERMISSION_REQUIRED",
+          "Reservation update permission is required.",
+        );
+      if (
+        (
+          await db.query(
+            "SELECT id FROM app_training_class WHERE reservation_id=$1",
+            [reservationId],
+          )
+        ).rowCount
+      )
+        throw new AppError(
+          409,
+          "CLASS_WORKFLOW_REQUIRED",
+          "Cancel this training through Classes to preserve enrollment records.",
         );
       const result = await model.cancelAny(reservationId);
       if (!result)
         throw new AppError(
           409,
-          'INVALID_STATUS',
-          'Only active reservations can be cancelled.',
+          "INVALID_STATUS",
+          "Only active reservations can be cancelled.",
         );
       await new StaffModel(db).audit(
         actorId,
         before.userId,
-        'reservation.override.cancelled',
-        'reservation',
+        "reservation.override.cancelled",
+        "reservation",
         result.id,
-        'Staff reservation override',
+        "Staff reservation override",
         before,
         result,
       );
       await enqueueNotification(db, {
         userId: before.userId,
-        kind: 'reservation_cancelled',
+        kind: "reservation_cancelled",
         dedupeKey: `reservation-cancelled:${result.id}`,
         payload: {
           reservationId: result.id,
