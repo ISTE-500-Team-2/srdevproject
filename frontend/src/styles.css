@@ -2323,6 +2323,73 @@ place-items: center;
   font-weight: 400;
 }
 
+.membership-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 24px;
+}
+
+.membership-option {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  border: 1px solid #ded4cd;
+  border-radius: 10px;
+  padding: 18px;
+}
+
+.membership-option legend {
+  padding: 0 8px;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.membership-option label {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f7f3ef;
+  cursor: pointer;
+}
+
+.membership-option input {
+  accent-color: var(--orange);
+}
+
+.membership-option strong {
+  white-space: nowrap;
+}
+
+.membership-option[data-selected='true'] {
+  border-color: var(--orange);
+  box-shadow: 0 0 0 2px rgba(216, 100, 34, 0.16);
+}
+
+.membership-change-button {
+  margin-top: 28px;
+}
+
+.membership-option:disabled {
+  border-color: #d1d1d1;
+  background: #eeeeee;
+  color: #858585;
+}
+
+.membership-option:disabled label {
+  background: #e2e2e2;
+  cursor: not-allowed;
+}
+
+.membership-option:disabled input {
+  cursor: not-allowed;
+}
+
 .profile-panel form {
   display: grid;
   gap: 24px;
@@ -2653,6 +2720,10 @@ place-items: center;
     padding: 22px;
   }
 
+  .membership-options {
+    grid-template-columns: 1fr;
+  }
+
   .reservation-form__summary {
     grid-template-columns: 96px 1fr;
   }
@@ -2766,4 +2837,3 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 .email-confirm-help { color: #63584e; font-size: 14px; text-align: left; }
 .email-confirm-help summary { cursor: pointer; text-align: center; }
 .email-confirm-help[open] summary { margin-bottom: 20px; }
-
