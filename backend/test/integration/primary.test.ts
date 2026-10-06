@@ -43,7 +43,7 @@ function client() {
   let csrf = "",
     id = 0;
   const accept = (r: request.Response) => {
-    agent.set('Authorization', 'Bearer '+r.body.data.accessToken);
+    agent.set('Authorization', 'Bearer ' + r.body.data.accessToken);
     csrf = r.body.data.csrfToken;
     id = r.body.data.user.id;
   };
@@ -134,6 +134,65 @@ async function issue(admin: Client, user: Client, planId: number) {
   return r.body.data;
 }
 
+test("account preferences have safe defaults, persist changes, and remain owner-scoped", async () => {
+  const user = client(),
+    other = client();
+  await user.register();
+  await other.register();
+
+  const defaults = await user.get("/me/preferences");
+  assert.equal(defaults.status, 200);
+  assert.deepEqual(defaults.body.data, {
+    notifications: {
+      reservations: true,
+      classes: true,
+      membershipPayments: true,
+    },
+    accessibility: {
+      largeText: false,
+      highContrast: false,
+      reducedMotion: false,
+    },
+  });
+  assert.equal(
+    (
+      await user.agent
+        .patch("/api/me/preferences")
+        .send({ notifications: { reservations: false } })
+    ).status,
+    403,
+    "writes require a CSRF token",
+  );
+  const changed = await user.patch("/me/preferences", {
+    notifications: { reservations: false },
+    accessibility: { largeText: true },
+  });
+  assert.equal(changed.status, 200, JSON.stringify(changed.body));
+  assert.deepEqual(changed.body.data.notifications, {
+    reservations: false,
+    classes: true,
+    membershipPayments: true,
+  });
+  assert.deepEqual(changed.body.data.accessibility, {
+    largeText: true,
+    highContrast: false,
+    reducedMotion: false,
+  });
+  assert.deepEqual(
+    (await user.get("/me/preferences")).body.data,
+    changed.body.data,
+  );
+  assert.deepEqual((await other.get("/me/preferences")).body.data, defaults.body.data);
+  assert.equal(
+    (await user.patch("/me/preferences", { accessibility: { unknown: true } })).status,
+    400,
+  );
+  assert.equal(
+    (await user.patch("/me/preferences", { notifications: { classes: "yes" } })).status,
+    400,
+  );
+});
+
 test("primary authorization: member isolation, staff restrictions, role changes and stale/self-change rejection", async () => {
   const admin = client(),
     member = client(),
@@ -214,9 +273,9 @@ test("primary authorization: member isolation, staff restrictions, role changes 
   // Permissions are reloaded for each transaction; a live revoke beats role membership.
   await pool.query(`UPDATE role_permission SET isallowed=false WHERE roleid=(SELECT roleid FROM role WHERE role='staff') AND resourcename='user' AND permissionid=3`);
   const fresh = (await person(admin, member.id)).user;
-  assert.equal((await staff.patch(`/admin/users/${member.id}/profile`, {...edit, revision:fresh.revision})).status,403);
+  assert.equal((await staff.patch(`/admin/users/${member.id}/profile`, { ...edit, revision: fresh.revision })).status, 403);
   await pool.query(`UPDATE role_permission SET isallowed=true WHERE roleid=(SELECT roleid FROM role WHERE role='staff') AND resourcename='user' AND permissionid=3`);
-  assert.equal((await staff.patch(`/admin/users/${member.id}/profile`, {...edit, revision:fresh.revision})).status,200);
+  assert.equal((await staff.patch(`/admin/users/${member.id}/profile`, { ...edit, revision: fresh.revision })).status, 200);
   target = (await person(admin, staff.id)).user;
   assert.equal(
     (

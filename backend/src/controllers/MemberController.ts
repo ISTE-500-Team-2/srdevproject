@@ -8,6 +8,10 @@ import { EligibilityModel } from "../models/EligibilityModel.js";
 import { AccessService } from "../services/AccessService.js";
 import { MemberModel } from "../models/MemberModel.js";
 import { StaffModel } from "../models/StaffModel.js";
+import {
+  PreferencesModel,
+  type AccountPreferencesPatch,
+} from "../models/PreferencesModel.js";
 import { page } from "./StaffController.js";
 import { pageOffset } from "../staffDomain.js";
 
@@ -15,7 +19,7 @@ export class MemberController {
   constructor(
     private pool: Pool,
     private timeZone: string,
-  ) {}
+  ) { }
   plans = async (_req: Request, res: Response) => {
     res.json({
       data: await new StaffModel(this.pool, this.timeZone).plans(true),
@@ -63,6 +67,19 @@ export class MemberController {
         textField(req.body.firstName, "First name", 50),
         textField(req.body.lastName, "Last name", 50),
         textField(req.body.phone, "Phone", 15),
+      ),
+    });
+  };
+  preferences = async (_req: Request, res: Response) => {
+    res.json({
+      data: await new PreferencesModel(this.pool).get(authState(res).user.id),
+    });
+  };
+  updatePreferences = async (req: Request, res: Response) => {
+    res.json({
+      data: await new PreferencesModel(this.pool).update(
+        authState(res).user.id,
+        accountPreferencesPatch(req.body),
       ),
     });
   };
@@ -140,4 +157,36 @@ export class MemberController {
     });
     res.status(201).json({ data: record });
   };
+}
+
+function accountPreferencesPatch(value: unknown): AccountPreferencesPatch {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new AppError(400, "INVALID_INPUT", "Preferences must be an object.");
+  const body = value as Record<string, unknown>;
+  const allowedGroups = ["notifications", "accessibility"];
+  if (Object.keys(body).some((key) => !allowedGroups.includes(key)))
+    throw new AppError(400, "INVALID_INPUT", "Unknown preference group.");
+  const result: AccountPreferencesPatch = {};
+  const fields = {
+    notifications: ["reservations", "classes", "membershipPayments"],
+    accessibility: ["largeText", "highContrast", "reducedMotion"],
+  } as const;
+  for (const group of allowedGroups as (keyof typeof fields)[]) {
+    const input = body[group];
+    if (input === undefined) continue;
+    if (!input || typeof input !== "object" || Array.isArray(input))
+      throw new AppError(400, "INVALID_INPUT", `${group} must be an object.`);
+    const entries = input as Record<string, unknown>;
+    const accepted = fields[group];
+    if (Object.keys(entries).some((key) => !accepted.includes(key as never)))
+      throw new AppError(400, "INVALID_INPUT", `Unknown ${group} preference.`);
+    for (const [key, setting] of Object.entries(entries)) {
+      if (typeof setting !== "boolean")
+        throw new AppError(400, "INVALID_INPUT", `${key} must be a Boolean.`);
+    }
+    (result as Record<string, unknown>)[group] = entries;
+  }
+  if (!Object.keys(result).length)
+    throw new AppError(400, "INVALID_INPUT", "Provide at least one preference.");
+  return result;
 }

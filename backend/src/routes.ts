@@ -52,6 +52,8 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.post("/reservations/:id/cancel", requireCsrf, reservations.cancel);
   routes.get("/me/overview", member.overview);
   routes.patch("/me/profile", requireCsrf, member.profile);
+  routes.get("/me/preferences", member.preferences);
+  routes.patch("/me/preferences", requireCsrf, member.updatePreferences);
   routes.get("/me/waivers", member.waivers);
   routes.get("/me/certifications", member.certifications);
   routes.post("/me/waivers/:id/sign", requireCsrf, member.signWaiver);

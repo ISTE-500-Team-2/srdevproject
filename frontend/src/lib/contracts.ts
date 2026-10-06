@@ -17,6 +17,22 @@ export interface Session {
   user: User;
   csrfToken: string;
 }
+export interface AccountPreferences {
+  notifications: {
+    reservations: boolean;
+    classes: boolean;
+    membershipPayments: boolean;
+  };
+  accessibility: {
+    largeText: boolean;
+    highContrast: boolean;
+    reducedMotion: boolean;
+  };
+}
+export interface AccountPreferencesPatch {
+  notifications?: Partial<AccountPreferences['notifications']>;
+  accessibility?: Partial<AccountPreferences['accessibility']>;
+}
 export interface Registration {
   firstName: string;
   lastName: string;
