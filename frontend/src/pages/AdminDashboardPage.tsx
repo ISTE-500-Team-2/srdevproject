@@ -7,11 +7,13 @@ import { StaffUsers } from "./StaffUsers";
 import { StaffPlans } from "./StaffPlans";
 import { StaffPayments } from "./StaffPayments";
 import { StaffPolicies } from "./StaffPolicies";
+import { StaffReservations } from "./StaffReservations";
 import { AdminAnalyticsPreviewPage } from "./AdminAnalyticsPreviewPage";
 
 const tabs = [
   ["members", "Members"],
   ["plans", "Plans"],
+  ["reservations", "Reservations"],
   ["payments", "Payment history"],
   ["policies", "Policies"],
   ["audit", "Change log"],
@@ -42,6 +44,8 @@ export function AdminDashboardPage() {
       </nav>
       {tab === "plans" ? (
         <StaffPlans />
+      ) : tab === "reservations" ? (
+        <StaffReservations />
       ) : tab === "payments" ? (
         <StaffPayments />
       ) : tab === "policies" ? (

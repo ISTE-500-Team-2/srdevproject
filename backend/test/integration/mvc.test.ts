@@ -128,6 +128,18 @@ async function enableMember(id: number) {
     [id],
   );
 }
+async function signRequiredPolicies(user: ReturnType<typeof client>) {
+  const policies = (await user.agent.get('/api/me/waivers')).body.data;
+  for (const policy of policies)
+    assert.equal(
+      (
+        await user.post('/me/waivers/' + policy.id + '/sign', {
+          accepted: true,
+        })
+      ).status,
+      200,
+    );
+}
 async function signRequiredWaivers(user: ReturnType<typeof client>) {
   const policies = (await user.agent.get('/api/me/waivers')).body.data;
   for (const policy of policies)
@@ -643,6 +655,107 @@ test('SDTA-123: cancellation boundary is inclusive at exactly 24h and exclusive 
    await db.query('DELETE FROM reservation WHERE reservationid=$1',[result.rows[0].reservationid]);
   }
  }finally{await db.query('ROLLBACK');db.release();}
+});
+
+test('FR-001/035: staff and admins bulk manage reservations with audit trail',async()=>{
+ const member=client(),staff=client(),admin=client(),other=client();await member.demo();await staff.demo('admin');await admin.demo('admin');await other.register();
+ await pool.query("UPDATE user_role SET roleid=(SELECT roleid FROM role WHERE role='staff') WHERE userid=$1",[staff.id]);
+ await enableMember(other.id);await signRequiredPolicies(other);
+ const eq=await equipment();
+ const created=await staff.post('/reservations',{...interval(eq,15),userId:member.id});
+ assert.equal(created.status,201,JSON.stringify(created.body));
+ const id=created.body.data.id;
+ const all=await staff.agent.get('/api/admin/reservations?userId='+member.id+'&equipmentId='+eq);
+ assert.equal(all.status,200,JSON.stringify(all.body));
+ assert.ok(all.body.data.items.some((item:{id:number})=>item.id===id));
+ const filteredOut=await staff.agent.get('/api/admin/reservations?userId='+staff.id+'&equipmentId='+eq);
+ assert.equal(filteredOut.status,200);
+ assert.equal(filteredOut.body.data.items.some((item:{id:number})=>item.id===id),false);
+ const newStart=new Date(Date.now()+16*86_400_000);
+ const updated=await staff.patch('/admin/reservations/'+id,{
+  userId:member.id,equipmentId:eq,roomId:null,
+  startTime:newStart.toISOString(),
+  endTime:new Date(newStart.getTime()+2*3_600_000).toISOString(),
+  expectedRevision:created.body.data.revision,
+ });
+ assert.equal(updated.status,200,JSON.stringify(updated.body));
+ assert.equal(updated.body.data.userId,member.id);
+ assert.equal(updated.body.data.revision,created.body.data.revision+1);
+ assert.equal(new Date(updated.body.data.endTime).getTime()-new Date(updated.body.data.startTime).getTime(),2*3_600_000);
+ const stale=await staff.patch('/admin/reservations/'+id,{
+  userId:member.id,equipmentId:eq,roomId:null,
+  startTime:created.body.data.startTime,
+  endTime:new Date(new Date(created.body.data.startTime).getTime()+3*3_600_000).toISOString(),
+  expectedRevision:created.body.data.revision,
+ });
+ assert.equal(stale.status,409);
+ assert.equal(stale.body.error.code,'STALE_RECORD');
+ await pool.query("UPDATE app_notification_outbox SET status='accepted',accepted_at=NOW(),provider_message_id='test-update-1' WHERE dedupe_key=$1",[`reservation-updated:${id}:${updated.body.data.revision}`]);
+ const newerStart=new Date(Date.now()+17*86_400_000);
+ const reassigned=await staff.patch('/admin/reservations/'+id,{
+  userId:other.id,equipmentId:eq,roomId:null,
+  startTime:newerStart.toISOString(),
+  endTime:new Date(newerStart.getTime()+2*3_600_000).toISOString(),
+  expectedRevision:updated.body.data.revision,
+ });
+ assert.equal(reassigned.status,200,JSON.stringify(reassigned.body));
+ assert.equal(reassigned.body.data.userId,other.id);
+ const notices=await pool.query("SELECT userid,status,payload FROM app_notification_outbox WHERE dedupe_key IN ($1,$2) ORDER BY dedupe_key",[
+  `reservation-updated:${id}:${updated.body.data.revision}`,
+  `reservation-updated:${id}:${reassigned.body.data.revision}`,
+ ]);
+ assert.equal(notices.rowCount,2);
+ assert.equal(notices.rows[0].userid,member.id);
+ assert.equal(notices.rows[0].status,'accepted');
+ assert.equal(new Date(notices.rows[0].payload.startsAt).toISOString(),newStart.toISOString());
+ assert.equal(notices.rows[1].userid,other.id);
+ assert.equal(notices.rows[1].status,'pending');
+ assert.equal(new Date(notices.rows[1].payload.startsAt).toISOString(),newerStart.toISOString());
+ const auditUpdate=await pool.query("SELECT actor_id,subject_id,before_state,after_state FROM app_staff_audit WHERE action='reservation.override.updated' AND entity_id=$1",[id]);
+ assert.equal(auditUpdate.rows[0].actor_id,staff.id);
+ assert.equal(auditUpdate.rows[0].subject_id,member.id);
+ assert.equal(auditUpdate.rows[0].before_state.status,'confirmed');
+ const cancelled=await admin.post('/admin/reservations/'+id+'/cancel');
+ assert.equal(cancelled.status,200,JSON.stringify(cancelled.body));
+ assert.equal(cancelled.body.data.status,'cancelled');
+ const auditCancel=await pool.query("SELECT actor_id,subject_id,before_state,after_state FROM app_staff_audit WHERE action='reservation.override.cancelled' AND entity_id=$1",[id]);
+ assert.equal(auditCancel.rows[0].actor_id,admin.id);
+ assert.equal(auditCancel.rows[0].subject_id,other.id);
+ assert.equal(auditCancel.rows[0].after_state.status,'cancelled');
+});
+
+test('FR-001/035: staff reservation date filter uses application timezone day boundaries',async()=>{
+ const member=client(),staff=client();await member.demo();await staff.demo('admin');
+ await pool.query("UPDATE user_role SET roleid=(SELECT roleid FROM role WHERE role='staff') WHERE userid=$1",[staff.id]);
+ const eq=await equipment();
+ const rows=await pool.query(`INSERT INTO reservation(userid,equipmentid,location,starttime,endtime,status,statusdesc)
+  VALUES
+   ($1,$2,'Timezone fixture','2026-10-15T01:30:00Z'::timestamptz AT TIME ZONE 'UTC','2026-10-15T02:30:00Z'::timestamptz AT TIME ZONE 'UTC','confirmed','Timezone fixture'),
+   ($1,$2,'DST fixture','2026-11-01T04:30:00Z'::timestamptz AT TIME ZONE 'UTC','2026-11-01T05:30:00Z'::timestamptz AT TIME ZONE 'UTC','confirmed','DST fixture'),
+   ($1,$2,'DST fixture','2026-11-02T04:30:00Z'::timestamptz AT TIME ZONE 'UTC','2026-11-02T05:30:00Z'::timestamptz AT TIME ZONE 'UTC','confirmed','DST fixture')
+  RETURNING reservationid`,[member.id,eq]);
+ const ids=rows.rows.map(r=>r.reservationid);
+ const oct14=await staff.agent.get('/api/admin/reservations?date=2026-10-14&equipmentId='+eq);
+ assert.equal(oct14.status,200,JSON.stringify(oct14.body));
+ assert.ok(oct14.body.data.items.some((item:{id:number})=>item.id===ids[0]));
+ const oct15=await staff.agent.get('/api/admin/reservations?date=2026-10-15&equipmentId='+eq);
+ assert.equal(oct15.status,200,JSON.stringify(oct15.body));
+ assert.equal(oct15.body.data.items.some((item:{id:number})=>item.id===ids[0]),false);
+ const nov1=await staff.agent.get('/api/admin/reservations?date=2026-11-01&equipmentId='+eq);
+ assert.equal(nov1.status,200,JSON.stringify(nov1.body));
+ assert.ok(ids.slice(1).every(id=>nov1.body.data.items.some((item:{id:number})=>item.id===id)));
+ const nov2=await staff.agent.get('/api/admin/reservations?date=2026-11-02&equipmentId='+eq);
+ assert.equal(nov2.status,200,JSON.stringify(nov2.body));
+ assert.equal(ids.slice(1).some(id=>nov2.body.data.items.some((item:{id:number})=>item.id===id)),false);
+});
+
+test('BR-006: instructor cannot create staff reservation overrides',async()=>{
+ const member=client(),instructor=client();await member.demo();await instructor.demo('admin');
+ await pool.query("UPDATE user_role SET roleid=(SELECT roleid FROM role WHERE role='instructor') WHERE userid=$1",[instructor.id]);
+ const res=await instructor.post('/reservations',{...interval(await equipment(),17),userId:member.id});
+ assert.equal(res.status,403);
+ assert.equal(res.body.error.code,'INSTRUCTOR_BOOKING_FORBIDDEN');
+ assert.equal((await instructor.agent.get('/api/admin/reservations')).status,403);
 });
 
 test('additive RBAC migration upgrades existing MVC data without resetting users or reservations', async () => {

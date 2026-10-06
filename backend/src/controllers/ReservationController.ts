@@ -15,9 +15,53 @@ export class ReservationController {
   ) {}
   list = async (_req: Request, res: Response) => {
     res.json({
-      data: await new ReservationModel(this.pool).listForUser(
+      data: await new ReservationModel(this.pool, this.timeZone).listForUser(
         authState(res).user.id,
       ),
+    });
+  };
+  staffList = async (req: Request, res: Response) => {
+    const date = typeof req.query.date === 'string' ? req.query.date : '';
+    const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+    if (date && !dateMatch)
+      throw new AppError(400, 'INVALID_INPUT', 'Date must use YYYY-MM-DD format.');
+    if (dateMatch) {
+      const year = Number(dateMatch[1]);
+      const month = Number(dateMatch[2]);
+      const day = Number(dateMatch[3]);
+      const parsed = new Date(Date.UTC(year, month - 1, day));
+      if (
+        parsed.getUTCFullYear() !== year ||
+        parsed.getUTCMonth() + 1 !== month ||
+        parsed.getUTCDate() !== day
+      )
+        throw new AppError(400, 'INVALID_INPUT', 'Date must be a valid calendar date.');
+    }
+    const userId =
+      req.query.userId == null || req.query.userId === ''
+        ? null
+        : positiveId(req.query.userId, 'Member');
+    const equipmentId =
+      req.query.equipmentId == null || req.query.equipmentId === ''
+        ? null
+        : positiveId(req.query.equipmentId, 'Equipment');
+    const offset =
+      req.query.offset == null || req.query.offset === ''
+        ? 0
+        : Number(req.query.offset);
+    if (!Number.isSafeInteger(offset) || offset < 0)
+      throw new AppError(400, 'INVALID_INPUT', 'Offset must be zero or more.');
+    const rows = await new ReservationModel(this.pool, this.timeZone).listAll({
+      date,
+      userId,
+      equipmentId,
+      offset,
+    });
+    res.json({
+      data: {
+        items: rows.slice(0, 50),
+        nextOffset: rows.length > 50 ? offset + 50 : null,
+      },
     });
   };
   create = async (req: Request, res: Response) => {
@@ -29,6 +73,23 @@ export class ReservationController {
           req.body,
         ),
       });
+  };
+  update = async (req: Request, res: Response) => {
+    res.json({
+      data: await new ReservationService(this.pool, this.timeZone).update(
+        authState(res).user.id,
+        positiveId(req.params.id),
+        req.body,
+      ),
+    });
+  };
+  staffCancel = async (req: Request, res: Response) => {
+    res.json({
+      data: await new ReservationService(this.pool, this.timeZone).cancelAny(
+        authState(res).user.id,
+        positiveId(req.params.id),
+      ),
+    });
   };
   cancel = async (req: Request, res: Response) => {
     const userId = authState(res).user.id;
