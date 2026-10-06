@@ -215,6 +215,7 @@ export class ReservationService {
       startTime?: unknown;
       endTime?: unknown;
       userId?: unknown;
+      expectedRevision?: unknown;
     },
   ) {
     return transaction(this.pool, async (db) => {
@@ -235,7 +236,7 @@ export class ReservationService {
           'Only staff can modify another member reservation.',
         );
 
-      const model = new ReservationModel(db);
+      const model = new ReservationModel(db, this.timeZone);
       const before = await model.find(reservationId, true);
       if (!before)
         throw new AppError(404, 'NOT_FOUND', 'Reservation not found.');
@@ -244,6 +245,13 @@ export class ReservationService {
           409,
           'INVALID_STATUS',
           'Only active reservations can be modified.',
+        );
+      const expectedRevision = positiveId(input.expectedRevision, 'revision');
+      if (before.revision !== expectedRevision)
+        throw new AppError(
+          409,
+          'STALE_RECORD',
+          'This reservation changed. Refresh it before saving.',
         );
 
       const targetId =
@@ -384,8 +392,8 @@ export class ReservationService {
       );
       await enqueueNotification(db, {
         userId: targetId,
-        kind: 'reservation_created',
-        dedupeKey: `reservation-updated:${reservation.id}`,
+        kind: 'reservation_updated',
+        dedupeKey: `reservation-updated:${reservation.id}:${reservation.revision}`,
         payload: {
           reservationId: reservation.id,
           resourceName,
