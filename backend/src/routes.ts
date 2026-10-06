@@ -99,6 +99,9 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   );
   routes.get("/admin/payments", permit("payment","read","global"), staff.payments);
   routes.post("/admin/payments/:id/status", permit("payment","update","global"), requireCsrf, staff.payment);
+  routes.get("/admin/reservations", permit("reservation","read","global"), reservations.staffList);
+  routes.patch("/admin/reservations/:id", permit("reservation","update","global"), requireCsrf, reservations.update);
+  routes.post("/admin/reservations/:id/cancel", permit("reservation","update","global"), requireCsrf, reservations.staffCancel);
   routes.get("/admin/audit", permit("audit","read","global"), staff.audits);
   routes.get("/admin/policies", permit("policy","read","global"), staff.policies);
   routes.post("/admin/policies", permit("policy","create","global"), requireCsrf, staff.publishPolicy);
