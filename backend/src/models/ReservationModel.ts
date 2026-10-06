@@ -5,11 +5,14 @@ export const RESERVATION_COOLDOWN_MINUTES = 15;
 const selection = `r.reservationid AS id,r.userid AS "userId",r.equipmentid AS "equipmentId",r.roomid AS "roomId",
  COALESCE(e.name,room.name) AS "equipmentName",CASE WHEN r.roomid IS NULL THEN 'equipment' ELSE 'room' END AS "resourceType",
  r.starttime AT TIME ZONE 'UTC' AS "startTime",r.endtime AT TIME ZONE 'UTC' AS "endTime",r.location,r.status,
- u.firstname || ' ' || u.lastname AS "memberName",u.email AS "memberEmail"`;
+ r.revision,u.firstname || ' ' || u.lastname AS "memberName",u.email AS "memberEmail"`;
 const joins = `LEFT JOIN equipment e USING (equipmentid) LEFT JOIN room ON room.roomid=r.roomid JOIN "user" u ON u.userid=r.userid`;
 
 export class ReservationModel {
-  constructor(private db: Database) {}
+  constructor(
+    private db: Database,
+    private timeZone = 'America/New_York',
+  ) {}
   async listForUser(userId: number) {
     return (
       await this.db.query(
@@ -28,7 +31,10 @@ export class ReservationModel {
     return (
       await this.db.query(
         `SELECT ${selection} FROM reservation r ${joins}
-        WHERE ($1::date IS NULL OR r.starttime::date=$1::date)
+        WHERE ($1::date IS NULL OR (
+            r.starttime >= (($1::date::timestamp AT TIME ZONE $5) AT TIME ZONE 'UTC')
+            AND r.starttime < ((($1::date + 1)::timestamp AT TIME ZONE $5) AT TIME ZONE 'UTC')
+          ))
           AND ($2::int IS NULL OR r.userid=$2)
           AND ($3::int IS NULL OR r.equipmentid=$3)
         ORDER BY r.starttime DESC,r.reservationid DESC LIMIT 51 OFFSET $4`,
@@ -37,6 +43,7 @@ export class ReservationModel {
           filters.userId ?? null,
           filters.equipmentId ?? null,
           filters.offset ?? 0,
+          this.timeZone,
         ],
       )
     ).rows;
@@ -160,7 +167,7 @@ export class ReservationModel {
     const { rows } = await this.db.query(
       `UPDATE reservation SET userid=$2,equipmentid=$3,roomid=$4,waiverid=$5,location=$6,
       starttime=$7::timestamptz AT TIME ZONE 'UTC',endtime=$8::timestamptz AT TIME ZONE 'UTC',
-      status='confirmed',statusdesc='Modified by staff'
+      status='confirmed',statusdesc='Modified by staff',revision=revision+1
       WHERE reservationid=$1 AND status IN ('confirmed','pending')
       RETURNING reservationid AS id`,
       [
