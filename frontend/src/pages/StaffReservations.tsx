@@ -68,6 +68,7 @@ export function StaffReservations() {
         roomId: null,
         startTime: start.toISOString(),
         endTime: end.toISOString(),
+        ...(editing ? { expectedRevision: editing.revision } : {}),
       };
       if (editing) {
         await api<Reservation>(`/admin/reservations/${editing.id}`, {
