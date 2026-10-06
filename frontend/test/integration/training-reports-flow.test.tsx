@@ -57,7 +57,7 @@ test("staff training UI configures approved expiry, records actual instructor tr
   );
   await user.click(screen.getByRole("button", { name: "Save certification" }));
   await screen.findByRole("heading", { name: "UI printer safety" });
-  await user.type(screen.getByLabelText("Member ID"), String(member));
+  await user.type(await screen.findByLabelText("Member ID"), String(member));
   await user.click(screen.getByRole("button", { name: "Load member" }));
   await screen.findByRole("heading", { name: "Approve completed training" });
   const cert = (
@@ -140,7 +140,7 @@ test("staff card assignment, revocation and timed override UI save audited recor
       `SELECT userid FROM "user" WHERE email='demo.member@collaboratory.invalid'`,
     )
   ).rows[0].userid;
-  await user.type(screen.getByLabelText("Member ID"), String(member));
+  await user.type(await screen.findByLabelText("Member ID"), String(member));
   await user.click(screen.getByRole("button", { name: "Load cards" }));
   await screen.findByRole("heading", { name: "Assign scanned card" });
   await user.type(screen.getByLabelText("Card UID"), "04:A1:B2:C3:D4:E5:F6");
