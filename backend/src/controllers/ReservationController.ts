@@ -15,7 +15,7 @@ export class ReservationController {
   ) {}
   list = async (_req: Request, res: Response) => {
     res.json({
-      data: await new ReservationModel(this.pool).listForUser(
+      data: await new ReservationModel(this.pool, this.timeZone).listForUser(
         authState(res).user.id,
       ),
     });
@@ -51,7 +51,7 @@ export class ReservationController {
         : Number(req.query.offset);
     if (!Number.isSafeInteger(offset) || offset < 0)
       throw new AppError(400, 'INVALID_INPUT', 'Offset must be zero or more.');
-    const rows = await new ReservationModel(this.pool).listAll({
+    const rows = await new ReservationModel(this.pool, this.timeZone).listAll({
       date,
       userId,
       equipmentId,
