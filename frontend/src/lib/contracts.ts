@@ -56,6 +56,7 @@ export interface Reservation {
   endTime: string;
   location: string;
   status: string;
+  revision: number;
   memberName?: string;
   memberEmail?: string;
 }
