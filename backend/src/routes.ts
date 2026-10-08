@@ -89,6 +89,7 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.patch("/admin/users/:id/signed-waivers/:waiverId/expiry", permit("waiver","update","global"), requireCsrf, waiverRecords.expiry);
   routes.patch("/admin/users/:id/profile", permit("user","update","global"), requireCsrf, staff.profile);
   routes.post("/admin/users/:id/access", permit("user_access","update","global"), requireCsrf, staff.access);
+  routes.post("/admin/users/:id/status", permit("user_access","update","global"), requireCsrf, staff.accountStatus);
   routes.post("/admin/users/:id/role", permit("user_role","update","global"), requireCsrf, staff.role);
   routes.post("/admin/users/:id/entitlements", permit("entitlement","create","global"), requireCsrf, staff.issue);
   routes.post(

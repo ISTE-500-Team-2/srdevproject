@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Database } from '../db.js';
 import { timingSafeEqual } from 'node:crypto';
 import { UserModel } from './UserModel.js';
+import { AppError } from '../domain.js';
 import { JwtTokens, rememberedLifetimeSeconds } from '../jwt.js';
 
 export const tokenHash = (token: string): string =>
@@ -13,6 +14,7 @@ export class SessionModel {
     this.jwt = new JwtTokens(key, accessSeconds);
   }
   async create(userId: number, remember: boolean) {
+    await this.db.query('SELECT userid FROM "user" WHERE userid=$1 FOR SHARE', [userId]);
     await this.db.query('DELETE FROM app_session WHERE expires_at<=NOW()');
     await this.db.query('DELETE FROM app_refresh_family WHERE expires_at<=NOW()');
     const familyId = randomUUID(), csrfToken = randomBytes(32).toString('hex');
@@ -21,7 +23,7 @@ export class SessionModel {
   }
   private async issue(userId: number, familyId: string, csrfToken: string, persistent: boolean) {
     const user = await new UserModel(this.db).findById(userId);
-    if (!user || user.status !== 'active') throw new Error('Inactive refresh account');
+    if (!user || user.status !== 'active') throw new AppError(403, 'ACCOUNT_INACTIVE', 'This account does not currently have access. Please see staff.');
     const {token, expiresAt, ttl} = await this.jwt.issue(userId, user.roles.includes(user.primaryRole ?? "") ? user.primaryRole! : user.roles[0] ?? user.role, user.roles);
     const refreshToken = randomBytes(32).toString('base64url');
     await this.db.query('INSERT INTO app_refresh_token(token_hash,family_id) VALUES($1,$2)',[tokenHash(refreshToken),familyId]);
@@ -32,9 +34,12 @@ export class SessionModel {
     const {rows} = await this.db.query(`SELECT f.csrf_token AS "csrfToken" FROM app_refresh_token t JOIN app_refresh_family f ON f.id=t.family_id WHERE t.token_hash=$1 AND NOT t.consumed AND NOT f.revoked AND f.expires_at>NOW()`,[tokenHash(refreshToken)]);
     return rows[0]?.csrfToken as string | undefined;
   }
-  // Caller wraps rotation in a transaction. Lock family first, then reread consumption
-  // so concurrent reuse is detected rather than issuing two successors.
+  // Caller wraps rotation in a transaction. Lock user before family, matching
+  // account status changes; then reread consumption to detect concurrent reuse.
   async rotate(refreshToken: string, csrf: string) {
+    const owner = (await this.db.query('SELECT f.userid FROM app_refresh_family f JOIN app_refresh_token t ON t.family_id=f.id WHERE t.token_hash=$1', [tokenHash(refreshToken)])).rows[0];
+    if (!owner) return null;
+    await this.db.query('SELECT userid FROM "user" WHERE userid=$1 FOR SHARE', [owner.userid]);
     const {rows} = await this.db.query(`SELECT f.* FROM app_refresh_family f JOIN app_refresh_token t ON t.family_id=f.id WHERE t.token_hash=$1 FOR UPDATE OF f`,[tokenHash(refreshToken)]);
     const family = rows[0];
     if (!family || family.revoked || new Date(family.expires_at).getTime() <= Date.now()) return null;

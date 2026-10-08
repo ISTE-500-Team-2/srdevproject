@@ -21,6 +21,7 @@ export interface Person {
   status: string;
   accessStatus: "active" | "suspended" | "revoked";
   accessReason: string;
+  accountReason?: string;
   conductFlag: boolean;
   address: Record<string, string | boolean>;
   contactPreferences: Record<string, string | boolean>;
