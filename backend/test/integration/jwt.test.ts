@@ -230,6 +230,41 @@ test('account suspension/blocking revokes every session; restoration requires fr
   assert.equal((await pool.query('SELECT accessstatus FROM "user" WHERE userid=$1',[a.userId])).rows[0].accessstatus,'active');
 });
 
+test('restoring legacy suspended or blocked accounts revokes all old credentials and permits fresh login', async () => {
+  const operator = await request(app).post('/api/auth/demo').send({role:'admin'});
+  assert.equal(operator.status,200);
+  for (const status of ['suspended','inactive']) {
+    const a = await register();
+    const remembered = await request(app).post('/api/auth/login').send({email:a.email,password:a.password,remember:true});
+    assert.equal(remembered.status,200);
+    // Legacy status changes may have left live families. Do not refresh while
+    // suspended: that would revoke the family and hide the restoration bug.
+    await pool.query('UPDATE "user" SET status=$2 WHERE userid=$1',[a.userId,status]);
+    assert.equal((await current(a.token)).status,403);
+    assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM app_refresh_family WHERE userid=$1 AND NOT revoked',[a.userId])).rows[0].count,2);
+    const person = await request(app).get(`/api/admin/users/${a.userId}`).set('Authorization','Bearer '+browserToken(operator));
+    assert.equal(person.status,200);
+    const restore = await request(app).post(`/api/admin/users/${a.userId}/status`)
+      .set('Authorization','Bearer '+browserToken(operator)).set('X-CSRF-Token',operator.body.data.csrfToken)
+      .send({status:'active',revision:person.body.data.user.revision,reason:'Restore legacy account'});
+    assert.equal(restore.status,200);
+    for (const old of [a.res,remembered]) {
+      assert.equal((await current(browserToken(old))).status,401,`${status}: old JWT must remain invalid after restoration`);
+      assert.equal((await renew(refreshCookie(old),old.body.data.csrfToken)).status,401,`${status}: old refresh cookie must remain invalid after restoration`);
+    }
+    assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM app_refresh_family WHERE userid=$1 AND NOT revoked',[a.userId])).rows[0].count,0);
+    const fresh = await request(app).post('/api/auth/login').send({email:a.email,password:a.password});
+    assert.equal(fresh.status,200);
+    assert.equal((await current(browserToken(fresh))).status,200);
+    // Saving a reason on an already-active account should not log it out.
+    const update = await request(app).post(`/api/admin/users/${a.userId}/status`)
+      .set('Authorization','Bearer '+browserToken(operator)).set('X-CSRF-Token',operator.body.data.csrfToken)
+      .send({status:'active',revision:restore.body.data.revision,reason:'Update active account note'});
+    assert.equal(update.status,200);
+    assert.equal((await current(browserToken(fresh))).status,200);
+  }
+});
+
 test('session creation and refresh wait for account status transactions and reject a committed suspension', async () => {
   const a = await register(), lock = await pool.connect();
   try {

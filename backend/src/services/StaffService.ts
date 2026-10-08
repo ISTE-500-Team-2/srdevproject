@@ -175,7 +175,8 @@ export class StaffService {
       if (!after) throw conflict();
       // Session issuance holds this user's share lock before creating/rotating a
       // family. The target update lock makes revocation atomic with the status.
-      if (status !== "active")
+      // Restoration also ends families left live by legacy status changes.
+      if (status !== "active" || before.status !== "active")
         await db.query('UPDATE app_refresh_family SET revoked=true WHERE userid=$1', [id]);
       await model.audit(actorId, id, "user.account_" + status, "user", id, reason, before, after);
       return after;
