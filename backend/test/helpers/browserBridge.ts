@@ -1,3 +1,4 @@
+import type {DeviceConfig} from '../../src/deviceAccess.js';
 import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
 import { Pool } from 'pg';
@@ -7,7 +8,7 @@ import { initializeDemo } from '../../src/scripts/init-demo.js';
 
 // React/jsdom calls the real Express HTTP stack, backed by a fresh PostgreSQL DB.
 // The cookie jar stays inside this harness, like a browser-owned HttpOnly cookie.
-export async function createBrowserBridge() {
+export async function createBrowserBridge(options:{devices?:DeviceConfig}={}) {
   if (!process.env.PGHOST || process.env.DATABASE_URL)
     throw new Error(
       'Explicit isolated PostgreSQL test configuration is required.',
@@ -26,6 +27,7 @@ export async function createBrowserBridge() {
   }
   const app = createApp(pool, {
     // jsdom has a different Uint8Array realm from Node's Buffer subclass.
+    devices:options.devices,
     jwtKey: new Uint8Array(randomBytes(32)),
     port: 8080,
     host: '127.0.0.1',

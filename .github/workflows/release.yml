@@ -1,0 +1,97 @@
+name: Gated ARBOR release
+on:
+  workflow_run:
+    workflows: ["Verify MVC application"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: "Reviewed main commit (full 40-character SHA)"
+        required: true
+      environment:
+        type: choice
+        options: [staging, production]
+        default: staging
+        required: true
+permissions:
+  contents: read
+  actions: read
+  checks: read
+  packages: write
+concurrency:
+  group: arbor-release-${{ github.event.inputs.environment || 'staging' }}
+  cancel-in-progress: false
+jobs:
+  release:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # Configure production required reviewers in GitHub repository settings.
+    environment: ${{ github.event.inputs.environment || 'staging' }}
+    env:
+      RELEASE_SHA: ${{ github.event.inputs.revision || github.event.workflow_run.head_sha }}
+      RELEASE_ENVIRONMENT: ${{ github.event.inputs.environment || 'staging' }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.revision || github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Verify reviewed main revision and successful required CI
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$(git rev-parse HEAD)" == "$RELEASE_SHA" ]]
+          git merge-base --is-ancestor "$RELEASE_SHA" origin/main
+          gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_SHA/check-runs" > "$RUNNER_TEMP/checks.json"
+          jq -e '.check_runs | any(.name == "verify" and .app.slug == "github-actions" and .conclusion == "success")' "$RUNNER_TEMP/checks.json" >/dev/null
+      - name: Require configured human reviewers for production
+        if: env.RELEASE_ENVIRONMENT == 'production'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/environments/production" > "$RUNNER_TEMP/production-environment.json"
+          jq -e '.protection_rules | any(.type == "required_reviewers" and (.reviewers | length > 0))' "$RUNNER_TEMP/production-environment.json" >/dev/null
+      - name: Build reviewed image
+        run: |
+          set -euo pipefail
+          repository=${GITHUB_REPOSITORY,,}
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          image="ghcr.io/$repository:$RELEASE_SHA"
+          docker build -t "$image" .
+          docker push "$image"
+          docker pull "$image"
+          digest=$(docker image inspect "$image" --format '{{index .RepoDigests 0}}')
+          [[ "$digest" =~ ^ghcr.io/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$ ]]
+          printf 'ARBOR_RELEASE_IMAGE=%s\n' "$digest" >> "$GITHUB_ENV"
+      - name: Install reviewed rollout files and deploy without automatic schema migration
+        env:
+          RLES_HOST: ${{ secrets.RLES_HOST }}
+          RLES_PORT: ${{ secrets.RLES_PORT }}
+          RLES_USER: ${{ secrets.RLES_USER }}
+          RLES_SSH_KEY: ${{ secrets.RLES_SSH_KEY }}
+          RLES_KNOWN_HOSTS: ${{ secrets.RLES_KNOWN_HOSTS }}
+          RLES_RELEASE_ROOT: ${{ vars.RLES_RELEASE_ROOT }}
+          RLES_ENV_FILE: ${{ vars.RLES_ENV_FILE }}
+          RLES_DOCKER_NETWORK: ${{ vars.RLES_DOCKER_NETWORK }}
+          RLES_HTTP_PORT: ${{ vars.RLES_HTTP_PORT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RLES_HOST" =~ ^[a-zA-Z0-9.-]+$ && "$RLES_USER" =~ ^[a-zA-Z0-9_-]+$ && "$RLES_PORT" =~ ^[0-9]+$ ]]
+          [[ "$RLES_RELEASE_ROOT" =~ ^/[a-zA-Z0-9_./-]+$ && "$RLES_ENV_FILE" =~ ^/[a-zA-Z0-9_./-]+$ && "$RLES_DOCKER_NETWORK" =~ ^[a-zA-Z0-9_.-]+$ && "$RLES_HTTP_PORT" =~ ^[0-9]+$ ]]
+          [[ -n "$RLES_SSH_KEY" && -n "$RLES_KNOWN_HOSTS" ]]
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$RLES_SSH_KEY" > "$HOME/.ssh/arbor_release"
+          printf '%s\n' "$RLES_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/arbor_release" "$HOME/.ssh/known_hosts"
+          target="$RLES_USER@$RLES_HOST"
+          options=(-i "$HOME/.ssh/arbor_release" -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10)
+          # An operator prepares root/environment/network and backup permissions first.
+          ssh "${options[@]}" -p "$RLES_PORT" "$target" "test -d '$RLES_RELEASE_ROOT' && test -f '$RLES_ENV_FILE'"
+          scp "${options[@]}" -P "$RLES_PORT" deploy/compose.release.yml deploy/deploy-arbor.sh "$target:$RLES_RELEASE_ROOT/"
+          ssh "${options[@]}" -p "$RLES_PORT" "$target" "bash '$RLES_RELEASE_ROOT/deploy-arbor.sh' '$RELEASE_ENVIRONMENT' '$ARBOR_RELEASE_IMAGE' '$RLES_RELEASE_ROOT' '$RLES_ENV_FILE' '$RLES_DOCKER_NETWORK' '$RLES_HTTP_PORT'"

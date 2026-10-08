@@ -1,3 +1,4 @@
+import { TrainingPage } from './pages/TrainingPage';
 import { StudiosPage } from './pages/StudiosPage';
 import { RequireUser, RequireStaff } from './components/RouteGuards';
 import { ConfirmEmailPage } from './pages/ConfirmEmailPage';
@@ -30,6 +31,7 @@ export default function App() {
             <Route path="studios" element={<StudiosPage />} />
             <Route path="certifications" element={<CertificationsPage />} />
             <Route path="classes" element={<ClassesPage />} />
+            <Route path="training" element={<TrainingPage />} />
             <Route path="profile" element={<ProfilePage />} />
             <Route path="membership" element={<MembershipPage />} />
             <Route element={<RequireStaff />}>

@@ -103,16 +103,30 @@ export class StaffModel {
     );
     return result.rowCount ? this.person(id) : undefined;
   }
-  async setRole(id: number, role: string, roles?: string[], isStudent?: boolean) {
+  async setRole(
+    id: number,
+    role: string,
+    roles?: string[],
+    isStudent?: boolean,
+  ) {
     if (roles) {
       // Explicit multi-role editor replaces managed roles only; retain unknown legacy classifications.
-      await this.db.query(`DELETE FROM user_role WHERE userid=$1 AND roleid IN
-        (SELECT roleid FROM role WHERE role IN ('member','admin','staff','subscriber','day_pass','instructor','student'))`,[id]);
+      await this.db.query(
+        `DELETE FROM user_role WHERE userid=$1 AND roleid IN
+        (SELECT roleid FROM role WHERE role IN ('member','admin','staff','subscriber','day_pass','instructor','student'))`,
+        [id],
+      );
     }
-    await this.db.query(`INSERT INTO user_role(userid,roleid,assignedat)
+    await this.db.query(
+      `INSERT INTO user_role(userid,roleid,assignedat)
       SELECT $1,roleid,NOW() AT TIME ZONE 'UTC' FROM role WHERE role=ANY($2::text[])
-      AND NOT EXISTS(SELECT 1 FROM user_role ur WHERE ur.userid=$1 AND ur.roleid=role.roleid)`,[id,roles ?? [role]]);
-    await this.db.query('UPDATE "user" SET primary_role=$2,is_student=COALESCE($3,is_student),revision=revision+1 WHERE userid=$1',[id,role,isStudent ?? null]);
+      AND NOT EXISTS(SELECT 1 FROM user_role ur WHERE ur.userid=$1 AND ur.roleid=role.roleid)`,
+      [id, roles ?? [role]],
+    );
+    await this.db.query(
+      'UPDATE "user" SET primary_role=$2,is_student=COALESCE($3,is_student),revision=revision+1 WHERE userid=$1',
+      [id, role, isStudent ?? null],
+    );
     return this.person(id);
   }
   async roleExists(role: string) {
@@ -338,13 +352,29 @@ export class StaffModel {
       ],
     );
   }
-  async audits(userId: number | null, offset = 0) {
+  async audits(
+    userId: number | null,
+    offset = 0,
+    filters: {
+      actorId?: number;
+      action?: string;
+      from?: string;
+      to?: string;
+    } = {},
+  ) {
     return (
       await this.db.query(
         `SELECT a.id::text,a.actor_id AS "actorId",u.firstname || ' ' || u.lastname AS "actorName",a.subject_id AS "subjectId",a.action,
       a.entity_type AS "entityType",a.entity_id AS "entityId",a.reason,a.before_state AS "before",a.after_state AS "after",a.created_at AS "createdAt"
-      FROM app_staff_audit a JOIN "user" u ON a.actor_id=u.userid WHERE ($1::int IS NULL OR subject_id=$1) ORDER BY a.id DESC LIMIT 51 OFFSET $2`,
-        [userId, offset],
+      FROM app_staff_audit a JOIN "user" u ON a.actor_id=u.userid WHERE ($1::int IS NULL OR subject_id=$1) AND ($3::int IS NULL OR a.actor_id=$3) AND ($4::text IS NULL OR a.action=$4) AND ($5::timestamptz IS NULL OR a.created_at>=$5) AND ($6::timestamptz IS NULL OR a.created_at<$6) ORDER BY a.id DESC LIMIT 51 OFFSET $2`,
+        [
+          userId,
+          offset,
+          filters.actorId ?? null,
+          filters.action ?? null,
+          filters.from ?? null,
+          filters.to ?? null,
+        ],
       )
     ).rows;
   }

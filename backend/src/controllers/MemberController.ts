@@ -1,4 +1,4 @@
-import { enqueueNotification } from '../notifications/store.js';
+import { enqueueNotification } from "../notifications/store.js";
 import type { Request, Response } from "express";
 import type { Pool } from "pg";
 import { transaction } from "../db.js";
@@ -64,7 +64,9 @@ export class MemberController {
     });
   };
   studioContact = async (_req: Request, res: Response) => {
-    const profile = await new UserModel(this.pool).profile(authState(res).user.id);
+    const profile = await new UserModel(this.pool).profile(
+      authState(res).user.id,
+    );
     res.json({ data: profile?.studioContact });
   };
   profile = async (req: Request, res: Response) => {
@@ -73,14 +75,33 @@ export class MemberController {
       req.body.contactPreferences,
       "Contact preferences",
     );
-    const updated = await new UserModel(this.pool).updateProfile(
-      authState(res).user.id,
-      textField(req.body.firstName, "First name", 50),
-      textField(req.body.lastName, "Last name", 50),
-      textField(req.body.phone, "Phone", 15),
-      address,
-      contactPreferences,
-    );
+    const updated = await transaction(this.pool, async (db) => {
+      const userId = authState(res).user.id;
+      await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR UPDATE', [
+        userId,
+      ]);
+      const model = new UserModel(db),
+        before = await model.profile(userId);
+      const updated = await model.updateProfile(
+        authState(res).user.id,
+        textField(req.body.firstName, "First name", 50),
+        textField(req.body.lastName, "Last name", 50),
+        textField(req.body.phone, "Phone", 15),
+        address,
+        contactPreferences,
+      );
+      await new StaffModel(db, this.timeZone).audit(
+        userId,
+        userId,
+        "profile.updated",
+        "user",
+        userId,
+        "Member updated profile",
+        before,
+        await model.profile(userId),
+      );
+      return updated;
+    });
     res.json({
       data: updated ? await new UserModel(this.pool).profile(updated.id) : null,
     });
@@ -111,11 +132,44 @@ export class MemberController {
         "NOT_FOUND",
         "This is not a current required waiver.",
       );
-    await transaction(this.pool, async db => {
+    await transaction(this.pool, async (db) => {
       // Snapshot the signed version in the same transaction as its signature.
-      const waiver = (await db.query('SELECT name,version,description FROM waiver WHERE waiverid=$1 FOR SHARE',[id])).rows[0];
+      const waiver = (
+        await db.query(
+          "SELECT name,version,description FROM waiver WHERE waiverid=$1 FOR SHARE",
+          [id],
+        )
+      ).rows[0];
       const signature = await new MemberModel(db).signWaiver(userId, id);
-      if (signature) await enqueueNotification(db, {userId,kind:'waiver_signed',dedupeKey:`waiver-signed:${signature.id}`,payload:{waiverId:id,waiverName:waiver.name,waiverVersion:waiver.version,waiverText:waiver.description,signature:`${authState(res).user.firstName} ${authState(res).user.lastName} (electronic agreement)`,signedAt:new Date(signature.signedAt).toISOString()}});
+      if (signature)
+        await new StaffModel(db, this.timeZone).audit(
+          userId,
+          userId,
+          "waiver.signed",
+          "waiver",
+          id,
+          "Explicit electronic agreement",
+          null,
+          {
+            signatureId: signature.id,
+            signedAt: signature.signedAt,
+            version: waiver.version,
+          },
+        );
+      if (signature)
+        await enqueueNotification(db, {
+          userId,
+          kind: "waiver_signed",
+          dedupeKey: `waiver-signed:${signature.id}`,
+          payload: {
+            waiverId: id,
+            waiverName: waiver.name,
+            waiverVersion: waiver.version,
+            waiverText: waiver.description,
+            signature: `${authState(res).user.firstName} ${authState(res).user.lastName} (electronic agreement)`,
+            signedAt: new Date(signature.signedAt).toISOString(),
+          },
+        });
     });
     res.json({
       data: await new EligibilityModel(this.pool, this.timeZone).waivers(
@@ -168,14 +222,36 @@ export class MemberController {
           userId,
           requestedRoomId,
         );
-        return new MemberModel(db).createCheckIn(
+        const checkIn = await new MemberModel(db).createCheckIn(
           userId,
           `${room.name} - ${room.location}`,
           requestedRoomId,
         );
+        await new StaffModel(db, this.timeZone).audit(
+          userId,
+          userId,
+          "check_in.created",
+          "check_in",
+          checkIn.id,
+          "Member checked in to reserved room",
+          null,
+          checkIn,
+        );
+        return checkIn;
       }
       const location = textField(req.body.location, "Location", 100);
-      return new MemberModel(db).createCheckIn(userId, location);
+      const checkIn = await new MemberModel(db).createCheckIn(userId, location);
+      await new StaffModel(db, this.timeZone).audit(
+        userId,
+        userId,
+        "check_in.created",
+        "check_in",
+        checkIn.id,
+        "Member checked in",
+        null,
+        checkIn,
+      );
+      return checkIn;
     });
     res.status(201).json({ data: record });
   };

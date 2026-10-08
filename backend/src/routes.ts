@@ -1,3 +1,7 @@
+import {reportRoutes} from './reports.js';
+import {trainingClassRoutes} from './trainingClasses.js';
+import {cardManagement} from './deviceAccess.js';
+import { certificationRoutes } from './certifications.js';
 import {billingRoutes} from './billing/routes.js';
 import {studioRoutes} from './studios/routes.js';
 import { requirePermission } from './middleware/permissions.js';
@@ -51,6 +55,8 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.get("/auth/session", protectedRoute, auth.current);
   routes.post("/auth/logout", protectedRoute, requireCsrf, auth.logout);
   routes.use(protectedRoute);
+  routes.use(trainingClassRoutes(pool,config.timeZone));
+  routes.use(certificationRoutes(pool,config.timeZone));
   routes.use(studioRoutes(pool,config.timeZone,config.studioStripe));
   routes.use(billingRoutes(pool,config.studioStripe,config.timeZone));
 
@@ -79,6 +85,8 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.get("/me/memberships", permit("entitlement", "read", "own"), member.memberships);
   routes.get("/me/payments", permit("payment", "read", "own"), member.payments);
   routes.use("/admin", requireStaff);
+  routes.use(reportRoutes(pool,config.timeZone));
+  routes.use(cardManagement(pool,config.timeZone,config.devices));
   routes.get("/admin/plans", permit("plan","read","global"), staff.plans);
   routes.post("/admin/plans", permit("plan","create","global"), requireCsrf, staff.createPlan);
   routes.patch("/admin/plans/:id", permit("plan","update","global"), requireCsrf, staff.updatePlan);

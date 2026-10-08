@@ -219,3 +219,33 @@
     flex: 1 1 140px;
   }
 }
+
+/* Operational reports stay scrollable within the viewport on narrow devices. */
+.management-page table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 1rem 0;
+}
+.management-page th,
+.management-page td {
+  text-align: left;
+  padding: 0.7rem;
+  border-bottom: 1px solid var(--line, #d5d5d5);
+  white-space: nowrap;
+}
+.management-grid > section {
+  min-width: 0;
+}
+.management-form label {
+  display: grid;
+  gap: 0.4rem;
+}
+.management-form label:has(input[type="checkbox"]) {
+  display: flex;
+  align-items: center;
+}
+.management-form input[type="checkbox"] {
+  width: auto;
+}

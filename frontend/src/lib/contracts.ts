@@ -74,6 +74,12 @@ export interface Waiver {
   expiredSignature: boolean;
 }
 export interface Certification {
+  trainedAt?: string|null;
+  approvedAt?: string|null;
+  instructorName?: string|null;
+  equipmentIds?: number[];
+  validityDays?: number|null;
+  revision?: number;
   id: number;
   name: string;
   status: string;
