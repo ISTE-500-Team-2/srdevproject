@@ -107,6 +107,15 @@ export class StaffController {
       ),
     });
   };
+  accountStatus = async (req: Request, res: Response) => {
+    res.json({ data: await this.service.accountStatus(
+      authState(res).user.id,
+      positiveId(req.params.id),
+      oneOf(req.body.status, ["active", "suspended", "inactive"] as const, "Account status"),
+      revisionField(req.body.revision),
+      reasonField(req.body.reason),
+    ) });
+  };
   access = async (req: Request, res: Response) => {
     res.json({
       data: await this.service.access(

@@ -163,6 +163,25 @@ export class StaffService {
       return after;
     });
   }
+  accountStatus(actorId: number, id: number, status: string, revision: number, reason: string) {
+    return this.write(actorId, false, "user_access", "update", async (model, actor, db) => {
+      if (actorId === id)
+        throw new AppError(409, "SELF_CHANGE_FORBIDDEN", "Another administrator must change your account status.");
+      const before = await this.target(model, actor, id);
+      this.expectRevision(before.revision, revision);
+      if (status !== "active" && before.status === "active" && before.roles.includes("admin") && await model.activeAdmins() <= 1)
+        throw new AppError(409, "LAST_ADMIN", "The final active administrator cannot be suspended or blocked.");
+      const after = await model.accountStatus(id, status, reason, revision);
+      if (!after) throw conflict();
+      // Session issuance holds this user's share lock before creating/rotating a
+      // family. The target update lock makes revocation atomic with the status.
+      // Restoration also ends families left live by legacy status changes.
+      if (status !== "active" || before.status !== "active")
+        await db.query('UPDATE app_refresh_family SET revoked=true WHERE userid=$1', [id]);
+      await model.audit(actorId, id, "user.account_" + status, "user", id, reason, before, after);
+      return after;
+    });
+  }
   access(
     actorId: number,
     id: number,

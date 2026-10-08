@@ -141,6 +141,47 @@ async function issue(admin: Client, user: Client, planId: number) {
   return r.body.data;
 }
 
+test("account status validates authority, reasons, revisions and self changes", async () => {
+  const admin=client(), member=client(), staff=client();
+  await admin.admin(); await member.register(); await staff.register();
+  const initial=(await person(admin,staff.id)).user;
+  assert.equal((await admin.post(`/admin/users/${staff.id}/role`,{role:'staff',revision:initial.revision,reason:'Test staff'})).status,200);
+  const target=(await person(admin,member.id)).user;
+  const body={status:'suspended',revision:target.revision,reason:'Staff investigation'};
+  const path=`/admin/users/${member.id}/status`;
+  assert.equal((await member.post(path,body)).status,403);
+  assert.equal((await admin.agent.post('/api'+path).send(body)).status,403);
+  assert.equal((await staff.post(path,{...body,reason:''})).status,400);
+  assert.equal((await staff.post(path,{...body,status:'deleted'})).status,400);
+  assert.equal((await staff.post(`/admin/users/${admin.id}/status`,body)).status,403);
+  assert.equal((await admin.post(`/admin/users/${admin.id}/status`,body)).body.error.code,'SELF_CHANGE_FORBIDDEN');
+  assert.equal((await staff.post(path,body)).status,200);
+  assert.equal((await staff.post(path,body)).body.error.code,'STALE_RECORD');
+  const changed=(await person(admin,member.id)).user;
+  assert.equal(changed.status,'suspended');
+  assert.equal(changed.accountReason,body.reason);
+  assert.equal(changed.revision,target.revision+1);
+  assert.equal((await member.get('/auth/session')).status,401);
+});
+
+test("concurrent administrators cannot suspend each other and leave no active administrator", async () => {
+  const first=client(), second=client();
+  await first.admin(); await second.register();
+  const target=(await person(first,second.id)).user;
+  assert.equal((await first.post(`/admin/users/${second.id}/role`,{role:'admin',revision:target.revision,reason:'Additional administrator'})).status,200);
+  const a=(await person(first,first.id)).user, b=(await person(first,second.id)).user;
+  const results=await Promise.all([
+    first.post(`/admin/users/${second.id}/status`,{status:'suspended',revision:b.revision,reason:'Concurrent review'}),
+    second.post(`/admin/users/${first.id}/status`,{status:'inactive',revision:a.revision,reason:'Concurrent review'}),
+  ]);
+  assert.deepEqual(results.map(r=>r.status).sort(),[200,403]);
+  const active=(await pool.query(`SELECT COUNT(DISTINCT u.userid)::int AS count FROM "user" u JOIN user_role ur USING(userid) JOIN role r USING(roleid) WHERE u.status='active' AND r.role='admin'`)).rows[0].count;
+  assert.equal(active,1);
+  // Restore fixture identities directly so subsequent tests remain independent.
+  await pool.query('UPDATE "user" SET status=$2 WHERE userid=ANY($1::int[])',[[first.id,second.id],'active']);
+  await pool.query(`DELETE FROM user_role WHERE userid=$1 AND roleid=(SELECT roleid FROM role WHERE role='admin')`,[second.id]);
+});
+
 test("primary authorization: member isolation, staff restrictions, role changes and stale/self-change rejection", async () => {
   const admin = client(),
     member = client(),

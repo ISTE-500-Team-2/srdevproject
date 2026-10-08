@@ -42,11 +42,12 @@ export class AuthController {
       throw new AppError(
         403,
         'ACCOUNT_INACTIVE',
-        'This account does not currently have access.',
+        'This account does not currently have access. Please see staff.',
       );
     const confirmation = await this.pool.query('SELECT email_confirmed FROM "user" WHERE userid=$1',[userId]);
     if (!confirmation.rows[0]?.email_confirmed) throw new AppError(403,'EMAIL_CONFIRMATION_REQUIRED','Confirm your email before signing in.');
     const session = await transaction(this.pool, async db => {
+      await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR SHARE', [userId]);
       const sessions = new SessionModel(db,this.config.jwtKey,this.config.accessTokenSeconds,this.config.refreshTokenSeconds);
       const previous = refreshToken(req);
       if (previous) await sessions.revokeRefresh(previous);

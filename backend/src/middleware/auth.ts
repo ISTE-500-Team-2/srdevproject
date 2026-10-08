@@ -52,7 +52,7 @@ export function requireUser(pool: Pool, config: AppConfig) {
       throw new AppError(
         403,
         "ACCOUNT_INACTIVE",
-        "This account does not currently have access.",
+        "This account does not currently have access. Please see staff.",
       );
     res.locals.auth = {
       user,
