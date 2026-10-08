@@ -749,6 +749,30 @@ test('FR-001/035: staff reservation date filter uses application timezone day bo
  assert.equal(ids.slice(1).some(id=>nov2.body.data.items.some((item:{id:number})=>item.id===id)),false);
 });
 
+test('FR-052/049: staff compliance report filters waivers, certifications and exports CSV',async()=>{
+ const member=client(),staff=client();await member.demo();await staff.demo('admin');
+ const certId=97000;
+ await pool.query(`INSERT INTO certifications(certid,name,description,effectivedate) VALUES($1,$2,'Compliance fixture',(NOW()-INTERVAL '1 day') AT TIME ZONE 'UTC') ON CONFLICT DO NOTHING`,[certId,'Compliance fixture cert']);
+ await pool.query(`INSERT INTO user_certifications(usercertid,userid,certid,status,renewaldate) VALUES(97000,$1,$2,'active',(NOW()+INTERVAL '15 days') AT TIME ZONE 'UTC')
+   ON CONFLICT DO NOTHING`,[member.id,certId]);
+ const waiver=(await member.agent.get('/api/me/waivers')).body.data[0];
+ assert.ok(waiver?.id);
+ assert.equal((await member.post('/me/waivers/'+waiver.id+'/sign',{accepted:true})).status,200);
+ await pool.query("UPDATE user_waiver SET expires_at=NOW()+INTERVAL '15 days' WHERE userid=$1 AND waiverid=$2 AND approval=true",[member.id,waiver.id]);
+ const all=await staff.agent.get(`/api/admin/compliance?waiverId=${waiver.id}&certificationId=${certId}&userStatus=active`);
+ assert.equal(all.status,200,JSON.stringify(all.body));
+ assert.ok(all.body.data.summary.userCount>=2);
+ assert.ok(all.body.data.summary.compliantUsers<all.body.data.summary.userCount);
+ assert.ok(all.body.data.waiverBreakdown[0].total>=2);
+ const expiring=await staff.agent.get(`/api/admin/compliance?waiverId=${waiver.id}&certificationId=${certId}&expiresWithinDays=30&userStatus=active`);
+ assert.equal(expiring.status,200,JSON.stringify(expiring.body));
+ assert.ok(expiring.body.data.users.items.some((u:any)=>u.id===member.id));
+ const csv=await staff.agent.get(`/api/admin/compliance?waiverId=${waiver.id}&certificationId=${certId}&expiresWithinDays=30&userStatus=active&format=csv`);
+ assert.equal(csv.status,200);
+ assert.match(csv.text,/User ID,First name,Last name/);
+ assert.match(csv.text,/Compliance fixture cert/);
+});
+
 test('BR-006: instructor cannot create staff reservation overrides',async()=>{
  const member=client(),instructor=client();await member.demo();await instructor.demo('admin');
  await pool.query("UPDATE user_role SET roleid=(SELECT roleid FROM role WHERE role='instructor') WHERE userid=$1",[instructor.id]);
