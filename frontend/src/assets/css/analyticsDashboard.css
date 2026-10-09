@@ -1,0 +1,52 @@
+/* Styling for display */
+.analytics-active-users {
+    border-radius: 0.4em;
+    border: 1px solid #8bce95;
+    padding: 0.6rem;
+    margin-bottom: 1em;
+    background: linear-gradient(135deg, #f8fff9, #eff9f1);
+
+    /* Flex stuff */
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+}
+
+/* Styling for the information part of the active users */
+.analytics-active-users .analytics-active-users__info {}
+
+/* Styling for displaying the actual number of active users */
+.analytics-active-users .analytics-active-users__info strong {
+    font-size: 1.6rem;
+}
+
+
+/* Styling for the wrapper of the workshop classes section*/
+.analytics__workshop-classes {
+    max-height: 95%
+}
+
+/* Styling for the list wrapper of the classes */
+.analytics__workshop-classes ul {
+    /* Removes the bullets*/
+    list-style-type: none;
+    padding: 0;
+    margin: 0;
+}
+
+/* Styling for the list entries for each class. */
+.analytics__workshop-class {
+    border: 0.01rem solid black;
+    border-radius: 0.1rem;
+    padding: 0.25rem;
+    margin: 10px;
+}
+
+/* Styling for the occupancy chip */
+.analytics__workshop-class__header-occupancy{
+    border-radius: 2rem;
+    padding: 0.3rem;
+    background: var(--espresso);
+    color: white;
+    font-size: 0.7rem;
+}
