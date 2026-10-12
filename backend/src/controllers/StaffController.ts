@@ -2,7 +2,7 @@ import type { Request, Response } from "express";
 import type { Pool } from "pg";
 import { AppError, positiveId, textField } from "../domain.js";
 import { authState } from "../middleware/auth.js";
-import { StaffModel } from "../models/StaffModel.js";
+import { COMPLIANCE_EXPORT_LIMIT, StaffModel } from "../models/StaffModel.js";
 import { StaffService } from "../services/StaffService.js";
 import {
   instant,
@@ -38,7 +38,8 @@ function csvCell(value: unknown) {
     : value == null
       ? ""
       : String(value);
-  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  const safe = /^[\s]*[=+\-@]/.test(text) ? "'" + text : text;
+  return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 export class StaffController {
   private model: StaffModel;
@@ -250,8 +251,14 @@ export class StaffController {
       ),
       offset: pageOffset(req.query.offset),
     };
-    const report = await this.model.compliance(filters, req.query.format === "csv");
     if (req.query.format === "csv") {
+      const report = await this.model.compliance({ ...filters, offset: 0 }, true);
+      if (report.filteredCount > COMPLIANCE_EXPORT_LIMIT)
+        throw new AppError(
+          413,
+          "EXPORT_TOO_LARGE",
+          `Compliance export is limited to ${COMPLIANCE_EXPORT_LIMIT} rows. Narrow the filters and try again.`,
+        );
       const headers = [
         "User ID",
         "First name",
@@ -286,6 +293,7 @@ export class StaffController {
         .send([headers, ...rows].map((r) => r.map(csvCell).join(",")).join("\r\n"));
       return;
     }
+    const report = await this.model.compliance(filters, false);
     res.json({
       data: {
         ...report,

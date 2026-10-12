@@ -12,6 +12,7 @@ export interface ComplianceFilters {
   userStatus: string;
   offset: number;
 }
+export const COMPLIANCE_EXPORT_LIMIT = 10000;
 const planColumns =
   "tierid AS id,tiername AS name,kind,tierprice::text AS price,allottedmonths AS months,benefits,active,revision";
 const personColumns = `u.userid AS id,u.firstname AS "firstName",u.lastname AS "lastName",u.email,u.phone,u.status,
@@ -412,14 +413,13 @@ export class StaffModel {
       this.db.query(
         `SELECT certid AS id,name FROM certifications
         WHERE (effectivedate IS NULL OR effectivedate<=NOW() AT TIME ZONE 'UTC')
-          AND (enddate IS NULL OR enddate>=NOW() AT TIME ZONE 'UTC')
         ORDER BY name,certid`,
       ),
     ]);
     return { waivers: waivers.rows, certifications: certifications.rows };
   }
   async compliance(filters: ComplianceFilters, includeAllRows = false) {
-    const limit = includeAllRows ? 10000 : 51;
+    const limit = includeAllRows ? COMPLIANCE_EXPORT_LIMIT : 51;
     const params = [
       filters.waiverId,
       filters.certificationId,
@@ -442,11 +442,11 @@ export class StaffModel {
           AND ($1::int IS NULL OR waiverid=$1)
         ORDER BY name,effectivedate DESC NULLS LAST,waiverid DESC
       ),
-      current_certifications AS (
-        SELECT certid,name FROM certifications
+      report_certifications AS (
+        SELECT certid,name,enddate FROM certifications
         WHERE (effectivedate IS NULL OR effectivedate<=NOW() AT TIME ZONE 'UTC')
-          AND (enddate IS NULL OR enddate>=NOW() AT TIME ZONE 'UTC')
           AND ($2::int IS NULL OR certid=$2)
+          AND ($2::int IS NOT NULL OR enddate IS NULL OR enddate>=NOW() AT TIME ZONE 'UTC')
       ),
       waiver_status AS (
         SELECT ru.userid,w.waiverid,w.name,w.version,sig.signdate,sig.expires_at,
@@ -462,13 +462,27 @@ export class StaffModel {
         ) sig ON true
       ),
       certification_status AS (
-        SELECT ru.userid,c.certid,c.name,uc.status,uc.renewaldate,
+        SELECT ru.userid,c.certid,c.name,uc.status,uc.renewaldate,c.enddate,
+          CASE
+            WHEN uc.renewaldate IS NULL THEN c.enddate
+            WHEN c.enddate IS NULL THEN uc.renewaldate
+            WHEN uc.renewaldate<=c.enddate THEN uc.renewaldate
+            ELSE c.enddate
+          END AS effective_expires_at,
           (uc.usercertid IS NOT NULL AND uc.status='active'
-            AND (uc.renewaldate IS NULL OR uc.renewaldate>=NOW() AT TIME ZONE 'UTC')) AS compliant,
-          (uc.usercertid IS NOT NULL AND uc.renewaldate IS NOT NULL AND uc.renewaldate<NOW() AT TIME ZONE 'UTC') AS expired,
-          (uc.usercertid IS NOT NULL AND uc.renewaldate IS NOT NULL AND $3::int IS NOT NULL
-            AND uc.renewaldate<=NOW() AT TIME ZONE 'UTC'+make_interval(days=>$3::int)) AS expiring
-        FROM report_users ru CROSS JOIN current_certifications c
+            AND (uc.renewaldate IS NULL OR uc.renewaldate>=NOW() AT TIME ZONE 'UTC')
+            AND (c.enddate IS NULL OR c.enddate>=NOW() AT TIME ZONE 'UTC')) AS compliant,
+          (uc.usercertid IS NOT NULL
+            AND ((uc.renewaldate IS NOT NULL AND uc.renewaldate<NOW() AT TIME ZONE 'UTC')
+              OR (c.enddate IS NOT NULL AND c.enddate<NOW() AT TIME ZONE 'UTC'))) AS expired,
+          (uc.usercertid IS NOT NULL AND $3::int IS NOT NULL
+            AND (CASE
+              WHEN uc.renewaldate IS NULL THEN c.enddate
+              WHEN c.enddate IS NULL THEN uc.renewaldate
+              WHEN uc.renewaldate<=c.enddate THEN uc.renewaldate
+              ELSE c.enddate
+            END)<=NOW() AT TIME ZONE 'UTC'+make_interval(days=>$3::int)) AS expiring
+        FROM report_users ru CROSS JOIN report_certifications c
         LEFT JOIN LATERAL (
           SELECT usercertid,status,renewaldate FROM user_certifications
           WHERE userid=ru.userid AND certid=c.certid
@@ -504,12 +518,12 @@ export class StaffModel {
           FROM (SELECT waiverid AS id,name,version,COUNT(*)::int AS total,
             COUNT(*) FILTER (WHERE compliant)::int AS compliant,
             COUNT(*) FILTER (WHERE expiring)::int AS expiring
-            FROM waiver_status GROUP BY waiverid,name,version) w),'[]'::json) AS "waiverBreakdown",
+            FROM waiver_status ws JOIN filtered_users fu ON fu.id=ws.userid GROUP BY waiverid,name,version) w),'[]'::json) AS "waiverBreakdown",
         COALESCE((SELECT json_agg(row_to_json(c) ORDER BY name)
           FROM (SELECT certid AS id,name,COUNT(*)::int AS total,
             COUNT(*) FILTER (WHERE compliant)::int AS compliant,
             COUNT(*) FILTER (WHERE expiring)::int AS expiring
-            FROM certification_status GROUP BY certid,name) c),'[]'::json) AS "certificationBreakdown",
+            FROM certification_status cs JOIN filtered_users fu ON fu.id=cs.userid GROUP BY certid,name) c),'[]'::json) AS "certificationBreakdown",
         (SELECT COUNT(*)::int FROM filtered_users) AS "filteredCount"`;
     const row = (await this.db.query(query, params)).rows[0]!;
     const summary = row.summary ?? {
