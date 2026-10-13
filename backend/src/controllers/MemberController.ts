@@ -163,6 +163,7 @@ export class MemberController {
       await access.assertActiveUser(userId);
       await access.assertEntitlement(userId, new Date());
       await access.assertWaivers(userId);
+      await access.assertActiveReservationCertifications(userId);
       if (requestedRoomId) {
         const room = await access.assertActiveRoomReservation(
           userId,
