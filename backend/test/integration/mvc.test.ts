@@ -486,7 +486,28 @@ test('membership, certification and waiver eligibility are enforced; check-in is
       ).status,
       200,
     );
-  assert.equal((await user.post('/reservations', input)).status, 201);
+  const booking = await user.post('/reservations', input);
+  assert.equal(booking.status, 201);
+  await pool.query(
+    `UPDATE reservation
+     SET starttime=(NOW()-INTERVAL '5 minutes') AT TIME ZONE 'UTC',
+         endtime=(NOW()+INTERVAL '30 minutes') AT TIME ZONE 'UTC'
+     WHERE reservationid=$1`,
+    [booking.body.data.id],
+  );
+  await pool.query(
+    "UPDATE user_certifications SET status='revoked' WHERE userid=$1 AND certid=$2",
+    [user.id, certId],
+  );
+  const revokedCheckin = await user.post('/me/check-ins', {
+    location: 'Integration test entrance',
+  });
+  assert.equal(revokedCheckin.status, 403);
+  assert.equal(revokedCheckin.body.error.code, 'CERTIFICATION_REQUIRED');
+  await pool.query(
+    "UPDATE user_certifications SET status='active' WHERE userid=$1 AND certid=$2",
+    [user.id, certId],
+  );
   const checkin = await user.post('/me/check-ins', {
     location: 'Integration test entrance',
   });
