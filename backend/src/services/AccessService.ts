@@ -58,6 +58,39 @@ export class AccessService {
     return waivers;
   }
 
+  async assertActiveReservationCertifications(userId: number, at = new Date()) {
+    const { rows } = await this.db.query<{
+      equipmentName: string;
+      certification: string;
+    }>(
+      `SELECT e.name AS "equipmentName",COALESCE(c.name,'equipment') AS certification
+       FROM reservation r
+       JOIN equipment e ON e.equipmentid=r.equipmentid
+       LEFT JOIN certifications c ON c.certid=e.certid
+       WHERE r.userid=$1 AND r.status IN ('confirmed','pending')
+         AND e.certid IS NOT NULL
+         AND r.starttime <= $2::timestamptz AT TIME ZONE 'UTC'
+         AND r.endtime > $2::timestamptz AT TIME ZONE 'UTC'
+         AND NOT EXISTS (
+           SELECT 1 FROM user_certifications uc
+           JOIN certifications valid_cert ON valid_cert.certid=uc.certid
+           WHERE uc.userid=r.userid AND uc.certid=e.certid AND uc.status='active'
+             AND (uc.renewaldate IS NULL OR uc.renewaldate >= $2::timestamptz AT TIME ZONE 'UTC')
+             AND (valid_cert.effectivedate IS NULL OR valid_cert.effectivedate <= NOW() AT TIME ZONE 'UTC')
+             AND (valid_cert.enddate IS NULL OR valid_cert.enddate >= $2::timestamptz AT TIME ZONE 'UTC')
+         )
+       ORDER BY r.starttime,r.reservationid LIMIT 1`,
+      [userId, at],
+    );
+    if (rows[0])
+      throw new AppError(
+        403,
+        "CERTIFICATION_REQUIRED",
+        `A current ${rows[0].certification} certification is required for ${rows[0].equipmentName}.`,
+      );
+    return true;
+  }
+
   async assertActiveRoomReservation(userId: number, roomId: number, at = new Date()) {
     const room = await this.db.query<{ status: string }>(
       "SELECT status FROM room WHERE roomid=$1 FOR SHARE",
