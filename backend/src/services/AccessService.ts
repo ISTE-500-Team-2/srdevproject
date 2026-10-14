@@ -58,7 +58,7 @@ export class AccessService {
     return waivers;
   }
 
-  async assertActiveReservationCertifications(userId: number, at = new Date()) {
+  async activeReservationCertificationFailure(userId: number, at = new Date()) {
     const { rows } = await this.db.query<{
       equipmentName: string;
       certification: string;
@@ -82,13 +82,16 @@ export class AccessService {
        ORDER BY r.starttime,r.reservationid LIMIT 1`,
       [userId, at],
     );
-    if (rows[0])
-      throw new AppError(
-        403,
-        "CERTIFICATION_REQUIRED",
-        `A current ${rows[0].certification} certification is required for ${rows[0].equipmentName}.`,
-      );
-    return true;
+    if (!rows[0]) return null;
+    return {
+      code: "CERTIFICATION_REQUIRED",
+      message: `A current ${rows[0].certification} certification is required for ${rows[0].equipmentName}.`,
+    };
+  }
+
+  async assertActiveReservationCertifications(userId: number, at = new Date()) {
+    const failure = await this.activeReservationCertificationFailure(userId, at);
+    if (failure) throw new AppError(403, failure.code, failure.message);
   }
 
   async assertActiveRoomReservation(userId: number, roomId: number, at = new Date()) {

@@ -499,6 +499,14 @@ test('membership, certification and waiver eligibility are enforced; check-in is
     "UPDATE user_certifications SET status='revoked' WHERE userid=$1 AND certid=$2",
     [user.id, certId],
   );
+  const revokedOverview = await user.agent.get('/api/me/overview');
+  assert.equal(revokedOverview.status, 200);
+  assert.equal(revokedOverview.body.data.canCheckIn, false);
+  assert.ok(
+    revokedOverview.body.data.reasons.includes(
+      'A current CNC safety certification is required for CNC Machine.',
+    ),
+  );
   const revokedCheckin = await user.post('/me/check-ins', {
     location: 'Integration test entrance',
   });
