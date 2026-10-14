@@ -9,6 +9,7 @@ import { StaffPayments } from "./StaffPayments";
 import { StaffPolicies } from "./StaffPolicies";
 import { AdminAnalyticsPreviewPage } from "./AdminAnalyticsPreviewPage";
 import { AnalyticsDashboardPage } from "./AnalyticsDashboardPage";
+import { AdminCertificationsPage } from "./AdminCertificationsPage";
 
 const tabs = [
   ["members", "Members"],
@@ -16,6 +17,7 @@ const tabs = [
   ["payments", "Payment history"],
   ["policies", "Policies"],
   ["audit", "Change log"],
+  ["adminCertWaiver", "Certifications and Waivers"],
   ["analytics", "Analytics"],
   ["preview", "Analytics preview"],
 ];
@@ -50,6 +52,8 @@ export function AdminDashboardPage() {
         <StaffPolicies />
       ) : tab === "audit" ? (
         <ChangeLog />
+      ) : tab === "adminCertWiaver" ? (
+        <AdminCertificationsPage/>
       ) : tab === "analytics" ? (
         <AnalyticsDashboardPage/>
       ) : tab === "preview" ? (
