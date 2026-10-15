@@ -52,7 +52,7 @@ export function AdminDashboardPage() {
         <StaffPolicies />
       ) : tab === "audit" ? (
         <ChangeLog />
-      ) : tab === "adminCertWiaver" ? (
+      ) : tab === "adminCertWaiver" ? (
         <AdminCertificationsPage/>
       ) : tab === "analytics" ? (
         <AnalyticsDashboardPage/>
