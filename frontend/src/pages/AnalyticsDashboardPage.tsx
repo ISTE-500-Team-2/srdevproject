@@ -3,6 +3,33 @@ import {
     classes
 } from "../data/mockData";
 import '../assets/css/analyticsDashboard.css';
+import { LineChart } from "../components/Charts";
+import { useApi } from "../lib/useApi";
+import { Payment } from "../lib/staffContracts";
+
+
+function AnalyticsRevenueChart(){
+    <article className="metric-card metric-card--wide panel">
+        <LineChart values={} labels={} max={6000} />
+        <div className="metric-card__footer">
+            <div>
+                <small>Gross Revenue</small>
+                <strong>{}</strong>
+            </div>
+        </div> {/** Metric */}
+    </article>
+}//AnalyticsRevenueChart
+
+/**
+ * Creates the charts for all the admin metrics
+ */
+function AnalyticsCharts(){
+    return(
+        <section className="admin-metrics">
+
+        </section>
+    ); //return
+}//AnalyticsCharts
 
 /**
  * The component for displaying the list of classes
