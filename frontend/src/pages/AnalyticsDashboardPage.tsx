@@ -14,7 +14,7 @@ function AnalyticsWorkshopClasses() {
             <ul>
                 {classes.map((wsClass) => (
                     <li className="analytics__workshop-class">
-                        <button >
+                        <button className="analytics__ws-class">
                             <h4 className="analytics__workshop-class__header">
                                 <span className="analytics__workshop-class__header-title">
                                     {wsClass.title}
@@ -28,6 +28,7 @@ function AnalyticsWorkshopClasses() {
                                     <p>Instructor: {wsClass.instructor}</p>
                                     <p>Equipment: {wsClass.equipment}</p>
                                 </div> {/**end of col1 */}
+
                                 <time className="analytics__workshop-class__col2">
                                     {wsClass.date}
                                     <small>{wsClass.time}</small>

@@ -13,7 +13,11 @@
 }
 
 /* Styling for the information part of the active users */
-.analytics-active-users .analytics-active-users__info {}
+.analytics-active-users .analytics-active-users__info {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+}
 
 /* Styling for displaying the actual number of active users */
 .analytics-active-users .analytics-active-users__info strong {
