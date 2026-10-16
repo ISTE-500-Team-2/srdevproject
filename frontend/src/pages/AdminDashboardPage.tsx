@@ -11,12 +11,14 @@ import { StaffPolicies } from "./StaffPolicies";
 import { StaffReservations } from "./StaffReservations";
 import { ReportsPage } from "./ReportsPage";
 import { AccessManagementPage } from "./AccessManagementPage";
+import { StaffCompliance } from "./StaffCompliance";
 
 const tabs = [
   ["members", "Members"],
   ["plans", "Plans"],
   ["reservations", "Reservations"],
   ["payments", "Payment history"],
+  ["compliance", "Compliance"],
   ["policies", "Policies"],
   ["training", "Training"],
   ["audit", "Change log"],
@@ -52,6 +54,8 @@ export function AdminDashboardPage() {
         <StaffReservations />
       ) : tab === "payments" ? (
         <StaffPayments />
+      ) : tab === "compliance" ? (
+        <StaffCompliance />
       ) : tab === "policies" ? (
         <StaffPolicies />
       ) : tab === "training" ? (
