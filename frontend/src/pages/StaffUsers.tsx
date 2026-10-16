@@ -153,6 +153,7 @@ function UserDetail({
               <strong>{u.conductFlag ? "Yes" : "No"}</strong>
             </p>
             {u.accessReason ? <p>Access note: {u.accessReason}</p> : null}
+            {u.accountReason ? <p>Account note: {u.accountReason}</p> : null}
             {!canManage ? (
               <p>Only an administrator can change this staff account.</p>
             ) : null}
@@ -198,6 +199,29 @@ function UserDetail({
                 <ReasonField />
               </ActionForm>
             </details>
+            <ActionForm
+              key={`account-${u.revision}`}
+              title="Account status control"
+              submitLabel="Save account status"
+              disabled={!canManage || actor?.id === id}
+              onSubmit={async (f) => {
+                await api(`/admin/users/${id}/status`, {
+                  method: "POST",
+                  body: { status: f.get("status"), revision: u.revision, reason: f.get("reason") },
+                });
+                refresh("Account status updated.");
+              }}
+            >
+              <p>Suspending or blocking an account ends all sessions and prevents sign-in and account use. History and existing bookings are retained. Restoring an account requires a fresh sign-in and keeps its facility restrictions.</p>
+              <Field label="Account status" name="status">
+                <select name="status" defaultValue={u.status}>
+                  <option value="active">Active</option>
+                  <option value="suspended">Suspended</option>
+                  <option value="inactive">Blocked (inactive)</option>
+                </select>
+              </Field>
+              <ReasonField />
+            </ActionForm>
             <ActionForm
               key={`access-${u.revision}`}
               title="Facility access control"
