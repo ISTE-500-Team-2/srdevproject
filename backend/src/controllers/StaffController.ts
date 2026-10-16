@@ -2,7 +2,7 @@ import type { Request, Response } from "express";
 import type { Pool } from "pg";
 import { AppError, positiveId, textField } from "../domain.js";
 import { authState } from "../middleware/auth.js";
-import { StaffModel } from "../models/StaffModel.js";
+import { COMPLIANCE_EXPORT_LIMIT, StaffModel } from "../models/StaffModel.js";
 import { StaffService } from "../services/StaffService.js";
 import {
   instant,
@@ -21,6 +21,25 @@ export function page<T>(rows: T[], offset: number) {
     items: rows.slice(0, 50),
     nextOffset: rows.length > 50 ? offset + 50 : null,
   };
+}
+function optionalPositiveId(value: unknown, name: string) {
+  if (value == null || value === "") return null;
+  return positiveId(value, name);
+}
+function optionalDays(value: unknown) {
+  if (value == null || value === "") return null;
+  if (typeof value !== "string" || !/^\d{1,4}$/.test(value) || Number(value) > 3650)
+    throw new AppError(400, "INVALID_INPUT", "Expiration window must be 0 to 3650 days.");
+  return Number(value);
+}
+function csvCell(value: unknown) {
+  const text = Array.isArray(value)
+    ? value.join("; ")
+    : value == null
+      ? ""
+      : String(value);
+  const safe = /^[\s]*[=+\-@]/.test(text) ? "'" + text : text;
+  return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 export class StaffController {
   private model: StaffModel;
@@ -228,6 +247,69 @@ export class StaffController {
   };
   policies = async (_req: Request, res: Response) => {
     res.json({ data: await this.model.policies() });
+  };
+  compliance = async (req: Request, res: Response) => {
+    const filters = {
+      waiverId: optionalPositiveId(req.query.waiverId, "Waiver"),
+      certificationId: optionalPositiveId(req.query.certificationId, "Certification"),
+      expiresWithinDays: optionalDays(req.query.expiresWithinDays),
+      userStatus: oneOf(
+        String(req.query.userStatus ?? "active"),
+        ["active", "inactive", "all"] as const,
+        "User status",
+      ),
+      offset: pageOffset(req.query.offset),
+    };
+    if (req.query.format === "csv") {
+      const report = await this.model.compliance({ ...filters, offset: 0 }, true);
+      if (report.filteredCount > COMPLIANCE_EXPORT_LIMIT)
+        throw new AppError(
+          413,
+          "EXPORT_TOO_LARGE",
+          `Compliance export is limited to ${COMPLIANCE_EXPORT_LIMIT} rows. Narrow the filters and try again.`,
+        );
+      const headers = [
+        "User ID",
+        "First name",
+        "Last name",
+        "Email",
+        "Account status",
+        "Access status",
+        "Waiver compliant",
+        "Certification compliant",
+        "Missing or expired waivers",
+        "Waivers expired or expiring in window",
+        "Missing or expired certifications",
+        "Certifications expired or expiring in window",
+      ];
+      const rows = report.users.map((u: any) => [
+        u.id,
+        u.firstName,
+        u.lastName,
+        u.email,
+        u.status,
+        u.accessStatus,
+        u.waiverCompliant ? "yes" : "no",
+        u.certificationCompliant ? "yes" : "no",
+        u.missingWaivers,
+        u.expiringWaivers,
+        u.missingCertifications,
+        u.expiringCertifications,
+      ]);
+      res
+        .type("text/csv")
+        .set("Content-Disposition", 'attachment; filename="compliance-report.csv"')
+        .send([headers, ...rows].map((r) => r.map(csvCell).join(",")).join("\r\n"));
+      return;
+    }
+    const report = await this.model.compliance(filters, false);
+    res.json({
+      data: {
+        ...report,
+        users: page(report.users, filters.offset),
+        options: await this.model.complianceOptions(),
+      },
+    });
   };
   publishPolicy = async (req: Request, res: Response) => {
     res.status(201).json({

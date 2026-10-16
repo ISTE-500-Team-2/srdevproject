@@ -9,12 +9,14 @@ import { StaffPayments } from "./StaffPayments";
 import { StaffPolicies } from "./StaffPolicies";
 import { StaffReservations } from "./StaffReservations";
 import { AdminAnalyticsPreviewPage } from "./AdminAnalyticsPreviewPage";
+import { StaffCompliance } from "./StaffCompliance";
 
 const tabs = [
   ["members", "Members"],
   ["plans", "Plans"],
   ["reservations", "Reservations"],
   ["payments", "Payment history"],
+  ["compliance", "Compliance"],
   ["policies", "Policies"],
   ["audit", "Change log"],
   ["preview", "Analytics preview"],
@@ -48,6 +50,8 @@ export function AdminDashboardPage() {
         <StaffReservations />
       ) : tab === "payments" ? (
         <StaffPayments />
+      ) : tab === "compliance" ? (
+        <StaffCompliance />
       ) : tab === "policies" ? (
         <StaffPolicies />
       ) : tab === "audit" ? (

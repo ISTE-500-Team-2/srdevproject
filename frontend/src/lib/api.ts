@@ -58,6 +58,28 @@ export async function api<T>(
   }
   return payload.data as T;
 }
+export async function apiText(path: string): Promise<string> {
+  if (!accessToken) await renew();
+  const perform = () =>
+    fetch("/api" + path, {
+      credentials: "include",
+      headers: {
+        Accept: "text/csv",
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
+    });
+  let response = await perform();
+  if (response.status === 401) {
+    await renew();
+    response = await perform();
+  }
+  const text = await response.text();
+  if (!response.ok) {
+    if (response.status === 401) window.dispatchEvent(new Event("session-expired"));
+    throw new ApiError(response.status, "REQUEST_FAILED", text || "The request could not be completed.");
+  }
+  return text;
+}
 export function errorMessage(error: unknown) {
   return error instanceof ApiError
     ? error.message

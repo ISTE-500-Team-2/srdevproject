@@ -126,9 +126,17 @@ export class MemberController {
   overview = async (_req: Request, res: Response) => {
     const userId = authState(res).user.id;
     const model = new EligibilityModel(this.pool, this.timeZone);
-    const [entitlement, waivers, reservations, checkIns] = await Promise.all([
+    const access = new AccessService(this.pool, this.timeZone);
+    const [
+      entitlement,
+      waivers,
+      certificationFailure,
+      reservations,
+      checkIns,
+    ] = await Promise.all([
       model.entitlement(userId, new Date()),
       model.waivers(userId),
+      access.activeReservationCertificationFailure(userId),
       new MemberModel(this.pool).activeReservationCount(userId),
       new MemberModel(this.pool).recentCheckIns(userId),
     ]);
@@ -141,6 +149,7 @@ export class MemberController {
       reasons.push("Required policies have not been configured");
     else if (waivers.some((w) => !w.signed))
       reasons.push("Required policies and waivers need your signature");
+    if (certificationFailure) reasons.push(certificationFailure.message);
     res.json({
       data: {
         entitlement,
@@ -163,6 +172,7 @@ export class MemberController {
       await access.assertActiveUser(userId);
       await access.assertEntitlement(userId, new Date());
       await access.assertWaivers(userId);
+      await access.assertActiveReservationCertifications(userId);
       if (requestedRoomId) {
         const room = await access.assertActiveRoomReservation(
           userId,
