@@ -88,6 +88,7 @@ See the [launch checklist and validation boundary](docs/SPONSOR-HANDOFF.md#10-la
 | A beginner-first hosting and operations walkthrough | [Sponsor handoff](docs/SPONSOR-HANDOFF.md) |
 | Local setup, demo accounts and email mode | [Local development](docs/LOCAL-DEVELOPMENT.md) |
 | Membership/access workflows and an app walkthrough | [Team handoff](docs/TEAM-HANDOFF.md) |
+| NFC reader states, prototype limits and physical test results | [LED relay prototype](docs/NFC-LED-PROTOTYPE.md) · [NFC acceptance](docs/NFC-ACCEPTANCE-2026-10-16.md) |
 | MVC structure and integration points | [Architecture](docs/MVC.md) |
 | JWT signing keys and session behavior | [Authentication](docs/JWT-AUTH.md) |
 | Staff roles and permission rules | [Role-based access](docs/rbac.md) |
