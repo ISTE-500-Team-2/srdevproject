@@ -1,7 +1,7 @@
 name: Verify sponsor hosting template
 on:
   pull_request:
-    paths: ['docs/hosting/**', 'Dockerfile', 'backend/**', 'frontend/**', 'database/**', 'ddl/**', '.github/workflows/sponsor-hosting.yml']
+    paths: ['README.md', 'docs/**', 'Dockerfile', 'backend/**', 'frontend/**', 'database/**', 'ddl/**', '.github/workflows/sponsor-hosting.yml']
   workflow_dispatch:
 permissions:
   contents: read
