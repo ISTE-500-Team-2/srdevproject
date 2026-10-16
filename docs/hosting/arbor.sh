@@ -10,7 +10,8 @@ db() { "${compose[@]}" exec -T db sh -eu -c 'export PGPASSWORD="$(cat /run/secre
 node_script() { "${compose[@]}" run --rm --no-deps app sh -eu -c 'export PGPASSWORD="$(cat /run/secrets/db_password)"; exec node "$@"' sh "$@"; }
 empty_db() {
   local count
-  count=$(db psql -U arbor -d arbor -Atc "SELECT count(*) FROM pg_tables WHERE schemaname='public'")
+  # Docker must not consume the operator's later confirmation on standard input.
+  count=$(db psql -U arbor -d arbor -Atc "SELECT count(*) FROM pg_tables WHERE schemaname='public'" </dev/null)
   [[ "$count" == 0 ]] || { echo 'STOP: this database already has tables. Nothing has been deleted or restored.' >&2; exit 1; }
 }
 confirm() {
