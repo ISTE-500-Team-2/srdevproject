@@ -6,6 +6,22 @@ import { useAuth } from '../context/AuthContext';
 import { api, errorMessage } from '../lib/api';
 import type { ProfileFields, UserProfile } from '../lib/contracts';
 
+const membershipStorageKey = 'profile-membership-selection';
+const membershipPlans = [
+  { tier: 'Basic', choices: [{ label: 'Monthly', price: '$19.99', value: 'basic-monthly' }, { label: 'Yearly', price: '$99.99', value: 'basic-yearly' }] },
+  { tier: 'Premium', choices: [{ label: 'Monthly', price: '$19.99', value: 'premium-monthly' }, { label: 'Yearly', price: '$99.99', value: 'premium-yearly' }] },
+  { tier: 'Student', choices: [{ label: 'Monthly', price: '$19.99', value: 'student-monthly' }, { label: 'Yearly', price: '$99.99', value: 'student-yearly' }] },
+] as const;
+type MembershipSelection = (typeof membershipPlans)[number]['choices'][number]['value'];
+const selectableMemberships: MembershipSelection[] = [
+  'basic-monthly',
+  'basic-yearly',
+  'premium-monthly',
+  'premium-yearly',
+];
+const isSelectableMembership = (selection: string): selection is MembershipSelection =>
+  selectableMemberships.some((plan) => plan === selection);
+
 function NotificationSettings() {
   const [settings,setSettings] = useState<{enabled:boolean;timeZone:string} | null>(null);
   const [error,setError] = useState('');
@@ -46,6 +62,8 @@ export function ProfilePage() {
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [membershipSelection, setMembershipSelection] = useState<MembershipSelection>('basic-monthly');
+  const [membershipError, setMembershipError] = useState('');
   useEffect(() => {
     const controller = new AbortController();
     api<UserProfile>('/me/profile', { signal: controller.signal })
@@ -55,6 +73,26 @@ export function ProfilePage() {
       });
     return () => controller.abort();
   }, []);
+  useEffect(() => {
+    try {
+      const savedSelection = window.localStorage.getItem(membershipStorageKey);
+      if (savedSelection && isSelectableMembership(savedSelection)) {
+        setMembershipSelection(savedSelection);
+      }
+    } catch {
+      setMembershipError('Unable to load your saved membership selection.');
+    }
+  }, []);
+  const changeMembership = () => {
+    setMembershipError('');
+    try {
+      window.localStorage.setItem(membershipStorageKey, membershipSelection);
+    } catch {
+      setMembershipError('Unable to save your membership selection in this browser.');
+      return;
+    }
+    location.reload();
+  };
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!profile) return;
@@ -209,6 +247,41 @@ export function ProfilePage() {
           </p> : null}
         </section>
       ) : null}
+
+      <section className="profile-panel panel">
+        <h2>Memberships</h2>
+        <p>Change your membership tier to your liking. Each membership offers a monthly and yearly plan.</p>
+        <div className="membership-options">
+          {membershipPlans.map(({ tier, choices }) => (
+            <fieldset
+              className="membership-option"
+              data-selected={choices.some(({ value }) => value === membershipSelection)}
+              key={tier}
+              disabled={tier === 'Student'}
+            >
+              <legend>{tier}</legend>
+              {choices.map(({ label, price, value }) => (
+                <label key={value}>
+                  <input
+                    type="radio"
+                    name="membership-option"
+                    value={value}
+                    checked={membershipSelection === value}
+                    onChange={() => setMembershipSelection(value)}
+                  />
+                  <span>{label}</span>
+                  <strong>{price}</strong>
+                </label>
+              ))}
+            </fieldset>
+          ))}
+        </div>
+        {membershipError ? <p role="alert" className="form-error">{membershipError}</p> : null}
+        <button type="button" className="button button--primary membership-change-button" onClick={changeMembership}>
+          Change membership option
+        </button>
+      </section>
+
       <NotificationSettings />
       <SignedWaiverRecords />
       <section className="panel feature-notice">
