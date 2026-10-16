@@ -21,71 +21,6 @@ margin: 0 0.8em 0.2em -1.6em;
 vertical-align: middle;
 }
 .display.math{display: block; text-align: center; margin: 0.5rem auto;}
-
-html { -webkit-text-size-adjust: 100%; }
-pre > code.sourceCode { white-space: pre; position: relative; }
-pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
-pre > code.sourceCode > span:empty { height: 1.2em; }
-.sourceCode { overflow: visible; }
-code.sourceCode > span { color: inherit; text-decoration: inherit; }
-div.sourceCode { margin: 1em 0; }
-pre.sourceCode { margin: 0; }
-@media screen {
-div.sourceCode { overflow: auto; }
-}
-@media print {
-pre > code.sourceCode { white-space: pre-wrap; }
-pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
-}
-pre.numberSource code
-{ counter-reset: source-line 0; }
-pre.numberSource code > span
-{ position: relative; left: -4em; counter-increment: source-line; }
-pre.numberSource code > span > a:first-child::before
-{ content: counter(source-line);
-position: relative; left: -1em; text-align: right; vertical-align: baseline;
-border: none; display: inline-block;
--webkit-touch-callout: none; -webkit-user-select: none;
--khtml-user-select: none; -moz-user-select: none;
--ms-user-select: none; user-select: none;
-padding: 0 4px; width: 4em;
-color: #aaaaaa;
-}
-pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa; padding-left: 4px; }
-div.sourceCode
-{ }
-@media screen {
-pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
-}
-code span.al { color: #ff0000; font-weight: bold; } 
-code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } 
-code span.at { color: #7d9029; } 
-code span.bn { color: #40a070; } 
-code span.bu { color: #008000; } 
-code span.cf { color: #007020; font-weight: bold; } 
-code span.ch { color: #4070a0; } 
-code span.cn { color: #880000; } 
-code span.co { color: #60a0b0; font-style: italic; } 
-code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } 
-code span.do { color: #ba2121; font-style: italic; } 
-code span.dt { color: #902000; } 
-code span.dv { color: #40a070; } 
-code span.er { color: #ff0000; font-weight: bold; } 
-code span.ex { } 
-code span.fl { color: #40a070; } 
-code span.fu { color: #06287e; } 
-code span.im { color: #008000; font-weight: bold; } 
-code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } 
-code span.kw { color: #007020; font-weight: bold; } 
-code span.op { color: #666666; } 
-code span.ot { color: #007020; } 
-code span.pp { color: #bc7a00; } 
-code span.sc { color: #4070a0; } 
-code span.ss { color: #bb6688; } 
-code span.st { color: #4070a0; } 
-code span.va { color: #19177c; } 
-code span.vs { color: #4070a0; } 
-code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } 
 </style>
   <style type="text/css">@page{size:A4;margin:19mm 17mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#263d32;line-height:1.48;font-size:10.5pt;max-width:100%;margin:0}h1{font-size:31pt;line-height:1.1;letter-spacing:-1px;margin:0 0 15px}h2{font-size:19pt;color:#17422f;border-top:3px solid #b97037;padding-top:13px;margin-top:30px;break-after:avoid}h3{font-size:13pt;break-after:avoid}p,li{orphans:3;widows:3}a{color:#865020;text-decoration:none}img{max-width:100%;height:auto}pre{background:#f4f1e9;border-left:3px solid #b97037;padding:11px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:8.2pt;break-inside:avoid}code{font-family:Menlo,monospace;font-size:.9em}table{width:100%;border-collapse:collapse;font-size:9pt}th{text-align:left;background:#17422f;color:white}td,th{padding:7px;vertical-align:top;border:1px solid #d7ddd4}tr{break-inside:avoid}blockquote{border-left:3px solid #b97037;padding:4px 15px;background:#f4f1e9}hr{border:0;border-top:1px solid #d7ddd4}ul,ol{padding-left:23px}
 header#title-block-header{display:none}figure{margin:18px 0;break-inside:avoid}figcaption{font-size:8.5pt;color:#667166;margin-top:5px}thead{display:table-header-group}
@@ -261,22 +196,22 @@ Ubuntu server</h3>
 <strong>on the new server</strong>. Paste one block at a time. If the OS
 is not Ubuntu 24.04, stop and use the official instructions for that OS
 instead.</p>
-<div class="sourceCode" id="cb1"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> apt-get update</span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> apt-get install <span class="at">-y</span> ca-certificates curl git openssl</span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> install <span class="at">-m</span> 0755 <span class="at">-d</span> /etc/apt/keyrings</span>
-<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> curl <span class="at">-fsSL</span> https://download.docker.com/linux/ubuntu/gpg <span class="at">-o</span> /etc/apt/keyrings/docker.asc</span>
-<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> chmod a+r /etc/apt/keyrings/docker.asc</span></code></pre></div>
-<div class="sourceCode" id="cb2"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="bu">.</span> /etc/os-release</span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="bu">printf</span> <span class="st">&#39;Types: deb\nURIs: https://download.docker.com/linux/ubuntu\nSuites: %s\nComponents: stable\nSigned-By: /etc/apt/keyrings/docker.asc\n&#39;</span> <span class="st">&quot;</span><span class="va">$VERSION_CODENAME</span><span class="st">&quot;</span> <span class="kw">|</span> <span class="fu">sudo</span> tee /etc/apt/sources.list.d/docker.sources <span class="op">&gt;</span>/dev/null</span>
-<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> apt-get update</span>
-<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> apt-get install <span class="at">-y</span> docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin</span>
-<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> usermod <span class="at">-aG</span> docker <span class="st">&quot;</span><span class="va">$USER</span><span class="st">&quot;</span></span></code></pre></div>
+<pre class="sh"><code>sudo apt-get update
+sudo apt-get install -y ca-certificates curl git openssl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc</code></pre>
+<pre class="sh"><code>. /etc/os-release
+printf &#39;Types: deb\nURIs: https://download.docker.com/linux/ubuntu\nSuites: %s\nComponents: stable\nSigned-By: /etc/apt/keyrings/docker.asc\n&#39; &quot;$VERSION_CODENAME&quot; | sudo tee /etc/apt/sources.list.d/docker.sources &gt;/dev/null
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo usermod -aG docker &quot;$USER&quot;</code></pre>
 <p>Close that SSH session and reconnect. The Docker group is
 administrator-equivalent: only give trusted server operators this
 access. Then check:</p>
-<div class="sourceCode" id="cb3"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> version</span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> compose version</span>
-<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> run <span class="at">--rm</span> hello-world</span></code></pre></div>
+<pre class="sh"><code>docker version
+docker compose version
+docker run --rm hello-world</code></pre>
 <p><strong>Expected:</strong> client/server version output, a Compose
 version, and “Hello from Docker!” If permission is denied, reconnect
 before trying again. Do not install a second Docker variant on top of an
@@ -289,19 +224,19 @@ this guide</strong>. Do not use an old commit that predates
 <code>docs/hosting/</code>. A commit ID is a version label, not a
 password. In the following command replace
 <code>REVIEWED_COMMIT_ID</code> first.</p>
-<div class="sourceCode" id="cb4"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> clone https://github.com/ISTE-500-Team-2/srdevproject.git arbor</span>
-<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> arbor</span>
-<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> checkout REVIEWED_COMMIT_ID</span>
-<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> rev-parse HEAD</span></code></pre></div>
+<pre class="sh"><code>git clone https://github.com/ISTE-500-Team-2/srdevproject.git arbor
+cd arbor
+git checkout REVIEWED_COMMIT_ID
+git rev-parse HEAD</code></pre>
 <p>Record that last output on the ownership sheet.
 <strong>Expected:</strong> <code>docs/hosting/arbor.sh</code> exists. Do
 not continue with an unreviewed version just because it is newer.</p>
 <h2 id="add-your-settings-and-private-keys">5. Add your settings and
 private keys</h2>
 <p>From the <code>arbor</code> repository directory:</p>
-<div class="sourceCode" id="cb5"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cp</span> docs/hosting/sponsor.env.example .env.sponsor</span>
-<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="fu">chmod</span> 600 .env.sponsor</span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="fu">nano</span> .env.sponsor</span></code></pre></div>
+<pre class="sh"><code>cp docs/hosting/sponsor.env.example .env.sponsor
+chmod 600 .env.sponsor
+nano .env.sponsor</code></pre>
 <p>In the editor, replace the example hostname and emails with your real
 values. <code>PUBLIC_HOST</code> is only the hostname: <strong>no
 <code>https://</code> and no slash</strong>. Set <code>TLS_EMAIL</code>
@@ -315,17 +250,17 @@ health check. Leave Stripe and reader keys blank. Do not invite users
 until section 8 enables working email.</p>
 <p>Generate the database password and signing key <strong>once, on a new
 installation</strong>:</p>
-<div class="sourceCode" id="cb6"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="bu">umask</span> 077</span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="fu">mkdir</span> <span class="at">-p</span> .sponsor-secrets</span>
-<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="bu">[</span> <span class="ot">!</span> <span class="ot">-e</span> .sponsor-secrets/db-password <span class="bu">]</span><span class="kw">;</span> <span class="cf">then</span></span>
-<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>  <span class="ex">openssl</span> rand <span class="at">-hex</span> 32 <span class="op">&gt;</span> .sponsor-secrets/db-password</span>
-<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a><span class="cf">fi</span></span>
-<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="bu">[</span> <span class="ot">!</span> <span class="ot">-e</span> .sponsor-secrets/jwt.key <span class="bu">]</span><span class="kw">;</span> <span class="cf">then</span></span>
-<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>  <span class="ex">openssl</span> rand 32 <span class="op">&gt;</span> .sponsor-secrets/jwt.key</span>
-<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a><span class="cf">fi</span></span>
-<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> chown 1000:1000 .sponsor-secrets/db-password .sponsor-secrets/jwt.key</span>
-<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a><span class="fu">chmod</span> 600 .sponsor-secrets/db-password .sponsor-secrets/jwt.key</span>
-<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a><span class="fu">chmod</span> 700 .sponsor-secrets</span></code></pre></div>
+<pre class="sh"><code>umask 077
+mkdir -p .sponsor-secrets
+if [ ! -e .sponsor-secrets/db-password ]; then
+  openssl rand -hex 32 &gt; .sponsor-secrets/db-password
+fi
+if [ ! -e .sponsor-secrets/jwt.key ]; then
+  openssl rand 32 &gt; .sponsor-secrets/jwt.key
+fi
+sudo chown 1000:1000 .sponsor-secrets/db-password .sponsor-secrets/jwt.key
+chmod 600 .sponsor-secrets/db-password .sponsor-secrets/jwt.key
+chmod 700 .sponsor-secrets</code></pre>
 <p>The container’s application user is UID 1000, so it must be able to
 read the mounted files. On the standard Ubuntu image the login user is
 normally UID 1000 too; if <code>chmod</code> reports permission denied
@@ -340,9 +275,9 @@ build. Keep private recovery copies outside the server as well.</p>
 <h2 id="build-then-choose-one-database-path">6. Build, then choose ONE
 database path</h2>
 <p>Run from the repository root:</p>
-<div class="sourceCode" id="cb7"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> docs/hosting/arbor.sh check</span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> docs/hosting/arbor.sh build</span>
-<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> docs/hosting/arbor.sh start-db</span></code></pre></div>
+<pre class="sh"><code>bash docs/hosting/arbor.sh check
+bash docs/hosting/arbor.sh build
+bash docs/hosting/arbor.sh start-db</code></pre>
 <p><strong>Expected:</strong> configuration parses, image build
 completes, and the database becomes healthy. A build may take several
 minutes. A parsing result is not a deployment test.</p>
@@ -350,7 +285,7 @@ minutes. A parsing result is not a deployment test.</p>
 studio database</h3>
 <p>Choose this only when <strong>there are no existing records to
 preserve</strong>:</p>
-<div class="sourceCode" id="cb8"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> docs/hosting/arbor.sh initialize-new</span></code></pre></div>
+<pre class="sh"><code>bash docs/hosting/arbor.sh initialize-new</code></pre>
 <p>Read the message, then type <code>CREATE NEW DATABASE</code> only if
 this is the intended empty installation. The helper refuses a database
 with public tables. It applies the base schema and versioned migrations,
@@ -367,7 +302,7 @@ archive is not a backup of every external system.</p>
 <p>Transfer the archive privately into <code>.sponsor-backups/</code> on
 the new server. Set its permissions to owner-only. Replace the filename
 below:</p>
-<div class="sourceCode" id="cb9"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> docs/hosting/arbor.sh restore-new .sponsor-backups/verified-transfer.dump</span></code></pre></div>
+<pre class="sh"><code>bash docs/hosting/arbor.sh restore-new .sponsor-backups/verified-transfer.dump</code></pre>
 <p>Type <code>RESTORE NEW DATABASE</code> only for the intended empty
 database. A failed restore may leave a partial schema: <strong>do not
 rerun initialization or delete volumes</strong>. Keep the source intact
@@ -376,7 +311,7 @@ and ask the operator to investigate a fresh recovery target.</p>
 certifications and latest transactions against the source. If the
 reviewed release requires new migrations, approve them only after that
 verification:</p>
-<div class="sourceCode" id="cb10"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> docs/hosting/arbor.sh migrate</span></code></pre></div>
+<pre class="sh"><code>bash docs/hosting/arbor.sh migrate</code></pre>
 <p>It takes an archive backup before applying migrations and asks for
 <code>APPLY REVIEWED MIGRATIONS</code>. Preserve the original source
 archive and source server until recovery acceptance is complete. Use
@@ -384,8 +319,8 @@ existing administrator accounts after a restore; do not bootstrap
 another first administrator.</p>
 <h2 id="start-the-website-and-verify-https">7. Start the website and
 verify HTTPS</h2>
-<div class="sourceCode" id="cb11"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> docs/hosting/arbor.sh start</span>
-<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> docs/hosting/arbor.sh status</span></code></pre></div>
+<pre class="sh"><code>bash docs/hosting/arbor.sh start
+bash docs/hosting/arbor.sh status</code></pre>
 <p><strong>Expected:</strong> <code>db</code> and <code>app</code> are
 healthy, and <code>proxy</code> is running. From your own computer, open
 <code>https://YOUR_HOSTNAME/api/health</code> and then
@@ -411,7 +346,7 @@ here or into a frontend file. Leave optional webhook settings blank
 unless the team configures the delivery-event callback separately.</li>
 <li>Save, then apply the environment change:</li>
 </ol>
-<div class="sourceCode" id="cb12"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> docs/hosting/arbor.sh restart</span></code></pre></div>
+<pre class="sh"><code>bash docs/hosting/arbor.sh restart</code></pre>
 <ol start="4" type="1">
 <li>On the website, register <strong>your own real owner email</strong>
 and a private password. Open the confirmation email and finish
@@ -420,7 +355,7 @@ bypass confirmation in the database.</li>
 <li>For a genuinely new database with <strong>no active
 administrator</strong>, run this command with that confirmed email:</li>
 </ol>
-<div class="sourceCode" id="cb13"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> docs/hosting/arbor.sh promote-owner owner@yourstudio.com</span></code></pre></div>
+<pre class="sh"><code>bash docs/hosting/arbor.sh promote-owner owner@yourstudio.com</code></pre>
 <p>Type <code>APPROVE FIRST ADMIN</code>. The script only promotes an
 active, confirmed account when no active administrator exists, and
 records an audit entry. Sign out and back in, then verify you can open
@@ -503,7 +438,7 @@ production-accepted.</p>
 routine care</h2>
 <h3 id="after-setup-before-changes-and-on-the-agreed-daily-schedule">After
 setup, before changes, and on the agreed daily schedule</h3>
-<div class="sourceCode" id="cb14"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> docs/hosting/arbor.sh backup</span></code></pre></div>
+<pre class="sh"><code>bash docs/hosting/arbor.sh backup</code></pre>
 <p>The helper creates a private custom-format archive in
 <code>.sponsor-backups/</code>, checks that it is nonempty and that
 PostgreSQL can read its index. <strong>That is not a restore
@@ -649,8 +584,8 @@ live keys as a workaround.</td>
 </tbody>
 </table>
 <p>Useful commands, from the repository root:</p>
-<div class="sourceCode" id="cb15"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> docs/hosting/arbor.sh status</span>
-<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> docs/hosting/arbor.sh logs</span></code></pre></div>
+<pre class="sh"><code>bash docs/hosting/arbor.sh status
+bash docs/hosting/arbor.sh logs</code></pre>
 <p>Send the technical contact the release commit, guide step, exact
 error with secrets and personal details removed, and what changed
 immediately before the failure. Do not share <code>.env.sponsor</code>,
