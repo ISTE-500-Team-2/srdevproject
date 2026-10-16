@@ -7,7 +7,7 @@ export interface Plan extends PlanInput {
 }
 const planColumns =
   "tierid AS id,tiername AS name,kind,tierprice::text AS price,allottedmonths AS months,benefits,active,revision";
-const personColumns = `u.userid AS id,u.firstname AS "firstName",u.lastname AS "lastName",u.email,u.phone,u.status,
+const personColumns = `u.userid AS id,u.firstname AS "firstName",u.lastname AS "lastName",u.email,u.phone,u.status,u.statusdesc AS "accountReason",
   u.primary_role AS "primaryRole",u.is_student AS "isStudent",u.accessstatus AS "accessStatus",u.accessreason AS "accessReason",u.revision,
   COALESCE(u.conductflag,false) AS "conductFlag",
   u.profile_address AS address,u.contact_preferences AS "contactPreferences",
@@ -103,12 +103,14 @@ export class StaffModel {
     );
     return result.rowCount ? this.person(id) : undefined;
   }
-  async setRole(
-    id: number,
-    role: string,
-    roles?: string[],
-    isStudent?: boolean,
-  ) {
+  async accountStatus(id: number, status: string, reason: string, revision: number) {
+    const result = await this.db.query(
+      `UPDATE "user" SET status=$2,statusdesc=$3,revision=revision+1 WHERE userid=$1 AND revision=$4 RETURNING userid`,
+      [id, status, reason, revision],
+    );
+    return result.rowCount ? this.person(id) : undefined;
+  }
+  async setRole(id: number, role: string, roles?: string[], isStudent?: boolean) {
     if (roles) {
       // Explicit multi-role editor replaces managed roles only; retain unknown legacy classifications.
       await this.db.query(
