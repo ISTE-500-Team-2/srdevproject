@@ -21,10 +21,12 @@ if [[ -z "$old" && -z "${ARBOR_ALLOW_INITIAL_RELEASE:-}" ]]; then echo 'Register
 docker network inspect "$network" >/dev/null
 docker pull "$image"
 backup="$root/backups/$(date -u +%Y%m%dT%H%M%SZ)-$mode.dump"
-# Match createPool(): DATABASE_URL takes precedence over individual PG settings.
-# libpq accepts a URI through PGDATABASE; keep it out of process arguments/logs.
-backup_command='if [ -n "${DATABASE_URL:-}" ]; then export PGDATABASE="$DATABASE_URL"; fi; exec pg_dump --format=custom --no-owner'
-docker run --rm --network "$network" --env-file "$environment" postgres:16.14-bookworm@sha256:64154d0babcb1741988719e703419af0382b19953706149f9872fbd0f438efa8 sh -eu -c "$backup_command" > "$backup"
+# Resolve DATABASE_URL using the exact application parser. libpq does not expand
+# a URI merely assigned to PGDATABASE. Keep all credentials out of arguments.
+connection=$(mktemp "$root/.backup-env.XXXXXX")
+trap 'rm -f -- "$connection"' EXIT
+docker run --rm --env-file "$environment" --entrypoint node "$image" backend/dist/scripts/backup-environment.js > "$connection"
+docker run --rm --network "$network" --env-file "$environment" --env-file "$connection" postgres:16.14-bookworm@sha256:64154d0babcb1741988719e703419af0382b19953706149f9872fbd0f438efa8 pg_dump --format=custom --no-owner > "$backup"
 [[ -s "$backup" ]] || { echo 'Database backup is empty; refusing rollout' >&2; exit 1; }
 docker run --rm -i postgres:16.14-bookworm@sha256:64154d0babcb1741988719e703419af0382b19953706149f9872fbd0f438efa8 pg_restore --list < "$backup" >/dev/null
 # Migrations are an explicit, separately reviewed operator step, never automatic.
