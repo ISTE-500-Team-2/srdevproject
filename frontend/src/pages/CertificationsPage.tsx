@@ -5,9 +5,11 @@ import { Modal } from '../components/Modal';
 import { Toast } from '../components/Toast';
 import { api, errorMessage } from '../lib/api';
 import type { Certification, Waiver } from '../lib/contracts';
+import { useAuth } from '../context/AuthContext';
 import { useApi } from '../lib/useApi';
 
 export function CertificationsPage() {
+  const {user} = useAuth();
   const waivers = useApi<Waiver[]>('/me/waivers');
   const certifications = useApi<Certification[]>('/me/certifications');
   const [selected, setSelected] = useState<Waiver | null>(null);
@@ -38,6 +40,7 @@ export function CertificationsPage() {
       <section>
         <p className="eyebrow">Your access records</p>
         <h1>Certifications & waivers</h1>
+        {user?.roles.some(r=>['admin','staff','instructor'].includes(r))?<Link to="/training">Manage training records</Link>:null}
       </section>
       <section className="panel feature-notice">
         <h2>
@@ -65,6 +68,8 @@ export function CertificationsPage() {
                 <p>
                   {item.valid ? 'Current' : 'Not current'} · {item.status}
                 </p>
+                {item.trainedAt?<p>Trained: {new Date(item.trainedAt).toLocaleDateString()}</p>:null}
+                {item.instructorName?<p>Approved by: {item.instructorName}</p>:null}
                 {item.renewalDate ? (
                   <p>
                     Renewal: {new Date(item.renewalDate).toLocaleDateString()}

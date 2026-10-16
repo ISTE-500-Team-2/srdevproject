@@ -5,7 +5,10 @@ export class MemberModel {
   async certifications(userId: number) {
     return (
       await this.db.query(
-        `SELECT c.certid AS id,c.name,uc.status,uc.renewaldate AT TIME ZONE 'UTC' AS "renewalDate",
+        `SELECT c.certid AS id,c.name,uc.status,uc.trained_at AS "trainedAt",uc.approved_at AS "approvedAt",uc.approved_by AS "approvedBy",
+      (SELECT firstname||' '||lastname FROM "user" WHERE userid=uc.approved_by) AS "instructorName",
+      uc.revision,c.validity_days AS "validityDays",
+      COALESCE((SELECT json_agg(e.equipmentid) FROM equipment e WHERE e.certid=c.certid),'[]') AS "equipmentIds",uc.renewaldate AT TIME ZONE 'UTC' AS "renewalDate",
       (uc.status='active' AND (uc.renewaldate IS NULL OR uc.renewaldate>=NOW() AT TIME ZONE 'UTC')
       AND (c.effectivedate IS NULL OR c.effectivedate<=NOW() AT TIME ZONE 'UTC')
       AND (c.enddate IS NULL OR c.enddate>=NOW() AT TIME ZONE 'UTC')) AS valid

@@ -48,12 +48,17 @@ export interface LiveEquipment extends Omit<Equipment, 'rate'> {
 export interface Reservation {
   id: number;
   userId: number;
-  equipmentId: number;
+  equipmentId: number | null;
+  roomId?: number | null;
   equipmentName: string;
+  resourceType?: 'equipment' | 'room';
   startTime: string;
   endTime: string;
   location: string;
   status: string;
+  revision: number;
+  memberName?: string;
+  memberEmail?: string;
 }
 export interface Waiver {
   id: number;
@@ -69,6 +74,12 @@ export interface Waiver {
   expiredSignature: boolean;
 }
 export interface Certification {
+  trainedAt?: string|null;
+  approvedAt?: string|null;
+  instructorName?: string|null;
+  equipmentIds?: number[];
+  validityDays?: number|null;
+  revision?: number;
   id: number;
   name: string;
   status: string;

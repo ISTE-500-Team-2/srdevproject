@@ -1,3 +1,4 @@
+import { TrainingPage } from "./TrainingPage";
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useApi } from "../lib/useApi";
@@ -7,19 +8,22 @@ import { StaffUsers } from "./StaffUsers";
 import { StaffPlans } from "./StaffPlans";
 import { StaffPayments } from "./StaffPayments";
 import { StaffPolicies } from "./StaffPolicies";
-import { AdminAnalyticsPreviewPage } from "./AdminAnalyticsPreviewPage";
+import { StaffReservations } from "./StaffReservations";
+import { ReportsPage } from "./ReportsPage";
+import { AccessManagementPage } from "./AccessManagementPage";
+import { StaffCompliance } from "./StaffCompliance";
 
 const tabs = [
   { key: "members", label: "Members", component: StaffUsers },
   { key: "plans", label: "Plans", component: StaffPlans },
+  { key: "reservations", label: "Reservations", component: StaffReservations },
   { key: "payments", label: "Payment history", component: StaffPayments },
+  { key: "compliance", label: "Compliance", component: StaffCompliance },
   { key: "policies", label: "Policies", component: StaffPolicies },
+  { key: "training", label: "Training", component: TrainingPage },
   { key: "audit", label: "Change log", component: ChangeLog },
-  {
-    key: "preview",
-    label: "Analytics preview",
-    component: AdminAnalyticsPreviewPage,
-  },
+  { key: "reports", label: "Reports", component: ReportsPage },
+  { key: "access", label: "Reader access", component: AccessManagementPage },
 ] as const;
 export function AdminDashboardPage() {
   const [params, setParams] = useSearchParams();
@@ -53,9 +57,10 @@ export function AdminDashboardPage() {
 }
 function ChangeLog() {
   const [offset, setOffset] = useState(0),
-    [userId, setUserId] = useState("");
+    [userId, setUserId] = useState(""),
+    [filters, setFilters] = useState("");
   const records = useApi<Page<Audit>>(
-    `/admin/audit?offset=${offset}${userId ? `&userId=${encodeURIComponent(userId)}` : ""}`,
+    `/admin/audit?offset=${offset}&${filters}${userId ? `&userId=${encodeURIComponent(userId)}` : ""}`,
   );
   return (
     <section>
@@ -69,11 +74,38 @@ function ChangeLog() {
         onSubmit={(e) => {
           e.preventDefault();
           setUserId(String(new FormData(e.currentTarget).get("userId") ?? ""));
+          const f = new FormData(e.currentTarget),
+            q = new URLSearchParams();
+          for (const field of ["actorId", "action"]) {
+            const v = String(f.get(field) ?? "");
+            if (v) q.set(field, v);
+          }
+          for (const field of ["from", "to"]) {
+            const v = String(f.get(field) ?? "");
+            if (v) q.set(field, new Date(v).toISOString());
+          }
+          setFilters(q.toString());
           setOffset(0);
         }}
       >
         <label>
           Filter by member ID <input name="userId" type="number" min="1" />
+        </label>
+        <label>
+          Actor ID
+          <input name="actorId" type="number" min={1} />
+        </label>
+        <label>
+          Exact action
+          <input name="action" placeholder="training.approved" />
+        </label>
+        <label>
+          From
+          <input name="from" type="datetime-local" />
+        </label>
+        <label>
+          Before
+          <input name="to" type="datetime-local" />
         </label>
         <button className="button button--quiet">Filter changes</button>
       </form>

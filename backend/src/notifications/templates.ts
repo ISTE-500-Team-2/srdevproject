@@ -19,6 +19,7 @@ const headings = {
   day_pass_issued: 'Your day pass is confirmed',
   reservation_confirmed: 'Your reservation is confirmed',
   reservation_created: 'Your reservation is confirmed',
+  reservation_updated: 'Your reservation has been updated',
   reservation_cancelled: 'Your reservation cancellation is confirmed',
   studio_reservation_confirmed: 'Your studio reservation is confirmed',
   studio_reservation_cancelled: 'Your studio cancellation is confirmed',

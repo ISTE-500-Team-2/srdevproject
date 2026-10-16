@@ -21,6 +21,7 @@ export interface Person {
   status: string;
   accessStatus: "active" | "suspended" | "revoked";
   accessReason: string;
+  accountReason?: string;
   conductFlag: boolean;
   address: Record<string, string | boolean>;
   contactPreferences: Record<string, string | boolean>;
@@ -98,4 +99,51 @@ export interface MembershipHistory {
   passes: Entitlement[];
   timeZone: string;
   accessStatus: string;
+}
+export interface ComplianceOption {
+  id: number;
+  name: string;
+  version?: string;
+}
+export interface ComplianceBreakdown {
+  id: number;
+  name: string;
+  version?: string;
+  total: number;
+  compliant: number;
+  expiring: number;
+}
+export interface ComplianceUser {
+  id: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  status: string;
+  accessStatus: string;
+  waiverCompliant: boolean;
+  certificationCompliant: boolean;
+  missingWaivers: string[];
+  expiringWaivers: string[];
+  missingCertifications: string[];
+  expiringCertifications: string[];
+}
+export interface ComplianceReport {
+  summary: {
+    userCount: number;
+    compliantUsers: number;
+    waiverCompliantUsers: number;
+    certificationCompliantUsers: number;
+    complianceRate: number;
+    waiverComplianceRate: number;
+    certificationComplianceRate: number;
+  };
+  users: Page<ComplianceUser>;
+  waiverBreakdown: ComplianceBreakdown[];
+  certificationBreakdown: ComplianceBreakdown[];
+  nextOffset: number | null;
+  filteredCount: number;
+  options: {
+    waivers: ComplianceOption[];
+    certifications: ComplianceOption[];
+  };
 }

@@ -1,8 +1,10 @@
+import {readDeviceConfig,type DeviceConfig} from './deviceAccess.js';
 import {readStudioStripeConfig,type StudioStripeConfig} from './studios/stripe.js';
 import { readJwtKey } from './jwtKey.js';
 import { readNotificationConfig, type NotificationConfig } from './notifications/config.js';
 
 export interface AppConfig {
+  devices?: DeviceConfig;
   studioStripe?: StudioStripeConfig;
   port: number;
   host: string;
@@ -36,6 +38,7 @@ export function readConfig(): AppConfig {
   if (production && !process.env.APP_ORIGIN)
     throw new Error('APP_ORIGIN is required in production');
   return {
+    devices: readDeviceConfig(),
     studioStripe: readStudioStripeConfig(),
     notifications: readNotificationConfig(),
     brevoWebhookToken,

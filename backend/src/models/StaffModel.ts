@@ -5,9 +5,17 @@ export interface Plan extends PlanInput {
   id: number;
   revision: number;
 }
+export interface ComplianceFilters {
+  waiverId: number | null;
+  certificationId: number | null;
+  expiresWithinDays: number | null;
+  userStatus: string;
+  offset: number;
+}
+export const COMPLIANCE_EXPORT_LIMIT = 10000;
 const planColumns =
   "tierid AS id,tiername AS name,kind,tierprice::text AS price,allottedmonths AS months,benefits,active,revision";
-const personColumns = `u.userid AS id,u.firstname AS "firstName",u.lastname AS "lastName",u.email,u.phone,u.status,
+const personColumns = `u.userid AS id,u.firstname AS "firstName",u.lastname AS "lastName",u.email,u.phone,u.status,u.statusdesc AS "accountReason",
   u.primary_role AS "primaryRole",u.is_student AS "isStudent",u.accessstatus AS "accessStatus",u.accessreason AS "accessReason",u.revision,
   COALESCE(u.conductflag,false) AS "conductFlag",
   u.profile_address AS address,u.contact_preferences AS "contactPreferences",
@@ -103,16 +111,32 @@ export class StaffModel {
     );
     return result.rowCount ? this.person(id) : undefined;
   }
+  async accountStatus(id: number, status: string, reason: string, revision: number) {
+    const result = await this.db.query(
+      `UPDATE "user" SET status=$2,statusdesc=$3,revision=revision+1 WHERE userid=$1 AND revision=$4 RETURNING userid`,
+      [id, status, reason, revision],
+    );
+    return result.rowCount ? this.person(id) : undefined;
+  }
   async setRole(id: number, role: string, roles?: string[], isStudent?: boolean) {
     if (roles) {
       // Explicit multi-role editor replaces managed roles only; retain unknown legacy classifications.
-      await this.db.query(`DELETE FROM user_role WHERE userid=$1 AND roleid IN
-        (SELECT roleid FROM role WHERE role IN ('member','admin','staff','subscriber','day_pass','instructor','student'))`,[id]);
+      await this.db.query(
+        `DELETE FROM user_role WHERE userid=$1 AND roleid IN
+        (SELECT roleid FROM role WHERE role IN ('member','admin','staff','subscriber','day_pass','instructor','student'))`,
+        [id],
+      );
     }
-    await this.db.query(`INSERT INTO user_role(userid,roleid,assignedat)
+    await this.db.query(
+      `INSERT INTO user_role(userid,roleid,assignedat)
       SELECT $1,roleid,NOW() AT TIME ZONE 'UTC' FROM role WHERE role=ANY($2::text[])
-      AND NOT EXISTS(SELECT 1 FROM user_role ur WHERE ur.userid=$1 AND ur.roleid=role.roleid)`,[id,roles ?? [role]]);
-    await this.db.query('UPDATE "user" SET primary_role=$2,is_student=COALESCE($3,is_student),revision=revision+1 WHERE userid=$1',[id,role,isStudent ?? null]);
+      AND NOT EXISTS(SELECT 1 FROM user_role ur WHERE ur.userid=$1 AND ur.roleid=role.roleid)`,
+      [id, roles ?? [role]],
+    );
+    await this.db.query(
+      'UPDATE "user" SET primary_role=$2,is_student=COALESCE($3,is_student),revision=revision+1 WHERE userid=$1',
+      [id, role, isStudent ?? null],
+    );
     return this.person(id);
   }
   async roleExists(role: string) {
@@ -338,13 +362,29 @@ export class StaffModel {
       ],
     );
   }
-  async audits(userId: number | null, offset = 0) {
+  async audits(
+    userId: number | null,
+    offset = 0,
+    filters: {
+      actorId?: number;
+      action?: string;
+      from?: string;
+      to?: string;
+    } = {},
+  ) {
     return (
       await this.db.query(
         `SELECT a.id::text,a.actor_id AS "actorId",u.firstname || ' ' || u.lastname AS "actorName",a.subject_id AS "subjectId",a.action,
       a.entity_type AS "entityType",a.entity_id AS "entityId",a.reason,a.before_state AS "before",a.after_state AS "after",a.created_at AS "createdAt"
-      FROM app_staff_audit a JOIN "user" u ON a.actor_id=u.userid WHERE ($1::int IS NULL OR subject_id=$1) ORDER BY a.id DESC LIMIT 51 OFFSET $2`,
-        [userId, offset],
+      FROM app_staff_audit a JOIN "user" u ON a.actor_id=u.userid WHERE ($1::int IS NULL OR subject_id=$1) AND ($3::int IS NULL OR a.actor_id=$3) AND ($4::text IS NULL OR a.action=$4) AND ($5::timestamptz IS NULL OR a.created_at>=$5) AND ($6::timestamptz IS NULL OR a.created_at<$6) ORDER BY a.id DESC LIMIT 51 OFFSET $2`,
+        [
+          userId,
+          offset,
+          filters.actorId ?? null,
+          filters.action ?? null,
+          filters.from ?? null,
+          filters.to ?? null,
+        ],
       )
     ).rows;
   }
@@ -389,5 +429,153 @@ export class StaffModel {
         [name, version, description, effectiveAt, approvalReference, actorId],
       )
     ).rows[0]!;
+  }
+  async complianceOptions() {
+    const [waivers, certifications] = await Promise.all([
+      this.db.query(
+        `WITH current_waivers AS (
+          SELECT DISTINCT ON (name) waiverid AS id,name,version
+          FROM waiver
+          WHERE isactive=true AND required=true
+            AND (effectivedate IS NULL OR effectivedate<=NOW() AT TIME ZONE 'UTC')
+          ORDER BY name,effectivedate DESC NULLS LAST,waiverid DESC
+        )
+        SELECT id,name,version FROM current_waivers ORDER BY name`,
+      ),
+      this.db.query(
+        `SELECT certid AS id,name FROM certifications
+        WHERE (effectivedate IS NULL OR effectivedate<=NOW() AT TIME ZONE 'UTC')
+        ORDER BY name,certid`,
+      ),
+    ]);
+    return { waivers: waivers.rows, certifications: certifications.rows };
+  }
+  async compliance(filters: ComplianceFilters, includeAllRows = false) {
+    const limit = includeAllRows ? COMPLIANCE_EXPORT_LIMIT : 51;
+    const params = [
+      filters.waiverId,
+      filters.certificationId,
+      filters.expiresWithinDays,
+      filters.userStatus,
+      filters.offset,
+      limit,
+    ];
+    const query = `
+      WITH report_users AS (
+        SELECT u.userid,u.firstname,u.lastname,u.email,u.status,u.accessstatus
+        FROM "user" u
+        WHERE ($4::text='all' OR u.status=$4::text)
+      ),
+      current_waivers AS (
+        SELECT DISTINCT ON (name) waiverid,name,version
+        FROM waiver
+        WHERE isactive=true AND required=true
+          AND (effectivedate IS NULL OR effectivedate<=NOW() AT TIME ZONE 'UTC')
+          AND ($1::int IS NULL OR waiverid=$1)
+        ORDER BY name,effectivedate DESC NULLS LAST,waiverid DESC
+      ),
+      report_certifications AS (
+        SELECT certid,name,enddate FROM certifications
+        WHERE (effectivedate IS NULL OR effectivedate<=NOW() AT TIME ZONE 'UTC')
+          AND ($2::int IS NULL OR certid=$2)
+          AND ($2::int IS NOT NULL OR enddate IS NULL OR enddate>=NOW() AT TIME ZONE 'UTC')
+      ),
+      waiver_status AS (
+        SELECT ru.userid,w.waiverid,w.name,w.version,sig.signdate,sig.expires_at,
+          (sig.userwaiverid IS NOT NULL AND (sig.expires_at IS NULL OR sig.expires_at>NOW())) AS compliant,
+          (sig.expires_at IS NOT NULL AND sig.expires_at<=NOW()) AS expired,
+          (sig.expires_at IS NOT NULL AND $3::int IS NOT NULL
+            AND (sig.expires_at<=NOW()+make_interval(days=>$3::int))) AS expiring
+        FROM report_users ru CROSS JOIN current_waivers w
+        LEFT JOIN LATERAL (
+          SELECT userwaiverid,signdate,expires_at FROM user_waiver
+          WHERE userid=ru.userid AND waiverid=w.waiverid AND approval=true
+          ORDER BY signdate DESC,userwaiverid DESC LIMIT 1
+        ) sig ON true
+      ),
+      certification_status AS (
+        SELECT ru.userid,c.certid,c.name,uc.status,uc.renewaldate,c.enddate,
+          CASE
+            WHEN uc.renewaldate IS NULL THEN c.enddate
+            WHEN c.enddate IS NULL THEN uc.renewaldate
+            WHEN uc.renewaldate<=c.enddate THEN uc.renewaldate
+            ELSE c.enddate
+          END AS effective_expires_at,
+          (uc.usercertid IS NOT NULL AND uc.status='active'
+            AND (uc.renewaldate IS NULL OR uc.renewaldate>=NOW() AT TIME ZONE 'UTC')
+            AND (c.enddate IS NULL OR c.enddate>=NOW() AT TIME ZONE 'UTC')) AS compliant,
+          (uc.usercertid IS NOT NULL
+            AND ((uc.renewaldate IS NOT NULL AND uc.renewaldate<NOW() AT TIME ZONE 'UTC')
+              OR (c.enddate IS NOT NULL AND c.enddate<NOW() AT TIME ZONE 'UTC'))) AS expired,
+          (uc.usercertid IS NOT NULL AND $3::int IS NOT NULL
+            AND (CASE
+              WHEN uc.renewaldate IS NULL THEN c.enddate
+              WHEN c.enddate IS NULL THEN uc.renewaldate
+              WHEN uc.renewaldate<=c.enddate THEN uc.renewaldate
+              ELSE c.enddate
+            END)<=NOW() AT TIME ZONE 'UTC'+make_interval(days=>$3::int)) AS expiring
+        FROM report_users ru CROSS JOIN report_certifications c
+        LEFT JOIN LATERAL (
+          SELECT usercertid,status,renewaldate FROM user_certifications
+          WHERE userid=ru.userid AND certid=c.certid
+          ORDER BY renewaldate DESC NULLS LAST,usercertid DESC LIMIT 1
+        ) uc ON true
+      ),
+      user_rollup AS (
+        SELECT ru.userid AS id,ru.firstname AS "firstName",ru.lastname AS "lastName",ru.email,ru.status,ru.accessstatus AS "accessStatus",
+          COALESCE((SELECT bool_and(compliant) FROM waiver_status ws WHERE ws.userid=ru.userid),true) AS "waiverCompliant",
+          COALESCE((SELECT bool_and(compliant) FROM certification_status cs WHERE cs.userid=ru.userid),true) AS "certificationCompliant",
+          COALESCE((SELECT array_agg(name || ' ' || version ORDER BY name) FROM waiver_status ws WHERE ws.userid=ru.userid AND NOT compliant),'{}') AS "missingWaivers",
+          COALESCE((SELECT array_agg(name || ' ' || version ORDER BY name) FROM waiver_status ws WHERE ws.userid=ru.userid AND expiring),'{}') AS "expiringWaivers",
+          COALESCE((SELECT array_agg(name ORDER BY name) FROM certification_status cs WHERE cs.userid=ru.userid AND NOT compliant),'{}') AS "missingCertifications",
+          COALESCE((SELECT array_agg(name ORDER BY name) FROM certification_status cs WHERE cs.userid=ru.userid AND expiring),'{}') AS "expiringCertifications"
+        FROM report_users ru
+      ),
+      filtered_users AS (
+        SELECT * FROM user_rollup
+        WHERE $3::int IS NULL OR array_length("expiringWaivers",1) IS NOT NULL OR array_length("expiringCertifications",1) IS NOT NULL
+      ),
+      summary AS (
+        SELECT COUNT(*)::int AS "userCount",
+          COUNT(*) FILTER (WHERE "waiverCompliant" AND "certificationCompliant")::int AS "compliantUsers",
+          COUNT(*) FILTER (WHERE "waiverCompliant")::int AS "waiverCompliantUsers",
+          COUNT(*) FILTER (WHERE "certificationCompliant")::int AS "certificationCompliantUsers"
+        FROM filtered_users
+      )
+      SELECT
+        (SELECT row_to_json(summary) FROM summary) AS summary,
+        COALESCE((SELECT json_agg(row_to_json(paged) ORDER BY "lastName","firstName",id)
+          FROM (SELECT * FROM filtered_users ORDER BY "lastName","firstName",id LIMIT $6 OFFSET $5) paged),'[]'::json) AS users,
+        COALESCE((SELECT json_agg(row_to_json(w) ORDER BY name)
+          FROM (SELECT waiverid AS id,name,version,COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE compliant)::int AS compliant,
+            COUNT(*) FILTER (WHERE expiring)::int AS expiring
+            FROM waiver_status ws JOIN filtered_users fu ON fu.id=ws.userid GROUP BY waiverid,name,version) w),'[]'::json) AS "waiverBreakdown",
+        COALESCE((SELECT json_agg(row_to_json(c) ORDER BY name)
+          FROM (SELECT certid AS id,name,COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE compliant)::int AS compliant,
+            COUNT(*) FILTER (WHERE expiring)::int AS expiring
+            FROM certification_status cs JOIN filtered_users fu ON fu.id=cs.userid GROUP BY certid,name) c),'[]'::json) AS "certificationBreakdown",
+        (SELECT COUNT(*)::int FROM filtered_users) AS "filteredCount"`;
+    const row = (await this.db.query(query, params)).rows[0]!;
+    const summary = row.summary ?? {
+      userCount: 0,
+      compliantUsers: 0,
+      waiverCompliantUsers: 0,
+      certificationCompliantUsers: 0,
+    };
+    return {
+      summary: {
+        ...summary,
+        complianceRate: summary.userCount ? summary.compliantUsers / summary.userCount : 1,
+        waiverComplianceRate: summary.userCount ? summary.waiverCompliantUsers / summary.userCount : 1,
+        certificationComplianceRate: summary.userCount ? summary.certificationCompliantUsers / summary.userCount : 1,
+      },
+      users: row.users,
+      waiverBreakdown: row.waiverBreakdown,
+      certificationBreakdown: row.certificationBreakdown,
+      nextOffset: !includeAllRows && row.users.length > 50 ? filters.offset + 50 : null,
+      filteredCount: row.filteredCount,
+    };
   }
 }

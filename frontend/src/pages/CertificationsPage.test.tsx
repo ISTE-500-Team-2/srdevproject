@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { CertificationsPage } from './CertificationsPage';
 const { state } = vi.hoisted(() => ({ state: { waivers: [] as any[] } }));
 vi.mock('../lib/useApi', () => ({ useApi: (path:string) => ({data:path === '/me/waivers' ? state.waivers : [],loading:false,error:null,reload:vi.fn()}) }));
+vi.mock('../context/AuthContext',()=>({useAuth:()=>({user:{roles:['member']}})}));
 afterEach(cleanup);
 function mount(overrides:object) {
  state.waivers=[{id:2,versionId:2,name:'Shop policy',version:'v2',signed:false,signedVersion:'v2',signedVersionId:2,outdatedSignature:false,expiredSignature:true,...overrides}];
