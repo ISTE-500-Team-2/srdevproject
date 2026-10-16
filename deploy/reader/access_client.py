@@ -72,9 +72,11 @@ class RelayLease:
             self._generation += 1
             if self._timer:
                 self._timer.cancel()
-            self.set_relay(False)
             if not isinstance(seconds, (int, float)) or not 0 < seconds <= 5:
+                self.set_relay(False)
                 return
+            # Renew an active lease without interrupting machine power. The
+            # generation check prevents the replaced timer from switching it off.
             self.set_relay(True)
             self._timer = threading.Timer(seconds, self._off, [self._generation])
             self._timer.daemon = True

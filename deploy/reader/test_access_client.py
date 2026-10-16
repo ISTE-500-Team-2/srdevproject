@@ -41,6 +41,17 @@ class Tests(unittest.TestCase):
     def test_old_timer_cannot_revoke_new_lease_and_close_stays_off(self):
         states=[];r=RelayLease(states.append);r.apply(.05);r.apply(.15);time.sleep(.08);self.assertTrue(states[-1]);r.close();time.sleep(.1);self.assertFalse(states[-1])
         with self.assertRaises(RuntimeError):r.apply(1)
+    def test_successful_renewal_never_pulses_relay_off(self):
+        states=[];r=RelayLease(states.append)
+        try:
+            r.apply(5)
+            first=len(states)
+            for _ in range(3):r.apply(5)
+            self.assertTrue(states[-1])
+            self.assertNotIn(False,states[first:])
+            r.apply(0)
+            self.assertFalse(states[-1])
+        finally:r.close()
     def test_active_session_rechecks_and_denial_terminates_relay(self):
         calls=[]
         class Revoked:
