@@ -39,6 +39,15 @@ Booking utilization's denominator is the full selected calendar window, not unco
 
 No Jira statuses were changed. Review the corresponding code/tests and external evidence before advancing completion claims.
 
+## Merge-readiness follow-up
+
+The branch now includes current main plus the reviewed account-status (#36) and compliance-report (#37) heads. Merge order is #36, #37, this PR (#35), then frontend cleanup (#32). These are branch integrations only: no main merge, production migration, deployment or hardware actuation is performed.
+
+- Relay renewal replaces its expiry timer without commanding an off/on pulse. Denial, invalid leases, network failure, expiry and close still de-energize it. A regression test checks repeated successful renewals for interruptions.
+- Rollout resolves DATABASE_URL with the application's pg parser into a mode-0600 temporary libpq environment file. URI settings override conflicting PG settings; decoded passwords never enter process arguments or logs. Without DATABASE_URL, the existing PG configuration is retained. The temporary file is removed on exit.
+- URL-embedded custom certificate material requires separately provisioned backup certificate configuration; the helper refuses it rather than silently dropping certificate verification. Ordinary TLS URLs retain verification. Existing deployment/environment and physical acceptance requirements above remain separate.
+- New tests cover URI precedence/decoding, existing PG configuration, TLS verification, env-file injection rejection and the real rollout connection helper. The resolved settings were also used successfully with an isolated PostgreSQL 16 pg_dump/pg_restore archive check.
+
 ## Verification result
 
 220 automated tests passed on Node 24.21.0 (32 backend unit, 36 frontend unit, 119 backend integration, 22 frontend integration, 6 reader/relay simulation, 5 rollout fault-injection tests). Both application builds passed. The 128-case software eligibility matrix had zero false grants; local API p95 was 5.60 ms and maximum 17.82 ms. This does not establish physical hardware accuracy or end-to-end latency. Docker was unavailable locally; container build/live workflow execution remain pending in CI.
