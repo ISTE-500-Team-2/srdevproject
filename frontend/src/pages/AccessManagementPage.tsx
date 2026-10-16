@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { api, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
-import { LoadState, dateTime } from "../components/Management";
+import { LoadState } from "../components/Management";
+import { dateTime } from "../lib/display";
 type Card = {
   id: number;
   label: string;

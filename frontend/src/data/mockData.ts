@@ -1,29 +1,4 @@
-import type {
-  CredentialRecord,
-  DemoUser,
-  Equipment,
-  StudioSpace,
-  WorkshopClass,
-} from '../types';
-
-export const demoUsers: Record<'member' | 'admin', DemoUser> = {
-  member: {
-    id: 101,
-    firstName: 'John',
-    lastName: 'Maker',
-    email: 'member@collaboratory.demo',
-    role: 'member',
-    membership: 'Monthly',
-  },
-  admin: {
-    id: 1,
-    firstName: 'Alex',
-    lastName: 'Admin',
-    email: 'admin@collaboratory.demo',
-    role: 'admin',
-    membership: 'Staff',
-  },
-};
+import type { WorkshopClass } from '../types';
 
 export const classes: WorkshopClass[] = [
   {
@@ -71,87 +46,6 @@ export const classes: WorkshopClass[] = [
     price: 20,
     status: 'available',
   },
-];
-
-export const equipment: Equipment[] = [
-  {
-    id: 1,
-    name: 'Rachel',
-    type: '3D Printer',
-    rate: 7,
-    trainingRequired: false,
-    image: '/assets/3d-printer.webp',
-    availability: 'Today after 2:00 PM',
-  },
-  {
-    id: 2,
-    name: 'Darth Vader',
-    type: 'Laser Engraver',
-    rate: 20,
-    trainingRequired: false,
-    image: '/assets/laser-engraver.webp',
-    availability: 'Tomorrow at 10:00 AM',
-  },
-  {
-    id: 3,
-    name: 'Spock',
-    type: 'Wood Lathe',
-    rate: 12,
-    trainingRequired: true,
-    image: '/assets/wood-lathe.webp',
-    availability: 'Friday at 1:00 PM',
-  },
-  {
-    id: 4,
-    name: 'Chandler',
-    type: 'Small CNC',
-    rate: 28,
-    trainingRequired: true,
-    image: '/assets/cnc-machine.webp',
-    availability: 'Monday at 9:00 AM',
-  },
-];
-
-export const studioSpaces: StudioSpace[] = [
-  {
-    id: 1,
-    name: 'Paris',
-    size: 'Large',
-    description: 'A large maker studio for ambitious builds and small teams.',
-    monthlyRate: 1200,
-    image: '/assets/space-paris.webp',
-    availability: 'Available October 1',
-  },
-  {
-    id: 2,
-    name: 'Coruscant',
-    size: 'Medium',
-    description: 'A focused studio with bench space and abundant natural light.',
-    monthlyRate: 750,
-    image: '/assets/space-coruscant.webp',
-    availability: 'Available now',
-  },
-  {
-    id: 3,
-    name: 'Harkonnen',
-    size: 'Small',
-    description: 'A compact private studio for precise, independent work.',
-    monthlyRate: 350,
-    image: '/assets/space-harkonnen.webp',
-    availability: 'Available September 15',
-  },
-];
-
-export const certifications: CredentialRecord[] = [
-  { id: 1, name: 'CNC Machine', status: 'Complete', date: '01/09/2026' },
-  { id: 2, name: 'Wood Lathe', status: 'Incomplete', date: null },
-  { id: 3, name: 'Metal Lathe', status: 'Incomplete', date: null },
-];
-
-export const waivers: CredentialRecord[] = [
-  { id: 1, name: 'Liability Agreement', status: 'Signed', date: '12/21/2025' },
-  { id: 2, name: 'Code of Conduct', status: 'Signed', date: '12/21/2025' },
-  { id: 3, name: 'IP Agreement', status: 'Signed', date: '12/21/2025' },
 ];
 
 export const revenueSeries = [0, 980, 1450, 2780, 2460, 3820];

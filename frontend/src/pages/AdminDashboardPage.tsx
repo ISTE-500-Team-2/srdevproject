@@ -14,20 +14,23 @@ import { AccessManagementPage } from "./AccessManagementPage";
 import { StaffCompliance } from "./StaffCompliance";
 
 const tabs = [
-  ["members", "Members"],
-  ["plans", "Plans"],
-  ["reservations", "Reservations"],
-  ["payments", "Payment history"],
-  ["compliance", "Compliance"],
-  ["policies", "Policies"],
-  ["training", "Training"],
-  ["audit", "Change log"],
-  ["reports", "Reports"],
-  ["access", "Reader access"],
-];
+  { key: "members", label: "Members", component: StaffUsers },
+  { key: "plans", label: "Plans", component: StaffPlans },
+  { key: "reservations", label: "Reservations", component: StaffReservations },
+  { key: "payments", label: "Payment history", component: StaffPayments },
+  { key: "compliance", label: "Compliance", component: StaffCompliance },
+  { key: "policies", label: "Policies", component: StaffPolicies },
+  { key: "training", label: "Training", component: TrainingPage },
+  { key: "audit", label: "Change log", component: ChangeLog },
+  { key: "reports", label: "Reports", component: ReportsPage },
+  { key: "access", label: "Reader access", component: AccessManagementPage },
+] as const;
 export function AdminDashboardPage() {
   const [params, setParams] = useSearchParams();
   const tab = params.get("tab") ?? "members";
+  // Unknown tab URLs still display members without selecting a known tab.
+  const TabContent =
+    tabs.find((item) => item.key === tab)?.component ?? StaffUsers;
   return (
     <div className="management-page page-enter">
       <section className="dashboard-intro">
@@ -37,38 +40,18 @@ export function AdminDashboardPage() {
         </div>
       </section>
       <nav className="management-tabs" aria-label="Staff sections">
-        {tabs.map(([key, label]) => (
+        {tabs.map(({ key, label }) => (
           <button
             key={key}
             className={tab === key ? "is-selected" : ""}
             aria-current={tab === key ? "page" : undefined}
-            onClick={() => setParams({ tab: key! })}
+            onClick={() => setParams({ tab: key })}
           >
             {label}
           </button>
         ))}
       </nav>
-      {tab === "plans" ? (
-        <StaffPlans />
-      ) : tab === "reservations" ? (
-        <StaffReservations />
-      ) : tab === "payments" ? (
-        <StaffPayments />
-      ) : tab === "compliance" ? (
-        <StaffCompliance />
-      ) : tab === "policies" ? (
-        <StaffPolicies />
-      ) : tab === "training" ? (
-        <TrainingPage />
-      ) : tab === "audit" ? (
-        <ChangeLog />
-      ) : tab === "reports" ? (
-        <ReportsPage />
-      ) : tab === "access" ? (
-        <AccessManagementPage />
-      ) : (
-        <StaffUsers />
-      )}
+      <TabContent />
     </div>
   );
 }

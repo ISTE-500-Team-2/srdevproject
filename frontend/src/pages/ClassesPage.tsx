@@ -3,7 +3,8 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
-import { LoadState, dateTime } from "../components/Management";
+import { LoadState } from "../components/Management";
+import { dateTime } from "../lib/display";
 type Class = {
   id: number;
   title: string;
