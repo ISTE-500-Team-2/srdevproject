@@ -140,3 +140,13 @@ listed workflows, not a guarantee that every feature or edge case is correct.
 Local harnesses, results and logs are retained with the original screenshot
 artifacts under `iste501/evidence/frontend-maintainability-20261004/expanded` in
 the review workspace. No application behavior changed during expanded verification.
+# Current merge-readiness integration
+
+This branch now incorporates current main and PRs #36, #37 and #35, preserving the historical commits below. Merge in that order before this cleanup PR (#32); no main merge or deployment has occurred.
+
+Conflict resolution retains the extracted UserDetail and moves the new account-status form/private staff note into it. Live instructor-led classes supersede the old sample-class preview. The component-based staff tab mapping retains Members, Plans, Reservations, Payments, Compliance, Policies, Training, Change log, Reports and Reader access. New training/report/access pages use the extracted display helpers rather than removed page-module exports.
+
+Combined local verification: 36 backend unit tests, 57 frontend unit/component tests (including ten staff-section integration regressions), 125 PostgreSQL backend integration tests, 22 real-backend React integration tests, five launcher tests, seven reader simulations and seven deployment tests: **259 passing tests**, plus both production builds. The staff integration flow exercises suspension/blocking/restoration through the extracted UserDetail. The backup connection helper also produced a valid isolated PostgreSQL 16 archive despite conflicting PG defaults. GitHub CI must separately verify the pushed head, including Docker checks.
+
+Earlier baseline/visual results and limitations below are historical evidence for their named commits, not claims about the current deployed service. Physical reader actuation, production data/schema changes, live charges and deployment remain outside this merge-readiness work.
+
