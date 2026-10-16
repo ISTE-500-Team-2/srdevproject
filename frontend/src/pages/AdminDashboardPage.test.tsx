@@ -26,6 +26,6 @@ test.each([
   render(<MemoryRouter initialEntries={[`/admin?tab=${tab}`]}><AdminDashboardPage /></MemoryRouter>);
   const navigation = screen.getByRole("navigation", { name: "Staff sections" });
   for (const label of ["Members", "Plans", "Reservations", "Payment history", "Compliance", "Policies", "Training", "Change log", "Reports", "Reader access"])
-    expect(within(navigation).getByRole("button", { name: label, exact: true })).toBeTruthy();
+    expect(within(navigation).getByRole("button", { name: label })).toBeTruthy();
   expect(screen.getByRole("heading", { name: heading })).toBeTruthy();
 });

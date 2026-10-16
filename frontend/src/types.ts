@@ -25,4 +25,3 @@ export interface Equipment {
   image: string;
   availability: string;
 }
-
