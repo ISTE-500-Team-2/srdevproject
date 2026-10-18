@@ -740,7 +740,7 @@ test('FR-001/035: staff and admins bulk manage reservations with audit trail',as
  assert.equal(notices.rows[1].userid,other.id);
  assert.equal(notices.rows[1].status,'pending');
  assert.equal(new Date(notices.rows[1].payload.startsAt).toISOString(),newerStart.toISOString());
- const auditUpdate=await pool.query("SELECT actor_id,subject_id,before_state,after_state FROM app_staff_audit WHERE action='reservation.override.updated' AND entity_id=$1",[id]);
+ const auditUpdate=await pool.query("SELECT actor_id,subject_id,before_state,after_state FROM app_staff_audit WHERE action='reservation.override.updated' AND entity_id=$1 ORDER BY id ASC",[id]);
  assert.equal(auditUpdate.rows[0].actor_id,staff.id);
  assert.equal(auditUpdate.rows[0].subject_id,member.id);
  assert.equal(auditUpdate.rows[0].before_state.status,'confirmed');
