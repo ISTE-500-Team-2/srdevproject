@@ -93,7 +93,11 @@ for (const alreadyApplied of [false, true]) test(`upgrade ${alreadyApplied ? 'or
     assert.ok(bookingsAfter.every(r => r.cooldown_enforced === false));
     const ledger = (await pool.query('SELECT name,checksum FROM app_migration ORDER BY name')).rows;
     for (const old of ledgerBefore) assert.deepEqual(ledger.find(r => r.name === old.name), old);
-    assert.equal(ledger.find(r => r.name === original).checksum, originalChecksum);
+    const originalSql = await readFile(path.join(repositoryRoot, 'database/migrations', original), 'utf8');
+    // Git can check this fixture out with CRLF on Windows. Pin its content while
+    // still requiring the ledger to match the exact bytes used by the runner.
+    assert.equal(createHash('sha256').update(originalSql.replace(/\r\n/g, '\n')).digest('hex'), originalChecksum);
+    assert.equal(ledger.find(r => r.name === original).checksum, createHash('sha256').update(originalSql).digest('hex'));
     if (alreadyApplied)
       assert.equal((await pool.query("INSERT INTO room(name,location) VALUES('Sequence preservation','East wing') RETURNING roomid")).rows[0].roomid, 501);
     assert.equal((await pool.query(`SELECT isallowed FROM role_permission WHERE resourcename='room'
