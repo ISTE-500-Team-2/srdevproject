@@ -296,6 +296,48 @@ test('refresh rotates once; replay commits family revocation for old and new acc
   assert.equal((await current(browserToken(refreshed))).status,401);
   assert.equal((await renew(refreshCookie(refreshed),a.csrf)).status,401);
 });
+test('successful refresh attributes rotation audit events to the verified owner without logging credentials', async () => {
+  const operator = await request(app).post('/api/auth/demo').send({role:'admin'});
+  assert.equal(operator.status,200);
+  const owner = await register();
+  const login = await request(app).post('/api/auth/login').send({email:owner.email,password:owner.password});
+  assert.equal(login.status,200);
+  const cookie = refreshCookie(login), csrf = login.body.data.csrfToken;
+  const checkpoint = (await pool.query('SELECT COALESCE(MAX(id),0)::text AS id FROM app_staff_audit')).rows[0].id;
+  assert.equal((await renew(cookie,'invalid-csrf')).status,401);
+  const refreshed = await renew(cookie,csrf);
+  assert.equal(refreshed.status,200);
+  const events = (await pool.query(
+    "SELECT * FROM app_staff_audit WHERE id>$1 AND action IN ('app_refresh_token.update','app_refresh_token.insert') ORDER BY id",
+    [checkpoint],
+  )).rows;
+  assert.deepEqual(events.map(e => e.action),['app_refresh_token.update','app_refresh_token.insert']);
+  for (const event of events) {
+    assert.equal(event.actor_id,owner.userId);
+    assert.equal(event.before_state,null);
+    assert.equal(event.after_state,null);
+    assert.equal(event.entity_id,0,'Token primary keys must not be copied to audit records');
+  }
+  const summaries: unknown[] = [];
+  for (const event of events) {
+    const search = await request(app).get(`/api/admin/audit?userId=${owner.userId}&action=${event.action}`)
+      .set('Authorization','Bearer '+browserToken(operator));
+    assert.equal(search.status,200);
+    const record = search.body.data.items.find((item: {id: string}) => item.id === String(event.id));
+    assert.ok(record,'User-filtered audit search must include the rotation event');
+    assert.equal(record.actorId,owner.userId);
+    summaries.push(record);
+  }
+  const unrelated = await request(app).get(`/api/admin/audit?userId=${operator.body.data.user.id}&action=app_refresh_token.update`)
+    .set('Authorization','Bearer '+browserToken(operator));
+  assert.equal(unrelated.status,200);
+  assert.equal(unrelated.body.data.items.some((item: {id: string}) => item.id === String(events[0].id)),false);
+  const oldRefresh = cookie.slice(cookieName.length+1), newRefresh = refreshCookie(refreshed).slice(cookieName.length+1);
+  const serialized = JSON.stringify({events,summaries});
+  for (const secret of [oldRefresh,newRefresh,tokenHash(oldRefresh),tokenHash(newRefresh),browserToken(login),browserToken(refreshed),csrf])
+    assert.equal(serialized.includes(secret),false,'Audit data must not contain credentials or their hashes');
+});
+
 test('refresh rejects missing CSRF, bad origin, expiration and inactive account', async () => {
   const a=await register(), cookie=refreshCookie(a.res);
   assert.equal((await renew(cookie,'')).status,401);
