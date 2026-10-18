@@ -66,15 +66,13 @@ export class StaffController {
     res.json({ data: await this.model.plans() });
   };
   createPlan = async (req: Request, res: Response) => {
-    res
-      .status(201)
-      .json({
-        data: await this.service.createPlan(
-          authState(res).user.id,
-          planInput(req.body),
-          reasonField(req.body.reason),
-        ),
-      });
+    res.status(201).json({
+      data: await this.service.createPlan(
+        authState(res).user.id,
+        planInput(req.body),
+        reasonField(req.body.reason),
+      ),
+    });
   };
   updatePlan = async (req: Request, res: Response) => {
     res.json({
@@ -137,6 +135,15 @@ export class StaffController {
       ),
     });
   };
+  accountStatus = async (req: Request, res: Response) => {
+    res.json({ data: await this.service.accountStatus(
+      authState(res).user.id,
+      positiveId(req.params.id),
+      oneOf(req.body.status, ["active", "suspended", "inactive"] as const, "Account status"),
+      revisionField(req.body.revision),
+      reasonField(req.body.reason),
+    ) });
+  };
   access = async (req: Request, res: Response) => {
     res.json({
       data: await this.service.access(
@@ -153,15 +160,47 @@ export class StaffController {
     });
   };
   role = async (req: Request, res: Response) => {
-    const allowed = ["member","staff","admin","subscriber","day_pass","instructor"] as const;
-    const primary = oneOf(req.body.primaryRole ?? req.body.role,allowed,"Primary role");
+    const allowed = [
+      "member",
+      "staff",
+      "admin",
+      "subscriber",
+      "day_pass",
+      "instructor",
+    ] as const;
+    const primary = oneOf(
+      req.body.primaryRole ?? req.body.role,
+      allowed,
+      "Primary role",
+    );
     const roles = req.body.roles === undefined ? undefined : req.body.roles;
-    if (roles !== undefined && (!Array.isArray(roles) || roles.length === 0 || roles.length > allowed.length ||
-      roles.some((r: unknown) => typeof r !== 'string' || !allowed.includes(r as typeof allowed[number])) ||
-      new Set(roles).size !== roles.length || !roles.includes(primary)))
-      throw new AppError(400,"INVALID_INPUT","Select distinct roles including the primary role.");
-    if (req.body.isStudent !== undefined && typeof req.body.isStudent !== 'boolean')
-      throw new AppError(400,"INVALID_INPUT","Student classification must be true or false.");
+    if (
+      roles !== undefined &&
+      (!Array.isArray(roles) ||
+        roles.length === 0 ||
+        roles.length > allowed.length ||
+        roles.some(
+          (r: unknown) =>
+            typeof r !== "string" ||
+            !allowed.includes(r as (typeof allowed)[number]),
+        ) ||
+        new Set(roles).size !== roles.length ||
+        !roles.includes(primary))
+    )
+      throw new AppError(
+        400,
+        "INVALID_INPUT",
+        "Select distinct roles including the primary role.",
+      );
+    if (
+      req.body.isStudent !== undefined &&
+      typeof req.body.isStudent !== "boolean"
+    )
+      throw new AppError(
+        400,
+        "INVALID_INPUT",
+        "Student classification must be true or false.",
+      );
     res.json({
       data: await this.service.role(
         authState(res).user.id,
@@ -250,6 +289,7 @@ export class StaffController {
         await this.model.audits(
           {
             userId: optionalPositiveId(req.query.userId, "User"),
+            actorId: optionalPositiveId(req.query.actorId, "Actor"),
             action: optionalAuditAction(req.query.action),
             from,
             to,

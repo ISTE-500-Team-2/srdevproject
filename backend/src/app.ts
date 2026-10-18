@@ -1,3 +1,4 @@
+import {deviceDecision} from './deviceAccess.js';
 import {studioWebhook} from './studios/routes.js';
 import { auditContext, auditedPool } from './auditContext.js';
 import express, { type ErrorRequestHandler } from 'express';
@@ -28,6 +29,7 @@ export function createApp(
     res.set('Cache-Control', 'no-store');
     next();
   });
+  app.post('/api/devices/decision',express.raw({type:'application/json',limit:'2kb'}),deviceDecision(pool,config.timeZone,config.devices));
   app.post('/api/webhooks/stripe-studios',express.raw({type:'application/json',limit:'96kb'}),studioWebhook(pool,config.timeZone,config.studioStripe));
   app.use(
     '/api/webhooks/brevo',

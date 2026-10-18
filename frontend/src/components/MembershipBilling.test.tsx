@@ -7,7 +7,7 @@ vi.mock('../lib/api',()=>({api,errorMessage:(e:Error)=>e.message}));
 vi.mock('../lib/useApi',()=>({useApi}));
 afterEach(()=>{cleanup();vi.resetAllMocks();});
 const plan={id:1,name:'Monthly',kind:'membership' as const,price:'50.00',months:1,benefits:'Test',active:true,revision:2};
-function mount(enabled=true,records:any[]=[]) {useApi.mockImplementation((path:string)=>({data:path.endsWith('/offers')?[{...plan,amountCents:5000,pricingRevision:0}]:{enabled,records},loading:false,error:'',reload}));render(<MembershipBilling plans={[plan]}/>);}
+function mount(enabled=true,records:any[]=[]) {useApi.mockImplementation((path:string)=>({data:path.endsWith('/offers')?[{...plan,amountCents:5000,pricingRevision:0}]:{enabled,records},loading:false,error:'',reload}));render(<MembershipBilling/>);}
 test('billing cannot be started without explicit consent; provider errors remain visible',async()=>{
  mount();const button=screen.getByRole('button',{name:/Continue with Monthly/}) as HTMLButtonElement;
  expect(button.disabled).toBe(true);fireEvent.click(screen.getByRole('checkbox'));expect(button.disabled).toBe(false);

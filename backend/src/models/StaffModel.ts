@@ -15,7 +15,7 @@ export interface ComplianceFilters {
 export const COMPLIANCE_EXPORT_LIMIT = 10000;
 const planColumns =
   "tierid AS id,tiername AS name,kind,tierprice::text AS price,allottedmonths AS months,benefits,active,revision";
-const personColumns = `u.userid AS id,u.firstname AS "firstName",u.lastname AS "lastName",u.email,u.phone,u.status,
+const personColumns = `u.userid AS id,u.firstname AS "firstName",u.lastname AS "lastName",u.email,u.phone,u.status,u.statusdesc AS "accountReason",
   u.primary_role AS "primaryRole",u.is_student AS "isStudent",u.accessstatus AS "accessStatus",u.accessreason AS "accessReason",u.revision,
   COALESCE(u.conductflag,false) AS "conductFlag",
   u.profile_address AS address,u.contact_preferences AS "contactPreferences",
@@ -111,16 +111,32 @@ export class StaffModel {
     );
     return result.rowCount ? this.person(id) : undefined;
   }
+  async accountStatus(id: number, status: string, reason: string, revision: number) {
+    const result = await this.db.query(
+      `UPDATE "user" SET status=$2,statusdesc=$3,revision=revision+1 WHERE userid=$1 AND revision=$4 RETURNING userid`,
+      [id, status, reason, revision],
+    );
+    return result.rowCount ? this.person(id) : undefined;
+  }
   async setRole(id: number, role: string, roles?: string[], isStudent?: boolean) {
     if (roles) {
       // Explicit multi-role editor replaces managed roles only; retain unknown legacy classifications.
-      await this.db.query(`DELETE FROM user_role WHERE userid=$1 AND roleid IN
-        (SELECT roleid FROM role WHERE role IN ('member','admin','staff','subscriber','day_pass','instructor','student'))`,[id]);
+      await this.db.query(
+        `DELETE FROM user_role WHERE userid=$1 AND roleid IN
+        (SELECT roleid FROM role WHERE role IN ('member','admin','staff','subscriber','day_pass','instructor','student'))`,
+        [id],
+      );
     }
-    await this.db.query(`INSERT INTO user_role(userid,roleid,assignedat)
+    await this.db.query(
+      `INSERT INTO user_role(userid,roleid,assignedat)
       SELECT $1,roleid,NOW() AT TIME ZONE 'UTC' FROM role WHERE role=ANY($2::text[])
-      AND NOT EXISTS(SELECT 1 FROM user_role ur WHERE ur.userid=$1 AND ur.roleid=role.roleid)`,[id,roles ?? [role]]);
-    await this.db.query('UPDATE "user" SET primary_role=$2,is_student=COALESCE($3,is_student),revision=revision+1 WHERE userid=$1',[id,role,isStudent ?? null]);
+      AND NOT EXISTS(SELECT 1 FROM user_role ur WHERE ur.userid=$1 AND ur.roleid=role.roleid)`,
+      [id, roles ?? [role]],
+    );
+    await this.db.query(
+      'UPDATE "user" SET primary_role=$2,is_student=COALESCE($3,is_student),revision=revision+1 WHERE userid=$1',
+      [id, role, isStudent ?? null],
+    );
     return this.person(id);
   }
   async roleExists(role: string) {
@@ -350,6 +366,7 @@ export class StaffModel {
     filters: {
       userId?: number | null;
       subjectId?: number | null;
+      actorId?: number | null;
       action?: string | null;
       from?: string | null;
       to?: string | null;
@@ -366,13 +383,15 @@ export class StaffModel {
         AND ($3::text IS NULL OR a.action=$3)
         AND ($4::timestamptz IS NULL OR a.created_at >= $4)
         AND ($5::timestamptz IS NULL OR a.created_at <= $5)
-      ORDER BY a.created_at DESC,a.id DESC LIMIT 51 OFFSET $6`,
+        AND ($6::int IS NULL OR a.actor_id=$6)
+      ORDER BY a.created_at DESC,a.id DESC LIMIT 51 OFFSET $7`,
         [
           filters.userId ?? null,
           filters.subjectId ?? null,
           filters.action ?? null,
           filters.from ?? null,
           filters.to ?? null,
+          filters.actorId ?? null,
           offset,
         ],
       )

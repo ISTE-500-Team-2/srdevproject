@@ -3,13 +3,8 @@ import { useState } from "react";
 import { api } from "../lib/api";
 import { useApi } from "../lib/useApi";
 import type { Plan } from "../lib/staffContracts";
-import {
-  ActionForm,
-  Field,
-  LoadState,
-  ReasonField,
-  dollars,
-} from "../components/Management";
+import { ActionForm, Field, LoadState, ReasonField } from "../components/Management";
+import { dollars } from "../lib/display";
 
 export function StaffPlans() {
   const plans = useApi<Plan[]>("/admin/plans");

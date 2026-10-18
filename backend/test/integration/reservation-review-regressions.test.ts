@@ -7,7 +7,7 @@ import { Pool } from 'pg';
 import request from 'supertest';
 import { createApp } from '../../src/app.js';
 import { initializeDemo } from '../../src/scripts/init-demo.js';
-import { migrate, repositoryRoot } from '../../src/scripts/migrate.js';
+import { migrate, prepareAuditMigration, repositoryRoot } from '../../src/scripts/migrate.js';
 
 const compatibility = '010_room_reservation_compatibility.sql';
 const original = '010_room_reservation_conflicts.sql';
@@ -44,6 +44,7 @@ async function oldSchema(pool: Pool, alreadyApplied: boolean) {
   for (const name of (await readdir(directory)).filter(n => /^\d+.*\.sql$/.test(n)).sort()) {
     if (name === compatibility || (!alreadyApplied && name === original)) continue;
     const sql = await readFile(path.join(directory, name), 'utf8');
+    await prepareAuditMigration(pool, name);
     await pool.query(sql);
     await pool.query('INSERT INTO app_migration(name,checksum) VALUES($1,$2)', [name, createHash('sha256').update(sql).digest('hex')]);
   }
