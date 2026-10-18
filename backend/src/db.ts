@@ -1,4 +1,5 @@
 import { Pool, type PoolClient, type QueryResultRow } from 'pg';
+import { auditContext } from './auditContext.js';
 
 export interface Database {
   query<T extends QueryResultRow = QueryResultRow>(
@@ -27,6 +28,7 @@ export async function transaction<T>(
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    await client.query("SELECT set_config('app.actor_id',$1,true)", [String(auditContext.getStore()?.actorId ?? '')]);
     const result = await work(client);
     await client.query('COMMIT');
     return result;
