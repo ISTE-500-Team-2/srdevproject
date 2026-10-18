@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, expect, test, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, expect, test, vi } from 'vitest';
 import {
   cleanup,
   fireEvent,
@@ -12,7 +12,7 @@ import {
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import App from '../../src/App';
-import { api } from '../../src/lib/api';
+import { api, setAccessToken, setCsrfToken } from '../../src/lib/api';
 import { createBrowserBridge } from '../../../backend/test/helpers/browserBridge';
 import { confirmationToken } from '../../../backend/test/helpers/confirmation';
 
@@ -20,6 +20,12 @@ let bridge: Awaited<ReturnType<typeof createBrowserBridge>>;
 beforeAll(async () => {
   bridge = await createBrowserBridge();
 }, 120000);
+afterEach(() => {
+  cleanup();
+  setAccessToken(null);
+  setCsrfToken(null);
+  vi.unstubAllGlobals();
+});
 afterAll(async () => {
   cleanup();
   vi.unstubAllGlobals();
@@ -72,9 +78,9 @@ test('signup form creates an account with DOB and the new password policy', asyn
     'ValidPassword!',
   );
 
-  await user.click(
-    within(dialog).getByRole('button', { name: 'Create account' }),
-  );
+  const create = within(dialog).getByRole('button', { name: 'Create account' });
+  await waitFor(() => expect((create as HTMLButtonElement).disabled).toBe(false), {timeout:20000});
+  await user.click(create);
 
   await screen.findByRole(
     'heading',
@@ -92,6 +98,8 @@ test('signup form creates an account with DOB and the new password policy', asyn
     { name: /Welcome back/ },
     { timeout: 20000 },
   );
+  const saved = (await bridge.pool.query('SELECT firstname FROM "user" WHERE email=$1',[email])).rows[0];
+  expect(saved.firstname).toBe('Signup');
   await screen.findByText(
     /Signup, welcome to The Crafty Studio - your account is ready/,
     {},

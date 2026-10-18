@@ -1,6 +1,10 @@
 import { randomBytes, webcrypto } from 'node:crypto';
 import { beforeEach, vi } from 'vitest';
+import { configure } from '@testing-library/react';
 import { JwtTokens } from '../../../backend/src/jwt';
+
+// These assertions wait on real HTTP/PostgreSQL operations, including parallel CI runs.
+configure({ asyncUtilTimeout: 20000 });
 
 // The Express bridge runs in this same process. jsdom's Crypto omits subtle;
 // use Node's real Web Crypto for JWT signing/verification, never a crypto mock.
