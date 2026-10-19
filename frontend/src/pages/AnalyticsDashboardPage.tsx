@@ -135,7 +135,7 @@ function AnalyticsRevenueChart(){
     //Get the payments from the api.
     const payments = useApi<Payment[]>('/admin/payments');
     console.log(payments.data?.length);
-    let payData = []; //array containing
+    // let payData = []; //array containing
     let intervals = createIntervals(new Date())
     let revenues: number[] = [];
     // let payArray; //the interpreted and consumed information as a neet array.
