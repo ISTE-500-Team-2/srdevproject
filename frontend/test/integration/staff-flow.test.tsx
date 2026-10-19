@@ -198,42 +198,9 @@ test("staff React flow creates a plan, issues access/payment, survives reload, s
   await screen.findByText("Facility access updated.", {}, { timeout: 20000 });
 
   cleanup();
-  expect((await direct("/auth/login", { email, password })).status).toBe(200);
-  mount("/membership");
-  await screen.findByRole(
-    "heading",
-    { name: "Your access records" },
-    { timeout: 20000 },
-  );
-  await screen.findByText("suspended", {}, { timeout: 20000 });
-  await screen.findByText(/UI-RECEIPT/, {}, { timeout: 20000 });
-  expect(screen.queryByRole("link", { name: "Staff workspace" })).toBeNull();
-  await user.click(
-    within(
-      screen.getByRole("navigation", { name: "Primary navigation" }),
-    ).getByRole("link", { name: "Home", exact: true }),
-  );
-  const checkin = await screen.findByRole(
-    "button",
-    { name: "Check in" },
-    { timeout: 20000 },
-  );
-  await waitFor(() =>
-    expect((checkin as HTMLButtonElement).disabled).toBe(true),
-  );
-  expect(
-    screen.getByText(/Facility access is suspended or revoked; contact staff/),
-  ).toBeTruthy();
-  const latest = (await (await bridge.fetch("/api/auth/session")).json()).data;
-  expect(
-    (
-      await direct(
-        "/me/check-ins",
-        { location: "Should not be saved" },
-        latest.csrfToken,
-      )
-    ).status,
-  ).toBe(403);
+  expect((await direct("/auth/login", { email, password })).status).toBe(403);
+  expect((await bridge.pool.query('SELECT COUNT(*)::int AS n FROM app_session WHERE userid=$1',[id])).rows[0].n).toBe(0);
+  expect((await bridge.pool.query('SELECT COUNT(*)::int AS n FROM app_refresh_family WHERE userid=$1 AND NOT revoked',[id])).rows[0].n).toBe(0);
   expect(
     (
       await bridge.pool.query(
