@@ -145,6 +145,7 @@ export function ReservationsPage() {
         <p>
           Times shown in {zone}. Reservations are saved to your account; no
           payment is collected. Equipment cancellation requires at least 24 hours notice; memberships do not replace reservations.
+          {' '}Equipment bookings require at least 15 minutes between users of the same machine.
         </p>
         {bookings.loading ? <p role="status">Loading reservations…</p> : null}
         {bookings.error ? (

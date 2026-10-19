@@ -5,9 +5,11 @@ import { Modal } from '../components/Modal';
 import { Toast } from '../components/Toast';
 import { api, errorMessage } from '../lib/api';
 import type { Certification, Waiver } from '../lib/contracts';
+import { useAuth } from '../context/AuthContext';
 import { useApi } from '../lib/useApi';
 
 export function CertificationsPage() {
+  const {user} = useAuth();
   const waivers = useApi<Waiver[]>('/me/waivers');
   const certifications = useApi<Certification[]>('/me/certifications');
   const [selected, setSelected] = useState<Waiver | null>(null);
@@ -38,6 +40,7 @@ export function CertificationsPage() {
       <section>
         <p className="eyebrow">Your access records</p>
         <h1>Certifications & waivers</h1>
+        {user?.roles.some(r=>['admin','staff','instructor'].includes(r))?<Link to="/training">Manage training records</Link>:null}
       </section>
       <section className="panel feature-notice">
         <h2>
@@ -65,6 +68,8 @@ export function CertificationsPage() {
                 <p>
                   {item.valid ? 'Current' : 'Not current'} · {item.status}
                 </p>
+                {item.trainedAt?<p>Trained: {new Date(item.trainedAt).toLocaleDateString()}</p>:null}
+                {item.instructorName?<p>Approved by: {item.instructorName}</p>:null}
                 {item.renewalDate ? (
                   <p>
                     Renewal: {new Date(item.renewalDate).toLocaleDateString()}
@@ -93,13 +98,20 @@ export function CertificationsPage() {
             <article className="saved-record" key={item.id}>
               <div>
                 <h3>{item.name}</h3>
-                <p>Version {item.version}</p>
+                <p>Version {item.version} · ID {item.versionId}</p>
                 {item.signed ? (
                   <p>
                     <CheckCircle2 aria-hidden="true" /> Signed{' '}
                     {item.signedAt
                       ? new Date(item.signedAt).toLocaleString()
                       : ''}
+                  </p>
+                ) : item.expiredSignature ? (
+                  <p>Your signature has expired. Review and sign again. Last signed: {item.signedVersion}.</p>
+                ) : item.outdatedSignature ? (
+                  <p>
+                    New version needs your signature. Last signed:{' '}
+                    {item.signedVersion ?? 'earlier version'}.
                   </p>
                 ) : (
                   <p>Signature required</p>
@@ -113,7 +125,7 @@ export function CertificationsPage() {
                   setError('');
                 }}
               >
-                {item.signed ? 'View policy' : 'Review and agree'}
+                {item.signed ? 'View policy' : item.outdatedSignature ? 'Review new version' : 'Review and agree'}
               </button>
             </article>
           ))}

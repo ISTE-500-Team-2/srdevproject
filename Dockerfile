@@ -1,4 +1,4 @@
-FROM node:22-bookworm-slim AS build
+FROM node:24-bookworm-slim AS build
 WORKDIR /app
 COPY backend/package*.json ./backend/
 COPY frontend/package*.json ./frontend/
@@ -12,7 +12,7 @@ COPY database ./database
 COPY ddl ./ddl
 CMD ["sh", "-c", "npm run check --prefix backend && npm run check --prefix frontend && npm run test:integration --prefix backend && npm run test:integration --prefix frontend"]
 
-FROM node:22-bookworm-slim AS runtime
+FROM node:24-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=8080
 COPY backend/package*.json ./backend/

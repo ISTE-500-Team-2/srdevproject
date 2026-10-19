@@ -1,3 +1,4 @@
+import {deviceDecision} from './deviceAccess.js';
 import {studioWebhook} from './studios/routes.js';
 import express, { type ErrorRequestHandler } from 'express';
 import { existsSync } from 'node:fs';
@@ -25,6 +26,7 @@ export function createApp(
     res.set('Cache-Control', 'no-store');
     next();
   });
+  app.post('/api/devices/decision',express.raw({type:'application/json',limit:'2kb'}),deviceDecision(pool,config.timeZone,config.devices));
   app.post('/api/webhooks/stripe-studios',express.raw({type:'application/json',limit:'96kb'}),studioWebhook(pool,config.timeZone,config.studioStripe));
   app.use(
     '/api/webhooks/brevo',
@@ -69,13 +71,19 @@ export function createApp(
       return;
     }
     if (error?.code === '23P01') {
+      const isCooldown =
+        error?.constraint === 'app_equipment_reservation_user_cooldown' ||
+        error?.constraint === 'app_room_reservation_user_cooldown';
       res
         .status(409)
         .json({
           error: {
-            code: 'RESERVATION_CONFLICT',
-            message:
-              'That equipment is already reserved for part of this time.',
+            code: isCooldown
+              ? 'RESERVATION_COOLDOWN'
+              : 'RESERVATION_CONFLICT',
+            message: isCooldown
+              ? 'Leave a cooldown between reservations for the same resource.'
+              : 'That resource is already reserved for part of this time.',
           },
         });
       return;

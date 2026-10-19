@@ -5,7 +5,10 @@ export class MemberModel {
   async certifications(userId: number) {
     return (
       await this.db.query(
-        `SELECT c.certid AS id,c.name,uc.status,uc.renewaldate AT TIME ZONE 'UTC' AS "renewalDate",
+        `SELECT c.certid AS id,c.name,uc.status,uc.trained_at AS "trainedAt",uc.approved_at AS "approvedAt",uc.approved_by AS "approvedBy",
+      (SELECT firstname||' '||lastname FROM "user" WHERE userid=uc.approved_by) AS "instructorName",
+      uc.revision,c.validity_days AS "validityDays",
+      COALESCE((SELECT json_agg(e.equipmentid) FROM equipment e WHERE e.certid=c.certid),'[]') AS "equipmentIds",uc.renewaldate AT TIME ZONE 'UTC' AS "renewalDate",
       (uc.status='active' AND (uc.renewaldate IS NULL OR uc.renewaldate>=NOW() AT TIME ZONE 'UTC')
       AND (c.effectivedate IS NULL OR c.effectivedate<=NOW() AT TIME ZONE 'UTC')
       AND (c.enddate IS NULL OR c.enddate>=NOW() AT TIME ZONE 'UTC')) AS valid
@@ -44,12 +47,12 @@ export class MemberModel {
       )
     ).rows;
   }
-  async createCheckIn(userId: number, location: string) {
+  async createCheckIn(userId: number, location: string, roomId: number | null = null) {
     const { rows } = await this.db.query(
-      `INSERT INTO check_in (userid,location,checkintime,status,statusdesc)
-      VALUES ($1,$2,NOW() AT TIME ZONE 'UTC','approved','Eligibility verified by member portal')
+      `INSERT INTO check_in (userid,roomid,location,checkintime,status,statusdesc)
+      VALUES ($1,$2,$3,NOW() AT TIME ZONE 'UTC','approved','Eligibility verified by member portal')
       RETURNING checkinid AS id,location,checkintime AT TIME ZONE 'UTC' AS "checkedInAt"`,
-      [userId, location],
+      [userId, roomId, location],
     );
     return rows[0]!;
   }

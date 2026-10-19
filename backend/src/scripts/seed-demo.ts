@@ -79,6 +79,17 @@ export async function seedDemo(pool: Pool) {
         [name, category, image, rate, waiver],
       );
     }
+    const rooms = [
+      ["Project Room A", "North hallway", 6],
+      ["Training Room", "Main floor", 18],
+    ];
+    for (const [name, location, capacity] of rooms) {
+      await db.query(
+        `INSERT INTO room (name,location,capacity,status)
+        SELECT $1::varchar,$2::varchar,$3::integer,'available' WHERE NOT EXISTS (SELECT 1 FROM room WHERE name=$1)`,
+        [name, location, capacity],
+      );
+    }
     await db.query(
       `INSERT INTO waiver (name,version,description,effectivedate)
       SELECT 'Demo makerspace policy','DEMO-1',$1,NOW() AT TIME ZONE 'UTC'
@@ -87,7 +98,7 @@ export async function seedDemo(pool: Pool) {
     );
   });
   console.log(
-    "Isolated sample accounts and equipment are ready; existing records were preserved.",
+    "Isolated sample accounts, equipment and rooms are ready; existing records were preserved.",
   );
 }
 

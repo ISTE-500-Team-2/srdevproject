@@ -57,4 +57,69 @@ export class AccessService {
       );
     return waivers;
   }
+
+  async activeReservationCertificationFailure(userId: number, at = new Date()) {
+    const { rows } = await this.db.query<{
+      equipmentName: string;
+      certification: string;
+    }>(
+      `SELECT e.name AS "equipmentName",COALESCE(c.name,'equipment') AS certification
+       FROM reservation r
+       JOIN equipment e ON e.equipmentid=r.equipmentid
+       LEFT JOIN certifications c ON c.certid=e.certid
+       WHERE r.userid=$1 AND r.status IN ('confirmed','pending')
+         AND e.certid IS NOT NULL
+         AND r.starttime <= $2::timestamptz AT TIME ZONE 'UTC'
+         AND r.endtime > $2::timestamptz AT TIME ZONE 'UTC'
+         AND NOT EXISTS (
+           SELECT 1 FROM user_certifications uc
+           JOIN certifications valid_cert ON valid_cert.certid=uc.certid
+           WHERE uc.userid=r.userid AND uc.certid=e.certid AND uc.status='active'
+             AND (uc.renewaldate IS NULL OR uc.renewaldate >= $2::timestamptz AT TIME ZONE 'UTC')
+             AND (valid_cert.effectivedate IS NULL OR valid_cert.effectivedate <= NOW() AT TIME ZONE 'UTC')
+             AND (valid_cert.enddate IS NULL OR valid_cert.enddate >= $2::timestamptz AT TIME ZONE 'UTC')
+         )
+       ORDER BY r.starttime,r.reservationid LIMIT 1`,
+      [userId, at],
+    );
+    if (!rows[0]) return null;
+    return {
+      code: "CERTIFICATION_REQUIRED",
+      message: `A current ${rows[0].certification} certification is required for ${rows[0].equipmentName}.`,
+    };
+  }
+
+  async assertActiveReservationCertifications(userId: number, at = new Date()) {
+    const failure = await this.activeReservationCertificationFailure(userId, at);
+    if (failure) throw new AppError(403, failure.code, failure.message);
+  }
+
+  async assertActiveRoomReservation(userId: number, roomId: number, at = new Date()) {
+    const room = await this.db.query<{ status: string }>(
+      "SELECT status FROM room WHERE roomid=$1 FOR SHARE",
+      [roomId],
+    );
+    if (!room.rows[0]) throw new AppError(404, "NOT_FOUND", "Room not found.");
+    if (room.rows[0].status !== "available")
+      throw new AppError(
+        409,
+        "ROOM_UNAVAILABLE",
+        "This room is not available for check-in.",
+      );
+    const { rows } = await this.db.query<{ name: string; location: string }>(
+      `SELECT room.name,room.location FROM reservation r JOIN room ON room.roomid=r.roomid
+       WHERE r.userid=$1 AND r.roomid=$2 AND r.status IN ('confirmed','pending')
+         AND r.starttime <= $3::timestamptz AT TIME ZONE 'UTC'
+         AND r.endtime > $3::timestamptz AT TIME ZONE 'UTC'
+       ORDER BY r.starttime DESC LIMIT 1`,
+      [userId, roomId, at],
+    );
+    if (!rows[0])
+      throw new AppError(
+        403,
+        "ROOM_RESERVATION_REQUIRED",
+        "An active room reservation is required to access this room.",
+      );
+    return rows[0];
+  }
 }

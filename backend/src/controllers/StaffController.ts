@@ -2,7 +2,7 @@ import type { Request, Response } from "express";
 import type { Pool } from "pg";
 import { AppError, positiveId, textField } from "../domain.js";
 import { authState } from "../middleware/auth.js";
-import { StaffModel } from "../models/StaffModel.js";
+import { COMPLIANCE_EXPORT_LIMIT, StaffModel } from "../models/StaffModel.js";
 import { StaffService } from "../services/StaffService.js";
 import {
   instant,
@@ -22,6 +22,25 @@ export function page<T>(rows: T[], offset: number) {
     nextOffset: rows.length > 50 ? offset + 50 : null,
   };
 }
+function optionalPositiveId(value: unknown, name: string) {
+  if (value == null || value === "") return null;
+  return positiveId(value, name);
+}
+function optionalDays(value: unknown) {
+  if (value == null || value === "") return null;
+  if (typeof value !== "string" || !/^\d{1,4}$/.test(value) || Number(value) > 3650)
+    throw new AppError(400, "INVALID_INPUT", "Expiration window must be 0 to 3650 days.");
+  return Number(value);
+}
+function csvCell(value: unknown) {
+  const text = Array.isArray(value)
+    ? value.join("; ")
+    : value == null
+      ? ""
+      : String(value);
+  const safe = /^[\s]*[=+\-@]/.test(text) ? "'" + text : text;
+  return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+}
 export class StaffController {
   private model: StaffModel;
   private service: StaffService;
@@ -36,15 +55,13 @@ export class StaffController {
     res.json({ data: await this.model.plans() });
   };
   createPlan = async (req: Request, res: Response) => {
-    res
-      .status(201)
-      .json({
-        data: await this.service.createPlan(
-          authState(res).user.id,
-          planInput(req.body),
-          reasonField(req.body.reason),
-        ),
-      });
+    res.status(201).json({
+      data: await this.service.createPlan(
+        authState(res).user.id,
+        planInput(req.body),
+        reasonField(req.body.reason),
+      ),
+    });
   };
   updatePlan = async (req: Request, res: Response) => {
     res.json({
@@ -107,6 +124,15 @@ export class StaffController {
       ),
     });
   };
+  accountStatus = async (req: Request, res: Response) => {
+    res.json({ data: await this.service.accountStatus(
+      authState(res).user.id,
+      positiveId(req.params.id),
+      oneOf(req.body.status, ["active", "suspended", "inactive"] as const, "Account status"),
+      revisionField(req.body.revision),
+      reasonField(req.body.reason),
+    ) });
+  };
   access = async (req: Request, res: Response) => {
     res.json({
       data: await this.service.access(
@@ -123,15 +149,47 @@ export class StaffController {
     });
   };
   role = async (req: Request, res: Response) => {
-    const allowed = ["member","staff","admin","subscriber","day_pass","instructor"] as const;
-    const primary = oneOf(req.body.primaryRole ?? req.body.role,allowed,"Primary role");
+    const allowed = [
+      "member",
+      "staff",
+      "admin",
+      "subscriber",
+      "day_pass",
+      "instructor",
+    ] as const;
+    const primary = oneOf(
+      req.body.primaryRole ?? req.body.role,
+      allowed,
+      "Primary role",
+    );
     const roles = req.body.roles === undefined ? undefined : req.body.roles;
-    if (roles !== undefined && (!Array.isArray(roles) || roles.length === 0 || roles.length > allowed.length ||
-      roles.some((r: unknown) => typeof r !== 'string' || !allowed.includes(r as typeof allowed[number])) ||
-      new Set(roles).size !== roles.length || !roles.includes(primary)))
-      throw new AppError(400,"INVALID_INPUT","Select distinct roles including the primary role.");
-    if (req.body.isStudent !== undefined && typeof req.body.isStudent !== 'boolean')
-      throw new AppError(400,"INVALID_INPUT","Student classification must be true or false.");
+    if (
+      roles !== undefined &&
+      (!Array.isArray(roles) ||
+        roles.length === 0 ||
+        roles.length > allowed.length ||
+        roles.some(
+          (r: unknown) =>
+            typeof r !== "string" ||
+            !allowed.includes(r as (typeof allowed)[number]),
+        ) ||
+        new Set(roles).size !== roles.length ||
+        !roles.includes(primary))
+    )
+      throw new AppError(
+        400,
+        "INVALID_INPUT",
+        "Select distinct roles including the primary role.",
+      );
+    if (
+      req.body.isStudent !== undefined &&
+      typeof req.body.isStudent !== "boolean"
+    )
+      throw new AppError(
+        400,
+        "INVALID_INPUT",
+        "Student classification must be true or false.",
+      );
     res.json({
       data: await this.service.role(
         authState(res).user.id,
@@ -207,11 +265,33 @@ export class StaffController {
   };
   audits = async (req: Request, res: Response) => {
     const offset = pageOffset(req.query.offset);
+    const instant = (value: unknown) => {
+      if (value == null) return undefined;
+      if (typeof value !== "string" || !Number.isFinite(Date.parse(value)))
+        throw new AppError(400, "INVALID_INPUT", "Use valid audit timestamps.");
+      return new Date(value).toISOString();
+    };
+    const from = instant(req.query.from),
+      to = instant(req.query.to);
+    if (from && to && from >= to)
+      throw new AppError(400, "INVALID_INPUT", "Audit end must follow start.");
     res.json({
       data: page(
         await this.model.audits(
           req.query.userId == null ? null : positiveId(req.query.userId),
           offset,
+          {
+            actorId:
+              req.query.actorId == null
+                ? undefined
+                : positiveId(req.query.actorId),
+            action:
+              req.query.action == null
+                ? undefined
+                : textField(req.query.action, "Action", 100),
+            from,
+            to,
+          },
         ),
         offset,
       ),
@@ -219,6 +299,69 @@ export class StaffController {
   };
   policies = async (_req: Request, res: Response) => {
     res.json({ data: await this.model.policies() });
+  };
+  compliance = async (req: Request, res: Response) => {
+    const filters = {
+      waiverId: optionalPositiveId(req.query.waiverId, "Waiver"),
+      certificationId: optionalPositiveId(req.query.certificationId, "Certification"),
+      expiresWithinDays: optionalDays(req.query.expiresWithinDays),
+      userStatus: oneOf(
+        String(req.query.userStatus ?? "active"),
+        ["active", "inactive", "all"] as const,
+        "User status",
+      ),
+      offset: pageOffset(req.query.offset),
+    };
+    if (req.query.format === "csv") {
+      const report = await this.model.compliance({ ...filters, offset: 0 }, true);
+      if (report.filteredCount > COMPLIANCE_EXPORT_LIMIT)
+        throw new AppError(
+          413,
+          "EXPORT_TOO_LARGE",
+          `Compliance export is limited to ${COMPLIANCE_EXPORT_LIMIT} rows. Narrow the filters and try again.`,
+        );
+      const headers = [
+        "User ID",
+        "First name",
+        "Last name",
+        "Email",
+        "Account status",
+        "Access status",
+        "Waiver compliant",
+        "Certification compliant",
+        "Missing or expired waivers",
+        "Waivers expired or expiring in window",
+        "Missing or expired certifications",
+        "Certifications expired or expiring in window",
+      ];
+      const rows = report.users.map((u: any) => [
+        u.id,
+        u.firstName,
+        u.lastName,
+        u.email,
+        u.status,
+        u.accessStatus,
+        u.waiverCompliant ? "yes" : "no",
+        u.certificationCompliant ? "yes" : "no",
+        u.missingWaivers,
+        u.expiringWaivers,
+        u.missingCertifications,
+        u.expiringCertifications,
+      ]);
+      res
+        .type("text/csv")
+        .set("Content-Disposition", 'attachment; filename="compliance-report.csv"')
+        .send([headers, ...rows].map((r) => r.map(csvCell).join(",")).join("\r\n"));
+      return;
+    }
+    const report = await this.model.compliance(filters, false);
+    res.json({
+      data: {
+        ...report,
+        users: page(report.users, filters.offset),
+        options: await this.model.complianceOptions(),
+      },
+    });
   };
   publishPolicy = async (req: Request, res: Response) => {
     res.status(201).json({

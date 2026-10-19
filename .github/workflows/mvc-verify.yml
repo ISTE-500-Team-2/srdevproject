@@ -1,9 +1,9 @@
 name: Verify MVC application
 on:
   pull_request:
-    paths: ['backend/**', 'frontend/**', 'database/**', 'ddl/**', 'Dockerfile', 'compose.mvc.yml', '.github/workflows/mvc-verify.yml']
+    paths: ['backend/**', 'frontend/**', 'database/**', 'ddl/**', 'Dockerfile', 'compose.mvc.yml', '.github/workflows/mvc-verify.yml', 'deploy/**']
   push:
-    branches: [feat/mvc-integration]
+    branches: [main, feat/mvc-integration]
 permissions:
   contents: read
 jobs:
@@ -26,10 +26,10 @@ jobs:
       PGDATABASE: postgres
       DEBUG_PRINT_LIMIT: 1200
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '22'
+          node-version: '24'
           cache: npm
           cache-dependency-path: |
             backend/package-lock.json
@@ -40,6 +40,9 @@ jobs:
       - run: npm run check --prefix frontend
       - run: npm run test:integration --prefix backend
       - run: npm run test:integration --prefix frontend
+      - run: python3 -m unittest discover -s deploy/reader -v
+      - run: bash -n deploy/deploy-arbor.sh
+      - run: python3 deploy/test_deploy.py
       - run: docker build -t collaboratory-mvc:verification .
       - name: Start isolated Docker JWT demo
         run: |
