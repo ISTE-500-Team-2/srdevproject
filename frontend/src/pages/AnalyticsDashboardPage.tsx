@@ -17,12 +17,14 @@ const mockLabels = ["Apr 12", "Apr 13", "Apr 14", "Apr 15", "Apr 16", "Apr 17"];
  * @returns 
  */
 function createRevenuesAtIntervals(intervals: Date[], payments: Payment[]){
-    let revenues = [];
+    let revenues: number[] = [];
 
     //i is the interval date.
     for(var i of intervals){
         const p = payConsolidation(payments, i);
-        revenues.push(p)
+        if(p){
+            revenues.push(p)
+        }
     }//end of forloop
 
     return revenues;
@@ -122,7 +124,7 @@ function AnalyticsRevenueChart(){
     console.log(payments.data?.length);
     let payData = []; //array containing
     let intervals = createIntervals(new Date())
-    let revenues;
+    let revenues: number[] = [];
     // let payArray; //the interpreted and consumed information as a neet array.
     if(!payments.loading && !payments.error && payments.data?.length){
         // const payArray = payments.data?.map
@@ -148,7 +150,8 @@ function AnalyticsRevenueChart(){
             {payments.data?.length ? (
                 <>
                 {/** gets an array of the amounts of payments */}
-                    <LineChart values={revenues} labels={mockLabels} max={6000} /><div className="metric-card__footer">
+                    
+                    <LineChart values={revenues} labels={intervals} max={6000} /><div className="metric-card__footer">
                     <div>
                         <small>Gross Revenue</small>
                         <strong>
