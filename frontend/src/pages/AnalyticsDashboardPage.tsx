@@ -10,21 +10,74 @@ import { Payment } from "../lib/staffContracts";
 import { revenueSeries } from "../data/mockData";
 const mockLabels = ["Apr 12", "Apr 13", "Apr 14", "Apr 15", "Apr 16", "Apr 17"];
 
+/**
+ * Creates a revenue value for each interval.
+ * @param intervals 
+ * @param payments 
+ * @returns 
+ */
+function createRevenuesAtIntervals(intervals: Date[], payments: Payment[]){
+    let revenues = [];
 
-function calculateEndDate(startDate: string, mode = 'weekly'){
+    //i is the interval date.
+    for(var i of intervals){
+        const p = payConsolidation(payments, i);
+        revenues.push(p)
+    }//end of forloop
+
+    return revenues;
+}//createRevenuesAtIntervals
+
+/**
+ * A helper function which returns an array of starting dates
+ * @param basis 
+ * @param amount 
+ * @param mode 
+ */
+function createIntervals(basis: Date, amount: number = 4, mode = `weekly`){
+    let intervals: Date[] = []; //array of intervals to return
+    // let fxn; //the function used to calculate the starting dates of each interval.
+    let prev = basis
+    for(let i=0; i<amount; i++){
+        intervals.push(prev)
+        switch(mode) {
+            case `weekly`:
+                prev = new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() -7);
+                break;
+            case `monthly`:
+                prev = new Date(prev.getFullYear(), prev.getMonth() -1, 1);
+                break;
+            case `yearly`:
+                prev = new Date(prev.getFullYear() -1);
+            case `quarterly`:
+                break;
+        }//end of switch based on mode
+    }//end of forloop
+    
+    return intervals;
+}//createIntervals
+
+/**
+ * A helper function designed to get the end dates of a start date provided.
+ * @param startDate 
+ * @param mode 
+ * @returns 
+ */
+function calculateEndDate(startDate: Date, mode = 'weekly'){
     let endDate;
 
-    const toDate = new Date(startDate); //should convert the string to a date.
-        switch (mode) {
+    
+    switch (mode) {
         case `weekly`:
-            endDate = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() +7)
+            endDate = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() +7)
             break;
         case `monthly`:
-            endDate = new Date(toDate.getFullYear(), toDate.getMonth() +1, toDate.getDate())
+            endDate = new Date(startDate.getFullYear(), startDate.getMonth() +1, 0)
             break;
         case `quarterly`:
             break;
         case `yearly` :
+            endDate = new Date(startDate.getFullYear() +1, 0, 0)
             break;
         default:
             return
@@ -39,21 +92,41 @@ function calculateEndDate(startDate: string, mode = 'weekly'){
  * @param startDate - the starting date in yyyy/mm/dd format
  * @param mode 
  */
-function payConsolidation(array: Payment[], startDate: string, mode = `weekly`){
+function payConsolidation(array: Payment[], startDate: Date, mode = `weekly`){
     let endDate;
     //attempting to filter for now.
-    let result = array.filter((p) => new Date(p.recordedAt).getTime() >= startDate && new Date(p.recordedAt).getTime <= calculateEndDate(startDate)?.getTime() && p.recordedAt)
+
+    endDate = calculateEndDate(startDate, mode)
+    let sDate = new Date(startDate); //converted to date datatype
+
+    //if endDate is not null, begin filtering
+    if(endDate){
+        //array of filtered payments
+        let filtered = array.filter((p) => {
+            //p is the payment that is in the array.
+            let pDate = new Date(p.recordedAt);
+
+            return pDate.getTime() >= sDate.getTime() && pDate.getTime() <= endDate?.getTime()
+        })
+
+        return filtered.reduce((a, item) => {
+            return a + Number(item.amount); //convert ammount to number and accumulate
+        }, 0)
+    }//end of if statement
 }//payConsolidation
 
 
 function AnalyticsRevenueChart(){
     //Get the payments from the api.
     const payments = useApi<Payment[]>('/admin/payments');
-    console.log(payments.data?.length)
-    let payArray; //the interpreted and consumed information as a neet array.
+    console.log(payments.data?.length);
+    let payData = []; //array containing
+    let intervals = createIntervals(new Date())
+    let revenues;
+    // let payArray; //the interpreted and consumed information as a neet array.
     if(!payments.loading && !payments.error && payments.data?.length){
-        const payArray = payments.data?.map
-        const weekpay = payConsolidation(payments.data)
+        // const payArray = payments.data?.map
+        revenues = createRevenuesAtIntervals(intervals, payments.data) //record the revenues for each interval
     }
     return(
         <article className="metric-card metric-card--wide panel">
@@ -75,7 +148,7 @@ function AnalyticsRevenueChart(){
             {payments.data?.length ? (
                 <>
                 {/** gets an array of the amounts of payments */}
-                    <LineChart values={payments.data?.map(({ amount }) => parseFloat(amount))} labels={mockLabels} max={6000} /><div className="metric-card__footer">
+                    <LineChart values={revenues} labels={mockLabels} max={6000} /><div className="metric-card__footer">
                     <div>
                         <small>Gross Revenue</small>
                         <strong>
