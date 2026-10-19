@@ -197,6 +197,10 @@ test("authenticated NFC checks current eligibility, never caches safety decision
     "UPDATE \"user\" SET accessstatus='active' WHERE userid=$1",
     [memberId],
   );
+  const restored = await member.post('/api/auth/demo').send({role:'member'});
+  assert.equal(restored.status,200);
+  memberCsrf = restored.body.data.csrfToken;
+  member.set('Authorization','Bearer '+restored.body.data.accessToken);
   await pool.query(
     "UPDATE user_membership SET status='suspended' WHERE userid=$1",
     [memberId],
@@ -207,7 +211,7 @@ test("authenticated NFC checks current eligibility, never caches safety decision
     [memberId],
   );
 });
-test("short staff override bypasses only bookings; card revocation immediately blocks", async () => {
+test("staff supervision creates a reservation without bypassing safety; card revocation immediately blocks", async () => {
   await pool.query(
     "UPDATE reservation SET status='cancelled' WHERE equipmentid=$1",
     [equipmentId],
@@ -229,6 +233,8 @@ test("short staff override bypasses only bookings; card revocation immediately b
   });
   assert.equal(r.status, 201);
   const override = r.body.data.id;
+  const supervisedReservation = r.body.data.reservationid;
+  assert.equal((await pool.query('SELECT status FROM reservation WHERE reservationid=$1',[supervisedReservation])).rows[0].status,'confirmed');
   assert.equal((await scan()).body.data.allowed, true);
   await pool.query(
     "UPDATE user_certifications SET status='revoked' WHERE userid=$1",
@@ -248,6 +254,10 @@ test("short staff override bypasses only bookings; card revocation immediately b
     200,
   );
   assert.equal((await scan()).body.data.reason, "RESERVATION_REQUIRED");
+  assert.equal((await pool.query('SELECT status FROM reservation WHERE reservationid=$1',[supervisedReservation])).rows[0].status,'cancelled');
+  assert.equal((await scan({reader:'entrance'})).body.data.reason,'RESERVATION_REQUIRED');
+  const entranceRoom = (await pool.query("INSERT INTO room(name,location) VALUES('Entrance fixture','Test') RETURNING roomid")).rows[0].roomid;
+  await pool.query("INSERT INTO reservation(userid,roomid,location,starttime,endtime,status) VALUES($1,$2,'Building booking',(NOW()-INTERVAL '1 minute') AT TIME ZONE 'UTC',(NOW()+INTERVAL '10 minutes') AT TIME ZONE 'UTC','confirmed')",[memberId,entranceRoom]);
   assert.equal((await scan({ reader: "entrance" })).body.data.allowed, true);
   assert.equal(
     (
@@ -452,7 +462,7 @@ test('software authorization matrix has no false grants across 128 eligibility c
   await pool.query('UPDATE user_membership SET status=$2 WHERE userid=$1',[memberId,flags[2]?'active':'suspended']);
   await pool.query('UPDATE user_waiver SET approval=$2 WHERE userid=$1',[memberId,flags[3]]);
   await pool.query('UPDATE user_certifications SET status=$2 WHERE userid=$1',[memberId,flags[4]?'active':'revoked']);
-  await pool.query('UPDATE reservation SET status=$2 WHERE userid=$1 AND equipmentid=$3',[memberId,flags[5]?'confirmed':'cancelled',equipmentId]);
+  await pool.query('UPDATE reservation SET status=$2 WHERE reservationid=(SELECT MIN(reservationid) FROM reservation WHERE userid=$1 AND equipmentid=$3)',[memberId,flags[5]?'confirmed':'cancelled',equipmentId]);
   await pool.query('UPDATE equipment SET status=$2 WHERE equipmentid=$1',[equipmentId,flags[6]?'available':'maintenance']);
   const start=performance.now(),r=await scan();timings.push(performance.now()-start);
   assert.equal(r.status,200,JSON.stringify(r.body));const expected=flags.every(Boolean);assert.equal(r.body.data.allowed,expected,`Eligibility matrix mask ${mask}`);if(r.body.data.allowed===expected)matches++;

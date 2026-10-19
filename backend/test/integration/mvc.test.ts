@@ -415,7 +415,7 @@ test('room reservations reject overlaps, enforce cooldown and gate active room a
   await signRequiredWaivers(one);
   const denied = await one.post('/me/check-ins', { roomId: room });
   assert.equal(denied.status, 403);
-  assert.equal(denied.body.error.code, 'ROOM_RESERVATION_REQUIRED');
+  assert.equal(denied.body.error.code, 'RESERVATION_REQUIRED');
   await pool.query(
     `INSERT INTO reservation(userid,roomid,location,starttime,endtime,status)
      VALUES($1,$2,'North hallway',(NOW()-INTERVAL '5 minutes') AT TIME ZONE 'UTC',(NOW()+INTERVAL '30 minutes') AT TIME ZONE 'UTC','confirmed')`,
@@ -426,7 +426,7 @@ test('room reservations reject overlaps, enforce cooldown and gate active room a
   ]);
   const unavailable = await one.post('/me/check-ins', { roomId: room });
   assert.equal(unavailable.status, 409);
-  assert.equal(unavailable.body.error.code, 'ROOM_UNAVAILABLE');
+  assert.equal(unavailable.body.error.code, 'RESOURCE_UNAVAILABLE');
   await pool.query("UPDATE room SET status='available' WHERE roomid=$1", [
     room,
   ]);
@@ -501,14 +501,9 @@ test('membership, certification and waiver eligibility are enforced; check-in is
   );
   const revokedOverview = await user.agent.get('/api/me/overview');
   assert.equal(revokedOverview.status, 200);
-  assert.equal(revokedOverview.body.data.canCheckIn, false);
-  assert.ok(
-    revokedOverview.body.data.reasons.includes(
-      'A current CNC safety certification is required for CNC Machine.',
-    ),
-  );
+  assert.equal(revokedOverview.body.data.canCheckIn, true);
   const revokedCheckin = await user.post('/me/check-ins', {
-    location: 'Integration test entrance',
+    equipmentId: cnc,
   });
   assert.equal(revokedCheckin.status, 403);
   assert.equal(revokedCheckin.body.error.code, 'CERTIFICATION_REQUIRED');
@@ -517,7 +512,7 @@ test('membership, certification and waiver eligibility are enforced; check-in is
     [user.id, certId],
   );
   const checkin = await user.post('/me/check-ins', {
-    location: 'Integration test entrance',
+    equipmentId: cnc,
   });
   assert.equal(checkin.status, 201);
   assert.equal(
@@ -546,7 +541,7 @@ test('membership, certification and waiver eligibility are enforced; check-in is
   await pool.query('UPDATE "user" SET status=\'inactive\' WHERE userid=$1', [
     user.id,
   ]);
-  assert.equal((await user.agent.get('/api/equipment')).status, 403);
+  assert.equal((await user.agent.get('/api/equipment')).status, 401);
 });
 
 test('a day pass grants access only on its valid local calendar day', async () => {
