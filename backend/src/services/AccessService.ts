@@ -2,124 +2,89 @@ import type { Database } from "../db.js";
 import { AppError } from "../domain.js";
 import { EligibilityModel } from "../models/EligibilityModel.js";
 
+export interface AccessTarget {
+  buildingId?: number;
+  roomId?: number;
+  equipmentId?: number;
+}
+
 export class AccessService {
   readonly eligibility: EligibilityModel;
-  constructor(
-    private db: Database,
-    timeZone: string,
-  ) {
-    this.eligibility = new EligibilityModel(db, timeZone);
+  constructor(private db: Database, timeZone: string) {
+    this.eligibility = new EligibilityModel(db,timeZone);
   }
 
   async assertActiveUser(userId: number) {
-    const { rows } = await this.db.query<{
-      status: string;
-      accessstatus: string;
-    }>('SELECT status,accessstatus FROM "user" WHERE userid=$1 FOR SHARE', [
-      userId,
-    ]);
-    if (rows[0]?.status !== "active")
-      throw new AppError(
-        403,
-        "ACCOUNT_INACTIVE",
-        "This account does not currently have access.",
-      );
-    if (rows[0]?.accessstatus !== "active")
-      throw new AppError(
-        403,
-        "ACCESS_BLOCKED",
-        "Facility access is suspended or revoked. Contact staff.",
-      );
+    const user = (await this.db.query<{status: string; accessstatus: string}>(
+      'SELECT status,accessstatus FROM "user" WHERE userid=$1 FOR SHARE',[userId])).rows[0];
+    if (user?.status !== 'active')
+      throw new AppError(403,'ACCOUNT_INACTIVE','This account does not currently have access.');
+    if (user.accessstatus !== 'active')
+      throw new AppError(403,'ACCESS_BLOCKED','Facility access is suspended or revoked. Contact staff.');
   }
+
   async assertEntitlement(userId: number, start: Date, end = start) {
-    const value = await this.eligibility.entitlement(userId, start, end);
+    const value = await this.eligibility.entitlement(userId,start,end);
     if (!value.membership && !value.dayPass)
-      throw new AppError(
-        403,
-        "MEMBERSHIP_REQUIRED",
-        "An active membership or valid day pass is required for this time.",
-      );
+      throw new AppError(403,'MEMBERSHIP_REQUIRED','An active membership or valid day pass is required for this time.');
     return value;
   }
+
   async assertWaivers(userId: number) {
     const waivers = await this.eligibility.waivers(userId);
     if (!waivers.length)
-      throw new AppError(
-        409,
-        "WAIVERS_NOT_CONFIGURED",
-        "Staff need to configure the required policies before access can be granted.",
-      );
-    if (waivers.some((w) => !w.signed))
-      throw new AppError(
-        403,
-        "WAIVER_REQUIRED",
-        "Sign all current required policies and waivers first.",
-      );
+      throw new AppError(409,'WAIVERS_NOT_CONFIGURED','Staff need to configure the required policies before access can be granted.');
+    if (waivers.some(w => !w.signed))
+      throw new AppError(403,'WAIVER_REQUIRED','Sign all current required policies and waivers first.');
     return waivers;
   }
 
-  async activeReservationCertificationFailure(userId: number, at = new Date()) {
-    const { rows } = await this.db.query<{
-      equipmentName: string;
-      certification: string;
-    }>(
-      `SELECT e.name AS "equipmentName",COALESCE(c.name,'equipment') AS certification
-       FROM reservation r
-       JOIN equipment e ON e.equipmentid=r.equipmentid
-       LEFT JOIN certifications c ON c.certid=e.certid
-       WHERE r.userid=$1 AND r.status IN ('confirmed','pending')
-         AND e.certid IS NOT NULL
-         AND r.starttime <= $2::timestamptz AT TIME ZONE 'UTC'
-         AND r.endtime > $2::timestamptz AT TIME ZONE 'UTC'
-         AND NOT EXISTS (
-           SELECT 1 FROM user_certifications uc
-           JOIN certifications valid_cert ON valid_cert.certid=uc.certid
-           WHERE uc.userid=r.userid AND uc.certid=e.certid AND uc.status='active'
-             AND (uc.renewaldate IS NULL OR uc.renewaldate >= $2::timestamptz AT TIME ZONE 'UTC')
-             AND (valid_cert.effectivedate IS NULL OR valid_cert.effectivedate <= NOW() AT TIME ZONE 'UTC')
-             AND (valid_cert.enddate IS NULL OR valid_cert.enddate >= $2::timestamptz AT TIME ZONE 'UTC')
-         )
-       ORDER BY r.starttime,r.reservationid LIMIT 1`,
-      [userId, at],
-    );
-    if (!rows[0]) return null;
+  // The caller keeps the decision and check-in in one transaction.
+  async reservationForAccess(userId: number, target: AccessTarget, at = new Date()) {
+    await this.assertActiveUser(userId);
+    const entitlement = await this.assertEntitlement(userId,at);
+    await this.assertWaivers(userId);
+    let buildingId = target.buildingId;
+    let location: string | undefined;
+    if (target.roomId || target.equipmentId) {
+      const table = target.roomId ? 'room' : 'equipment';
+      const key = target.roomId ? 'roomid' : 'equipmentid';
+      const resource = (await this.db.query<{
+        buildingid: number; name: string; location: string; status: string; certid: number | null;
+      }>(`SELECT buildingid,name,location,status,${table === 'equipment' ? 'certid' : 'NULL::int AS certid'}
+          FROM ${table} WHERE ${key}=$1 FOR SHARE`,[target.roomId ?? target.equipmentId])).rows[0];
+      if (!resource) throw new AppError(404,'NOT_FOUND','Access resource not found.');
+      if (resource.status !== 'available') throw new AppError(409,'RESOURCE_UNAVAILABLE','This resource is unavailable.');
+      buildingId = resource.buildingid;
+      location = target.roomId ? `${resource.name} - ${resource.location}` : resource.name;
+      if (resource.certid && !await this.eligibility.certification(userId,resource.certid,at))
+        throw new AppError(403,'CERTIFICATION_REQUIRED','A current certification for this equipment is required.');
+    }
+    if (buildingId !== undefined) {
+      const building = (await this.db.query<{name: string; status: string}>(
+        'SELECT name,status FROM building WHERE buildingid=$1 FOR SHARE',[buildingId])).rows[0];
+      if (!building) throw new AppError(404,'NOT_FOUND','Building not found.');
+      if (building.status !== 'available') throw new AppError(403,'RESOURCE_UNAVAILABLE','This building is unavailable.');
+      location ??= building.name;
+    }
+    const reservation = (await this.db.query<{
+      id: number; buildingId: number; buildingName: string; endsAt: Date;
+    }>(`SELECT r.reservationid AS id,b.buildingid AS "buildingId",b.name AS "buildingName",
+          r.endtime AT TIME ZONE 'UTC' AS "endsAt"
+        FROM reservation r LEFT JOIN equipment e USING(equipmentid) LEFT JOIN room USING(roomid)
+        JOIN building b ON b.buildingid=COALESCE(e.buildingid,room.buildingid)
+        WHERE r.userid=$1 AND r.status='confirmed'
+          AND r.starttime <= $2::timestamptz AT TIME ZONE 'UTC' AND r.endtime > $2::timestamptz AT TIME ZONE 'UTC'
+          AND ($3::int IS NULL OR b.buildingid=$3)
+          AND ($4::int IS NULL OR r.roomid=$4) AND ($5::int IS NULL OR r.equipmentid=$5)
+          AND b.status='available' AND (e.equipmentid IS NULL OR e.status='available')
+          AND (room.roomid IS NULL OR room.status='available')
+        ORDER BY r.starttime,r.reservationid LIMIT 1 FOR SHARE OF r`,
+      [userId,at,buildingId ?? null,target.roomId ?? null,target.equipmentId ?? null])).rows[0];
+    if (!reservation) throw new AppError(403,'RESERVATION_REQUIRED','A current confirmed reservation is required for this access.');
     return {
-      code: "CERTIFICATION_REQUIRED",
-      message: `A current ${rows[0].certification} certification is required for ${rows[0].equipmentName}.`,
+      reservationId: reservation.id, buildingId: reservation.buildingId,
+      location: location ?? reservation.buildingName, endsAt: reservation.endsAt, entitlement,
     };
-  }
-
-  async assertActiveReservationCertifications(userId: number, at = new Date()) {
-    const failure = await this.activeReservationCertificationFailure(userId, at);
-    if (failure) throw new AppError(403, failure.code, failure.message);
-  }
-
-  async assertActiveRoomReservation(userId: number, roomId: number, at = new Date()) {
-    const room = await this.db.query<{ status: string }>(
-      "SELECT status FROM room WHERE roomid=$1 FOR SHARE",
-      [roomId],
-    );
-    if (!room.rows[0]) throw new AppError(404, "NOT_FOUND", "Room not found.");
-    if (room.rows[0].status !== "available")
-      throw new AppError(
-        409,
-        "ROOM_UNAVAILABLE",
-        "This room is not available for check-in.",
-      );
-    const { rows } = await this.db.query<{ name: string; location: string }>(
-      `SELECT room.name,room.location FROM reservation r JOIN room ON room.roomid=r.roomid
-       WHERE r.userid=$1 AND r.roomid=$2 AND r.status IN ('confirmed','pending')
-         AND r.starttime <= $3::timestamptz AT TIME ZONE 'UTC'
-         AND r.endtime > $3::timestamptz AT TIME ZONE 'UTC'
-       ORDER BY r.starttime DESC LIMIT 1`,
-      [userId, roomId, at],
-    );
-    if (!rows[0])
-      throw new AppError(
-        403,
-        "ROOM_RESERVATION_REQUIRED",
-        "An active room reservation is required to access this room.",
-      );
-    return rows[0];
   }
 }
