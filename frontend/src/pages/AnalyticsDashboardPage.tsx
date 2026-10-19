@@ -10,6 +10,19 @@ import { Payment } from "../lib/staffContracts";
 import { revenueSeries } from "../data/mockData";
 const mockLabels = ["Apr 12", "Apr 13", "Apr 14", "Apr 15", "Apr 16", "Apr 17"];
 
+
+/**
+ * Converts an array of dates into strings
+ * @param intervals 
+ */
+function intervalsToString(intervals: Date[]){
+    let result: string[] = [];
+    for(let i of intervals){
+        result.push(i.toDateString())
+    }
+    return result;
+}//intervalsToString
+
 /**
  * Creates a revenue value for each interval.
  * @param intervals 
@@ -151,7 +164,7 @@ function AnalyticsRevenueChart(){
                 <>
                 {/** gets an array of the amounts of payments */}
                     
-                    <LineChart values={revenues} labels={intervals} max={6000} /><div className="metric-card__footer">
+                    <LineChart values={revenues} labels={intervalsToString(intervals)} max={6000} /><div className="metric-card__footer">
                     <div>
                         <small>Gross Revenue</small>
                         <strong>
