@@ -4,7 +4,7 @@ import type { Pool } from "pg";
 import { transaction, type Database } from "./db.js";
 import { AppError, positiveId, textField } from "./domain.js";
 import { UserModel } from "./models/UserModel.js";
-import { EligibilityModel } from "./models/EligibilityModel.js";
+import { AccessService, type AccessTarget } from "./services/AccessService.js";
 import { StaffModel } from "./models/StaffModel.js";
 import { authState, requireCsrf } from "./middleware/auth.js";
 import { requirePermission } from "./middleware/permissions.js";
@@ -38,7 +38,7 @@ export function readDeviceConfig(): DeviceConfig | undefined {
       typeof r.secret !== "string" ||
       r.secret.length < 32 ||
       !["building", "room", "equipment"].includes(r.kind) ||
-      (r.kind !== "building" &&
+      ((r.kind !== "building" || r.resourceId !== undefined) &&
         (!Number.isSafeInteger(r.resourceId) || r.resourceId < 1))
     )
       throw Error("Invalid reader configuration");
@@ -143,11 +143,14 @@ export function deviceDecision(
       ).rows[0];
       if (verdict.allowed && body.checkIn === true)
         await db.query(
-          `INSERT INTO check_in(userid,roomid,location,checkintime,status,statusdesc) VALUES($1,$2,$3,NOW() AT TIME ZONE 'UTC','approved','Authenticated NFC eligibility decision')`,
+          `INSERT INTO check_in(userid,roomid,location,buildingid,equipmentid,reservationid,checkintime,status,statusdesc) VALUES($1,$2,$3,$4,$5,$6,NOW() AT TIME ZONE 'UTC','approved','Authenticated NFC eligibility decision')`,
           [
             card.user_id,
             reader.kind === "room" ? reader.resourceId : null,
             reader.id,
+            verdict.buildingId,
+            reader.kind === 'equipment' ? reader.resourceId : null,
+            verdict.reservationId,
           ],
         );
       return {
@@ -167,63 +170,27 @@ async function evaluate(db: Database, tz: string, r: Reader, userId?: number) {
     expiresAt: null as string | null,
     leaseSeconds: 0,
     member: null as unknown,
+    buildingId: null as number | null,
+    reservationId: null as number | null,
   });
   if (!userId) return deny("CARD_NOT_ASSIGNED");
-  await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR SHARE', [
-    userId,
-  ]);
-  const user = await new UserModel(db).findById(userId);
-  if (!user || user.status !== "active" || user.accessStatus !== "active")
-    return deny("ACCOUNT_BLOCKED");
-  const eligibility = new EligibilityModel(db, tz),
-    now = new Date();
-  const entitlement = await eligibility.entitlement(userId, now);
-  if (!entitlement.membership && !entitlement.dayPass)
-    return deny("ENTITLEMENT_REQUIRED");
-  const waivers = await eligibility.waivers(userId);
-  if (!waivers.length) return deny("WAIVERS_NOT_CONFIGURED");
-  if (waivers.some((w) => !w.signed)) return deny("WAIVER_REQUIRED");
-  let expires = new Date(now.getTime() + 5000);
-  // An override bypasses only the reservation requirement, never safety checks.
-  if (r.kind !== "building") {
-    const resource = (
-      await db.query(
-        r.kind === "equipment"
-          ? "SELECT status,certid FROM equipment WHERE equipmentid=$1 FOR SHARE"
-          : "SELECT status,NULL::int AS certid FROM room WHERE roomid=$1 FOR SHARE",
-        [r.resourceId],
-      )
-    ).rows[0];
-    if (!resource || resource.status !== "available")
-      return deny("RESOURCE_UNAVAILABLE");
-    if (
-      resource.certid &&
-      !(await eligibility.certification(userId, resource.certid, now))
-    )
-      return deny("CERTIFICATION_REQUIRED");
-    const key = r.kind === "equipment" ? "equipmentid" : "roomid";
-    const booking = (
-      await db.query(
-        `SELECT endtime AT TIME ZONE 'UTC' AS ends FROM reservation WHERE userid=$1 AND ${key}=$2 AND status='confirmed' AND starttime<=NOW() AT TIME ZONE 'UTC' AND endtime>NOW() AT TIME ZONE 'UTC' ORDER BY endtime LIMIT 1 FOR SHARE`,
-        [userId, r.resourceId],
-      )
-    ).rows[0];
-    const override = booking
-      ? null
-      : (
-          await db.query(
-            "SELECT ends_at AS ends FROM app_access_override WHERE user_id=$1 AND target_kind=$2 AND target_id=$3 AND revoked_at IS NULL AND ends_at>NOW() ORDER BY ends_at LIMIT 1 FOR SHARE",
-            [userId, r.kind, r.resourceId],
-          )
-        ).rows[0];
-    if (!booking && !override) return deny("RESERVATION_REQUIRED");
-    expires = new Date(
-      Math.min(
-        expires.getTime(),
-        new Date((booking ?? override)!.ends).getTime(),
-      ),
-    );
+  const now = new Date();
+  const target: AccessTarget = r.kind === 'building' ? {buildingId:r.resourceId ?? 1}
+    : r.kind === 'room' ? {roomId:r.resourceId} : {equipmentId:r.resourceId};
+  let grant: Awaited<ReturnType<AccessService['reservationForAccess']>>;
+  try {
+    grant = await new AccessService(db,tz).reservationForAccess(userId,target,now);
+  } catch (error) {
+    if (!(error instanceof AppError)) throw error;
+    const reason = error.code === 'ACCOUNT_INACTIVE' || error.code === 'ACCESS_BLOCKED' ? 'ACCOUNT_BLOCKED'
+      : error.code === 'MEMBERSHIP_REQUIRED' ? 'ENTITLEMENT_REQUIRED'
+      : error.code === 'NOT_FOUND' ? 'RESOURCE_UNAVAILABLE' : error.code;
+    return deny(reason);
   }
+  const user = await new UserModel(db).findById(userId);
+  if (!user) return deny('ACCOUNT_BLOCKED');
+  const entitlement = grant.entitlement;
+  let expires = new Date(Math.min(now.getTime() + 5000,grant.endsAt.getTime()));
   // Bound the relay lease by all expiry windows, even near a five-second boundary.
   const limits = (
     await db.query(
@@ -250,6 +217,8 @@ async function evaluate(db: Database, tz: string, r: Reader, userId?: number) {
   return {
     allowed: true,
     reason: "ELIGIBLE",
+    buildingId: grant.buildingId,
+    reservationId: grant.reservationId,
     expiresAt: expires.toISOString(),
     leaseSeconds: Math.max(0, (expires.getTime() - Date.now()) / 1000),
     member: {
@@ -389,17 +358,28 @@ export function cardManagement(pool: Pool, tz: string, c?: DeviceConfig) {
           "Override must end within 30 minutes.",
         );
       const data = await transaction(pool, async (db) => {
+        await new AccessService(db,tz).assertActiveUser(userId);
         const table = kind === "room" ? "room" : "equipment",
           key = kind === "room" ? "roomid" : "equipmentid";
-        if (
-          !(await db.query(`SELECT ${key} FROM ${table} WHERE ${key}=$1`, [id]))
-            .rowCount
-        )
-          throw new AppError(404, "NOT_FOUND", "Resource not found.");
+        const resource = (await db.query<{name: string; status: string}>(
+          `SELECT name,status FROM ${table} WHERE ${key}=$1 FOR UPDATE`,[id])).rows[0];
+        if (!resource) throw new AppError(404,'NOT_FOUND','Resource not found.');
+        if (resource.status !== 'available') throw new AppError(409,'RESOURCE_UNAVAILABLE','This resource is unavailable.');
+        const current = (await db.query<{id: number; endsAt: Date}>(
+          `SELECT reservationid AS id,endtime AT TIME ZONE 'UTC' AS "endsAt" FROM reservation
+            WHERE userid=$1 AND ${key}=$2 AND status='confirmed' AND starttime<=NOW() AT TIME ZONE 'UTC'
+            AND endtime>NOW() AT TIME ZONE 'UTC' ORDER BY endtime LIMIT 1 FOR UPDATE`,[userId,id])).rows[0];
+        const reservation = current ?? (await db.query<{id: number; endsAt: Date}>(
+          `INSERT INTO reservation(userid,${key},location,starttime,endtime,status,statusdesc)
+           VALUES($1,$2,$3,NOW() AT TIME ZONE 'UTC',$4::timestamptz AT TIME ZONE 'UTC','confirmed','Staff supervised access')
+           RETURNING reservationid AS id,endtime AT TIME ZONE 'UTC' AS "endsAt"`,[userId,id,resource.name.slice(0,100),ends])).rows[0]!;
+        if (!current) await new StaffModel(db,tz).audit(authState(res).user.id,userId,'reservation.created',
+          'reservation',reservation.id,reason,null,reservation);
+        const effectiveEnd = new Date(Math.min(ends.getTime(),reservation.endsAt.getTime()));
         const after = (
           await db.query(
-            "INSERT INTO app_access_override(user_id,target_kind,target_id,ends_at,reason,created_by) VALUES($1,$2,$3,$4,$5,$6) RETURNING *",
-            [userId, kind, id, ends, reason, authState(res).user.id],
+            "INSERT INTO app_access_override(user_id,target_kind,target_id,ends_at,reason,created_by,reservationid,owns_reservation) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *",
+            [userId,kind,id,effectiveEnd,reason,authState(res).user.id,reservation.id,!current],
           )
         ).rows[0];
         await new StaffModel(db, tz).audit(
@@ -432,6 +412,13 @@ export function cardManagement(pool: Pool, tz: string, c?: DeviceConfig) {
           ).rows[0];
         if (!before)
           throw new AppError(404, "NOT_FOUND", "Override not found.");
+        if (before.owns_reservation && !before.revoked_at) {
+          const cancelled = (await db.query(
+            "UPDATE reservation SET status='cancelled',revision=revision+1 WHERE reservationid=$1 AND userid=$2 AND status='confirmed' RETURNING reservationid AS id",
+            [before.reservationid,before.user_id])).rows[0];
+          if (cancelled) await new StaffModel(db,tz).audit(authState(res).user.id,before.user_id,
+            'reservation.override.cancelled','reservation',cancelled.id,'Staff supervision ended',null,cancelled);
+        }
         const after = (
           await db.query(
             "UPDATE app_access_override SET revoked_at=NOW() WHERE id=$1 RETURNING *",
