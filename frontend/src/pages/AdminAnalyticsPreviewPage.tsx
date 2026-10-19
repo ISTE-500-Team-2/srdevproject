@@ -190,7 +190,6 @@ export function AdminAnalyticsPreviewPage() {
         </section>
       </div>
       <Toast message={toast} onClose={() => setToast(null)} />
-        {/** End of admin dashboard enter.*/}
-    </div> 
+    </div>
   );
 }

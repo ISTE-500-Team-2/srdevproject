@@ -1,56 +1,44 @@
-/* Styling for display */
-.analytics-active-users {
-    border-radius: 0.4em;
-    border: 1px solid #8bce95;
-    padding: 0.6rem;
-    margin-bottom: 1em;
-    background: linear-gradient(135deg, #f8fff9, #eff9f1);
-
-    /* Flex stuff */
-    display: flex;
-    flex-direction: row;
-    justify-content: center;
+.analytics-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(16rem, 1fr);
+  gap: 1.25rem;
+  align-items: start;
 }
-
-/* Styling for the information part of the active users */
-.analytics-active-users .analytics-active-users__info {
-    display: flex;
-    flex-direction: row;
-    justify-content: space-between;
+.analytics-revenue,
+.analytics-activity {
+  min-width: 0;
+  padding: 1.25rem;
 }
-
-/* Styling for displaying the actual number of active users */
-.analytics-active-users .analytics-active-users__info strong {
-    font-size: 1.6rem;
+.analytics-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 2rem;
+  margin: 1.5rem 0;
 }
-
-
-/* Styling for the wrapper of the workshop classes section*/
-.analytics__workshop-classes {
-    max-height: 95%
+.analytics-totals dt {
+  font-size: 0.85rem;
 }
-
-/* Styling for the list wrapper of the classes */
-.analytics__workshop-classes ul {
-    /* Removes the bullets*/
-    list-style-type: none;
-    padding: 0;
-    margin: 0;
+.analytics-totals dd {
+  margin: 0.25rem 0 0;
+  font-size: 1.5rem;
+  font-weight: 700;
 }
-
-/* Styling for the list entries for each class. */
-.analytics__workshop-class {
-    border: 0.01rem solid black;
-    border-radius: 0.1rem;
-    padding: 0.25rem;
-    margin: 10px;
+.analytics-table {
+  overflow-x: auto;
 }
-
-/* Styling for the occupancy chip */
-.analytics__workshop-class__header-occupancy{
-    border-radius: 2rem;
-    padding: 0.3rem;
-    background: var(--espresso);
-    color: white;
-    font-size: 0.7rem;
+.analytics-table table {
+  width: 100%;
+}
+.analytics-classes {
+  padding: 0;
+  list-style: none;
+}
+.analytics-classes li {
+  border-top: 1px solid var(--line, #ddd);
+  padding: 0.75rem 0;
+}
+@media (max-width: 850px) {
+  .analytics-layout {
+    grid-template-columns: 1fr;
+  }
 }

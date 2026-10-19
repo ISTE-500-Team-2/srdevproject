@@ -6,6 +6,7 @@ interface LineChartProps {
   max: number;
   height?: number;
   compact?: boolean;
+  formatTick?: (value: number) => string;
 }
 
 export function LineChart({
@@ -14,6 +15,7 @@ export function LineChart({
   max,
   height = 270,
   compact = false,
+  formatTick,
 }: LineChartProps) {
   const width = 900;
   const coordinates = lineCoordinates(values, max, width, height);
@@ -56,7 +58,7 @@ export function LineChart({
                 className="chart-gridline"
               />
               <text x="-12" y={y + 5} textAnchor="end" className="chart-label">
-                {tick === 0 ? "0" : `${Math.round(tick / 1000)}k`}
+                {formatTick ? formatTick(tick) : tick === 0 ? "0" : `${Math.round(tick / 1000)}k`}
               </text>
             </g>
           );
@@ -77,7 +79,7 @@ export function LineChart({
         ))}
         {labels.map((label, index) => (
           <text
-            key={label}
+            key={`${label}-${index}`}
             x={(width / Math.max(labels.length - 1, 1)) * index}
             y={height - 10}
             textAnchor={

@@ -1,0 +1,99 @@
+import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
+import App from "../../src/App";
+import { zonedDay } from "../../src/lib/display";
+import { createBrowserBridge } from "../../../backend/test/helpers/browserBridge";
+let bridge: Awaited<ReturnType<typeof createBrowserBridge>>;
+beforeAll(async () => {
+  bridge = await createBrowserBridge();
+}, 120000);
+afterEach(cleanup);
+afterAll(async () => {
+  vi.unstubAllGlobals();
+  await bridge?.close();
+}, 30000);
+async function login(role = "admin") {
+  vi.stubGlobal("fetch", bridge.fetch);
+  expect(
+    (
+      await bridge.fetch("/api/auth/demo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role }),
+      })
+    ).status,
+  ).toBe(200);
+}
+function mount(tab: string) {
+  render(
+    <MemoryRouter initialEntries={["/admin?tab=" + tab]}>
+      <App />
+    </MemoryRouter>,
+  );
+}
+test("analytics uses the full settled ledger, real check-ins/classes and zero-filled date buckets", async () => {
+  await login();
+  const member = (
+    await bridge.pool.query(
+      `SELECT userid FROM "user" WHERE email='demo.member@collaboratory.invalid'`,
+    )
+  ).rows[0].userid;
+  const today = zonedDay("America/New_York");
+  await bridge.pool.query(
+    `INSERT INTO payment(userid,price,paymentstatus,paymentdate,method) SELECT $1,1.25,'paid',($2::date+time '12:00') AT TIME ZONE 'America/New_York' AT TIME ZONE 'UTC','cash' FROM generate_series(1,60)`,
+    [member, today],
+  );
+  await bridge.pool.query(
+    `INSERT INTO payment(userid,price,paymentstatus,paymentdate,method) VALUES ($1,20,'refunded',($2::date+time '12:00') AT TIME ZONE 'America/New_York' AT TIME ZONE 'UTC','cash'),($1,999,'void',($2::date+time '12:00') AT TIME ZONE 'America/New_York' AT TIME ZONE 'UTC','cash')`,
+    [member, today],
+  );
+  mount("analytics");
+  await screen.findByRole("heading", { name: "Recorded revenue" });
+  const user = userEvent.setup();
+  const totals = screen.getByText("Net receipts").closest("dl")!;
+  expect(within(totals).getByText("$75.00")).toBeTruthy();
+  expect(within(totals).getByText("$95.00")).toBeTruthy();
+  expect(within(totals).getByText("$20.00")).toBeTruthy();
+  expect(screen.queryByText("Active Users: 56")).toBeNull();
+  expect(
+    screen.getByText(/unique checked-in users in the selected period/)
+      .textContent,
+  ).toContain("0 unique checked-in users");
+  expect(screen.getByText("No classes in this period.")).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("From"), { target: { value: today } });
+  fireEvent.change(screen.getByLabelText("Through"), {
+    target: { value: today },
+  });
+  await user.selectOptions(screen.getByLabelText("Group receipts"), "daily");
+  await user.click(screen.getByRole("button", { name: "Apply dates" }));
+  const table = await screen.findByRole("table", {
+    name: "Revenue by period (period starting date)",
+  });
+  await vi.waitFor(() =>
+    expect(within(table).getAllByRole("row")).toHaveLength(2),
+  );
+  expect(within(table).getByRole("rowheader", { name: today })).toBeTruthy();
+  expect(within(table).getByText("61")).toBeTruthy();
+});
+test("combined waiver/certification tab mounts real admin tools instead of personal endpoints", async () => {
+  await login();
+  mount("adminCertWaiver");
+  await screen.findByRole("heading", { name: "Certifications and waivers" });
+  await screen.findByRole("button", { name: "Filter" });
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Waiver versions" }));
+  await screen.findByRole("heading", { name: "Policies and waiver versions" });
+  await screen.findByRole("button", { name: "Publish version" });
+  await user.click(
+    screen.getByRole("button", { name: "Certification management" }),
+  );
+  await screen.findByRole("button", { name: "Save certification" });
+});
