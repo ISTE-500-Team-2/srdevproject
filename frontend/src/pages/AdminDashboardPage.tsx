@@ -1,3 +1,5 @@
+import { AnalyticsDashboardPage } from "./AnalyticsDashboardPage";
+import { AdminCertificationsPage } from "./AdminCertificationsPage";
 import { TrainingPage } from "./TrainingPage";
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -14,6 +16,8 @@ import { AccessManagementPage } from "./AccessManagementPage";
 import { StaffCompliance } from "./StaffCompliance";
 
 const tabs = [
+  { key: "analytics", label: "Analytics", component: AnalyticsDashboardPage },
+  { key: "adminCertWaiver", label: "Certifications and Waivers", component: AdminCertificationsPage },
   { key: "members", label: "Members", component: StaffUsers },
   { key: "plans", label: "Plans", component: StaffPlans },
   { key: "reservations", label: "Reservations", component: StaffReservations },

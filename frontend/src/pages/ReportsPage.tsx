@@ -3,7 +3,8 @@ import { api, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
 import { LoadState } from "../components/Management";
 import { dollars, dateTime, zonedDay } from "../lib/display";
-type Report = {
+export type Report = {
+  period: "daily" | "weekly" | "monthly";
   from: string;
   to: string;
   timeZone: string;
