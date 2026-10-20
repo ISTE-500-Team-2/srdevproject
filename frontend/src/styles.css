@@ -1212,7 +1212,6 @@ p {
 
 .equipment-preview__image {
   height: 240px;
-  place-items: center;
   padding: 22px;
 }
 
@@ -1220,6 +1219,7 @@ p {
   max-height: 95%;
   filter: drop-shadow(0 14px 12px rgba(36, 16, 6, 0.16));
   transition: transform 220ms ease;
+  margin: auto;
 }
 
 .equipment-preview:hover .equipment-preview__image img {
