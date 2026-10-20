@@ -134,13 +134,16 @@ function payConsolidation(array: Payment[], startDate: Date, mode = `weekly`){
 function AnalyticsRevenueChart(){
     //Get the payments from the api.
     const payments = useApi<Payment[]>('/admin/payments');
-    console.log(payments.data?.length);
-    // let payData = []; //array containing
-    let intervals = createIntervals(new Date())
+    // console.log(payments.data?.length);
+
+    //intervals to be displayed on the chart
+    let intervals = createIntervals(new Date());
+
+    //revenues to be displayed at each interval.
     let revenues: number[] = [];
-    // let payArray; //the interpreted and consumed information as a neet array.
+
+    //if there are payments, and the payments have finished loading, create an array of revenues.
     if(!payments.loading && !payments.error && payments.data?.length){
-        // const payArray = payments.data?.map
         revenues = createRevenuesAtIntervals(intervals, payments.data) //record the revenues for each interval
     }
     return(
