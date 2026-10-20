@@ -1,6 +1,6 @@
 import { SignedWaiverRecords } from "../components/SignedWaiverRecords";
-import { Save, UserRound } from "lucide-react";
-import { type FormEvent, useState, useEffect } from "react";
+import { Save, SquarePen } from "lucide-react";
+import { type FormEvent, useState, useEffect, useRef } from "react";
 import { Toast } from "../components/Toast";
 import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
@@ -21,6 +21,14 @@ const selectableMemberships: MembershipSelection[] = [
 ];
 const isSelectableMembership = (selection: string): selection is MembershipSelection =>
   selectableMemberships.some((plan) => plan === selection);
+
+const cardStyle = { minHeight: 0, padding: 22, alignSelf: "stretch" } as const;
+const cardTitleStyle = { display: "flex", alignItems: "center", justifyContent: "space-between",
+  margin: "0 0 20px", paddingBottom: 12, borderBottom: "1px solid var(--border-strong)",
+  fontFamily: "inherit", fontSize: "1.5rem" } as const;
+const cardGridStyle = { display: "grid",
+  gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 20 } as const;
+const studioEmail = "info@thecollaboratory.com";
 
 function NotificationSettings() {
   const [settings, setSettings] = useState<{
@@ -59,8 +67,8 @@ function NotificationSettings() {
     }
   };
   return (
-    <section className="profile-panel panel">
-      <h2>Email notifications</h2>
+    <section className="profile-panel panel" style={cardStyle}>
+     <h2 style={cardTitleStyle}>Notification Settings</h2>
       <p>
         Choose whether to receive account, booking, payment, waiver, and
         expiration emails. Turning this off disables all notification emails.
@@ -133,6 +141,8 @@ export function ProfilePage() {
   const [busy, setBusy] = useState(false);
   const [membershipSelection, setMembershipSelection] = useState<MembershipSelection>('basic-monthly');
   const [membershipError, setMembershipError] = useState('');
+  const firstNameRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     const controller = new AbortController();
     api<UserProfile>("/me/profile", { signal: controller.signal })
@@ -197,19 +207,7 @@ export function ProfilePage() {
   };
   return (
     <div className="profile-page page-enter">
-      <section className="profile-hero">
-        <div className="profile-hero__avatar">
-          {user?.firstName.at(0)}
-          {user?.lastName.at(0)}
-        </div>
-        <div>
-          <p className="eyebrow">Account</p>
-          <h1>
-            {user?.firstName} {user?.lastName}
-          </h1>
-          <span>{user?.role}</span>
-        </div>
-      </section>
+      <h1>User Settings</h1>
       <section className="profile-panel panel">
         <form
           key={`${user?.id ?? "guest"}-${user?.firstName ?? ""}-${user?.lastName ?? ""}-${user?.phone ?? ""}-${JSON.stringify(profile?.address ?? {})}-${JSON.stringify(profile?.contactPreferences ?? {})}`}
@@ -219,9 +217,42 @@ export function ProfilePage() {
             setError("");
           }}
         >
-          <h2>
-            <UserRound aria-hidden="true" /> Personal information
-          </h2>
+          <h2 style={{ ...cardTitleStyle, marginBottom: 0 }}>
+  Personal Details
+  <button
+    type="button"
+    aria-label="Edit personal details"
+    onClick={() => firstNameRef.current?.focus()}
+    style={{ background: "none", border: 0, padding: 0, cursor: "pointer", color: "inherit" }}
+  >
+    <SquarePen aria-hidden="true" />
+  </button>
+</h2>
+<div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+  <div
+    aria-hidden="true"
+    style={{
+      width: 74,
+      height: 74,
+      flex: "0 0 auto",
+      display: "grid",
+      placeItems: "center",
+      borderRadius: "50%",
+      background: "var(--border)",
+    }}
+  >
+    {user?.firstName.at(0)}
+    {user?.lastName.at(0)}
+  </div>
+  <button
+    type="button"
+    disabled
+    title="Profile photos are not available yet"
+    style={{ background: "none", border: 0, padding: 0, color: "inherit" }}
+  >
+    add image +
+  </button>
+</div>
           <div className="two-column-fields">
             <label className="form-field">
               <span>First name</span>
@@ -244,11 +275,11 @@ export function ProfilePage() {
               />
             </label>
             <label className="form-field form-field--wide">
-              <span>Email</span>
+              <span>Email Address</span>
               <input type="email" value={user?.email ?? ""} readOnly />
             </label>
             <label className="form-field form-field--wide">
-              <span>Phone</span>
+              <span>Phone Number</span>
               <input
                 name="phone"
                 type="tel"
@@ -256,6 +287,7 @@ export function ProfilePage() {
                 required
                 maxLength={15}
                 autoComplete="tel"
+                ref={firstNameRef}
               />
             </label>
             {["Street address", "City", "State", "Postal code"].map((label) => (
