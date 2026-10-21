@@ -48,6 +48,7 @@ function client() {
   const agent = request.agent(server);
   let csrf = "",
     id = 0;
+  let email = '', password = '';
   const accept = (r: request.Response) => {
     agent.set('Authorization', 'Bearer '+r.body.data.accessToken);
     csrf = r.body.data.csrfToken;
@@ -64,12 +65,14 @@ function client() {
       accept(r);
     },
     async register() {
+      email = randomUUID() + '@example.invalid';
+      password = `A!${randomBytes(24).toString('hex')}`;
       let r = await agent.post("/api/auth/register").send({
         firstName: "Primary",
         lastName: "Test",
         phone: "0000000000",
-        email: randomUUID() + "@example.invalid",
-        password: `A!${randomBytes(24).toString("hex")}`,
+        email,
+        password,
         dob: "2000-01-01",
       });
       assert.equal(r.status, 202);
@@ -77,6 +80,12 @@ function client() {
       assert.equal(r.status,200);
       accept(r);
     },
+    async login() {
+      const r = await agent.post('/api/auth/login').send({email,password});
+      if (r.status === 200) accept(r);
+      return r;
+    },
+    refresh: () => agent.post('/api/auth/refresh').set('X-CSRF-Token',csrf).send({}),
     get: (path: string) => agent.get("/api" + path),
     post: (path: string, body: unknown = {}) =>
       agent
@@ -140,6 +149,10 @@ async function issue(admin: Client, user: Client, planId: number) {
   );
   assert.equal(r.status, 201, JSON.stringify(r.body));
   return r.body.data;
+}
+async function currentRoomBooking(user: Client) {
+  const room = (await pool.query("INSERT INTO room(name,location,status) VALUES($1,'Test','available') RETURNING roomid",['Access fixture '+randomUUID()])).rows[0].roomid;
+  return (await pool.query("INSERT INTO reservation(userid,roomid,location,starttime,endtime,status) VALUES($1,$2,'Test',(NOW()-INTERVAL '1 minute') AT TIME ZONE 'UTC',(NOW()+INTERVAL '30 minutes') AT TIME ZONE 'UTC','confirmed') RETURNING reservationid",[user.id,room])).rows[0].reservationid;
 }
 
 test("audit records are immutable and searchable by user, action and time range", async () => {
@@ -440,6 +453,7 @@ test("membership issuance is atomic/idempotent, stores immutable plan details, a
     "waivers still required",
   );
   await signPolicies(user);
+  await currentRoomBooking(user);
   assert.equal(
     (await user.post("/me/check-ins", { location: "Test portal" })).status,
     201,
@@ -453,7 +467,7 @@ test("membership issuance is atomic/idempotent, stores immutable plan details, a
   assert.equal(JSON.stringify(detail.audit).includes("password"), false);
 });
 
-test("facility suspension and revocation block real check-ins/bookings without erasing sessions or history", async () => {
+test("facility suspension and revocation kill sessions permanently while preserving history", async () => {
   const admin = client(),
     user = client();
   await admin.admin();
@@ -483,16 +497,17 @@ test("facility suspension and revocation block real check-ins/bookings without e
       ).status,
       200,
     );
-    assert.equal((await user.get("/auth/session")).status, 200);
-    assert.equal((await user.get("/me/overview")).body.data.canCheckIn, false);
+    assert.equal((await user.get("/auth/session")).status, 401);
+    assert.equal((await user.get("/me/overview")).status, 401);
     assert.equal(
       (await user.post("/me/check-ins", { location: "Test portal" })).status,
-      403,
+      401,
     );
     const rejected = await user.post("/reservations", booking);
-    assert.equal(rejected.status, 403);
-    assert.equal(rejected.body.error.code, "ACCESS_BLOCKED");
-    assert.equal((await user.get("/reservations")).body.data.length, 1);
+    assert.equal(rejected.status,401);
+    assert.equal((await user.login()).status,403);
+    assert.equal((await user.refresh()).status,401);
+    assert.equal((await pool.query('SELECT COUNT(*)::int AS n FROM reservation WHERE userid=$1',[user.id])).rows[0].n,1);
   }
   const u = (await person(admin, user.id)).user;
   assert.equal(
@@ -505,6 +520,9 @@ test("facility suspension and revocation block real check-ins/bookings without e
     ).status,
     200,
   );
+  assert.equal((await user.get('/auth/session')).status,401);
+  assert.equal((await user.login()).status,200);
+  await currentRoomBooking(user);
   assert.equal(
     (await user.post("/me/check-ins", { location: "Test portal" })).status,
     201,
@@ -536,6 +554,7 @@ test("day passes enforce local calendar dates, duplicate prevention, entitlement
     409,
   );
   await signPolicies(user);
+  await currentRoomBooking(user);
   assert.equal(
     (await user.post("/me/check-ins", { location: "Test pass entry" })).status,
     201,
@@ -706,6 +725,7 @@ test("new full-length policy versions require fresh agreement; old signatures re
     403,
   );
   await signPolicies(user);
+  await currentRoomBooking(user);
   assert.equal(
     (await user.post("/me/check-ins", { location: "Policy check" })).status,
     201,

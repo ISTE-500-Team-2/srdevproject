@@ -6,7 +6,7 @@ import { AppError, positiveId, profileFields, textField } from "../domain.js";
 import { authState } from "../middleware/auth.js";
 import { UserModel } from "../models/UserModel.js";
 import { EligibilityModel } from "../models/EligibilityModel.js";
-import { AccessService } from "../services/AccessService.js";
+import { AccessService, type AccessTarget } from "../services/AccessService.js";
 import { MemberModel } from "../models/MemberModel.js";
 import { StaffModel } from "../models/StaffModel.js";
 import { page } from "./StaffController.js";
@@ -180,17 +180,19 @@ export class MemberController {
   overview = async (_req: Request, res: Response) => {
     const userId = authState(res).user.id;
     const model = new EligibilityModel(this.pool, this.timeZone);
-    const access = new AccessService(this.pool, this.timeZone);
     const [
       entitlement,
       waivers,
-      certificationFailure,
+      checkInFailure,
       reservations,
       checkIns,
     ] = await Promise.all([
       model.entitlement(userId, new Date()),
       model.waivers(userId),
-      access.activeReservationCertificationFailure(userId),
+      transaction(this.pool, async db => {
+        try { await new AccessService(db,this.timeZone).reservationForAccess(userId,{}); return null; }
+        catch (error) { if (error instanceof AppError) return error.message; throw error; }
+      }),
       new MemberModel(this.pool).activeReservationCount(userId),
       new MemberModel(this.pool).recentCheckIns(userId),
     ]);
@@ -203,7 +205,7 @@ export class MemberController {
       reasons.push("Required policies have not been configured");
     else if (waivers.some((w) => !w.signed))
       reasons.push("Required policies and waivers need your signature");
-    if (certificationFailure) reasons.push(certificationFailure.message);
+    if (checkInFailure && reasons.length === 0) reasons.push(checkInFailure);
     res.json({
       data: {
         entitlement,
@@ -217,40 +219,15 @@ export class MemberController {
   };
   checkIn = async (req: Request, res: Response) => {
     const userId = authState(res).user.id;
-    const requestedRoomId =
-      req.body.roomId === undefined || req.body.roomId === null
-        ? null
-        : positiveId(req.body.roomId, "Room");
+    const supplied = (['buildingId','roomId','equipmentId'] as const).filter(key => req.body[key] != null);
+    if (supplied.length > 1) throw new AppError(400,'INVALID_INPUT','Choose one building, room, or equipment target.');
+    const target: AccessTarget = {};
+    for (const key of supplied) target[key] = positiveId(req.body[key],key);
     const record = await transaction(this.pool, async (db) => {
       const access = new AccessService(db, this.timeZone);
-      await access.assertActiveUser(userId);
-      await access.assertEntitlement(userId, new Date());
-      await access.assertWaivers(userId);
-      await access.assertActiveReservationCertifications(userId);
-      if (requestedRoomId) {
-        const room = await access.assertActiveRoomReservation(
-          userId,
-          requestedRoomId,
-        );
-        const checkIn = await new MemberModel(db).createCheckIn(
-          userId,
-          `${room.name} - ${room.location}`,
-          requestedRoomId,
-        );
-        await new StaffModel(db, this.timeZone).audit(
-          userId,
-          userId,
-          "check_in.created",
-          "check_in",
-          checkIn.id,
-          "Member checked in to reserved room",
-          null,
-          checkIn,
-        );
-        return checkIn;
-      }
-      const location = textField(req.body.location, "Location", 100);
-      const checkIn = await new MemberModel(db).createCheckIn(userId, location);
+      const grant = await access.reservationForAccess(userId,target);
+      const checkIn = await new MemberModel(db).createCheckIn(userId,grant.location,target.roomId ?? null,
+        grant.buildingId,target.equipmentId ?? null,grant.reservationId);
       await new StaffModel(db, this.timeZone).audit(
         userId,
         userId,

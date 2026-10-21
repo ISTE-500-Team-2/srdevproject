@@ -32,7 +32,7 @@ export function MemberHomePage() {
     try {
       await api('/me/check-ins', {
         method: 'POST',
-        body: { location: 'Collaboratory member portal' },
+        body: {},
       });
       overview.reload();
       setToast('Check-in saved. Welcome to the Collaboratory!');

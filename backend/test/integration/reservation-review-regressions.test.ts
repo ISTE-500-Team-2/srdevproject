@@ -42,6 +42,7 @@ async function oldSchema(pool: Pool, alreadyApplied: boolean) {
   await pool.query('CREATE TABLE app_migration(name TEXT PRIMARY KEY,checksum CHAR(64) NOT NULL,applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())');
   const directory = path.join(repositoryRoot, 'database/migrations');
   for (const name of (await readdir(directory)).filter(n => /^\d+.*\.sql$/.test(n)).sort()) {
+    if (name >= '019') continue; // Resource access follows the legacy room upgrade.
     if (name === compatibility || (!alreadyApplied && name === original)) continue;
     const sql = await readFile(path.join(directory, name), 'utf8');
     await prepareAuditMigration(pool, name);

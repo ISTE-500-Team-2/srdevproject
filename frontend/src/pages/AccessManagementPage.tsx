@@ -194,9 +194,9 @@ export function AccessManagementPage() {
           >
             <h2>Short staff access override</h2>
             <p>
-              Overrides only the reservation requirement, for at most 30
-              minutes. Membership, waivers, training, and account restrictions
-              still apply.
+              Creates a confirmed reservation for up to 30 minutes when no current
+              booking exists. Membership, waivers, training, and account restrictions
+              still apply. Revoking supervision cancels the reservation it created.
             </p>
             <label>
               Resource

@@ -23,7 +23,7 @@ export class SessionModel {
   }
   private async issue(userId: number, familyId: string, csrfToken: string, persistent: boolean) {
     const user = await new UserModel(this.db).findById(userId);
-    if (!user || user.status !== 'active') throw new AppError(403, 'ACCOUNT_INACTIVE', 'This account does not currently have access. Please see staff.');
+    if (!user || user.status !== 'active' || user.accessStatus !== 'active') throw new AppError(403, 'ACCOUNT_INACTIVE', 'This account does not currently have access. Please see staff.');
     const {token, expiresAt, ttl} = await this.jwt.issue(userId, user.roles.includes(user.primaryRole ?? "") ? user.primaryRole! : user.roles[0] ?? user.role, user.roles);
     const refreshToken = randomBytes(32).toString('base64url');
     await this.db.query('INSERT INTO app_refresh_token(token_hash,family_id) VALUES($1,$2)',[tokenHash(refreshToken),familyId]);
@@ -47,7 +47,7 @@ export class SessionModel {
     if (expected.length !== actual.length || !timingSafeEqual(expected,actual)) return null;
     const current = (await this.db.query('SELECT consumed FROM app_refresh_token WHERE token_hash=$1',[tokenHash(refreshToken)])).rows[0];
     const user = await new UserModel(this.db).findById(family.userid);
-    if (current?.consumed || !user || user.status !== 'active') {
+    if (current?.consumed || !user || user.status !== 'active' || user.accessStatus !== 'active') {
       await this.db.query('UPDATE app_refresh_family SET revoked=true WHERE id=$1',[family.id]);
       return null; // Return, not throw: replay revocation must commit.
     }

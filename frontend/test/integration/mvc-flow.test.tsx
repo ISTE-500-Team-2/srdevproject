@@ -214,6 +214,10 @@ test('React → Express controllers/models → PostgreSQL: login, save, refresh,
     {},
     { timeout: 20000 },
   );
+  const accessRoom = (await bridge.pool.query("INSERT INTO room(name,location) VALUES('Browser check-in','Test') RETURNING roomid")).rows[0].roomid;
+  await bridge.pool.query(`INSERT INTO reservation(userid,roomid,location,starttime,endtime,status)
+    SELECT userid,$1,'Browser check-in',(NOW()-INTERVAL '1 minute') AT TIME ZONE 'UTC',(NOW()+INTERVAL '30 minutes') AT TIME ZONE 'UTC','confirmed'
+    FROM "user" WHERE email='demo.member@collaboratory.invalid'`,[accessRoom]);
   await user.click(
     within(
       screen.getByRole('navigation', { name: 'Primary navigation' }),

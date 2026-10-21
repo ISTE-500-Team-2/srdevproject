@@ -39,7 +39,7 @@ export class AuthController {
     notification?: NotificationTemplate,
   ) {
     const user = await new UserModel(this.pool).findById(userId);
-    if (!user || user.status !== 'active')
+    if (!user || user.status !== 'active' || user.accessStatus !== 'active')
       throw new AppError(
         403,
         'ACCOUNT_INACTIVE',

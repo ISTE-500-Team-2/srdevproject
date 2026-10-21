@@ -163,8 +163,8 @@ export function UserDetail({
               <p>
                 Active permits eligibility checks; it does not create a
                 membership or waive policies. Suspension/revocation blocks new
-                check-ins and reservations, but keeps account history and
-                existing bookings.
+                check-ins and reservations and ends all sessions, while preserving
+                account history and existing bookings.
               </p>
               <Field label="Facility access" name="status">
                 <select name="status" defaultValue={u.accessStatus}>

@@ -164,7 +164,7 @@ test('JWT subject is bound to the registry account, roles/status are live, and u
   assert.equal(result.body.data.user.role, 'member');
   assert.equal((await request(app).get('/api/admin/users').set('Authorization', `Bearer ${privilegedClaim}`)).status, 403);
   await pool.query("UPDATE \"user\" SET status='inactive' WHERE userid=$1", [account.userId]);
-  assert.equal((await current(account.token)).status, 403);
+  assert.equal((await current(account.token)).status, 401);
   const other = await register();
   const mismatch = await signed(claims(account.userId));
   await track(mismatch, other.userId);
@@ -230,18 +230,17 @@ test('account suspension/blocking revokes every session; restoration requires fr
   assert.equal((await pool.query('SELECT accessstatus FROM "user" WHERE userid=$1',[a.userId])).rows[0].accessstatus,'active');
 });
 
-test('restoring legacy suspended or blocked accounts revokes all old credentials and permits fresh login', async () => {
+test('direct suspension and account restoration revoke old credentials and require fresh login', async () => {
   const operator = await request(app).post('/api/auth/demo').send({role:'admin'});
   assert.equal(operator.status,200);
   for (const status of ['suspended','inactive']) {
     const a = await register();
     const remembered = await request(app).post('/api/auth/login').send({email:a.email,password:a.password,remember:true});
     assert.equal(remembered.status,200);
-    // Legacy status changes may have left live families. Do not refresh while
-    // suspended: that would revoke the family and hide the restoration bug.
+    // Database changes revoke credentials without waiting for a refresh request.
     await pool.query('UPDATE "user" SET status=$2 WHERE userid=$1',[a.userId,status]);
-    assert.equal((await current(a.token)).status,403);
-    assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM app_refresh_family WHERE userid=$1 AND NOT revoked',[a.userId])).rows[0].count,2);
+    assert.equal((await current(a.token)).status,401);
+    assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM app_refresh_family WHERE userid=$1 AND NOT revoked',[a.userId])).rows[0].count,0);
     const person = await request(app).get(`/api/admin/users/${a.userId}`).set('Authorization','Bearer '+browserToken(operator));
     assert.equal(person.status,200);
     const restore = await request(app).post(`/api/admin/users/${a.userId}/status`)
