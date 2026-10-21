@@ -51,6 +51,9 @@ export class SessionModel {
       await this.db.query('UPDATE app_refresh_family SET revoked=true WHERE id=$1',[family.id]);
       return null; // Return, not throw: replay revocation must commit.
     }
+    // Refresh bypasses requireUser; bind the verified owner on this transaction
+    // before token consumption and successor creation fire their audit triggers.
+    await this.db.query("SELECT set_config('app.actor_id',$1,true)",[String(user.id)]);
     await this.db.query('UPDATE app_refresh_token SET consumed=true WHERE token_hash=$1',[tokenHash(refreshToken)]);
     return this.issue(family.userid, family.id, family.csrf_token, family.persistent);
   }

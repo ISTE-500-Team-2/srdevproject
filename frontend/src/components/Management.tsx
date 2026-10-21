@@ -235,10 +235,7 @@ export function AuditList({ items }: { items: Audit[] }) {
               {a.action} · {a.entityType} #{a.entityId} · {a.actorName} ·{" "}
               {dateTime(a.createdAt)}
             </summary>
-            <p>{a.reason}</p>
-            <pre>
-              {JSON.stringify({ before: a.before, after: a.after }, null, 2)}
-            </pre>
+            <p>Recorded system change.</p>
           </details>
         ))
       ) : (

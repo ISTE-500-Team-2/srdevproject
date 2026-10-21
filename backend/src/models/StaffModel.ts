@@ -363,27 +363,36 @@ export class StaffModel {
     );
   }
   async audits(
-    userId: number | null,
-    offset = 0,
     filters: {
-      actorId?: number;
-      action?: string;
-      from?: string;
-      to?: string;
-    } = {},
+      userId?: number | null;
+      subjectId?: number | null;
+      actorId?: number | null;
+      action?: string | null;
+      from?: string | null;
+      to?: string | null;
+    },
+    offset = 0,
   ) {
     return (
       await this.db.query(
-        `SELECT a.id::text,a.actor_id AS "actorId",u.firstname || ' ' || u.lastname AS "actorName",a.subject_id AS "subjectId",a.action,
-      a.entity_type AS "entityType",a.entity_id AS "entityId",a.reason,a.before_state AS "before",a.after_state AS "after",a.created_at AS "createdAt"
-      FROM app_staff_audit a JOIN "user" u ON a.actor_id=u.userid WHERE ($1::int IS NULL OR subject_id=$1) AND ($3::int IS NULL OR a.actor_id=$3) AND ($4::text IS NULL OR a.action=$4) AND ($5::timestamptz IS NULL OR a.created_at>=$5) AND ($6::timestamptz IS NULL OR a.created_at<$6) ORDER BY a.id DESC LIMIT 51 OFFSET $2`,
+        `SELECT a.id::text,a.actor_id AS "actorId",COALESCE(u.firstname || ' ' || u.lastname,'System') AS "actorName",a.subject_id AS "subjectId",a.action,
+      a.entity_type AS "entityType",a.entity_id AS "entityId",a.created_at AS "createdAt"
+      FROM app_staff_audit a LEFT JOIN "user" u ON a.actor_id=u.userid
+      WHERE ($1::int IS NULL OR a.actor_id=$1 OR a.subject_id=$1)
+        AND ($2::int IS NULL OR a.subject_id=$2)
+        AND ($3::text IS NULL OR a.action=$3)
+        AND ($4::timestamptz IS NULL OR a.created_at >= $4)
+        AND ($5::timestamptz IS NULL OR a.created_at <= $5)
+        AND ($6::int IS NULL OR a.actor_id=$6)
+      ORDER BY a.created_at DESC,a.id DESC LIMIT 51 OFFSET $7`,
         [
-          userId,
-          offset,
-          filters.actorId ?? null,
+          filters.userId ?? null,
+          filters.subjectId ?? null,
           filters.action ?? null,
           filters.from ?? null,
           filters.to ?? null,
+          filters.actorId ?? null,
+          offset,
         ],
       )
     ).rows;

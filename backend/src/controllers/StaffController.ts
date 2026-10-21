@@ -32,6 +32,17 @@ function optionalDays(value: unknown) {
     throw new AppError(400, "INVALID_INPUT", "Expiration window must be 0 to 3650 days.");
   return Number(value);
 }
+function optionalAuditAction(value: unknown) {
+  if (value == null || value === "") return null;
+  const action = textField(value, "Audit action", 100);
+  if (!/^[a-z][a-z0-9_.-]*$/.test(action))
+    throw new AppError(400, "INVALID_INPUT", "Audit action is invalid.");
+  return action;
+}
+function optionalInstant(value: unknown) {
+  if (value == null || value === "") return null;
+  return instant(value);
+}
 function csvCell(value: unknown) {
   const text = Array.isArray(value)
     ? value.join("; ")
@@ -94,7 +105,7 @@ export class StaffController {
       this.model.memberships(id),
       this.model.passes(id),
       this.model.payments(id),
-      this.model.audits(id),
+      this.model.audits({ subjectId: id }),
       this.pool.query(
         `SELECT checkinid AS id,location,status,checkintime AT TIME ZONE 'UTC' AS "checkedInAt" FROM check_in WHERE userid=$1 ORDER BY checkintime DESC LIMIT 50`,
         [id],
@@ -265,33 +276,25 @@ export class StaffController {
   };
   audits = async (req: Request, res: Response) => {
     const offset = pageOffset(req.query.offset);
-    const instant = (value: unknown) => {
-      if (value == null) return undefined;
-      if (typeof value !== "string" || !Number.isFinite(Date.parse(value)))
-        throw new AppError(400, "INVALID_INPUT", "Use valid audit timestamps.");
-      return new Date(value).toISOString();
-    };
-    const from = instant(req.query.from),
-      to = instant(req.query.to);
-    if (from && to && from >= to)
-      throw new AppError(400, "INVALID_INPUT", "Audit end must follow start.");
+    const from = optionalInstant(req.query.from);
+    const to = optionalInstant(req.query.to);
+    if (from && to && from > to)
+      throw new AppError(
+        400,
+        "INVALID_INPUT",
+        "Audit start time must not be after the end time.",
+      );
     res.json({
       data: page(
         await this.model.audits(
-          req.query.userId == null ? null : positiveId(req.query.userId),
-          offset,
           {
-            actorId:
-              req.query.actorId == null
-                ? undefined
-                : positiveId(req.query.actorId),
-            action:
-              req.query.action == null
-                ? undefined
-                : textField(req.query.action, "Action", 100),
+            userId: optionalPositiveId(req.query.userId, "User"),
+            actorId: optionalPositiveId(req.query.actorId, "Actor"),
+            action: optionalAuditAction(req.query.action),
             from,
             to,
           },
+          offset,
         ),
         offset,
       ),

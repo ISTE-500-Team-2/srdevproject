@@ -60,15 +60,12 @@ export interface Payment {
 }
 export interface Audit {
   id: string;
-  actorId: number;
+  actorId: number | null;
   actorName: string;
   subjectId: number | null;
   action: string;
   entityType: string;
   entityId: number;
-  reason: string;
-  before: unknown;
-  after: unknown;
   createdAt: string;
 }
 export interface Policy {

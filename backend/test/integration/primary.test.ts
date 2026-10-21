@@ -32,6 +32,7 @@ before(async () => {
   created = true;
   await initializeDemo(pool);
 });
+
 beforeEach(async () => {
   if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
   server = createApp(pool, config).listen(0, "127.0.0.1");
@@ -140,6 +141,59 @@ async function issue(admin: Client, user: Client, planId: number) {
   assert.equal(r.status, 201, JSON.stringify(r.body));
   return r.body.data;
 }
+
+test("audit records are immutable and searchable by user, action and time range", async () => {
+  const admin = client(),
+    member = client();
+  await admin.admin();
+  await member.register();
+  assert.equal((await member.get('/admin/audit')).status, 403);
+  const from = new Date(Date.now() - 1000).toISOString();
+  const before = (await person(admin, member.id)).user;
+  const changed = await admin.post(`/admin/users/${member.id}/role`, {
+    role: "staff",
+    revision: before.revision,
+    reason: "Audit search fixture",
+  });
+  assert.equal(changed.status, 200, JSON.stringify(changed.body));
+  const to = new Date(Date.now() + 1000).toISOString();
+  const query = new URLSearchParams({
+    userId: String(member.id),
+    action: "user.role_changed",
+    from,
+    to,
+  });
+  const audit = await admin.get(`/admin/audit?${query}`);
+  assert.equal(audit.status, 200, JSON.stringify(audit.body));
+  assert.equal(audit.body.data.items.length, 1);
+  const record = audit.body.data.items[0];
+  assert.equal(record.actorId, admin.id);
+  assert.equal(record.subjectId, member.id);
+  assert.equal(record.action, "user.role_changed");
+  assert.ok(record.createdAt);
+  assert.equal('before' in record, false);
+  assert.equal('after' in record, false);
+  assert.equal('reason' in record, false);
+  assert.equal((await admin.get('/admin/audit?from=invalid')).status, 400);
+  await assert.rejects(pool.query('TRUNCATE app_staff_audit'), /Audit records are immutable/);
+  const automatic = await pool.query("SELECT actor_id FROM app_staff_audit WHERE action='user_role.insert' AND actor_id=$1", [admin.id]);
+  assert.ok(automatic.rowCount! > 0);
+  assert.equal(
+    (await admin.get(`/admin/audit?action=plan.archived&userId=${member.id}`))
+      .body.data.items.length,
+    0,
+  );
+  await assert.rejects(
+    pool.query("UPDATE app_staff_audit SET reason='changed' WHERE id=$1", [
+      record.id,
+    ]),
+    /Audit records are immutable/,
+  );
+  await assert.rejects(
+    pool.query("DELETE FROM app_staff_audit WHERE id=$1", [record.id]),
+    /Audit records are immutable/,
+  );
+});
 
 test("account status validates authority, reasons, revisions and self changes", async () => {
   const admin=client(), member=client(), staff=client();
@@ -619,8 +673,11 @@ test("payment records are owner-scoped, transition-controlled, audited, and do n
   const changed = audit.find(
     (a: { action: string }) => a.action === "payment.refunded",
   );
-  assert.equal(changed.before.status, "paid");
-  assert.equal(changed.after.status, "refunded");
+  assert.equal('before' in changed, false);
+  assert.equal('after' in changed, false);
+  const stored = (await pool.query('SELECT before_state,after_state FROM app_staff_audit WHERE id=$1',[changed.id])).rows[0];
+  assert.equal(stored.before_state.status, 'paid');
+  assert.equal(stored.after_state.status, 'refunded');
   assert.equal(changed.actorId, admin.id);
 });
 

@@ -61,57 +61,59 @@ export function AdminDashboardPage() {
 }
 function ChangeLog() {
   const [offset, setOffset] = useState(0),
-    [userId, setUserId] = useState(""),
-    [filters, setFilters] = useState("");
+    [filters, setFilters] = useState({
+      userId: "",
+      actorId: "",
+      action: "",
+      from: "",
+      to: "",
+    });
+  const query = new URLSearchParams({ offset: String(offset) });
+  if (filters.userId) query.set("userId", filters.userId);
+  if (filters.actorId) query.set("actorId", filters.actorId);
+  if (filters.action) query.set("action", filters.action);
+  if (filters.from) query.set("from", new Date(filters.from).toISOString());
+  if (filters.to) query.set("to", new Date(filters.to).toISOString());
   const records = useApi<Page<Audit>>(
-    `/admin/audit?offset=${offset}&${filters}${userId ? `&userId=${encodeURIComponent(userId)}` : ""}`,
+    `/admin/audit?${query.toString()}`,
   );
   return (
     <section>
       <h2>Staff change log</h2>
       <p>
-        Who changed what, when, and why. Expand an entry for its before/after
-        values.
+        Search recorded changes by user, action, and time.
       </p>
       <form
         className="management-search"
         onSubmit={(e) => {
           e.preventDefault();
-          setUserId(String(new FormData(e.currentTarget).get("userId") ?? ""));
-          const f = new FormData(e.currentTarget),
-            q = new URLSearchParams();
-          for (const field of ["actorId", "action"]) {
-            const v = String(f.get(field) ?? "");
-            if (v) q.set(field, v);
-          }
-          for (const field of ["from", "to"]) {
-            const v = String(f.get(field) ?? "");
-            if (v) q.set(field, new Date(v).toISOString());
-          }
-          setFilters(q.toString());
+          const form = new FormData(e.currentTarget);
+          setFilters({
+            userId: String(form.get("userId") ?? ""),
+            actorId: String(form.get("actorId") ?? ""),
+            action: String(form.get("action") ?? "").trim(),
+            from: String(form.get("from") ?? ""),
+            to: String(form.get("to") ?? ""),
+          });
           setOffset(0);
         }}
       >
         <label>
-          Filter by member ID <input name="userId" type="number" min="1" />
+          User ID <input name="userId" type="number" min="1" />
         </label>
         <label>
-          Actor ID
-          <input name="actorId" type="number" min={1} />
+          Actor ID <input name="actorId" type="number" min="1" />
         </label>
         <label>
-          Exact action
-          <input name="action" placeholder="training.approved" />
+          Action <input name="action" placeholder="user.role_changed" />
         </label>
         <label>
-          From
-          <input name="from" type="datetime-local" />
+          From <input name="from" type="datetime-local" />
         </label>
         <label>
-          Before
-          <input name="to" type="datetime-local" />
+          To <input name="to" type="datetime-local" />
         </label>
-        <button className="button button--quiet">Filter changes</button>
+        <button className="button button--quiet">Search changes</button>
       </form>
       <LoadState {...records} />
       {records.data ? (

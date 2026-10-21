@@ -740,7 +740,7 @@ test('FR-001/035: staff and admins bulk manage reservations with audit trail',as
  assert.equal(notices.rows[1].userid,other.id);
  assert.equal(notices.rows[1].status,'pending');
  assert.equal(new Date(notices.rows[1].payload.startsAt).toISOString(),newerStart.toISOString());
- const auditUpdate=await pool.query("SELECT actor_id,subject_id,before_state,after_state FROM app_staff_audit WHERE action='reservation.override.updated' AND entity_id=$1",[id]);
+ const auditUpdate=await pool.query("SELECT actor_id,subject_id,before_state,after_state FROM app_staff_audit WHERE action='reservation.override.updated' AND entity_id=$1 ORDER BY id ASC",[id]);
  assert.equal(auditUpdate.rows[0].actor_id,staff.id);
  assert.equal(auditUpdate.rows[0].subject_id,member.id);
  assert.equal(auditUpdate.rows[0].before_state.status,'confirmed');
@@ -756,7 +756,7 @@ test('FR-001/035: staff and admins bulk manage reservations with audit trail',as
 test('FR-001/035: staff reservation date filter uses application timezone day boundaries',async()=>{
  const member=client(),staff=client();await member.demo();await staff.demo('admin');
  await pool.query("UPDATE user_role SET roleid=(SELECT roleid FROM role WHERE role='staff') WHERE userid=$1",[staff.id]);
- const eq=await equipment();
+ const eq=(await pool.query("INSERT INTO equipment(name,status) VALUES('Timezone test machine','available') RETURNING equipmentid")).rows[0].equipmentid;
  const rows=await pool.query(`INSERT INTO reservation(userid,equipmentid,location,starttime,endtime,status,statusdesc)
   VALUES
    ($1,$2,'Timezone fixture','2026-10-15T01:30:00Z'::timestamptz AT TIME ZONE 'UTC','2026-10-15T02:30:00Z'::timestamptz AT TIME ZONE 'UTC','confirmed','Timezone fixture'),
