@@ -3,6 +3,8 @@
 **/dist
 **/.env*
 **/.local
+**/.sponsor-secrets
+**/.sponsor-backups
 **/coverage
 **/*.tsbuildinfo
 **/.DS_Store
