@@ -133,6 +133,7 @@ p {
 .dashboard-intro h1,
 .discovery-heading h2,
 .reservation-section__heading h1,
+.credentials-page--member-demo .certifications-heading,
 .training-panel__heading h1,
 .catalog-hero h1,
 .profile-hero h1 {
@@ -1777,6 +1778,29 @@ p {
   font-size: clamp(1.9rem, 3.5vw, 2.7rem);
 }
 
+.training-schedule .training-panel__heading {
+  align-items: center;
+}
+
+.training-schedule__filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.training-schedule__filter select {
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: rgba(255, 255, 255, 0.58);
+  color: var(--ink);
+  font: inherit;
+}
+
 .training-group + .training-group {
   margin-top: 10px;
   border-top: 1px solid var(--border-strong);
@@ -1798,6 +1822,11 @@ p {
 
 .training-group__toggle svg {
   width: 18px;
+  transition: transform 160ms ease;
+}
+
+.training-group__toggle[aria-expanded='true'] svg {
+  transform: rotate(180deg);
 }
 
 .training-group__content {
@@ -1842,6 +1871,11 @@ p {
   font-size: 0.82rem;
 }
 
+.training-card .training-card__duration {
+  margin-bottom: 8px;
+  font-size: 0.82rem;
+}
+
 .training-card p svg {
   width: 15px;
 }
@@ -1870,7 +1904,8 @@ p {
   margin-bottom: 30px;
 }
 
-.reservation-section__heading h1 {
+.reservation-section__heading h1,
+.credentials-page--member-demo .certifications-heading {
   font-size: clamp(2rem, 3.2vw, 3.7rem);
 }
 
@@ -2814,6 +2849,22 @@ place-items: center;
 .saved-record { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; padding: 1.25rem; }
 .saved-record p { margin: .4rem 0; }
 .feature-notice { padding: 1.5rem; margin: 1.5rem 0; }
+.certifications-table-wrap { max-width: 100%; overflow-x: auto; }
+.certifications-table { width: 100%; border-collapse: collapse; text-align: left; }
+.certifications-table th, .certifications-table td { border-bottom: 1px solid var(--border); padding: .85rem .75rem; }
+.certification-equipment-name { display: inline-block; border: 1px solid var(--border); border-radius: 7px; padding: .3rem .55rem; background: rgba(255, 255, 255, .58); }
+.certification-status { display: inline-flex; align-items: center; gap: .35rem; }
+.certification-status svg { width: 1rem; height: 1rem; }
+.certification-status--complete { color: #276238; }
+.certification-status--incomplete { color: #a12e24; }
+.certification-date-placeholder--muted { color: var(--ink-soft); opacity: .55; }
+.waiver-name-cell { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; }
+.waiver-name-cell .button { min-height: 36px; padding: 6px 12px; }
+.credentials-page--member-demo .certifications-table th {
+  color: var(--ink);
+  font-size: clamp(1.05rem, 2vw, 1.35rem);
+  font-weight: 500;
+}
 .policy-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .sample-data-banner { padding: .7rem 1rem; background: #fff1cc; color: #4a3600; text-align: center; font-size: .9rem; }
 .credentials-page > section:first-child, .credentials-page > p { grid-column: 1 / -1; }
