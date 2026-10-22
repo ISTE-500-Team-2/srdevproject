@@ -13,4 +13,10 @@ John’s former `johndoe` password was shorter than the API minimum; use `JohnDe
 
 For an existing development database, apply `database/fixes/repair-sample-passwords.sql`. It updates only exact known sample IDs/emails/plaintext values, is safe to rerun, and does not reset already-hashed or non-sample accounts. Do not rerun the full insert script over an existing database.
 
-The RLES hosted app currently uses `arbor_mvc_dev`, while the team SQL tunnel points to `collaboratory_dev`; updating one does not change the other. The older hosted app only supports scrypt and must not receive these bcrypt sample rows without an auth deployment. Use current main for bcrypt-compatible local integration.
+These seed instructions are for isolated sample development, not the public site.
+The public website uses `arbor_email_dev`; the separate demo/NFC test app uses
+`arbor_mvc_dev`, and the team SQL development tunnel points to `collaboratory_dev`.
+Updating one does not change the others. Do not apply sample password repairs or
+seed scripts to real website accounts. See [environment separation and the
+proposed integration plan](UNIFIED-ENVIRONMENT.md). Use current main for local
+bcrypt-compatible integration.
