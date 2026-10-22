@@ -534,7 +534,7 @@ export class StaffService {
   }
   retirePolicy(actorId: number, id: number, reason: string) {
     return this.write(actorId, true, "waiver", "update", async (model, _actor, db) => {
-      const before = (await model.policies()).find((p) => p.id === id);
+      const before = (await model.policies()).find((p) => p.id === id); //find the policy by id
       if (!before) throw missing();
       await db.query("UPDATE waiver SET isactive=false WHERE waiverid=$1", [
         id,
