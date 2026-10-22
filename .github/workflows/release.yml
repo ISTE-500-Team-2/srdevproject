@@ -1,9 +1,5 @@
 name: Gated ARBOR release
 on:
-  workflow_run:
-    workflows: ["Verify MVC application"]
-    types: [completed]
-    branches: [main]
   workflow_dispatch:
     inputs:
       revision:

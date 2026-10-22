@@ -1,0 +1,10 @@
+[Unit]
+Description=Check main for a CI-green ARBOR production release
+
+[Timer]
+OnStartupSec=30s
+OnUnitInactiveSec=60s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

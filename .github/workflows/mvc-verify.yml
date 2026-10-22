@@ -43,6 +43,7 @@ jobs:
       - run: python3 -m unittest discover -s deploy/reader -v
       - run: bash -n deploy/deploy-arbor.sh
       - run: python3 deploy/test_deploy.py
+      - run: python3 deploy/test_auto_release.py
       - run: docker build -t collaboratory-mvc:verification .
       - name: Start isolated Docker JWT demo
         run: |
