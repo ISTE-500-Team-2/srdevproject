@@ -3,6 +3,7 @@ import time
 import json
 import hmac
 import hashlib
+from unittest.mock import patch
 from datetime import datetime, timezone, timedelta
 from access_client import AccessClient, RelayLease, RenewingAccessSession
 
@@ -65,4 +66,36 @@ class Tests(unittest.TestCase):
         session.close()
     def test_refuses_insecure_transport(self):
         with self.assertRaises(ValueError):AccessClient('http://example.invalid','test','x'*32)
+    def test_malformed_lease_never_enables_output(self):
+        for lease in [True, float('nan'), float('inf'), '5', None]:
+            def opener(req, timeout):
+                body=json.loads(req.data)
+                return Response({'eventId':body['eventId'],'readerId':'test','allowed':True,
+                    'leaseSeconds':lease,'expiresAt':(datetime.now(timezone.utc)+timedelta(seconds=5)).isoformat()})
+            states=[];relay=RelayLease(states.append)
+            self.assertFalse(relay.authorize(AccessClient('https://example.invalid','test','x'*32,opener),'01020304'))
+            self.assertNotIn(True,states)
+            relay.close()
+    def test_request_time_is_deducted_even_if_local_clock_suggests_later_expiry(self):
+        def opener(req,timeout):
+            body=json.loads(req.data)
+            return Response({'eventId':body['eventId'],'readerId':'test','allowed':True,'leaseSeconds':1.5,
+                'expiresAt':(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat()})
+        with patch('access_client.time.monotonic',side_effect=[10,11]):
+            self.assertEqual(AccessClient('https://example.invalid','test','x'*32,opener).decide('01020304'),.5)
+    def test_outage_and_restart_cannot_restore_a_previous_grant(self):
+        states=[];relay=RelayLease(states.append);relay.apply(5)
+        class Offline:
+            def decide(self,*args,**kwargs):raise TimeoutError()
+        self.assertFalse(relay.authorize(Offline(),'01020304'))
+        relay.close()
+        restarted=RelayLease(states.append)
+        self.assertFalse(states[-1])
+        self.assertFalse(relay.authorize(Offline(),'01020304'))
+        restarted.close()
+    def test_gate_review_simulator_reports_its_boundaries(self):
+        from simulate_relay import demonstrate
+        result=demonstrate()
+        self.assertTrue(result['simulationOnly'])
+        self.assertFalse(result['physicalMachineSwitchingTested'])
 if __name__=='__main__':unittest.main()
