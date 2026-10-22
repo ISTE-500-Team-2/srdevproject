@@ -25,7 +25,7 @@ code and must remain. Available plans are independently requested and displayed.
 
 ## Verification commands
 
-Use Node 24.15+ in the 24 LTS line. Supply explicit isolated PostgreSQL variables
+Use Node 24.22.1+ in the 24 LTS line. Supply explicit isolated PostgreSQL variables
 for integration tests; never point these suites at a deployed project database.
 
 ```

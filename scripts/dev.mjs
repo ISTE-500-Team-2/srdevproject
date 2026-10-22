@@ -38,9 +38,10 @@ export async function assertFree(port) {
   });
 }
 export function assertNodeVersion(version = process.versions.node) {
-  const [major, minor] = version.split('.').map(Number);
-  if (major !== 24 || !Number.isInteger(minor) || minor < 15)
-    throw new Error('Install Node 24.15.0 or newer in the 24 LTS line (use nvm install && nvm use).');
+  const parts = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
+  const [major, minor, patch] = parts ? parts.slice(1).map(Number) : [];
+  if (major !== 24 || minor < 22 || (minor === 22 && patch < 1))
+    throw new Error('Install Node 24.22.1 or newer in the 24 LTS line (use nvm install && nvm use).');
 }
 async function main() {
   const args=process.argv.slice(2);

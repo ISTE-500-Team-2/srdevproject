@@ -39,7 +39,7 @@ It covers a new AWS Lightsail installation, an equivalent Ubuntu server elsewher
 first-administrator setup, backups and recovery. No AI assistant is required.
 A [printable PDF](docs/print/ARBOR-Sponsor-Guide.pdf) is included.
 
-**Developer:** install **Node.js 24.15+ (24.x)** and Docker Desktop with Compose,
+**Developer:** install **Node.js 24.22.1+ (24.x)** and Docker Desktop with Compose,
 start Docker, then run this from the repository root:
 
 ```sh
