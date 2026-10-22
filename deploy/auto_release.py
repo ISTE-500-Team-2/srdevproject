@@ -84,8 +84,8 @@ def compose(file, *args):
     run('docker', 'compose', '-p', project, '-f', str(file), *args, timeout=180)
 
 
-def request(origin, path, data=None, token=None):
-    headers = {'Origin': 'https://collaboratory.webdev.gccis.rit.edu'}
+def request(origin, path, data=None, token=None, origin_header=None):
+    headers = {'Origin': origin_header} if origin_header else {}
     if data is not None:
         data = json.dumps(data).encode()
         headers['Content-Type'] = 'application/json'
@@ -99,7 +99,8 @@ def verify(root, origin, demo=False):
     health = request(origin, '/api/health')['data']
     assert health.get('status') == 'ok' and health.get('database') == 'connected', 'Database health failed'
     credentials = {'role': 'admin'} if demo else json.loads((root / 'admin.private.json').read_text())
-    login = request(origin, '/api/auth/demo' if demo else '/api/auth/login', credentials)
+    login = request(origin, '/api/auth/demo' if demo else '/api/auth/login', credentials,
+        origin_header=None if demo else 'https://collaboratory.webdev.gccis.rit.edu')
     token = login['data']['accessToken']
     for path in ('/api/auth/session', '/api/admin/users', '/api/training/catalog', '/api/classes'):
         assert 'data' in request(origin, path, token=token), path

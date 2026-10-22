@@ -1,5 +1,6 @@
 """CI gate and rollout fault injection. No real Docker, SSH, network or member data."""
 import copy
+import io
 import json
 from pathlib import Path
 import tempfile
@@ -34,6 +35,14 @@ def config():
 
 
 class GateTests(unittest.TestCase):
+    def test_demo_smoke_does_not_send_public_origin_to_private_auth(self):
+        with patch.object(release.urllib.request, 'urlopen', return_value=io.BytesIO(b'{}')) as opener:
+            release.request('http://127.0.0.1:8081', '/api/auth/demo', {'role': 'admin'})
+            self.assertIsNone(opener.call_args[0][0].get_header('Origin'))
+        with patch.object(release.urllib.request, 'urlopen', return_value=io.BytesIO(b'{}')) as opener:
+            release.request('https://example.invalid', '/api/auth/login', {}, origin_header='https://example.invalid')
+            self.assertEqual(opener.call_args[0][0].get_header('Origin'), 'https://example.invalid')
+
     def test_all_required_exact_sha_main_push_workflows_succeed(self):
         self.assertTrue(release.green_checks(SHA, checks(), workflows()))
 
