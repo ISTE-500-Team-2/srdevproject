@@ -2131,6 +2131,11 @@ place-items: center;
   font-size: 1.08rem;
 }
 
+/* class which only displays on mobile devices */
+.mobile-only {
+  display: none;
+}
+
 /* Responsive layout */
 @media (max-width: 1320px) {
   .site-header {
@@ -2163,6 +2168,10 @@ place-items: center;
   .site-header__mobile-toggle {
     display: inline-grid;
     justify-self: start;
+  }
+
+  .mobile-only {
+    display: inline;
   }
 
   .site-nav {
@@ -2249,6 +2258,10 @@ place-items: center;
   .account-menu > .icon-button {
     width: 40px;
     height: 40px;
+  }
+
+  .mobile-only {
+    display: inline;
   }
 
   .page-shell {
@@ -2371,6 +2384,10 @@ place-items: center;
   .site-header__mobile-toggle,
   .account-menu > .icon-button {
     width: 36px;
+  }
+
+  .mobile-only {
+    display: inline;
   }
 
   .select-control {

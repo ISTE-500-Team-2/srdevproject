@@ -26,9 +26,10 @@ export function Header() {
   const hasStaffWorkspace = user?.roles.some(
     (role) => role === "staff" || role === "admin",
   );
-  const visibleNavItems = hasStaffWorkspace
-    ? [...navItems, { label: "Staff workspace", to: "/admin" }]
-    : navItems;
+  // const visibleNavItems = hasStaffWorkspace
+  //   ? [...navItems, { label: "Staff workspace", to: "/admin" }]
+  //   : navItems;
+  const visibleNavItems = navItems;
   const [error, setError] = useState("");
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -92,6 +93,14 @@ export function Header() {
               {item.label}
             </NavLink>
           ))}
+
+          {hasStaffWorkspace ? (
+            <NavLink className={({ isActive }) =>
+                isActive ? "site-nav__link is-active mobile-only" : "site-nav__link mobile-only"
+              } to="/admin">
+              Staff workspace
+            </NavLink>
+          ) : null}
         </nav>
 
         <NavLink
