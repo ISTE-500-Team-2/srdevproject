@@ -3,6 +3,7 @@
 import argparse
 import copy
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -140,6 +141,20 @@ def candidates(original, image):
     return candidate, canary
 
 
+def verify_migrations(source, rows):
+    """Read metadata with the DB owner; never broaden the runtime role's rights."""
+    directory = source / 'database/migrations'
+    files = sorted(p for p in directory.glob('*.sql') if re.match(r'^\d+.*\.sql$', p.name))
+    if not files:
+        raise ValueError('Migration source directory is empty')
+    existing = {row['name']: row['checksum'] for row in rows}
+    for file in files:
+        if file.name not in existing:
+            raise RuntimeError('Reviewed migration is required before rollout: ' + file.name)
+        if existing[file.name] != hashlib.sha256(file.read_bytes()).hexdigest():
+            raise RuntimeError('Migration checksum mismatch: ' + file.name)
+
+
 def deploy(root, sha):
     release = root / 'auto-deploy/releases' / sha
     release.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -160,10 +175,12 @@ def deploy(root, sha):
     write_json(candidate_file, candidate)
     write_json(canary_file, canary)
     compose(candidate_file, 'config', '--quiet')
-    # Read-only migration/checksum gates use the protected original app environment.
-    for name in APPS:
-        compose(canary_file, 'run', '--rm', '--no-deps', '--entrypoint', 'node', name,
-                'backend/dist/scripts/verify-migrations.js')
+    # Runtime roles intentionally cannot read the migration ledger. Use the same
+    # existing local-owner access as backups, without granting new app privileges.
+    for container, user, database in DATABASES:
+        rows = json.loads(output('docker', 'exec', container, 'psql', '-U', user, '-d', database,
+            '-Atc', 'SELECT coalesce(json_agg(t),\'[]\'::json) FROM (SELECT name,checksum FROM app_migration) t'))
+        verify_migrations(source, rows)
     # Backups must succeed and be readable before any running app is replaced.
     for container, user, database in DATABASES:
         backup = release / (database + '.dump')

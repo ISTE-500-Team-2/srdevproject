@@ -1,6 +1,7 @@
 """CI gate and rollout fault injection. No real Docker, SSH, network or member data."""
 import copy
 import io
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -74,6 +75,17 @@ class GateTests(unittest.TestCase):
         self.assertEqual(candidate['services']['gateway'], original['services']['gateway'])
         self.assertEqual(set(canary['services']), set(release.APPS))
 
+    def test_migration_gate_uses_exact_existing_checksums_without_live_ddl(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); directory = root / 'database/migrations'; directory.mkdir(parents=True)
+            (directory / '001_fixture.sql').write_text('SELECT 1;')
+            rows = [{'name':'001_fixture.sql','checksum':hashlib.sha256(b'SELECT 1;').hexdigest()}]
+            release.verify_migrations(root, rows)
+            with self.assertRaisesRegex(RuntimeError, 'required before rollout'):
+                release.verify_migrations(root, [])
+            with self.assertRaisesRegex(RuntimeError, 'checksum mismatch'):
+                release.verify_migrations(root, [{'name':'001_fixture.sql','checksum':'wrong'}])
+
 
 class RolloutTests(unittest.TestCase):
     def exercise(self, failure=None):
@@ -92,8 +104,6 @@ class RolloutTests(unittest.TestCase):
 
         def compose(file, *args):
             calls.append(('compose', args, json.loads(file.read_text())))
-            if 'verify-migrations.js' in ' '.join(args) and failure == 'migration':
-                raise RuntimeError('Missing reviewed migration')
             if file.name == 'compose.json' and 'up' in args and failure == 'health':
                 if json.loads(file.read_text())['services'][release.APPS[0]]['image'] == IMAGE:
                     raise RuntimeError('New container health failed')
@@ -106,8 +116,13 @@ class RolloutTests(unittest.TestCase):
         def output(*args):
             return SHA if 'rev-parse' in args else json.dumps([{'Id': IMAGE}])
 
+        def migration_gate(_source, _rows):
+            if failure == 'migration':
+                raise RuntimeError('Missing reviewed migration')
+
         with patch.object(release, 'run', run), patch.object(release, 'output', output), \
              patch.object(release, 'compose', compose), patch.object(release, 'verify', verify), \
+             patch.object(release, 'verify_migrations', migration_gate), \
              patch.object(release, 'main_sha', return_value=SHA), \
              patch.object(release, 'ready', return_value=(failure != 'ci-changed')):
             try:
