@@ -7,6 +7,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 import threading
 import time
 import uuid
@@ -36,14 +37,21 @@ class AccessClient:
             data = json.loads(response.read(16384))['data']
         if data.get('eventId') != event or data.get('readerId') != self.reader_id:
             raise ValueError('Mismatched reader decision')
-        if time.monotonic()-started >= 1.8:
+        elapsed = time.monotonic()-started
+        if elapsed >= 1.8:
             raise TimeoutError('Late reader decision')
         if data.get('allowed') is not True:
             return 0.0
+        lease = data.get('leaseSeconds')
+        if isinstance(lease, bool) or not isinstance(lease, (int, float)) or not math.isfinite(lease):
+            raise ValueError('Invalid relay lease')
         expiry = datetime.fromisoformat(data['expiresAt'].replace('Z', '+00:00'))
         remaining = (expiry-datetime.now(timezone.utc)).total_seconds()
         # Bound both the server lease and the signed response's absolute expiry.
-        return max(0.0, min(5.0, remaining, float(data['leaseSeconds'])))
+        # Subtract the full request duration, conservatively including outbound
+        # time. A slow reply or a reader clock behind the server must not extend
+        # the original authorization window.
+        return max(0.0, min(5.0, remaining, lease-elapsed))
 
 
 class RelayLease:
@@ -72,7 +80,7 @@ class RelayLease:
             self._generation += 1
             if self._timer:
                 self._timer.cancel()
-            if not isinstance(seconds, (int, float)) or not 0 < seconds <= 5:
+            if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not math.isfinite(seconds) or not 0 < seconds <= 5:
                 self.set_relay(False)
                 return
             # Renew an active lease without interrupting machine power. The
