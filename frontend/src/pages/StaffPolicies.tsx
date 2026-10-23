@@ -74,8 +74,8 @@ export function StaffPolicies() {
         <div className="panel management-panel">
           <ActionForm
             key={revision}
-            title="Publish policy version"
-            submitLabel="Publish version"
+            title="Publish Policy/Waiver Version"
+            submitLabel="Publish Version"
             onSubmit={async (f) => {
               await api("/admin/policies", {
                 method: "POST",
@@ -110,6 +110,7 @@ export function StaffPolicies() {
                 minLength={20}
                 maxLength={16000}
                 rows={12}
+                placeholder="Include the body of the waiver/policy"
               />
             </Field>
             <Field

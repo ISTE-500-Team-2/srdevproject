@@ -511,6 +511,18 @@ export class StaffService {
     },
   ) {
     return this.write(actorId, true, "waiver", "create", async (model) => {
+      //find previous versions
+      //before gets a filtered array of all previous versions of the policy.
+      const before = ((await model.policies()).filter((p) => p.name === input.name //look for policies with the same name
+                        && p.version !== input.version //look for policies with different versions
+                        && p.isActive)); //look for policies that are active
+      //if there are previous versions, retire them.
+      if(before.length){
+        for(let i of before){
+          this.retirePolicy(actorId, i.id, input.reason)
+        }//for loop
+      }//if there are previous versions
+      
       const after = await model.createPolicy(
         input.name,
         input.version,
@@ -534,7 +546,7 @@ export class StaffService {
   }
   retirePolicy(actorId: number, id: number, reason: string) {
     return this.write(actorId, true, "waiver", "update", async (model, _actor, db) => {
-      const before = (await model.policies()).find((p) => p.id === id);
+      const before = (await model.policies()).find((p) => p.id === id); //find the policy by id
       if (!before) throw missing();
       await db.query("UPDATE waiver SET isactive=false WHERE waiverid=$1", [
         id,
