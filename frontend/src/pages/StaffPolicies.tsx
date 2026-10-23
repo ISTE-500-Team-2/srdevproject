@@ -110,6 +110,7 @@ export function StaffPolicies() {
                 minLength={20}
                 maxLength={16000}
                 rows={12}
+                placeholder="Include the body of the waiver/policy"
               />
             </Field>
             <Field
