@@ -28,7 +28,7 @@ export async function seedDemo(pool: Pool) {
     await db.query(`INSERT INTO role (roleid,role,description) VALUES
       (1,'admin','Administrator'),(2,'member','Member'),(3,'student','Student'),(4,'staff','Staff') ON CONFLICT (roleid) DO NOTHING`);
     await db.query(`INSERT INTO membership_tiers (tierid,tiername,tierprice,allottedmonths)
-      VALUES (1,'Demo membership',0,1) ON CONFLICT (tierid) DO NOTHING`);
+      VALUES (1,'Monthly',95.00,1) ON CONFLICT (tierid) DO NOTHING`);
     await db.query(
       `SELECT setval('app_membership_tiers_id_seq',GREATEST((SELECT COALESCE(MAX(tierid),1) FROM membership_tiers),(SELECT last_value FROM app_membership_tiers_id_seq)),true)`,
     );
@@ -37,8 +37,8 @@ export async function seedDemo(pool: Pool) {
     );
     if (!existingDemo.rows.length)
       await db.query(`INSERT INTO membership_tiers(tiername,tierprice,allottedmonths,kind,benefits)
-      SELECT 'Demo day pass',15.00,NULL,'day_pass','One calendar day of makerspace access; waivers still required.'
-      WHERE NOT EXISTS(SELECT 1 FROM membership_tiers WHERE tiername='Demo day pass')`);
+      SELECT 'Day pass',25.00,NULL,'day_pass','One calendar day of makerspace access; waivers still required.'
+      WHERE NOT EXISTS(SELECT 1 FROM membership_tiers WHERE kind='day_pass' AND active)`);
     for (const role of ["member", "admin"]) {
       const email = `demo.${role}@collaboratory.invalid`;
       const inserted = await db.query(
@@ -70,7 +70,10 @@ export async function seedDemo(pool: Pool) {
     }
     const entries = [
       ["3D Printer", "3D printing", "/assets/3d-printer.webp", 7, false],
+      ["Laser", "Laser cutting", "/assets/laser-engraver.webp", 20, false],
       ["CNC Machine", "CNC machining", "/assets/cnc-machine.webp", 28, true],
+      ["Wood Lathe", "Wood turning", "/assets/wood-lathe.webp", 12, true],
+      ["Metal Lathe", "Metal turning", "/assets/wood-lathe.webp", 20, true],
     ];
     for (const [name, category, image, rate, waiver] of entries) {
       await db.query(

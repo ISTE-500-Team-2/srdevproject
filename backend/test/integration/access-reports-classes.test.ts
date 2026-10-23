@@ -374,12 +374,17 @@ test("real reports reconcile refunds, clip usage, export structured CSV/PDF and 
     `INSERT INTO app_studio_rental(studio_id,userid,starts_on,ends_on,amount_cents,cancellation_policy,status,payment_status,payment_method,request_key,refund_cents) SELECT id,$1,CURRENT_DATE,CURRENT_DATE+30,30000,'full_before_start','cancelled','refund_pending','manual',$2,30000 FROM app_studio ORDER BY id OFFSET 1 LIMIT 1`,
     [memberId, randomUUID()],
   );
-  const day = (
+  // The attendance fixture starts one hour ago, which can be yesterday in
+  // New York. Include its actual start date as well as today's receipts.
+  const range = (
       await pool.query(
-        "SELECT to_char(NOW() AT TIME ZONE 'America/New_York','YYYY-MM-DD') AS day",
+        `SELECT to_char(v.starttime AT TIME ZONE 'UTC' AT TIME ZONE 'America/New_York','YYYY-MM-DD') AS "from",
+          to_char(NOW() AT TIME ZONE 'America/New_York','YYYY-MM-DD') AS "to"
+          FROM app_training_class c JOIN reservation v ON v.reservationid=c.reservation_id WHERE c.id=$1`,
+        [classId],
       )
-    ).rows[0].day,
-    q = `from=${day}&to=${day}&period=daily`;
+    ).rows[0],
+    q = `from=${range.from}&to=${range.to}&period=daily`;
   let r = await staff.get("/api/admin/reports?" + q);
   assert.equal(r.status, 200, JSON.stringify(r.body));
   const d = r.body.data;
@@ -395,8 +400,10 @@ test("real reports reconcile refunds, clip usage, export structured CSV/PDF and 
     d.revenue.reduce((a: number, x: any) => a + Number(x.net), 0),
     400,
   );
-  assert.equal(d.classes.find((x: any) => x.id === classId).enrolled, 1);
-  assert.equal(d.classes.find((x: any) => x.id === classId).attended, 1);
+  const reportedClass = d.classes.find((x: any) => x.id === classId);
+  assert.ok(reportedClass, "The report must include the attended class");
+  assert.equal(reportedClass.enrolled, 1);
+  assert.equal(reportedClass.attended, 1);
   assert.ok(d.active.activeUsers >= 1);
   assert.ok(
     Number(d.usage[0].authorizedHours) <= (5 / 3600) * 5,
