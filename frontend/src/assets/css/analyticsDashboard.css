@@ -1,0 +1,44 @@
+.analytics-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(16rem, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+.analytics-revenue,
+.analytics-activity {
+  min-width: 0;
+  padding: 1.25rem;
+}
+.analytics-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 2rem;
+  margin: 1.5rem 0;
+}
+.analytics-totals dt {
+  font-size: 0.85rem;
+}
+.analytics-totals dd {
+  margin: 0.25rem 0 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+.analytics-table {
+  overflow-x: auto;
+}
+.analytics-table table {
+  width: 100%;
+}
+.analytics-classes {
+  padding: 0;
+  list-style: none;
+}
+.analytics-classes li {
+  border-top: 1px solid var(--line, #ddd);
+  padding: 0.75rem 0;
+}
+@media (max-width: 850px) {
+  .analytics-layout {
+    grid-template-columns: 1fr;
+  }
+}

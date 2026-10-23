@@ -12,12 +12,14 @@ interface ModalProps {
 
 export function Modal({ open, title, children, onClose, width = 'regular' }: ModalProps) {
   const closeRef = useRef<HTMLButtonElement>(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
     closeRef.current?.focus();
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') onCloseRef.current();
     };
     document.body.classList.add('modal-open');
     window.addEventListener('keydown', handleKey);
@@ -25,7 +27,7 @@ export function Modal({ open, title, children, onClose, width = 'regular' }: Mod
       document.body.classList.remove('modal-open');
       window.removeEventListener('keydown', handleKey);
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 

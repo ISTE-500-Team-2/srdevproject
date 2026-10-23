@@ -18,3 +18,15 @@ test('closed modal leaves no body overlay or scroll lock',()=>{
   view.rerender(<Modal open={false} title="Booking" onClose={()=>{}}>Details</Modal>);
   expect(screen.queryByRole('dialog')).toBeNull();expect(document.body.classList.contains('modal-open')).toBe(false);
 });
+
+test('parent updates preserve form focus while Escape uses the current close handler',()=>{
+  const first=vi.fn(),latest=vi.fn();
+  const view=render(<Modal open title="Signup" onClose={first}><input aria-label="First name" /></Modal>);
+  const input=screen.getByLabelText('First name');
+  input.focus();fireEvent.change(input,{target:{value:'Signup'}});
+  view.rerender(<Modal open title="Signup" onClose={latest}><input aria-label="First name" /></Modal>);
+  expect(document.activeElement).toBe(input);
+  expect((input as HTMLInputElement).value).toBe('Signup');
+  fireEvent.keyDown(window,{key:'Escape'});
+  expect(latest).toHaveBeenCalledOnce();expect(first).not.toHaveBeenCalled();
+});

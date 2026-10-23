@@ -1,4 +1,4 @@
-import { enqueueNotification } from '../notifications/store.js';
+import { enqueueNotification } from "../notifications/store.js";
 import type { Request, Response } from "express";
 import type { Pool } from "pg";
 import { transaction } from "../db.js";
@@ -6,7 +6,7 @@ import { AppError, positiveId, profileFields, textField } from "../domain.js";
 import { authState } from "../middleware/auth.js";
 import { UserModel } from "../models/UserModel.js";
 import { EligibilityModel } from "../models/EligibilityModel.js";
-import { AccessService } from "../services/AccessService.js";
+import { AccessService, type AccessTarget } from "../services/AccessService.js";
 import { MemberModel } from "../models/MemberModel.js";
 import { StaffModel } from "../models/StaffModel.js";
 import { page } from "./StaffController.js";
@@ -64,7 +64,9 @@ export class MemberController {
     });
   };
   studioContact = async (_req: Request, res: Response) => {
-    const profile = await new UserModel(this.pool).profile(authState(res).user.id);
+    const profile = await new UserModel(this.pool).profile(
+      authState(res).user.id,
+    );
     res.json({ data: profile?.studioContact });
   };
   profile = async (req: Request, res: Response) => {
@@ -73,14 +75,33 @@ export class MemberController {
       req.body.contactPreferences,
       "Contact preferences",
     );
-    const updated = await new UserModel(this.pool).updateProfile(
-      authState(res).user.id,
-      textField(req.body.firstName, "First name", 50),
-      textField(req.body.lastName, "Last name", 50),
-      textField(req.body.phone, "Phone", 15),
-      address,
-      contactPreferences,
-    );
+    const updated = await transaction(this.pool, async (db) => {
+      const userId = authState(res).user.id;
+      await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR UPDATE', [
+        userId,
+      ]);
+      const model = new UserModel(db),
+        before = await model.profile(userId);
+      const updated = await model.updateProfile(
+        authState(res).user.id,
+        textField(req.body.firstName, "First name", 50),
+        textField(req.body.lastName, "Last name", 50),
+        textField(req.body.phone, "Phone", 15),
+        address,
+        contactPreferences,
+      );
+      await new StaffModel(db, this.timeZone).audit(
+        userId,
+        userId,
+        "profile.updated",
+        "user",
+        userId,
+        "Member updated profile",
+        before,
+        await model.profile(userId),
+      );
+      return updated;
+    });
     res.json({
       data: updated ? await new UserModel(this.pool).profile(updated.id) : null,
     });
@@ -111,11 +132,44 @@ export class MemberController {
         "NOT_FOUND",
         "This is not a current required waiver.",
       );
-    await transaction(this.pool, async db => {
+    await transaction(this.pool, async (db) => {
       // Snapshot the signed version in the same transaction as its signature.
-      const waiver = (await db.query('SELECT name,version,description FROM waiver WHERE waiverid=$1 FOR SHARE',[id])).rows[0];
+      const waiver = (
+        await db.query(
+          "SELECT name,version,description FROM waiver WHERE waiverid=$1 FOR SHARE",
+          [id],
+        )
+      ).rows[0];
       const signature = await new MemberModel(db).signWaiver(userId, id);
-      if (signature) await enqueueNotification(db, {userId,kind:'waiver_signed',dedupeKey:`waiver-signed:${signature.id}`,payload:{waiverId:id,waiverName:waiver.name,waiverVersion:waiver.version,waiverText:waiver.description,signature:`${authState(res).user.firstName} ${authState(res).user.lastName} (electronic agreement)`,signedAt:new Date(signature.signedAt).toISOString()}});
+      if (signature)
+        await new StaffModel(db, this.timeZone).audit(
+          userId,
+          userId,
+          "waiver.signed",
+          "waiver",
+          id,
+          "Explicit electronic agreement",
+          null,
+          {
+            signatureId: signature.id,
+            signedAt: signature.signedAt,
+            version: waiver.version,
+          },
+        );
+      if (signature)
+        await enqueueNotification(db, {
+          userId,
+          kind: "waiver_signed",
+          dedupeKey: `waiver-signed:${signature.id}`,
+          payload: {
+            waiverId: id,
+            waiverName: waiver.name,
+            waiverVersion: waiver.version,
+            waiverText: waiver.description,
+            signature: `${authState(res).user.firstName} ${authState(res).user.lastName} (electronic agreement)`,
+            signedAt: new Date(signature.signedAt).toISOString(),
+          },
+        });
     });
     res.json({
       data: await new EligibilityModel(this.pool, this.timeZone).waivers(
@@ -126,9 +180,19 @@ export class MemberController {
   overview = async (_req: Request, res: Response) => {
     const userId = authState(res).user.id;
     const model = new EligibilityModel(this.pool, this.timeZone);
-    const [entitlement, waivers, reservations, checkIns] = await Promise.all([
+    const [
+      entitlement,
+      waivers,
+      checkInFailure,
+      reservations,
+      checkIns,
+    ] = await Promise.all([
       model.entitlement(userId, new Date()),
       model.waivers(userId),
+      transaction(this.pool, async db => {
+        try { await new AccessService(db,this.timeZone).reservationForAccess(userId,{}); return null; }
+        catch (error) { if (error instanceof AppError) return error.message; throw error; }
+      }),
       new MemberModel(this.pool).activeReservationCount(userId),
       new MemberModel(this.pool).recentCheckIns(userId),
     ]);
@@ -141,6 +205,7 @@ export class MemberController {
       reasons.push("Required policies have not been configured");
     else if (waivers.some((w) => !w.signed))
       reasons.push("Required policies and waivers need your signature");
+    if (checkInFailure && reasons.length === 0) reasons.push(checkInFailure);
     res.json({
       data: {
         entitlement,
@@ -154,28 +219,26 @@ export class MemberController {
   };
   checkIn = async (req: Request, res: Response) => {
     const userId = authState(res).user.id;
-    const requestedRoomId =
-      req.body.roomId === undefined || req.body.roomId === null
-        ? null
-        : positiveId(req.body.roomId, "Room");
+    const supplied = (['buildingId','roomId','equipmentId'] as const).filter(key => req.body[key] != null);
+    if (supplied.length > 1) throw new AppError(400,'INVALID_INPUT','Choose one building, room, or equipment target.');
+    const target: AccessTarget = {};
+    for (const key of supplied) target[key] = positiveId(req.body[key],key);
     const record = await transaction(this.pool, async (db) => {
       const access = new AccessService(db, this.timeZone);
-      await access.assertActiveUser(userId);
-      await access.assertEntitlement(userId, new Date());
-      await access.assertWaivers(userId);
-      if (requestedRoomId) {
-        const room = await access.assertActiveRoomReservation(
-          userId,
-          requestedRoomId,
-        );
-        return new MemberModel(db).createCheckIn(
-          userId,
-          `${room.name} - ${room.location}`,
-          requestedRoomId,
-        );
-      }
-      const location = textField(req.body.location, "Location", 100);
-      return new MemberModel(db).createCheckIn(userId, location);
+      const grant = await access.reservationForAccess(userId,target);
+      const checkIn = await new MemberModel(db).createCheckIn(userId,grant.location,target.roomId ?? null,
+        grant.buildingId,target.equipmentId ?? null,grant.reservationId);
+      await new StaffModel(db, this.timeZone).audit(
+        userId,
+        userId,
+        "check_in.created",
+        "check_in",
+        checkIn.id,
+        "Member checked in",
+        null,
+        checkIn,
+      );
+      return checkIn;
     });
     res.status(201).json({ data: record });
   };

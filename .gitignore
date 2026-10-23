@@ -10,3 +10,9 @@ coverage/
 .env*
 !.env.example
 .local/
+.sponsor-secrets/
+.sponsor-backups/
+
+# Local Python reader/test artifacts
+__pycache__/
+*.pyc

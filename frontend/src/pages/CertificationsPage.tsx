@@ -73,6 +73,7 @@ export function CertificationsPage() {
       <section>
         <p className="eyebrow">Your access records</p>
         <h1>Certifications & waivers</h1>
+        {user?.roles.some(r=>['admin','staff','instructor'].includes(r))?<Link to="/training">Manage training records</Link>:null}
       </section>
       <section className="panel feature-notice">
         <h2 className="certifications-heading">

@@ -415,7 +415,7 @@ test('room reservations reject overlaps, enforce cooldown and gate active room a
   await signRequiredWaivers(one);
   const denied = await one.post('/me/check-ins', { roomId: room });
   assert.equal(denied.status, 403);
-  assert.equal(denied.body.error.code, 'ROOM_RESERVATION_REQUIRED');
+  assert.equal(denied.body.error.code, 'RESERVATION_REQUIRED');
   await pool.query(
     `INSERT INTO reservation(userid,roomid,location,starttime,endtime,status)
      VALUES($1,$2,'North hallway',(NOW()-INTERVAL '5 minutes') AT TIME ZONE 'UTC',(NOW()+INTERVAL '30 minutes') AT TIME ZONE 'UTC','confirmed')`,
@@ -426,7 +426,7 @@ test('room reservations reject overlaps, enforce cooldown and gate active room a
   ]);
   const unavailable = await one.post('/me/check-ins', { roomId: room });
   assert.equal(unavailable.status, 409);
-  assert.equal(unavailable.body.error.code, 'ROOM_UNAVAILABLE');
+  assert.equal(unavailable.body.error.code, 'RESOURCE_UNAVAILABLE');
   await pool.query("UPDATE room SET status='available' WHERE roomid=$1", [
     room,
   ]);
@@ -486,9 +486,33 @@ test('membership, certification and waiver eligibility are enforced; check-in is
       ).status,
       200,
     );
-  assert.equal((await user.post('/reservations', input)).status, 201);
+  const booking = await user.post('/reservations', input);
+  assert.equal(booking.status, 201);
+  await pool.query(
+    `UPDATE reservation
+     SET starttime=(NOW()-INTERVAL '5 minutes') AT TIME ZONE 'UTC',
+         endtime=(NOW()+INTERVAL '30 minutes') AT TIME ZONE 'UTC'
+     WHERE reservationid=$1`,
+    [booking.body.data.id],
+  );
+  await pool.query(
+    "UPDATE user_certifications SET status='revoked' WHERE userid=$1 AND certid=$2",
+    [user.id, certId],
+  );
+  const revokedOverview = await user.agent.get('/api/me/overview');
+  assert.equal(revokedOverview.status, 200);
+  assert.equal(revokedOverview.body.data.canCheckIn, true);
+  const revokedCheckin = await user.post('/me/check-ins', {
+    equipmentId: cnc,
+  });
+  assert.equal(revokedCheckin.status, 403);
+  assert.equal(revokedCheckin.body.error.code, 'CERTIFICATION_REQUIRED');
+  await pool.query(
+    "UPDATE user_certifications SET status='active' WHERE userid=$1 AND certid=$2",
+    [user.id, certId],
+  );
   const checkin = await user.post('/me/check-ins', {
-    location: 'Integration test entrance',
+    equipmentId: cnc,
   });
   assert.equal(checkin.status, 201);
   assert.equal(
@@ -517,7 +541,7 @@ test('membership, certification and waiver eligibility are enforced; check-in is
   await pool.query('UPDATE "user" SET status=\'inactive\' WHERE userid=$1', [
     user.id,
   ]);
-  assert.equal((await user.agent.get('/api/equipment')).status, 403);
+  assert.equal((await user.agent.get('/api/equipment')).status, 401);
 });
 
 test('a day pass grants access only on its valid local calendar day', async () => {
@@ -711,7 +735,7 @@ test('FR-001/035: staff and admins bulk manage reservations with audit trail',as
  assert.equal(notices.rows[1].userid,other.id);
  assert.equal(notices.rows[1].status,'pending');
  assert.equal(new Date(notices.rows[1].payload.startsAt).toISOString(),newerStart.toISOString());
- const auditUpdate=await pool.query("SELECT actor_id,subject_id,before_state,after_state FROM app_staff_audit WHERE action='reservation.override.updated' AND entity_id=$1",[id]);
+ const auditUpdate=await pool.query("SELECT actor_id,subject_id,before_state,after_state FROM app_staff_audit WHERE action='reservation.override.updated' AND entity_id=$1 ORDER BY id ASC",[id]);
  assert.equal(auditUpdate.rows[0].actor_id,staff.id);
  assert.equal(auditUpdate.rows[0].subject_id,member.id);
  assert.equal(auditUpdate.rows[0].before_state.status,'confirmed');
@@ -727,7 +751,7 @@ test('FR-001/035: staff and admins bulk manage reservations with audit trail',as
 test('FR-001/035: staff reservation date filter uses application timezone day boundaries',async()=>{
  const member=client(),staff=client();await member.demo();await staff.demo('admin');
  await pool.query("UPDATE user_role SET roleid=(SELECT roleid FROM role WHERE role='staff') WHERE userid=$1",[staff.id]);
- const eq=await equipment();
+ const eq=(await pool.query("INSERT INTO equipment(name,status) VALUES('Timezone test machine','available') RETURNING equipmentid")).rows[0].equipmentid;
  const rows=await pool.query(`INSERT INTO reservation(userid,equipmentid,location,starttime,endtime,status,statusdesc)
   VALUES
    ($1,$2,'Timezone fixture','2026-10-15T01:30:00Z'::timestamptz AT TIME ZONE 'UTC','2026-10-15T02:30:00Z'::timestamptz AT TIME ZONE 'UTC','confirmed','Timezone fixture'),
@@ -747,6 +771,46 @@ test('FR-001/035: staff reservation date filter uses application timezone day bo
  const nov2=await staff.agent.get('/api/admin/reservations?date=2026-11-02&equipmentId='+eq);
  assert.equal(nov2.status,200,JSON.stringify(nov2.body));
  assert.equal(ids.slice(1).some(id=>nov2.body.data.items.some((item:{id:number})=>item.id===id)),false);
+});
+
+test('FR-052/049: staff compliance report filters waivers, certifications and exports CSV',async()=>{
+ const member=client(),staff=client();await member.demo();await staff.demo('admin');
+ const certId=97000;
+ await pool.query(`INSERT INTO certifications(certid,name,description,effectivedate,enddate) VALUES($1,$2,'Compliance fixture',(NOW()-INTERVAL '1 day') AT TIME ZONE 'UTC',(NOW()+INTERVAL '1 day') AT TIME ZONE 'UTC') ON CONFLICT DO NOTHING`,[certId,'Compliance fixture cert']);
+ await pool.query(`INSERT INTO user_certifications(usercertid,userid,certid,status,renewaldate) VALUES(97000,$1,$2,'active',(NOW()+INTERVAL '1 year') AT TIME ZONE 'UTC')
+   ON CONFLICT DO NOTHING`,[member.id,certId]);
+ await pool.query(`UPDATE "user" SET firstname='=1+1' WHERE userid=$1`,[member.id]);
+ const waiver=(await member.agent.get('/api/me/waivers')).body.data[0];
+ assert.ok(waiver?.id);
+ assert.equal((await member.post('/me/waivers/'+waiver.id+'/sign',{accepted:true})).status,200);
+ await pool.query("UPDATE user_waiver SET expires_at=NOW()+INTERVAL '15 days' WHERE userid=$1 AND waiverid=$2 AND approval=true",[member.id,waiver.id]);
+ const all=await staff.agent.get(`/api/admin/compliance?waiverId=${waiver.id}&certificationId=${certId}&userStatus=active`);
+ assert.equal(all.status,200,JSON.stringify(all.body));
+ assert.ok(all.body.data.summary.userCount>=2);
+ assert.ok(all.body.data.summary.compliantUsers<all.body.data.summary.userCount);
+ assert.ok(all.body.data.waiverBreakdown[0].total>=2);
+ const expiring=await staff.agent.get(`/api/admin/compliance?waiverId=${waiver.id}&certificationId=${certId}&expiresWithinDays=30&userStatus=active`);
+ assert.equal(expiring.status,200,JSON.stringify(expiring.body));
+ assert.ok(expiring.body.data.users.items.some((u:any)=>u.id===member.id));
+ assert.equal(expiring.body.data.waiverBreakdown[0].total,expiring.body.data.summary.userCount);
+ assert.equal(expiring.body.data.certificationBreakdown[0].total,expiring.body.data.summary.userCount);
+ assert.equal(expiring.body.data.certificationBreakdown[0].expiring,1);
+ const csv=await staff.agent.get(`/api/admin/compliance?waiverId=${waiver.id}&certificationId=${certId}&expiresWithinDays=30&userStatus=active&format=csv`);
+ assert.equal(csv.status,200);
+ assert.match(csv.text,/User ID,First name,Last name/);
+ assert.match(csv.text,/Compliance fixture cert/);
+ assert.match(csv.text,/'=1\+1/);
+ await pool.query("UPDATE certifications SET enddate=(NOW()-INTERVAL '1 day') AT TIME ZONE 'UTC' WHERE certid=$1",[certId]);
+ const expired=await staff.agent.get(`/api/admin/compliance?certificationId=${certId}&userStatus=active`);
+ assert.equal(expired.status,200,JSON.stringify(expired.body));
+ assert.equal(expired.body.data.certificationBreakdown[0].compliant,0);
+ assert.ok(expired.body.data.users.items.some((u:any)=>u.id===member.id && u.missingCertifications.includes('Compliance fixture cert')));
+ await pool.query(`INSERT INTO "user"(firstname,lastname,email,password,phone,status)
+   SELECT 'Bulk','Member '||g,'bulk-compliance-'||g||'@example.invalid','x','0000000000','active'
+   FROM generate_series(1,10002) g`);
+ const oversized=await staff.agent.get('/api/admin/compliance?userStatus=active&format=csv');
+ assert.equal(oversized.status,413);
+ assert.equal(oversized.body.error.code,'EXPORT_TOO_LARGE');
 });
 
 test('BR-006: instructor cannot create staff reservation overrides',async()=>{

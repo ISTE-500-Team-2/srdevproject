@@ -1,0 +1,12 @@
+[Unit]
+Description=ARBOR CI-gated production pull deployment
+After=network-online.target
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/usr/bin/python3 /srv/arbor-full/auto-deploy/auto_release.py
+TimeoutStartSec=30min
+TimeoutStopSec=120
+StandardOutput=append:/srv/arbor-full/auto-deploy/service.log
+StandardError=append:/srv/arbor-full/auto-deploy/service.log

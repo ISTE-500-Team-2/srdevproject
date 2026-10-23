@@ -2,25 +2,8 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { errorMessage } from "../lib/api";
 import type { Audit, Entitlement, Page, Payment } from "../lib/staffContracts";
 
-export function localInput(date = new Date()) {
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
-    .toISOString()
-    .slice(0, 16);
-}
-export function zonedDay(timeZone: string) {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-}
-export const dollars = (value: string) =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
-    Number(value),
-  );
-export const dateTime = (value?: string) =>
-  value ? new Date(value).toLocaleString() : "Not recorded";
+import { dateTime, dollars } from "../lib/display";
+
 export function Field({
   label,
   name,
@@ -252,10 +235,7 @@ export function AuditList({ items }: { items: Audit[] }) {
               {a.action} · {a.entityType} #{a.entityId} · {a.actorName} ·{" "}
               {dateTime(a.createdAt)}
             </summary>
-            <p>{a.reason}</p>
-            <pre>
-              {JSON.stringify({ before: a.before, after: a.after }, null, 2)}
-            </pre>
+            <p>Recorded system change.</p>
           </details>
         ))
       ) : (

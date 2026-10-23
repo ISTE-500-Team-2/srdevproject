@@ -32,6 +32,7 @@ before(async () => {
   created = true;
   await initializeDemo(pool);
 });
+
 beforeEach(async () => {
   if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
   server = createApp(pool, config).listen(0, "127.0.0.1");
@@ -47,6 +48,7 @@ function client() {
   const agent = request.agent(server);
   let csrf = "",
     id = 0;
+  let email = '', password = '';
   const accept = (r: request.Response) => {
     agent.set('Authorization', 'Bearer '+r.body.data.accessToken);
     csrf = r.body.data.csrfToken;
@@ -63,12 +65,14 @@ function client() {
       accept(r);
     },
     async register() {
+      email = randomUUID() + '@example.invalid';
+      password = `A!${randomBytes(24).toString('hex')}`;
       let r = await agent.post("/api/auth/register").send({
         firstName: "Primary",
         lastName: "Test",
         phone: "0000000000",
-        email: randomUUID() + "@example.invalid",
-        password: `A!${randomBytes(24).toString("hex")}`,
+        email,
+        password,
         dob: "2000-01-01",
       });
       assert.equal(r.status, 202);
@@ -76,6 +80,12 @@ function client() {
       assert.equal(r.status,200);
       accept(r);
     },
+    async login() {
+      const r = await agent.post('/api/auth/login').send({email,password});
+      if (r.status === 200) accept(r);
+      return r;
+    },
+    refresh: () => agent.post('/api/auth/refresh').set('X-CSRF-Token',csrf).send({}),
     get: (path: string) => agent.get("/api" + path),
     post: (path: string, body: unknown = {}) =>
       agent
@@ -140,6 +150,104 @@ async function issue(admin: Client, user: Client, planId: number) {
   assert.equal(r.status, 201, JSON.stringify(r.body));
   return r.body.data;
 }
+async function currentRoomBooking(user: Client) {
+  const room = (await pool.query("INSERT INTO room(name,location,status) VALUES($1,'Test','available') RETURNING roomid",['Access fixture '+randomUUID()])).rows[0].roomid;
+  return (await pool.query("INSERT INTO reservation(userid,roomid,location,starttime,endtime,status) VALUES($1,$2,'Test',(NOW()-INTERVAL '1 minute') AT TIME ZONE 'UTC',(NOW()+INTERVAL '30 minutes') AT TIME ZONE 'UTC','confirmed') RETURNING reservationid",[user.id,room])).rows[0].reservationid;
+}
+
+test("audit records are immutable and searchable by user, action and time range", async () => {
+  const admin = client(),
+    member = client();
+  await admin.admin();
+  await member.register();
+  assert.equal((await member.get('/admin/audit')).status, 403);
+  const from = new Date(Date.now() - 1000).toISOString();
+  const before = (await person(admin, member.id)).user;
+  const changed = await admin.post(`/admin/users/${member.id}/role`, {
+    role: "staff",
+    revision: before.revision,
+    reason: "Audit search fixture",
+  });
+  assert.equal(changed.status, 200, JSON.stringify(changed.body));
+  const to = new Date(Date.now() + 1000).toISOString();
+  const query = new URLSearchParams({
+    userId: String(member.id),
+    action: "user.role_changed",
+    from,
+    to,
+  });
+  const audit = await admin.get(`/admin/audit?${query}`);
+  assert.equal(audit.status, 200, JSON.stringify(audit.body));
+  assert.equal(audit.body.data.items.length, 1);
+  const record = audit.body.data.items[0];
+  assert.equal(record.actorId, admin.id);
+  assert.equal(record.subjectId, member.id);
+  assert.equal(record.action, "user.role_changed");
+  assert.ok(record.createdAt);
+  assert.equal('before' in record, false);
+  assert.equal('after' in record, false);
+  assert.equal('reason' in record, false);
+  assert.equal((await admin.get('/admin/audit?from=invalid')).status, 400);
+  await assert.rejects(pool.query('TRUNCATE app_staff_audit'), /Audit records are immutable/);
+  const automatic = await pool.query("SELECT actor_id FROM app_staff_audit WHERE action='user_role.insert' AND actor_id=$1", [admin.id]);
+  assert.ok(automatic.rowCount! > 0);
+  assert.equal(
+    (await admin.get(`/admin/audit?action=plan.archived&userId=${member.id}`))
+      .body.data.items.length,
+    0,
+  );
+  await assert.rejects(
+    pool.query("UPDATE app_staff_audit SET reason='changed' WHERE id=$1", [
+      record.id,
+    ]),
+    /Audit records are immutable/,
+  );
+  await assert.rejects(
+    pool.query("DELETE FROM app_staff_audit WHERE id=$1", [record.id]),
+    /Audit records are immutable/,
+  );
+});
+
+test("account status validates authority, reasons, revisions and self changes", async () => {
+  const admin=client(), member=client(), staff=client();
+  await admin.admin(); await member.register(); await staff.register();
+  const initial=(await person(admin,staff.id)).user;
+  assert.equal((await admin.post(`/admin/users/${staff.id}/role`,{role:'staff',revision:initial.revision,reason:'Test staff'})).status,200);
+  const target=(await person(admin,member.id)).user;
+  const body={status:'suspended',revision:target.revision,reason:'Staff investigation'};
+  const path=`/admin/users/${member.id}/status`;
+  assert.equal((await member.post(path,body)).status,403);
+  assert.equal((await admin.agent.post('/api'+path).send(body)).status,403);
+  assert.equal((await staff.post(path,{...body,reason:''})).status,400);
+  assert.equal((await staff.post(path,{...body,status:'deleted'})).status,400);
+  assert.equal((await staff.post(`/admin/users/${admin.id}/status`,body)).status,403);
+  assert.equal((await admin.post(`/admin/users/${admin.id}/status`,body)).body.error.code,'SELF_CHANGE_FORBIDDEN');
+  assert.equal((await staff.post(path,body)).status,200);
+  assert.equal((await staff.post(path,body)).body.error.code,'STALE_RECORD');
+  const changed=(await person(admin,member.id)).user;
+  assert.equal(changed.status,'suspended');
+  assert.equal(changed.accountReason,body.reason);
+  assert.equal(changed.revision,target.revision+1);
+  assert.equal((await member.get('/auth/session')).status,401);
+});
+
+test("concurrent administrators cannot suspend each other and leave no active administrator", async () => {
+  const first=client(), second=client();
+  await first.admin(); await second.register();
+  const target=(await person(first,second.id)).user;
+  assert.equal((await first.post(`/admin/users/${second.id}/role`,{role:'admin',revision:target.revision,reason:'Additional administrator'})).status,200);
+  const a=(await person(first,first.id)).user, b=(await person(first,second.id)).user;
+  const results=await Promise.all([
+    first.post(`/admin/users/${second.id}/status`,{status:'suspended',revision:b.revision,reason:'Concurrent review'}),
+    second.post(`/admin/users/${first.id}/status`,{status:'inactive',revision:a.revision,reason:'Concurrent review'}),
+  ]);
+  assert.deepEqual(results.map(r=>r.status).sort(),[200,403]);
+  const active=(await pool.query(`SELECT COUNT(DISTINCT u.userid)::int AS count FROM "user" u JOIN user_role ur USING(userid) JOIN role r USING(roleid) WHERE u.status='active' AND r.role='admin'`)).rows[0].count;
+  assert.equal(active,1);
+  // Restore fixture identities directly so subsequent tests remain independent.
+  await pool.query('UPDATE "user" SET status=$2 WHERE userid=ANY($1::int[])',[[first.id,second.id],'active']);
+  await pool.query(`DELETE FROM user_role WHERE userid=$1 AND roleid=(SELECT roleid FROM role WHERE role='admin')`,[second.id]);
+});
 
 test("primary authorization: member isolation, staff restrictions, role changes and stale/self-change rejection", async () => {
   const admin = client(),
@@ -345,6 +453,7 @@ test("membership issuance is atomic/idempotent, stores immutable plan details, a
     "waivers still required",
   );
   await signPolicies(user);
+  await currentRoomBooking(user);
   assert.equal(
     (await user.post("/me/check-ins", { location: "Test portal" })).status,
     201,
@@ -358,7 +467,7 @@ test("membership issuance is atomic/idempotent, stores immutable plan details, a
   assert.equal(JSON.stringify(detail.audit).includes("password"), false);
 });
 
-test("facility suspension and revocation block real check-ins/bookings without erasing sessions or history", async () => {
+test("facility suspension and revocation kill sessions permanently while preserving history", async () => {
   const admin = client(),
     user = client();
   await admin.admin();
@@ -388,16 +497,17 @@ test("facility suspension and revocation block real check-ins/bookings without e
       ).status,
       200,
     );
-    assert.equal((await user.get("/auth/session")).status, 200);
-    assert.equal((await user.get("/me/overview")).body.data.canCheckIn, false);
+    assert.equal((await user.get("/auth/session")).status, 401);
+    assert.equal((await user.get("/me/overview")).status, 401);
     assert.equal(
       (await user.post("/me/check-ins", { location: "Test portal" })).status,
-      403,
+      401,
     );
     const rejected = await user.post("/reservations", booking);
-    assert.equal(rejected.status, 403);
-    assert.equal(rejected.body.error.code, "ACCESS_BLOCKED");
-    assert.equal((await user.get("/reservations")).body.data.length, 1);
+    assert.equal(rejected.status,401);
+    assert.equal((await user.login()).status,403);
+    assert.equal((await user.refresh()).status,401);
+    assert.equal((await pool.query('SELECT COUNT(*)::int AS n FROM reservation WHERE userid=$1',[user.id])).rows[0].n,1);
   }
   const u = (await person(admin, user.id)).user;
   assert.equal(
@@ -410,6 +520,9 @@ test("facility suspension and revocation block real check-ins/bookings without e
     ).status,
     200,
   );
+  assert.equal((await user.get('/auth/session')).status,401);
+  assert.equal((await user.login()).status,200);
+  await currentRoomBooking(user);
   assert.equal(
     (await user.post("/me/check-ins", { location: "Test portal" })).status,
     201,
@@ -441,6 +554,7 @@ test("day passes enforce local calendar dates, duplicate prevention, entitlement
     409,
   );
   await signPolicies(user);
+  await currentRoomBooking(user);
   assert.equal(
     (await user.post("/me/check-ins", { location: "Test pass entry" })).status,
     201,
@@ -578,8 +692,11 @@ test("payment records are owner-scoped, transition-controlled, audited, and do n
   const changed = audit.find(
     (a: { action: string }) => a.action === "payment.refunded",
   );
-  assert.equal(changed.before.status, "paid");
-  assert.equal(changed.after.status, "refunded");
+  assert.equal('before' in changed, false);
+  assert.equal('after' in changed, false);
+  const stored = (await pool.query('SELECT before_state,after_state FROM app_staff_audit WHERE id=$1',[changed.id])).rows[0];
+  assert.equal(stored.before_state.status, 'paid');
+  assert.equal(stored.after_state.status, 'refunded');
   assert.equal(changed.actorId, admin.id);
 });
 
@@ -608,6 +725,7 @@ test("new full-length policy versions require fresh agreement; old signatures re
     403,
   );
   await signPolicies(user);
+  await currentRoomBooking(user);
   assert.equal(
     (await user.post("/me/check-ins", { location: "Policy check" })).status,
     201,

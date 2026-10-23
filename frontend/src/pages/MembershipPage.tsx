@@ -1,5 +1,5 @@
-import {PassBilling} from '../components/PassBilling';
-import {MembershipBilling} from '../components/MembershipBilling';
+import { PassBilling } from "../components/PassBilling";
+import { MembershipBilling } from "../components/MembershipBilling";
 import { useState } from "react";
 import { useApi } from "../lib/useApi";
 import type {
@@ -13,8 +13,8 @@ import {
   LoadState,
   Pager,
   PaymentList,
-  dollars,
 } from "../components/Management";
+import { dollars } from "../lib/display";
 
 export function MembershipPage() {
   const history = useApi<MembershipHistory>("/me/memberships"),
@@ -24,7 +24,8 @@ export function MembershipPage() {
   return (
     <div className="page-enter management-page">
       <h1>Membership & passes</h1>
-      <MembershipBilling plans={plans.data??[]}/><PassBilling/>
+      <MembershipBilling />
+      <PassBilling />
       <LoadState {...history} />
       {history.data ? (
         <section className="panel management-panel">

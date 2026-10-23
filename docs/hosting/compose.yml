@@ -1,0 +1,73 @@
+# NEW, standalone sponsor installation. Not the existing RIT/RLES deployment.
+name: arbor-sponsor
+services:
+  db:
+    image: postgres:16.14-bookworm@sha256:64154d0babcb1741988719e703419af0382b19953706149f9872fbd0f438efa8
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: arbor
+      POSTGRES_DB: arbor
+      POSTGRES_INITDB_ARGS: --encoding=UTF8
+    # Read as the image's initial root process, before the upstream entrypoint
+    # drops to postgres (UID 999). The app reads the same 0600 file as UID 1000.
+    entrypoint: [sh, -eu, -c, 'export POSTGRES_PASSWORD="$$(cat /run/secrets/db_password)"; exec docker-entrypoint.sh "$$@"', sh]
+    command: [postgres]
+    secrets: [db_password]
+    volumes: [database:/var/lib/postgresql/data]
+    networks: [private]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U arbor -d arbor"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  app:
+    image: arbor-sponsor-app:${ARBOR_VERSION:?Set ARBOR_VERSION in .env.sponsor}
+    build:
+      context: ../..
+    restart: unless-stopped
+    env_file: ../../.env.sponsor
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 8080
+      PGHOST: db
+      PGPORT: 5432
+      PGUSER: arbor
+      PGDATABASE: arbor
+      ENABLE_DEMO_LOGIN: 'false'
+      APP_ORIGIN: https://${PUBLIC_HOST:?Set your domain}
+      JWT_SECRET_FILE: /run/secrets/jwt_key
+    command: [sh, -eu, -c, 'export PGPASSWORD="$$(cat /run/secrets/db_password)"; exec node backend/dist/server.js']
+    secrets: [db_password, jwt_key]
+    networks: [private, web]
+    depends_on:
+      db: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8080/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+  proxy:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:?Set your domain}
+      TLS_EMAIL: ${TLS_EMAIL:?Set certificate contact email}
+    ports: ['80:80', '443:443']
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - certificates:/data
+      - proxy_config:/config
+    networks: [web]
+    depends_on:
+      app: {condition: service_healthy}
+networks:
+  private: {internal: true}
+  web: {}
+volumes:
+  database: {}
+  certificates: {}
+  proxy_config: {}
+secrets:
+  db_password: {file: ../../.sponsor-secrets/db-password}
+  jwt_key: {file: ../../.sponsor-secrets/jwt.key}

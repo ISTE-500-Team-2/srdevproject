@@ -1,4 +1,6 @@
+import {deviceDecision} from './deviceAccess.js';
 import {studioWebhook} from './studios/routes.js';
+import { auditContext, auditedPool } from './auditContext.js';
 import express, { type ErrorRequestHandler } from 'express';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -15,6 +17,8 @@ export function createApp(
   frontendDirectory?: string,
 ) {
   const app = express();
+  pool = auditedPool(pool);
+  app.use((_req, _res, next) => auditContext.run({}, next));
   app.disable('x-powered-by');
   app.use((_req, res, next) => {
     res.set('X-Content-Type-Options', 'nosniff');
@@ -25,6 +29,7 @@ export function createApp(
     res.set('Cache-Control', 'no-store');
     next();
   });
+  app.post('/api/devices/decision',express.raw({type:'application/json',limit:'2kb'}),deviceDecision(pool,config.timeZone,config.devices));
   app.post('/api/webhooks/stripe-studios',express.raw({type:'application/json',limit:'96kb'}),studioWebhook(pool,config.timeZone,config.studioStripe));
   app.use(
     '/api/webhooks/brevo',

@@ -10,6 +10,8 @@ import type { AppConfig } from '../../src/config.js';
 import { cookieName } from '../../src/middleware/auth.js';
 import { jwtIssuer, jwtAudience, sessionLifetimeSeconds, rememberedLifetimeSeconds } from '../../src/jwt.js';
 import { tokenHash } from '../../src/models/SessionModel.js';
+import { SessionModel } from '../../src/models/SessionModel.js';
+import { transaction } from '../../src/db.js';
 import { initializeDemo } from '../../src/scripts/init-demo.js';
 
 const database = 'arbor_jwt_' + randomBytes(6).toString('hex') + '_mvc_test';
@@ -162,7 +164,7 @@ test('JWT subject is bound to the registry account, roles/status are live, and u
   assert.equal(result.body.data.user.role, 'member');
   assert.equal((await request(app).get('/api/admin/users').set('Authorization', `Bearer ${privilegedClaim}`)).status, 403);
   await pool.query("UPDATE \"user\" SET status='inactive' WHERE userid=$1", [account.userId]);
-  assert.equal((await current(account.token)).status, 403);
+  assert.equal((await current(account.token)).status, 401);
   const other = await register();
   const mismatch = await signed(claims(account.userId));
   await track(mismatch, other.userId);
@@ -193,6 +195,95 @@ test('same key survives app restart; a rotated signing key and expired registry 
 
 function refreshCookie(res: request.Response) { return res.headers['set-cookie'].find((c:string)=>c.startsWith(cookieName+'='))!.split(';')[0]!; }
 function renew(cookie: string, csrf: string) { return request(app).post('/api/auth/refresh').set('Cookie',cookie).set('X-CSRF-Token',csrf).send({}); }
+test('account suspension/blocking revokes every session; restoration requires fresh login and retains history', async () => {
+  const operator = await request(app).post('/api/auth/demo').send({role:'admin'});
+  assert.equal(operator.status,200);
+  const a = await register();
+  const second = await request(app).post('/api/auth/login').send({email:a.email,password:a.password,remember:true});
+  const change = async (status: string) => {
+    const person = await request(app).get(`/api/admin/users/${a.userId}`).set('Authorization','Bearer '+browserToken(operator));
+    return request(app).post(`/api/admin/users/${a.userId}/status`)
+      .set('Authorization','Bearer '+browserToken(operator)).set('X-CSRF-Token',operator.body.data.csrfToken)
+      .send({status,revision:person.body.data.user.revision,reason:'Private staff investigation'});
+  };
+  for (const status of ['suspended','inactive']) {
+    assert.equal((await change(status)).status,200);
+    for (const session of [a.res,second]) {
+      assert.equal((await current(browserToken(session))).status,401);
+      assert.equal((await renew(refreshCookie(session),session.body.data.csrfToken)).status,401);
+    }
+    const denied = await request(app).post('/api/auth/login').send({email:a.email,password:a.password});
+    assert.equal(denied.status,403);
+    assert.equal(denied.body.error.code,'ACCOUNT_INACTIVE');
+    assert.equal(JSON.stringify(denied.body).includes('Private staff investigation'),false);
+    assert.equal((await change('active')).status,200);
+    assert.equal((await current(a.token)).status,401);
+    assert.equal((await renew(refreshCookie(second),second.body.data.csrfToken)).status,401);
+    const fresh = await request(app).post('/api/auth/login').send({email:a.email,password:a.password});
+    assert.equal(fresh.status,200);
+    assert.equal((await current(browserToken(fresh))).status,200);
+    assert.equal(JSON.stringify(fresh.body).includes('Private staff investigation'),false);
+  }
+  const audit = await pool.query("SELECT action,reason FROM app_staff_audit WHERE subject_id=$1 AND action LIKE 'user.account_%' ORDER BY id",[a.userId]);
+  assert.deepEqual(audit.rows.map(r=>r.action),['user.account_suspended','user.account_active','user.account_inactive','user.account_active']);
+  assert.ok(audit.rows.every(r=>r.reason==='Private staff investigation'));
+  assert.equal((await pool.query('SELECT accessstatus FROM "user" WHERE userid=$1',[a.userId])).rows[0].accessstatus,'active');
+});
+
+test('direct suspension and account restoration revoke old credentials and require fresh login', async () => {
+  const operator = await request(app).post('/api/auth/demo').send({role:'admin'});
+  assert.equal(operator.status,200);
+  for (const status of ['suspended','inactive']) {
+    const a = await register();
+    const remembered = await request(app).post('/api/auth/login').send({email:a.email,password:a.password,remember:true});
+    assert.equal(remembered.status,200);
+    // Database changes revoke credentials without waiting for a refresh request.
+    await pool.query('UPDATE "user" SET status=$2 WHERE userid=$1',[a.userId,status]);
+    assert.equal((await current(a.token)).status,401);
+    assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM app_refresh_family WHERE userid=$1 AND NOT revoked',[a.userId])).rows[0].count,0);
+    const person = await request(app).get(`/api/admin/users/${a.userId}`).set('Authorization','Bearer '+browserToken(operator));
+    assert.equal(person.status,200);
+    const restore = await request(app).post(`/api/admin/users/${a.userId}/status`)
+      .set('Authorization','Bearer '+browserToken(operator)).set('X-CSRF-Token',operator.body.data.csrfToken)
+      .send({status:'active',revision:person.body.data.user.revision,reason:'Restore legacy account'});
+    assert.equal(restore.status,200);
+    for (const old of [a.res,remembered]) {
+      assert.equal((await current(browserToken(old))).status,401,`${status}: old JWT must remain invalid after restoration`);
+      assert.equal((await renew(refreshCookie(old),old.body.data.csrfToken)).status,401,`${status}: old refresh cookie must remain invalid after restoration`);
+    }
+    assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM app_refresh_family WHERE userid=$1 AND NOT revoked',[a.userId])).rows[0].count,0);
+    const fresh = await request(app).post('/api/auth/login').send({email:a.email,password:a.password});
+    assert.equal(fresh.status,200);
+    assert.equal((await current(browserToken(fresh))).status,200);
+    // Saving a reason on an already-active account should not log it out.
+    const update = await request(app).post(`/api/admin/users/${a.userId}/status`)
+      .set('Authorization','Bearer '+browserToken(operator)).set('X-CSRF-Token',operator.body.data.csrfToken)
+      .send({status:'active',revision:restore.body.data.revision,reason:'Update active account note'});
+    assert.equal(update.status,200);
+    assert.equal((await current(browserToken(fresh))).status,200);
+  }
+});
+
+test('session creation and refresh wait for account status transactions and reject a committed suspension', async () => {
+  const a = await register(), lock = await pool.connect();
+  try {
+    await lock.query('BEGIN');
+    await lock.query('UPDATE "user" SET status=$2 WHERE userid=$1',[a.userId,'suspended']);
+    const refresh = renew(refreshCookie(a.res),a.csrf).then(r=>r);
+    const creation = transaction(pool,db=>new SessionModel(db,config.jwtKey).create(a.userId,false)).then(()=>null,e=>e);
+    // Wait until both operations are blocked on the user's row lock.
+    for (let n=0;n<100;n++) {
+      const waiting = await lock.query("SELECT COUNT(*)::int AS count FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND pid<>pg_backend_pid()");
+      if (waiting.rows[0].count >= 2) break;
+      if (n===99) assert.fail('session operations did not wait for account lock');
+      await new Promise(r=>setTimeout(r,10));
+    }
+    await lock.query('UPDATE app_refresh_family SET revoked=true WHERE userid=$1',[a.userId]);
+    await lock.query('COMMIT');
+    assert.equal((await refresh).status,401);
+    assert.equal((await creation).code,'ACCOUNT_INACTIVE');
+  } finally { await lock.query('ROLLBACK'); lock.release(); }
+});
 test('refresh rotates once; replay commits family revocation for old and new access tokens', async () => {
   const a = await register(), cookie=refreshCookie(a.res);
   assert.equal((await request(app).get('/api/auth/session').set('Cookie',cookie)).status,401,'refresh cookie is not an access credential');
@@ -204,6 +295,48 @@ test('refresh rotates once; replay commits family revocation for old and new acc
   assert.equal((await current(browserToken(refreshed))).status,401);
   assert.equal((await renew(refreshCookie(refreshed),a.csrf)).status,401);
 });
+test('successful refresh attributes rotation audit events to the verified owner without logging credentials', async () => {
+  const operator = await request(app).post('/api/auth/demo').send({role:'admin'});
+  assert.equal(operator.status,200);
+  const owner = await register();
+  const login = await request(app).post('/api/auth/login').send({email:owner.email,password:owner.password});
+  assert.equal(login.status,200);
+  const cookie = refreshCookie(login), csrf = login.body.data.csrfToken;
+  const checkpoint = (await pool.query('SELECT COALESCE(MAX(id),0)::text AS id FROM app_staff_audit')).rows[0].id;
+  assert.equal((await renew(cookie,'invalid-csrf')).status,401);
+  const refreshed = await renew(cookie,csrf);
+  assert.equal(refreshed.status,200);
+  const events = (await pool.query(
+    "SELECT * FROM app_staff_audit WHERE id>$1 AND action IN ('app_refresh_token.update','app_refresh_token.insert') ORDER BY id",
+    [checkpoint],
+  )).rows;
+  assert.deepEqual(events.map(e => e.action),['app_refresh_token.update','app_refresh_token.insert']);
+  for (const event of events) {
+    assert.equal(event.actor_id,owner.userId);
+    assert.equal(event.before_state,null);
+    assert.equal(event.after_state,null);
+    assert.equal(event.entity_id,0,'Token primary keys must not be copied to audit records');
+  }
+  const summaries: unknown[] = [];
+  for (const event of events) {
+    const search = await request(app).get(`/api/admin/audit?userId=${owner.userId}&action=${event.action}`)
+      .set('Authorization','Bearer '+browserToken(operator));
+    assert.equal(search.status,200);
+    const record = search.body.data.items.find((item: {id: string}) => item.id === String(event.id));
+    assert.ok(record,'User-filtered audit search must include the rotation event');
+    assert.equal(record.actorId,owner.userId);
+    summaries.push(record);
+  }
+  const unrelated = await request(app).get(`/api/admin/audit?userId=${operator.body.data.user.id}&action=app_refresh_token.update`)
+    .set('Authorization','Bearer '+browserToken(operator));
+  assert.equal(unrelated.status,200);
+  assert.equal(unrelated.body.data.items.some((item: {id: string}) => item.id === String(events[0].id)),false);
+  const oldRefresh = cookie.slice(cookieName.length+1), newRefresh = refreshCookie(refreshed).slice(cookieName.length+1);
+  const serialized = JSON.stringify({events,summaries});
+  for (const secret of [oldRefresh,newRefresh,tokenHash(oldRefresh),tokenHash(newRefresh),browserToken(login),browserToken(refreshed),csrf])
+    assert.equal(serialized.includes(secret),false,'Audit data must not contain credentials or their hashes');
+});
+
 test('refresh rejects missing CSRF, bad origin, expiration and inactive account', async () => {
   const a=await register(), cookie=refreshCookie(a.res);
   assert.equal((await renew(cookie,'')).status,401);

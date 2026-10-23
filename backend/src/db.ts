@@ -1,4 +1,5 @@
 import { Pool, type PoolClient, type QueryResultRow } from 'pg';
+import { auditContext } from './auditContext.js';
 
 export interface Database {
   query<T extends QueryResultRow = QueryResultRow>(
@@ -27,6 +28,9 @@ export async function transaction<T>(
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    const actorId = auditContext.getStore()?.actorId;
+    // SET preserves the caller's ability to choose isolation before its first query.
+    await client.query(`SET LOCAL app.actor_id = '${Number.isSafeInteger(actorId) ? actorId : ''}'`);
     const result = await work(client);
     await client.query('COMMIT');
     return result;

@@ -6,29 +6,36 @@ import {
   Search,
   Settings,
   X,
-} from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import { errorMessage } from '../lib/api';
+} from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { NavLink, useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
+import { errorMessage } from "../lib/api";
 
 const navItems = [
-  { label: 'Home', to: '/' },
-  { label: 'Membership', to: '/membership' },
-  { label: 'Reservations', to: '/reservations' },
-  { label: 'Studios', to: '/studios' },
-  { label: 'Certifications & Waivers', to: '/certifications' },
-  { label: 'Classes', to: '/classes' },
+  { label: "Home", to: "/" },
+  { label: "Membership", to: "/membership" },
+  { label: "Reservations", to: "/reservations" },
+  { label: "Studios", to: "/studios" },
+  { label: "Certifications & Waivers", to: "/certifications" },
+  { label: "Classes", to: "/classes" },
 ];
 
 export function Header() {
   const { user, logout } = useAuth();
-  const [error, setError] = useState('');
+  const hasStaffWorkspace = user?.roles.some(
+    (role) => role === "staff" || role === "admin",
+  );
+  // const visibleNavItems = hasStaffWorkspace
+  //   ? [...navItems, { label: "Staff workspace", to: "/admin" }]
+  //   : navItems;
+  const visibleNavItems = navItems;
+  const [error, setError] = useState("");
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -42,7 +49,7 @@ export function Header() {
       .map((item) => ({
         key: item.to,
         label: item.label,
-        detail: 'Page',
+        detail: "Page",
         to: item.to,
       }))
       .filter((item) =>
@@ -54,7 +61,7 @@ export function Header() {
   const goToResult = (to: string) => {
     navigate(to);
     setSearchOpen(false);
-    setQuery('');
+    setQuery("");
   };
 
   return (
@@ -63,29 +70,37 @@ export function Header() {
         <button
           className="icon-button site-header__mobile-toggle"
           onClick={() => setMobileOpen((value) => !value)}
-          aria-label={mobileOpen ? 'Close navigation' : 'Open navigation'}
+          aria-label={mobileOpen ? "Close navigation" : "Open navigation"}
           aria-expanded={mobileOpen}
         >
           {mobileOpen ? <X aria-hidden="true" /> : <Menu aria-hidden="true" />}
         </button>
 
         <nav
-          className={`site-nav ${mobileOpen ? 'site-nav--open' : ''}`}
+          className={`site-nav ${mobileOpen ? "site-nav--open" : ""}`}
           aria-label="Primary navigation"
         >
-          {[...navItems, ...(user?.roles.some(role => role === 'staff' || role === 'admin') ? [{label: 'Staff workspace', to: '/admin'}] : [])].map((item) => (
+          {visibleNavItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
-              end={item.to === '/'}
+              end={item.to === "/"}
               onClick={() => setMobileOpen(false)}
               className={({ isActive }) =>
-                isActive ? 'site-nav__link is-active' : 'site-nav__link'
+                isActive ? "site-nav__link is-active" : "site-nav__link"
               }
             >
               {item.label}
             </NavLink>
           ))}
+
+          {hasStaffWorkspace ? (
+            <NavLink className={({ isActive }) =>
+                isActive ? "site-nav__link is-active mobile-only" : "site-nav__link mobile-only"
+              } to="/admin">
+              Staff workspace
+            </NavLink>
+          ) : null}
         </nav>
 
         <NavLink
@@ -100,7 +115,7 @@ export function Header() {
         </NavLink>
 
         <div className="site-header__actions">
-          {user?.roles.some(role => role === 'staff' || role === 'admin') ? (
+          {hasStaffWorkspace ? (
             <NavLink className="site-header__admin-link" to="/admin">
               Staff workspace
             </NavLink>
@@ -125,13 +140,13 @@ export function Header() {
               <div className="account-menu__popover">
                 <div className="account-menu__identity">
                   <strong>
-                    {user ? `${user.firstName} ${user.lastName}` : 'Account'}
+                    {user ? `${user.firstName} ${user.lastName}` : "Account"}
                   </strong>
-                  <span>{user?.email ?? 'Not signed in'}</span>
+                  <span>{user?.email ?? "Not signed in"}</span>
                 </div>
                 <button
                   onClick={() => {
-                    navigate('/profile');
+                    navigate("/profile");
                     setAccountOpen(false);
                   }}
                 >
@@ -141,7 +156,7 @@ export function Header() {
                   onClick={async () => {
                     try {
                       await logout();
-                      navigate('/login');
+                      navigate("/login");
                       setAccountOpen(false);
                     } catch (err) {
                       setError(errorMessage(err));

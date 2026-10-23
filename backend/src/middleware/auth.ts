@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import { auditContext } from '../auditContext.js';
 import type { Request, Response, NextFunction } from "express";
 import type { Pool } from "pg";
 import type { AppConfig } from "../config.js";
@@ -52,13 +53,15 @@ export function requireUser(pool: Pool, config: AppConfig) {
       throw new AppError(
         403,
         "ACCOUNT_INACTIVE",
-        "This account does not currently have access.",
+        "This account does not currently have access. Please see staff.",
       );
     res.locals.auth = {
       user,
       csrfToken: session.csrfToken,
       token,
     } satisfies AuthState;
+    const context = auditContext.getStore();
+    if (context) context.actorId = user.id;
     next();
   };
 }

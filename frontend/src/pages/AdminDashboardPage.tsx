@@ -1,3 +1,6 @@
+import { AnalyticsDashboardPage } from "./AnalyticsDashboardPage";
+import { AdminCertificationsPage } from "./AdminCertificationsPage";
+import { TrainingPage } from "./TrainingPage";
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useApi } from "../lib/useApi";
@@ -8,20 +11,30 @@ import { StaffPlans } from "./StaffPlans";
 import { StaffPayments } from "./StaffPayments";
 import { StaffPolicies } from "./StaffPolicies";
 import { StaffReservations } from "./StaffReservations";
-import { AdminAnalyticsPreviewPage } from "./AdminAnalyticsPreviewPage";
+import { ReportsPage } from "./ReportsPage";
+import { AccessManagementPage } from "./AccessManagementPage";
+import { StaffCompliance } from "./StaffCompliance";
 
 const tabs = [
-  ["members", "Members"],
-  ["plans", "Plans"],
-  ["reservations", "Reservations"],
-  ["payments", "Payment history"],
-  ["policies", "Policies"],
-  ["audit", "Change log"],
-  ["preview", "Analytics preview"],
-];
+  { key: "analytics", label: "Analytics", component: AnalyticsDashboardPage },
+  { key: "adminCertWaiver", label: "Certifications and Waivers", component: AdminCertificationsPage },
+  { key: "members", label: "Members", component: StaffUsers },
+  { key: "plans", label: "Plans", component: StaffPlans },
+  { key: "reservations", label: "Reservations", component: StaffReservations },
+  { key: "payments", label: "Payment history", component: StaffPayments },
+  { key: "compliance", label: "Compliance", component: StaffCompliance },
+  { key: "policies", label: "Policies", component: StaffPolicies },
+  { key: "training", label: "Training", component: TrainingPage },
+  { key: "audit", label: "Change log", component: ChangeLog },
+  { key: "reports", label: "Reports", component: ReportsPage },
+  { key: "access", label: "Reader access", component: AccessManagementPage },
+] as const;
 export function AdminDashboardPage() {
   const [params, setParams] = useSearchParams();
   const tab = params.get("tab") ?? "members";
+  // Unknown tab URLs still display members without selecting a known tab.
+  const TabContent =
+    tabs.find((item) => item.key === tab)?.component ?? StaffUsers;
   return (
     <div className="management-page page-enter">
       <section className="dashboard-intro">
@@ -31,60 +44,76 @@ export function AdminDashboardPage() {
         </div>
       </section>
       <nav className="management-tabs" aria-label="Staff sections">
-        {tabs.map(([key, label]) => (
+        {tabs.map(({ key, label }) => (
           <button
             key={key}
             className={tab === key ? "is-selected" : ""}
             aria-current={tab === key ? "page" : undefined}
-            onClick={() => setParams({ tab: key! })}
+            onClick={() => setParams({ tab: key })}
           >
             {label}
           </button>
         ))}
       </nav>
-      {tab === "plans" ? (
-        <StaffPlans />
-      ) : tab === "reservations" ? (
-        <StaffReservations />
-      ) : tab === "payments" ? (
-        <StaffPayments />
-      ) : tab === "policies" ? (
-        <StaffPolicies />
-      ) : tab === "audit" ? (
-        <ChangeLog />
-      ) : tab === "preview" ? (
-        <AdminAnalyticsPreviewPage />
-      ) : (
-        <StaffUsers />
-      )}
+      <TabContent />
     </div>
   );
 }
 function ChangeLog() {
   const [offset, setOffset] = useState(0),
-    [userId, setUserId] = useState("");
+    [filters, setFilters] = useState({
+      userId: "",
+      actorId: "",
+      action: "",
+      from: "",
+      to: "",
+    });
+  const query = new URLSearchParams({ offset: String(offset) });
+  if (filters.userId) query.set("userId", filters.userId);
+  if (filters.actorId) query.set("actorId", filters.actorId);
+  if (filters.action) query.set("action", filters.action);
+  if (filters.from) query.set("from", new Date(filters.from).toISOString());
+  if (filters.to) query.set("to", new Date(filters.to).toISOString());
   const records = useApi<Page<Audit>>(
-    `/admin/audit?offset=${offset}${userId ? `&userId=${encodeURIComponent(userId)}` : ""}`,
+    `/admin/audit?${query.toString()}`,
   );
   return (
     <section>
       <h2>Staff change log</h2>
       <p>
-        Who changed what, when, and why. Expand an entry for its before/after
-        values.
+        Search recorded changes by user, action, and time.
       </p>
       <form
         className="management-search"
         onSubmit={(e) => {
           e.preventDefault();
-          setUserId(String(new FormData(e.currentTarget).get("userId") ?? ""));
+          const form = new FormData(e.currentTarget);
+          setFilters({
+            userId: String(form.get("userId") ?? ""),
+            actorId: String(form.get("actorId") ?? ""),
+            action: String(form.get("action") ?? "").trim(),
+            from: String(form.get("from") ?? ""),
+            to: String(form.get("to") ?? ""),
+          });
           setOffset(0);
         }}
       >
         <label>
-          Filter by member ID <input name="userId" type="number" min="1" />
+          User ID <input name="userId" type="number" min="1" />
         </label>
-        <button className="button button--quiet">Filter changes</button>
+        <label>
+          Actor ID <input name="actorId" type="number" min="1" />
+        </label>
+        <label>
+          Action <input name="action" placeholder="user.role_changed" />
+        </label>
+        <label>
+          From <input name="from" type="datetime-local" />
+        </label>
+        <label>
+          To <input name="to" type="datetime-local" />
+        </label>
+        <button className="button button--quiet">Search changes</button>
       </form>
       <LoadState {...records} />
       {records.data ? (

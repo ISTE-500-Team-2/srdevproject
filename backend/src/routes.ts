@@ -1,3 +1,7 @@
+import {reportRoutes} from './reports.js';
+import {trainingClassRoutes} from './trainingClasses.js';
+import {cardManagement} from './deviceAccess.js';
+import { certificationRoutes } from './certifications.js';
 import {billingRoutes} from './billing/routes.js';
 import {studioRoutes} from './studios/routes.js';
 import { requirePermission } from './middleware/permissions.js';
@@ -51,6 +55,8 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.get("/auth/session", protectedRoute, auth.current);
   routes.post("/auth/logout", protectedRoute, requireCsrf, auth.logout);
   routes.use(protectedRoute);
+  routes.use(trainingClassRoutes(pool,config.timeZone));
+  routes.use(certificationRoutes(pool,config.timeZone));
   routes.use(studioRoutes(pool,config.timeZone,config.studioStripe));
   routes.use(billingRoutes(pool,config.studioStripe,config.timeZone));
 
@@ -79,6 +85,8 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.get("/me/memberships", permit("entitlement", "read", "own"), member.memberships);
   routes.get("/me/payments", permit("payment", "read", "own"), member.payments);
   routes.use("/admin", requireStaff);
+  routes.use(reportRoutes(pool,config.timeZone));
+  routes.use(cardManagement(pool,config.timeZone,config.devices));
   routes.get("/admin/plans", permit("plan","read","global"), staff.plans);
   routes.post("/admin/plans", permit("plan","create","global"), requireCsrf, staff.createPlan);
   routes.patch("/admin/plans/:id", permit("plan","update","global"), requireCsrf, staff.updatePlan);
@@ -89,6 +97,7 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.patch("/admin/users/:id/signed-waivers/:waiverId/expiry", permit("waiver","update","global"), requireCsrf, waiverRecords.expiry);
   routes.patch("/admin/users/:id/profile", permit("user","update","global"), requireCsrf, staff.profile);
   routes.post("/admin/users/:id/access", permit("user_access","update","global"), requireCsrf, staff.access);
+  routes.post("/admin/users/:id/status", permit("user_access","update","global"), requireCsrf, staff.accountStatus);
   routes.post("/admin/users/:id/role", permit("user_role","update","global"), requireCsrf, staff.role);
   routes.post("/admin/users/:id/entitlements", permit("entitlement","create","global"), requireCsrf, staff.issue);
   routes.post(
@@ -103,6 +112,7 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.patch("/admin/reservations/:id", permit("reservation","update","global"), requireCsrf, reservations.update);
   routes.post("/admin/reservations/:id/cancel", permit("reservation","update","global"), requireCsrf, reservations.staffCancel);
   routes.get("/admin/audit", permit("audit","read","global"), staff.audits);
+  routes.get("/admin/compliance", permit("waiver","read","global"), permit("certification","read","global"), staff.compliance);
   routes.get("/admin/policies", permit("policy","read","global"), staff.policies);
   routes.post("/admin/policies", permit("policy","create","global"), requireCsrf, staff.publishPolicy);
   routes.post("/admin/policies/:id/retire", permit("policy","update","global"), requireCsrf, staff.retirePolicy);
