@@ -965,7 +965,7 @@ test("bootstrap preserves removed demo administrator permissions and renamed/arc
   );
   const plans = (await successor.get("/admin/plans")).body.data;
   const sample = plans.find(
-    (p: { name: string }) => p.name === "Demo day pass",
+    (p: { name: string }) => p.name === "Day pass",
   );
   assert.ok(sample);
   assert.equal(
@@ -987,7 +987,7 @@ test("bootstrap preserves removed demo administrator permissions and renamed/arc
   assert.equal((await admin.get("/admin/users")).status, 403);
   const after = (await successor.get("/admin/plans")).body.data;
   assert.equal(
-    after.some((p: { name: string }) => p.name === "Demo day pass"),
+    after.some((p: { name: string }) => p.name === "Day pass"),
     false,
   );
   assert.equal(

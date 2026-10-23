@@ -35,7 +35,7 @@ test("member books monthly studio, staff confirms real manual receipt, cancellat
     monthlyCents: 25000,
     cancellationPolicy: "full_before_start",
     policyConfirmed: true,
-    revision: 1,
+    revision: 2,
   });
   await api("/auth/logout", { method: "POST" });
   setAccessToken(null);

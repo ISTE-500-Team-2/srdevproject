@@ -17,7 +17,7 @@ let created = false,
 const input = (studioId: number, extra = {}) => ({
   studioId,
   startDate: "2030-01-31",
-  expectedRevision: 2,
+  expectedRevision: 3,
   paymentMethod: "manual",
   requestKey: randomUUID(),
   ...extra,
@@ -50,7 +50,7 @@ before(async () => {
       monthlyCents: 20000,
       cancellationPolicy: "full_before_start",
       policyConfirmed: true,
-      revision: 1,
+      revision: 2,
     });
 });
 after(async () => {
