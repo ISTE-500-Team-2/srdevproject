@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { CertificationsPage } from './CertificationsPage';
 const { state } = vi.hoisted(() => ({
@@ -40,34 +40,35 @@ test('superseded signature shows the latest historical version even when expired
  expect(screen.getByRole('button',{name:'Review new version'})).toBeTruthy();
 });
 test('member demo gets the reservations equipment heading styling',()=>{
- mount({}, {demoLogin:true,user:{role:'member',email:'demo.member@collaboratory.invalid'}});
- expect(document.querySelectorAll('.credentials-page--member-demo .certifications-heading')).toHaveLength(2);
+ mount({}, {demoLogin:true,user:{role:'member',roles:['member'],email:'demo.member@collaboratory.invalid'}});
+ expect(document.querySelectorAll('.credentials-page--member-demo .certifications-heading')).toHaveLength(3);
 });
 test('member demo certifications are divided into the requested columns',()=>{
  mount(
   {},
-  {demoLogin:true,user:{role:'member',email:'demo.member@collaboratory.invalid'}},
+  {demoLogin:true,user:{role:'member',roles:['member'],email:'demo.member@collaboratory.invalid'}},
   [{id:1,name:'Laser Engraver',valid:true,status:'active',renewalDate:'2027-01-01'}],
   [
-   {id:1,name:'Laser Engraver',certification:'Laser Engraver'},
-   {id:2,name:'3D Printer',certification:null},
-   {id:3,name:'Wood Lathe',certification:'Wood Lathe'},
+   {id:1,name:'Laser Engraver',status:'available',certification:'Laser Engraver'},
+   {id:2,name:'3D Printer',status:'available',certification:null},
+   {id:3,name:'Wood Lathe',status:'available',certification:'Wood Lathe'},
   ],
  );
  expect(screen.getByRole('columnheader',{name:'Equipment name'})).toBeTruthy();
  expect(screen.getByRole('columnheader',{name:'Completion status'})).toBeTruthy();
  expect(screen.getByRole('columnheader',{name:'Date completed'})).toBeTruthy();
- expect(screen.getByText('Laser Engraver')).toBeTruthy();
+ const certificationsTable = screen.getAllByRole('table')[0];
+ expect(within(certificationsTable).getByText('Laser Engraver')).toBeTruthy();
  expect(screen.getByText('complete')).toBeTruthy();
  expect(screen.getByText('incomplete')).toBeTruthy();
  expect(screen.getByText('No completion needed')).toBeTruthy();
- expect(screen.getAllByText('MM/DD/YYYY')).toHaveLength(3);
- expect(document.querySelectorAll('.certification-date-placeholder--muted')).toHaveLength(3);
+ expect(within(certificationsTable).getAllByText('MM/DD/YYYY')).toHaveLength(3);
+ expect(certificationsTable.querySelectorAll('.certification-date-placeholder--muted')).toHaveLength(3);
 });
 test('member demo policies are listed with signed status and signature date',()=>{
  mount(
   {},
-  {demoLogin:true,user:{role:'member',email:'demo.member@collaboratory.invalid'}},
+  {demoLogin:true,user:{role:'member',roles:['member'],email:'demo.member@collaboratory.invalid'}},
   [],
   [],
   [
@@ -90,7 +91,7 @@ test('member demo policies are listed with signed status and signature date',()=
 test('member demo shows available equipment under upcoming',()=>{
  mount(
   {},
-  {demoLogin:true,user:{role:'member',email:'demo.member@collaboratory.invalid'}},
+  {demoLogin:true,user:{role:'member',roles:['member'],email:'demo.member@collaboratory.invalid'}},
   [],
   [
    {id:1,name:'Laser Engraver',status:'available',trainingRequired:true,certification:'Laser Engraver'},
@@ -118,6 +119,6 @@ test('member demo shows available equipment under upcoming',()=>{
  expect(screen.queryByRole('button',{name:'Upcoming'})).toBeNull();
 });
 test('heading styling is not applied to other accounts',()=>{
- mount({}, {demoLogin:true,user:{role:'admin',email:'demo.admin@collaboratory.invalid'}});
+ mount({}, {demoLogin:true,user:{role:'admin',roles:['admin'],email:'demo.admin@collaboratory.invalid'}});
  expect(document.querySelector('.credentials-page--member-demo')).toBeNull();
 });
