@@ -27,8 +27,9 @@ export function CertificationsPage() {
         body: { accepted: true },
       });
       waivers.reload();
+      const completedTerms = selected.name === 'Terms of Service';
       setSelected(null);
-      setToast('Your agreement has been recorded.');
+      setToast(completedTerms ? 'Terms of Service completed.' : 'Your agreement has been recorded.');
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -101,7 +102,8 @@ export function CertificationsPage() {
                 <p>Version {item.version} · ID {item.versionId}</p>
                 {item.signed ? (
                   <p>
-                    <CheckCircle2 aria-hidden="true" /> Signed{' '}
+                    <CheckCircle2 aria-hidden="true" />{' '}
+                    {item.name === 'Terms of Service' ? 'Completed' : 'Signed'}{' '}
                     {item.signedAt
                       ? new Date(item.signedAt).toLocaleString()
                       : ''}
@@ -156,8 +158,10 @@ export function CertificationsPage() {
                     checked={accepted}
                     onChange={(event) => setAccepted(event.target.checked)}
                   />
-                  <span aria-hidden="true" />I have read and agree to this
-                  version of the policy.
+                  <span aria-hidden="true" />
+                  {selected.name === 'Terms of Service'
+                    ? 'I have read and accept the Terms of Service.'
+                    : 'I have read and agree to this version of the policy.'}
                 </label>
                 {error ? (
                   <p role="alert" className="form-error">
@@ -169,11 +173,19 @@ export function CertificationsPage() {
                   disabled={!accepted || busy || !selected.description}
                   onClick={() => void sign()}
                 >
-                  {busy ? 'Saving…' : 'Record agreement'}
+                  {busy
+                    ? 'Saving…'
+                    : selected.name === 'Terms of Service'
+                      ? 'Submit acceptance'
+                      : 'Record agreement'}
                 </button>
               </>
             ) : (
-              <p>This version is already signed.</p>
+              <p>
+                {selected.name === 'Terms of Service'
+                  ? 'Terms of Service completed.'
+                  : 'This version is already signed.'}
+              </p>
             )}
           </div>
         ) : null}
