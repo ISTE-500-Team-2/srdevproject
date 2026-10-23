@@ -511,6 +511,18 @@ export class StaffService {
     },
   ) {
     return this.write(actorId, true, "waiver", "create", async (model) => {
+      //find previous versions
+      //before gets a filtered array of all previous versions of the policy.
+      const before = ((await model.policies()).filter((p) => p.name === input.name //look for policies with the same name
+                        && p.version !== input.version //look for policies with different versions
+                        && p.isActive)); //look for policies that are active
+      //if there are previous versions, retire them.
+      if(before.length){
+        for(let i of before){
+          this.retirePolicy(actorId, i.id, input.reason)
+        }//for loop
+      }//if there are previous versions
+      
       const after = await model.createPolicy(
         input.name,
         input.version,
