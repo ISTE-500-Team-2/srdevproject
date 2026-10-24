@@ -1,6 +1,6 @@
 import { SignedWaiverRecords } from "../components/SignedWaiverRecords";
-import { Save, SquarePen } from "lucide-react";
-import { type FormEvent, useState, useEffect, useRef } from "react";
+import { Save, UserRound } from "lucide-react";
+import { type FormEvent, useState, useEffect } from "react";
 import { Toast } from "../components/Toast";
 import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
@@ -22,12 +22,16 @@ const selectableMemberships: MembershipSelection[] = [
 const isSelectableMembership = (selection: string): selection is MembershipSelection =>
   selectableMemberships.some((plan) => plan === selection);
 
-const cardStyle = { minHeight: 0, padding: 22, alignSelf: "stretch" } as const;
-const cardTitleStyle = { display: "flex", alignItems: "center", justifyContent: "space-between",
-  margin: "0 0 20px", paddingBottom: 12, borderBottom: "1px solid var(--border-strong)",
-  fontFamily: "inherit", fontSize: "1.5rem" } as const;
-const cardGridStyle = { display: "grid",
-  gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 20 } as const;
+const cardStyle = { minHeight: 0 } as const;
+// Cards grow to fill each row and wrap onto a new row on narrow screens.
+const cardFlex = (grow: number, basis: number) =>
+  ({ ...cardStyle, flex: `${grow} 1 ${basis}px`, minWidth: 0 }) as const;
+const cardGridStyle = {
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "stretch",
+  gap: 20,
+} as const;
 const studioEmail = "info@thecollaboratory.com";
 
 function NotificationSettings() {
@@ -67,8 +71,8 @@ function NotificationSettings() {
     }
   };
   return (
-    <section className="profile-panel panel" style={cardStyle}>
-     <h2 style={cardTitleStyle}>Notification Settings</h2>
+    <section className="profile-panel panel" style={cardFlex(1, 300)}>
+      <h2>Notification Settings</h2>
       <p>
         Choose whether to receive account, booking, payment, waiver, and
         expiration emails. Turning this off disables all notification emails.
@@ -141,8 +145,6 @@ export function ProfilePage() {
   const [busy, setBusy] = useState(false);
   const [membershipSelection, setMembershipSelection] = useState<MembershipSelection>('basic-monthly');
   const [membershipError, setMembershipError] = useState('');
-  const firstNameRef = useRef<HTMLInputElement>(null);
-
   useEffect(() => {
     const controller = new AbortController();
     api<UserProfile>("/me/profile", { signal: controller.signal })
@@ -207,199 +209,178 @@ export function ProfilePage() {
   };
   return (
     <div className="profile-page page-enter">
-      <h1>User Settings</h1>
-      <section className="profile-panel panel">
-        <form
-          key={`${user?.id ?? "guest"}-${user?.firstName ?? ""}-${user?.lastName ?? ""}-${user?.phone ?? ""}-${JSON.stringify(profile?.address ?? {})}-${JSON.stringify(profile?.contactPreferences ?? {})}`}
-          onSubmit={save}
-          onChange={() => {
-            setToast(null);
-            setError("");
-          }}
-        >
-          <h2 style={{ ...cardTitleStyle, marginBottom: 0 }}>
-  Personal Details
-  <button
-    type="button"
-    aria-label="Edit personal details"
-    onClick={() => firstNameRef.current?.focus()}
-    style={{ background: "none", border: 0, padding: 0, cursor: "pointer", color: "inherit" }}
-  >
-    <SquarePen aria-hidden="true" />
-  </button>
-</h2>
-<div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-  <div
-    aria-hidden="true"
-    style={{
-      width: 74,
-      height: 74,
-      flex: "0 0 auto",
-      display: "grid",
-      placeItems: "center",
-      borderRadius: "50%",
-      background: "var(--border)",
-    }}
-  >
-    {user?.firstName.at(0)}
-    {user?.lastName.at(0)}
-  </div>
-  <button
-    type="button"
-    disabled
-    title="Profile photos are not available yet"
-    style={{ background: "none", border: 0, padding: 0, color: "inherit" }}
-  >
-    add image +
-  </button>
-</div>
-          <div className="two-column-fields">
-            <label className="form-field">
-              <span>First name</span>
-              <input
-                name="firstName"
-                defaultValue={user?.firstName}
-                required
-                maxLength={50}
-                autoComplete="given-name"
-              />
-            </label>
-            <label className="form-field">
-              <span>Last name</span>
-              <input
-                name="lastName"
-                defaultValue={user?.lastName}
-                required
-                maxLength={50}
-                autoComplete="family-name"
-              />
-            </label>
-            <label className="form-field form-field--wide">
-              <span>Email Address</span>
-              <input type="email" value={user?.email ?? ""} readOnly />
-            </label>
-            <label className="form-field form-field--wide">
-              <span>Phone Number</span>
-              <input
-                name="phone"
-                type="tel"
-                defaultValue={user?.phone}
-                required
-                maxLength={15}
-                autoComplete="tel"
-                ref={firstNameRef}
-              />
-            </label>
-            {["Street address", "City", "State", "Postal code"].map((label) => (
-              <label key={label} className="form-field">
-                <span>{label}</span>
+      <section className="profile-hero">
+        <div className="profile-hero__avatar">
+          {user?.firstName.at(0)}
+          {user?.lastName.at(0)}
+        </div>
+        <div>
+          <p className="eyebrow">Account</p>
+          <h1>
+            {user?.firstName} {user?.lastName}
+          </h1>
+          <span>{user?.role}</span>
+        </div>
+      </section>
+      <div style={cardGridStyle}>
+        <section className="profile-panel panel" style={cardFlex(1.2, 340)}>
+          <form
+            key={`${user?.id ?? "guest"}-${user?.firstName ?? ""}-${user?.lastName ?? ""}-${user?.phone ?? ""}-${JSON.stringify(profile?.address ?? {})}-${JSON.stringify(profile?.contactPreferences ?? {})}`}
+            onSubmit={save}
+            onChange={() => {
+              setToast(null);
+              setError("");
+            }}
+          >
+            <h2>
+              <UserRound aria-hidden="true" /> Personal information
+            </h2>
+            <div className="two-column-fields">
+              <label className="form-field">
+                <span>First name</span>
                 <input
-                  name={`address.${label}`}
-                  defaultValue={String(profile?.address[label] ?? "")}
-                  maxLength={200}
-                  autoComplete={
-                    label === "Street address"
-                      ? "street-address"
-                      : label === "City"
-                        ? "address-level2"
-                        : label === "State"
-                          ? "address-level1"
-                          : "postal-code"
-                  }
+                  name="firstName"
+                  defaultValue={user?.firstName}
+                  required
+                  maxLength={50}
+                  autoComplete="given-name"
                 />
               </label>
-            ))}
-            {["Preferred contact method", "Best time to contact"].map(
-              (label) => (
+              <label className="form-field">
+                <span>Last name</span>
+                <input
+                  name="lastName"
+                  defaultValue={user?.lastName}
+                  required
+                  maxLength={50}
+                  autoComplete="family-name"
+                />
+              </label>
+              <label className="form-field form-field--wide">
+                <span>Email Address</span>
+                <input type="email" value={user?.email ?? ""} readOnly />
+              </label>
+              <label className="form-field form-field--wide">
+                <span>Phone Number</span>
+                <input
+                  name="phone"
+                  type="tel"
+                  defaultValue={user?.phone}
+                  required
+                  maxLength={15}
+                  autoComplete="tel"
+                />
+              </label>
+              {["Street address", "City", "State", "Postal code"].map((label) => (
                 <label key={label} className="form-field">
                   <span>{label}</span>
                   <input
-                    name={`contact.${label}`}
-                    defaultValue={String(
-                      profile?.contactPreferences[label] ?? "",
-                    )}
+                    name={`address.${label}`}
+                    defaultValue={String(profile?.address[label] ?? "")}
                     maxLength={200}
+                    autoComplete={
+                      label === "Street address"
+                        ? "street-address"
+                        : label === "City"
+                          ? "address-level2"
+                          : label === "State"
+                            ? "address-level1"
+                            : "postal-code"
+                    }
                   />
-                </label>
-              ),
-            )}
-          </div>
-          {error ? (
-            <p className="form-error" role="alert">
-              {error}
-            </p>
-          ) : null}
-          <button
-            className="button button--primary"
-            type="submit"
-            disabled={busy || !profile}
-          >
-            <Save aria-hidden="true" />
-            {busy ? "Saving…" : "Save changes"}
-          </button>
-        </form>
-      </section>
-      {profile ? (
-        <section className="profile-panel panel">
-          <h2>{profile.studioContact.name}</h2>
-          <p>
-            Email:{" "}
-            <a href={`mailto:${profile.studioContact.email}`}>
-              {profile.studioContact.email}
-            </a>
-          </p>
-          {profile.studioContact.phone ? (
-            <p>
-              Phone:{" "}
-              <a href={`tel:${profile.studioContact.phone}`}>
-                {profile.studioContact.phone}
-              </a>
-            </p>
-          ) : null}
-        </section>
-      ) : null}
-
-      <section className="profile-panel panel">
-        <h2>Memberships</h2>
-        <p>Change your membership tier to your liking. Each membership offers a monthly and yearly plan.</p>
-        <div className="membership-options">
-          {membershipPlans.map(({ tier, choices }) => (
-            <fieldset
-              className="membership-option"
-              data-selected={choices.some(({ value }) => value === membershipSelection)}
-              key={tier}
-              disabled={tier === 'Student'}
-            >
-              <legend>{tier}</legend>
-              {choices.map(({ label, price, value }) => (
-                <label key={value}>
-                  <input
-                    type="radio"
-                    name="membership-option"
-                    value={value}
-                    checked={membershipSelection === value}
-                    onChange={() => setMembershipSelection(value)}
-                  />
-                  <span>{label}</span>
-                  <strong>{price}</strong>
                 </label>
               ))}
-            </fieldset>
-          ))}
-        </div>
-        {membershipError ? <p role="alert" className="form-error">{membershipError}</p> : null}
-        <button type="button" className="button button--primary membership-change-button" onClick={changeMembership}>
-          Change membership option
-        </button>
-      </section>
+              {["Preferred contact method", "Best time to contact"].map(
+                (label) => (
+                  <label key={label} className="form-field">
+                    <span>{label}</span>
+                    <input
+                      name={`contact.${label}`}
+                      defaultValue={String(
+                        profile?.contactPreferences[label] ?? "",
+                      )}
+                      maxLength={200}
+                    />
+                  </label>
+                ),
+              )}
+            </div>
+            {error ? (
+              <p className="form-error" role="alert">
+                {error}
+              </p>
+            ) : null}
+            <button
+              className="button button--primary"
+              type="submit"
+              disabled={busy || !profile}
+            >
+              <Save aria-hidden="true" />
+              {busy ? "Saving…" : "Save changes"}
+            </button>
+          </form>
+        </section>
 
-      <NotificationSettings />
+        <section className="profile-panel panel" style={cardFlex(1.4, 340)}>
+          <h2>Membership</h2>
+          <p>Change your membership tier to your liking. Each membership offers a monthly and yearly plan.</p>
+          <div className="membership-options" style={{ gridTemplateColumns: "1fr" }}>
+            {membershipPlans.map(({ tier, choices }) => (
+              <fieldset
+                className="membership-option"
+                data-selected={choices.some(({ value }) => value === membershipSelection)}
+                key={tier}
+                disabled={tier === 'Student'}
+              >
+                <legend>{tier}</legend>
+                {choices.map(({ label, price, value }) => (
+                  <label key={value}>
+                    <input
+                      type="radio"
+                      name="membership-option"
+                      value={value}
+                      checked={membershipSelection === value}
+                      onChange={() => setMembershipSelection(value)}
+                    />
+                    <span>{label}</span>
+                    <strong>{price}</strong>
+                  </label>
+                ))}
+              </fieldset>
+            ))}
+          </div>
+          {membershipError ? <p role="alert" className="form-error">{membershipError}</p> : null}
+          <button type="button" className="button button--primary membership-change-button" onClick={changeMembership}>
+            Change membership option
+          </button>
+        </section>
+
+        <NotificationSettings />
+      </div>
+
+      <div style={cardGridStyle}>
+        <section className="profile-panel panel" style={cardFlex(1, 300)}>
+          <h2>Accessibility</h2>
+        </section>
+        <section className="profile-panel panel" style={cardFlex(1.5, 300)}>
+          <h2>Payments</h2>
+        </section>
+      </div>
+
       <SignedWaiverRecords />
       <section className="panel feature-notice">
         <h2>Other account settings</h2>
         <p>
           Email changes, password reset, and billing are not available in this
           version.
+        </p>
+      </section>
+
+      <hr style={{ width: "100%", border: 0, borderTop: "1px solid var(--border-strong)", margin: 0 }} />
+      <section aria-labelledby="studio-contact-heading">
+        <h2 id="studio-contact-heading">Contact The Crafty Studio</h2>
+        <p>
+          <a href={`mailto:${studioEmail}`}>{studioEmail}</a>
         </p>
       </section>
       <Toast message={toast} onClose={() => setToast(null)} />

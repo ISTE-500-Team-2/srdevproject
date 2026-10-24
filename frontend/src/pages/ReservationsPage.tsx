@@ -1,5 +1,5 @@
 import { useAuth } from '../context/AuthContext';
-import { CalendarDays, Filter, ShieldAlert } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, Filter, ShieldAlert } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Modal } from '../components/Modal';
@@ -23,6 +23,7 @@ export function ReservationsPage() {
   const [busy, setBusy] = useState(false);
   const studios = useApi<{ studios: Studio[]; cardTestEnabled: boolean; timeZone: string }>('/studios');
   const [studioFilter, setStudioFilter] = useState('all');
+  const [studioPage, setStudioPage] = useState(0);
   const [selectedStudio, setSelectedStudio] = useState<Studio | null>(null);
   const [studioStart, setStudioStart] = useState('');
   const [studioMethod, setStudioMethod] = useState('manual');
@@ -47,6 +48,13 @@ export function ReservationsPage() {
   const studioSizes = [...new Set((studios.data?.studios ?? []).map((item) => item.size))];
   const studioList = (studios.data?.studios ?? []).filter(
     (item) => studioFilter === 'all' || item.size === studioFilter,
+  );
+  const studioPageSize = 3;
+  const studioPages = Math.max(1, Math.ceil(studioList.length / studioPageSize));
+  const studioPageIndex = Math.min(studioPage, studioPages - 1);
+  const visibleStudios = studioList.slice(
+    studioPageIndex * studioPageSize,
+    (studioPageIndex + 1) * studioPageSize,
   );
   const studioConflict =
     !!selectedStudio &&
@@ -196,25 +204,64 @@ export function ReservationsPage() {
       <div className="dashboard-divider" />
       <section className="reservation-section" aria-labelledby="studio-spaces">
   <div className="reservation-section__heading">
-    <div>
-      <p className="eyebrow">Reserve by the month</p>
-      <h1 id="studio-spaces">Studio Spaces</h1>
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16 }}>
+      <div>
+        <p className="eyebrow">Reserve by the month</p>
+        <h1 id="studio-spaces">Studio Spaces</h1>
+      </div>
+      <label className="select-control">
+        <Filter aria-hidden="true" />
+        <span>Filter</span>
+        <select
+          value={studioFilter}
+          onChange={(event) => {
+            setStudioFilter(event.target.value);
+            setStudioPage(0);
+          }}
+        >
+          <option value="all">All sizes</option>
+          {studioSizes.map((size) => (
+            <option key={size} value={size}>
+              {size}
+            </option>
+          ))}
+        </select>
+      </label>
     </div>
-    <label className="select-control">
-      <Filter aria-hidden="true" />
-      <span>Filter</span>
-      <select
-        value={studioFilter}
-        onChange={(event) => setStudioFilter(event.target.value)}
+    <div style={{ display: 'flex', gap: 8, alignSelf: 'flex-end' }}>
+      <button
+        type="button"
+        aria-label="Previous studio spaces"
+        disabled={studioPageIndex === 0}
+        onClick={() => setStudioPage(studioPageIndex - 1)}
+        style={{
+          background: 'none',
+          border: 0,
+          padding: 4,
+          color: 'inherit',
+          cursor: studioPageIndex === 0 ? 'default' : 'pointer',
+          opacity: studioPageIndex === 0 ? 0.35 : 1,
+        }}
       >
-        <option value="all">All sizes</option>
-        {studioSizes.map((size) => (
-          <option key={size} value={size}>
-            {size}
-          </option>
-        ))}
-      </select>
-    </label>
+        <ChevronLeft aria-hidden="true" size={28} strokeWidth={1.5} />
+      </button>
+      <button
+        type="button"
+        aria-label="Next studio spaces"
+        disabled={studioPageIndex >= studioPages - 1}
+        onClick={() => setStudioPage(studioPageIndex + 1)}
+        style={{
+          background: 'none',
+          border: 0,
+          padding: 4,
+          color: 'inherit',
+          cursor: studioPageIndex >= studioPages - 1 ? 'default' : 'pointer',
+          opacity: studioPageIndex >= studioPages - 1 ? 0.35 : 1,
+        }}
+      >
+        <ChevronRight aria-hidden="true" size={28} strokeWidth={1.5} />
+      </button>
+    </div>
   </div>
   {studios.loading ? <p role="status">Loading studio spaces…</p> : null}
   {studios.error ? (
@@ -223,7 +270,7 @@ export function ReservationsPage() {
     </p>
   ) : null}
   <div className="studio-grid">
-    {studioList.map((item) => (
+    {visibleStudios.map((item) => (
       <button
         className="reservation-card studio-card"
         key={item.id}
@@ -235,7 +282,7 @@ export function ReservationsPage() {
         }}
       >
         <div className="reservation-card__image studio-card__image">
-          <img src={studioImage(item.name)} alt="" />
+          <img src={studioImage(item.size)} alt="" />
         </div>
         <div className="reservation-card__rule" />
         <div className="reservation-card__title">
@@ -381,7 +428,7 @@ export function ReservationsPage() {
   {selectedStudio ? (
     <form className="reservation-form" onSubmit={reserveStudio}>
       <div className="reservation-form__summary">
-        <img src={studioImage(selectedStudio.name)} alt="" />
+        <img src={studioImage(selectedStudio.size)} alt="" />
         <div>
           <p className="eyebrow">{selectedStudio.size}</p>
           <h3>{selectedStudio.name}</h3>
@@ -475,6 +522,12 @@ function rateLabel(rate: number | null) {
 function studioRateLabel(cents: number | null) {
   return cents === null ? 'Rate not set' : '$' + (cents / 100).toFixed(2) + '/month';
 }
-function studioImage(name: string) {
-  return '/assets/space-' + name.toLowerCase() + '.webp';
+
+function studioImage(size: string) {
+  const images: Record<string, string> = {
+    large: 'paris',
+    medium: 'coruscant',
+    small: 'harkonnen',
+  };
+  return '/assets/space-' + (images[size.toLowerCase()] ?? 'harkonnen') + '.webp';
 }
