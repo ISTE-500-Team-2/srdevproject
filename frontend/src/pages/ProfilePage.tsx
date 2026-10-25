@@ -32,7 +32,7 @@ const cardGridStyle = {
   alignItems: "stretch",
   gap: 20,
 } as const;
-const studioEmail = "info@thecollaboratory.com";
+const studioEmail = "arborcollaboratory@yahoo.com";
 
 function NotificationSettings() {
   const [settings, setSettings] = useState<{
