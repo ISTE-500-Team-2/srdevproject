@@ -3,6 +3,7 @@ import copy
 import io
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -36,6 +37,41 @@ def config():
 
 
 class GateTests(unittest.TestCase):
+    def test_restrictive_checkout_remains_runnable_without_exposing_private_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            private = Path(temporary)
+            private.chmod(0o700)
+            source = private / 'source'; source.mkdir(mode=0o700)
+            subprocess.run(['git', 'init', '-q', str(source)], check=True)
+            backend = source / 'backend'; backend.mkdir(mode=0o700)
+            package = backend / 'package.json'; package.write_text('{"type":"module"}'); package.chmod(0o600)
+            launcher = source / 'arbor.sh'; launcher.write_text('#!/bin/sh\n'); launcher.chmod(0o700)
+            secret = source / '.operator.private.env'; secret.write_text('fixture only'); secret.chmod(0o600)
+            subprocess.run(['git', '-C', str(source), 'add', 'backend/package.json', 'arbor.sh'], check=True)
+            release.prepare_source_permissions(source)
+            self.assertEqual(package.stat().st_mode & 0o777, 0o644)
+            self.assertEqual(launcher.stat().st_mode & 0o777, 0o755)
+            self.assertEqual(backend.stat().st_mode & 0o777, 0o755)
+            self.assertEqual(source.stat().st_mode & 0o777, 0o755)
+            self.assertEqual(secret.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(private.stat().st_mode & 0o777, 0o700)
+            subprocess.run(['git', '-C', str(source), 'diff', '--exit-code'], check=True)
+
+    def test_source_permissions_do_not_follow_links_outside_private_checkout(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            private = Path(temporary); source = private / 'source'; source.mkdir()
+            outside = private / 'outside.private'; outside.write_text('fixture'); outside.chmod(0o600)
+            link = source / 'link'; link.symlink_to(outside)
+            # Real symlink index entries are skipped; a forged regular path fails closed.
+            record = '120000 ' + 'a' * 40 + ' 0\tlink\0'
+            with patch.object(release, 'run', return_value=subprocess.CompletedProcess([], 0, stdout=record)):
+                release.prepare_source_permissions(source)
+            self.assertEqual(outside.stat().st_mode & 0o777, 0o600)
+            with patch.object(release, 'run', return_value=subprocess.CompletedProcess([], 0, stdout=record.replace('120000', '100644'))):
+                with self.assertRaises(ValueError):
+                    release.prepare_source_permissions(source)
+            self.assertEqual(outside.stat().st_mode & 0o777, 0o600)
+
     def test_demo_smoke_does_not_send_public_origin_to_private_auth(self):
         with patch.object(release.urllib.request, 'urlopen', return_value=io.BytesIO(b'{}')) as opener:
             release.request('http://127.0.0.1:8081', '/api/auth/demo', {'role': 'admin'})
@@ -121,6 +157,7 @@ class RolloutTests(unittest.TestCase):
                 raise RuntimeError('Missing reviewed migration')
 
         with patch.object(release, 'run', run), patch.object(release, 'output', output), \
+             patch.object(release, 'prepare_source_permissions'), \
              patch.object(release, 'compose', compose), patch.object(release, 'verify', verify), \
              patch.object(release, 'verify_migrations', migration_gate), \
              patch.object(release, 'main_sha', return_value=SHA), \

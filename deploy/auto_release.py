@@ -155,6 +155,27 @@ def verify_migrations(source, rows):
             raise RuntimeError('Migration checksum mismatch: ' + file.name)
 
 
+def prepare_source_permissions(source):
+    """Private operator umask must not make tracked public code unreadable in images."""
+    entries = run('git', '-C', str(source), 'ls-files', '--stage', '-z',
+                  stdout=subprocess.PIPE, text=True).stdout.split('\0')
+    for entry in entries:
+        if not entry:
+            continue
+        metadata, relative = entry.split('\t', 1)
+        mode = metadata.split()[0]
+        if mode not in ('100644', '100755'):
+            continue  # Never follow tracked symlinks or change submodules.
+        file = source / relative
+        if source.resolve() not in file.resolve().parents or file.is_symlink():
+            raise ValueError('Tracked source path escapes checkout')
+        file.chmod(0o755 if mode == '100755' else 0o644)
+        for parent in file.parents:
+            parent.chmod(0o755)
+            if parent == source:
+                break  # Release parent, .git and untracked secrets stay private.
+
+
 def deploy(root, sha):
     release = root / 'auto-deploy/releases' / sha
     release.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -164,6 +185,7 @@ def deploy(root, sha):
     run('git', '-C', str(source), 'fetch', '--depth=1', 'https://github.com/' + REPO + '.git', sha)
     assert output('git', '-C', str(source), 'rev-parse', 'FETCH_HEAD') == sha
     run('git', '-C', str(source), 'checkout', '--detach', sha)
+    prepare_source_permissions(source)
     tag = 'arbor:auto-' + sha
     run('docker', 'build', '--pull', '--label', 'org.opencontainers.image.revision=' + sha,
         '-t', tag, str(source), timeout=1200)
