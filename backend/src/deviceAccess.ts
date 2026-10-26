@@ -5,6 +5,7 @@ import type { Pool } from "pg";
 import { transaction, type Database } from "./db.js";
 import { AppError, positiveId, textField } from "./domain.js";
 import { UserModel } from "./models/UserModel.js";
+import { accessTransaction, AccessDeadlineError } from "./services/AccessTransaction.js";
 import { AccessService, type AccessTarget } from "./services/AccessService.js";
 import { StaffModel } from "./models/StaffModel.js";
 import { authState, requireCsrf } from "./middleware/auth.js";
@@ -47,19 +48,30 @@ export function readDeviceConfig(): DeviceConfig | undefined {
   }
   return { readers, cardHashKey };
 }
-function uidHash(uid: unknown, c: DeviceConfig) {
+function uidHash(uid: unknown, c: DeviceConfig, cache?: Map<string, { hash: string; until: number }>) {
   if (typeof uid !== "string")
     throw new AppError(400, "INVALID_UID", "Use a 4, 7 or 10 byte card UID.");
   const value = uid.replace(/[: -]/g, "").toUpperCase();
   if (!/^(?:[A-F0-9]{8}|[A-F0-9]{14}|[A-F0-9]{20})$/.test(value))
     throw new AppError(400, "INVALID_UID", "Use a 4, 7 or 10 byte card UID.");
-  return createHmac("sha256", c.cardHashKey).update(value).digest("hex");
+  const cached = cache?.get(value);
+  if (cached && cached.until > Date.now()) return cached.hash;
+  const hash = createHmac("sha256", c.cardHashKey).update(value).digest("hex");
+  if (cache) {
+    cache.delete(value);
+    if (cache.size >= 256) cache.delete(cache.keys().next().value!);
+    cache.set(value, { hash, until: Date.now() + 60000 });
+  }
+  return hash;
 }
 export function deviceDecision(
   pool: Pool,
   timeZone: string,
   c?: DeviceConfig,
 ): RequestHandler {
+  const readers = new Map(c?.readers.map(reader => [reader.id, reader]));
+  // Cache only deterministic credential hashing, never assignment or eligibility.
+  const uidHashes = new Map<string, { hash: string; until: number }>();
   return async (req, res) => {
     if (!c)
       throw new AppError(
@@ -67,7 +79,7 @@ export function deviceDecision(
         "DEVICES_NOT_CONFIGURED",
         "Device access is not configured.",
       );
-    const reader = c.readers.find((r) => r.id === req.get("X-Reader-ID")),
+    const reader = readers.get(req.get("X-Reader-ID") ?? ""),
       stamp = req.get("X-Reader-Timestamp") ?? "",
       signature = req.get("X-Reader-Signature") ?? "";
     if (
@@ -110,10 +122,8 @@ export function deviceDecision(
         "INVALID_EVENT",
         "A fresh event UUID is required.",
       );
-    const hash = uidHash(body.uid, c);
-    const decision = await transaction(pool, async (db) => {
-      await db.query("SET LOCAL statement_timeout=1500");
-      await db.query("SET LOCAL lock_timeout=500");
+    const hash = uidHash(body.uid, c, uidHashes);
+    const decision = await accessTransaction(pool, async (db) => {
       const existing = await db.query(
         "SELECT id FROM app_device_access_event WHERE reader_id=$1 AND request_id=$2",
         [reader.id, body.eventId],
@@ -122,8 +132,11 @@ export function deviceDecision(
         throw new AppError(409, "REPLAYED_EVENT", "Use a fresh event ID.");
       const card = (
         await db.query(
-          "SELECT user_id FROM app_access_card WHERE uid_hash=$1 AND active=true FOR SHARE",
-          [hash],
+          {
+            name: "nfc-active-card-v1",
+            text: "SELECT user_id FROM app_access_card WHERE uid_hash=$1 AND active=true FOR SHARE",
+            values: [hash],
+          },
         )
       ).rows[0];
       const verdict = await evaluate(db, timeZone, reader, card?.user_id);
@@ -160,6 +173,13 @@ export function deviceDecision(
         readerId: reader.id,
         ...verdict,
       };
+    }).catch(error => {
+      if (error instanceof AccessDeadlineError || error?.code === '57014' || error?.code === '55P03') {
+        return { eventId: body.eventId, readerId: reader.id, allowed: false,
+          reason: 'VERIFICATION_TIMEOUT', expiresAt: null, leaseSeconds: 0,
+          member: null, buildingId: null, reservationId: null, decisionId: null };
+      }
+      throw error;
     });
     res.json({ data: decision });
   };
