@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { CertificationsPage } from './CertificationsPage';
-const { state } = vi.hoisted(() => ({
+const { api, reload, state } = vi.hoisted(() => ({
+ api:vi.fn(),reload:vi.fn(),
  state: {
   waivers: [] as any[],
   certifications: [] as any[],
@@ -11,9 +12,10 @@ const { state } = vi.hoisted(() => ({
   auth: { demoLogin: false, user: null as any },
  },
 }));
-vi.mock('../lib/useApi', () => ({ useApi: (path:string) => ({data:path === '/me/waivers' ? state.waivers : path === '/equipment' ? state.equipment : state.certifications,loading:false,error:null,reload:vi.fn()}) }));
+vi.mock('../lib/api',()=>({api,errorMessage:(error:Error)=>error.message}));
+vi.mock('../lib/useApi', () => ({ useApi: (path:string) => ({data:path === '/me/waivers' ? state.waivers : path === '/equipment' ? state.equipment : state.certifications,loading:false,error:null,reload}) }));
 vi.mock('../context/AuthContext', () => ({ useAuth: () => state.auth }));
-afterEach(cleanup);
+afterEach(()=>{cleanup();vi.clearAllMocks();});
 function mount(
  overrides:object,
  auth = state.auth,
@@ -121,4 +123,21 @@ test('member demo shows available equipment under upcoming',()=>{
 test('heading styling is not applied to other accounts',()=>{
  mount({}, {demoLogin:true,user:{role:'admin',roles:['admin'],email:'demo.admin@collaboratory.invalid'}});
  expect(document.querySelector('.credentials-page--member-demo')).toBeNull();
+});
+test('terms require acceptance before submission and record the completed agreement',async()=>{
+ mount({name:'Terms of Service',version:'2026-09-28',description:'Terms text',expiredSignature:false});
+ fireEvent.click(screen.getByRole('button',{name:'Review and agree'}));
+ const submit=screen.getByRole('button',{name:'Submit acceptance'}) as HTMLButtonElement;
+ expect(submit.disabled).toBe(true);
+ fireEvent.click(screen.getByRole('checkbox',{name:'I have read and accept the Terms of Service.'}));
+ expect(submit.disabled).toBe(false);
+ api.mockResolvedValue({});
+ fireEvent.click(submit);
+ await waitFor(()=>expect(api).toHaveBeenCalledWith('/me/waivers/2/sign',{method:'POST',body:{accepted:true}}));
+ expect(reload).toHaveBeenCalled();
+ expect(screen.getByText('Terms of Service completed.')).toBeTruthy();
+});
+test('accepted terms are marked completed',()=>{
+ mount({name:'Terms of Service',signed:true,signedAt:'2026-10-22T12:00:00Z',expiredSignature:false});
+ expect(screen.getByText(/Completed/)).toBeTruthy();
 });
