@@ -159,7 +159,7 @@ export function StaffCompliance() {
                         <small>#{u.id} {u.email}</small>
                       </td>
                       <td>
-                        {u.status}<small>Access {u.accessStatus}</small>
+                        <small>{u.accessStatus}</small>
                       </td>
                       <td>
                         <ComplianceState ok={u.waiverCompliant} />
