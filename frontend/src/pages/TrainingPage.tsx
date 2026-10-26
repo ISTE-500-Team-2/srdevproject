@@ -21,6 +21,7 @@ type Record = {
   revision: number;
   expiresAt: string | null;
   trainedAt: string | null;
+  revokedAt?: string | null;
   instructorName: string | null;
 };
 export function TrainingPage() {
@@ -266,6 +267,9 @@ function TrainingWorkspace({
                     Approved by:{" "}
                     {r.instructorName ?? "Legacy record: not recorded"}
                   </p>
+                  {r.status === 'revoked' && r.revokedAt ? (
+                    <p>New in-person training must be completed after {new Date(r.revokedAt).toLocaleString()} before this certification can be approved again.</p>
+                  ) : null}
                   <p>
                     Expires:{" "}
                     {r.expiresAt

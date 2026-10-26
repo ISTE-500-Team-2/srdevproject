@@ -14,7 +14,7 @@ const definition = `c.certid AS id,c.name,c.description,c.validity_days AS "vali
 const record = `uc.usercertid AS id,uc.userid AS "userId",uc.certid AS "certificationId",c.name,uc.status,uc.revision,
  uc.renewaldate AT TIME ZONE 'UTC' AS "expiresAt",uc.trained_at AS "trainedAt",uc.approved_at AS "approvedAt",
  uc.approved_by AS "approvedBy",a.firstname||' '||a.lastname AS "instructorName",uc.training_source AS source,
- uc.verified_in_person AS "verifiedInPerson",uc.verification_reference AS "verificationReference",
+ uc.verified_in_person AS "verifiedInPerson",uc.verification_reference AS "verificationReference",uc.revoked_at AS "revokedAt",
  (uc.status='active' AND (uc.renewaldate IS NULL OR uc.renewaldate>=NOW() AT TIME ZONE 'UTC')
  AND (c.effectivedate IS NULL OR c.effectivedate<=NOW() AT TIME ZONE 'UTC')
  AND (c.enddate IS NULL OR c.enddate>=NOW() AT TIME ZONE 'UTC')) AS valid`;
@@ -274,6 +274,11 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
             )
           ).rows[0] ?? null;
         if (before) await actor(db, user.id, "update", "approve");
+        if (before?.revoked_at && trainedAt <= new Date(before.revoked_at))
+          throw new AppError(
+            409, 'RETRAINING_REQUIRED',
+            'Record newly completed, in-person verified training after the access revocation.',
+          );
         if (
           before &&
           before.revision !== positiveId(req.body.expectedRevision, "Revision")
@@ -383,7 +388,7 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
         );
         const after = (
           await db.query(
-            "UPDATE user_certifications SET status='revoked',statusdesc=$3,revision=revision+1 WHERE userid=$1 AND certid=$2 RETURNING *",
+            "UPDATE user_certifications SET status='revoked',revoked_at=NOW(),statusdesc=$3,revision=revision+1 WHERE userid=$1 AND certid=$2 RETURNING *",
             [userId, id, reason],
           )
         ).rows[0];

@@ -45,7 +45,7 @@ No success color is permitted simply because the UID was read, uploaded or store
 
 The backend resolves the UID to a registered card/member, evaluates eligibility, returns the member's ID/name/email/membership/day-pass flags on approval, and records an approved check-in when requested. The Pi check-in adapter now preserves those identity fields in its signed reply and a private proof record. Names/emails are not added to the general status file.
 
-Unassigned, expired or inactive/ineligible cards must not create approved check-ins. Membership-only tests control for reservations, waivers, account status and machine certification so that the intended eligibility rule is actually tested. A timed staff test override skips reservation only; it cannot bypass membership, waiver, training or account checks.
+Unassigned, expired or inactive/ineligible cards must not create approved check-ins. Membership-only tests control for reservations, waivers, account status and machine certification so that the intended eligibility rule is actually tested. A timed staff test override supplies a bounded supervised reservation when needed; it cannot bypass membership, waiver, training or account checks.
 
 ## Evidence and boundaries
 
@@ -67,3 +67,7 @@ SDTA-134 remains open for real machine actuation. Before closing physical integr
 5. Verify no stale authorization re-enables the machine after recovery; record actual equipment observations and sponsor/installer acceptance.
 
 A gate-review simulation may cite this LED demonstration if accepted as a prototype, but its report and Jira status must not claim physical machine switching was tested.
+
+## Gate-review software relay acceptance
+
+See [time limits and simulated relay acceptance](TIME-LIMITS-RELAY-ACCEPTANCE.md) for SDTA-204/134 expiry, incident and forced re-certification tests. The ticket permits a simulated relay; physical switching remains a separate unverified milestone.

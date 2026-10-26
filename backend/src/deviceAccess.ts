@@ -1,3 +1,4 @@
+import { accessDeadline } from './accessDeadline.js';
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { Router, type RequestHandler } from "express";
 import type { Pool } from "pg";
@@ -190,29 +191,8 @@ async function evaluate(db: Database, tz: string, r: Reader, userId?: number) {
   const user = await new UserModel(db).findById(userId);
   if (!user) return deny('ACCOUNT_BLOCKED');
   const entitlement = grant.entitlement;
-  let expires = new Date(Math.min(now.getTime() + 5000,grant.endsAt.getTime()));
-  // Bound the relay lease by all expiry windows, even near a five-second boundary.
-  const limits = (
-    await db.query(
-      `SELECT LEAST(
-  COALESCE((SELECT MAX(end_date AT TIME ZONE 'UTC') FROM user_membership WHERE userid=$1 AND status='active' AND startdate<=NOW() AT TIME ZONE 'UTC' AND end_date>NOW() AT TIME ZONE 'UTC'),
-    ((NOW() AT TIME ZONE $2)::date+1)::timestamp AT TIME ZONE $2),
-  COALESCE((SELECT MIN(expires_at) FROM user_waiver WHERE userid=$1 AND approval=true AND expires_at>NOW()),'infinity'::timestamptz)) AS ends`,
-      [userId, tz],
-    )
-  ).rows[0];
-  if (limits?.ends instanceof Date)
-    expires = new Date(Math.min(expires.getTime(), limits.ends.getTime()));
-  if (r.kind === "equipment") {
-    const limit = (
-      await db.query(
-        `SELECT LEAST(uc.renewaldate,c.enddate) AT TIME ZONE 'UTC' AS ends FROM user_certifications uc JOIN certifications c USING(certid) JOIN equipment e USING(certid) WHERE uc.userid=$1 AND e.equipmentid=$2 AND uc.status='active'`,
-        [userId, r.resourceId],
-      )
-    ).rows[0];
-    if (limit?.ends instanceof Date)
-      expires = new Date(Math.min(expires.getTime(), limit.ends.getTime()));
-  }
+  const expires = await accessDeadline(db,tz,userId,grant.endsAt,
+    r.kind === 'equipment' ? r.resourceId : undefined,now);
   if (expires.getTime() <= Date.now()) return deny("ELIGIBILITY_EXPIRED");
   return {
     allowed: true,
