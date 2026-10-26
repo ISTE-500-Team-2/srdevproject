@@ -225,6 +225,13 @@ test('React → Express controllers/models → PostgreSQL: login, save, refresh,
       within(policyDialog).getByRole('button', { name: policy.submit }),
     );
     await screen.findByText(policy.confirmation, {}, { timeout: 20000 });
+    // A success toast precedes useApi's asynchronous refresh. Wait for its
+    // persisted signed row before retaining/clicking another row; otherwise
+    // user-event can target an element removed during that refresh.
+    await waitFor(() => {
+      const signedRow=screen.getByText(policy.name,{exact:true}).closest('tr')!;
+      expect(within(signedRow).getByRole('button',{name:'View policy'})).toBeTruthy();
+    },{timeout:20000});
   }
   const signedPolicies = await bridge.pool.query(
     `SELECT w.name FROM user_waiver uw
