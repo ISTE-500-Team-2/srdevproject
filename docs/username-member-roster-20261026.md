@@ -14,7 +14,7 @@ Apply the normal additive migrations before starting the updated backend. No exi
 
 Signed-in members can choose **View participants** for upcoming scheduled classes. `GET /api/classes/:id/member-roster` returns capacity, enrolled count, available seats and participant first names plus last initials. The SQL never selects emails, phone numbers, addresses, usernames, account IDs or attendance details for this response. Withdrawn/no-show entries are excluded. Missing, past or cancelled classes do not expose a participant list. Responses are marked `no-store`.
 
-The existing instructor/staff roster endpoint and its permissions are unchanged. Members cannot call it, and unassigned instructors still cannot use it to obtain contact information. Classes/rosters refresh after registration/withdrawal, on returning to the page, every 30 seconds while visible, and through an explicit refresh button. Seat counts reflect the database at fetch time; this does not claim instantaneous push updates.
+The existing instructor/staff roster endpoint and its permissions are unchanged. Members cannot call it, and unassigned instructors still cannot use it to obtain contact information. Classes/rosters refresh after registration/withdrawal, on returning to the page, every two minutes while visible and there are no unsaved edits or pending saves, and through an explicit refresh button. Seat counts reflect the database at fetch time; this does not claim instantaneous push updates.
 
 ## Verification on Node 24.22.1 / isolated PostgreSQL 16.14
 
@@ -28,6 +28,12 @@ The existing instructor/staff roster endpoint and its permissions are unchanged.
 Regression coverage includes username normalization, required/invalid fields, concurrent case-only duplicates, email confirmation, wrong passwords, username and email UI login, duplicate-name correction without retyping, migration replay and preservation of a legacy account/session/membership, response-field privacy, anonymous denial, instructor authorization, cancelled/past classes, and seat changes after withdrawal.
 
 The full suite also rechecks payment/access, expired/revoked waivers and training, retraining after revocation, reservations, check-in, signed copies and audit history.
+
+## PR #59 refresh follow-up
+
+Automatic timer, focus and visibility refreshes pause while attendance, cancellation or scheduling forms contain unsaved edits, and while a save is in progress. Manual refresh preserves drafts and keeps forms mounted. Attendance drafts are scoped to class and member, survive closing/reopening a roster, and clear only after that attendee saves successfully. Failed saves preserve the input. Responses are still cleared on resource changes or HTTP 401/403/404.
+
+Follow-up verification: frontend production build and all **82 unit tests** pass, including five new refresh/draft regressions. All **29 frontend HTTP/PostgreSQL integration tests** pass serially. An initial parallel integration run passed 28 tests and timed out in the existing studio payment-status test; the complete serial rerun passed. Backend files and policy rules are unchanged; backend results above are from the original PR validation.
 
 ## Policy questions left open
 

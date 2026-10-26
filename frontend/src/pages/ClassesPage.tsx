@@ -25,29 +25,39 @@ type Class = {
 };
 type Person = { userId: number; name: string; email: string; status: string };
 type MemberRoster = { items: { name: string }[]; capacity: number; enrolled: number; seatsAvailable: number };
+type AttendanceDraft = { status: string; reason: string };
+function withoutKey<T>(values: Record<string, T>, key: string) {
+  const next = { ...values };
+  delete next[key];
+  return next;
+}
 export function ClassesPage() {
   const selectorId = useId();
   const { user } = useAuth();
-  const classes = useApi<Class[]>(user ? "/classes" : null);
+  const classes = useApi<Class[]>(user ? "/classes" : null, { retainOnReload: true });
   const [query, setQuery] = useState(""),
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
     [selected, setSelected] = useState<Class | null>(null);
+  const [cancellationDrafts, setCancellationDrafts] = useState<Record<string, string>>({});
+  const [attendanceDrafts, setAttendanceDrafts] = useState<Record<string, AttendanceDraft>>({});
+  const [scheduleDirty, setScheduleDirty] = useState(false);
+  const hasUnsavedEdits = scheduleDirty || Object.keys(cancellationDrafts).length > 0 || Object.keys(attendanceDrafts).length > 0;
   const roles = user?.roles ?? [],
     staff = roles.some((r) => ["admin", "staff"].includes(r));
   const managesSelected = Boolean(selected && (staff || (roles.includes("instructor") && selected.instructorId === user?.id)));
   const roster = useApi<Person[]>(
-    selected && managesSelected ? `/classes/${selected.id}/roster` : null,
+    selected && managesSelected ? `/classes/${selected.id}/roster` : null, { retainOnReload: true },
   );
   const participants = useApi<MemberRoster>(
-    selected && !managesSelected ? `/classes/${selected.id}/member-roster` : null,
+    selected && !managesSelected ? `/classes/${selected.id}/member-roster` : null, { retainOnReload: true },
   );
   const refreshClasses = () => { classes.reload(); roster.reload(); participants.reload(); };
   useEffect(() => {
     const refresh = () => {
-      if (document.visibilityState !== "hidden") { classes.reload(); roster.reload(); participants.reload(); }
+      if (!hasUnsavedEdits && !busy && document.visibilityState !== "hidden") { classes.reload(); roster.reload(); participants.reload(); }
     };
-    const timer = window.setInterval(refresh, 30000);
+    const timer = window.setInterval(refresh, 120000);
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refresh);
     return () => {
@@ -55,7 +65,7 @@ export function ClassesPage() {
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [classes.reload, roster.reload, participants.reload]);
+  }, [classes.reload, roster.reload, participants.reload, hasUnsavedEdits, busy]);
   const catalog = useApi<
     { id: number; name: string; validityDays: number | null }[]
   >(staff ? "/training/catalog" : null);
@@ -86,8 +96,8 @@ export function ClassesPage() {
   async function create(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
-    await run(() =>
-      api("/classes", {
+    await run(async () => {
+      await api("/classes", {
         method: "POST",
         body: {
           title: f.get("title"),
@@ -99,8 +109,9 @@ export function ClassesPage() {
           endsAt: new Date(String(f.get("endsAt"))).toISOString(),
           reason: f.get("reason"),
         },
-      }),
-    );
+      });
+      setScheduleDirty(false);
+    });
   }
   if (!user)
     return (
@@ -124,7 +135,8 @@ export function ClassesPage() {
         <input value={query} onChange={(e) => setQuery(e.target.value)} />
       </label>
       <LoadState {...classes} />
-      <button className="button button--quiet" type="button" onClick={refreshClasses}>Refresh classes and rosters</button>
+      {hasUnsavedEdits ? <p role="status">Automatic refresh is paused while you have unsaved edits. Manual refresh keeps your edits.</p> : null}
+      <button className="button button--quiet" type="button" disabled={busy} onClick={refreshClasses}>Refresh classes and rosters</button>
       <div className="class-catalog">
         {classes.data
           ?.filter((c) =>
@@ -203,20 +215,23 @@ export function ClassesPage() {
                     onSubmit={(e) => {
                       e.preventDefault();
                       const f = new FormData(e.currentTarget);
-                      void run(() =>
-                        api(`/classes/${c.id}/cancel`, {
+                      void run(async () => {
+                        await api(`/classes/${c.id}/cancel`, {
                           method: "POST",
                           body: {
                             expectedRevision: c.revision,
                             reason: f.get("reason"),
                           },
-                        }),
-                      );
+                        });
+                        setCancellationDrafts(drafts => withoutKey(drafts, String(c.id)));
+                      });
                     }}
                   >
                     <label>
                       Cancellation reason
-                      <input name="reason" required />
+                      <input name="reason" required disabled={busy}
+                        value={cancellationDrafts[c.id] ?? ""}
+                        onChange={e => setCancellationDrafts(drafts => e.target.value ? { ...drafts, [c.id]: e.target.value } : withoutKey(drafts, String(c.id)))} />
                     </label>
                     <button className="button button--quiet" disabled={busy}>
                       Cancel {c.title}
@@ -265,28 +280,48 @@ export function ClassesPage() {
                   onSubmit={(e) => {
                     e.preventDefault();
                     const f = new FormData(e.currentTarget);
-                    void run(() =>
-                      api(`/classes/${selected.id}/attendance`, {
+                    const key = `${selected.id}:${p.userId}`;
+                    void run(async () => {
+                      await api(`/classes/${selected.id}/attendance`, {
                         method: "POST",
                         body: {
                           userId: p.userId,
                           status: f.get("status"),
                           reason: f.get("reason"),
                         },
-                      }),
-                    );
+                      });
+                      setAttendanceDrafts(drafts => withoutKey(drafts, key));
+                    });
                   }}
                 >
                   <label>
                     Observed attendance
-                    <select name="status" defaultValue="attended">
+                    <select name="status" disabled={busy}
+                      value={attendanceDrafts[`${selected.id}:${p.userId}`]?.status ?? (p.status === "no_show" ? "no_show" : "attended")}
+                      onChange={e => {
+                        const key = `${selected.id}:${p.userId}`;
+                        const status = e.target.value;
+                        setAttendanceDrafts(drafts => {
+                          const next = { status, reason: drafts[key]?.reason ?? "" };
+                          return next.reason || status !== (p.status === "no_show" ? "no_show" : "attended") ? { ...drafts, [key]: next } : withoutKey(drafts, key);
+                        });
+                      }}>
                       <option value="attended">Attended</option>
                       <option value="no_show">No show</option>
                     </select>
                   </label>
                   <label>
                     Verification note
-                    <input name="reason" required />
+                    <input name="reason" required disabled={busy}
+                      value={attendanceDrafts[`${selected.id}:${p.userId}`]?.reason ?? ""}
+                      onChange={e => {
+                        const key = `${selected.id}:${p.userId}`;
+                        const reason = e.target.value;
+                        setAttendanceDrafts(drafts => {
+                          const status = drafts[key]?.status ?? (p.status === "no_show" ? "no_show" : "attended");
+                          return reason || status !== (p.status === "no_show" ? "no_show" : "attended") ? { ...drafts, [key]: { status, reason } } : withoutKey(drafts, key);
+                        });
+                      }} />
                   </label>
                   <button className="button" disabled={busy}>
                     Save attendance for {p.name}
@@ -299,7 +334,7 @@ export function ClassesPage() {
         </section>
       ) : null}
       {staff ? (
-        <form className="management-form" onSubmit={create}>
+        <form className="management-form" onSubmit={create} onChange={() => setScheduleDirty(true)}>
           <h2>Schedule training</h2>
           <label>
             Title
