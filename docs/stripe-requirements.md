@@ -1,10 +1,14 @@
-# Stripe requirements — updated September 28, 2026
+# Stripe requirements — updated October 26, 2026
 
 ## Scope
 
-PR #22 remains test-mode-only. This update is not merged or deployed to the public
-RIT app. RBAC and studio dependencies were merged September 27. Payment analytics
-(FR-070) are separate; this PR does not claim to implement the reporting dashboard.
+PR #22 was merged on September 29; the implementation remains test-mode-only.
+The October 26 follow-up is described in
+[paid day-pass acceptance](payment-sandbox-acceptance-20261026.md). Its waiver and
+card-only fixes require review and deployment; a passing sandbox rehearsal does
+not establish that the public application is on this revision or launch-ready.
+The September 28 verification details below are historical results, not fresh
+verification of every payment flow on October 26.
 
 ## Requirements implemented
 

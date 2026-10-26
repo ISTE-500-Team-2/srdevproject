@@ -35,6 +35,7 @@ test('day-pass checkout gates price, calendar date, waiver, and ownership; paid 
  await assert.rejects(service.checkout(member,input('2030-02-30')),{code:'INVALID_INPUT'});
  await service.checkout(member,input('2030-01-10'));
  assert.equal(params.mode,'payment');assert.equal(params.line_items[0].price_data.unit_amount,1500);
+ assert.deepEqual(params.payment_method_types,['card'],'Do not offer buy-now-pay-later methods');
  assert.equal((await pool.query('SELECT * FROM app_pass_checkout WHERE pass_id IS NOT NULL')).rowCount,0);
  await service.checkout(member,input('2030-01-10'));session={...session,status:'complete',payment_status:'paid',payment_intent:'pi_pass'};
  await service.webhook(event('evt_pass'));await service.webhook(event('evt_pass_again'));
