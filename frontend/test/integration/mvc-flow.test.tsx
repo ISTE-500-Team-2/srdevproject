@@ -200,20 +200,50 @@ test('React → Express controllers/models → PostgreSQL: login, save, refresh,
       screen.getByRole('navigation', { name: 'Primary navigation' }),
     ).getByRole('link', { name: 'Certifications & Waivers', exact: true }),
   );
-  await user.click(
-    await screen.findByRole(
-      'button',
-      { name: 'Review and agree' },
-      { timeout: 20000 },
-    ),
+  // Check-in requires both policies; select each table row by its policy name because
+  // unsigned policies share the same review button label.
+  for (const policy of [
+    {
+      name: 'Demo makerspace policy',
+      submit: 'Record agreement',
+      confirmation: 'Your agreement has been recorded.',
+    },
+    {
+      name: 'Terms of Service',
+      submit: 'Submit acceptance',
+      confirmation: 'Terms of Service completed.',
+    },
+  ]) {
+    const name = await screen.findByText(policy.name, {exact:true});
+    const card = name.closest('tr')!;
+    await user.click(
+      within(card).getByRole('button', { name: 'Review and agree' }),
+    );
+    const policyDialog = await screen.findByRole('dialog', { name: policy.name });
+    await user.click(within(policyDialog).getByRole('checkbox'));
+    await user.click(
+      within(policyDialog).getByRole('button', { name: policy.submit }),
+    );
+    await screen.findByText(policy.confirmation, {}, { timeout: 20000 });
+    // A success toast precedes useApi's asynchronous refresh. Wait for its
+    // persisted signed row before retaining/clicking another row; otherwise
+    // user-event can target an element removed during that refresh.
+    await waitFor(() => {
+      const signedRow=screen.getByText(policy.name,{exact:true}).closest('tr')!;
+      expect(within(signedRow).getByRole('button',{name:'View policy'})).toBeTruthy();
+    },{timeout:20000});
+  }
+  const signedPolicies = await bridge.pool.query(
+    `SELECT w.name FROM user_waiver uw
+      JOIN waiver w USING (waiverid)
+      JOIN "user" u USING (userid)
+      WHERE u.email=$1 AND uw.approval=true ORDER BY w.name`,
+    ['demo.member@collaboratory.invalid'],
   );
-  await user.click(screen.getByRole('checkbox'));
-  await user.click(screen.getByRole('button', { name: 'Record agreement' }));
-  await screen.findByText(
-    'Your agreement has been recorded.',
-    {},
-    { timeout: 20000 },
-  );
+  expect(signedPolicies.rows).toEqual([
+    { name: 'Demo makerspace policy' },
+    { name: 'Terms of Service' },
+  ]);
   const accessRoom = (await bridge.pool.query("INSERT INTO room(name,location) VALUES('Browser check-in','Test') RETURNING roomid")).rows[0].roomid;
   await bridge.pool.query(`INSERT INTO reservation(userid,roomid,location,starttime,endtime,status)
     SELECT userid,$1,'Browser check-in',(NOW()-INTERVAL '1 minute') AT TIME ZONE 'UTC',(NOW()+INTERVAL '30 minutes') AT TIME ZONE 'UTC','confirmed'

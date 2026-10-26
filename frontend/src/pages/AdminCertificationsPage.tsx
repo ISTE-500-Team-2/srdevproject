@@ -3,11 +3,11 @@ import { StaffCompliance } from "./StaffCompliance";
 import { StaffPolicies } from "./StaffPolicies";
 import { TrainingPage } from "./TrainingPage";
 const sections = [
-  { id: "compliance", label: "Compliance search", component: StaffCompliance },
-  { id: "waivers", label: "Waiver versions", component: StaffPolicies },
+  { id: "compliance", label: "Compliance Search", component: StaffCompliance },
+  { id: "waivers", label: "Waiver and Policy Management", component: StaffPolicies },
   {
     id: "training",
-    label: "Certification management",
+    label: "Certification Management",
     component: TrainingPage,
   },
 ] as const;

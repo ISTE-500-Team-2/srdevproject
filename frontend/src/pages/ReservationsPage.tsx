@@ -1,5 +1,5 @@
 import { useAuth } from '../context/AuthContext';
-import { CalendarDays, Filter, ShieldAlert } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, Filter, ShieldAlert } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Modal } from '../components/Modal';
@@ -8,6 +8,8 @@ import { api, errorMessage } from '../lib/api';
 import type { LiveEquipment, Reservation } from '../lib/contracts';
 import { useApi } from '../lib/useApi';
 import { reservationInput } from '../lib/reservationInput';
+import type { Studio } from '../lib/studioContracts';
+import { dateOnly, nextMonth, policy } from '../lib/studioDisplay';
 
 export function ReservationsPage() {
   const {user}=useAuth();
@@ -19,12 +21,48 @@ export function ReservationsPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const studios = useApi<{ studios: Studio[]; cardTestEnabled: boolean; timeZone: string }>('/studios');
+  const [studioFilter, setStudioFilter] = useState('all');
+  const [studioPage, setStudioPage] = useState(0);
+  const [selectedStudio, setSelectedStudio] = useState<Studio | null>(null);
+  const [studioStart, setStudioStart] = useState('');
+  const [studioMethod, setStudioMethod] = useState('manual');
+  const [studioRequestKey, setStudioRequestKey] = useState(() => crypto.randomUUID());
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const equipment = (catalog.data ?? []).filter(
     (item) =>
       filter === 'all' ||
       (filter === 'ready' ? item.canReserve : item.trainingRequired),
   );
+
+  const studioZone = studios.data?.timeZone ?? zone;
+  const studioToday = new Intl.DateTimeFormat('en-CA', {
+    timeZone: studioZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+  const studioEnd = nextMonth(studioStart);
+  const canBookStudio =
+    user?.membership === 'Monthly' && !user?.roles.includes('instructor');
+  const studioSizes = [...new Set((studios.data?.studios ?? []).map((item) => item.size))];
+  const studioList = (studios.data?.studios ?? []).filter(
+    (item) => studioFilter === 'all' || item.size === studioFilter,
+  );
+  const studioPageSize = 3;
+  const studioPages = Math.max(1, Math.ceil(studioList.length / studioPageSize));
+  const studioPageIndex = Math.min(studioPage, studioPages - 1);
+  const visibleStudios = studioList.slice(
+    studioPageIndex * studioPageSize,
+    (studioPageIndex + 1) * studioPageSize,
+  );
+  const studioConflict =
+    !!selectedStudio &&
+    !!studioStart &&
+    selectedStudio.availability.some(
+      (r) => dateOnly(r.starts_on) < studioEnd && dateOnly(r.ends_on) > studioStart,
+    );
+
   const reserve = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selected) return;
@@ -49,6 +87,41 @@ export function ReservationsPage() {
       setBusy(false);
     }
   };
+
+  const reserveStudio = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!selectedStudio) return;
+    setBusy(true);
+    setError('');
+    try {
+      const result = await api<{ hold_until: string; checkoutUrl?: string }>('/studio-rentals', {
+        method: 'POST',
+        body: {
+          studioId: selectedStudio.id,
+          startDate: studioStart,
+          paymentMethod: studioMethod,
+          requestKey: studioRequestKey,
+          expectedRevision: selectedStudio.revision,
+        },
+      });
+      if (result.checkoutUrl) {
+        window.location.assign(result.checkoutUrl);
+        return;
+      }
+      setToast(
+        selectedStudio.name + ' held until ' + new Date(result.hold_until).toLocaleTimeString() +
+          '. Pay with staff before then; your booking is not confirmed yet.',
+      );
+      setSelectedStudio(null);
+      setStudioRequestKey(crypto.randomUUID());
+      studios.reload();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const cancel = async (id: number) => {
     setBusy(true);
     setError('');
@@ -89,7 +162,7 @@ export function ReservationsPage() {
             {catalog.error} <button onClick={catalog.reload}>Retry</button>
           </p>
         ) : null}
-        {!selected && error ? (
+        {!selected && !selectedStudio && error ? (
           <p role="alert" className="form-error">
             {error}
           </p>
@@ -129,6 +202,105 @@ export function ReservationsPage() {
         ) : null}
       </section>
       <div className="dashboard-divider" />
+      <section className="reservation-section" aria-labelledby="studio-spaces">
+  <div className="reservation-section__heading">
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16 }}>
+      <div>
+        <p className="eyebrow">Reserve by the month</p>
+        <h1 id="studio-spaces">Studio Spaces</h1>
+      </div>
+      <label className="select-control">
+        <Filter aria-hidden="true" />
+        <span>Filter</span>
+        <select
+          value={studioFilter}
+          onChange={(event) => {
+            setStudioFilter(event.target.value);
+            setStudioPage(0);
+          }}
+        >
+          <option value="all">All sizes</option>
+          {studioSizes.map((size) => (
+            <option key={size} value={size}>
+              {size}
+            </option>
+          ))}
+        </select>
+      </label>
+    </div>
+    <div style={{ display: 'flex', gap: 8, alignSelf: 'flex-end' }}>
+      <button
+        type="button"
+        aria-label="Previous studio spaces"
+        disabled={studioPageIndex === 0}
+        onClick={() => setStudioPage(studioPageIndex - 1)}
+        style={{
+          background: 'none',
+          border: 0,
+          padding: 4,
+          color: 'inherit',
+          cursor: studioPageIndex === 0 ? 'default' : 'pointer',
+          opacity: studioPageIndex === 0 ? 0.35 : 1,
+        }}
+      >
+        <ChevronLeft aria-hidden="true" size={28} strokeWidth={1.5} />
+      </button>
+      <button
+        type="button"
+        aria-label="Next studio spaces"
+        disabled={studioPageIndex >= studioPages - 1}
+        onClick={() => setStudioPage(studioPageIndex + 1)}
+        style={{
+          background: 'none',
+          border: 0,
+          padding: 4,
+          color: 'inherit',
+          cursor: studioPageIndex >= studioPages - 1 ? 'default' : 'pointer',
+          opacity: studioPageIndex >= studioPages - 1 ? 0.35 : 1,
+        }}
+      >
+        <ChevronRight aria-hidden="true" size={28} strokeWidth={1.5} />
+      </button>
+    </div>
+  </div>
+  {studios.loading ? <p role="status">Loading studio spaces…</p> : null}
+  {studios.error ? (
+    <p role="alert" className="form-error">
+      {studios.error} <button onClick={studios.reload}>Retry</button>
+    </p>
+  ) : null}
+  <div className="studio-grid">
+    {visibleStudios.map((item) => (
+      <button
+        className="reservation-card studio-card"
+        key={item.id}
+        onClick={() => {
+          setSelectedStudio(item);
+          setStudioStart('');
+          setStudioRequestKey(crypto.randomUUID());
+          setError('');
+        }}
+      >
+        <div className="reservation-card__image studio-card__image">
+          <img src={studioImage(item.size)} alt="" />
+        </div>
+        <div className="reservation-card__rule" />
+        <div className="reservation-card__title">
+          <h2>{item.name}</h2>
+          <span>{item.size}</span>
+        </div>
+        <div className="reservation-card__meta">
+          <span>A {item.size.toLowerCase()} sized maker studio</span>
+          <strong>{studioRateLabel(item.monthly_cents)}</strong>
+        </div>
+      </button>
+    ))}
+  </div>
+  {!studios.loading && !studios.error && !studioList.length ? (
+    <p className="empty-state">No studio spaces match this filter.</p>
+  ) : null}
+</section>
+<div className="dashboard-divider" />
       <section
         className="reservation-section"
         aria-labelledby="my-reservations"
@@ -184,10 +356,6 @@ export function ReservationsPage() {
             </article>
           ))}
         </div>
-      </section>
-      <section className="panel feature-notice">
-        <h2>Studio spaces</h2>
-        <p>Studio rentals are separate from hourly equipment reservations.</p>
       </section>
       <Modal
         open={!!selected}
@@ -250,10 +418,116 @@ export function ReservationsPage() {
           </form>
         ) : null}
       </Modal>
+      <Modal
+  open={!!selectedStudio}
+  title={selectedStudio ? 'Reserve ' + selectedStudio.name : 'Reserve studio'}
+  onClose={() => {
+    if (!busy) setSelectedStudio(null);
+  }}
+>
+  {selectedStudio ? (
+    <form className="reservation-form" onSubmit={reserveStudio}>
+      <div className="reservation-form__summary">
+        <img src={studioImage(selectedStudio.size)} alt="" />
+        <div>
+          <p className="eyebrow">{selectedStudio.size}</p>
+          <h3>{selectedStudio.name}</h3>
+          <span>{studioRateLabel(selectedStudio.monthly_cents)}</span>
+        </div>
+      </div>
+      <label className="form-field">
+        <span>Rental start date ({studioZone})</span>
+        <input
+          type="date"
+          min={studioToday}
+          value={studioStart}
+          required
+          onChange={(event) => {
+            setStudioStart(event.target.value);
+            setStudioRequestKey(crypto.randomUUID());
+          }}
+        />
+      </label>
+      <label className="form-field">
+        <span>Payment method</span>
+        <select
+          value={studioMethod}
+          onChange={(event) => {
+            setStudioMethod(event.target.value);
+            setStudioRequestKey(crypto.randomUUID());
+          }}
+        >
+          <option value="manual">Pay with staff</option>
+          {studios.data?.cardTestEnabled ? (
+            <option value="stripe_test">
+              Card checkout — TEST MODE, no real charges
+            </option>
+          ) : null}
+        </select>
+      </label>
+      {studioEnd ? (
+        <p className="form-caption">
+          Rental period: <strong>{studioStart} through {studioEnd}</strong> (end date exclusive).
+        </p>
+      ) : null}
+      {studioStart ? (
+        <p className="form-notice">
+          {studioConflict
+            ? 'Unavailable for the selected month.'
+            : 'Available for the selected month.'}
+        </p>
+      ) : null}
+      {!canBookStudio ? (
+        <p className="form-notice">
+          An active monthly subscription is required. Instructor accounts
+          cannot create reservations.
+        </p>
+      ) : null}
+      <p className="form-caption">{policy(selectedStudio.cancellation_policy)}</p>
+      {error ? (
+        <p role="alert" className="form-error">
+          {error}
+        </p>
+      ) : null}
+      <button
+        className="button button--primary button--wide"
+        type="submit"
+        disabled={
+          busy ||
+          !canBookStudio ||
+          !studioStart ||
+          studioConflict ||
+          !selectedStudio.policy_confirmed ||
+          !selectedStudio.monthly_cents
+        }
+      >
+        <CalendarDays aria-hidden="true" />{' '}
+        {busy
+          ? 'Saving…'
+          : studioMethod === 'manual'
+            ? 'Hold and pay with staff'
+            : 'Continue to test card checkout'}
+      </button>
+    </form>
+  ) : null}
+</Modal>
       <Toast message={toast} onClose={() => setToast(null)} />
     </div>
   );
 }
 function rateLabel(rate: number | null) {
   return rate === null ? 'Rate not set' : '$' + rate.toFixed(2) + '/hour';
+}
+
+function studioRateLabel(cents: number | null) {
+  return cents === null ? 'Rate not set' : '$' + (cents / 100).toFixed(2) + '/month';
+}
+
+function studioImage(size: string) {
+  const images: Record<string, string> = {
+    large: 'paris',
+    medium: 'coruscant',
+    small: 'harkonnen',
+  };
+  return '/assets/space-' + (images[size.toLowerCase()] ?? 'harkonnen') + '.webp';
 }

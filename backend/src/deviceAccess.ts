@@ -1,9 +1,11 @@
+import { accessDeadline } from './accessDeadline.js';
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { Router, type RequestHandler } from "express";
 import type { Pool } from "pg";
 import { transaction, type Database } from "./db.js";
 import { AppError, positiveId, textField } from "./domain.js";
 import { UserModel } from "./models/UserModel.js";
+import { accessTransaction, AccessDeadlineError } from "./services/AccessTransaction.js";
 import { AccessService, type AccessTarget } from "./services/AccessService.js";
 import { StaffModel } from "./models/StaffModel.js";
 import { authState, requireCsrf } from "./middleware/auth.js";
@@ -46,19 +48,30 @@ export function readDeviceConfig(): DeviceConfig | undefined {
   }
   return { readers, cardHashKey };
 }
-function uidHash(uid: unknown, c: DeviceConfig) {
+function uidHash(uid: unknown, c: DeviceConfig, cache?: Map<string, { hash: string; until: number }>) {
   if (typeof uid !== "string")
     throw new AppError(400, "INVALID_UID", "Use a 4, 7 or 10 byte card UID.");
   const value = uid.replace(/[: -]/g, "").toUpperCase();
   if (!/^(?:[A-F0-9]{8}|[A-F0-9]{14}|[A-F0-9]{20})$/.test(value))
     throw new AppError(400, "INVALID_UID", "Use a 4, 7 or 10 byte card UID.");
-  return createHmac("sha256", c.cardHashKey).update(value).digest("hex");
+  const cached = cache?.get(value);
+  if (cached && cached.until > Date.now()) return cached.hash;
+  const hash = createHmac("sha256", c.cardHashKey).update(value).digest("hex");
+  if (cache) {
+    cache.delete(value);
+    if (cache.size >= 256) cache.delete(cache.keys().next().value!);
+    cache.set(value, { hash, until: Date.now() + 60000 });
+  }
+  return hash;
 }
 export function deviceDecision(
   pool: Pool,
   timeZone: string,
   c?: DeviceConfig,
 ): RequestHandler {
+  const readers = new Map(c?.readers.map(reader => [reader.id, reader]));
+  // Cache only deterministic credential hashing, never assignment or eligibility.
+  const uidHashes = new Map<string, { hash: string; until: number }>();
   return async (req, res) => {
     if (!c)
       throw new AppError(
@@ -66,7 +79,7 @@ export function deviceDecision(
         "DEVICES_NOT_CONFIGURED",
         "Device access is not configured.",
       );
-    const reader = c.readers.find((r) => r.id === req.get("X-Reader-ID")),
+    const reader = readers.get(req.get("X-Reader-ID") ?? ""),
       stamp = req.get("X-Reader-Timestamp") ?? "",
       signature = req.get("X-Reader-Signature") ?? "";
     if (
@@ -109,10 +122,8 @@ export function deviceDecision(
         "INVALID_EVENT",
         "A fresh event UUID is required.",
       );
-    const hash = uidHash(body.uid, c);
-    const decision = await transaction(pool, async (db) => {
-      await db.query("SET LOCAL statement_timeout=1500");
-      await db.query("SET LOCAL lock_timeout=500");
+    const hash = uidHash(body.uid, c, uidHashes);
+    const decision = await accessTransaction(pool, async (db) => {
       const existing = await db.query(
         "SELECT id FROM app_device_access_event WHERE reader_id=$1 AND request_id=$2",
         [reader.id, body.eventId],
@@ -121,8 +132,11 @@ export function deviceDecision(
         throw new AppError(409, "REPLAYED_EVENT", "Use a fresh event ID.");
       const card = (
         await db.query(
-          "SELECT user_id FROM app_access_card WHERE uid_hash=$1 AND active=true FOR SHARE",
-          [hash],
+          {
+            name: "nfc-active-card-v1",
+            text: "SELECT user_id FROM app_access_card WHERE uid_hash=$1 AND active=true FOR SHARE",
+            values: [hash],
+          },
         )
       ).rows[0];
       const verdict = await evaluate(db, timeZone, reader, card?.user_id);
@@ -159,6 +173,13 @@ export function deviceDecision(
         readerId: reader.id,
         ...verdict,
       };
+    }).catch(error => {
+      if (error instanceof AccessDeadlineError || error?.code === '57014' || error?.code === '55P03') {
+        return { eventId: body.eventId, readerId: reader.id, allowed: false,
+          reason: 'VERIFICATION_TIMEOUT', expiresAt: null, leaseSeconds: 0,
+          member: null, buildingId: null, reservationId: null, decisionId: null };
+      }
+      throw error;
     });
     res.json({ data: decision });
   };
@@ -190,29 +211,8 @@ async function evaluate(db: Database, tz: string, r: Reader, userId?: number) {
   const user = await new UserModel(db).findById(userId);
   if (!user) return deny('ACCOUNT_BLOCKED');
   const entitlement = grant.entitlement;
-  let expires = new Date(Math.min(now.getTime() + 5000,grant.endsAt.getTime()));
-  // Bound the relay lease by all expiry windows, even near a five-second boundary.
-  const limits = (
-    await db.query(
-      `SELECT LEAST(
-  COALESCE((SELECT MAX(end_date AT TIME ZONE 'UTC') FROM user_membership WHERE userid=$1 AND status='active' AND startdate<=NOW() AT TIME ZONE 'UTC' AND end_date>NOW() AT TIME ZONE 'UTC'),
-    ((NOW() AT TIME ZONE $2)::date+1)::timestamp AT TIME ZONE $2),
-  COALESCE((SELECT MIN(expires_at) FROM user_waiver WHERE userid=$1 AND approval=true AND expires_at>NOW()),'infinity'::timestamptz)) AS ends`,
-      [userId, tz],
-    )
-  ).rows[0];
-  if (limits?.ends instanceof Date)
-    expires = new Date(Math.min(expires.getTime(), limits.ends.getTime()));
-  if (r.kind === "equipment") {
-    const limit = (
-      await db.query(
-        `SELECT LEAST(uc.renewaldate,c.enddate) AT TIME ZONE 'UTC' AS ends FROM user_certifications uc JOIN certifications c USING(certid) JOIN equipment e USING(certid) WHERE uc.userid=$1 AND e.equipmentid=$2 AND uc.status='active'`,
-        [userId, r.resourceId],
-      )
-    ).rows[0];
-    if (limit?.ends instanceof Date)
-      expires = new Date(Math.min(expires.getTime(), limit.ends.getTime()));
-  }
+  const expires = await accessDeadline(db,tz,userId,grant.endsAt,
+    r.kind === 'equipment' ? r.resourceId : undefined,now);
   if (expires.getTime() <= Date.now()) return deny("ELIGIBILITY_EXPIRED");
   return {
     allowed: true,

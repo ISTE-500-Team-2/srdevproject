@@ -89,11 +89,11 @@ test("combined waiver/certification tab mounts real admin tools instead of perso
   await screen.findByRole("heading", { name: "Certifications and waivers" });
   await screen.findByRole("button", { name: "Filter" });
   const user = userEvent.setup();
-  await user.click(screen.getByRole("button", { name: "Waiver versions" }));
+  await user.click(screen.getByRole("button", { name: "Waiver and Policy Management" }));
   await screen.findByRole("heading", { name: "Policies and waiver versions" });
-  await screen.findByRole("button", { name: "Publish version" });
+  await screen.findByRole("button", { name: "Publish Version" });
   await user.click(
-    screen.getByRole("button", { name: "Certification management" }),
+    screen.getByRole("button", { name: "Certification Management" }),
   );
   await screen.findByRole("button", { name: "Save certification" });
 });

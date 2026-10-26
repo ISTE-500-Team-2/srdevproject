@@ -114,6 +114,11 @@ test("in-person training, expiry, renewal concurrency, revocation and durable au
   assert.equal(
     (await post(path, { ...body, source: "external", expectedRevision: 3 }))
       .status,
+    409,
+  );
+  assert.equal(
+    (await post(path, { ...body, trainedAt: new Date().toISOString(), source: "external", expectedRevision: 3 }))
+      .status,
     201,
   );
   await pool.query(

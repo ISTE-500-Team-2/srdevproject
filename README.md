@@ -56,6 +56,9 @@ settings before using `npm run dev:email`.
 [RLES access guide](docs/rles-team-quick-start.md). The sponsor-hosting template is
 separate; it does not move or replace the current shared deployment.
 The shared RIT site uses [CI-gated automatic deployment from `main`](docs/AUTO-DEPLOYMENT.md).
+The public website, NFC demo and legacy SQL development connection currently use
+separate datasets; see [environment boundaries and the proposed integration
+cutover](docs/UNIFIED-ENVIRONMENT.md) before looking up website accounts in SQL.
 
 > **Demo is not production.** `compose.mvc.yml` contains development-only database
 > authentication and sample accounts. Never expose that stack as the live site.

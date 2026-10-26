@@ -5,7 +5,7 @@ import {transaction,type Database} from '../db.js';
 import {AppError,positiveId} from '../domain.js';
 import {calendarDate} from '../staffDomain.js';
 import {StaffModel} from '../models/StaffModel.js';
-import {EligibilityModel} from '../models/EligibilityModel.js';
+import {AccessService} from '../services/AccessService.js';
 import {StudioService} from '../studios/service.js';
 import {StudioStripe} from '../studios/stripe.js';
 import {enqueueNotification} from '../notifications/store.js';
@@ -41,7 +41,7 @@ export class PassBilling {
   const row=await transaction(this.pool,async db=>{
    await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,userid]);
    const user=await new StudioService(this.pool).actor(db,userid),model=new StaffModel(db);
-   if((await new EligibilityModel(db,this.zone).waivers(userid)).some(w=>!w.signed))throw new AppError(403,'WAIVER_REQUIRED','Sign the required waivers before purchasing access.');
+   await new AccessService(db,this.zone).assertWaivers(userid);
    if(date<new StudioService(this.pool,this.zone).today())throw new AppError(400,'INVALID_DATE','Choose today or a future date.');
    const plan=await model.plan(id,true);
    if(!plan?.active||plan.kind!=='day_pass')throw new AppError(400,'INVALID_PLAN','Choose an active day-pass plan.');
@@ -58,7 +58,7 @@ export class PassBilling {
   if(row.amount_cents===0)return {issued:true};
   if(row.status!=='pending')throw new AppError(409,'PASS_EXISTS','This pass is already issued or cancelled. Refresh its status.');
   if(!row.checkout_id&&Date.now()-new Date(row.created_at).getTime()>23*3600000)throw new AppError(409,'RECONCILE_REQUIRED','Staff must reconcile this checkout.');
-  const p=this.provider(),s=row.checkout_id?await p.sdk.checkout.sessions.retrieve(row.checkout_id):await p.sdk.checkout.sessions.create({mode:'payment',client_reference_id:row.id,customer_email:row.email,
+  const p=this.provider(),s=row.checkout_id?await p.sdk.checkout.sessions.retrieve(row.checkout_id):await p.sdk.checkout.sessions.create({mode:'payment',payment_method_types:['card'],client_reference_id:row.id,customer_email:row.email,
    metadata:{dayPassCheckoutId:row.id},success_url:p.config.origin+'/membership?pass=returned',cancel_url:p.config.origin+'/membership?pass=cancelled',
    payment_intent_data:{metadata:{dayPassCheckoutId:row.id}},line_items:[{quantity:1,price_data:{currency:'usd',unit_amount:row.amount_cents,product_data:{name:row.plan_snapshot.name}}}]},{idempotencyKey:'daypass-checkout:'+row.id});
   if(s.livemode)throw new AppError(400,'LIVE_PAYMENT_FORBIDDEN','Test payments only.');
@@ -82,7 +82,7 @@ export class PassBilling {
   return transaction(this.pool,async db=>{
    await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,userid]);
    await new StudioService(this.pool).actor(db,userid);
-   if((await new EligibilityModel(db,this.zone).waivers(userid)).some(w=>!w.signed))throw new AppError(403,'WAIVER_REQUIRED','Sign required waivers first.');
+   await new AccessService(db,this.zone).assertWaivers(userid);
    const model=new StaffModel(db),plan=await model.plan(positiveId(body.planId),true);
    if(!plan?.active||plan.kind!=='membership'||plan.months!==1)throw new AppError(400,'INVALID_PLAN','Choose an active monthly plan.');
    const start=new Date().toISOString(),window=await model.membershipWindow(userid,start,1);

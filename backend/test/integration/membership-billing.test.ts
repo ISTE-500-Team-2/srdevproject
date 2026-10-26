@@ -36,7 +36,7 @@ test('explicit renewal consent and current server price required; checkout retri
  assert.equal(checkoutCalls,1);assert.equal(checkoutParams.mode,'subscription');
  assert.equal(checkoutParams.line_items[0].price_data.recurring.interval,'month');
  assert.equal(checkoutParams.line_items[0].price_data.unit_amount,5000);
- assert.equal(checkoutParams.payment_method_types,undefined);
+ assert.deepEqual(checkoutParams.payment_method_types,['card'],'Do not offer buy-now-pay-later methods');
  row=(await pool.query('SELECT * FROM app_membership_billing WHERE userid=$1',[userid])).rows[0];
  assert.equal((await pool.query('SELECT * FROM app_membership_invoice')).rowCount,0);
  sub={billing_cycle_anchor:Date.parse('2030-01-01')/1000,id:'sub_billing',livemode:false,customer:'cus_billing',status:'active',cancel_at_period_end:false,metadata:{membershipBillingId:row.id},items:{data:[{quantity:1,current_period_end:Date.parse('2030-02-01')/1000,price:{unit_amount:5000,currency:'usd',recurring:{interval:'month',interval_count:1}}}]}};
