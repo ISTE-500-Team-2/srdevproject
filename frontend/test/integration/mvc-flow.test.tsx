@@ -200,7 +200,7 @@ test('React → Express controllers/models → PostgreSQL: login, save, refresh,
       screen.getByRole('navigation', { name: 'Primary navigation' }),
     ).getByRole('link', { name: 'Certifications & Waivers', exact: true }),
   );
-  // Check-in requires both policies; select each card by its heading because
+  // Check-in requires both policies; select each table row by its policy name because
   // unsigned policies share the same review button label.
   for (const policy of [
     {
@@ -214,8 +214,8 @@ test('React → Express controllers/models → PostgreSQL: login, save, refresh,
       confirmation: 'Terms of Service completed.',
     },
   ]) {
-    const heading = await screen.findByRole('heading', { name: policy.name });
-    const card = heading.closest('article')!;
+    const name = await screen.findByText(policy.name, {exact:true});
+    const card = name.closest('tr')!;
     await user.click(
       within(card).getByRole('button', { name: 'Review and agree' }),
     );

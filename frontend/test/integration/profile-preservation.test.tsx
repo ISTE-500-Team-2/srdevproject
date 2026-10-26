@@ -40,4 +40,16 @@ test('profile form saves visible fields without deleting custom values and omits
     expect(result.rows[0].profile_address).toEqual({City:'White Hall','Custom gate code':'Blue 7'});
     expect(result.rows[0].contact_preferences).toEqual({'SMS allowed':false});
   });
+  // Stale local-only selections must not override the real catalog/billing route.
+  window.localStorage.setItem('profile-membership-selection','premium-yearly');
+  expect(screen.queryByRole('button',{name:'Change membership option'})).toBeNull();
+  await user.click(screen.getByRole('link',{name:'Manage membership and passes'}));
+  await screen.findByRole('heading',{name:'Membership & passes'});
+  const plans=screen.getByRole('heading',{name:'Available plans'}).closest('section')!;
+  await waitFor(()=>expect(plans.textContent).toContain('$95.00'));
+  expect(plans.textContent).toContain('$25.00');
+  expect(plans.textContent).not.toContain('$19.99');
+  expect(plans.textContent).not.toContain('$99.99');
+  expect((await bridge.pool.query('SELECT count(*)::int AS n FROM app_membership_billing')).rows[0].n).toBe(0);
+  window.localStorage.removeItem('profile-membership-selection');
 });

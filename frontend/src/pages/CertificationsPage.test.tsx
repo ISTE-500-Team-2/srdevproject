@@ -141,3 +141,16 @@ test('accepted terms are marked completed',()=>{
  mount({name:'Terms of Service',signed:true,signedAt:'2026-10-22T12:00:00Z',expiredSignature:false});
  expect(screen.getByText(/Completed/)).toBeTruthy();
 });
+test('demo waiver table preserves Terms acceptance and completed status after the UI merge',async()=>{
+ mount({name:'Terms of Service',description:'Terms fixture',expiredSignature:false},
+  {demoLogin:true,user:{role:'member',roles:['member'],email:'demo.member@collaboratory.invalid'}});
+ const row=screen.getByText('Terms of Service').closest('tr')!;
+ fireEvent.click(within(row).getByRole('button',{name:'Review and agree'}));
+ const submit=screen.getByRole('button',{name:'Submit acceptance'}) as HTMLButtonElement;
+ expect(submit.disabled).toBe(true);
+ fireEvent.click(screen.getByRole('checkbox',{name:'I have read and accept the Terms of Service.'}));
+ api.mockResolvedValue({});fireEvent.click(submit);
+ await waitFor(()=>expect(api).toHaveBeenCalledWith('/me/waivers/2/sign',{method:'POST',body:{accepted:true}}));
+ expect(reload).toHaveBeenCalled();
+ expect(await screen.findByText('Terms of Service completed.')).toBeTruthy();
+});

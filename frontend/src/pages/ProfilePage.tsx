@@ -1,26 +1,11 @@
 import { SignedWaiverRecords } from "../components/SignedWaiverRecords";
 import { Save, UserRound } from "lucide-react";
 import { type FormEvent, useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { Toast } from "../components/Toast";
 import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
 import type { ProfileFields, UserProfile } from "../lib/contracts";
-
-const membershipStorageKey = 'profile-membership-selection';
-const membershipPlans = [
-  { tier: 'Basic', choices: [{ label: 'Monthly', price: '$19.99', value: 'basic-monthly' }, { label: 'Yearly', price: '$99.99', value: 'basic-yearly' }] },
-  { tier: 'Premium', choices: [{ label: 'Monthly', price: '$19.99', value: 'premium-monthly' }, { label: 'Yearly', price: '$99.99', value: 'premium-yearly' }] },
-  { tier: 'Student', choices: [{ label: 'Monthly', price: '$19.99', value: 'student-monthly' }, { label: 'Yearly', price: '$99.99', value: 'student-yearly' }] },
-] as const;
-type MembershipSelection = (typeof membershipPlans)[number]['choices'][number]['value'];
-const selectableMemberships: MembershipSelection[] = [
-  'basic-monthly',
-  'basic-yearly',
-  'premium-monthly',
-  'premium-yearly',
-];
-const isSelectableMembership = (selection: string): selection is MembershipSelection =>
-  selectableMemberships.some((plan) => plan === selection);
 
 const cardStyle = { minHeight: 0 } as const;
 // Cards grow to fill each row and wrap onto a new row on narrow screens.
@@ -32,7 +17,6 @@ const cardGridStyle = {
   alignItems: "stretch",
   gap: 20,
 } as const;
-const studioEmail = "arborcollaboratory@yahoo.com";
 
 function NotificationSettings() {
   const [settings, setSettings] = useState<{
@@ -143,8 +127,6 @@ export function ProfilePage() {
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [membershipSelection, setMembershipSelection] = useState<MembershipSelection>('basic-monthly');
-  const [membershipError, setMembershipError] = useState('');
   useEffect(() => {
     const controller = new AbortController();
     api<UserProfile>("/me/profile", { signal: controller.signal })
@@ -154,26 +136,6 @@ export function ProfilePage() {
       });
     return () => controller.abort();
   }, []);
-  useEffect(() => {
-    try {
-      const savedSelection = window.localStorage.getItem(membershipStorageKey);
-      if (savedSelection && isSelectableMembership(savedSelection)) {
-        setMembershipSelection(savedSelection);
-      }
-    } catch {
-      setMembershipError('Unable to load your saved membership selection.');
-    }
-  }, []);
-  const changeMembership = () => {
-    setMembershipError('');
-    try {
-      window.localStorage.setItem(membershipStorageKey, membershipSelection);
-    } catch {
-      setMembershipError('Unable to save your membership selection in this browser.');
-      return;
-    }
-    location.reload();
-  };
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!profile) return;
@@ -323,36 +285,11 @@ export function ProfilePage() {
 
         <section className="profile-panel panel" style={cardFlex(1.4, 340)}>
           <h2>Membership</h2>
-          <p>Change your membership tier to your liking. Each membership offers a monthly and yearly plan.</p>
-          <div className="membership-options" style={{ gridTemplateColumns: "1fr" }}>
-            {membershipPlans.map(({ tier, choices }) => (
-              <fieldset
-                className="membership-option"
-                data-selected={choices.some(({ value }) => value === membershipSelection)}
-                key={tier}
-                disabled={tier === 'Student'}
-              >
-                <legend>{tier}</legend>
-                {choices.map(({ label, price, value }) => (
-                  <label key={value}>
-                    <input
-                      type="radio"
-                      name="membership-option"
-                      value={value}
-                      checked={membershipSelection === value}
-                      onChange={() => setMembershipSelection(value)}
-                    />
-                    <span>{label}</span>
-                    <strong>{price}</strong>
-                  </label>
-                ))}
-              </fieldset>
-            ))}
-          </div>
-          {membershipError ? <p role="alert" className="form-error">{membershipError}</p> : null}
-          <button type="button" className="button button--primary membership-change-button" onClick={changeMembership}>
-            Change membership option
-          </button>
+          <p>Current membership access: <strong>{user?.membership ?? 'None'}</strong>.</p>
+          <p>Review current plans, prices, eligibility and payment status before making a change.</p>
+          <Link className="button button--primary" to="/membership">
+            Manage membership and passes
+          </Link>
         </section>
 
         <NotificationSettings />
@@ -364,6 +301,8 @@ export function ProfilePage() {
         </section>
         <section className="profile-panel panel" style={cardFlex(1.5, 300)}>
           <h2>Payments</h2>
+          <p>View receipts, manage payment details and check refunds in your billing workspace.</p>
+          <Link to="/membership">Manage payments</Link>
         </section>
       </div>
 
@@ -371,18 +310,17 @@ export function ProfilePage() {
       <section className="panel feature-notice">
         <h2>Other account settings</h2>
         <p>
-          Email changes, password reset, and billing are not available in this
+          Email changes and password reset are not available in this
           version.
         </p>
       </section>
 
       <hr style={{ width: "100%", border: 0, borderTop: "1px solid var(--border-strong)", margin: 0 }} />
-      <section aria-labelledby="studio-contact-heading">
-        <h2 id="studio-contact-heading">Contact The Crafty Studio</h2>
-        <p>
-          <a href={`mailto:${studioEmail}`}>{studioEmail}</a>
-        </p>
-      </section>
+      {profile ? <section aria-labelledby="studio-contact-heading">
+        <h2 id="studio-contact-heading">Contact {profile.studioContact.name}</h2>
+        <p><a href={`mailto:${profile.studioContact.email}`}>{profile.studioContact.email}</a></p>
+        {profile.studioContact.phone ? <p><a href={`tel:${profile.studioContact.phone}`}>{profile.studioContact.phone}</a></p> : null}
+      </section> : null}
       <Toast message={toast} onClose={() => setToast(null)} />
     </div>
   );
