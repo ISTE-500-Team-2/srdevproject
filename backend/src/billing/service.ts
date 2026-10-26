@@ -57,7 +57,7 @@ export class MembershipBilling {
       throw new AppError(409,'RECONCILE_REQUIRED','Staff must reconcile this old checkout before trying again.');
     const session=row.checkout_id ? await provider.sdk.checkout.sessions.retrieve(row.checkout_id) :
       await provider.sdk.checkout.sessions.create({
-        mode:'subscription', integration_identifier:'arbor-memberships-vqkntpaz',
+        mode:'subscription', payment_method_types:['card'], integration_identifier:'arbor-memberships-vqkntpaz',
         client_reference_id:row.id,customer_email:row.email,
         metadata:{membershipBillingId:row.id},subscription_data:{metadata:{membershipBillingId:row.id}},
         success_url:provider.config.origin+'/membership?billing=returned',

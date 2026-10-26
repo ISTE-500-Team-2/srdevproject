@@ -245,6 +245,7 @@ test("test checkout reconciles paid sessions; refund failures stay visible and r
     refundCalls = 0,
     failRefund = true;
   provider.sdk.checkout.sessions.create = (async (data: any) => {
+    assert.deepEqual(data.payment_method_types,['card'],'Do not offer buy-now-pay-later methods');
     created = {
       ...data,
       id: "cs_test_checkout",

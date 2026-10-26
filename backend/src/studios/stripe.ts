@@ -33,6 +33,7 @@ export class StudioStripe {
     const session = await this.sdk.checkout.sessions.create(
       {
         mode: "payment",
+        payment_method_types: ['card'],
         integration_identifier: "arbor-studios-qmrxnpta",
         client_reference_id: String(r.id),
         metadata: { studioRentalId: String(r.id) },
