@@ -5,6 +5,16 @@ export interface Plan extends PlanInput {
   id: number;
   revision: number;
 }
+export interface PolicyRecord {
+  id: number;
+  name: string;
+  version: string;
+  description: string | null;
+  effectiveAt: Date | null;
+  active: boolean;
+  required: boolean;
+  approvalReference: string | null;
+}
 export interface ComplianceFilters {
   waiverId: number | null;
   certificationId: number | null;
@@ -339,7 +349,7 @@ export class StaffModel {
     ).rows;
   }
   async audit(
-    actor: number,
+    actor: number | null,
     subject: number | null,
     action: string,
     type: string,
@@ -418,7 +428,7 @@ export class StaffModel {
   }
   async policies() {
     return (
-      await this.db.query(
+      await this.db.query<PolicyRecord>(
         `SELECT waiverid AS id,name,version,description,effectivedate AT TIME ZONE 'UTC' AS "effectiveAt",isactive AS active,required,approval_reference AS "approvalReference" FROM waiver ORDER BY effectivedate DESC NULLS LAST,waiverid DESC`,
       )
     ).rows;
@@ -432,9 +442,9 @@ export class StaffModel {
     actorId: number,
   ) {
     return (
-      await this.db.query(
+      await this.db.query<PolicyRecord>(
         `INSERT INTO waiver(name,version,description,effectivedate,approval_reference,created_by) VALUES($1,$2,$3,$4::timestamptz AT TIME ZONE 'UTC',$5,$6)
-      RETURNING waiverid AS id,name,version,description,effectivedate AT TIME ZONE 'UTC' AS "effectiveAt",approval_reference AS "approvalReference"`,
+      RETURNING waiverid AS id,name,version,description,effectivedate AT TIME ZONE 'UTC' AS "effectiveAt",isactive AS active,required,approval_reference AS "approvalReference"`,
         [name, version, description, effectiveAt, approvalReference, actorId],
       )
     ).rows[0]!;

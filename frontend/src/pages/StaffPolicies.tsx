@@ -21,7 +21,8 @@ export function StaffPolicies() {
         <h2>Policies and waiver versions</h2>
         <p>
           Signed versions are retained. Publishing a new effective version under
-          the same policy name requires members to agree again.
+          the same policy name requires members to agree again. Scheduled versions
+          do not replace the current agreement until their effective time.
         </p>
         <LoadState {...policies} />
         <div className="management-records">
@@ -59,8 +60,8 @@ export function StaffPolicies() {
                   >
                     <p>
                       Retiring every required policy blocks check-in until a
-                      current policy is configured. Older active versions with
-                      this name can become current again.
+                      current policy is configured. Superseded versions remain
+                      retired; this does not restore an older agreement.
                     </p>
                     <ReasonField />
                   </ActionForm>

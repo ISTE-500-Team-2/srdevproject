@@ -8,6 +8,7 @@ import { StaffModel } from "../models/StaffModel.js";
 import type { IssueInput, PlanInput } from "../staffDomain.js";
 import { PermissionModel } from "../models/PermissionModel.js";
 import { planInput } from "../staffDomain.js";
+import { retireSupersededPolicies } from "../policyLifecycle.js";
 
 const missing = () =>
   new AppError(404, "NOT_FOUND", "The selected record was not found.");
@@ -510,19 +511,7 @@ export class StaffService {
       reason: string;
     },
   ) {
-    return this.write(actorId, true, "waiver", "create", async (model) => {
-      //find previous versions
-      //before gets a filtered array of all previous versions of the policy.
-      const before = ((await model.policies()).filter((p) => p.name === input.name //look for policies with the same name
-                        && p.version !== input.version //look for policies with different versions
-                        && p.isActive)); //look for policies that are active
-      //if there are previous versions, retire them.
-      if(before.length){
-        for(let i of before){
-          this.retirePolicy(actorId, i.id, input.reason)
-        }//for loop
-      }//if there are previous versions
-      
+    return this.write(actorId, true, "waiver", "create", async (model, _actor, db) => {
       const after = await model.createPolicy(
         input.name,
         input.version,
@@ -541,13 +530,29 @@ export class StaffService {
         null,
         after,
       );
-      return after;
+      // Reuse this transaction and its staff-write lock. Calling retirePolicy()
+      // here would open another transaction competing for the very same lock.
+      const retired = await retireSupersededPolicies(db, {
+        name: input.name,
+        actorId,
+        reason: input.reason,
+      });
+      return { ...after, active: after.active && !retired.includes(after.id) };
     });
   }
   retirePolicy(actorId: number, id: number, reason: string) {
     return this.write(actorId, true, "waiver", "update", async (model, _actor, db) => {
-      const before = (await model.policies()).find((p) => p.id === id); //find the policy by id
+      const before = (await model.policies()).find((p) => p.id === id);
       if (!before) throw missing();
+      // A scheduled replacement may have just become current before the worker's
+      // next scan. Retire its predecessors first so withdrawing it cannot revive
+      // an obsolete agreement. This remains in the same locked transaction.
+      const retired = await retireSupersededPolicies(db, {
+        name: before.name,
+        actorId,
+        reason,
+      });
+      if (!before.active || retired.includes(id)) return { ...before, active: false };
       await db.query("UPDATE waiver SET isactive=false WHERE waiverid=$1", [
         id,
       ]);
