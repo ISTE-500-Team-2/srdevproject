@@ -1,5 +1,13 @@
 # Team ARBOR — Shared VM and Development Access
 
+> **Historical SSH/VM instructions below:** Ubuntu-8802 has been replaced; obtain
+> the currently verified route from the infrastructure owner before connecting.
+> The SQL development tunnel (`15432`, `collaboratory_dev`) is **not the public
+> website database** and website signups will not appear there. Do not change
+> connection destinations, privileges or database contents to work around this.
+> See [current environment separation and proposed cutover](UNIFIED-ENVIRONMENT.md)
+> and [isolated local development](LOCAL-DEVELOPMENT.md).
+
 Updated September 9, 2026.
 
 ## Use the current shared VM

@@ -41,6 +41,7 @@ jobs:
       - run: npm run test:integration --prefix backend
       - run: npm run test:integration --prefix frontend
       - run: python3 -m unittest discover -s deploy/reader -v
+      - run: node --test deploy/rles-edge.test.mjs
       - run: bash -n deploy/deploy-arbor.sh
       - run: python3 deploy/test_deploy.py
       - run: python3 deploy/test_auto_release.py
