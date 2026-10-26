@@ -15,6 +15,9 @@ not deploy. The gateway, database containers, volumes, credentials and Pi stay p
    are required too. Pending, failed, skipped, cancelled or missing checks hold.
 3. The VM fetches/builds that immutable SHA. No GitHub token, inbound webhook,
    self-hosted Actions runner, GitHub SSH secret or exposed Docker socket is used.
+   Tracked public source gets its canonical readable/executable permissions before
+   Docker builds. The protected release parent, Git metadata and untracked operator
+   secrets remain private; the operator's restrictive umask is not weakened.
 4. Read-only migration/checksum verification runs against both existing databases.
    **It never applies migrations, seeds, recreates volumes or resets data.** If a
    release needs a migration, an operator must review and authorize it separately.
