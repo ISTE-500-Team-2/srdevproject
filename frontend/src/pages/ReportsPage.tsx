@@ -62,6 +62,30 @@ export type Report = {
     activeReaderLeases: number;
   }[];
   usage: { equipmentId: number; authorizedHours: string }[];
+  memberships: {
+    period: string;
+    newMembers: number;
+    activeMembers: number;
+    expiringMembers: number;
+    cancelledMembers: number;
+  }[];
+  notifications: {
+    cohorts: Record<
+      string,
+      {
+        eligible: number;
+        on_time: number;
+        onTimePercent: number | null;
+        delivered: number;
+        delivery_on_time: number;
+        deliveryOnTimePercent: number | null;
+        delivery_failed: number;
+        failed: number;
+        uncertain: number;
+        pending: number;
+      }
+    >;
+  };
 };
 export function ReportsPage() {
   const today = zonedDay("America/New_York");
@@ -132,7 +156,7 @@ export function ReportsPage() {
           <input name="to" type="date" required defaultValue={today} />
         </label>
         <label>
-          Group receipts
+          Group results
           <select name="period">
             <option value="daily">Daily</option>
             <option value="weekly">Weekly</option>
@@ -231,6 +255,94 @@ export function ReportsPage() {
               )}
             </section>
           </div>
+          <h2>Membership trends</h2>
+          <p>
+            Distinct people per period. Renewals are not new members;
+            cancellation requests do not immediately end paid access.
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>Period</th>
+                <th>New members</th>
+                <th>Active coverage</th>
+                <th>Expiring without continuation</th>
+                <th>Confirmed cancellation requests</th>
+              </tr>
+            </thead>
+            <tbody>
+              {d.memberships?.map((row) => (
+                <tr key={row.period}>
+                  <td>{row.period}</td>
+                  <td>{row.newMembers}</td>
+                  <td>{row.activeMembers}</td>
+                  <td>{row.expiringMembers}</td>
+                  <td>{row.cancelledMembers}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p>
+            Coverage uses current membership records, not a reconstruction of
+            past account eligibility. See report definitions for cancellation
+            and legacy-data limits.
+          </p>
+          <h2>Notification delivery evidence</h2>
+          <p>
+            Deadline dates in the selected range. Only elapsed eligible
+            deadlines enter percentages. A delivered callback is provider
+            evidence, not proof of inbox placement.
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>Cohort</th>
+                <th>Eligible deadlines</th>
+                <th>Accepted on time</th>
+                <th>Acceptance rate</th>
+                <th>Delivered on time</th>
+                <th>Delivery rate</th>
+                <th>All delivered callbacks</th>
+                <th>Failed sends / delivery failures / uncertain / pending</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(d.notifications?.cohorts ?? {}).map(
+                ([key, row]) => (
+                  <tr key={key}>
+                    <th scope="row">
+                      {(
+                        {
+                          expirationCompliance:
+                            "Waiver & training expiration (BR-009)",
+                          membershipExpiration: "Membership expiration",
+                          other: "Account, billing & other notices",
+                        } as Record<string, string>
+                      )[key] ?? key}
+                    </th>
+                    <td>{row.eligible}</td>
+                    <td>{row.on_time}</td>
+                    <td>
+                      {row.onTimePercent === null
+                        ? "Not measured"
+                        : row.onTimePercent.toFixed(1) + "%"}
+                    </td>
+                    <td>{row.delivery_on_time}</td>
+                    <td>
+                      {row.deliveryOnTimePercent === null
+                        ? "Not measured"
+                        : row.deliveryOnTimePercent.toFixed(1) + "%"}
+                    </td>
+                    <td>{row.delivered}</td>
+                    <td>
+                      {row.failed} / {row.delivery_failed} / {row.uncertain} /{" "}
+                      {row.pending}
+                    </td>
+                  </tr>
+                ),
+              )}
+            </tbody>
+          </table>
           <h2>Equipment booking utilization</h2>
           <table>
             <thead>

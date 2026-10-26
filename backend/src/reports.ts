@@ -3,6 +3,11 @@ import type { Pool } from "pg";
 import { transaction } from "./db.js";
 import { AppError } from "./domain.js";
 import { requirePermission } from "./middleware/permissions.js";
+import {
+  membershipTrends,
+  membershipReportNotes,
+} from "./membershipReports.js";
+import { notificationMetrics } from "./notifications/store.js";
 export function reportRoutes(pool: Pool, tz: string) {
   const r = Router();
   r.get(
@@ -47,6 +52,17 @@ export function reportRoutes(pool: Pool, tz: string) {
           )
         ).rows[0]!;
         const params = [bounds.a, bounds.b, tz];
+        const memberships = await membershipTrends(
+          db,
+          bounds.a,
+          bounds.b,
+          tz,
+          bucket,
+        );
+        const notifications = await notificationMetrics(db, {
+          from: bounds.a,
+          to: bounds.b,
+        });
         const revenue = (
           await db.query(
             `WITH ledger AS (
@@ -133,7 +149,11 @@ export function reportRoutes(pool: Pool, tz: string) {
           compliance,
           live,
           usage,
+          memberships,
+          notifications,
           notes: [
+            ...membershipReportNotes,
+            "Notification cohorts use deadline dates, not creation dates. Expiration/compliance covers waiver and training reminders only. Provider acceptance, delivered callbacks and inbox placement are different; zero eligible notices means no rate, not 100%.",
             "Revenue groups recorded receipts by original purchase date and current refund state; it is not a historical cash-flow ledger.",
             "Booking utilization uses the full selected calendar window, not operating-hours availability. Reader-authorized time is separately measured and is not proof of physical machine operation.",
             "Room visits are historical check-ins, not current headcount. Active reader leases and verified class attendance are reported separately.",
@@ -161,12 +181,17 @@ export function reportRoutes(pool: Pool, tz: string) {
             "rooms",
             "live",
             "usage",
+            "memberships",
           ] as const)
             for (const row of data[section]) records.push({ section, ...row });
           records.push(
             { section: "active", ...data.active },
             { section: "compliance", ...data.compliance },
           );
+          for (const [cohort, metrics] of Object.entries(
+            data.notifications.cohorts,
+          ))
+            records.push({ section: "notifications", cohort, ...metrics });
           const headers = [
             ...new Set(records.flatMap((row) => Object.keys(row))),
           ];
@@ -222,6 +247,7 @@ function reportLines(d: any): string[][] {
     "rooms",
     "live",
     "usage",
+    "memberships",
   ])
     for (const row of d[section])
       rows.push([
@@ -232,6 +258,14 @@ function reportLines(d: any): string[][] {
     rows.push([
       section,
       ...Object.entries(d[section]).map(([k, v]) => `${k}: ${v}`),
+    ]);
+  for (const [cohort, metrics] of Object.entries(d.notifications.cohorts))
+    rows.push([
+      "notifications",
+      cohort,
+      ...Object.entries(metrics as object).map(
+        ([k, v]) => `${k}: ${v ?? "not measured"}`,
+      ),
     ]);
   return rows;
 }

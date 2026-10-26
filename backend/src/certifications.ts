@@ -68,6 +68,21 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
       ).rows,
     });
   });
+  // Instructors need a narrow identity lookup, not access to the admin user API.
+  router.get("/training/members", async (req, res) => {
+    await actor(pool, authState(res).user.id, "read", "read");
+    const search = textField(req.query.search ?? "", "Member search", 100, 2);
+    const instructorsOnly = req.query.role === "instructor";
+    const { rows } = await pool.query(
+      `SELECT u.userid AS id,u.firstname||' '||u.lastname AS name,u.email
+       FROM "user" u WHERE strpos(lower(u.firstname||' '||u.lastname||' '||u.email),lower($1))>0
+       AND (NOT $2::boolean OR (u.status='active' AND u.accessstatus='active' AND EXISTS
+         (SELECT 1 FROM user_role ur JOIN role r USING(roleid) WHERE ur.userid=u.userid AND r.role='instructor')))
+       ORDER BY u.lastname,u.firstname,u.userid LIMIT 26`,
+      [search, instructorsOnly],
+    );
+    res.json({ data: { items: rows.slice(0, 25), hasMore: rows.length > 25 } });
+  });
   router.post("/training/catalog", requireCsrf, async (req, res) => {
     const data = await tx(async (db) => {
       const user = await actor(db, authState(res).user.id, "create", "catalog");
@@ -276,8 +291,9 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
         if (before) await actor(db, user.id, "update", "approve");
         if (before?.revoked_at && trainedAt <= new Date(before.revoked_at))
           throw new AppError(
-            409, 'RETRAINING_REQUIRED',
-            'Record newly completed, in-person verified training after the access revocation.',
+            409,
+            "RETRAINING_REQUIRED",
+            "Record newly completed, in-person verified training after the access revocation.",
           );
         if (
           before &&

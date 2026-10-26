@@ -1,32 +1,139 @@
 // @vitest-environment jsdom
-import { afterEach, expect, test, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { Modal } from './Modal';
+import { afterEach, expect, test, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { Modal } from "./Modal";
+import userEvent from "@testing-library/user-event";
 afterEach(cleanup);
-test('modal escapes transformed page stacking context and keeps its controls interactive',()=>{
-  const close=vi.fn();const confirm=vi.fn();
-  const view=render(<div style={{transform:'translateY(0)'}}><Modal open title="Reserve equipment" onClose={close}><button onClick={confirm}>Confirm reservation</button></Modal></div>);
-  const dialog=screen.getByRole('dialog');
+test("Tab and Shift+Tab stay in dialog; closing restores trigger and background state", async () => {
+  const user = userEvent.setup();
+  const view = render(<button>Open booking</button>);
+  const trigger = screen.getByRole("button");
+  trigger.focus();
+  view.rerender(
+    <>
+      <button>Open booking</button>
+      <Modal open title="Booking" onClose={() => {}}>
+        <input aria-label="Booking name" />
+        <button>Save booking</button>
+      </Modal>
+    </>,
+  );
+  const close = screen.getByRole("button", { name: "Close dialog" }),
+    save = screen.getByRole("button", { name: "Save booking" });
+  expect(document.activeElement).toBe(close);
+  expect(view.container.inert).toBe(true);
+  await user.tab({ shift: true });
+  expect(document.activeElement).toBe(save);
+  await user.tab();
+  expect(document.activeElement).toBe(close);
+  for (let i = 0; i < 15; i++) {
+    await user.tab();
+    expect(screen.getByRole("dialog").contains(document.activeElement)).toBe(
+      true,
+    );
+  }
+  view.rerender(
+    <>
+      <button>Open booking</button>
+      <Modal open={false} title="Booking" onClose={() => {}}>
+        Details
+      </Modal>
+    </>,
+  );
+  expect(document.activeElement).toBe(trigger);
+  expect(view.container.inert).not.toBe(true);
+});
+test("nested dialogs preserve scroll lock and restore the parent dialog before background", () => {
+  const view = render(
+    <>
+      <Modal open title="Parent" onClose={() => {}}>
+        <button>Parent action</button>
+      </Modal>
+      <Modal open={false} title="Child" onClose={() => {}}>
+        Child
+      </Modal>
+    </>,
+  );
+  const parent = screen.getByRole("button", { name: "Parent action" });
+  parent.focus();
+  view.rerender(
+    <>
+      <Modal open title="Parent" onClose={() => {}}>
+        <button>Parent action</button>
+      </Modal>
+      <Modal open title="Child" onClose={() => {}}>
+        Child
+      </Modal>
+    </>,
+  );
+  expect(document.body.classList.contains("modal-open")).toBe(true);
+  view.rerender(
+    <>
+      <Modal open title="Parent" onClose={() => {}}>
+        <button>Parent action</button>
+      </Modal>
+      <Modal open={false} title="Child" onClose={() => {}}>
+        Child
+      </Modal>
+    </>,
+  );
+  expect(document.body.classList.contains("modal-open")).toBe(true);
+  expect(document.activeElement).toBe(parent);
+});
+test("modal escapes transformed page stacking context and keeps its controls interactive", () => {
+  const close = vi.fn();
+  const confirm = vi.fn();
+  const view = render(
+    <div style={{ transform: "translateY(0)" }}>
+      <Modal open title="Reserve equipment" onClose={close}>
+        <button onClick={confirm}>Confirm reservation</button>
+      </Modal>
+    </div>,
+  );
+  const dialog = screen.getByRole("dialog");
   expect(view.container.contains(dialog)).toBe(false);
   expect(dialog.parentElement?.parentElement).toBe(document.body);
-  fireEvent.click(screen.getByText('Confirm reservation'));expect(confirm).toHaveBeenCalledOnce();expect(close).not.toHaveBeenCalled();
-  fireEvent.keyDown(window,{key:'Escape'});expect(close).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByText("Confirm reservation"));
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(close).not.toHaveBeenCalled();
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(close).toHaveBeenCalledOnce();
 });
-test('closed modal leaves no body overlay or scroll lock',()=>{
-  const view=render(<Modal open title="Booking" onClose={()=>{}}>Details</Modal>);
-  expect(document.body.classList.contains('modal-open')).toBe(true);
-  view.rerender(<Modal open={false} title="Booking" onClose={()=>{}}>Details</Modal>);
-  expect(screen.queryByRole('dialog')).toBeNull();expect(document.body.classList.contains('modal-open')).toBe(false);
+test("closed modal leaves no body overlay or scroll lock", () => {
+  const view = render(
+    <Modal open title="Booking" onClose={() => {}}>
+      Details
+    </Modal>,
+  );
+  expect(document.body.classList.contains("modal-open")).toBe(true);
+  view.rerender(
+    <Modal open={false} title="Booking" onClose={() => {}}>
+      Details
+    </Modal>,
+  );
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.body.classList.contains("modal-open")).toBe(false);
 });
 
-test('parent updates preserve form focus while Escape uses the current close handler',()=>{
-  const first=vi.fn(),latest=vi.fn();
-  const view=render(<Modal open title="Signup" onClose={first}><input aria-label="First name" /></Modal>);
-  const input=screen.getByLabelText('First name');
-  input.focus();fireEvent.change(input,{target:{value:'Signup'}});
-  view.rerender(<Modal open title="Signup" onClose={latest}><input aria-label="First name" /></Modal>);
+test("parent updates preserve form focus while Escape uses the current close handler", () => {
+  const first = vi.fn(),
+    latest = vi.fn();
+  const view = render(
+    <Modal open title="Signup" onClose={first}>
+      <input aria-label="First name" />
+    </Modal>,
+  );
+  const input = screen.getByLabelText("First name");
+  input.focus();
+  fireEvent.change(input, { target: { value: "Signup" } });
+  view.rerender(
+    <Modal open title="Signup" onClose={latest}>
+      <input aria-label="First name" />
+    </Modal>,
+  );
   expect(document.activeElement).toBe(input);
-  expect((input as HTMLInputElement).value).toBe('Signup');
-  fireEvent.keyDown(window,{key:'Escape'});
-  expect(latest).toHaveBeenCalledOnce();expect(first).not.toHaveBeenCalled();
+  expect((input as HTMLInputElement).value).toBe("Signup");
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(latest).toHaveBeenCalledOnce();
+  expect(first).not.toHaveBeenCalled();
 });

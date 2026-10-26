@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { auditContext } from '../auditContext.js';
+import { auditContext } from "../auditContext.js";
 import type { Request, Response, NextFunction } from "express";
 import type { Pool } from "pg";
 import type { AppConfig } from "../config.js";
@@ -18,8 +18,8 @@ export function refreshToken(req: Request): string {
   );
 }
 export function sessionToken(req: Request): string {
-  const header = req.get('Authorization') ?? '';
-  return header.startsWith('Bearer ') ? header.slice(7) : '';
+  const header = req.get("Authorization") ?? "";
+  return header.startsWith("Bearer ") ? header.slice(7) : "";
 }
 export interface AuthState {
   user: UserView;
@@ -31,8 +31,9 @@ export const authState = (res: Response): AuthState =>
 
 export function requireStaff(_req: Request, res: Response, next: NextFunction) {
   const user = authState(res).user;
-  const hasStaffOrAdminRole = Array.isArray(user.roles)
-    && user.roles.some((role) => role === "staff" || role === "admin");
+  const hasStaffOrAdminRole =
+    Array.isArray(user.roles) &&
+    user.roles.some((role) => role === "staff" || role === "admin");
 
   if (!hasStaffOrAdminRole)
     throw new AppError(403, "STAFF_REQUIRED", "Staff permission is required.");
@@ -40,7 +41,12 @@ export function requireStaff(_req: Request, res: Response, next: NextFunction) {
 }
 
 export function requireUser(pool: Pool, config: AppConfig) {
-  const sessions = new SessionModel(pool, config.jwtKey, config.accessTokenSeconds, config.refreshTokenSeconds);
+  const sessions = new SessionModel(
+    pool,
+    config.jwtKey,
+    config.accessTokenSeconds,
+    config.refreshTokenSeconds,
+  );
   return async (req: Request, res: Response, next: NextFunction) => {
     const token = sessionToken(req);
     const session = await sessions.find(token);
@@ -101,24 +107,28 @@ export function checkOrigin(config: AppConfig) {
   };
 }
 
-export function authRateLimit() {
+export function authRateLimit(
+  options: { limit?: number; windowMs?: number; message?: string } = {},
+) {
+  const limit = options.limit ?? 30;
+  const windowMs = options.windowMs ?? 15 * 60000;
   const attempts = new Map<string, { count: number; until: number }>();
   return (req: Request, res: Response, next: NextFunction) => {
     const now = Date.now();
     for (const [key, value] of attempts)
       if (value.until <= now) attempts.delete(key);
     const key = req.ip ?? "unknown";
-    const record = attempts.get(key) ?? { count: 0, until: now + 15 * 60000 };
+    const record = attempts.get(key) ?? { count: 0, until: now + windowMs };
     if (attempts.size >= 2048 && !attempts.has(key))
       throw new AppError(429, "RATE_LIMITED", "Please try again later.");
     record.count++;
     attempts.set(key, record);
-    if (record.count > 30) {
+    if (record.count > limit) {
       res.set("Retry-After", String(Math.ceil((record.until - now) / 1000)));
       throw new AppError(
         429,
         "RATE_LIMITED",
-        "Too many sign-in attempts. Please try again later.",
+        options.message ?? "Too many sign-in attempts. Please try again later.",
       );
     }
     next();

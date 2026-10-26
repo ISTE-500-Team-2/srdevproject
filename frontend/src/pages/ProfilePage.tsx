@@ -296,9 +296,6 @@ export function ProfilePage() {
       </div>
 
       <div style={cardGridStyle}>
-        <section className="profile-panel panel" style={cardFlex(1, 300)}>
-          <h2>Accessibility</h2>
-        </section>
         <section className="profile-panel panel" style={cardFlex(1.5, 300)}>
           <h2>Payments</h2>
           <p>View receipts, manage payment details and check refunds in your billing workspace.</p>

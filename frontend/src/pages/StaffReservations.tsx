@@ -5,6 +5,7 @@ import { api, errorMessage } from "../lib/api";
 import type { LiveEquipment, Reservation } from "../lib/contracts";
 import type { Page } from "../lib/staffContracts";
 import { useApi } from "../lib/useApi";
+import { MemberSelect } from "../components/MemberSelect";
 
 type ReservationForm = {
   userId: string;
@@ -145,23 +146,17 @@ export function StaffReservations() {
             Date
             <input name="date" type="date" defaultValue={filters.date} />
           </label>
+          <MemberSelect name="userId" label="Filter member" required={false} />
           <label>
-            Member ID
-            <input
-              name="userId"
-              type="number"
-              min="1"
-              defaultValue={filters.userId}
-            />
-          </label>
-          <label>
-            Equipment ID
-            <input
-              name="equipmentId"
-              type="number"
-              min="1"
-              defaultValue={filters.equipmentId}
-            />
+            Filter equipment
+            <select name="equipmentId" defaultValue={filters.equipmentId}>
+              <option value="">All equipment</option>
+              {equipment.data?.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
           </label>
           <button className="button button--quiet">Filter</button>
           <button
@@ -172,7 +167,9 @@ export function StaffReservations() {
             <RefreshCw aria-hidden="true" /> Refresh
           </button>
         </form>
-        {reservations.loading ? <p role="status">Loading reservations...</p> : null}
+        {reservations.loading ? (
+          <p role="status">Loading reservations...</p>
+        ) : null}
         {reservations.error ? (
           <p className="form-error" role="alert">
             {reservations.error}
@@ -245,18 +242,10 @@ export function StaffReservations() {
       <aside className="management-panel panel">
         <h2>{editing ? "Modify reservation" : "Create reservation"}</h2>
         <form className="management-form" onSubmit={save}>
-          <label className="form-field">
-            Member ID
-            <input
-              required
-              type="number"
-              min="1"
-              value={form.userId}
-              onChange={(event) =>
-                setForm({ ...form, userId: event.target.value })
-              }
-            />
-          </label>
+          <MemberSelect
+            value={form.userId}
+            onChange={(userId) => setForm({ ...form, userId })}
+          />
           <label className="form-field">
             Equipment
             <select
@@ -302,7 +291,11 @@ export function StaffReservations() {
           </label>
           <div className="management-actions">
             <button className="button button--primary" disabled={busy}>
-              {editing ? <Pencil aria-hidden="true" /> : <Plus aria-hidden="true" />}
+              {editing ? (
+                <Pencil aria-hidden="true" />
+              ) : (
+                <Plus aria-hidden="true" />
+              )}
               {busy ? "Saving..." : editing ? "Save changes" : "Create"}
             </button>
             {editing ? (

@@ -249,3 +249,19 @@
 .management-form input[type="checkbox"] {
   width: auto;
 }
+.member-select {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+  flex: 1 1 240px;
+}
+.member-select input,
+.member-select select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+.member-select p {
+  margin: 0.25rem 0;
+  font-size: 0.9rem;
+}

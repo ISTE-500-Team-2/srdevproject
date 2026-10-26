@@ -3,6 +3,7 @@ import { api, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
 import { LoadState } from "../components/Management";
 import { dateTime } from "../lib/display";
+import { MemberSelect } from "../components/MemberSelect";
 type Card = {
   id: number;
   label: string;
@@ -73,10 +74,7 @@ export function AccessManagementPage() {
           setMember(String(new FormData(e.currentTarget).get("member")));
         }}
       >
-        <label>
-          Member ID
-          <input name="member" type="number" min={1} required />
-        </label>
+        <MemberSelect name="member" />
         <button className="button button--quiet">Load cards</button>
       </form>
       {member ? (
@@ -194,9 +192,10 @@ export function AccessManagementPage() {
           >
             <h2>Short staff access override</h2>
             <p>
-              Creates a confirmed reservation for up to 30 minutes when no current
-              booking exists. Membership, waivers, training, and account restrictions
-              still apply. Revoking supervision cancels the reservation it created.
+              Creates a confirmed reservation for up to 30 minutes when no
+              current booking exists. Membership, waivers, training, and account
+              restrictions still apply. Revoking supervision cancels the
+              reservation it created.
             </p>
             <label>
               Resource

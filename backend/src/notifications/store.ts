@@ -45,18 +45,81 @@ export async function enqueueNotification(db: Database, input: NotificationInput
     WHERE app_notification_outbox.status='pending' AND app_notification_outbox.attempts=0
       AND EXCLUDED.payload ? 'sourceType'`,[input.userId,input.kind,input.dedupeKey,JSON.stringify(input.payload),dueAt,deadlineAt]);
 }
-export async function notificationMetrics(db: Database) {
-  const {rows}=await db.query(`SELECT
+export async function notificationMetrics(
+  db: Database,
+  window?: { from: Date; to: Date },
+) {
+  const { rows } = await db.query(
+    `SELECT o.kind,
     COUNT(*) FILTER (WHERE deadline_at<=NOW() AND counts_for_sla=true)::int AS eligible,
     COUNT(*) FILTER (WHERE deadline_at<=NOW() AND counts_for_sla=true AND status='accepted' AND accepted_at<=deadline_at)::int AS on_time,
     COUNT(*) FILTER (WHERE status='accepted')::int AS accepted,
     COUNT(*) FILTER (WHERE status='failed')::int AS failed,
     COUNT(*) FILTER (WHERE status='uncertain')::int AS uncertain,
-    COUNT(*) FILTER (WHERE status='pending')::int AS pending
-    FROM app_notification_outbox`);
-  const row=rows[0]!;
-  return {...row, onTimePercent:row.eligible ? 100*row.on_time/row.eligible : null,
-    metric:'provider acceptance by deadline; not inbox delivery'};
+    COUNT(*) FILTER (WHERE status='pending')::int AS pending,
+    COUNT(*) FILTER (WHERE EXISTS(SELECT 1 FROM app_notification_delivery_status e
+      WHERE e.outbox_id=o.id AND e.event_type='delivered' AND e.occurred_at<=NOW()))::int AS delivered,
+    COUNT(*) FILTER (WHERE deadline_at<=NOW() AND counts_for_sla=true AND EXISTS
+      (SELECT 1 FROM app_notification_delivery_status e WHERE e.outbox_id=o.id AND e.event_type='delivered'
+        AND e.occurred_at<=o.deadline_at))::int AS delivery_on_time,
+    COUNT(*) FILTER (WHERE EXISTS(SELECT 1 FROM app_notification_delivery_status e
+      WHERE e.outbox_id=o.id AND e.event_type IN ('hard_bounce','blocked','invalid_email','error') AND e.occurred_at<=NOW()))::int AS delivery_failed
+    FROM app_notification_outbox o WHERE ($1::timestamptz IS NULL OR deadline_at>=$1)
+      AND ($2::timestamptz IS NULL OR deadline_at<$2) GROUP BY o.kind`,
+    [window?.from ?? null, window?.to ?? null],
+  );
+  const totals = (items: typeof rows) => {
+    const result = {
+      eligible: 0,
+      on_time: 0,
+      accepted: 0,
+      failed: 0,
+      uncertain: 0,
+      pending: 0,
+      delivered: 0,
+      delivery_on_time: 0,
+      delivery_failed: 0,
+    };
+    for (const row of items)
+      for (const key of Object.keys(result) as (keyof typeof result)[])
+        result[key] += Number(row[key]);
+    return {
+      ...result,
+      onTimePercent: result.eligible
+        ? (100 * result.on_time) / result.eligible
+        : null,
+      deliveryOnTimePercent: result.eligible
+        ? (100 * result.delivery_on_time) / result.eligible
+        : null,
+    };
+  };
+  const complianceKinds = new Set([
+    "waiver_expiring",
+    "certification_expiring",
+  ]);
+  return {
+    ...totals(rows),
+    metric: "provider acceptance by deadline; not inbox delivery",
+    deliveryMetric:
+      "provider delivered callbacks by deadline; not verified inbox placement",
+    cohortWindow:
+      "deadline date; only elapsed eligible deadlines enter percentage denominators",
+    cohorts: {
+      expirationCompliance: totals(
+        rows.filter((row) => complianceKinds.has(row.kind)),
+      ),
+      membershipExpiration: totals(
+        rows.filter((row) => row.kind === "membership_expiring"),
+      ),
+      other: totals(
+        rows.filter(
+          (row) =>
+            !complianceKinds.has(row.kind) &&
+            row.kind !== "membership_expiring",
+        ),
+      ),
+    },
+  };
 }
 export async function recordDeliveryEvent(db: Database, input: {eventKey:string; messageId:string; type:string; occurredAt:Date}): Promise<void> {
   await db.query(`INSERT INTO app_notification_delivery_event(event_key,outbox_id,event_type,occurred_at)
