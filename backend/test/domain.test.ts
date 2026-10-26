@@ -5,6 +5,8 @@ import {
   AppError,
   dateOfBirthField,
   emailField,
+  usernameField,
+  loginIdentifier,
   newPasswordField,
   passwordField,
   positiveId,
@@ -12,6 +14,18 @@ import {
 } from '../src/domain.js';
 import { hashPassword, verifyPassword } from '../src/passwords.js';
 import { readConfig } from '../src/config.js';
+
+test('usernames normalize consistently and cannot collide with email identifiers', () => {
+  assert.equal(usernameField(' New.Member-2_ '),'new.member-2_');
+  for(const value of [null,{},'', 'ab','-name','has space','user@example.invalid','x'.repeat(31),'üser'])
+    assert.throws(()=>usernameField(value),AppError);
+});
+
+test('email and username login identifiers preserve case-insensitive email compatibility', () => {
+  assert.equal(loginIdentifier(' Existing@Example.Invalid '),'existing@example.invalid');
+  assert.equal(loginIdentifier(' New.Member '),'new.member');
+  assert.throws(()=>loginIdentifier('bad@'),AppError);
+});
 
 test('reservation times are explicit, valid, future intervals of at most 24 hours', () => {
   const now = new Date('2030-01-01T00:00:00Z');

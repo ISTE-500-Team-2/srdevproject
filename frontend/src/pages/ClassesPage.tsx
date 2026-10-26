@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
@@ -24,6 +24,7 @@ type Class = {
   myStatus: string | null;
 };
 type Person = { userId: number; name: string; email: string; status: string };
+type MemberRoster = { items: { name: string }[]; capacity: number; enrolled: number; seatsAvailable: number };
 export function ClassesPage() {
   const selectorId = useId();
   const { user } = useAuth();
@@ -32,11 +33,29 @@ export function ClassesPage() {
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
     [selected, setSelected] = useState<Class | null>(null);
-  const roster = useApi<Person[]>(
-    selected ? `/classes/${selected.id}/roster` : null,
-  );
   const roles = user?.roles ?? [],
     staff = roles.some((r) => ["admin", "staff"].includes(r));
+  const managesSelected = Boolean(selected && (staff || (roles.includes("instructor") && selected.instructorId === user?.id)));
+  const roster = useApi<Person[]>(
+    selected && managesSelected ? `/classes/${selected.id}/roster` : null,
+  );
+  const participants = useApi<MemberRoster>(
+    selected && !managesSelected ? `/classes/${selected.id}/member-roster` : null,
+  );
+  const refreshClasses = () => { classes.reload(); roster.reload(); participants.reload(); };
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState !== "hidden") { classes.reload(); roster.reload(); participants.reload(); }
+    };
+    const timer = window.setInterval(refresh, 30000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [classes.reload, roster.reload, participants.reload]);
   const catalog = useApi<
     { id: number; name: string; validityDays: number | null }[]
   >(staff ? "/training/catalog" : null);
@@ -56,6 +75,7 @@ export function ClassesPage() {
       await work();
       classes.reload();
       roster.reload();
+      participants.reload();
       setMessage("Class records saved.");
     } catch (e) {
       setMessage(errorMessage(e));
@@ -104,6 +124,7 @@ export function ClassesPage() {
         <input value={query} onChange={(e) => setQuery(e.target.value)} />
       </label>
       <LoadState {...classes} />
+      <button className="button button--quiet" type="button" onClick={refreshClasses}>Refresh classes and rosters</button>
       <div className="class-catalog">
         {classes.data
           ?.filter((c) =>
@@ -172,6 +193,10 @@ export function ClassesPage() {
                   >
                     View roster for {c.title}
                   </button>
+                ) : c.status === "scheduled" && new Date(c.startsAt) > new Date() ? (
+                  <button className="button button--quiet" onClick={() => setSelected(c)}>
+                    View participants for {c.title}
+                  </button>
                 ) : null}
                 {staff && c.status === "scheduled" ? (
                   <form
@@ -206,16 +231,23 @@ export function ClassesPage() {
         <p>No scheduled classes have been published.</p>
       ) : null}
       {selected ? (
-        <section>
-          <h2>{selected.title} roster</h2>
+        <section aria-label={`${selected.title} ${managesSelected ? "roster" : "participants"}`}>
+          <h2>{selected.title} {managesSelected ? "roster" : "participants"}</h2>
           <button
             className="button button--quiet"
             onClick={() => setSelected(null)}
           >
             Close roster
           </button>
-          <LoadState {...roster} />
-          {roster.data?.map((p) => (
+          <LoadState {...(managesSelected ? roster : participants)} />
+          {!managesSelected && participants.data ? (
+            <>
+              <p>{participants.data.enrolled} / {participants.data.capacity} registered · {participants.data.seatsAvailable} {participants.data.seatsAvailable === 1 ? "seat" : "seats"} available</p>
+              <p>Participants are shown by first name and last initial.</p>
+              {participants.data.items.length ? <ul>{participants.data.items.map((p,index) => <li key={index}>{p.name}</li>)}</ul> : <p>No participants registered yet.</p>}
+            </>
+          ) : null}
+          {(managesSelected ? roster.data : null)?.map((p) => (
             <article className="saved-record" key={p.userId}>
               <h3>
                 {p.name} · Member {p.userId}
@@ -263,7 +295,7 @@ export function ClassesPage() {
               ) : null}
             </article>
           ))}
-          <Link to="/training">Approve completed training</Link>
+          {managesSelected ? <Link to="/training">Approve completed training</Link> : null}
         </section>
       ) : null}
       {staff ? (

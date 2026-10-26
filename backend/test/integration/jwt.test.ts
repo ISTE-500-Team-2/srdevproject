@@ -49,7 +49,7 @@ async function register() {
   const email = randomUUID() + '@example.invalid';
   const password = `A!${randomBytes(24).toString('hex')}`;
   let res = await request(app).post('/api/auth/register').send({
-    email, password, firstName: 'JWT', lastName: 'Test', phone: '0000000000', dob: '2000-01-01',
+    email, username: 'jwt_' + email.slice(0, 16), password, firstName: 'JWT', lastName: 'Test', phone: '0000000000', dob: '2000-01-01',
   });
   assert.equal(res.status, 202);
   res=await request(app).post('/api/auth/confirm').send({token:await confirmationToken(pool,email)});

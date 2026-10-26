@@ -224,6 +224,30 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
     res.json({ data: { status: "cancelled" } });
   });
   r.get(
+    "/classes/:id/member-roster",
+    requirePermission(pool, "user", "read", "own"),
+    async (req, res) => {
+      // Separate from the instructor roster: never select contact details,
+      // account IDs, usernames or attendance history for the member response.
+      const { rows } = await pool.query(
+        `SELECT c.capacity,COUNT(e.user_id)::int AS enrolled,
+          c.capacity-COUNT(e.user_id)::int AS "seatsAvailable",
+          COALESCE(json_agg(json_build_object('name',u.firstname||' '||left(u.lastname,1)||'.')
+            ORDER BY u.firstname,u.lastname,e.user_id) FILTER(WHERE e.user_id IS NOT NULL),'[]') AS items
+         FROM app_training_class c JOIN reservation v ON v.reservationid=c.reservation_id
+         LEFT JOIN app_training_enrollment e ON e.class_id=c.id AND e.status IN ('enrolled','attended')
+         LEFT JOIN "user" u ON u.userid=e.user_id
+         WHERE c.id=$1 AND c.status='scheduled' AND v.status='confirmed'
+           AND v.starttime>NOW() AT TIME ZONE 'UTC'
+         GROUP BY c.id,c.capacity`,
+        [positiveId(req.params.id)],
+      );
+      if (!rows[0]) throw new AppError(404, "CLASS_ROSTER_UNAVAILABLE", "The participant list is available for upcoming scheduled classes only.");
+      res.set("Cache-Control", "no-store");
+      res.json({ data: rows[0] });
+    },
+  );
+  r.get(
     "/classes/:id/roster",
     requirePermission(pool, "certification", "read"),
     async (req, res) => {

@@ -68,6 +68,7 @@ function client() {
       email = randomUUID() + '@example.invalid';
       password = `A!${randomBytes(24).toString('hex')}`;
       let r = await agent.post("/api/auth/register").send({
+        username: 'primary_' + email.slice(0, 16),
         firstName: "Primary",
         lastName: "Test",
         phone: "0000000000",

@@ -223,6 +223,10 @@ export function ProfilePage() {
                 <input type="email" value={user?.email ?? ""} readOnly />
               </label>
               <label className="form-field form-field--wide">
+                <span>Username</span>
+                <input value={user?.username ?? ""} placeholder="Existing account — sign in with your email" readOnly />
+              </label>
+              <label className="form-field form-field--wide">
                 <span>Phone Number</span>
                 <input
                   name="phone"
