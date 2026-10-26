@@ -1,4 +1,6 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
+import { MemberSelect } from "../components/MemberSelect";
+import type { LiveEquipment } from "../lib/contracts";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
@@ -53,12 +55,19 @@ function TrainingWorkspace({
   canApprove: boolean;
 }) {
   const catalog = useApi<Course[]>("/training/catalog");
+  const equipment = useApi<LiveEquipment[]>("/equipment");
+  const [equipmentSearch, setEquipmentSearch] = useState("");
+  const [equipmentIds, setEquipmentIds] = useState<number[]>([]);
   const [memberId, setMemberId] = useState("");
   const [selectedMember, setSelectedMember] = useState("");
   const records = useApi<Record[]>(
     selectedMember ? `/training/users/${selectedMember}` : null,
   );
   const [editing, setEditing] = useState<Course | null>(null);
+  useEffect(() => {
+    setEquipmentIds(editing?.equipmentIds ?? []);
+    setEquipmentSearch("");
+  }, [editing]);
   const [renewing, setRenewing] = useState<Record | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -88,16 +97,14 @@ function TrainingWorkspace({
             name: f.get("name"),
             description: f.get("description"),
             validityDays: Number(f.get("days")),
-            equipmentIds: String(f.get("equipmentIds") ?? "")
-              .split(",")
-              .filter((x) => x.trim())
-              .map(Number),
+            equipmentIds,
             reason: f.get("reason"),
             ...(editing ? { expectedRevision: editing.revision } : {}),
           },
         },
       );
       setEditing(null);
+      setEquipmentIds([]);
     });
   }
   async function approve(e: FormEvent<HTMLFormElement>) {
@@ -153,7 +160,14 @@ function TrainingWorkspace({
                 {c.validityDays
                   ? `${c.validityDays} days validity`
                   : "Validity not configured"}{" "}
-                · Equipment: {c.equipmentIds.join(", ") || "None linked"}
+                · Equipment:{" "}
+                {c.equipmentIds
+                  .map(
+                    (id) =>
+                      equipment.data?.find((e) => e.id === id)?.name ??
+                      "Loading equipment name",
+                  )
+                  .join(", ") || "None linked"}
               </p>
               {canConfigure ? (
                 <button
@@ -200,18 +214,53 @@ function TrainingWorkspace({
                   defaultValue={editing?.validityDays ?? ""}
                 />
               </label>
-              <label>
-                Equipment IDs (comma separated)
-                <input
-                  name="equipmentIds"
-                  defaultValue={editing?.equipmentIds.join(", ")}
-                />
-              </label>
+              <fieldset>
+                <legend>Equipment covered by this certification</legend>
+                <label>
+                  Find equipment
+                  <input
+                    type="search"
+                    value={equipmentSearch}
+                    onChange={(e) => setEquipmentSearch(e.target.value)}
+                  />
+                </label>
+                <LoadState {...equipment} />
+                {equipment.data
+                  ?.filter((item) =>
+                    (item.name + " " + item.location)
+                      .toLowerCase()
+                      .includes(equipmentSearch.toLowerCase()),
+                  )
+                  .map((item) => (
+                    <label key={item.id}>
+                      <input
+                        type="checkbox"
+                        checked={equipmentIds.includes(item.id)}
+                        onChange={(e) =>
+                          setEquipmentIds((ids) =>
+                            e.target.checked
+                              ? [...ids, item.id]
+                              : ids.filter((id) => id !== item.id),
+                          )
+                        }
+                      />{" "}
+                      {item.name} — {item.location}
+                    </label>
+                  ))}
+                <p>
+                  {equipmentIds.length} equipment selected. A machine can have
+                  one required certification; selecting it replaces its existing
+                  course link.
+                </p>
+              </fieldset>
               <label>
                 Policy approval/reference
                 <input name="reason" required maxLength={500} />
               </label>
-              <button className="button" disabled={busy}>
+              <button
+                className="button"
+                disabled={busy || equipment.loading || !!equipment.error}
+              >
                 Save certification
               </button>
               {editing ? (
@@ -236,16 +285,7 @@ function TrainingWorkspace({
               setRenewing(null);
             }}
           >
-            <label>
-              Member ID
-              <input
-                type="number"
-                min={1}
-                required
-                value={memberId}
-                onChange={(e) => setMemberId(e.target.value)}
-              />
-            </label>
+            <MemberSelect value={memberId} onChange={setMemberId} />
             <button className="button button--quiet">Load member</button>
           </form>
           {selectedMember ? (
@@ -267,8 +307,12 @@ function TrainingWorkspace({
                     Approved by:{" "}
                     {r.instructorName ?? "Legacy record: not recorded"}
                   </p>
-                  {r.status === 'revoked' && r.revokedAt ? (
-                    <p>New in-person training must be completed after {new Date(r.revokedAt).toLocaleString()} before this certification can be approved again.</p>
+                  {r.status === "revoked" && r.revokedAt ? (
+                    <p>
+                      New in-person training must be completed after{" "}
+                      {new Date(r.revokedAt).toLocaleString()} before this
+                      certification can be approved again.
+                    </p>
                   ) : null}
                   <p>
                     Expires:{" "}

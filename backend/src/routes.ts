@@ -36,6 +36,10 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   const permit = (resource: string, action: string, scope: "own" | "global" = "global") => requirePermission(pool,resource,action,scope);
   const protectedRoute = requireUser(pool, config);
   const rateLimit = authRateLimit();
+  // Cookie rotations have their own bounded throttle, not the sign-in budget.
+  // CSRF, origin and rotating-cookie validation are unchanged.
+  const refreshLimit = authRateLimit({ limit: 120, windowMs: 60000,
+    message: "Too many session refreshes. Please retry shortly." });
   routes.get("/health", async (_req, res) => {
     await pool.query("SELECT 1");
     res.json({ data: { status: "ok", database: "connected" } });
@@ -51,7 +55,7 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.post("/auth/confirmation", rateLimit, auth.confirmation);
   if (config.demoLogin) routes.post("/auth/demo", rateLimit, auth.demo);
   routes.get("/auth/csrf", auth.csrf);
-  routes.post("/auth/refresh", rateLimit, auth.refresh);
+  routes.post("/auth/refresh", refreshLimit, auth.refresh);
   routes.get("/auth/session", protectedRoute, auth.current);
   routes.post("/auth/logout", protectedRoute, requireCsrf, auth.logout);
   routes.use(protectedRoute);

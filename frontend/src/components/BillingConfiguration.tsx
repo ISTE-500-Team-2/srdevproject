@@ -3,6 +3,7 @@ import { useApi } from "../lib/useApi";
 import { api } from "../lib/api";
 import { ActionForm, Field, ReasonField, LoadState } from "./Management";
 import type { Plan } from "../lib/staffContracts";
+import { MemberSelect } from "./MemberSelect";
 export function BillingConfiguration({ plans }: { plans: Plan[] }) {
   const prices = useApi<EligibilityPrice[]>("/billing-management/pricing");
   return (
@@ -75,7 +76,7 @@ export function BillingConfiguration({ plans }: { plans: Plan[] }) {
           });
         }}
       >
-        <Field name="userId" label="Member ID" type="number" min="1" />
+        <MemberSelect name="userId" />
         <Field
           name="reference"
           label="Approved school and verification reference"

@@ -20,7 +20,6 @@ const footerLinks = [
       ['Payments', '/profile'],
       ['Membership details', '/profile'],
       ['Notification settings', '/profile'],
-      ['Accessibility settings', '/profile'],
     ],
   },
   {

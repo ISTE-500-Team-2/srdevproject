@@ -1,10 +1,11 @@
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
 import { LoadState } from "../components/Management";
 import { dateTime } from "../lib/display";
+import { MemberSelect } from "../components/MemberSelect";
 type Class = {
   id: number;
   title: string;
@@ -24,6 +25,7 @@ type Class = {
 };
 type Person = { userId: number; name: string; email: string; status: string };
 export function ClassesPage() {
+  const selectorId = useId();
   const { user } = useAuth();
   const classes = useApi<Class[]>(user ? "/classes" : null);
   const [query, setQuery] = useState(""),
@@ -35,6 +37,18 @@ export function ClassesPage() {
   );
   const roles = user?.roles ?? [],
     staff = roles.some((r) => ["admin", "staff"].includes(r));
+  const catalog = useApi<
+    { id: number; name: string; validityDays: number | null }[]
+  >(staff ? "/training/catalog" : null);
+  const rooms = useApi<
+    {
+      id: number;
+      name: string;
+      location: string;
+      capacity: number | null;
+      status: string;
+    }[]
+  >(staff ? "/rooms" : null);
   async function run(work: () => Promise<unknown>) {
     setBusy(true);
     setMessage("");
@@ -259,18 +273,36 @@ export function ClassesPage() {
             Title
             <input name="title" required maxLength={100} />
           </label>
-          <label>
-            Certification ID
-            <input type="number" name="certId" min={1} required />
-          </label>
-          <label>
-            Assigned instructor ID
-            <input name="instructorId" type="number" min={1} required />
-          </label>
-          <label>
-            Room ID
-            <input name="roomId" type="number" min={1} required />
-          </label>
+          <LoadState {...catalog} />
+          <LoadState {...rooms} />
+          <label htmlFor={selectorId + '-certification'}>Certification</label>
+            <select id={selectorId + '-certification'} name="certId" required>
+              <option value="">Choose certification</option>
+              {catalog.data
+                ?.filter((c) => c.validityDays)
+                .map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+            </select>
+          <MemberSelect
+            name="instructorId"
+            label="Assigned instructor"
+            instructorsOnly
+          />
+          <label htmlFor={selectorId + '-room'}>Room</label>
+            <select id={selectorId + '-room'} name="roomId" required>
+              <option value="">Choose room</option>
+              {rooms.data
+                ?.filter((room) => room.status === "available")
+                .map((room) => (
+                  <option key={room.id} value={room.id}>
+                    {room.name} — {room.location} (capacity{" "}
+                    {room.capacity ?? "not configured"})
+                  </option>
+                ))}
+            </select>
           <label>
             Capacity
             <input name="capacity" type="number" min={1} max={500} required />
@@ -287,7 +319,16 @@ export function ClassesPage() {
             Scheduling reason
             <input name="reason" required maxLength={500} />
           </label>
-          <button className="button" disabled={busy}>
+          <button
+            className="button"
+            disabled={
+              busy ||
+              catalog.loading ||
+              rooms.loading ||
+              !!catalog.error ||
+              !!rooms.error
+            }
+          >
             Publish class
           </button>
           <p>

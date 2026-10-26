@@ -1609,6 +1609,8 @@ p {
   gap: 56px;
 }
 
+.credentials-page > * { min-width: 0; }
+
 .is-muted {
   color: #b1aaa6;
 }
@@ -1624,6 +1626,7 @@ p {
 
 .training-panel__heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: end;
   justify-content: space-between;
   gap: 16px;
@@ -1640,6 +1643,9 @@ p {
 
 .training-schedule__filter {
   display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
   align-items: center;
   gap: 8px;
   color: var(--ink-soft);
@@ -1648,6 +1654,8 @@ p {
 }
 
 .training-schedule__filter select {
+  min-width: 0;
+  max-width: 100%;
   min-height: 40px;
   border: 1px solid var(--border);
   border-radius: 8px;

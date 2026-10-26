@@ -383,7 +383,7 @@ export function CertificationsPage() {
                         <p className="training-card__duration">
                           <Clock3 aria-hidden="true" /> 1 hour session
                         </p>
-                        <p>Training session details coming soon</p>
+                        <Link to="/classes">View scheduled classes and availability</Link>
                       </article>
                     ))
                   ) : (
@@ -419,8 +419,8 @@ export function CertificationsPage() {
         </section>
       ) : (
         <p>
-          Training registration is not available yet.{' '}
-          <Link to="/classes">View the class-catalog preview</Link>.
+          Need training?{' '}
+          <Link to="/classes">View classes, availability and registration</Link>.
         </p>
       )}
       <Modal
