@@ -47,12 +47,13 @@ test.each([
   ["plans", "Plans workspace"],
   ["reservations", "Reservations workspace"],
   ["payments", "Payments workspace"],
-  ["compliance", "Compliance workspace"],
-  ["policies", "Policies workspace"],
-  ["training", "Training workspace"],
   ["audit", "Staff change log"],
   ["reports", "Reports workspace"],
   ["access", "Reader workspace"],
+  // Former duplicate tabs now open Certifications & waivers.
+  ["compliance", "Certifications workspace"],
+  ["policies", "Certifications workspace"],
+  ["training", "Certifications workspace"],
 ])("combined staff workspace retains the %s section", (tab, heading) => {
   render(
     <MemoryRouter initialEntries={[`/admin?tab=${tab}`]}>
@@ -60,20 +61,33 @@ test.each([
     </MemoryRouter>,
   );
   const navigation = screen.getByRole("navigation", { name: "Staff sections" });
-  for (const label of [
-    "Members",
-    "Plans",
-    "Reservations",
-    "Payment history",
-    "Compliance",
-    "Policies",
-    "Training",
-    "Change log",
+  const labels = within(navigation)
+    .getAllByRole("button")
+    .map((button) => button.textContent);
+  expect(labels).toEqual([
+    "Analytics",
     "Reports",
+    "Members",
+    "Certifications & waivers",
+    "Plans",
+    "Payments",
+    "Reservations",
     "Reader access",
-  ])
-    expect(
-      within(navigation).getByRole("button", { name: label }),
-    ).toBeTruthy();
+    "Change log",
+  ]);
   expect(screen.getByRole("heading", { name: heading })).toBeTruthy();
+});
+
+test("legacy tab links select Certifications & waivers in the nav", () => {
+  render(
+    <MemoryRouter initialEntries={["/admin?tab=policies"]}>
+      <AdminDashboardPage />
+    </MemoryRouter>,
+  );
+  const navigation = screen.getByRole("navigation", { name: "Staff sections" });
+  expect(
+    within(navigation)
+      .getByRole("button", { name: "Certifications & waivers" })
+      .getAttribute("aria-current"),
+  ).toBe("page");
 });

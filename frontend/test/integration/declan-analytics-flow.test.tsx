@@ -86,14 +86,14 @@ test("analytics uses the full settled ledger, real check-ins/classes and zero-fi
 test("combined waiver/certification tab mounts real admin tools instead of personal endpoints", async () => {
   await login();
   mount("adminCertWaiver");
-  await screen.findByRole("heading", { name: "Certifications and waivers" });
+  await screen.findByRole("heading", { name: "Certifications & waivers" });
   await screen.findByRole("button", { name: "Filter" });
   const user = userEvent.setup();
-  await user.click(screen.getByRole("button", { name: "Waiver and Policy Management" }));
+  await user.click(screen.getByRole("button", { name: "Waivers & policies" }));
   await screen.findByRole("heading", { name: "Policies and waiver versions" });
   await screen.findByRole("button", { name: "Publish Version" });
   await user.click(
-    screen.getByRole("button", { name: "Certification Management" }),
+    screen.getByRole("button", { name: "Certifications" }),
   );
   await screen.findByRole("button", { name: "Save certification" });
 });
