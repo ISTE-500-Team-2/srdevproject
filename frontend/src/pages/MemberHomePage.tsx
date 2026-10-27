@@ -84,7 +84,7 @@ export function MemberHomePage() {
               {
                 title: 'Active reservations',
                 count: summary.activeReservations,
-                to: '/reservations',
+                to: '/equipment',
                 prompt: 'Manage your bookings',
                 Icon: CalendarDays,
               },
@@ -137,7 +137,7 @@ export function MemberHomePage() {
       <section>
         <div className="discovery-heading">
           <h2>Equipment</h2>
-          <Link to="/reservations">
+          <Link to="/equipment">
             View all equipment <ArrowUpRight aria-hidden="true" />
           </Link>
         </div>
@@ -160,7 +160,7 @@ export function MemberHomePage() {
                 </div>
                 <small>{item.availability}</small>
               </div>
-              <Link to="/reservations">
+              <Link to="/equipment">
                 Choose a time <ChevronRight aria-hidden="true" />
               </Link>
             </article>

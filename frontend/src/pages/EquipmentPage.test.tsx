@@ -2,7 +2,7 @@
 import {act,cleanup,fireEvent,render,screen,within} from '@testing-library/react';
 import {MemoryRouter} from 'react-router-dom';
 import {afterEach,beforeEach,expect,test,vi} from 'vitest';
-import {ReservationsPage} from './ReservationsPage';
+import {EquipmentPage} from './EquipmentPage';
 import {api,ApiError} from '../lib/api';
 vi.mock('../context/AuthContext',()=>({useAuth:()=>({user:{id:1,roles:['member'],membership:'Monthly'}})}));
 vi.mock('../lib/api',async original=>({...await original<typeof import('../lib/api')>(),api:vi.fn()}));
@@ -19,13 +19,16 @@ beforeEach(()=>{
  });
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();});
-async function mount(){await act(async()=>{render(<MemoryRouter><ReservationsPage/></MemoryRouter>);});}
+async function mount(){await act(async()=>{render(<MemoryRouter><EquipmentPage/></MemoryRouter>);});}
 async function open(){await act(async()=>{fireEvent.click(screen.getByRole('button',{name:/^3D Printer 3D printing/}));});
  fireEvent.change(screen.getByLabelText(/Start date and time/),{target:{value:'2030-05-20T14:00'}});
 }
 const submits=()=>vi.mocked(api).mock.calls.filter(([p,o])=>p==='/reservations'&&o?.method==='POST');
 test('equipment search matches name or type and links straight to saved bookings',async()=>{
  await mount();
+ expect(screen.getByRole('heading',{name:/^Equipment$/})).toBeTruthy();
+ expect(screen.queryByRole('heading',{name:'Studio Spaces'})).toBeNull();
+ expect(vi.mocked(api).mock.calls.some(([path])=>path==='/studios')).toBe(false);
  fireEvent.change(screen.getByRole('searchbox',{name:'Find equipment'}),{target:{value:'WOOD'}});
  expect(screen.getByRole('button',{name:/Wood Lathe/})).toBeTruthy();
  expect(screen.queryByRole('button',{name:/^3D Printer/})).toBeNull();

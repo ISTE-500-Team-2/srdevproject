@@ -17,7 +17,7 @@ const navItems: { label: string; to: string; desktop?: boolean }[] = [
   { label: "Home", to: "/" },
   // Lives in the account menu on desktop so the links clear the centred logo.
   { label: "Membership", to: "/membership", desktop: false },
-  { label: "Reservations", to: "/reservations" },
+  { label: "Equipment", to: "/equipment" },
   { label: "Studios", to: "/studios" },
   { label: "Certifications & Waivers", to: "/certifications" },
   { label: "Classes", to: "/classes" },
@@ -225,7 +225,7 @@ export function Header() {
             <div className="search-panel__results">
               {!query ? (
                 <p className="search-panel__hint">
-                  Try “reservations” or “waivers.”
+                  Try “equipment” or “waivers.”
                 </p>
               ) : results.length ? (
                 results.map((result) => (
