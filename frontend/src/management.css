@@ -2,14 +2,108 @@
   display: grid;
   gap: 24px;
 }
-.management-tabs {
+/* Staff workspace navigation: text tabs in labelled groups. */
+.staff-nav {
   display: flex;
-  gap: 8px;
   flex-wrap: wrap;
-  border-bottom: 1px solid #deded9;
-  padding-bottom: 16px;
+  align-items: flex-end;
+  row-gap: 8px;
+  border-bottom: 1px solid #e2d8d0;
 }
-.management-tabs button,
+.staff-nav__group {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 0 20px;
+}
+.staff-nav__group:first-child {
+  padding-left: 0;
+}
+.staff-nav__group + .staff-nav__group::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 14px;
+  width: 1px;
+  height: 20px;
+  background: #e2d8d0;
+}
+.staff-nav__label {
+  margin-bottom: 2px;
+  color: #9b8a80;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.staff-nav__tabs {
+  display: flex;
+  gap: 22px;
+}
+.staff-nav button {
+  position: relative;
+  padding: 8px 0 13px;
+  border: 0;
+  background: none;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 0.98rem;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.staff-nav button:hover {
+  color: var(--ink);
+}
+.staff-nav button.is-selected {
+  color: var(--ink);
+  font-weight: 700;
+}
+.staff-nav button.is-selected::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: var(--orange);
+}
+.staff-nav-select {
+  display: none;
+}
+
+/* Second-level navigation inside a staff section. */
+.segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  justify-self: start;
+  padding: 3px;
+  border: 1px solid #e2d8d0;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.7);
+}
+.segmented button {
+  padding: 7px 14px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--ink-soft);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.segmented button:hover {
+  color: var(--ink);
+}
+.segmented button.is-selected {
+  background: var(--ink);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* Member pickers keep the selected-card treatment. */
 .management-user-list button {
   border: 1px solid #dadad4;
   background: white;
@@ -19,7 +113,6 @@
   text-align: left;
   cursor: pointer;
 }
-.management-tabs .is-selected,
 .management-user-list .is-selected {
   border-color: #e87e26;
   background: #fff2e6;
@@ -215,8 +308,29 @@
   .management-panel {
     padding: 16px;
   }
-  .management-tabs button {
-    flex: 1 1 140px;
+  .staff-nav {
+    display: none;
+  }
+  .staff-nav-select {
+    display: grid;
+    gap: 6px;
+    font-weight: 600;
+  }
+  .staff-nav-select select {
+    min-height: 44px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: #fff;
+    color: var(--ink);
+    font: inherit;
+    font-weight: 600;
+  }
+  .segmented {
+    display: flex;
+  }
+  .segmented button {
+    flex: 1;
   }
 }
 
