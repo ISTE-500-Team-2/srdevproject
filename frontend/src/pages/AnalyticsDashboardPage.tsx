@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { LineChart } from "../components/Charts";
 import { LoadState } from "../components/Management";
 import { useApi } from "../lib/useApi";
@@ -14,12 +14,9 @@ export function AnalyticsDashboardPage() {
     period: "weekly" as RevenuePeriod,
   });
   const [validation, setValidation] = useState("");
-  const report = useApi<Report>("/admin/reports?" + new URLSearchParams(range));
+  const report = useApi<Report>("/admin/reports?" + new URLSearchParams(range), { retainOnReload: true, refreshInterval: 30000 });
   const { reload } = report;
-  useEffect(() => {
-    const timer = window.setInterval(reload, 30000);
-    return () => window.clearInterval(timer);
-  }, [reload]);
+
   function filter(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);

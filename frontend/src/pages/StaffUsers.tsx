@@ -49,7 +49,7 @@ export function StaffUsers() {
                   </strong>
                   <span>{p.email}</span>
                   <small>
-                    {p.roles.join(", ")} · Access {p.accessStatus}
+                    {p.roles.join(", ")} · Account {p.status} · Restriction {p.accessStatus === "active" ? "none" : p.accessStatus}
                   </small>
                 </button>
               ))}
