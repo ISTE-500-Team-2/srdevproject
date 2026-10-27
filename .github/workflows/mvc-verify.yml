@@ -45,6 +45,7 @@ jobs:
       - run: bash -n deploy/deploy-arbor.sh
       - run: python3 deploy/test_deploy.py
       - run: python3 deploy/test_auto_release.py
+      - run: python3 deploy/test_blue_green_release.py
       - run: docker build -t collaboratory-mvc:verification .
       - name: Start isolated Docker JWT demo
         run: |

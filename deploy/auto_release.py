@@ -176,7 +176,7 @@ def prepare_source_permissions(source):
                 break  # Release parent, .git and untracked secrets stay private.
 
 
-def deploy(root, sha):
+def prepare_artifact(root, sha):
     release = root / 'auto-deploy/releases' / sha
     release.mkdir(parents=True, exist_ok=True, mode=0o700)
     source = release / 'source'
@@ -190,20 +190,16 @@ def deploy(root, sha):
     run('docker', 'build', '--pull', '--label', 'org.opencontainers.image.revision=' + sha,
         '-t', tag, str(source), timeout=1200)
     image = json.loads(output('docker', 'image', 'inspect', tag))[0]['Id']
-    original = json.loads((root / 'compose.json').read_text())
-    write_json(release / 'previous-compose.json', original)
-    candidate, canary = candidates(original, image)
-    candidate_file, canary_file = release / 'candidate.json', release / 'canary.json'
-    write_json(candidate_file, candidate)
-    write_json(canary_file, canary)
-    compose(candidate_file, 'config', '--quiet')
-    # Runtime roles intentionally cannot read the migration ledger. Use the same
-    # existing local-owner access as backups, without granting new app privileges.
+    return release, source, image
+
+
+def backup_databases(release, source):
+    # Runtime roles intentionally cannot read the migration ledger. Retain owner
+    # access and exact checksums; never migrate or broaden application privileges.
     for container, user, database in DATABASES:
         rows = json.loads(output('docker', 'exec', container, 'psql', '-U', user, '-d', database,
             '-Atc', 'SELECT coalesce(json_agg(t),\'[]\'::json) FROM (SELECT name,checksum FROM app_migration) t'))
         verify_migrations(source, rows)
-    # Backups must succeed and be readable before any running app is replaced.
     for container, user, database in DATABASES:
         backup = release / (database + '.dump')
         with backup.open('wb') as stream:
@@ -213,6 +209,23 @@ def deploy(root, sha):
         assert backup.stat().st_size > 0, 'Empty backup'
         with backup.open('rb') as stream:
             run('docker', 'exec', '-i', container, 'pg_restore', '--list', stdin=stream, stdout=subprocess.DEVNULL)
+
+
+def deploy(root, sha):
+    if (root / 'auto-deploy/blue-green.enabled').exists():
+        import sys
+        from blue_green_release import deploy_blue_green
+        return deploy_blue_green(root, sha, sys.modules[__name__])
+    release, source, image = prepare_artifact(root, sha)
+    original = json.loads((root / 'compose.json').read_text())
+    write_json(release / 'previous-compose.json', original)
+    candidate, canary = candidates(original, image)
+    candidate_file, canary_file = release / 'candidate.json', release / 'canary.json'
+    write_json(candidate_file, candidate)
+    write_json(canary_file, canary)
+    compose(candidate_file, 'config', '--quiet')
+    # Backups must succeed and be readable before any running app is replaced.
+    backup_databases(release, source)
     switched = False
     try:
         compose(canary_file, 'up', '-d', '--no-deps', '--wait', '--wait-timeout', '90')
@@ -246,6 +259,14 @@ def tick(root, retry=False):
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     state_file = directory / 'status.json'
     state = json.loads(state_file.read_text()) if state_file.exists() else {}
+    if (directory / 'blue-green.enabled').exists():
+        import sys
+        from blue_green_release import recover_activation
+        recovered = recover_activation(root, sys.modules[__name__])
+        if recovered and (recovered.get('phase') != 'deployed' or
+                          recovered.get('deployedSha') != state.get('deployedSha')):
+            state.update(recovered)
+            write_json(state_file, state)
     state['lastCheck'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
     if (directory / 'PAUSED').exists():
         state['phase'] = 'paused'
