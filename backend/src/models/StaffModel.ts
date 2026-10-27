@@ -386,8 +386,13 @@ export class StaffModel {
     return (
       await this.db.query(
         `SELECT a.id::text,a.actor_id AS "actorId",COALESCE(u.firstname || ' ' || u.lastname,'System') AS "actorName",a.subject_id AS "subjectId",a.action,
-      a.entity_type AS "entityType",a.entity_id AS "entityId",a.created_at AS "createdAt"
+      a.entity_type AS "entityType",a.entity_id AS "entityId",a.created_at AS "createdAt",
+      a.reason,trim(s.firstname || ' ' || s.lastname) AS "subjectName",
+      e.allowed,e.reason AS "accessReason",e.reader_id AS "readerId",q.name AS "resourceName"
       FROM app_staff_audit a LEFT JOIN "user" u ON a.actor_id=u.userid
+      LEFT JOIN "user" s ON s.userid=a.subject_id
+      LEFT JOIN app_device_access_event e ON a.entity_type='app_device_access_event' AND e.id=a.entity_id
+      LEFT JOIN equipment q ON e.target_kind='equipment' AND q.equipmentid=e.target_id
       WHERE ($1::int IS NULL OR a.actor_id=$1 OR a.subject_id=$1)
         AND ($2::int IS NULL OR a.subject_id=$2)
         AND ($3::text IS NULL OR a.action=$3)
