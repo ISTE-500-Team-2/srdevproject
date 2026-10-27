@@ -1,6 +1,6 @@
 import { useAuth } from '../context/AuthContext';
 import { CalendarDays, Filter, ShieldAlert } from 'lucide-react';
-import { type FormEvent, type MouseEvent, useEffect, useRef, useState } from 'react';
+import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Modal } from '../components/Modal';
 import { Toast } from '../components/Toast';
@@ -10,13 +10,6 @@ import { useApi } from '../lib/useApi';
 import { reservationInput } from '../lib/reservationInput';
 import { dateTime } from "../lib/display";
 
-function jumpToSection(event: MouseEvent<HTMLAnchorElement>, id: string) {
-  // Hash navigation revalidates the route and unmounts the form/catalog state.
-  event.preventDefault();
-  const section = document.getElementById(id);
-  section?.scrollIntoView({ block: 'start' });
-  section?.focus({ preventScroll: true });
-}
 export function EquipmentPage() {
   const {user}=useAuth();
   const canBookForOthers=!!user?.roles.some(r=>['staff','admin'].includes(r)) && !user.roles.includes('instructor');
@@ -89,10 +82,6 @@ export function EquipmentPage() {
   };
   return (
     <div className="reservations-page page-enter">
-      <nav className="reservation-shortcuts" aria-label="Equipment sections">
-        <a href="#equipment" onClick={e => jumpToSection(e, 'equipment')}>Find equipment</a>
-        <a href="#my-reservations" onClick={e => jumpToSection(e, 'my-reservations')}>My reservations</a>
-      </nav>
       <section className="reservation-section" id="equipment" tabIndex={-1}>
         <div className="reservation-section__heading">
           <div>

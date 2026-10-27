@@ -32,8 +32,6 @@ test('equipment search matches name or type and links straight to saved bookings
  fireEvent.change(screen.getByRole('searchbox',{name:'Find equipment'}),{target:{value:'WOOD'}});
  expect(screen.getByRole('button',{name:/Wood Lathe/})).toBeTruthy();
  expect(screen.queryByRole('button',{name:/^3D Printer/})).toBeNull();
- fireEvent.click(screen.getByRole('link',{name:'My reservations'}));
- expect(document.activeElement).toBe(screen.getByRole('heading',{name:'My reservations'}));
  expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('WOOD');
  fireEvent.change(screen.getByRole('searchbox'),{target:{value:'no such machine'}});
  expect(screen.getByText('No equipment matches this filter.')).toBeTruthy();
