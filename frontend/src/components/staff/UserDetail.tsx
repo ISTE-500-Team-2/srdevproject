@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "../../context/AuthContext";
-import { api } from "../../lib/api";
+import { api, ApiError } from "../../lib/api";
 import { dateTime } from "../../lib/display";
 import type { Entitlement, MemberDetail, Plan } from "../../lib/staffContracts";
 import { useApi } from "../../lib/useApi";
@@ -29,7 +29,7 @@ export function UserDetail({
   timeZone: string;
   onChanged: () => void;
 }) {
-  const detail = useApi<MemberDetail>(`/admin/users/${id}`),
+  const detail = useApi<MemberDetail>(`/admin/users/${id}`, { retainOnReload: true, refreshInterval: 3000 }),
     { user: actor } = useAuth();
   const [notice, setNotice] = useState(""),
     [renewal, setRenewal] = useState<Entitlement | null>(null);
@@ -37,6 +37,17 @@ export function UserDetail({
     setNotice(message);
     detail.reload();
     onChanged();
+  };
+  const saveStatus = async (kind: "status" | "access", f: FormData, revision: number) => {
+    try {
+      await api(`/admin/users/${id}/${kind}`, { method: "POST", body: { status: f.get("status"), revision, reason: f.get("reason") } });
+      refresh(kind === "status" ? "Account status updated." : "Facility access updated.");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        refresh("Another staff member changed this account. Latest settings loaded; review them and save again. Your change was not applied.");
+      }
+      throw error;
+    }
   };
   const d = detail.data,
     u = d?.user,
@@ -73,6 +84,14 @@ export function UserDetail({
               Account status: <strong>{u.status}</strong> · Conduct flag:{" "}
               <strong>{u.conductFlag ? "Yes" : "No"}</strong>
             </p>
+            <div className="access-readiness" aria-label="Live access status">
+              <p><strong>{u.accessStatus === "active" ? "No staff access restriction" : `Facility access ${u.accessStatus}`}</strong>. Active does not bypass membership, waiver, training or reservation requirements.</p>
+              {!d.memberships.some(m => m.effectiveStatus === "active") && !d.passes.some(p => p.effectiveStatus === "active") ? <p className="form-error"><strong>Membership / day pass missing.</strong> Issue valid access below before expecting an allowed scan.</p> : null}
+              <p className="activity-byline">Updates automatically while you are not editing. <button type="button" className="button button--quiet" onClick={() => { detail.reload(); onChanged(); }}>Refresh now</button></p>
+              <h3>Latest reader decision</h3>
+              <p>Historical result at the time of the tap; scan again after changing access.</p>
+              <AuditList items={d.audit.items.filter(a => a.entityType === "app_device_access_event").slice(0, 1)} />
+            </div>
             {u.accessReason ? <p>Access note: {u.accessReason}</p> : null}
             {u.accountReason ? <p>Account note: {u.accountReason}</p> : null}
             {!canManage ? (
@@ -126,11 +145,7 @@ export function UserDetail({
               submitLabel="Save account status"
               disabled={!canManage || actor?.id === id}
               onSubmit={async (f) => {
-                await api(`/admin/users/${id}/status`, {
-                  method: "POST",
-                  body: { status: f.get("status"), revision: u.revision, reason: f.get("reason") },
-                });
-                refresh("Account status updated.");
+                await saveStatus("status", f, u.revision);
               }}
             >
               <p>Suspending or blocking an account ends all sessions and prevents sign-in and account use. History and existing bookings are retained. Restoring an account requires a fresh sign-in and keeps its facility restrictions.</p>
@@ -149,15 +164,7 @@ export function UserDetail({
               submitLabel="Save facility access"
               disabled={!canManage || actor?.id === id}
               onSubmit={async (f) => {
-                await api(`/admin/users/${id}/access`, {
-                  method: "POST",
-                  body: {
-                    status: f.get("status"),
-                    revision: u.revision,
-                    reason: f.get("reason"),
-                  },
-                });
-                refresh("Facility access updated.");
+                await saveStatus("access", f, u.revision);
               }}
             >
               <p>

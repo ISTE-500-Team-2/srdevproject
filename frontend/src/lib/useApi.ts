@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, errorMessage } from "./api";
-export function useApi<T>(path: string | null, options: { retainOnReload?: boolean } = {}) {
+export function useApi<T>(path: string | null, options: { retainOnReload?: boolean; refreshInterval?: number } = {}) {
   const retainOnReload = options.retainOnReload ?? false;
   const previousPath = useRef(path);
   const [data, setData] = useState<T | null>(null);
@@ -33,5 +33,17 @@ export function useApi<T>(path: string | null, options: { retainOnReload?: boole
       });
     return () => controller.abort();
   }, [path, revision, retainOnReload]);
+  const refreshInterval = options.refreshInterval ?? 0;
+  useEffect(() => {
+    if (!path || refreshInterval <= 0) return;
+    const refresh = () => {
+      // Do not replace revision-keyed forms while a staff member is editing.
+      if (document.visibilityState === "hidden" || document.activeElement?.closest("form.management-form")) return;
+      reload();
+    };
+    const timer = window.setInterval(refresh, refreshInterval);
+    window.addEventListener("focus", refresh);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", refresh); };
+  }, [path, refreshInterval, reload]);
   return { data, loading, error, reload };
 }

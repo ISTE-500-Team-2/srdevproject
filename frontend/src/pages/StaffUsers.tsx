@@ -10,6 +10,7 @@ export function StaffUsers() {
     [selected, setSelected] = useState<number | null>(null);
   const users = useApi<Page<Person>>(
     `/admin/users?search=${encodeURIComponent(search)}&offset=${offset}`,
+    { retainOnReload: true, refreshInterval: 5000 },
   );
   const plans = useApi<Plan[]>("/admin/plans"),
     config = useApi<{ timeZone: string }>("/config");
