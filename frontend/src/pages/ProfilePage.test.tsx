@@ -18,8 +18,8 @@ afterEach(() => {
 });
 
 const profile = {
-  address: { 'Street address': '1 Mill Rd', City: 'White Hall', State: 'Maryland', 'Postal code': '21161' },
-  contactPreferences: { 'Preferred contact method': 'Email', 'Best time to contact': 'Afternoon' },
+  address: { 'Street address': '1 Mill Rd', City: 'White Hall', State: 'Maryland', 'Postal code': '21161', 'Custom gate code': 'Blue 7' },
+  contactPreferences: { 'Preferred contact method': 'Email', 'Best time to contact': 'Afternoon', 'SMS allowed': false },
   studioContact: { name: 'Test studio', email: 'studio@example.test', phone: '4105550100' },
 };
 function mount(overrides: Record<string, (init?: { method?: string; body?: unknown }) => unknown> = {}) {
@@ -50,7 +50,7 @@ test('details read as text first, with a formatted phone and no empty username',
   expect(screen.getByText('Member ID 000042')).toBeTruthy();
 });
 
-test('editing one section saves it with the other stored fields unchanged', async () => {
+test('editing one section saves it with the other stored fields, including unshown keys, unchanged', async () => {
   mount();
   fireEvent.click(await screen.findByRole('button', { name: 'Edit contact' }));
   const contact = section('Contact');
@@ -63,7 +63,7 @@ test('editing one section saves it with the other stored fields unchanged', asyn
     lastName: 'Member',
     phone: '4435550199',
     address: profile.address,
-    contactPreferences: { 'Preferred contact method': 'Text', 'Best time to contact': 'Afternoon' },
+    contactPreferences: { 'Preferred contact method': 'Text', 'Best time to contact': 'Afternoon', 'SMS allowed': false },
   });
   await waitFor(() => expect(screen.getAllByText('Changes saved.')).toHaveLength(1));
   expect(refresh).toHaveBeenCalledOnce();

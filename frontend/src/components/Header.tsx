@@ -1,7 +1,6 @@
 import {
   ChevronDown,
   CircleUserRound,
-  CreditCard,
   LogOut,
   Menu,
   Search,
@@ -45,7 +44,8 @@ const cardNavStyle = {
 
 const navItems: { label: string; to: string; desktop?: boolean }[] = [
   { label: "Home", to: "/" },
-  // Lives in the account menu on desktop so the links clear the centred logo.
+  // Mobile only. On desktop, Membership is reached from Account settings and
+  // the home page, so the links clear the centred logo.
   { label: "Membership", to: "/membership", desktop: false },
   { label: "Equipment", to: "/equipment" },
   { label: "Studios", to: "/studios" },
@@ -152,7 +152,7 @@ export function Header() {
         surface="glass"
         cardHeight={196}
         linkComponent={RouterLink}
-        ariaLabel="Primary navigation"
+        ariaLabel="Mobile navigation"
         style={cardNavStyle}
         onLinkClick={(link) => {
           if (link.signOut) void signOut();
@@ -242,14 +242,6 @@ export function Header() {
                   </strong>
                   <span>{user?.email ?? "Not signed in"}</span>
                 </div>
-                <button
-                  onClick={() => {
-                    navigate("/membership");
-                    setAccountOpen(false);
-                  }}
-                >
-                  <CreditCard aria-hidden="true" /> Membership & passes
-                </button>
                 <button
                   onClick={() => {
                     navigate("/profile");

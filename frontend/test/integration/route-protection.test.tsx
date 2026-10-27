@@ -34,17 +34,16 @@ test('existing staff session loses workspace on demotion and API refuses access'
   expect((await bridge.fetch('/api/admin/users')).status).toBe(403);
 });
 test('revoked server session is removed on page return without reloading the browser',async()=>{
-  const data=await login('member');mount('/profile');await screen.findByRole('button',{name:'Save changes'});
+  const data=await login('member');mount('/profile');await screen.findByRole('button',{name:'Edit profile'});
   const r=await bridge.fetch('/api/auth/logout',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':data.csrfToken},body:'{}'});
   expect(r.status).toBe(204);fireEvent(window,new Event('pageshow'));await screen.findByLabelText('Password');
-  expect(screen.queryByRole('button',{name:'Save changes'})).toBeNull();
+  expect(screen.queryByRole('button',{name:'Edit profile'})).toBeNull();
 });
 
 test('profile save still displays its success popup after refreshing the session',async()=>{
   await login('member');mount('/profile');
-  const save=await screen.findByRole('button',{name:'Save changes'});
-  await waitFor(() => expect((save as HTMLButtonElement).disabled).toBe(false));
-  fireEvent.click(save);await screen.findByText('Changes saved.');
+  fireEvent.click(await screen.findByRole('button',{name:'Edit profile'}));
+  fireEvent.click(screen.getByRole('button',{name:'Save profile'}));await screen.findByText('Changes saved.');
   // A completed background auth refresh must not unmount and erase the popup.
   fireEvent.focus(window);
   expect(await screen.findByText('Changes saved.')).toBeTruthy();

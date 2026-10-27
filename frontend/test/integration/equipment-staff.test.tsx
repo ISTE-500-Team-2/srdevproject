@@ -7,6 +7,12 @@ import {createBrowserBridge} from '../../../backend/test/helpers/browserBridge';
 let bridge:Awaited<ReturnType<typeof createBrowserBridge>>;
 beforeAll(async()=>{bridge=await createBrowserBridge();},120000);
 afterAll(async()=>{cleanup();vi.unstubAllGlobals();await bridge?.close();},30000);
+// Picks a start in the day-and-time picker: the day button, then the time.
+const pickStart=(scope:{getByRole:typeof screen.getByRole;getByLabelText:typeof screen.getByLabelText},d:Date)=>{
+  fireEvent.click(scope.getByRole('radio',{name:d.toLocaleDateString([],{weekday:'long',month:'long',day:'numeric'})}));
+  fireEvent.change(scope.getByLabelText('Start time'),{target:{value:String(d.getHours()*60+d.getMinutes())}});
+};
+
 test('staff equipment UI saves four-hour reservation for selected member and does not list it as staff-owned',async()=>{
  vi.stubGlobal('fetch',bridge.fetch);
  const login=await bridge.fetch('/api/auth/demo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:'admin'})});
@@ -21,7 +27,7 @@ test('staff equipment UI saves four-hour reservation for selected member and doe
  await user.type(modal.getByLabelText(/Book for member ID/),String(member));
  const start=new Date(Date.now()+3*86400000);start.setHours(14,0,0,0);
  const local=[start.getFullYear(),String(start.getMonth()+1).padStart(2,'0'),String(start.getDate()).padStart(2,'0')].join('-')+'T14:00';
- fireEvent.change(modal.getByLabelText(/Start date and time/),{target:{value:local}});
+ pickStart(modal,start);void local;
  await user.selectOptions(modal.getByLabelText('Duration'),'4');
  await user.click(modal.getByRole('button',{name:'Confirm reservation'}));
  await screen.findByText('Reservation saved for 3D Printer for member #'+member+'.');

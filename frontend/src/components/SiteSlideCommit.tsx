@@ -23,7 +23,8 @@ export function SiteSlideCommit({
   useLayoutEffect(() => {
     const el = box.current;
     if (!el) return;
-    const measure = () => setWidth(Math.floor(el.getBoundingClientRect().width));
+    // Fall back to a typical card width if layout hasn't run (e.g. hidden).
+    const measure = () => setWidth(Math.floor(el.getBoundingClientRect().width) || 280);
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);

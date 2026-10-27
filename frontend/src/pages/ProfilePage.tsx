@@ -290,8 +290,14 @@ function ContactSection({ user, profile, save }: { user: User; profile: UserProf
             const field = (key: string) => String(form.get(key) ?? "").trim();
             await save({
               phone: digits(field("phone")),
-              address: Object.fromEntries(ADDRESS.map((key) => [key, field(key)])),
+              // Merge, so keys this page doesn't show (a gate code, an SMS
+              // opt-in) survive the save.
+              address: {
+                ...profile?.address,
+                ...Object.fromEntries(ADDRESS.map((key) => [key, field(key)])),
+              },
               contactPreferences: {
+                ...profile?.contactPreferences,
                 [CONTACT_METHOD]: field(CONTACT_METHOD),
                 [CONTACT_TIME]: field(CONTACT_TIME),
               },

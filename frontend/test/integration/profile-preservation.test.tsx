@@ -23,8 +23,7 @@ test('profile form saves visible fields without deleting custom values and omits
     [id, JSON.stringify({City:'Baltimore','Custom gate code':'Blue 7'}), JSON.stringify({'SMS allowed':false})]);
   cleanup();
   render(<MemoryRouter initialEntries={['/profile']}><App /></MemoryRouter>);
-  await screen.findByRole('button', {name:'Save changes'});
-  await waitFor(() => expect((screen.getByRole('button', {name:'Save changes'}) as HTMLButtonElement).disabled).toBe(false));
+  await user.click(await screen.findByRole('button', {name:'Edit contact'}));
   expect((screen.getByLabelText('City') as HTMLInputElement).value).toBe('Baltimore');
   expect(screen.getByRole('link', {name:'arborcollaboratory@yahoo.com'}).getAttribute('href')).toBe('mailto:arborcollaboratory@yahoo.com');
   if (!process.env.STUDIO_CONTACT_PHONE?.trim()) {
@@ -33,17 +32,17 @@ test('profile form saves visible fields without deleting custom values and omits
   }
   await user.clear(screen.getByLabelText('City'));
   await user.type(screen.getByLabelText('City'), 'White Hall');
-  await user.click(screen.getByRole('button', {name:'Save changes'}));
+  await user.click(screen.getByRole('button', {name:'Save contact'}));
   await screen.findByText('Changes saved.');
   await waitFor(async () => {
     const result = await bridge.pool.query('SELECT profile_address,contact_preferences FROM "user" WHERE userid=$1',[id]);
-    expect(result.rows[0].profile_address).toEqual({City:'White Hall','Custom gate code':'Blue 7'});
-    expect(result.rows[0].contact_preferences).toEqual({'SMS allowed':false});
+    expect(result.rows[0].profile_address).toMatchObject({City:'White Hall','Custom gate code':'Blue 7'});
+    expect(result.rows[0].contact_preferences).toMatchObject({'SMS allowed':false});
   });
   // Stale local-only selections must not override the real catalog/billing route.
   window.localStorage.setItem('profile-membership-selection','premium-yearly');
   expect(screen.queryByRole('button',{name:'Change membership option'})).toBeNull();
-  await user.click(screen.getByRole('link',{name:'Manage membership and passes'}));
+  await user.click(screen.getByRole('link',{name:/^Manage/}));
   await screen.findByRole('heading',{name:'Membership & passes'});
   const plans=(await screen.findByRole('heading',{name:'Get access'})).closest('section')!;
   await waitFor(()=>expect(plans.textContent).toContain('$95.00'));

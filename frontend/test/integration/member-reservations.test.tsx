@@ -7,6 +7,12 @@ import {createBrowserBridge} from '../../../backend/test/helpers/browserBridge';
 let bridge:Awaited<ReturnType<typeof createBrowserBridge>>;
 beforeAll(async()=>{bridge=await createBrowserBridge();},120000);
 afterAll(async()=>{cleanup();vi.unstubAllGlobals();await bridge?.close();},30000);
+// Picks a start in the day-and-time picker: the day button, then the time.
+const pickStart=(scope:{getByRole:typeof screen.getByRole;getByLabelText:typeof screen.getByLabelText},d:Date)=>{
+  fireEvent.click(scope.getByRole('radio',{name:d.toLocaleDateString([],{weekday:'long',month:'long',day:'numeric'})}));
+  fireEvent.change(scope.getByLabelText('Start time'),{target:{value:String(d.getHours()*60+d.getMinutes())}});
+};
+
 test('member finds equipment, books once, recovers from conflicts and cooldown, and cancels under existing rules',async()=>{
  Element.prototype.scrollIntoView=vi.fn();
  let creates=0;
@@ -34,7 +40,7 @@ test('member finds equipment, books once, recovers from conflicts and cooldown, 
  await user.click(await screen.findByRole('button',{name:/^3D Printer/}));
  const start=new Date(Date.now()+3*86400000);start.setHours(14,0,0,0);
  const local=(d:Date)=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
- const choose=async(d:Date)=>fireEvent.change(await screen.findByLabelText(/Start date and time/),{target:{value:local(d)}});
+ const choose=async(d:Date)=>{await screen.findByLabelText('Start time');pickStart(screen,d);};
  await choose(start);
  await user.selectOptions(screen.getByLabelText('Duration'),'2');
  const form=screen.getByRole('button',{name:'Confirm reservation'}).closest('form')!;
@@ -48,7 +54,7 @@ test('member finds equipment, books once, recovers from conflicts and cooldown, 
  await user.click(screen.getByRole('button',{name:'Confirm reservation'}));
  const error=await screen.findByRole('alert');
  expect(error.textContent).toContain('Choose another start time or shorten the duration');
- expect((screen.getByLabelText(/Start date and time/) as HTMLInputElement).value).toBe(local(start));
+ expect((document.querySelector('input[name="start"]') as HTMLInputElement).value).toBe(local(start));
  expect((await bridge.pool.query('SELECT reservationid FROM reservation')).rowCount).toBe(1);
  const end=new Date(start.getTime()+2*3600000);
  await choose(end);
@@ -57,7 +63,6 @@ test('member finds equipment, books once, recovers from conflicts and cooldown, 
  await choose(new Date(end.getTime()+15*60000));
  await user.click(screen.getByRole('button',{name:'Confirm reservation'}));
  await finishBooking();
- await user.click(screen.getByRole('link',{name:'My reservations',exact:true}));
  expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('3d print');
  const mine=screen.getByRole('region',{name:'My reservations'});
  await waitFor(()=>expect(within(mine).getAllByRole('button',{name:'Cancel reservation'})).toHaveLength(2));

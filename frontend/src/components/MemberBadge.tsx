@@ -23,11 +23,12 @@ function fit(ctx: CanvasRenderingContext2D, text: string, max: number, size: num
 
 /** Paints the badge face in the site's paper, espresso and bronze. */
 async function paintFace(name: string, access: string, memberId: number) {
-  await document.fonts.ready;
+  await document.fonts?.ready;
   const canvas = document.createElement("canvas");
   canvas.width = W;
   canvas.height = H;
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return undefined;
   ctx.fillStyle = "#f7f4f0";
   ctx.fillRect(0, 0, W, H);
   ctx.fillStyle = "#241006";
@@ -63,7 +64,8 @@ function paintStrap() {
   const canvas = document.createElement("canvas");
   canvas.width = 128;
   canvas.height = 1024;
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return undefined;
   ctx.fillStyle = "#f7961d";
   ctx.fillRect(0, 0, 128, 1024);
   ctx.fillStyle = "#241006";
@@ -90,7 +92,7 @@ export function MemberBadge({
   useEffect(() => {
     let live = true;
     void paintFace(name, access, memberId).then((url) => live && setFace(url));
-    void document.fonts.ready.then(() => live && setStrap(paintStrap()));
+    void Promise.resolve(document.fonts?.ready).then(() => live && setStrap(paintStrap()));
     return () => {
       live = false;
     };

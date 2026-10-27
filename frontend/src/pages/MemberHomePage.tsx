@@ -6,7 +6,7 @@ import {
   FileCheck2,
   LogIn,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api, errorMessage } from '../lib/api';
@@ -15,7 +15,8 @@ import type { Overview, Reservation, Waiver } from '../lib/contracts';
 import { Toast } from '../components/Toast';
 import { MemberBadge } from '../components/MemberBadge';
 import { SiteSlideCommit } from '../components/SiteSlideCommit';
-import SplitText from '../components/reactbits/SplitText';
+// GSAP is only needed for the greeting, so it loads with it.
+const SplitText = lazy(() => import('../components/reactbits/SplitText'));
 import StatusMark from '../components/reactbits/StatusMark';
 
 /** The greeting animates once per browser session, then stays still. */
@@ -85,14 +86,16 @@ export function MemberHomePage() {
         <div>
           <p className="eyebrow">Member dashboard</p>
           {greet && user ? (
-            <SplitText
-              tag="h1"
-              text={`Welcome back, ${user.firstName}`}
-              textAlign="left"
-              trigger="load"
-              delay={30}
-              duration={0.9}
-            />
+            <Suspense fallback={<h1>Welcome back, {user.firstName}</h1>}>
+              <SplitText
+                tag="h1"
+                text={`Welcome back, ${user.firstName}`}
+                textAlign="left"
+                trigger="load"
+                delay={30}
+                duration={0.9}
+              />
+            </Suspense>
           ) : (
             <h1>Welcome back, {user?.firstName}</h1>
           )}
