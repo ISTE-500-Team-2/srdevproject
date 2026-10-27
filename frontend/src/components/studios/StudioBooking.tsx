@@ -136,6 +136,15 @@ export function StudioBooking({
   const [method, setMethod] = useState<"manual" | "stripe_test">("manual");
   const end = nextMonth(start);
   const choice = studios.find((s) => s.id === studioId) ?? null;
+  // Availability refreshes while the pop-up is open; re-check the current
+  // choice so a studio someone else just took can't be submitted.
+  const dateTaken = !!start && !studios.some((s) => freeFor(s, start));
+  const choiceTaken = !!choice && !!start && !!conflictFor(choice, start, end);
+  const stale = dateTaken
+    ? "That start date was just taken. Pick another date."
+    : choiceTaken
+      ? `${choice!.name} was just taken for these dates. Pick another studio.`
+      : "";
   const pick = (date: string) => {
     setStart(date);
     const keep = choice && freeFor(choice, date);
@@ -166,7 +175,7 @@ export function StudioBooking({
           className="studio-booking"
           onSubmit={(e) => {
             e.preventDefault();
-            if (choice && start)
+            if (choice && start && !stale)
               onBook({ studio: choice, startDate: start, paymentMethod: method });
           }}
         >
@@ -274,9 +283,9 @@ export function StudioBooking({
               )}
             </div>
           </div>
-          {error && (
+          {(stale || error) && (
             <p className="form-error" role="alert">
-              {error}
+              {stale || error}
             </p>
           )}
           <div className="studio-booking__foot">
@@ -289,7 +298,7 @@ export function StudioBooking({
             </span>
             <button
               className="button button--primary"
-              disabled={busy || !canBook || !choice || !start}
+              disabled={busy || !canBook || !choice || !start || !!stale}
             >
               {busy
                 ? "Saving…"

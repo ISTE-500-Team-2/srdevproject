@@ -66,7 +66,6 @@ export function StudiosPage() {
     [loaded, setLoaded] = useState(false);
   const [size, setSize] = useState<string | null>(null),
     [held, setHeld] = useState<{ name: string; holdUntil: string } | null>(null),
-    [requestKey, setRequestKey] = useState(() => crypto.randomUUID()),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [message, setMessage] = useState("");
@@ -76,6 +75,10 @@ export function StudiosPage() {
     month: "2-digit",
     day: "2-digit",
   }).format(new Date());
+  // One idempotency key per distinct booking: an identical retry (for example
+  // after a lost response) reuses it, while a changed studio, date or payment
+  // method gets a fresh key so the server doesn't reject it as KEY_REUSED.
+  const attempt = useRef<{ signature: string; key: string } | null>(null);
   const staffRef = useRef(staff);
   staffRef.current = staff;
   async function refresh() {
@@ -96,12 +99,14 @@ export function StudiosPage() {
   useEffect(() => {
     void refresh().catch((e) => setError(errorMessage(e)));
   }, [staff]);
-  // Payment status changes outside this page (front desk, card checkout), so
-  // keep it current while anything is still waiting instead of asking for a
-  // manual refresh.
+  // Holds, payments and availability change outside this page (front desk,
+  // card checkout, other members), so keep it current without a manual
+  // refresh: while the viewer has something pending, while they are choosing
+  // dates, and always for staff watching incoming holds.
   const waiting = mine.some((r) => r.status === "pending");
+  const live = waiting || staff || size !== null;
   useEffect(() => {
-    if (!waiting) return;
+    if (!live) return;
     const update = () => void refresh().catch(() => {});
     const timer = window.setInterval(update, 15000);
     window.addEventListener("focus", update);
@@ -109,7 +114,7 @@ export function StudiosPage() {
       window.clearInterval(timer);
       window.removeEventListener("focus", update);
     };
-  }, [waiting]);
+  }, [live]);
   async function action(work: () => Promise<void>) {
     setBusy(true);
     setError("");
@@ -124,6 +129,10 @@ export function StudiosPage() {
     }
   }
   async function book({ studio, startDate, paymentMethod }: BookingRequest) {
+    const signature = `${studio.id}|${startDate}|${paymentMethod}`;
+    if (attempt.current?.signature !== signature)
+      attempt.current = { signature, key: crypto.randomUUID() };
+    const requestKey = attempt.current.key;
     await action(async () => {
       const r = await api<Rental & { checkoutUrl?: string }>(
         "/studio-rentals",
@@ -142,7 +151,7 @@ export function StudiosPage() {
         window.location.assign(r.checkoutUrl);
         return;
       }
-      setRequestKey(crypto.randomUUID());
+      attempt.current = null;
       setHeld({ name: studio.name, holdUntil: r.hold_until });
     });
   }
