@@ -110,6 +110,16 @@ def retire_previous(root, port, expected_sha, ops):
         raise ValueError('Invalid retirement target')
     if read_route(root / 'routing/active.json')['publicPort'] == port:
         return False
+    # A timer may survive a crash between registration and durable commit.
+    # Until commit, recovery still needs this old process to be running.
+    path = root / 'auto-deploy/activation.json'
+    if not path.exists():
+        return False
+    journal = json.loads(path.read_text())
+    if (journal.get('phase') != 'committed' or
+            journal.get('oldRoute', {}).get('publicPort') != port or
+            journal.get('oldRoute', {}).get('release') != expected_sha):
+        return False
     name = SLOTS.get(port, ('legacy', 'arbor-email-app'))[1]
     inspected = json.loads(ops.output('docker', 'inspect', name))[0]
     if inspected['Config'].get('Labels', {}).get('org.opencontainers.image.revision') != expected_sha:

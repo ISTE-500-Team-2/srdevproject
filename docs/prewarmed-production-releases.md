@@ -71,6 +71,10 @@ then drains/stops it without deleting it. Retirement rechecks the current route
 and the old immutable image revision under the same deployment lock: a stale timer
 cannot stop a reused or active slot. Failed timer scheduling is reported as
 `retirementScheduled: false`; it does not roll back a healthy new application.
+Retirement additionally requires a matching durable committed journal; a timer
+left by an interrupted, uncommitted promotion cannot stop its rollback process.
+Reconciliation of already-recorded committed success preserves a later failed
+release's block rather than silently retrying that failed revision.
 
 Beyond the warm window, restoration requires starting the retained old process
 and proving it healthy before manually restoring its recorded route. Do not

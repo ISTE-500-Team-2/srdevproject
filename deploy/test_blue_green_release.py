@@ -130,6 +130,8 @@ class PromotionTests(unittest.TestCase):
 
     def test_retirement_cannot_stop_active_or_reused_slot(self):
         root, original, old_route, ops, calls = self.fixture()
+        release.write_json(root / 'auto-deploy/activation.json', {'phase': 'committed',
+            'oldRoute': {'version': 1, 'release': OLD, 'publicPort': 18082}, 'newRoute': old_route})
         ops.output = lambda *_: json.dumps([{'Config': {'Labels': {'org.opencontainers.image.revision': NEW}}}])
         self.assertFalse(blue.retire_previous(root, 8082, OLD, ops))
         self.assertFalse(blue.retire_previous(root, 18082, OLD, ops))
@@ -137,6 +139,33 @@ class PromotionTests(unittest.TestCase):
         ops.output = lambda *_: json.dumps([{'Config': {'Labels': {'org.opencontainers.image.revision': OLD}}}])
         self.assertTrue(blue.retire_previous(root, 18082, OLD, ops))
         self.assertEqual(calls[-1], ('run', ('docker', 'stop', 'arbor-email-app-green')))
+
+    def test_pending_activation_never_retires_its_rollback_target(self):
+        root, original, old_route, ops, calls = self.fixture()
+        new_route = {'version': 1, 'release': NEW, 'publicPort': 18082, 'previousPublicPort': 8082}
+        release.write_json(root / 'routing/active.json', new_route)
+        release.write_json(root / 'auto-deploy/activation.json', {'phase': 'pending',
+            'oldRoute': old_route, 'newRoute': new_route})
+        ops.output = lambda *_: json.dumps([{'Config': {'Labels': {'org.opencontainers.image.revision': OLD}}}])
+        self.assertFalse(blue.retire_previous(root, 8082, OLD, ops))
+        self.assertFalse(calls, 'a crash before commit must keep the old public process alive')
+
+    def test_committed_recovery_does_not_erase_a_later_failed_release(self):
+        root, original, old_route, ops, calls = self.fixture()
+        with patch.object(blue, 'verify_route'):
+            blue.deploy_blue_green(root, NEW, ops)
+        failed = 'd' * 40
+        (root / 'auto-deploy/blue-green.enabled').write_text('fixture')
+        release.write_json(root / 'auto-deploy/status.json', {
+            'deployedSha': NEW, 'failedSha': failed, 'phase': 'blocked'})
+        with patch.object(release, 'main_sha', return_value=failed), \
+             patch.object(release, 'ready', return_value=True), \
+             patch.object(release, 'deploy') as deploy:
+            release.tick(root)
+            deploy.assert_not_called()
+        status = json.loads((root / 'auto-deploy/status.json').read_text())
+        self.assertEqual(status['failedSha'], failed)
+        self.assertEqual(status['phase'], 'blocked')
 
 
 if __name__ == '__main__':

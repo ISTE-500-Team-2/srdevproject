@@ -263,7 +263,8 @@ def tick(root, retry=False):
         import sys
         from blue_green_release import recover_activation
         recovered = recover_activation(root, sys.modules[__name__])
-        if recovered:
+        if recovered and (recovered.get('phase') != 'deployed' or
+                          recovered.get('deployedSha') != state.get('deployedSha')):
             state.update(recovered)
             write_json(state_file, state)
     state['lastCheck'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
