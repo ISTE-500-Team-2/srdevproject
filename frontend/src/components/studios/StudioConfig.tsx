@@ -15,7 +15,7 @@ export function StudioConfig({
     [confirmed, setConfirmed] = useState(false);
   return (
     <details>
-      <summary>Configure studio (admin)</summary>
+      <summary>Edit rate and terms</summary>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -55,9 +55,9 @@ export function StudioConfig({
             required
             onChange={(e) => setConfirmed(e.target.checked)}
           />
-          I confirm these rates and terms are approved for this environment.
+          These rates and terms are approved by The Collaboratory.
         </label>
-        <button className="button" disabled={busy || !confirmed}>
+        <button className="button button--primary" disabled={busy || !confirmed}>
           Save studio terms
         </button>
       </form>

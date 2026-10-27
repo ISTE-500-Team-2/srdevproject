@@ -10,6 +10,7 @@ export function StaffUsers() {
     [selected, setSelected] = useState<number | null>(null);
   const users = useApi<Page<Person>>(
     `/admin/users?search=${encodeURIComponent(search)}&offset=${offset}`,
+    { retainOnReload: true, refreshInterval: 5000 },
   );
   const plans = useApi<Plan[]>("/admin/plans"),
     config = useApi<{ timeZone: string }>("/config");
@@ -48,7 +49,7 @@ export function StaffUsers() {
                   </strong>
                   <span>{p.email}</span>
                   <small>
-                    {p.roles.join(", ")} · Access {p.accessStatus}
+                    {p.roles.join(", ")} · Account {p.status} · Restriction {p.accessStatus === "active" ? "none" : p.accessStatus}
                   </small>
                 </button>
               ))}

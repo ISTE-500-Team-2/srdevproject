@@ -10,9 +10,7 @@ export function BillingConfiguration({ plans }: { plans: Plan[] }) {
     <div className="panel management-panel">
       <h2>Verified discounts and school-partner access</h2>
       <p>
-        Enter approved rates only. Student eligibility uses the staff-managed
-        Student classification. School-partner access needs a staff verification
-        reference and expiry date; users cannot self-approve.
+        Student prices apply to members marked as students. School-partner access needs a verification reference and an end date.
       </p>
       <LoadState {...prices} />
       {prices.data &&

@@ -10,9 +10,7 @@ export function BillingRefunds() {
     <section className="panel management-panel">
       <h3>Stripe test membership payments</h3>
       <p>
-        Refunds here return the full invoice payment to its original card in
-        Stripe test mode. They do not stop future renewal or change access;
-        manage those separately.
+        Refunds the full invoice to the original card. Renewal and access stay as they are.
       </p>
       <LoadState {...invoices} />
       {invoices.data?.length === 0 && (

@@ -63,6 +63,8 @@ test('signup form creates an account with DOB and the new password policy', asyn
 
   await user.type(within(dialog).getByLabelText('First name'), 'Signup');
   await user.type(within(dialog).getByLabelText('Last name'), 'Test');
+  const username = 'signup_' + email.slice(0, 16);
+  await user.type(within(dialog).getByLabelText('Username'), username);
   await user.type(
     within(dialog).getByLabelText('Email'),
     email,
@@ -107,16 +109,46 @@ test('signup form creates an account with DOB and the new password policy', asyn
   );
 
   const account = await bridge.pool.query(
-    `SELECT email, dob::text AS dob FROM "user" WHERE email=$1`,
+    `SELECT email, username, dob::text AS dob FROM "user" WHERE email=$1`,
     [email],
   );
 
   expect(account.rowCount).toBe(1);
   expect(account.rows[0].email).toBe(email);
+  expect(account.rows[0].username).toBe(username);
   expect(account.rows[0].dob).toBe('2000-01-01');
 
   cleanup();
+  for(const identifier of [username.toUpperCase(),email]) {
+    await api('/auth/logout',{method:'POST'});
+    setAccessToken(null);setCsrfToken(null);
+    mount();
+    await user.type(await screen.findByLabelText('Email or username'),identifier);
+    await user.type(screen.getByPlaceholderText('Enter your password…'),'ValidPassword!');
+    await user.click(screen.getByRole('button',{name:'Login',exact:true}));
+    await screen.findByRole('heading',{name:/Welcome back, Signup/});
+    cleanup();
+  }
 }, 120000);
+
+test('duplicate username error stays in signup dialog and user can correct it without retyping other fields',async()=>{
+  vi.stubGlobal('fetch',bridge.fetch);
+  const email=randomUUID()+'@example.invalid',taken='taken_'+email.slice(0,16);
+  const response=await bridge.fetch('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({firstName:'Existing',lastName:'Test',username:taken,email,password:'ValidPassword!',phone:'0000000000',dob:'2000-01-01'})});
+  expect(response.status).toBe(202);
+  mount();const user=userEvent.setup();await user.click(await screen.findByRole('button',{name:'Sign up'}));
+  const dialog=screen.getByRole('dialog',{name:'Create your account'});
+  for(const [label,value] of [['First name','Retry'],['Last name','Test'],['Username',taken],['Email','retry_'+email],['Phone','0000000000']])await user.type(within(dialog).getByLabelText(label),value);
+  fireEvent.change(within(dialog).getByLabelText('Date of birth'),{target:{value:'2000-01-01'}});
+  await user.type(within(dialog).getByLabelText('Password',{exact:false}),'ValidPassword!');
+  await user.click(within(dialog).getByRole('button',{name:'Create account'}));
+  expect((await within(dialog).findByRole('alert')).textContent).toContain('That username is unavailable');
+  expect((within(dialog).getByLabelText('First name') as HTMLInputElement).value).toBe('Retry');
+  await user.clear(within(dialog).getByLabelText('Username'));
+  await user.type(within(dialog).getByLabelText('Username'),'new_'+email.slice(0,16));
+  await user.click(within(dialog).getByRole('button',{name:'Create account'}));
+  expect(await screen.findByRole('heading',{name:'Email unavailable'})).toBeTruthy();
+});
 
 test('React → Express controllers/models → PostgreSQL: login, save, refresh, cancel, waive and check in', async () => {
   vi.stubGlobal('fetch', bridge.fetch);

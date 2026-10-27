@@ -5,13 +5,28 @@ import {
   AppError,
   dateOfBirthField,
   emailField,
+  usernameField,
+  loginIdentifier,
   newPasswordField,
   passwordField,
   positiveId,
+  integerId,
   reservationWindow,
 } from '../src/domain.js';
 import { hashPassword, verifyPassword } from '../src/passwords.js';
 import { readConfig } from '../src/config.js';
+
+test('usernames normalize consistently and cannot collide with email identifiers', () => {
+  assert.equal(usernameField(' New.Member-2_ '),'new.member-2_');
+  for(const value of [null,{},'', 'ab','-name','has space','user@example.invalid','x'.repeat(31),'üser'])
+    assert.throws(()=>usernameField(value),AppError);
+});
+
+test('email and username login identifiers preserve case-insensitive email compatibility', () => {
+  assert.equal(loginIdentifier(' Existing@Example.Invalid '),'existing@example.invalid');
+  assert.equal(loginIdentifier(' New.Member '),'new.member');
+  assert.throws(()=>loginIdentifier('bad@'),AppError);
+});
 
 test('reservation times are explicit, valid, future intervals of at most 24 hours', () => {
   const now = new Date('2030-01-01T00:00:00Z');
@@ -47,6 +62,14 @@ test('identifiers and emails are validated without coercing arbitrary values', (
   assert.equal(positiveId('12'), 12);
   assert.equal(emailField('  Member@Example.org  '), 'member@example.org');
   assert.throws(() => emailField('not-an-email'), AppError);
+});
+
+test('PostgreSQL INTEGER identifiers reject overflow without narrowing BIGINT identifiers', () => {
+  for (const value of [1, '1', 2147483647, '2147483647'])
+    assert.equal(integerId(value), Number(value));
+  for (const value of [2147483648, '2147483648', Number.MAX_SAFE_INTEGER, String(Number.MAX_SAFE_INTEGER), 0, -1, 1.5, null, {}, '1e5'])
+    assert.throws(() => integerId(value, 'Class'), {name:'Error', status:400, code:'INVALID_INPUT'});
+  assert.equal(positiveId('2147483648'), 2147483648);
 });
 
 test('existing passwords are not subject to new-password complexity rules', () => {

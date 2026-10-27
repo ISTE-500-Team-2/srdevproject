@@ -6,6 +6,7 @@ import type { LiveEquipment, Reservation } from "../lib/contracts";
 import type { Page } from "../lib/staffContracts";
 import { useApi } from "../lib/useApi";
 import { MemberSelect } from "../components/MemberSelect";
+import { dateTime } from "../lib/display";
 
 type ReservationForm = {
   userId: string;
@@ -190,8 +191,8 @@ export function StaffReservations() {
                 <span className="status-label">{item.status}</span>
               </div>
               <p>
-                {new Date(item.startTime).toLocaleString()} to{" "}
-                {new Date(item.endTime).toLocaleString()}
+                {dateTime(item.startTime)} to{" "}
+                {dateTime(item.endTime)}
               </p>
               <p>
                 Member #{item.userId}

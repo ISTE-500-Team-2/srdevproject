@@ -1,3 +1,4 @@
+import { dateTime } from "../lib/display";
 import {
   ArrowUpRight,
   CalendarDays,
@@ -124,8 +125,7 @@ export function MemberHomePage() {
             <span className="membership-card__tier">{accessLabel}</span>
             <hr />
             <p>
-              Equipment eligibility is checked against your membership or day
-              pass, certifications, and required waivers.
+              To use equipment you need a membership or day pass, signed waivers, and any required training.
             </p>
             <Link to="/membership">
               Membership & payment records <ArrowUpRight aria-hidden="true" />
@@ -176,7 +176,7 @@ export function MemberHomePage() {
           <ul>
             {summary.recentCheckIns.map((item) => (
               <li key={item.id}>
-                {new Date(item.checkedInAt).toLocaleString()} · {item.location}
+                {dateTime(item.checkedInAt)} · {item.location}
               </li>
             ))}
           </ul>
