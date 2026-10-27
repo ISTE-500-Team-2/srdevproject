@@ -45,7 +45,7 @@ test('profile form saves visible fields without deleting custom values and omits
   expect(screen.queryByRole('button',{name:'Change membership option'})).toBeNull();
   await user.click(screen.getByRole('link',{name:'Manage membership and passes'}));
   await screen.findByRole('heading',{name:'Membership & passes'});
-  const plans=screen.getByRole('heading',{name:'Available plans'}).closest('section')!;
+  const plans=(await screen.findByRole('heading',{name:'Get access'})).closest('section')!;
   await waitFor(()=>expect(plans.textContent).toContain('$95.00'));
   expect(plans.textContent).toContain('$25.00');
   expect(plans.textContent).not.toContain('$19.99');
