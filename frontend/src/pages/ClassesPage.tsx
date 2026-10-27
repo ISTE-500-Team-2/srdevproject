@@ -1,63 +1,137 @@
-import { useEffect, useId, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
 import { LoadState } from "../components/Management";
-import { dateTime } from "../lib/display";
-import { MemberSelect } from "../components/MemberSelect";
-type Class = {
-  id: number;
-  title: string;
-  certificationId: number;
-  certificationName: string;
-  instructorId: number;
-  instructor: string;
-  capacity: number;
-  enrolled: number;
-  status: string;
-  revision: number;
-  roomId: number;
-  roomName: string;
-  startsAt: string;
-  endsAt: string;
-  myStatus: string | null;
+import { Toast } from "../components/Toast";
+import { shortDate, timeOnly } from "../lib/display";
+import type { Certification } from "../lib/contracts";
+import { ClassCatalog, type Eligibility } from "../components/classes/ClassCatalog";
+import { ClassDetail } from "../components/classes/ClassDetail";
+import { ClassSchedule } from "../components/classes/ClassSchedule";
+import { RosterPanel } from "../components/classes/RosterPanel";
+import { ScheduleClassDialog } from "../components/classes/ScheduleClassDialog";
+import { CancelClassDialog } from "../components/classes/CancelClassDialog";
+import {
+  byStart,
+  hasStarted,
+  isCancelled,
+  type AttendanceDraft,
+  type ClassRecord,
+  type RosterPerson,
+  type ScheduleSeed,
+} from "../components/classes/classData";
+import "./classes.css";
+
+const REFRESH_MS = 120000;
+/** How far back to look for past classes whose attendance is still open. */
+const ATTENDANCE_WINDOW_MS = 60 * 86400000;
+const emptyDraft: AttendanceDraft = { statuses: {}, note: "" };
+const hhmm = (value: string) => {
+  const d = new Date(value);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 };
-type Person = { userId: number; name: string; email: string; status: string };
-type MemberRoster = { items: { name: string }[]; capacity: number; enrolled: number; seatsAvailable: number };
-type AttendanceDraft = { status: string; reason: string };
-function withoutKey<T>(values: Record<string, T>, key: string) {
-  const next = { ...values };
-  delete next[key];
-  return next;
+
+/** Counts roster entries still "registered" on past classes the user can see rosters for. */
+function usePendingAttendance(candidates: ClassRecord[], refreshToken: number) {
+  const [pending, setPending] = useState<Record<number, number>>({});
+  const key = candidates.map((c) => c.id).join(",");
+  useEffect(() => {
+    if (!key) {
+      setPending({});
+      return;
+    }
+    let stale = false;
+    void Promise.all(
+      key.split(",").map(async (id) => {
+        try {
+          const roster = await api<RosterPerson[]>(`/classes/${id}/roster`);
+          return [Number(id), roster.filter((p) => p.status === "enrolled").length] as const;
+        } catch {
+          return null;
+        }
+      }),
+    ).then((rows) => {
+      if (!stale) setPending(Object.fromEntries(rows.filter((row) => row !== null)));
+    });
+    return () => {
+      stale = true;
+    };
+  }, [key, refreshToken]);
+  return pending;
 }
+
 export function ClassesPage() {
-  const selectorId = useId();
   const { user } = useAuth();
-  const classes = useApi<Class[]>(user ? "/classes" : null, { retainOnReload: true });
-  const [query, setQuery] = useState(""),
-    [message, setMessage] = useState(""),
-    [busy, setBusy] = useState(false),
-    [selected, setSelected] = useState<Class | null>(null);
-  const [cancellationDrafts, setCancellationDrafts] = useState<Record<string, string>>({});
-  const [attendanceDrafts, setAttendanceDrafts] = useState<Record<string, AttendanceDraft>>({});
+  const roles = user?.roles ?? [];
+  const manager = roles.some((r) => r === "admin" || r === "staff");
+  const admin = roles.includes("admin");
+  const classes = useApi<ClassRecord[]>(user ? "/classes" : null, { retainOnReload: true });
+  // Members see whether they can register before they try, using the same
+  // entitlement check the enroll endpoint applies.
+  const overview = useApi<{ entitlement: { membership: unknown; dayPass: unknown } }>(user && !manager ? "/me/overview" : null);
+  const certifications = useApi<Certification[]>(user && !manager ? "/me/certifications" : null);
+
+  const [refreshToken, setRefreshToken] = useState(0);
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const [rowErrors, setRowErrors] = useState<Record<number, string>>({});
+  const [toast, setToast] = useState<string | null>(null);
+  const [detailId, setDetailId] = useState<number | null>(null);
+  const [rosterId, setRosterId] = useState<number | null>(null);
+  const [cancelId, setCancelId] = useState<number | null>(null);
+  const [scheduleSeed, setScheduleSeed] = useState<ScheduleSeed | null>(null);
   const [scheduleDirty, setScheduleDirty] = useState(false);
-  const hasUnsavedEdits = scheduleDirty || Object.keys(cancellationDrafts).length > 0 || Object.keys(attendanceDrafts).length > 0;
-  const roles = user?.roles ?? [],
-    staff = roles.some((r) => ["admin", "staff"].includes(r));
-  const managesSelected = Boolean(selected && (staff || (roles.includes("instructor") && selected.instructorId === user?.id)));
-  const roster = useApi<Person[]>(
-    selected && managesSelected ? `/classes/${selected.id}/roster` : null, { retainOnReload: true },
+  const [cancelReasons, setCancelReasons] = useState<Record<number, string>>({});
+  const [drafts, setDrafts] = useState<Record<number, AttendanceDraft>>({});
+
+  const all = useMemo(() => classes.data ?? [], [classes.data]);
+  const find = (id: number | null) => (id === null ? undefined : all.find((c) => c.id === id));
+  const canRecord = (c: ClassRecord) => admin || c.instructorId === user?.id;
+  const teaching = useMemo(
+    () =>
+      manager
+        ? []
+        : all
+            .filter(
+              (c) =>
+                c.instructorId === user?.id &&
+                !isCancelled(c) &&
+                new Date(c.startsAt).getTime() > Date.now() - ATTENDANCE_WINDOW_MS,
+            )
+            .sort(byStart),
+    [all, manager, user?.id],
   );
-  const participants = useApi<MemberRoster>(
-    selected && !managesSelected ? `/classes/${selected.id}/member-roster` : null, { retainOnReload: true },
+  const attendanceCandidates = useMemo(
+    () =>
+      all.filter(
+        (c) =>
+          !isCancelled(c) &&
+          hasStarted(c) &&
+          new Date(c.startsAt).getTime() > Date.now() - ATTENDANCE_WINDOW_MS &&
+          (manager || c.instructorId === user?.id),
+      ),
+    [all, manager, user?.id],
   );
-  const refreshClasses = () => { classes.reload(); roster.reload(); participants.reload(); };
+  const pending = usePendingAttendance(attendanceCandidates, refreshToken);
+
+  const hasUnsavedEdits =
+    scheduleDirty ||
+    Object.values(cancelReasons).some((reason) => reason.trim()) ||
+    Object.values(drafts).some((d) => Object.keys(d.statuses).length > 0 || d.note.trim());
+
+  const refreshAll = () => {
+    classes.reload();
+    setRefreshToken((t) => t + 1);
+  };
   useEffect(() => {
     const refresh = () => {
-      if (!hasUnsavedEdits && !busy && document.visibilityState !== "hidden") { classes.reload(); roster.reload(); participants.reload(); }
+      if (!hasUnsavedEdits && busyId === null && document.visibilityState !== "hidden") {
+        classes.reload();
+        setRefreshToken((t) => t + 1);
+      }
     };
-    const timer = window.setInterval(refresh, 120000);
+    const timer = window.setInterval(refresh, REFRESH_MS);
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refresh);
     return () => {
@@ -65,54 +139,27 @@ export function ClassesPage() {
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [classes.reload, roster.reload, participants.reload, hasUnsavedEdits, busy]);
-  const catalog = useApi<
-    { id: number; name: string; validityDays: number | null }[]
-  >(staff ? "/training/catalog" : null);
-  const rooms = useApi<
-    {
-      id: number;
-      name: string;
-      location: string;
-      capacity: number | null;
-      status: string;
-    }[]
-  >(staff ? "/rooms" : null);
-  async function run(work: () => Promise<unknown>) {
-    setBusy(true);
-    setMessage("");
+  }, [classes.reload, hasUnsavedEdits, busyId]);
+
+  async function act(c: ClassRecord, action: "enroll" | "withdraw") {
+    setBusyId(c.id);
+    setRowErrors(({ [c.id]: _, ...rest }) => rest);
     try {
-      await work();
-      classes.reload();
-      roster.reload();
-      participants.reload();
-      setMessage("Class records saved.");
-    } catch (e) {
-      setMessage(errorMessage(e));
+      await api(`/classes/${c.id}/${action}`, { method: "POST", body: {} });
+      setToast(
+        action === "enroll"
+          ? `You're registered for ${c.title} on ${shortDate(c.startsAt)} at ${timeOnly(c.startsAt)}.`
+          : `You withdrew from ${c.title}.`,
+      );
+      if (action === "withdraw") setDetailId(null);
+    } catch (error) {
+      setRowErrors((errors) => ({ ...errors, [c.id]: errorMessage(error) }));
     } finally {
-      setBusy(false);
+      setBusyId(null);
+      refreshAll();
     }
   }
-  async function create(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const f = new FormData(e.currentTarget);
-    await run(async () => {
-      await api("/classes", {
-        method: "POST",
-        body: {
-          title: f.get("title"),
-          certificationId: Number(f.get("certId")),
-          instructorId: Number(f.get("instructorId")),
-          roomId: Number(f.get("roomId")),
-          capacity: Number(f.get("capacity")),
-          startsAt: new Date(String(f.get("startsAt"))).toISOString(),
-          endsAt: new Date(String(f.get("endsAt"))).toISOString(),
-          reason: f.get("reason"),
-        },
-      });
-      setScheduleDirty(false);
-    });
-  }
+
   if (!user)
     return (
       <section>
@@ -121,289 +168,117 @@ export function ClassesPage() {
         <Link to="/login">Sign in</Link>
       </section>
     );
+
+  const eligibility: Eligibility = overview.data
+    ? overview.data.entitlement.membership || overview.data.entitlement.dayPass
+      ? "eligible"
+      : "ineligible"
+    : "unknown";
+  const certified = new Set((certifications.data ?? []).filter((c) => c.valid).map((c) => c.id));
+  const detail = find(detailId);
+  const rosterClass = find(rosterId);
+  const cancelClass = find(cancelId);
+
   return (
     <section className="classes-page page-enter">
-      <p className="eyebrow">Learn by making</p>
-      <h1 className="display-heading">Instructor-led classes</h1>
-      <p>
-        Signing up doesn't certify you. Your instructor confirms your training after the class.
-      </p>
-      {message ? <p role="status">{message}</p> : null}
-      <label>
-        Filter classes
-        <input value={query} onChange={(e) => setQuery(e.target.value)} />
-      </label>
-      <LoadState {...classes} />
-      {hasUnsavedEdits ? <p role="status">Automatic refresh is paused while you have unsaved edits. Manual refresh keeps your edits.</p> : null}
-      <button className="button button--quiet" type="button" disabled={busy} onClick={refreshClasses}>Refresh classes and rosters</button>
-      <div className="class-catalog">
-        {classes.data
-          ?.filter((c) =>
-            (c.title + " " + c.instructor + " " + c.certificationName)
-              .toLowerCase()
-              .includes(query.toLowerCase()),
-          )
-          .map((c) => (
-            <article className="catalog-card panel" key={c.id}>
-              <div className="catalog-card__body">
-                <p className="eyebrow">{c.certificationName}</p>
-                <h2>{c.title}</h2>
-                <p>
-                  {c.instructor} · {c.roomName}
-                </p>
-                <p>
-                  {dateTime(c.startsAt)} – {dateTime(c.endsAt)}
-                </p>
-                <p>
-                  {c.enrolled} / {c.capacity} registered · {c.status}
-                </p>
-                <p>Your registration: {c.myStatus ?? "Not registered"}</p>
-                {c.status === "scheduled" &&
-                new Date(c.startsAt) > new Date() ? (
-                  c.myStatus === "enrolled" ? (
-                    <button
-                      className="button button--quiet"
-                      disabled={busy}
-                      onClick={() =>
-                        void run(() =>
-                          api(`/classes/${c.id}/withdraw`, {
-                            method: "POST",
-                            body: {},
-                          }),
-                        )
-                      }
-                    >
-                      Withdraw from {c.title}
-                    </button>
-                  ) : (
-                    <button
-                      className="button button--primary"
-                      disabled={
-                        busy ||
-                        c.enrolled >= c.capacity ||
-                        c.myStatus === "attended"
-                      }
-                      onClick={() =>
-                        void run(() =>
-                          api(`/classes/${c.id}/enroll`, {
-                            method: "POST",
-                            body: {},
-                          }),
-                        )
-                      }
-                    >
-                      Register for {c.title}
-                    </button>
-                  )
-                ) : null}
-                {staff ||
-                (roles.includes("instructor") && c.instructorId === user.id) ? (
-                  <button
-                    className="button button--quiet"
-                    onClick={() => setSelected(c)}
-                  >
-                    View roster for {c.title}
-                  </button>
-                ) : c.status === "scheduled" && new Date(c.startsAt) > new Date() ? (
-                  <button className="button button--quiet" onClick={() => setSelected(c)}>
-                    View participants for {c.title}
-                  </button>
-                ) : null}
-                {staff && c.status === "scheduled" ? (
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      const f = new FormData(e.currentTarget);
-                      void run(async () => {
-                        await api(`/classes/${c.id}/cancel`, {
-                          method: "POST",
-                          body: {
-                            expectedRevision: c.revision,
-                            reason: f.get("reason"),
-                          },
-                        });
-                        setCancellationDrafts(drafts => withoutKey(drafts, String(c.id)));
-                      });
-                    }}
-                  >
-                    <label>
-                      Cancellation reason
-                      <input name="reason" required disabled={busy}
-                        value={cancellationDrafts[c.id] ?? ""}
-                        onChange={e => setCancellationDrafts(drafts => e.target.value ? { ...drafts, [c.id]: e.target.value } : withoutKey(drafts, String(c.id)))} />
-                    </label>
-                    <button className="button button--quiet" disabled={busy}>
-                      Cancel {c.title}
-                    </button>
-                  </form>
-                ) : null}
-              </div>
-            </article>
-          ))}
-      </div>
-      {classes.data?.length === 0 ? (
-        <p>No scheduled classes have been published.</p>
-      ) : null}
-      {selected ? (
-        <section aria-label={`${selected.title} ${managesSelected ? "roster" : "participants"}`}>
-          <h2>{selected.title} {managesSelected ? "roster" : "participants"}</h2>
-          <button
-            className="button button--quiet"
-            onClick={() => setSelected(null)}
-          >
-            Close roster
-          </button>
-          <LoadState {...(managesSelected ? roster : participants)} />
-          {!managesSelected && participants.data ? (
-            <>
-              <p>{participants.data.enrolled} / {participants.data.capacity} registered · {participants.data.seatsAvailable} {participants.data.seatsAvailable === 1 ? "seat" : "seats"} available</p>
-              <p>Participants are shown by first name and last initial.</p>
-              {participants.data.items.length ? <ul>{participants.data.items.map((p,index) => <li key={index}>{p.name}</li>)}</ul> : <p>No participants registered yet.</p>}
-            </>
-          ) : null}
-          {(managesSelected ? roster.data : null)?.map((p) => (
-            <article className="saved-record" key={p.userId}>
-              <h3>
-                {p.name} · Member {p.userId}
-              </h3>
-              <p>
-                {p.email} · {p.status}
-              </p>
-              {(roles.includes("admin") ||
-                (roles.includes("instructor") &&
-                  selected.instructorId === user.id)) &&
-              selected.status === "scheduled" &&
-              new Date(selected.startsAt) <= new Date() &&
-              p.status !== "cancelled" ? (
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    const f = new FormData(e.currentTarget);
-                    const key = `${selected.id}:${p.userId}`;
-                    void run(async () => {
-                      await api(`/classes/${selected.id}/attendance`, {
-                        method: "POST",
-                        body: {
-                          userId: p.userId,
-                          status: f.get("status"),
-                          reason: f.get("reason"),
-                        },
-                      });
-                      setAttendanceDrafts(drafts => withoutKey(drafts, key));
-                    });
-                  }}
-                >
-                  <label>
-                    Observed attendance
-                    <select name="status" disabled={busy}
-                      value={attendanceDrafts[`${selected.id}:${p.userId}`]?.status ?? (p.status === "no_show" ? "no_show" : "attended")}
-                      onChange={e => {
-                        const key = `${selected.id}:${p.userId}`;
-                        const status = e.target.value;
-                        setAttendanceDrafts(drafts => {
-                          const next = { status, reason: drafts[key]?.reason ?? "" };
-                          return next.reason || status !== (p.status === "no_show" ? "no_show" : "attended") ? { ...drafts, [key]: next } : withoutKey(drafts, key);
-                        });
-                      }}>
-                      <option value="attended">Attended</option>
-                      <option value="no_show">No show</option>
-                    </select>
-                  </label>
-                  <label>
-                    Verification note
-                    <input name="reason" required disabled={busy}
-                      value={attendanceDrafts[`${selected.id}:${p.userId}`]?.reason ?? ""}
-                      onChange={e => {
-                        const key = `${selected.id}:${p.userId}`;
-                        const reason = e.target.value;
-                        setAttendanceDrafts(drafts => {
-                          const status = drafts[key]?.status ?? (p.status === "no_show" ? "no_show" : "attended");
-                          return reason || status !== (p.status === "no_show" ? "no_show" : "attended") ? { ...drafts, [key]: { status, reason } } : withoutKey(drafts, key);
-                        });
-                      }} />
-                  </label>
-                  <button className="button button--primary" disabled={busy}>
-                    Save attendance for {p.name}
-                  </button>
-                </form>
-              ) : null}
-            </article>
-          ))}
-          {managesSelected ? <Link to="/training">Approve completed training</Link> : null}
-        </section>
-      ) : null}
-      {staff ? (
-        <form className="management-form" onSubmit={create} onChange={() => setScheduleDirty(true)}>
-          <h2>Schedule training</h2>
-          <label>
-            Title
-            <input name="title" required maxLength={100} />
-          </label>
-          <LoadState {...catalog} />
-          <LoadState {...rooms} />
-          <label htmlFor={selectorId + '-certification'}>Certification</label>
-            <select id={selectorId + '-certification'} name="certId" required>
-              <option value="">Choose certification</option>
-              {catalog.data
-                ?.filter((c) => c.validityDays)
-                .map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-            </select>
-          <MemberSelect
-            name="instructorId"
-            label="Assigned instructor"
-            instructorsOnly
-          />
-          <label htmlFor={selectorId + '-room'}>Room</label>
-            <select id={selectorId + '-room'} name="roomId" required>
-              <option value="">Choose room</option>
-              {rooms.data
-                ?.filter((room) => room.status === "available")
-                .map((room) => (
-                  <option key={room.id} value={room.id}>
-                    {room.name} — {room.location} (capacity{" "}
-                    {room.capacity ?? "not configured"})
-                  </option>
-                ))}
-            </select>
-          <label>
-            Capacity
-            <input name="capacity" type="number" min={1} max={500} required />
-          </label>
-          <label>
-            Starts
-            <input name="startsAt" type="datetime-local" required />
-          </label>
-          <label>
-            Ends
-            <input name="endsAt" type="datetime-local" required />
-          </label>
-          <label>
-            Scheduling reason
-            <input name="reason" required maxLength={500} />
-          </label>
-          <button
-            className="button button--primary"
-            disabled={
-              busy ||
-              catalog.loading ||
-              rooms.loading ||
-              !!catalog.error ||
-              !!rooms.error
+      {classes.loading || classes.error ? <LoadState {...classes} /> : null}
+      {classes.data ? (
+        manager ? (
+          <ClassSchedule
+            classes={all}
+            pending={pending}
+            canRecord={canRecord}
+            onSchedule={() => setScheduleSeed({})}
+            onScheduleAgain={(c) =>
+              setScheduleSeed({
+                title: c.title,
+                certificationId: c.certificationId,
+                instructorId: c.instructorId,
+                roomId: c.roomId,
+                capacity: c.capacity,
+                start: hhmm(c.startsAt),
+                end: hhmm(c.endsAt),
+              })
             }
-          >
-            Publish class
-          </button>
-          <p>
-            Room conflicts and capacity are checked before saving. Configure
-            training validity in <Link to="/training">Training management</Link>
-            .
-          </p>
-        </form>
+            onCancel={(c) => setCancelId(c.id)}
+            onRoster={(c) => setRosterId(c.id)}
+          />
+        ) : (
+          <ClassCatalog
+            classes={all}
+            eligibility={eligibility}
+            certified={certified}
+            busyId={busyId}
+            errors={rowErrors}
+            teaching={teaching}
+            onRegister={(c) => void act(c, "enroll")}
+            onWithdraw={(c) => void act(c, "withdraw")}
+            onDetails={(c) => setDetailId(c.id)}
+            onRoster={(c) => setRosterId(c.id)}
+          />
+        )
       ) : null}
+
+      {detail ? (
+        <ClassDetail
+          c={detail}
+          eligibility={eligibility}
+          busy={busyId === detail.id}
+          error={rowErrors[detail.id]}
+          refreshToken={refreshToken}
+          onClose={() => setDetailId(null)}
+          onRegister={(c) => void act(c, "enroll")}
+          onWithdraw={(c) => void act(c, "withdraw")}
+        />
+      ) : null}
+      {rosterClass ? (
+        <RosterPanel
+          key={rosterClass.id}
+          c={rosterClass}
+          canRecord={canRecord(rosterClass)}
+          draft={drafts[rosterClass.id] ?? emptyDraft}
+          refreshToken={refreshToken}
+          onDraft={(draft) =>
+            setDrafts(({ [rosterClass.id]: _, ...rest }) =>
+              Object.keys(draft.statuses).length || draft.note ? { ...rest, [rosterClass.id]: draft } : rest,
+            )
+          }
+          onSaved={refreshAll}
+          onClose={() => setRosterId(null)}
+        />
+      ) : null}
+      {scheduleSeed ? (
+        <ScheduleClassDialog
+          seed={scheduleSeed}
+          onDirty={setScheduleDirty}
+          onClose={() => {
+            setScheduleSeed(null);
+            setScheduleDirty(false);
+          }}
+          onPublished={(title) => {
+            setScheduleSeed(null);
+            setScheduleDirty(false);
+            setToast(`${title} is on the schedule.`);
+            refreshAll();
+          }}
+        />
+      ) : null}
+      {cancelClass ? (
+        <CancelClassDialog
+          c={cancelClass}
+          reason={cancelReasons[cancelClass.id] ?? ""}
+          onReason={(reason) => setCancelReasons((all) => ({ ...all, [cancelClass.id]: reason }))}
+          onClose={() => setCancelId(null)}
+          onStale={refreshAll}
+          onCancelled={() => {
+            setCancelReasons(({ [cancelClass.id]: _, ...rest }) => rest);
+            setCancelId(null);
+            setToast(`${cancelClass.title} is cancelled. Let the people who registered know.`);
+            refreshAll();
+          }}
+        />
+      ) : null}
+      <Toast message={toast} onClose={() => setToast(null)} />
     </section>
   );
 }
