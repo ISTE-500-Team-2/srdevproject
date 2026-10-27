@@ -48,7 +48,7 @@ function scan(checkIn=false,key=secret) {
 }
 test('new website identity is immediately available to staff/card assignment through the same gateway',async()=>{
   const email='unified@example.invalid';
-  const signup=await member.post('/api/auth/register').send({email,password:'GoodPassword123!',
+  const signup=await member.post('/api/auth/register').send({email,username:'unified_fixture',password:'GoodPassword123!',
     firstName:'Unified',lastName:'Fixture',dob:'2000-01-01',phone:'0000000000'});
   assert.equal(signup.status,202,JSON.stringify(signup.body));
   const confirmed=await member.post('/api/auth/confirm').send({token:await confirmationToken(pool,email)});

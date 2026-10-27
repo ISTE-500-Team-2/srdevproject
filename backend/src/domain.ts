@@ -2,6 +2,7 @@ export interface UserView {
   id: number;
   firstName: string;
   lastName: string;
+  username?: string | null;
   email: string;
   phone: string;
   role: "member" | "staff" | "admin";
@@ -74,6 +75,19 @@ export function positiveId(value: unknown, name = "id"): number {
   return n;
 }
 
+/** Validate identifiers backed by PostgreSQL INTEGER, not BIGINT. */
+export function integerId(value: unknown, name = "id"): number {
+  const n = positiveId(value, name);
+  if (n > 2_147_483_647) {
+    throw new AppError(
+      400,
+      "INVALID_INPUT",
+      `${name} must be a positive integer no greater than 2147483647.`,
+    );
+  }
+  return n;
+}
+
 export function textField(
   value: unknown,
   name: string,
@@ -99,6 +113,18 @@ export function emailField(value: unknown): string {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
     throw new AppError(400, "INVALID_INPUT", "Enter a valid email address.");
   return email;
+}
+
+export function usernameField(value: unknown): string {
+  const username = textField(value, "Username", 30, 3).toLowerCase();
+  if (!/^[a-z0-9][a-z0-9_.-]{2,29}$/.test(username))
+    throw new AppError(400, "INVALID_USERNAME", "Use 3–30 letters, numbers, periods, underscores or hyphens, starting with a letter or number.");
+  return username;
+}
+
+export function loginIdentifier(value: unknown): string {
+  const identifier = textField(value, "Email or username", 100);
+  return identifier.includes("@") ? emailField(identifier) : usernameField(identifier);
 }
 
 export function dateOfBirthField(value: unknown): string {

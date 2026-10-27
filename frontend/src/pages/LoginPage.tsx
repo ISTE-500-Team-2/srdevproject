@@ -33,7 +33,7 @@ export function LoginPage() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!identifier.trim() || !password.trim()) {
-      setError('Enter both your email and password to continue.');
+      setError('Enter your email or username and password to continue.');
       return;
     }
     setError('');
@@ -57,6 +57,7 @@ export function LoginPage() {
       const result = await register({
         firstName: String(form.get('firstName')),
         lastName: String(form.get('lastName')),
+        username: String(form.get('username')),
         phone: String(form.get('phone')),
         email: String(form.get('email')),
         dob: String(form.get('dob')),
@@ -94,15 +95,17 @@ export function LoginPage() {
           </div>
           <form onSubmit={handleSubmit} noValidate>
             <label className="form-field">
-              <span>Email address</span>
+              <span>Email or username</span>
               <span className="form-field__control">
                 <Mail aria-hidden="true" />
                 <input
                   value={identifier}
                   onChange={(event) => setIdentifier(event.target.value)}
                   autoComplete="username"
-                  type="email"
-                  placeholder="Enter your email…"
+                  type="text"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  placeholder="Enter your email or username…"
                 />
               </span>
             </label>
@@ -245,6 +248,22 @@ export function LoginPage() {
               />
             </label>
           </div>
+          <label className="form-field">
+            <span>Username</span>
+            <input
+              name="username"
+              aria-label="Username"
+              required
+              minLength={3}
+              maxLength={30}
+              pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{2,29}"
+              autoComplete="username"
+              autoCapitalize="none"
+              spellCheck={false}
+              aria-describedby="signup-username-help"
+            />
+            <small id="signup-username-help">3–30 letters, numbers, periods, underscores or hyphens. Start with a letter or number. You can also sign in with your email.</small>
+          </label>
           <label className="form-field">
             <span>Email</span>
             <input
