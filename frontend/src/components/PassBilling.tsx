@@ -2,7 +2,7 @@ import { useState } from "react";
 import { api, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
 import { LoadState } from "./Management";
-import { dollars } from "../lib/display";
+import { dollars, dateTime } from "../lib/display";
 import type { Offer, BillingPass } from "../lib/billingContracts";
 export function PassBilling() {
   const [date, setDate] = useState(""),
@@ -11,7 +11,8 @@ export function PassBilling() {
   const offers = useApi<Offer[]>(
     "/me/billing/offers" + (date ? "?date=" + encodeURIComponent(date) : ""),
   );
-  const passes = useApi<BillingPass[]>("/me/billing/passes");
+  // Payment confirmations arrive from checkout and the front desk; keep current.
+  const passes = useApi<BillingPass[]>("/me/billing/passes", { retainOnReload: true, refreshInterval: 15000 });
   async function act(path: string, body: unknown = {}) {
     setBusy(true);
     setMessage("");
@@ -32,7 +33,7 @@ export function PassBilling() {
           ? "Pass cancelled. Contact staff to complete the original cash/card refund; it has not been refunded yet."
           : r.refundStatus && r.refundStatus !== "succeeded"
             ? "Refund requested; awaiting confirmation."
-            : "Access records updated. Refresh membership history to see changes.",
+            : "Access records updated.",
       );
     } catch (e) {
       setMessage(errorMessage(e));
@@ -48,20 +49,23 @@ export function PassBilling() {
         Day passes cover one calendar day in the studio timezone. Cancellation
         requires 3 days’ notice before that day begins. Later cancellations aren't refunded.
       </p>
-      <label>
-        Visit date{" "}
+      <label className="pass-date">
+        Visit date
         <input
           type="date"
           value={date}
           onChange={(e) => setDate(e.target.value)}
         />
       </label>
+      {!date && (
+        <p className="pass-date__hint">Pick a visit date to buy a day pass.</p>
+      )}
       {offers.data
         ?.filter((p) => p.kind === "day_pass")
         .map((p) => (
           <p key={p.id}>
             <button
-              className="button button--quiet"
+              className="button button--primary"
               disabled={busy || !date}
               onClick={() =>
                 act("/me/billing/passes/checkout", {
@@ -109,7 +113,7 @@ export function PassBilling() {
           <p>
             {p.status}
             {p.refundStatus ? " · refund " + p.refundStatus : ""}. Cancel by{" "}
-            {new Date(p.cancelBy).toLocaleString()}.
+            {dateTime(p.cancelBy)}.
           </p>
           {!["cancelled", "expired"].includes(p.status) && (
             <button
@@ -124,15 +128,6 @@ export function PassBilling() {
           )}
         </article>
       ))}
-      <button
-        className="button button--quiet"
-        onClick={() => {
-          offers.reload();
-          passes.reload();
-        }}
-      >
-        Refresh passes
-      </button>
       {message && <p role="status">{message}</p>}
     </section>
   );

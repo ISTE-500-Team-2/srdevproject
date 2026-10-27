@@ -9,7 +9,8 @@ import type { LiveEquipment, Reservation } from '../lib/contracts';
 import { useApi } from '../lib/useApi';
 import { reservationInput } from '../lib/reservationInput';
 import type { Studio } from '../lib/studioContracts';
-import { dateOnly, nextMonth, policy, studioImage } from '../lib/studioDisplay';
+import { dateOnly, nextMonth, policy, sizeLabel, studioImage } from '../lib/studioDisplay';
+import { dateTime, timeOnly } from "../lib/display";
 
 export function ReservationsPage() {
   const {user}=useAuth();
@@ -109,7 +110,7 @@ export function ReservationsPage() {
         return;
       }
       setToast(
-        selectedStudio.name + ' held until ' + new Date(result.hold_until).toLocaleTimeString() +
+        selectedStudio.name + ' held until ' + timeOnly(result.hold_until) +
           '. Pay with staff before then; your booking is not confirmed yet.',
       );
       setSelectedStudio(null);
@@ -222,7 +223,7 @@ export function ReservationsPage() {
           <option value="all">All sizes</option>
           {studioSizes.map((size) => (
             <option key={size} value={size}>
-              {size}
+              {sizeLabel(size)}
             </option>
           ))}
         </select>
@@ -287,7 +288,7 @@ export function ReservationsPage() {
         <div className="reservation-card__rule" />
         <div className="reservation-card__title">
           <h2>{item.name}</h2>
-          <span>{item.size}</span>
+          <span>{sizeLabel(item.size)}</span>
         </div>
         <div className="reservation-card__meta">
           <span>A {item.size.toLowerCase()} sized maker studio</span>
@@ -334,8 +335,8 @@ export function ReservationsPage() {
               <div>
                 <h3>{item.equipmentName}</h3>
                 <p>
-                  {new Date(item.startTime).toLocaleString()} –{' '}
-                  {new Date(item.endTime).toLocaleString()}
+                  {dateTime(item.startTime)} –{' '}
+                  {dateTime(item.endTime)}
                 </p>
                 <span>
                   {item.location} · {item.status}
@@ -428,7 +429,7 @@ export function ReservationsPage() {
       <div className="reservation-form__summary">
         <img src={studioImage(selectedStudio.size)} alt="" />
         <div>
-          <p className="eyebrow">{selectedStudio.size}</p>
+          <p className="eyebrow">{sizeLabel(selectedStudio.size)} studio</p>
           <h3>{selectedStudio.name}</h3>
           <span>{studioRateLabel(selectedStudio.monthly_cents)}</span>
         </div>

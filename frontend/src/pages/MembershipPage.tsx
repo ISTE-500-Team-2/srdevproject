@@ -17,13 +17,13 @@ import {
 import { dollars } from "../lib/display";
 
 export function MembershipPage() {
-  const history = useApi<MembershipHistory>("/me/memberships"),
+  const history = useApi<MembershipHistory>("/me/memberships", { retainOnReload: true, refreshInterval: 15000 }),
     plans = useApi<Plan[]>("/plans"),
     [offset, setOffset] = useState(0);
   const payments = useApi<Page<Payment>>(`/me/payments?offset=${offset}`);
   return (
     <div className="page-enter management-page">
-      <h1>Membership & passes</h1>
+      <h1 className="display-heading">Membership & passes</h1>
       <MembershipBilling />
       <PassBilling />
       <LoadState {...history} />
@@ -31,7 +31,12 @@ export function MembershipPage() {
         <section className="panel management-panel">
           <h2>Your access records</h2>
           <p>
-            Facility access: <strong>{history.data.accessStatus}</strong>.
+            Facility access:{" "}
+            <strong>
+              {history.data.accessStatus.charAt(0).toUpperCase() +
+                history.data.accessStatus.slice(1)}
+            </strong>
+            .
           </p>
           <EntitlementList
             memberships={history.data.memberships}

@@ -125,8 +125,10 @@ export function Pager({
   nextOffset: number | null;
   onChange: (n: number) => void;
 }) {
+  // Everything fits on one page: no pager, and no made-up record range.
+  if (offset === 0 && nextOffset == null) return null;
   return (
-    <div className="management-actions">
+    <div className="management-actions management-pager">
       <button
         className="button button--quiet"
         disabled={offset === 0}
@@ -134,9 +136,7 @@ export function Pager({
       >
         Previous page
       </button>
-      <span>
-        Records {offset + 1}–{offset + 50}
-      </span>
+      <span>Page {Math.floor(offset / 50) + 1}</span>
       <button
         className="button button--quiet"
         disabled={nextOffset == null}

@@ -15,5 +15,10 @@ export const dollars = (value: string) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
     Number(value),
   );
-export const dateTime = (value?: string) =>
-  value ? new Date(value).toLocaleString() : "Not recorded";
+// Minutes are enough for people; seconds read as raw machine output.
+export const dateTime = (value?: string | Date) =>
+  value
+    ? new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })
+    : "Not recorded";
+export const timeOnly = (value: string | Date) =>
+  new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });

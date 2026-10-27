@@ -6,6 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
 import { LoadState } from "../components/Management";
+import { dateTime } from "../lib/display";
 type Course = {
   id: number;
   name: string;
@@ -257,7 +258,7 @@ function TrainingWorkspace({
                 <input name="reason" required maxLength={500} />
               </label>
               <button
-                className="button"
+                className="button button--primary"
                 disabled={busy || equipment.loading || !!equipment.error}
               >
                 Save certification
@@ -309,7 +310,7 @@ function TrainingWorkspace({
                   {r.status === "revoked" && r.revokedAt ? (
                     <p>
                       New in-person training must be completed after{" "}
-                      {new Date(r.revokedAt).toLocaleString()} before this
+                      {dateTime(r.revokedAt)} before this
                       certification can be approved again.
                     </p>
                   ) : null}
@@ -413,7 +414,7 @@ function TrainingWorkspace({
                     Approval records your signed-in identity. Self-certification
                     is not permitted.
                   </p>
-                  <button className="button" disabled={busy}>
+                  <button className="button button--primary" disabled={busy}>
                     Approve training
                   </button>
                   {renewing ? (
