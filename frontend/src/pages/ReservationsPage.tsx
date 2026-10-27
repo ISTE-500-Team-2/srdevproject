@@ -9,7 +9,7 @@ import type { LiveEquipment, Reservation } from '../lib/contracts';
 import { useApi } from '../lib/useApi';
 import { reservationInput } from '../lib/reservationInput';
 import type { Studio } from '../lib/studioContracts';
-import { dateOnly, nextMonth, policy } from '../lib/studioDisplay';
+import { dateOnly, nextMonth, policy, studioImage } from '../lib/studioDisplay';
 
 export function ReservationsPage() {
   const {user}=useAuth();
@@ -315,9 +315,7 @@ export function ReservationsPage() {
           </button>
         </div>
         <p>
-          Times shown in {zone}. Reservations are saved to your account; no
-          payment is collected. Equipment cancellation requires at least 24 hours notice; memberships do not replace reservations.
-          {' '}Equipment bookings require at least 15 minutes between users of the same machine.
+          No payment is taken when you book. Cancel at least 24 hours ahead; bookings on the same machine need 15 minutes between them.
         </p>
         {bookings.loading ? <p role="status">Loading reservations…</p> : null}
         {bookings.error ? (
@@ -521,13 +519,4 @@ function rateLabel(rate: number | null) {
 
 function studioRateLabel(cents: number | null) {
   return cents === null ? 'Rate not set' : '$' + (cents / 100).toFixed(2) + '/month';
-}
-
-function studioImage(size: string) {
-  const images: Record<string, string> = {
-    large: 'paris',
-    medium: 'coruscant',
-    small: 'harkonnen',
-  };
-  return '/assets/space-' + (images[size.toLowerCase()] ?? 'harkonnen') + '.webp';
 }

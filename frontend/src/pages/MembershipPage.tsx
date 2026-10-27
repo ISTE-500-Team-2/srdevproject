@@ -32,8 +32,6 @@ export function MembershipPage() {
           <h2>Your access records</h2>
           <p>
             Facility access: <strong>{history.data.accessStatus}</strong>.
-            Day-pass dates use {history.data.timeZone}. Membership times below
-            use your local timezone. Showing the latest 100 of each record type.
           </p>
           <EntitlementList
             memberships={history.data.memberships}

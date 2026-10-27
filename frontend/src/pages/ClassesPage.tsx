@@ -126,8 +126,7 @@ export function ClassesPage() {
       <p className="eyebrow">Learn by making</p>
       <h1>Instructor-led classes</h1>
       <p>
-        Registration does not grant certification. The assigned instructor
-        records attendance and separately approves completed in-person training.
+        Signing up doesn't certify you. Your instructor confirms your training after the class.
       </p>
       {message ? <p role="status">{message}</p> : null}
       <label>

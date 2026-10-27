@@ -139,7 +139,7 @@ export function UserDetail({
                 await saveStatus("status", f, u.revision);
               }}
             >
-              <p>Suspending or blocking an account ends all sessions and prevents sign-in and account use. History and existing bookings are retained. Restoring an account requires a fresh sign-in and keeps its facility restrictions.</p>
+              <p>Suspending or blocking signs the member out and stops them signing in. Their history and bookings are kept.</p>
               <Field label="Account status" name="status">
                 <select name="status" defaultValue={u.status}>
                   <option value="active">Active</option>

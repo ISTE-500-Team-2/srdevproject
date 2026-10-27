@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Rental } from "../../lib/studioContracts";
-import { dateOnly, money } from "../../lib/studioDisplay";
+import { money, rentalRange } from "../../lib/studioDisplay";
 
 export function StaffRental({
   rental: r,
@@ -18,14 +18,20 @@ export function StaffRental({
   return (
     <article className="studio-card">
       <h3>
-        Rental #{r.id}: {r.name}
+        {r.name} <small>#{r.id}</small>
       </h3>
       <p>
-        {r.email} · {dateOnly(r.starts_on)} – {dateOnly(r.ends_on)} ·{" "}
+        {r.email} · {rentalRange(r.starts_on, r.ends_on)} ·{" "}
         {money(r.amount_cents)}
       </p>
       <p>
-        {r.status} / {r.payment_status} / {r.payment_method}
+        {payable
+          ? "Waiting for payment at the front desk."
+          : refundable
+            ? `Refund ${money(r.refund_cents)} by the original payment method, then record it here.`
+            : r.payment_method === "stripe_test"
+              ? "Card refund needs attention."
+              : ""}
       </p>
       {(payable || refundable) && (
         <form
@@ -49,7 +55,7 @@ export function StaffRental({
               onChange={(e) => setRef(e.target.value)}
             />
           </label>
-          <button className="button" disabled={busy}>
+          <button className="button button--primary" disabled={busy}>
             {payable
               ? "Record received payment"
               : `Record completed ${money(r.refund_cents)} refund`}
@@ -59,7 +65,7 @@ export function StaffRental({
       {r.payment_method === "stripe_test" &&
         ["refund_pending", "refund_failed"].includes(r.payment_status) && (
           <button
-            className="button"
+            className="button button--quiet"
             disabled={busy}
             onClick={() =>
               void perform(

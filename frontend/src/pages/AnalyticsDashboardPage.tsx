@@ -84,8 +84,7 @@ export function AnalyticsDashboardPage() {
             <article className="panel analytics-revenue">
               <h3>Recorded revenue</h3>
               <p>
-                Settled receipts across memberships, day passes and studio
-                rentals; voided and unpaid payments are excluded.
+                Paid receipts for memberships, day passes and studio rentals.
               </p>
               <dl className="analytics-totals">
                 <div>
@@ -170,8 +169,7 @@ export function AnalyticsDashboardPage() {
                 <p>No current reader leases.</p>
               )}
               <p>
-                Recorded visits are not current headcount; reader authorization
-                is not proof of machine operation.
+                Visits count people who tapped in at a reader.
               </p>
               <h3>Classes in the selected period</h3>
               {data.classes.length ? (

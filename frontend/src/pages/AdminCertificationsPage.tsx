@@ -20,8 +20,7 @@ export function AdminCertificationsPage() {
     <section className="management-page">
       <h2>Certifications and waivers</h2>
       <p>
-        Find compliance gaps, publish or retire waiver versions, and record
-        verified training. Signed waiver history is preserved.
+        Check who is compliant, publish waivers, and record training.
       </p>
       <nav
         className="management-tabs"

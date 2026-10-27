@@ -126,7 +126,7 @@ test("staff reports UI reads actual ledger instead of sample charts", async () =
   await screen.findByRole("heading", { name: "Recorded revenue" });
   expect(await screen.findByRole('heading',{name:'Membership trends'})).toBeTruthy();
   expect(await screen.findByRole('heading',{name:'Notification delivery evidence'})).toBeTruthy();
-  expect(screen.getByRole('rowheader',{name:'Waiver & training expiration (BR-009)'})).toBeTruthy();
+  expect(screen.getByRole('rowheader',{name:'Waiver & training expiration'})).toBeTruthy();
   const table = screen.getAllByRole("table")[0];
   expect(within(table).getByText("cash")).toBeTruthy();
   expect(within(table).getAllByText("$125.50")).toHaveLength(2);
