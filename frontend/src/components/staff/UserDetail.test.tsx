@@ -6,7 +6,6 @@ const {api,reload,state}=vi.hoisted(()=>({api:vi.fn(),reload:vi.fn(),state:{data
 vi.mock('../../lib/api',()=>({api,ApiError:class extends Error{status=409;},errorMessage:(e:Error)=>e.message}));
 vi.mock('../../lib/useApi',()=>({useApi:()=>({data:state.data,loading:false,error:'',reload})}));
 vi.mock('../../context/AuthContext',()=>({useAuth:()=>({user:{id:12,roles:['admin']}})}));
-vi.mock('../SignedWaiverRecords',()=>({SignedWaiverRecords:()=>null}));
 vi.mock('./AccessReadiness',()=>({AccessReadiness:({userId,revision}:any)=><div data-testid="readiness">Readiness for {userId} revision {revision}</div>}));
 vi.mock('./IssueAccess',()=>({IssueAccess:()=>null}));
 afterEach(()=>{cleanup();vi.clearAllMocks();});

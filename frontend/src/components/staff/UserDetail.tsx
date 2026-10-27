@@ -13,7 +13,6 @@ import {
   PaymentList,
   ReasonField,
 } from "../Management";
-import { SignedWaiverRecords } from "../SignedWaiverRecords";
 import { PaymentEditor } from "./PaymentControls";
 
 import { AccessReadiness } from "./AccessReadiness";
@@ -69,12 +68,6 @@ export function UserDetail({
       ) : null}
       {d && u ? (
         <>
-          {isAdmin ? (
-            <SignedWaiverRecords
-              userId={id}
-              onChanged={() => refresh("Waiver expiration saved.")}
-            />
-          ) : null}
           <section className="panel management-panel">
             <h2>
               {u.firstName} {u.lastName} · Member #{u.id}
