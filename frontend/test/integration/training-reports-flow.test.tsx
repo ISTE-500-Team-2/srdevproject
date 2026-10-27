@@ -49,6 +49,7 @@ test("staff training UI configures approved expiry, records actual instructor tr
     </MemoryRouter>,
   );
   const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "New certification" }));
   await user.type(await screen.findByLabelText("Name"), "UI printer safety");
   await user.type(screen.getByLabelText("Approved validity in days"), "90");
   await user.type(screen.getByLabelText('Find equipment'), 'Laser');
@@ -65,18 +66,16 @@ test("staff training UI configures approved expiry, records actual instructor tr
   );
   await user.click(await screen.findByRole("option", { name: /Jordan Demo/ }));
   void member;
-  await user.click(screen.getByRole("button", { name: "Load member" }));
-  await screen.findByRole("heading", { name: "Approve completed training" });
+  // Picking a member loads their records; untrained certifications offer
+  // "Record training", which opens the approval form.
+  await user.click(await screen.findByRole("button", { name: "Record training" }));
   const cert = (
     await bridge.pool.query(
       "SELECT certid FROM certifications WHERE name='UI printer safety'",
     )
   ).rows[0].certid;
   expect((await bridge.pool.query("SELECT certid FROM equipment WHERE name='Laser'")).rows[0].certid).toBe(cert);
-  await user.selectOptions(
-    screen.getByLabelText("Certification"),
-    String(cert),
-  );
+  expect((document.querySelector('input[name="certId"]') as HTMLInputElement).value).toBe(String(cert));
   const t = new Date(Date.now() - 86400000),
     local = new Date(t.getTime() - t.getTimezoneOffset() * 60000)
       .toISOString()
@@ -101,14 +100,16 @@ test("staff training UI configures approved expiry, records actual instructor tr
   expect(saved.approved_by).toBeTruthy();
   expect(saved.verified_in_person).toBe(true);
   expect(saved.trained_at).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Revoke" }));
   await user.type(
     screen.getByLabelText("Revocation/retraining reason"),
     "Retraining required after incident",
   );
-  await user.click(
-    screen.getByRole("button", { name: "Revoke UI printer safety" }),
+  fireEvent.keyDown(
+    screen.getByRole("button", { name: /Hold to revoke UI printer safety/ }),
+    { key: " " },
   );
-  await screen.findByText("Not current · revoked");
+  await screen.findByText("Not current · revoked", {}, { timeout: 5000 });
   cleanup();
 });
 test("staff reports UI reads actual ledger instead of sample charts", async () => {

@@ -797,6 +797,18 @@ test('FR-052/049: staff compliance report filters waivers, certifications and ex
  assert.equal(expiring.body.data.waiverBreakdown[0].total,expiring.body.data.summary.userCount);
  assert.equal(expiring.body.data.certificationBreakdown[0].total,expiring.body.data.summary.userCount);
  assert.equal(expiring.body.data.certificationBreakdown[0].expiring,1);
+ // Issue details say what is wrong and when: the waiver signed 15 days
+ // before expiry shows as expiring with its date, even with no window chosen.
+ const attention=await staff.agent.get(`/api/admin/compliance?waiverId=${waiver.id}&certificationId=${certId}&userStatus=active&attention=true`);
+ assert.equal(attention.status,200,JSON.stringify(attention.body));
+ const flagged=attention.body.data.users.items.find((u:any)=>u.id===member.id);
+ const soon=flagged.issues.find((i:any)=>i.kind==='waiver');
+ assert.equal(soon.state,'expiring');
+ assert.ok(Date.parse(soon.expiresAt)>Date.now());
+ assert.ok(attention.body.data.users.items.every((u:any)=>u.issues.length>0||!(u.waiverCompliant&&u.certificationCompliant)));
+ // Summary and breakdowns still cover everyone, not just the attention list.
+ assert.equal(attention.body.data.summary.userCount,all.body.data.summary.userCount);
+ assert.ok(attention.body.data.summary.attentionUsers>=1);
  const csv=await staff.agent.get(`/api/admin/compliance?waiverId=${waiver.id}&certificationId=${certId}&expiresWithinDays=30&userStatus=active&format=csv`);
  assert.equal(csv.status,200);
  assert.match(csv.text,/User ID,First name,Last name/);
@@ -807,6 +819,7 @@ test('FR-052/049: staff compliance report filters waivers, certifications and ex
  assert.equal(expired.status,200,JSON.stringify(expired.body));
  assert.equal(expired.body.data.certificationBreakdown[0].compliant,0);
  assert.ok(expired.body.data.users.items.some((u:any)=>u.id===member.id && u.missingCertifications.includes('Compliance fixture cert')));
+ assert.ok(expired.body.data.users.items.some((u:any)=>u.id===member.id && u.issues.some((i:any)=>i.kind==='certification'&&i.state==='expired')));
  await pool.query(`INSERT INTO "user"(firstname,lastname,email,password,phone,status)
    SELECT 'Bulk','Member '||g,'bulk-compliance-'||g||'@example.invalid','x','0000000000','active'
    FROM generate_series(1,10002) g`);

@@ -21,6 +21,8 @@ export interface ComplianceFilters {
   expiresWithinDays: number | null;
   userStatus: string;
   offset: number;
+  /** Only members with something missing, expired or expiring soon. */
+  attention?: boolean;
 }
 export const COMPLIANCE_EXPORT_LIMIT = 10000;
 const planColumns =
@@ -483,6 +485,7 @@ export class StaffModel {
       filters.userStatus,
       filters.offset,
       limit,
+      filters.attention ?? false,
     ];
     const query = `
       WITH report_users AS (
@@ -552,19 +555,35 @@ export class StaffModel {
           COALESCE((SELECT array_agg(name || ' ' || version ORDER BY name) FROM waiver_status ws WHERE ws.userid=ru.userid AND NOT compliant),'{}') AS "missingWaivers",
           COALESCE((SELECT array_agg(name || ' ' || version ORDER BY name) FROM waiver_status ws WHERE ws.userid=ru.userid AND expiring),'{}') AS "expiringWaivers",
           COALESCE((SELECT array_agg(name ORDER BY name) FROM certification_status cs WHERE cs.userid=ru.userid AND NOT compliant),'{}') AS "missingCertifications",
-          COALESCE((SELECT array_agg(name ORDER BY name) FROM certification_status cs WHERE cs.userid=ru.userid AND expiring),'{}') AS "expiringCertifications"
+          COALESCE((SELECT array_agg(name ORDER BY name) FROM certification_status cs WHERE cs.userid=ru.userid AND expiring),'{}') AS "expiringCertifications",
+          -- Per-item detail for the staff screen: never signed/trained vs
+          -- expired, and when something expires.
+          -- "Expiring" here means within the chosen window, or 30 days by default.
+          COALESCE((SELECT json_agg(json_build_object('kind','waiver','name',name,'state',CASE WHEN NOT compliant AND expired THEN 'expired' WHEN NOT compliant THEN 'missing' ELSE 'expiring' END,'expiresAt',expires_at) ORDER BY name)
+            FROM waiver_status ws WHERE ws.userid=ru.userid AND (NOT compliant
+              OR (expires_at IS NOT NULL AND expires_at<=NOW()+make_interval(days=>COALESCE($3::int,30))))),'[]'::json)::jsonb
+          || COALESCE((SELECT json_agg(json_build_object('kind','certification','name',name,'state',CASE WHEN NOT compliant AND expired THEN 'expired' WHEN NOT compliant THEN 'missing' ELSE 'expiring' END,'expiresAt',effective_expires_at AT TIME ZONE 'UTC') ORDER BY name)
+            FROM certification_status cs WHERE cs.userid=ru.userid AND (NOT compliant
+              OR (effective_expires_at IS NOT NULL AND effective_expires_at<=NOW() AT TIME ZONE 'UTC'+make_interval(days=>COALESCE($3::int,30))))),'[]'::json)::jsonb AS issues
         FROM report_users ru
       ),
-      filtered_users AS (
+      window_users AS (
         SELECT * FROM user_rollup
         WHERE $3::int IS NULL OR array_length("expiringWaivers",1) IS NOT NULL OR array_length("expiringCertifications",1) IS NOT NULL
+      ),
+      -- "Needs attention" narrows only the member list; the summary and
+      -- per-requirement breakdowns still describe everyone in the window.
+      filtered_users AS (
+        SELECT * FROM window_users
+        WHERE NOT $7::boolean OR NOT ("waiverCompliant" AND "certificationCompliant") OR jsonb_array_length(issues)>0
       ),
       summary AS (
         SELECT COUNT(*)::int AS "userCount",
           COUNT(*) FILTER (WHERE "waiverCompliant" AND "certificationCompliant")::int AS "compliantUsers",
           COUNT(*) FILTER (WHERE "waiverCompliant")::int AS "waiverCompliantUsers",
-          COUNT(*) FILTER (WHERE "certificationCompliant")::int AS "certificationCompliantUsers"
-        FROM filtered_users
+          COUNT(*) FILTER (WHERE "certificationCompliant")::int AS "certificationCompliantUsers",
+          COUNT(*) FILTER (WHERE NOT ("waiverCompliant" AND "certificationCompliant") OR jsonb_array_length(issues)>0)::int AS "attentionUsers"
+        FROM window_users
       )
       SELECT
         (SELECT row_to_json(summary) FROM summary) AS summary,
@@ -574,12 +593,12 @@ export class StaffModel {
           FROM (SELECT waiverid AS id,name,version,COUNT(*)::int AS total,
             COUNT(*) FILTER (WHERE compliant)::int AS compliant,
             COUNT(*) FILTER (WHERE expiring)::int AS expiring
-            FROM waiver_status ws JOIN filtered_users fu ON fu.id=ws.userid GROUP BY waiverid,name,version) w),'[]'::json) AS "waiverBreakdown",
+            FROM waiver_status ws JOIN window_users fu ON fu.id=ws.userid GROUP BY waiverid,name,version) w),'[]'::json) AS "waiverBreakdown",
         COALESCE((SELECT json_agg(row_to_json(c) ORDER BY name)
           FROM (SELECT certid AS id,name,COUNT(*)::int AS total,
             COUNT(*) FILTER (WHERE compliant)::int AS compliant,
             COUNT(*) FILTER (WHERE expiring)::int AS expiring
-            FROM certification_status cs JOIN filtered_users fu ON fu.id=cs.userid GROUP BY certid,name) c),'[]'::json) AS "certificationBreakdown",
+            FROM certification_status cs JOIN window_users fu ON fu.id=cs.userid GROUP BY certid,name) c),'[]'::json) AS "certificationBreakdown",
         (SELECT COUNT(*)::int FROM filtered_users) AS "filteredCount"`;
     const row = (await this.db.query(query, params)).rows[0]!;
     const summary = row.summary ?? {
@@ -587,6 +606,7 @@ export class StaffModel {
       compliantUsers: 0,
       waiverCompliantUsers: 0,
       certificationCompliantUsers: 0,
+      attentionUsers: 0,
     };
     return {
       summary: {
