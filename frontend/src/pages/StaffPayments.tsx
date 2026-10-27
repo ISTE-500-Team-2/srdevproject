@@ -16,8 +16,7 @@ export function StaffPayments() {
       <h2>Payment history</h2>
       <BillingRefunds />
       <p>
-        External payment records and adjustments below do not move money. Stripe
-        test refunds use the separate section above.
+        These records track payments taken at the front desk. Changing them doesn't charge or refund a card.
       </p>
       <form
         className="management-search"

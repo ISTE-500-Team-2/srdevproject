@@ -3,6 +3,7 @@ import { api, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
 import { LoadState } from "../components/Management";
 import { dateTime } from "../lib/display";
+import { AccessReadiness } from "../components/staff/AccessReadiness";
 import { MemberSelect } from "../components/MemberSelect";
 type Card = {
   id: number;
@@ -63,8 +64,7 @@ export function AccessManagementPage() {
     <section className="management-page">
       <h1>Reader access management</h1>
       <p>
-        Cards link to a member; every scan rechecks current safety and access
-        rules. Raw card identifiers are not shown in saved records.
+        Link an NFC card to a member. Every tap checks their access at that moment.
       </p>
       {message ? <p role="status">{message}</p> : null}
       <form
@@ -79,6 +79,7 @@ export function AccessManagementPage() {
       </form>
       {member ? (
         <>
+          <AccessReadiness key={member} userId={Number(member)} />
           <LoadState {...cards} />
           {cards.data?.map((c) => (
             <article className="saved-record" key={c.id}>
@@ -128,7 +129,7 @@ export function AccessManagementPage() {
               Assignment reason
               <input name="reason" maxLength={500} required />
             </label>
-            <button className="button" disabled={busy}>
+            <button className="button button--primary" disabled={busy}>
               Assign card
             </button>
           </form>
@@ -216,7 +217,7 @@ export function AccessManagementPage() {
               Reason
               <input name="reason" required maxLength={500} />
             </label>
-            <button className="button" disabled={busy}>
+            <button className="button button--primary" disabled={busy}>
               Create timed override
             </button>
           </form>

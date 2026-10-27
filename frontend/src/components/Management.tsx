@@ -2,6 +2,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { errorMessage } from "../lib/api";
 import type { Audit, Entitlement, Page, Payment } from "../lib/staffContracts";
 
+import { accessReasonLabel } from "../lib/accessReadiness";
 import { dateTime, dollars } from "../lib/display";
 
 export function Field({
@@ -124,8 +125,10 @@ export function Pager({
   nextOffset: number | null;
   onChange: (n: number) => void;
 }) {
+  // Everything fits on one page: no pager, and no made-up record range.
+  if (offset === 0 && nextOffset == null) return null;
   return (
-    <div className="management-actions">
+    <div className="management-actions management-pager">
       <button
         className="button button--quiet"
         disabled={offset === 0}
@@ -133,9 +136,7 @@ export function Pager({
       >
         Previous page
       </button>
-      <span>
-        Records {offset + 1}–{offset + 50}
-      </span>
+      <span>Page {Math.floor(offset / 50) + 1}</span>
       <button
         className="button button--quiet"
         disabled={nextOffset == null}
@@ -226,21 +227,36 @@ export function PaymentList({
   );
 }
 export function AuditList({ items }: { items: Audit[] }) {
+  const [search,setSearch]=useState(''),[showSystem,setShowSystem]=useState(false);
+  const system=(a:Audit)=>/\.(insert|update|delete)$/.test(a.action)&&!['app_device_access_event','check_in'].includes(a.entityType);
+  const describe=(a:Audit)=>{
+    if(a.entityType==='app_device_access_event')return {title:a.allowed===false?'Card tap denied':a.allowed===true?'Check-in allowed':'Card scanned',tone:a.allowed===false?'denied':a.allowed===true?'allowed':'neutral',badge:a.allowed===false?'Denied':a.allowed===true?'Allowed':'Scan'};
+    const titles:Record<string,string>={'user.access_suspended':'Access suspended','user.access_restored':'Access restored','user.access_revoked':'Access revoked','user.account_suspended':'Account suspended','access.card_reassigned':'NFC card reassigned','access.card_assigned':'NFC card assigned','access.card_revoked':'NFC card revoked','member.demo_account_created':'Demo account created','owner.admin_account_created':'Administrator account created','policy.published':'Policy published','policy.retired':'Policy retired','user.insert':'Account created','user.update':'Account updated','user_role.insert':'Role assigned','check_in.insert':'Check-in recorded'};
+    return {title:titles[a.action]??a.action.replace(/^app_/,'').replaceAll(/[._]/g,' ').replace(/^\w/,c=>c.toUpperCase()),tone:a.action.includes('suspend')||a.action.includes('revok')?'denied':'neutral',badge:system(a)?'System':'Updated'};
+  };
+
+  const visible=items.filter(a=>(showSystem||!system(a))&&[describe(a).title,a.subjectName,a.actorName,a.resourceName,a.accessReason,a.reason].join(' ').toLowerCase().includes(search.toLowerCase()));
   return (
-    <div className="management-records">
-      {items.length ? (
-        items.map((a) => (
-          <details className="management-record" key={a.id}>
-            <summary>
-              {a.action} · {a.entityType} #{a.entityId} · {a.actorName} ·{" "}
-              {dateTime(a.createdAt)}
-            </summary>
-            <p>Recorded system change.</p>
-          </details>
-        ))
-      ) : (
-        <p>No staff changes recorded.</p>
-      )}
+    <div className="activity-log">
+      <div className="activity-toolbar">
+        <label className="activity-search"><span>Search activity</span><input type="search" placeholder="Search names, actions or equipment…" value={search} onChange={e=>setSearch(e.target.value)}/></label>
+        <label className="activity-system"><input type="checkbox" checked={showSystem} onChange={e=>setShowSystem(e.target.checked)}/> Show system details</label>
+      </div>
+      <p className="activity-count">{visible.length} {visible.length===1?'event':'events'}{!showSystem&&items.some(system)?` · ${items.filter(system).length} background changes hidden`:''}</p>
+      <div className="activity-feed">
+      {visible.map(a=>{const info=describe(a);return <article className="activity-row" key={a.id}>
+        <span className={`activity-marker is-${info.tone}`} aria-hidden="true">{info.tone==='denied'?'×':info.tone==='allowed'?'✓':'•'}</span>
+        <div className="activity-content">
+          <div className="activity-title"><h3>{info.title}</h3><span className={`activity-badge is-${info.tone}`}>{info.badge}</span></div>
+          {a.subjectName||a.resourceName?<p className="activity-context">{[a.subjectName,a.resourceName].filter(Boolean).join(' · ')}</p>:null}
+          {a.accessReason?<p className="activity-reason">{accessReasonLabel(a.accessReason)}</p>:a.reason&&a.reason!=='Database change'?<p className="activity-reason">{a.reason}</p>:null}
+          <p className="activity-byline">{a.actorName==='System'?'Automatic reader / system event':`By ${a.actorName}`}</p>
+          <details className="activity-details"><summary>Technical details</summary><dl><dt>Event</dt><dd>{a.action}</dd><dt>Record</dt><dd>{a.entityType} #{a.entityId}</dd>{a.readerId?<><dt>Reader</dt><dd>{a.readerId}</dd></>:null}<dt>Audit ID</dt><dd>{a.id}</dd></dl></details>
+        </div>
+        <time className="activity-time" dateTime={a.createdAt}>{dateTime(a.createdAt)}</time>
+      </article>})}
+      {!visible.length?<p className="activity-empty">{items.length?'No activity matches these filters.':'No activity recorded yet.'}</p>:null}
+      </div>
     </div>
   );
 }

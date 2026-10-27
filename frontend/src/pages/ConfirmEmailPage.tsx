@@ -139,7 +139,7 @@ export function ConfirmEmailPage() {
                 <span>Corrected email (optional)</span>
                 <input name="newEmail" type="email" />
               </label>
-              <button className="button" disabled={busy}>
+              <button className="button button--primary" disabled={busy}>
                 Send confirmation email
               </button>
             </form>

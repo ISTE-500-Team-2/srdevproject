@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { LineChart } from "../components/Charts";
 import { LoadState } from "../components/Management";
 import { useApi } from "../lib/useApi";
@@ -14,12 +14,9 @@ export function AnalyticsDashboardPage() {
     period: "weekly" as RevenuePeriod,
   });
   const [validation, setValidation] = useState("");
-  const report = useApi<Report>("/admin/reports?" + new URLSearchParams(range));
+  const report = useApi<Report>("/admin/reports?" + new URLSearchParams(range), { retainOnReload: true, refreshInterval: 30000 });
   const { reload } = report;
-  useEffect(() => {
-    const timer = window.setInterval(reload, 30000);
-    return () => window.clearInterval(timer);
-  }, [reload]);
+
   function filter(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -70,12 +67,9 @@ export function AnalyticsDashboardPage() {
             <option value="monthly">Monthly</option>
           </select>
         </label>
-        <button className="button">Apply dates</button>
+        <button className="button button--quiet">Apply dates</button>
       </form>
       {validation ? <p role="alert">{validation}</p> : null}
-      <button className="button button--quiet" onClick={reload}>
-        Refresh analytics
-      </button>
       <LoadState {...report} />
       {data ? (
         <>
@@ -85,10 +79,14 @@ export function AnalyticsDashboardPage() {
           </p>
           <div className="analytics-layout">
             <article className="panel analytics-revenue">
-              <h3>Recorded revenue</h3>
+              <div className="analytics-revenue__head">
+                <h3>Recorded revenue</h3>
+                <button className="button button--quiet" type="button" onClick={reload}>
+                  Refresh analytics
+                </button>
+              </div>
               <p>
-                Settled receipts across memberships, day passes and studio
-                rentals; voided and unpaid payments are excluded.
+                Paid receipts for memberships, day passes and studio rentals.
               </p>
               <dl className="analytics-totals">
                 <div>
@@ -173,8 +171,7 @@ export function AnalyticsDashboardPage() {
                 <p>No current reader leases.</p>
               )}
               <p>
-                Recorded visits are not current headcount; reader authorization
-                is not proof of machine operation.
+                Visits count people who tapped in at a reader.
               </p>
               <h3>Classes in the selected period</h3>
               {data.classes.length ? (

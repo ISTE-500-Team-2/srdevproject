@@ -59,7 +59,7 @@ function NotificationSettings() {
       <h2>Notification Settings</h2>
       <p>
         Choose whether to receive account, booking, payment, waiver, and
-        expiration emails. Turning this off disables all notification emails.
+        expiration emails. Turn it off to stop all of them.
       </p>
       {settings ? (
         <form onSubmit={save}>
@@ -89,7 +89,7 @@ function NotificationSettings() {
           </label>
           <button
             type="button"
-            className="button"
+            className="button button--quiet"
             onClick={() => {
               setSaved(false);
               setSettings({
@@ -181,7 +181,7 @@ export function ProfilePage() {
           <h1>
             {user?.firstName} {user?.lastName}
           </h1>
-          <span>{user?.role}</span>
+          <span>{user?.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : null}</span>
         </div>
       </section>
       <div style={cardGridStyle}>
@@ -221,6 +221,10 @@ export function ProfilePage() {
               <label className="form-field form-field--wide">
                 <span>Email Address</span>
                 <input type="email" value={user?.email ?? ""} readOnly />
+              </label>
+              <label className="form-field form-field--wide">
+                <span>Username</span>
+                <input value={user?.username ?? ""} placeholder="Existing account — sign in with your email" readOnly />
               </label>
               <label className="form-field form-field--wide">
                 <span>Phone Number</span>

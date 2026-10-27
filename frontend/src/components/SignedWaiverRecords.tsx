@@ -47,8 +47,7 @@ export function SignedWaiverRecords({
     <section className="panel management-panel">
       <h2>Signed waiver copies</h2>
       <p>
-        Download the wording and electronic agreement recorded when signed.
-        Copies remain available when notification emails are disabled.
+        Download a copy of each waiver you've signed.
       </p>
       <LoadState {...records} />
       {error ? <p role="alert">{error}</p> : null}

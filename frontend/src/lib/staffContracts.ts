@@ -67,6 +67,12 @@ export interface Audit {
   entityType: string;
   entityId: number;
   createdAt: string;
+  subjectName?: string | null;
+  reason?: string;
+  allowed?: boolean | null;
+  accessReason?: string | null;
+  readerId?: string | null;
+  resourceName?: string | null;
 }
 export interface Policy {
   id: number;

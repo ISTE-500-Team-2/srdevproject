@@ -68,6 +68,7 @@ function client() {
         .post('/api/auth/register')
         .send({
           email,
+          username: 'mvc_' + email.split('@')[0],
           password,
           firstName: 'Test',
           lastName: 'Member',
@@ -203,6 +204,7 @@ test('registration, DB session recovery, profile persistence and logout', async 
     .post('/api/auth/register')
     .send({
       email: email.toUpperCase(),
+      username: 'duplicate_user',
       password,
       firstName: 'Duplicate',
       lastName: 'Member',
