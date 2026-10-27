@@ -147,7 +147,13 @@ test("returning from checkout waits for the payment, then confirms", () => {
     records: [{ id: "r", plan: monthly, status: "active", amountCents: 5000, cancelAtPeriodEnd: false, currentPeriodEnd: "2030-02-01T00:00:00Z" }],
   }, "/membership?billing=returned");
   expect(screen.queryByText("Confirming your payment…")).toBeNull();
-  expect(screen.getByText("Payment received. You're all set.")).toBeTruthy();
+  expect(screen.getByText("Your current access and billing status are shown below.")).toBeTruthy();
+});
+
+test("a checkout return URL alone never claims a payment was received", () => {
+  mount({}, "/membership?pass=returned");
+  expect(screen.queryByText(/Payment received/)).toBeNull();
+  expect(screen.getByText("Your current access and billing status are shown below.")).toBeTruthy();
 });
 
 test("cancelled checkout tells the member they weren't charged", () => {

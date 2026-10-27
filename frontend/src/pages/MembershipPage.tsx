@@ -53,7 +53,9 @@ export function MembershipPage() {
         !history.data.memberships.some((m) => ["active", "scheduled"].includes(m.effectiveStatus)));
     if (!waiting) {
       setConfirming(false);
-      setMessage({ text: "Payment received. You're all set." });
+      // A return URL is not payment evidence. Show the server-backed records
+      // below without claiming that this particular checkout was paid.
+      setMessage({ text: "Your current access and billing status are shown below." });
       setParams({}, { replace: true });
     } else if (Date.now() - started.current > CONFIRM_WINDOW_MS) {
       setConfirming(false);
