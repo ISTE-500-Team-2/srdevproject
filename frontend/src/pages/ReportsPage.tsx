@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { api, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
 import { LoadState } from "../components/Management";
@@ -92,12 +92,9 @@ export function ReportsPage() {
   const [query, setQuery] = useState(`from=${today}&to=${today}&period=daily`),
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false);
-  const report = useApi<Report>("/admin/reports?" + query);
+  const report = useApi<Report>("/admin/reports?" + query, { retainOnReload: true, refreshInterval: 30000 });
   const { reload } = report;
-  useEffect(() => {
-    const id = window.setInterval(reload, 30000);
-    return () => window.clearInterval(id);
-  }, [reload]);
+
   function filter(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);

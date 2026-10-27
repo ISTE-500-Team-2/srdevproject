@@ -30,3 +30,11 @@ The member status forms also adopt the committed server revision before showing 
 - React tests cover backend blocker presentation, expiration, failed refresh, target switch, revision refresh and rapid consecutive status saves. Existing full application suites also run.
 
 No schema migration, firmware change or production data/configuration change is required. This PR is not a production rollout or physical relay acceptance result.
+
+## Stable background refresh
+
+The shared request hook separates first-load `loading` from background `refreshing`. Same-resource opt-in refreshes keep existing content mounted without inserting Loading records banners or changing readiness-button labels. Analytics and Reports now use that retained polling path instead of clearing their report every30seconds. Members, reader readiness and retained class/roster reloads use the same stable loading behavior. Initial loads, resource changes and lost authorization still clear protected data as appropriate.
+
+Automatic polling skips in-flight requests, hidden pages, focused staff forms and unsaved management-form fields, including drafts whose input has lost focus. Existing Classes draft/busy protection is retained. A real data change or verification error is still shown rather than hidden to prevent visual movement.
+
+Regressions cover pending background requests, path changes, drafts after blur, slow requests and authorization loss.
