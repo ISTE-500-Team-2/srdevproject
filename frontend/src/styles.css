@@ -1961,8 +1961,11 @@ place-items: center;
 .reservation-form__summary img {
   width: 136px;
   height: 100px;
+  border: 1px solid #e6ddd5;
   border-radius: 8px;
-  object-fit: cover;
+  padding: 8px;
+  background: #fffdfa;
+  object-fit: contain;
 }
 
 .reservation-form__summary h3 {
