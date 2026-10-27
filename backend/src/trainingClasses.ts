@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { Pool } from "pg";
 import { transaction } from "./db.js";
-import { AppError, positiveId, textField } from "./domain.js";
+import { AppError, integerId, positiveId, textField } from "./domain.js";
 import { authState, requireCsrf, requireStaff } from "./middleware/auth.js";
 import { requirePermission } from "./middleware/permissions.js";
 import { StaffModel } from "./models/StaffModel.js";
@@ -125,7 +125,7 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
   r.post("/classes/:id/enroll", requireCsrf, async (req, res) => {
     const user = authState(res).user;
     const data = await transaction(pool, async (db) => {
-      const id = positiveId(req.params.id),
+      const id = integerId(req.params.id, "Class"),
         c = (
           await db.query(
             `SELECT c.*,v.status AS booking_status,v.starttime AT TIME ZONE 'UTC' AS starts FROM app_training_class c JOIN reservation v ON v.reservationid=c.reservation_id WHERE c.id=$1 AND v.status='confirmed' FOR UPDATE OF c`,
@@ -187,7 +187,7 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
   r.post("/classes/:id/withdraw", requireCsrf, async (req, res) => {
     const user = authState(res).user;
     await transaction(pool, async (db) => {
-      const id = positiveId(req.params.id);
+      const id = integerId(req.params.id, "Class");
       await db.query(
         "SELECT id FROM app_training_class WHERE id=$1 FOR UPDATE",
         [id],
@@ -240,7 +240,7 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
          WHERE c.id=$1 AND c.status='scheduled' AND v.status='confirmed'
            AND v.starttime>NOW() AT TIME ZONE 'UTC'
          GROUP BY c.id,c.capacity`,
-        [positiveId(req.params.id)],
+        [integerId(req.params.id, "Class")],
       );
       if (!rows[0]) throw new AppError(404, "CLASS_ROSTER_UNAVAILABLE", "The participant list is available for upcoming scheduled classes only.");
       res.set("Cache-Control", "no-store");
@@ -252,7 +252,7 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
     requirePermission(pool, "certification", "read"),
     async (req, res) => {
       const user = authState(res).user,
-        id = positiveId(req.params.id),
+        id = integerId(req.params.id, "Class"),
         c = (
           await pool.query(
             "SELECT instructor_id FROM app_training_class WHERE id=$1",
@@ -286,7 +286,7 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
     async (req, res) => {
       const user = authState(res).user;
       const data = await transaction(pool, async (db) => {
-        const id = positiveId(req.params.id),
+        const id = integerId(req.params.id, "Class"),
           userId = positiveId(req.body.userId),
           c = (
             await db.query(
@@ -353,7 +353,7 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
     requireCsrf,
     async (req, res) => {
       const data = await transaction(pool, async (db) => {
-        const id = positiveId(req.params.id),
+        const id = integerId(req.params.id, "Class"),
           before = (
             await db.query(
               "SELECT * FROM app_training_class WHERE id=$1 FOR UPDATE",

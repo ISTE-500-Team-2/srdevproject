@@ -10,6 +10,7 @@ import {
   newPasswordField,
   passwordField,
   positiveId,
+  integerId,
   reservationWindow,
 } from '../src/domain.js';
 import { hashPassword, verifyPassword } from '../src/passwords.js';
@@ -61,6 +62,14 @@ test('identifiers and emails are validated without coercing arbitrary values', (
   assert.equal(positiveId('12'), 12);
   assert.equal(emailField('  Member@Example.org  '), 'member@example.org');
   assert.throws(() => emailField('not-an-email'), AppError);
+});
+
+test('PostgreSQL INTEGER identifiers reject overflow without narrowing BIGINT identifiers', () => {
+  for (const value of [1, '1', 2147483647, '2147483647'])
+    assert.equal(integerId(value), Number(value));
+  for (const value of [2147483648, '2147483648', Number.MAX_SAFE_INTEGER, String(Number.MAX_SAFE_INTEGER), 0, -1, 1.5, null, {}, '1e5'])
+    assert.throws(() => integerId(value, 'Class'), {name:'Error', status:400, code:'INVALID_INPUT'});
+  assert.equal(positiveId('2147483648'), 2147483648);
 });
 
 test('existing passwords are not subject to new-password complexity rules', () => {

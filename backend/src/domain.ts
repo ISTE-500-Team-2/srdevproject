@@ -75,6 +75,19 @@ export function positiveId(value: unknown, name = "id"): number {
   return n;
 }
 
+/** Validate identifiers backed by PostgreSQL INTEGER, not BIGINT. */
+export function integerId(value: unknown, name = "id"): number {
+  const n = positiveId(value, name);
+  if (n > 2_147_483_647) {
+    throw new AppError(
+      400,
+      "INVALID_INPUT",
+      `${name} must be a positive integer no greater than 2147483647.`,
+    );
+  }
+  return n;
+}
+
 export function textField(
   value: unknown,
   name: string,

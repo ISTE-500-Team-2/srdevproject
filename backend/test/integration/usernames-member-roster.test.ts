@@ -110,3 +110,20 @@ test('member roster excludes past/cancelled classes and malformed IDs',async()=>
   assert.equal((await get('/classes/not-an-id/member-roster')).status,400);
   assert.equal((await get('/classes/2147483647/member-roster')).status,404);
 });
+
+test('class routes reject overflowing INTEGER class IDs before querying',async()=>{
+  for(const id of ['2147483648',String(Number.MAX_SAFE_INTEGER)]){
+    for(const [suffix,actor] of [['member-roster',member],['roster',instructor]] as const){
+      const response=await get(`/classes/${id}/${suffix}`,actor);
+      assert.equal(response.status,400,JSON.stringify(response.body));
+      assert.equal(response.body.error.code,'INVALID_INPUT');
+    }
+    for(const [suffix,actor] of [['enroll',member],['withdraw',member],['attendance',instructor],['cancel',admin]] as const){
+      const response=await request(app).post(`/api/classes/${id}/${suffix}`)
+        .set('Authorization','Bearer '+actor.accessToken).set('X-CSRF-Token',actor.csrfToken).send({});
+      assert.equal(response.status,400,JSON.stringify(response.body));
+      assert.equal(response.body.error.code,'INVALID_INPUT');
+    }
+  }
+  assert.equal((await get('/classes/2147483647/roster',instructor)).status,404);
+});
