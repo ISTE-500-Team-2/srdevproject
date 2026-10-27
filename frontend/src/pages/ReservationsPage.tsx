@@ -9,7 +9,7 @@ import type { LiveEquipment, Reservation } from '../lib/contracts';
 import { useApi } from '../lib/useApi';
 import { reservationInput } from '../lib/reservationInput';
 import type { Studio } from '../lib/studioContracts';
-import { dateOnly, nextMonth, policy } from '../lib/studioDisplay';
+import { dateOnly, nextMonth, policy, studioImage } from '../lib/studioDisplay';
 
 export function ReservationsPage() {
   const {user}=useAuth();
@@ -521,13 +521,4 @@ function rateLabel(rate: number | null) {
 
 function studioRateLabel(cents: number | null) {
   return cents === null ? 'Rate not set' : '$' + (cents / 100).toFixed(2) + '/month';
-}
-
-function studioImage(size: string) {
-  const images: Record<string, string> = {
-    large: 'paris',
-    medium: 'coruscant',
-    small: 'harkonnen',
-  };
-  return '/assets/space-' + (images[size.toLowerCase()] ?? 'harkonnen') + '.webp';
 }

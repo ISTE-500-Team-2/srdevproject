@@ -46,53 +46,60 @@ test("member books monthly studio, staff confirms real manual receipt, cancellat
       <App />
     </MemoryRouter>,
   );
-  await screen.findByRole("heading", { name: "Monthly studio rentals" });
-  await screen.findByRole("heading", { name: "Small studio 1" });
-  fireEvent.change(screen.getByLabelText("Rental start date"), {
-    target: { value: "2030-01-31" },
-  });
-  const card = screen
-    .getAllByRole("heading", { name: "Small studio 1" })[0]
-    .closest("article")!;
+  await screen.findByRole("heading", { name: "Studio spaces" });
+  // Only the configured studio is offered; members pick a size first.
   await userEvent.click(
-    within(card).getByRole("button", { name: "Hold and pay with staff" }),
+    await screen.findByRole("button", { name: /^Small studios/ }),
   );
-  await screen.findByText(
-    /Pay with staff before then; your booking is not confirmed yet/,
+  const dialog = screen.getByRole("dialog", { name: "Reserve a small studio" });
+  // Page forward to January 2030 and pick the 31st (ends Feb 28, exclusive).
+  while (!within(dialog).queryByText("January 2030"))
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Next month" }),
+    );
+  await userEvent.click(
+    within(dialog).getByRole("button", { name: "Thu, Jan 31, 2030" }),
   );
+  expect(within(dialog).getByText("Yours through Wed, Feb 27, 2030.")).toBeTruthy();
+  expect(
+    (within(dialog).getByRole("radio", { name: /Small studio 1/ }) as HTMLInputElement)
+      .checked,
+  ).toBe(true);
+  await userEvent.click(within(dialog).getByRole("button", { name: "Hold studio" }));
+  await within(dialog).findByText("Small studio 1 is held for you");
   const r = (await bridge.pool.query("SELECT * FROM app_studio_rental"))
     .rows[0];
-  expect(r.payment_status).toBe("unpaid");
+  expect(r).toMatchObject({ starts_on: expect.anything(), payment_status: "unpaid" });
+  await userEvent.click(within(dialog).getByRole("button", { name: "Done" }));
+  const rentals = await screen.findByRole("region", { name: "Your rentals" });
+  expect(within(rentals).getByText("Awaiting payment")).toBeTruthy();
   await service.manualPay(staff.user.id, r.id, "test fixture receipt 123");
-  await userEvent.click(
-    screen.getByRole("button", {
-      name: "Refresh availability and payment status",
-    }),
-  );
-  await screen.findByText("paid", { exact: true });
+  // Pending rentals refresh on their own when the window regains focus.
+  window.dispatchEvent(new Event("focus"));
+  await within(rentals).findByText("Confirmed");
   vi.spyOn(window, "confirm").mockReturnValue(true);
-  const cancel = screen.getByRole("button", { name: "Cancel rental" });
-  // The refresh renders returned rental data before its action finally clears
-  // busy. Wait for the same enabled control a person can actually interact with.
+  const cancel = within(rentals).getByRole("button", { name: "Cancel rental" });
   await waitFor(() => expect(cancel.hasAttribute("disabled")).toBe(false));
   await userEvent.click(cancel);
-  await screen.findByText("Rental cancelled. Check its refund status below.");
+  await screen.findByText("Small studio 1 cancelled.");
   const cancelled = (await bridge.pool.query("SELECT * FROM app_studio_rental"))
     .rows[0];
   expect(cancelled.status).toBe("cancelled");
   expect(cancelled.refund_cents).toBe(25000);
   expect(cancelled.payment_status).toBe("refund_pending");
-  await waitFor(() =>
-    expect(
-      within(
-        screen
-          .getAllByRole("heading", { name: "Small studio 1" })[0]
-          .closest("article")!,
-      )
-        .getByRole("button", { name: "Hold and pay with staff" })
-        .hasAttribute("disabled"),
-    ).toBe(false),
+  // The cancelled rental moves to past rentals and the studio is free again.
+  await screen.findByText("Past rentals (1)");
+  await userEvent.click(
+    await screen.findByRole("button", { name: /^Small studios/ }),
   );
+  const again = screen.getByRole("dialog", { name: "Reserve a small studio" });
+  while (!within(again).queryByText("January 2030"))
+    await userEvent.click(within(again).getByRole("button", { name: "Next month" }));
+  expect(
+    within(again)
+      .getByRole("button", { name: "Thu, Jan 31, 2030" })
+      .hasAttribute("disabled"),
+  ).toBe(false);
 });
 
 test('reservations studio modal uses the current catalog and saves one real hold without claiming paid access',async()=>{

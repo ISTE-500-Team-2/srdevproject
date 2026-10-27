@@ -8,15 +8,15 @@ export function AvailabilityCalendar({
   onSelect,
 }: {
   studios: Studio[];
-  selectedStart: string;
-  onSelect: (value: string) => void;
+  selectedStart?: string;
+  onSelect?: (value: string) => void;
 }) {
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
   const [year, m] = month.split("-").map(Number);
   const count = new Date(Date.UTC(year, m, 0)).getUTCDate();
   return (
     <section aria-label="All studios monthly calendar">
-      <label>
+      <label className="studio-calendar-month">
         Calendar month{" "}
         <input
           type="month"
@@ -26,13 +26,9 @@ export function AvailabilityCalendar({
           }}
         />
       </label>
-      <p>
-        Available dates are buttons. A free day is not a guarantee that the full
-        rental month is available; review the space below.
-      </p>
       <div className="studio-calendar-scroll">
         <table className="studio-calendar">
-          <caption>{month}: studio occupancy (H = hold, B = booked)</caption>
+          <caption>H = held for payment · B = booked</caption>
           <thead>
             <tr>
               <th scope="col">Studio</th>
@@ -60,7 +56,7 @@ export function AvailabilityCalendar({
                         <abbr title={`${s.name} ${date}: ${occupied.status}`}>
                           {occupied.status === "pending" ? "H" : "B"}
                         </abbr>
-                      ) : (
+                      ) : onSelect ? (
                         <button
                           type="button"
                           aria-label={`Select ${date} for ${s.name}`}
@@ -69,7 +65,7 @@ export function AvailabilityCalendar({
                         >
                           ·
                         </button>
-                      )}
+                      ) : null}
                     </td>
                   );
                 })}
