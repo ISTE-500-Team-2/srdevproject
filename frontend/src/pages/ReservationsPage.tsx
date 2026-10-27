@@ -1,10 +1,10 @@
 import { useAuth } from '../context/AuthContext';
 import { CalendarDays, ChevronLeft, ChevronRight, Filter, ShieldAlert } from 'lucide-react';
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, type MouseEvent, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Modal } from '../components/Modal';
 import { Toast } from '../components/Toast';
-import { api, errorMessage } from '../lib/api';
+import { api, ApiError, errorMessage } from '../lib/api';
 import type { LiveEquipment, Reservation } from '../lib/contracts';
 import { useApi } from '../lib/useApi';
 import { reservationInput } from '../lib/reservationInput';
@@ -12,15 +12,26 @@ import type { Studio } from '../lib/studioContracts';
 import { dateOnly, nextMonth, policy, sizeLabel, studioImage } from '../lib/studioDisplay';
 import { dateTime, timeOnly } from "../lib/display";
 
+function jumpToSection(event: MouseEvent<HTMLAnchorElement>, id: string) {
+  // Hash navigation revalidates the route and unmounts the form/catalog state.
+  event.preventDefault();
+  const section = document.getElementById(id);
+  section?.scrollIntoView({ block: 'start' });
+  section?.focus({ preventScroll: true });
+}
 export function ReservationsPage() {
   const {user}=useAuth();
   const canBookForOthers=!!user?.roles.some(r=>['staff','admin'].includes(r)) && !user.roles.includes('instructor');
   const catalog = useApi<LiveEquipment[]>('/equipment');
   const bookings = useApi<Reservation[]>('/reservations');
   const [filter, setFilter] = useState('all');
+  const [search, setSearch] = useState('');
+  const mutationInFlight = useRef(false);
+  const errorRef = useRef<HTMLParagraphElement>(null);
   const [selected, setSelected] = useState<LiveEquipment | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState('');
+  useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   const [busy, setBusy] = useState(false);
   const studios = useApi<{ studios: Studio[]; cardTestEnabled: boolean; timeZone: string }>('/studios');
   const [studioFilter, setStudioFilter] = useState('all');
@@ -32,8 +43,9 @@ export function ReservationsPage() {
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const equipment = (catalog.data ?? []).filter(
     (item) =>
-      filter === 'all' ||
-      (filter === 'ready' ? item.canReserve : item.trainingRequired),
+      (filter === 'all' ||
+      (filter === 'ready' ? item.canReserve : item.trainingRequired)) &&
+      `${item.name} ${item.type}`.toLowerCase().includes(search.trim().toLowerCase()),
   );
 
   const studioZone = studios.data?.timeZone ?? zone;
@@ -66,9 +78,11 @@ export function ReservationsPage() {
 
   const reserve = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!selected) return;
+    if (!selected || mutationInFlight.current) return;
+    mutationInFlight.current = true;
     const form = new FormData(event.currentTarget);
     setBusy(true);
+    setToast(null);
     setError('');
     try {
       const input = reservationInput(
@@ -83,16 +97,22 @@ export function ReservationsPage() {
       bookings.reload();
       catalog.reload();
     } catch (err) {
-      setError(err instanceof RangeError ? err.message : errorMessage(err));
+      setError(err instanceof RangeError ? err.message :
+        err instanceof ApiError && err.code === 'RESERVATION_CONFLICT'
+          ? 'This equipment is already reserved during your selected time. Choose another start time or shorten the duration, then try again.'
+          : errorMessage(err));
     } finally {
+      mutationInFlight.current = false;
       setBusy(false);
     }
   };
 
   const reserveStudio = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!selectedStudio) return;
+    if (!selectedStudio || mutationInFlight.current) return;
+    mutationInFlight.current = true;
     setBusy(true);
+    setToast(null);
     setError('');
     try {
       const result = await api<{ hold_until: string; checkoutUrl?: string }>('/studio-rentals', {
@@ -119,12 +139,16 @@ export function ReservationsPage() {
     } catch (err) {
       setError(errorMessage(err));
     } finally {
+      mutationInFlight.current = false;
       setBusy(false);
     }
   };
 
   const cancel = async (id: number) => {
+    if (mutationInFlight.current) return;
+    mutationInFlight.current = true;
     setBusy(true);
+    setToast(null);
     setError('');
     try {
       await api('/reservations/' + id + '/cancel', { method: 'POST' });
@@ -133,12 +157,17 @@ export function ReservationsPage() {
     } catch (err) {
       setError(errorMessage(err));
     } finally {
+      mutationInFlight.current = false;
       setBusy(false);
     }
   };
   return (
     <div className="reservations-page page-enter">
-      <section className="reservation-section">
+      <nav className="reservation-shortcuts" aria-label="Reservation sections">
+        <a href="#equipment" onClick={e => jumpToSection(e, 'equipment')}>Find equipment</a>
+        <a href="#my-reservations" onClick={e => jumpToSection(e, 'my-reservations')}>My reservations</a>
+      </nav>
+      <section className="reservation-section" id="equipment" tabIndex={-1}>
         <div className="reservation-section__heading">
           <div>
             <p className="eyebrow">Reserve by the hour</p>
@@ -148,6 +177,7 @@ export function ReservationsPage() {
             <Filter aria-hidden="true" />
             <span>Filter</span>
             <select
+              aria-label="Equipment filter"
               value={filter}
               onChange={(event) => setFilter(event.target.value)}
             >
@@ -157,6 +187,10 @@ export function ReservationsPage() {
             </select>
           </label>
         </div>
+        <label className="form-field equipment-search">
+          <span>Find equipment</span>
+          <input type="search" value={search} placeholder="Search by name or type" onChange={e => setSearch(e.target.value)} />
+        </label>
         {catalog.loading ? <p role="status">Loading equipment…</p> : null}
         {catalog.error ? (
           <p role="alert" className="form-error">
@@ -164,7 +198,7 @@ export function ReservationsPage() {
           </p>
         ) : null}
         {!selected && !selectedStudio && error ? (
-          <p role="alert" className="form-error">
+          <p ref={errorRef} tabIndex={-1} role="alert" className="form-error">
             {error}
           </p>
         ) : null}
@@ -175,6 +209,7 @@ export function ReservationsPage() {
               key={item.id}
               onClick={() => {
                 setSelected(item);
+                setToast(null);
                 setError('');
               }}
             >
@@ -214,6 +249,7 @@ export function ReservationsPage() {
         <Filter aria-hidden="true" />
         <span>Filter</span>
         <select
+          aria-label="Studio size filter"
           value={studioFilter}
           onChange={(event) => {
             setStudioFilter(event.target.value);
@@ -277,6 +313,7 @@ export function ReservationsPage() {
         key={item.id}
         onClick={() => {
           setSelectedStudio(item);
+          setToast(null);
           setStudioStart('');
           setStudioRequestKey(crypto.randomUUID());
           setError('');
@@ -309,7 +346,7 @@ export function ReservationsPage() {
         <div className="reservation-section__heading">
           <div>
             <p className="eyebrow">Your saved bookings</p>
-            <h2 id="my-reservations">My reservations</h2>
+            <h2 id="my-reservations" tabIndex={-1}>My reservations</h2>
           </div>
           <button className="button button--quiet" onClick={bookings.reload}>
             Refresh
@@ -351,6 +388,10 @@ export function ReservationsPage() {
                 >
                   Cancel reservation
                 </button>
+              ) : ['pending', 'confirmed'].includes(item.status) ? (
+                <p className="form-caption">{new Date(item.startTime).getTime() > Date.now()
+                  ? 'Online cancellation closes 24 hours before the start time.'
+                  : 'This reservation has started; online cancellation is closed.'}</p>
               ) : null}
             </article>
           ))}
@@ -364,7 +405,7 @@ export function ReservationsPage() {
         }}
       >
         {selected ? (
-          <form className="reservation-form" onSubmit={reserve}>
+          <form className="reservation-form equipment-reservation-form" onSubmit={reserve} onChange={() => setError('')}>
             <div className="reservation-form__summary">
               <img src={selected.image} alt="" />
               <div>
@@ -398,11 +439,12 @@ export function ReservationsPage() {
               </p>
             ) : null}
             <p className="form-caption">
-              The booking member’s access and this time slot are checked when you book. No
+              Cancel at least 24 hours before the start time. Leave 15 minutes between bookings for the same machine.
+              {' '}The booking member’s access and this time slot are checked when you book. No
               payment will be collected.
             </p>
             {error ? (
-              <p role="alert" className="form-error">
+              <p ref={errorRef} tabIndex={-1} role="alert" className="form-error">
                 {error}
               </p>
             ) : null}
