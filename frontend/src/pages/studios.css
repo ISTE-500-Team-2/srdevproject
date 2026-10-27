@@ -416,3 +416,59 @@
     align-items: stretch;
   }
 }
+
+/* Cancel-rental confirmation */
+.cancel-rental {
+  display: grid;
+  gap: 14px;
+}
+
+.cancel-rental p {
+  margin: 0;
+}
+
+.cancel-rental__dates {
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
+.cancel-rental__refund {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border-radius: var(--radius-small);
+  padding: 12px 14px;
+  font-weight: 600;
+}
+
+.cancel-rental__refund svg {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+}
+
+.cancel-rental__refund--ok {
+  border: 1px solid #b9dcc0;
+  background: #eef8ef;
+  color: #1f6b32;
+}
+
+.cancel-rental__refund--warn {
+  border: 1px solid #f0c0ba;
+  background: #fdecea;
+  color: #8f2a20;
+}
+
+.cancel-rental__policy {
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.cancel-rental__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 6px;
+}

@@ -123,3 +123,60 @@ test("a studio taken while the pop-up is open can't be submitted", async () => {
   fireEvent.click(within(dialog).getByRole("radio", { name: /Atreides/ }));
   expect((hold as HTMLButtonElement).disabled).toBe(false);
 });
+
+const rental = (over: Record<string, unknown>) => ({
+  id: 7,
+  name: "Harkonnen",
+  starts_on: "2030-01-20",
+  ends_on: "2030-02-20",
+  amount_cents: 35000,
+  status: "confirmed",
+  payment_status: "paid",
+  payment_method: "manual",
+  hold_until: "",
+  refund_cents: 0,
+  cancellation_policy: "full_before_start",
+  ...over,
+});
+function withRentals(rentals: unknown[]) {
+  api.mockImplementation((path: string, init?: { method?: string }) => {
+    if (path === "/studios")
+      return Promise.resolve({ studios, cardTestEnabled: false, timeZone: "UTC" });
+    if (path === "/studio-rentals") return Promise.resolve(rentals);
+    if (init?.method) return Promise.resolve({});
+    return Promise.resolve([]);
+  });
+}
+
+test("cancelling a rental explains the refund in a dialog, not a browser pop-up", async () => {
+  globalThis.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+  const confirm = vi.spyOn(window, "confirm");
+  withRentals([rental({})]);
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Cancel rental" }));
+  const dialog = screen.getByRole("dialog", { name: "Cancel Harkonnen?" });
+  expect(within(dialog).getByText(/You'll get \$350\.00 back/)).toBeTruthy();
+  expect(confirm).not.toHaveBeenCalled();
+  const hold = within(dialog).getByRole("button", { name: /Hold to cancel rental/ });
+  fireEvent.keyDown(hold, { key: " " });
+  await waitFor(
+    () =>
+      expect(api.mock.calls.some(([p, o]) => p === "/studio-rentals/7/cancel" && o?.method === "POST")).toBe(true),
+    { timeout: 2500 },
+  );
+});
+
+test("an unpaid hold says there's nothing to refund instead of $0.00", async () => {
+  withRentals([rental({ status: "pending", payment_status: "unpaid", hold_until: "2030-01-10T15:30:00Z" })]);
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Cancel rental" }));
+  const dialog = screen.getByRole("dialog", { name: "Cancel Harkonnen?" });
+  expect(within(dialog).getByText("You haven't paid for this hold, so there's nothing to refund.")).toBeTruthy();
+  expect(within(dialog).queryByText(/\$0\.00/)).toBeNull();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Keep rental" }));
+  expect(screen.queryByRole("dialog", { name: "Cancel Harkonnen?" })).toBeNull();
+});

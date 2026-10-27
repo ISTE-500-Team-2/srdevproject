@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BookingReference } from "../components/studios/BookingReference";
+import { CancelRentalDialog } from "../components/studios/CancelRentalDialog";
 import StatusMark from "../components/reactbits/StatusMark";
 import {
   StudioBooking,
@@ -62,7 +63,8 @@ export function StudiosPage() {
     [held, setHeld] = useState<{ name: string; holdUntil: string } | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
-    [message, setMessage] = useState("");
+    [message, setMessage] = useState(""),
+    [cancelling, setCancelling] = useState<Rental | null>(null);
   const today = new Intl.DateTimeFormat("en-CA", {
     timeZone: zone,
     year: "numeric",
@@ -216,25 +218,7 @@ export function StudiosPage() {
             <button
               className="button button--quiet"
               disabled={busy}
-              onClick={() => {
-                const refundable =
-                  r.payment_status === "paid" &&
-                  r.cancellation_policy === "full_before_start" &&
-                  today < dateOnly(r.starts_on)
-                    ? r.amount_cents
-                    : 0;
-                if (
-                  window.confirm(
-                    `Cancel ${r.name}? You'll get ${money(refundable)} back to your original payment method. ${policy(r.cancellation_policy)}`,
-                  )
-                )
-                  void action(async () => {
-                    await api(`/studio-rentals/${r.id}/cancel`, {
-                      method: "POST",
-                    });
-                    setMessage(`${r.name} cancelled.`);
-                  });
-              }}
+              onClick={() => setCancelling(r)}
             >
               Cancel rental
             </button>
@@ -251,7 +235,7 @@ export function StudiosPage() {
         Your own workspace for a month at a time. Equipment is booked separately
         by the hour.
       </p>
-      {error && !size && <p className="form-error" role="alert">{error}</p>}
+      {error && !size && !cancelling && <p className="form-error" role="alert">{error}</p>}
       {message && <p className="studio-message" role="status">{message}</p>}
       {returning && waiting && (
         <div className="studio-message studio-payment" role="status">
@@ -322,6 +306,34 @@ export function StudiosPage() {
           <summary>Past rentals ({past.length})</summary>
           {past.map(rentalRow)}
         </details>
+      )}
+
+      {cancelling && (
+        <CancelRentalDialog
+          rental={cancelling}
+          started={today >= dateOnly(cancelling.starts_on)}
+          refundable={
+            cancelling.payment_status === "paid" &&
+            cancelling.cancellation_policy === "full_before_start" &&
+            today < dateOnly(cancelling.starts_on)
+              ? cancelling.amount_cents
+              : 0
+          }
+          busy={busy}
+          error={error}
+          onClose={() => {
+            setCancelling(null);
+            setError("");
+          }}
+          onConfirm={() => {
+            const r = cancelling;
+            void action(async () => {
+              await api(`/studio-rentals/${r.id}/cancel`, { method: "POST" });
+              setCancelling(null);
+              setMessage(`${r.name} cancelled.`);
+            });
+          }}
+        />
       )}
 
       <StudioBooking
