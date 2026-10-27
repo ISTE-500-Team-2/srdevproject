@@ -73,7 +73,6 @@ export function CertificationsPage() {
       className={`credentials-page page-enter${isMemberDemo ? ' credentials-page--member-demo' : ''}`}
     >
       <section>
-        <p className="eyebrow">Your access records</p>
         <h1 className="display-heading">Certifications & waivers</h1>
         {user?.roles.some(r=>['admin','staff','instructor'].includes(r))?<Link to="/training">Manage training records</Link>:null}
       </section>

@@ -9,6 +9,7 @@ import { StaffUsers } from "./StaffUsers";
 import { StaffPlans } from "./StaffPlans";
 import { StaffPayments } from "./StaffPayments";
 import { StaffReservations } from "./StaffReservations";
+import { StaffStudios } from "./StaffStudios";
 import { ReportsPage } from "./ReportsPage";
 import { AccessManagementPage } from "./AccessManagementPage";
 
@@ -45,6 +46,7 @@ const groups: { label: string; tabs: Tab[] }[] = [
     label: "Operations",
     tabs: [
       { key: "reservations", label: "Reservations", component: StaffReservations },
+      { key: "studios", label: "Studios", component: StaffStudios },
       { key: "access", label: "Reader access", component: AccessManagementPage },
       { key: "audit", label: "Change log", component: ChangeLog },
     ],

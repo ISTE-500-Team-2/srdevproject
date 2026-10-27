@@ -66,14 +66,12 @@ async function openSmall() {
 const calls = (path: string) =>
   api.mock.calls.filter(([p]) => p === path).length;
 
-test("staff without a pending rental of their own still get new holds on focus", async () => {
+test("the member page never loads the staff studio desk", async () => {
   auth.user = { roles: ["staff"], membership: "None" };
   mount();
-  await waitFor(() => expect(calls("/studio-management/rentals")).toBe(1));
-  act(() => {
-    window.dispatchEvent(new Event("focus"));
-  });
-  await waitFor(() => expect(calls("/studio-management/rentals")).toBe(2));
+  await screen.findByRole("button", { name: /^Small studios/ });
+  expect(calls("/studio-management/rentals")).toBe(0);
+  expect(screen.queryByRole("heading", { name: /Studio desk|Payments to record/ })).toBeNull();
 });
 
 test("a changed booking gets a new request key; an identical retry reuses it", async () => {
