@@ -67,12 +67,9 @@ export function AnalyticsDashboardPage() {
             <option value="monthly">Monthly</option>
           </select>
         </label>
-        <button className="button">Apply dates</button>
+        <button className="button button--quiet">Apply dates</button>
       </form>
       {validation ? <p role="alert">{validation}</p> : null}
-      <button className="button button--quiet" onClick={reload}>
-        Refresh analytics
-      </button>
       <LoadState {...report} />
       {data ? (
         <>
@@ -82,7 +79,12 @@ export function AnalyticsDashboardPage() {
           </p>
           <div className="analytics-layout">
             <article className="panel analytics-revenue">
-              <h3>Recorded revenue</h3>
+              <div className="analytics-revenue__head">
+                <h3>Recorded revenue</h3>
+                <button className="button button--quiet" type="button" onClick={reload}>
+                  Refresh analytics
+                </button>
+              </div>
               <p>
                 Paid receipts for memberships, day passes and studio rentals.
               </p>

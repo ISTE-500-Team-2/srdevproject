@@ -42,3 +42,13 @@
     grid-template-columns: 1fr;
   }
 }
+
+.analytics-revenue__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.analytics-revenue__head h3 {
+  margin: 0;
+}

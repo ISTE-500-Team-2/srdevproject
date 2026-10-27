@@ -1,4 +1,4 @@
-import { Download, Filter, ShieldCheck } from "lucide-react";
+import { Download, Filter, ShieldAlert, ShieldCheck } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { apiText, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
@@ -128,9 +128,9 @@ export function StaffCompliance() {
         <LoadState {...report} />
         {summary ? (
           <div className="compliance-metrics" aria-label="Compliance rates">
-            <Metric label="Overall compliant" value={percent(summary.complianceRate)} detail={`${summary.compliantUsers} of ${summary.userCount} users`} />
-            <Metric label="Waiver compliant" value={percent(summary.waiverComplianceRate)} detail={`${summary.waiverCompliantUsers} of ${summary.userCount} users`} />
-            <Metric label="Certification compliant" value={percent(summary.certificationComplianceRate)} detail={`${summary.certificationCompliantUsers} of ${summary.userCount} users`} />
+            <Metric label="Overall compliant" ratio={summary.complianceRate} value={percent(summary.complianceRate)} detail={`${summary.compliantUsers} of ${summary.userCount} users`} />
+            <Metric label="Waiver compliant" ratio={summary.waiverComplianceRate} value={percent(summary.waiverComplianceRate)} detail={`${summary.waiverCompliantUsers} of ${summary.userCount} users`} />
+            <Metric label="Certification compliant" ratio={summary.certificationComplianceRate} value={percent(summary.certificationComplianceRate)} detail={`${summary.certificationCompliantUsers} of ${summary.userCount} users`} />
           </div>
         ) : null}
       </div>
@@ -155,10 +155,12 @@ export function StaffCompliance() {
                     <tr key={u.id}>
                       <td>
                         <strong>{u.firstName} {u.lastName}</strong>
-                        <small>#{u.id} {u.email}</small>
+                        <small>#{u.id} · {u.email}</small>
                       </td>
                       <td>
-                        <small>{u.accessStatus}</small>
+                        <span className={`status-pill status-pill--${u.accessStatus === "active" ? "ok" : "neutral"}`}>
+                          {u.accessStatus.charAt(0).toUpperCase() + u.accessStatus.slice(1)}
+                        </span>
                       </td>
                       <td>
                         <ComplianceState ok={u.waiverCompliant} />
@@ -188,11 +190,14 @@ export function StaffCompliance() {
   );
 }
 
-function Metric({ label, value, detail }: { label: string; value: string; detail: string }) {
+function Metric({ label, value, detail, ratio }: { label: string; value: string; detail: string; ratio: number }) {
   return (
     <article>
       <span>{label}</span>
       <strong>{value}</strong>
+      <div className="compliance-bar" aria-hidden="true">
+        <i className={ratio < 0.9 ? "is-low" : ""} style={{ width: `${Math.round(ratio * 100)}%` }} />
+      </div>
       <small>{detail}</small>
     </article>
   );
@@ -219,7 +224,8 @@ function Breakdown({ title, items }: { title: string; items: ComplianceBreakdown
 function ComplianceState({ ok }: { ok: boolean }) {
   return (
     <span className={ok ? "compliance-state is-ok" : "compliance-state is-risk"}>
-      <ShieldCheck aria-hidden="true" /> {ok ? "Current" : "Needs review"}
+      {ok ? <ShieldCheck aria-hidden="true" /> : <ShieldAlert aria-hidden="true" />}
+      {ok ? "Current" : "Needs review"}
     </span>
   );
 }

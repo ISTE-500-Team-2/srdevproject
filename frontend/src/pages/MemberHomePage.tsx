@@ -1,3 +1,4 @@
+import { dateTime } from "../lib/display";
 import {
   ArrowUpRight,
   CalendarDays,
@@ -175,7 +176,7 @@ export function MemberHomePage() {
           <ul>
             {summary.recentCheckIns.map((item) => (
               <li key={item.id}>
-                {new Date(item.checkedInAt).toLocaleString()} · {item.location}
+                {dateTime(item.checkedInAt)} · {item.location}
               </li>
             ))}
           </ul>

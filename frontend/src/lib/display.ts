@@ -67,3 +67,5 @@ export function statusTone(value: string): StatusTone {
     return "warn";
   return "neutral";
 }
+export const timeOnly = (value: string | Date) =>
+  new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
