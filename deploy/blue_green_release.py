@@ -75,6 +75,20 @@ def recover_activation(root, ops):
     if not path.exists():
         return None
     journal = json.loads(path.read_text())
+    if journal.get('phase') == 'committed':
+        # A crash after durable success but before tick's status write must not
+        # redeploy the same revision into the other slot.
+        if read_route(root / 'routing/active.json') != journal['newRoute']:
+            raise RuntimeError('Committed public route changed; operator review required')
+        route = journal['newRoute']
+        return {'deployedSha': route['release'], 'failedSha': None, 'phase': 'deployed',
+                'image': journal['candidateCompose']['services']['arbor-email-app']['image'],
+                'releaseDirectory': journal['releaseDirectory'],
+                'publicPort': route['publicPort'], 'publicContainer': SLOTS[route['publicPort']][1],
+                'previousPublicPort': route.get('previousPublicPort'),
+                'cutoverSeconds': journal.get('cutoverSeconds'),
+                'preparedSeconds': journal.get('prepareSeconds'),
+                'retirementScheduled': journal.get('retirementScheduled', False)}
     if journal.get('phase') != 'pending':
         return None
     rollback(root, journal, ops)
@@ -102,6 +116,21 @@ def retire_previous(root, port, expected_sha, ops):
         return False
     ops.run('docker', 'stop', name)
     return True
+
+
+def schedule_retirement(root, old_route, ops):
+    # Keep old in-flight requests/rollback warm briefly, then drain the previous
+    # process and its workers. The timer rechecks route + revision under lock.
+    try:
+        ops.run('systemd-run', '--user', '--collect',
+                '--unit=arbor-retire-' + old_route['release'][:12] + '-' + str(old_route['publicPort']),
+                '--on-active=30s', '/usr/bin/python3', str(root / 'auto-deploy/blue_green_release.py'),
+                '--root', str(root), '--retire-port', str(old_route['publicPort']),
+                '--retire-sha', old_route['release'])
+        return True
+    except Exception:
+        print('Previous public release retained: retirement scheduling needs attention', flush=True)
+        return False
 
 
 def deploy_blue_green(root, sha, ops):
@@ -151,8 +180,9 @@ def deploy_blue_green(root, sha, ops):
         ops.write_json(root / 'routing/active.json', new_route)
         verify_route(ops, root, sha)
         cutover_seconds = time.monotonic() - switch_started
+        retirement_scheduled = schedule_retirement(root, old_route, ops)
         journal.update(phase='committed', prepareSeconds=round(prepared_seconds, 3),
-                       cutoverSeconds=round(cutover_seconds, 3))
+                       cutoverSeconds=round(cutover_seconds, 3), retirementScheduled=retirement_scheduled)
         ops.write_json(journal_path, journal)
         ops.write_json(release / 'activation-metrics.json', {
             'release': sha, 'preparedSeconds': round(prepared_seconds, 3),
@@ -169,19 +199,6 @@ def deploy_blue_green(root, sha, ops):
         # jobs; keep the live/previous public processes and all data untouched.
         slot_compose(ops, file, port, 'stop')
         raise
-    # Keep old in-flight requests/rollback warm briefly, then drain the previous
-    # process and its background workers. The timer rechecks route + image under
-    # the deployment lock, so a rapid later release cannot retire a reused slot.
-    retirement_scheduled = True
-    try:
-        ops.run('systemd-run', '--user', '--collect',
-                '--unit=arbor-retire-' + old_route['release'][:12] + '-' + str(old_route['publicPort']),
-                '--on-active=30s', '/usr/bin/python3', str(root / 'auto-deploy/blue_green_release.py'),
-                '--root', str(root), '--retire-port', str(old_route['publicPort']),
-                '--retire-sha', old_route['release'])
-    except Exception:
-        retirement_scheduled = False
-        print('Previous public release retained: retirement scheduling needs attention', flush=True)
     return {'deployedSha': sha, 'image': image, 'releaseDirectory': str(release),
             'phase': 'deployed', 'failedSha': None,
             'publicContainer': SLOTS[port][1], 'publicPort': port,

@@ -81,6 +81,11 @@ class PromotionTests(unittest.TestCase):
         self.assertFalse(any(c[0] == 'run' and 'stop' in c[1] for c in calls if isinstance(c, tuple)))
         self.assertEqual(json.loads((root / 'auto-deploy/activation.json').read_text())['phase'], 'committed')
         self.assertGreaterEqual(result['cutoverSeconds'], 0)
+        before_recovery_calls = len(calls)
+        recovered = blue.recover_activation(root, ops)
+        self.assertEqual(recovered['deployedSha'], NEW)
+        self.assertEqual(recovered['publicPort'], 18082)
+        self.assertEqual(len(calls), before_recovery_calls, 'durable success is reconciled without redeploying')
 
     def test_backup_standby_demo_and_ci_failures_keep_public_and_data_unchanged(self):
         for failure in ('backup', 'standby', 'demo', 'ci'):
