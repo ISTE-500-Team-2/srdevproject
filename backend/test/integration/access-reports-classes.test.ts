@@ -409,6 +409,19 @@ test("real reports reconcile refunds, clip usage, export structured CSV/PDF and 
     Number(d.usage[0].authorizedHours) <= (5 / 3600) * 5,
     "Overlapping leases must be unioned",
   );
+  // Visits per day cover every day in the range (zero-filled) and add up to
+  // the approved check-ins for the same window.
+  const days = Math.round((Date.parse(range.to) - Date.parse(range.from)) / 86400000) + 1;
+  assert.equal(d.visitsByDay.length, days);
+  assert.equal(d.visitsByDay[0].day, range.from);
+  assert.equal(
+    d.visitsByDay.reduce((a: number, x: any) => a + x.visits, 0),
+    d.active.approvedCheckIns,
+  );
+  // Checked in today: one row per person, newest first, with how they came in.
+  const ids = d.checkedInToday.map((x: any) => x.userId);
+  assert.equal(new Set(ids).size, ids.length);
+  for (const x of d.checkedInToday) assert.ok(["nfc", "portal"].includes(x.method));
   assert.equal((await member.get("/api/admin/reports?" + q)).status, 403);
   assert.equal(
     (await staff.get("/api/admin/reports?from=2026-99-10&to=2026-99-11"))
