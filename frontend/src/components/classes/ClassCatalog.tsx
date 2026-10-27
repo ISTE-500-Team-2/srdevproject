@@ -112,7 +112,7 @@ export function ClassCatalog(props: Props) {
               </span>
               <h2>No classes on the schedule</h2>
               <p>New sessions are posted here. In the meantime you can book any equipment you're already certified on.</p>
-              <Link className="button button--quiet" to="/reservations">
+              <Link className="button button--quiet" to="/equipment">
                 Book equipment
               </Link>
             </div>

@@ -2,7 +2,7 @@ import { TrainingPage } from './pages/TrainingPage';
 import { StudiosPage } from './pages/StudiosPage';
 import { RequireUser, RequireStaff } from './components/RouteGuards';
 import { ConfirmEmailPage } from './pages/ConfirmEmailPage';
-import { Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
 import { AuthProvider } from './context/AuthContext';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
@@ -13,9 +13,14 @@ import { LoginPage } from './pages/LoginPage';
 import { MemberHomePage } from './pages/MemberHomePage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { ProfilePage } from './pages/ProfilePage';
-import { ReservationsPage } from './pages/ReservationsPage';
+import { EquipmentPage } from './pages/EquipmentPage';
 import { MembershipPage } from './pages/MembershipPage';
 import './management.css';
+
+function LegacyEquipmentRedirect() {
+  const { search, hash } = useLocation();
+  return <Navigate replace to={{ pathname: '/equipment', search, hash }} />;
+}
 
 export default function App() {
   return (
@@ -27,7 +32,8 @@ export default function App() {
         <Route element={<RequireUser />}>
           <Route element={<AppShell />}>
             <Route index element={<MemberHomePage />} />
-            <Route path="reservations" element={<ReservationsPage />} />
+            <Route path="equipment" element={<EquipmentPage />} />
+            <Route path="reservations" element={<LegacyEquipmentRedirect />} />
             <Route path="studios" element={<StudiosPage />} />
             <Route path="certifications" element={<CertificationsPage />} />
             <Route path="classes" element={<ClassesPage />} />

@@ -8,7 +8,7 @@ import {
   fireEvent,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import App from "../../src/App";
 import { api, setAccessToken, setCsrfToken } from "../../src/lib/api";
 import { createBrowserBridge } from "../../../backend/test/helpers/browserBridge";
@@ -102,23 +102,31 @@ test("member books monthly studio, staff confirms real manual receipt, cancellat
   ).toBe(false);
 });
 
-test('reservations studio modal uses the current catalog and saves one real hold without claiming paid access',async()=>{
-  cleanup();vi.stubGlobal('fetch',bridge.fetch);
-  render(<MemoryRouter initialEntries={['/reservations']}><App /></MemoryRouter>);
-  await screen.findByRole('heading',{name:'Studio Spaces'});
-  const studio=(await bridge.pool.query('SELECT * FROM app_studio WHERE id=1')).rows[0];
-  const heading=await screen.findByRole('heading',{name:'Small studio 1'});
-  const card=heading.closest('button')!;
-  expect(card.textContent).toContain('$250.00');
-  await userEvent.click(card);
-  const dialog=screen.getByRole('dialog',{name:'Reserve Small studio 1'});
-  fireEvent.change(within(dialog).getByLabelText(/Rental start date/),{target:{value:'2031-01-31'}});
-  expect(within(dialog).getByText(/2031-01-31 through 2031-02-28/)).toBeTruthy();
-  const hold=within(dialog).getByRole('button',{name:'Hold and pay with staff'});
-  await waitFor(()=>expect(hold.hasAttribute('disabled')).toBe(false));
-  await userEvent.click(hold);
-  await screen.findByText(/Small studio 1 held until/);
-  const rows=(await bridge.pool.query("SELECT * FROM app_studio_rental WHERE starts_on='2031-01-31'")).rows;
-  expect(rows).toHaveLength(1);
-  expect(rows[0]).toMatchObject({studio_id:studio.id,status:'pending',payment_status:'unpaid',amount_cents:25000});
+function CurrentRoute() {
+  const { pathname, search, hash } = useLocation();
+  return <output aria-label="Current route">{pathname + search + hash}</output>;
+}
+
+test('Equipment replaces the old combined page without breaking studio navigation or saved bookmarks',async()=>{
+  cleanup();
+  const requests:string[]=[];
+  const captured:typeof bridge.fetch=async(input,init)=>{
+    requests.push(String(input));
+    return bridge.fetch(input,init);
+  };
+  vi.stubGlobal('fetch',captured);
+  render(<MemoryRouter initialEntries={['/reservations?source=bookmark#my-reservations']}><App /><CurrentRoute /></MemoryRouter>);
+  await screen.findByRole('heading',{name:'Equipment',exact:true});
+  await screen.findByRole('button',{name:/3D Printer/});
+  expect(screen.getByLabelText('Current route').textContent).toBe('/equipment?source=bookmark#my-reservations');
+  expect(screen.queryByRole('heading',{name:'Studio Spaces'})).toBeNull();
+  expect(screen.queryByLabelText('Studio size filter')).toBeNull();
+  expect(requests.some(url=>url.includes('/api/studios'))).toBe(false);
+  const nav=screen.getByRole('navigation',{name:'Primary navigation'});
+  expect(within(nav).getByRole('link',{name:'Equipment',exact:true}).getAttribute('href')).toBe('/equipment');
+  expect(within(nav).queryByRole('link',{name:'Reservations',exact:true})).toBeNull();
+  await userEvent.click(within(nav).getByRole('link',{name:'Studios',exact:true}));
+  await screen.findByRole('heading',{name:'Studio spaces'});
+  expect(screen.getByLabelText('Current route').textContent).toBe('/studios');
+  expect(requests.some(url=>url.includes('/api/studios'))).toBe(true);
 });

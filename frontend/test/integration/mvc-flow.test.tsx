@@ -176,7 +176,7 @@ test('React → Express controllers/models → PostgreSQL: login, save, refresh,
   await user.click(
     within(
       screen.getByRole('navigation', { name: 'Primary navigation' }),
-    ).getByRole('link', { name: 'Reservations', exact: true }),
+    ).getByRole('link', { name: 'Equipment', exact: true }),
   );
   await user.click(
     await screen.findByRole(

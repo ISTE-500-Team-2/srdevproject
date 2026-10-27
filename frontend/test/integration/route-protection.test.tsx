@@ -13,7 +13,7 @@ async function login(role:string) {
   const r=await bridge.fetch('/api/auth/demo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role})});
   expect(r.status).toBe(200);const {data}=await r.json();setAccessToken(data.accessToken);setCsrfToken(data.csrfToken);return data;
 }
-test.each(['/','/profile','/admin','/membership','/reservations','/certifications','/classes','/studios'])('signed-out deep link %s renders login, not protected page',async(path)=>{
+test.each(['/','/profile','/admin','/membership','/equipment','/reservations','/certifications','/classes','/studios'])('signed-out deep link %s renders login, not protected page',async(path)=>{
   mount(path);await screen.findByLabelText('Password');
   expect(screen.queryByRole('navigation',{name:'Primary navigation'})).toBeNull();
 });
