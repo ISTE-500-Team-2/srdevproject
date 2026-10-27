@@ -387,7 +387,7 @@ export class StaffModel {
       await this.db.query(
         `SELECT a.id::text,a.actor_id AS "actorId",COALESCE(u.firstname || ' ' || u.lastname,'System') AS "actorName",a.subject_id AS "subjectId",a.action,
       a.entity_type AS "entityType",a.entity_id AS "entityId",a.created_at AS "createdAt",
-      a.reason,trim(s.firstname || ' ' || s.lastname) AS "subjectName",
+      trim(s.firstname || ' ' || s.lastname) AS "subjectName",
       e.allowed,e.reason AS "accessReason",e.reader_id AS "readerId",q.name AS "resourceName"
       FROM app_staff_audit a LEFT JOIN "user" u ON a.actor_id=u.userid
       LEFT JOIN "user" s ON s.userid=a.subject_id
