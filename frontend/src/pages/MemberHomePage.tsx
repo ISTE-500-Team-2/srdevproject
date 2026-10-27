@@ -40,6 +40,18 @@ export function MemberHomePage() {
     .filter((r) => r.status !== 'cancelled' && new Date(r.endTime).getTime() > now)
     .sort((a, b) => a.startTime.localeCompare(b.startTime));
   const last = summary?.recentCheckIns[0];
+  // The server's reasons are fixed sentences; link the first one that has a fix.
+  const fix = summary?.reasons
+    .map((reason) =>
+      /waiver|polic(y|ies) .*signature/i.test(reason)
+        ? { to: '/certifications', label: 'Review and sign' }
+        : /membership or day pass/i.test(reason)
+          ? { to: '/membership', label: 'Get a membership or pass' }
+          : /reservation/i.test(reason)
+            ? { to: '/equipment', label: 'Book equipment' }
+            : null,
+    )
+    .find(Boolean);
   const accessLabel = summary?.entitlement.membership
     ? 'Active membership'
     : summary?.entitlement.dayPass
@@ -174,7 +186,7 @@ export function MemberHomePage() {
                 <span className="summary-card__icon">
                   <LogIn aria-hidden="true" />
                 </span>
-                <h2>Visit check-in</h2>
+                <h2>Check-in</h2>
               </div>
               <p className="check-in__status">
                 <StatusMark
@@ -186,7 +198,7 @@ export function MemberHomePage() {
                   errorColor="#b73a2e"
                   label={
                     summary.canCheckIn
-                      ? 'Your access and required waivers are current.'
+                      ? 'You can check in.'
                       : summary.reasons.map((r) => r.replace(/\.$/, '')).join('. ') + '.'
                   }
                 />
@@ -199,9 +211,9 @@ export function MemberHomePage() {
                   </b>
                   <small>{last.method === 'nfc' ? 'With your NFC tag' : 'From this site'}</small>
                 </p>
-              ) : (
+              ) : summary.canCheckIn ? (
                 <p className="summary-card__note">No check-ins yet. Tap your NFC tag at the door.</p>
-              )}
+              ) : null}
               {summary.recentCheckIns.length > 1 ? (
                 <details className="check-in__history">
                   <summary>Earlier check-ins</summary>
@@ -214,19 +226,38 @@ export function MemberHomePage() {
                   </ul>
                 </details>
               ) : null}
-              <p className="check-in__fallback">Forgot your tag?</p>
-              <SiteSlideCommit
-                label="Slide to check in"
-                doneLabel="Checked in"
-                errorLabel="Couldn't check in"
-                disabled={!summary.canCheckIn}
-                onConfirm={checkIn}
-              />
+              {summary.canCheckIn ? (
+                <>
+                  <p className="check-in__fallback">Forgot your tag?</p>
+                  <SiteSlideCommit
+                    label="Slide to check in"
+                    doneLabel="Checked in"
+                    errorLabel="Couldn't check in"
+                    onConfirm={checkIn}
+                  />
+                </>
+              ) : fix ? (
+                // A disabled slider is a dead end; point at what unblocks it.
+                <Link to={fix.to} className="summary-card__action">
+                  <span>{fix.label}</span>
+                  <ChevronRight aria-hidden="true" />
+                </Link>
+              ) : null}
             </article>
           </div>
-          <aside className="membership-card">
-            <div className="membership-card__heading">Your access</div>
-            <span className="membership-card__tier">{accessLabel}</span>
+          <aside className="membership-card access-band">
+            <div className="access-band__info">
+              <div className="membership-card__heading">Your access</div>
+              <span className="membership-card__tier">{accessLabel}</span>
+              {user ? (
+                <p>
+                  {user.firstName} {user.lastName} · Member ID {String(user.id).padStart(6, '0')}
+                </p>
+              ) : null}
+              <Link to="/membership">
+                Membership & payment records <ArrowUpRight aria-hidden="true" />
+              </Link>
+            </div>
             {user ? (
               <MemberBadge
                 name={`${user.firstName} ${user.lastName}`}
@@ -234,9 +265,6 @@ export function MemberHomePage() {
                 memberId={user.id}
               />
             ) : null}
-            <Link to="/membership">
-              Membership & payment records <ArrowUpRight aria-hidden="true" />
-            </Link>
           </aside>
         </section>
       ) : null}

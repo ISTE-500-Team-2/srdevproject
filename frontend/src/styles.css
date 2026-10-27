@@ -2568,20 +2568,64 @@ button:disabled { cursor: not-allowed; opacity: .6; }
   font-weight: 600;
 }
 
-.member-badge {
-  height: 300px;
-  margin: 0 -28px 28px;
+/* Centre the label in the track to the right of the knob, not under it. */
+.site-slide-commit .slide-commit__label {
+  padding-left: 48px;
 }
 
-.member-summary .membership-card {
+/* The three cards take the full width; the access card sits under them as
+   a band, details on the left and the badge on the right. */
+.member-summary {
+  grid-template-columns: 1fr;
+}
+
+.access-band.membership-card {
   min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  align-items: center;
+  gap: 24px;
+  padding: 0 0 0 32px;
 }
 
-/* On narrow screens the access card runs full width: keep the badge short
-   so it doesn't push the page down. */
-@media (max-width: 1040px) {
+.access-band__info {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  padding: 28px 0;
+}
+
+.access-band .membership-card__tier {
+  margin: 0;
+}
+
+.access-band__info p {
+  margin: 0;
+  color: #e0d1c9;
+}
+
+.access-band.membership-card a {
+  position: static;
+}
+
+.member-badge {
+  height: 280px;
+}
+
+@media (max-width: 640px) {
+  .access-band.membership-card {
+    grid-template-columns: 1fr;
+    gap: 0;
+    padding: 0 24px;
+  }
+
+  .access-band__info {
+    padding-bottom: 0;
+  }
+
   .member-badge {
     height: 260px;
+    margin: 0 -24px;
   }
 }
 
