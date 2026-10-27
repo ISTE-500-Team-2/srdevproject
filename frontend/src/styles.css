@@ -2609,3 +2609,14 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 .email-confirm-help { color: #63584e; font-size: 14px; text-align: left; }
 .email-confirm-help summary { cursor: pointer; text-align: center; }
 .email-confirm-help[open] summary { margin-bottom: 20px; }
+
+/* Keep reservation navigation and the time picker usable on small phones. */
+.reservation-shortcuts { display: flex; flex-wrap: wrap; gap: 12px 24px; margin-bottom: 24px; }
+.reservation-shortcuts a { min-height: 44px; display: inline-flex; align-items: center; }
+.equipment-search { margin-bottom: 24px; }
+#equipment, #my-reservations { scroll-margin-top: 110px; }
+@media (max-width: 430px) {
+  .equipment-reservation-form .reservation-form__summary { grid-template-columns: 64px minmax(0, 1fr); gap: 12px; }
+  .equipment-reservation-form .reservation-form__summary img { width: 64px; height: 64px; }
+  .equipment-reservation-form .reservation-form__summary h3 { overflow-wrap: anywhere; }
+}
