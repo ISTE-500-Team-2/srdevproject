@@ -134,7 +134,7 @@ p {
 .discovery-heading h2,
 .reservation-section__heading h1,
 .training-panel__heading h1,
-.profile-hero h1 {
+.account-hero h1 {
   margin-bottom: 0;
   font-family: 'Black Ops One', sans-serif;
   font-weight: 400;
@@ -1887,7 +1887,6 @@ place-items: center;
   transform: none;
 }
 
-
 .reservation-card__rule {
   width: 100%;
   height: 2px;
@@ -1995,12 +1994,6 @@ place-items: center;
   gap: 34px;
 }
 
-.profile-hero {
-  display: flex;
-  align-items: center;
-  gap: 22px;
-}
-
 .profile-hero__avatar {
   width: 84px;
   height: 84px;
@@ -2013,103 +2006,6 @@ place-items: center;
   font-family: 'Black Ops One', sans-serif;
   font-size: 1.5rem;
   box-shadow: 5px 5px 0 var(--espresso);
-}
-
-.profile-hero h1 {
-  font-size: clamp(2rem, 3vw, 3.4rem);
-}
-
-.profile-hero span {
-  display: block;
-  margin-top: 6px;
-  color: var(--ink-soft);
-}
-
-.profile-panel {
-  min-height: 450px;
-  padding: 30px;
-}
-
-.profile-panel h2 {
-  margin-bottom: 20px;
-  font-size: 1.3rem;
-  font-weight: 700;
-}
-
-.membership-options {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
-  margin-top: 24px;
-}
-
-.membership-option {
-  display: grid;
-  align-content: start;
-  gap: 12px;
-  min-width: 0;
-  margin: 0;
-  border: 1px solid #ded4cd;
-  border-radius: 10px;
-  padding: 18px;
-}
-
-.membership-option legend {
-  padding: 0 8px;
-  font-size: 1.15rem;
-  font-weight: 700;
-}
-
-.membership-option label {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 10px;
-  border-radius: 8px;
-  padding: 12px;
-  background: #f7f3ef;
-  cursor: pointer;
-}
-
-.membership-option input {
-  accent-color: var(--orange);
-}
-
-.membership-option strong {
-  white-space: nowrap;
-}
-
-.membership-option[data-selected='true'] {
-  border-color: var(--orange);
-  box-shadow: 0 0 0 2px rgba(216, 100, 34, 0.16);
-}
-
-.membership-change-button {
-  margin-top: 28px;
-}
-
-.membership-option:disabled {
-  border-color: #d1d1d1;
-  background: #eeeeee;
-  color: #858585;
-}
-
-.membership-option:disabled label {
-  background: #e2e2e2;
-  cursor: not-allowed;
-}
-
-.membership-option:disabled input {
-  cursor: not-allowed;
-}
-
-.profile-panel form {
-  display: grid;
-  gap: 24px;
-}
-
-.profile-panel .button--primary {
-  justify-self: start;
 }
 
 .not-found {
@@ -2300,8 +2196,7 @@ place-items: center;
   .member-summary,
   .discovery-grid,
   .admin-layout,
-  .credentials-page,
-  .profile-layout {
+  .credentials-page {
     grid-template-columns: 1fr;
   }
 
@@ -2377,8 +2272,7 @@ place-items: center;
   .equipment-preview-grid,
   .equipment-grid,
   .studio-grid,
-  .two-column-fields,
-  .profile-nav {
+  .two-column-fields {
     grid-template-columns: 1fr;
   }
 
@@ -2408,15 +2302,6 @@ place-items: center;
 
   .select-control span {
     display: none;
-  }
-
-  .profile-panel {
-    min-height: 0;
-    padding: 22px;
-  }
-
-  .membership-options {
-    grid-template-columns: 1fr;
   }
 
   .reservation-form__summary {
