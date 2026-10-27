@@ -1,4 +1,4 @@
-import { dateTime } from "../lib/display";
+import { dateTime, shortDate, timeOnly } from "../lib/display";
 import {
   ArrowUpRight,
   CalendarDays,
@@ -11,7 +11,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api, errorMessage } from '../lib/api';
 import { useApi } from '../lib/useApi';
-import type { LiveEquipment, Overview } from '../lib/contracts';
+import type { Overview, Reservation, Waiver } from '../lib/contracts';
 import { Toast } from '../components/Toast';
 import { MemberBadge } from '../components/MemberBadge';
 import { SiteSlideCommit } from '../components/SiteSlideCommit';
@@ -28,11 +28,18 @@ function useFirstVisit(key: string) {
 export function MemberHomePage() {
   const { user, notification, clearNotification } = useAuth();
   const overview = useApi<Overview>('/me/overview');
-  const catalog = useApi<LiveEquipment[]>('/equipment');
+  const waivers = useApi<Waiver[]>('/me/waivers');
+  const bookings = useApi<Reservation[]>('/reservations');
   const [error, setError] = useState('');
   const greet = useFirstVisit('collaboratory:greeted');
   const [toast, setToast] = useState<string | null>(null);
   const summary = overview.data;
+  const pending = waivers.data?.filter((w) => !w.signed) ?? [];
+  const [now] = useState(() => Date.now());
+  const upcoming = (bookings.data ?? [])
+    .filter((r) => r.status !== 'cancelled' && new Date(r.endTime).getTime() > now)
+    .sort((a, b) => a.startTime.localeCompare(b.startTime));
+  const last = summary?.recentCheckIns[0];
   const accessLabel = summary?.entitlement.membership
     ? 'Active membership'
     : summary?.entitlement.dayPass
@@ -52,6 +59,7 @@ export function MemberHomePage() {
       throw err;
     }
     overview.reload();
+    bookings.reload();
     setToast('Check-in saved. Welcome to the Collaboratory!');
   };
   useEffect(() => {
@@ -95,36 +103,72 @@ export function MemberHomePage() {
       {summary ? (
         <section className="member-summary" aria-label="Account summary">
           <div className="member-summary__cards">
-            {[
-              {
-                title: 'Pending waivers',
-                count: summary.pendingWaivers,
-                to: '/certifications',
-                prompt: 'Review your policies',
-                Icon: FileCheck2,
-              },
-              {
-                title: 'Active reservations',
-                count: summary.activeReservations,
-                to: '/equipment',
-                prompt: 'Manage your bookings',
-                Icon: CalendarDays,
-              },
-            ].map(({ title, count, to, prompt, Icon }) => (
-              <article className="summary-card" key={title}>
-                <div className="summary-card__heading">
-                  <span className="summary-card__icon">
-                    <Icon aria-hidden="true" />
-                  </span>
-                  <h2>{title}</h2>
-                  <strong>{count}</strong>
-                </div>
-                <Link to={to} className="summary-card__action">
-                  <span>{prompt}</span>
-                  <ChevronRight aria-hidden="true" />
-                </Link>
-              </article>
-            ))}
+            <article className="summary-card">
+              <div className="summary-card__heading">
+                <span className="summary-card__icon">
+                  <FileCheck2 aria-hidden="true" />
+                </span>
+                <h2>Waivers</h2>
+                <strong>{summary.pendingWaivers || ''}</strong>
+              </div>
+              {pending.length ? (
+                <ul className="summary-card__list">
+                  {pending.slice(0, 3).map((w) => (
+                    <li key={w.id}>
+                      <b>{w.name}</b>
+                      <span>
+                        {w.expiredSignature
+                          ? 'Signature expired'
+                          : w.outdatedSignature
+                            ? 'New version to sign'
+                            : 'Not signed yet'}
+                      </span>
+                    </li>
+                  ))}
+                  {pending.length > 3 ? <li>+{pending.length - 3} more</li> : null}
+                </ul>
+              ) : (
+                <p className="summary-card__note">
+                  {summary.pendingWaivers
+                    ? `${summary.pendingWaivers} waiting for your signature.`
+                    : 'Everything is signed.'}
+                </p>
+              )}
+              <Link to="/certifications" className="summary-card__action">
+                <span>{summary.pendingWaivers ? 'Review and sign' : 'View your waivers'}</span>
+                <ChevronRight aria-hidden="true" />
+              </Link>
+            </article>
+
+            <article className="summary-card">
+              <div className="summary-card__heading">
+                <span className="summary-card__icon">
+                  <CalendarDays aria-hidden="true" />
+                </span>
+                <h2>Reservations</h2>
+                <strong>{summary.activeReservations || ''}</strong>
+              </div>
+              {upcoming.length ? (
+                <ul className="summary-card__list">
+                  {upcoming.slice(0, 2).map((r) => (
+                    <li key={r.id}>
+                      <b>{r.equipmentName}</b>
+                      <span>
+                        {shortDate(r.startTime)} · {timeOnly(r.startTime)}–{timeOnly(r.endTime)}
+                      </span>
+                    </li>
+                  ))}
+                  {upcoming.length > 2 ? <li>+{upcoming.length - 2} more</li> : null}
+                </ul>
+              ) : (
+                <p className="summary-card__note">Nothing booked yet.</p>
+              )}
+              <Link to="/equipment" className="summary-card__action">
+                <span>{upcoming.length ? 'Book or manage equipment' : 'Book equipment'}</span>
+                <ChevronRight aria-hidden="true" />
+              </Link>
+            </article>
+
             <article className="summary-card">
               <div className="summary-card__heading">
                 <span className="summary-card__icon">
@@ -143,10 +187,34 @@ export function MemberHomePage() {
                   label={
                     summary.canCheckIn
                       ? 'Your access and required waivers are current.'
-                      : summary.reasons.join('. ') + '.'
+                      : summary.reasons.map((r) => r.replace(/\.$/, '')).join('. ') + '.'
                   }
                 />
               </p>
+              {last ? (
+                <p className="check-in__last">
+                  <span>Last check-in</span>
+                  <b>
+                    {dateTime(last.checkedInAt)} · {last.location}
+                  </b>
+                  <small>{last.method === 'nfc' ? 'With your NFC tag' : 'From this site'}</small>
+                </p>
+              ) : (
+                <p className="summary-card__note">No check-ins yet. Tap your NFC tag at the door.</p>
+              )}
+              {summary.recentCheckIns.length > 1 ? (
+                <details className="check-in__history">
+                  <summary>Earlier check-ins</summary>
+                  <ul>
+                    {summary.recentCheckIns.slice(1).map((item) => (
+                      <li key={item.id}>
+                        {dateTime(item.checkedInAt)} · {item.location}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
+              <p className="check-in__fallback">Forgot your tag?</p>
               <SiteSlideCommit
                 label="Slide to check in"
                 doneLabel="Checked in"
@@ -172,57 +240,6 @@ export function MemberHomePage() {
           </aside>
         </section>
       ) : null}
-      <div className="dashboard-divider" />
-      <section>
-        <div className="discovery-heading">
-          <h2>Equipment</h2>
-          <Link to="/equipment">
-            View all equipment <ArrowUpRight aria-hidden="true" />
-          </Link>
-        </div>
-        {catalog.loading ? <p role="status">Loading equipment…</p> : null}
-        {catalog.error ? (
-          <p role="alert">
-            {catalog.error} <button onClick={catalog.reload}>Retry</button>
-          </p>
-        ) : null}
-        <div className="equipment-preview-grid">
-          {catalog.data?.slice(0, 3).map((item) => (
-            <article className="equipment-preview" key={item.id}>
-              <div className="equipment-preview__image">
-                <img src={item.image} alt={item.name} />
-              </div>
-              <div className="equipment-preview__body">
-                <div>
-                  <p className="eyebrow">{item.type}</p>
-                  <h3>{item.name}</h3>
-                </div>
-                <small>{item.availability}</small>
-              </div>
-              <Link to="/equipment">
-                Choose a time <ChevronRight aria-hidden="true" />
-              </Link>
-            </article>
-          ))}
-        </div>
-        {!catalog.loading && !catalog.error && !catalog.data?.length ? (
-          <p className="empty-state">No equipment is listed yet.</p>
-        ) : null}
-      </section>
-      <section className="panel feature-notice">
-        <h2>Recent check-ins</h2>
-        {summary?.recentCheckIns.length ? (
-          <ul>
-            {summary.recentCheckIns.map((item) => (
-              <li key={item.id}>
-                {dateTime(item.checkedInAt)} · {item.location}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p>No recent check-ins.</p>
-        )}
-      </section>
       <Toast message={toast} onClose={() => setToast(null)} />
     </div>
   );

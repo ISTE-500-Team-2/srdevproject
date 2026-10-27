@@ -2586,7 +2586,97 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 
 .site-slide-commit {
   width: 100%;
+}
+
+.check-in__fallback {
+  margin: auto 0 8px;
+  padding-top: 14px;
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+/* Home summary cards size to their content instead of a fixed 320px, and
+   don't stretch to the height of the access card beside them. */
+.member-summary {
+  align-items: start;
+}
+
+.member-summary .summary-card {
+  min-height: 0;
+  gap: 0;
+}
+
+.member-summary .summary-card__action {
   margin-top: auto;
+  padding: 12px 14px;
+}
+
+.summary-card__list {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0 18px;
+  padding: 0;
+  list-style: none;
+}
+
+.summary-card__list li {
+  display: grid;
+  gap: 1px;
+  font-size: 0.9rem;
+}
+
+.summary-card__list b {
+  font-weight: 600;
+}
+
+.summary-card__list span,
+.summary-card__note {
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.summary-card__note {
+  margin: 16px 0 18px;
+}
+
+.check-in__last {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  border-radius: var(--radius-small);
+  padding: 10px 12px;
+  background: #f3ece7;
+  font-size: 0.9rem;
+}
+
+.check-in__last span,
+.check-in__last small {
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.check-in__last span {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.check-in__history {
+  margin-top: 8px;
+  font-size: 0.85rem;
+}
+
+.check-in__history summary {
+  color: var(--bronze);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.check-in__history ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--ink-soft);
 }
 
 .site-slide-commit .slide-commit {
@@ -2594,8 +2684,20 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 }
 
 .member-badge {
-  height: 360px;
-  margin: 4px -28px 24px;
+  height: 300px;
+  margin: 0 -28px 28px;
+}
+
+.member-summary .membership-card {
+  min-height: 0;
+}
+
+/* On narrow screens the access card runs full width: keep the badge short
+   so it doesn't push the page down. */
+@media (max-width: 1040px) {
+  .member-badge {
+    height: 260px;
+  }
 }
 
 /* Hold-to-confirm, sized like .button. */
