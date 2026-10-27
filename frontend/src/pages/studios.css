@@ -14,29 +14,6 @@
   background: #eef8ef;
 }
 
-/* Shared status pill for rentals and size cards. */
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  padding: 3px 10px;
-  font-size: 0.75rem;
-  font-weight: 700;
-  white-space: nowrap;
-}
-.status-pill--ok {
-  background: #e3f6e6;
-  color: #1f6b32;
-}
-.status-pill--warn {
-  background: #ffecd0;
-  color: #8a4b00;
-}
-.status-pill--neutral {
-  background: #efe8e2;
-  color: var(--ink-soft);
-}
-
 /* Member rentals */
 .studio-rentals {
   display: grid;

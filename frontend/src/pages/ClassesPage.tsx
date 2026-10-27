@@ -116,7 +116,7 @@ export function ClassesPage() {
   if (!user)
     return (
       <section>
-        <h1>Classes</h1>
+        <h1 className="display-heading">Classes</h1>
         <p>Sign in to view scheduled instructor-led training and register.</p>
         <Link to="/login">Sign in</Link>
       </section>
@@ -124,7 +124,7 @@ export function ClassesPage() {
   return (
     <section className="classes-page page-enter">
       <p className="eyebrow">Learn by making</p>
-      <h1>Instructor-led classes</h1>
+      <h1 className="display-heading">Instructor-led classes</h1>
       <p>
         Signing up doesn't certify you. Your instructor confirms your training after the class.
       </p>
@@ -177,7 +177,7 @@ export function ClassesPage() {
                     </button>
                   ) : (
                     <button
-                      className="button"
+                      className="button button--primary"
                       disabled={
                         busy ||
                         c.enrolled >= c.capacity ||
@@ -322,7 +322,7 @@ export function ClassesPage() {
                         });
                       }} />
                   </label>
-                  <button className="button" disabled={busy}>
+                  <button className="button button--primary" disabled={busy}>
                     Save attendance for {p.name}
                   </button>
                 </form>
@@ -386,7 +386,7 @@ export function ClassesPage() {
             <input name="reason" required maxLength={500} />
           </label>
           <button
-            className="button"
+            className="button button--primary"
             disabled={
               busy ||
               catalog.loading ||

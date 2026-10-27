@@ -1,6 +1,7 @@
 import {
   ChevronDown,
   CircleUserRound,
+  CreditCard,
   LogOut,
   Menu,
   Search,
@@ -12,9 +13,10 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { errorMessage } from "../lib/api";
 
-const navItems = [
+const navItems: { label: string; to: string; desktop?: boolean }[] = [
   { label: "Home", to: "/" },
-  { label: "Membership", to: "/membership" },
+  // Lives in the account menu on desktop so the links clear the centred logo.
+  { label: "Membership", to: "/membership", desktop: false },
   { label: "Reservations", to: "/reservations" },
   { label: "Studios", to: "/studios" },
   { label: "Certifications & Waivers", to: "/certifications" },
@@ -87,7 +89,13 @@ export function Header() {
               end={item.to === "/"}
               onClick={() => setMobileOpen(false)}
               className={({ isActive }) =>
-                isActive ? "site-nav__link is-active" : "site-nav__link"
+                [
+                  "site-nav__link",
+                  isActive ? "is-active" : "",
+                  item.desktop === false ? "mobile-only" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")
               }
             >
               {item.label}
@@ -144,6 +152,14 @@ export function Header() {
                   </strong>
                   <span>{user?.email ?? "Not signed in"}</span>
                 </div>
+                <button
+                  onClick={() => {
+                    navigate("/membership");
+                    setAccountOpen(false);
+                  }}
+                >
+                  <CreditCard aria-hidden="true" /> Membership & passes
+                </button>
                 <button
                   onClick={() => {
                     navigate("/profile");
