@@ -160,25 +160,24 @@ export function ReportsPage() {
             <option value="monthly">Monthly</option>
           </select>
         </label>
-        <button className="button">Apply dates</button>
+        <button className="button button--quiet">Apply dates</button>
       </form>
-      <button className="button button--quiet" onClick={reload}>
-        Refresh now
-      </button>{" "}
-      <button
-        className="button button--quiet"
-        disabled={busy || !d}
-        onClick={() => void download("csv")}
-      >
-        Export CSV
-      </button>{" "}
-      <button
-        className="button button--quiet"
-        disabled={busy || !d}
-        onClick={() => void download("pdf")}
-      >
-        Export PDF
-      </button>
+      <div className="report-actions">
+        <button
+          className="button button--quiet"
+          disabled={busy || !d}
+          onClick={() => void download("csv")}
+        >
+          Export CSV
+        </button>
+        <button
+          className="button button--quiet"
+          disabled={busy || !d}
+          onClick={() => void download("pdf")}
+        >
+          Export PDF
+        </button>
+      </div>
       {message ? <p role="alert">{message}</p> : null}
       <LoadState {...report} />
       {d ? (

@@ -129,7 +129,7 @@ export function AccessManagementPage() {
               Assignment reason
               <input name="reason" maxLength={500} required />
             </label>
-            <button className="button" disabled={busy}>
+            <button className="button button--primary" disabled={busy}>
               Assign card
             </button>
           </form>
@@ -217,7 +217,7 @@ export function AccessManagementPage() {
               Reason
               <input name="reason" required maxLength={500} />
             </label>
-            <button className="button" disabled={busy}>
+            <button className="button button--primary" disabled={busy}>
               Create timed override
             </button>
           </form>

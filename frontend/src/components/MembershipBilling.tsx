@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useApi } from "../lib/useApi";
 import { api, errorMessage } from "../lib/api";
 import { LoadState } from "./Management";
-import { dollars } from "../lib/display";
+import { dollars, dateTime } from "../lib/display";
 
 export function MembershipBilling() {
   const offers = useApi<Offer[]>("/me/billing/offers");
@@ -15,7 +15,8 @@ export function MembershipBilling() {
       p.amountCents >= 50 &&
       p.amountCents <= 10000000,
   );
-  const state = useApi<{ enabled: boolean; records: Billing[] }>("/me/billing");
+  // Stripe confirms payments asynchronously; keep the status current.
+  const state = useApi<{ enabled: boolean; records: Billing[] }>("/me/billing", { retainOnReload: true, refreshInterval: 15000 });
   const [consent, setConsent] = useState(false),
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState("");
@@ -81,7 +82,7 @@ export function MembershipBilling() {
                 </p>
                 <p>
                   {r.cancellationEffectiveAt &&
-                    `${r.cancellationConfirmed ? "Cancellation takes effect" : "Requested cancellation date"} ${new Date(r.cancellationEffectiveAt).toLocaleString()}.`}
+                    `${r.cancellationConfirmed ? "Cancellation takes effect" : "Requested cancellation date"} ${dateTime(r.cancellationEffectiveAt)}.`}
                 </p>
                 <button
                   className="button button--quiet"
@@ -141,16 +142,6 @@ export function MembershipBilling() {
               </button>
             </p>
           ))}
-          <button
-            className="button button--quiet"
-            disabled={busy}
-            onClick={() => {
-              state.reload();
-              offers.reload();
-            }}
-          >
-            Refresh payment status
-          </button>
         </>
       ) : (
         state.data && (

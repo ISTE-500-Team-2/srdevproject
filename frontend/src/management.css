@@ -163,6 +163,7 @@
   min-width: 140px;
 }
 .management-search input,
+.management-search select,
 .management-form input:not([type="checkbox"]),
 .management-form select,
 .management-form textarea {
@@ -401,3 +402,91 @@
 .activity-details dl{display:grid;grid-template-columns:70px minmax(0,1fr);gap:.3rem .6rem;background:#f1eee7;padding:.65rem;border-radius:4px;margin:.5rem 0 0}.activity-details dt{font-weight:600}.activity-details dd{margin:0;overflow-wrap:anywhere}
 .activity-empty{padding:1.5rem 0;color:var(--activity-muted)}
 @media(max-width:650px){.activity-row{grid-template-columns:26px minmax(0,1fr);gap:.6rem}.activity-time{grid-column:2;grid-row:2;padding:0}.activity-title h3{font-size:.95rem}.activity-toolbar{gap:.4rem}.activity-system{padding:.3rem 0}.activity-row{padding:.85rem 0}}
+
+/* Compliance search: rate tiles, member table and status labels. */
+.compliance-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+.compliance-metrics article {
+  padding: 14px 16px;
+  border: 1px solid #e2d8d0;
+  border-radius: 12px;
+  background: #fff;
+}
+.compliance-metrics span {
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.compliance-metrics strong {
+  display: block;
+  margin: 4px 0 8px;
+  font-family: 'Black Ops One', sans-serif;
+  font-size: 2rem;
+  font-weight: 400;
+  line-height: 1;
+}
+.compliance-metrics small {
+  display: block;
+  margin-top: 8px;
+  color: var(--ink-soft);
+}
+.compliance-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #efe6de;
+}
+.compliance-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 6px;
+  background: #2f8f46;
+}
+.compliance-bar i.is-low {
+  background: var(--orange);
+}
+.compliance-table td {
+  vertical-align: top;
+}
+.compliance-table td > strong,
+.compliance-table td > small {
+  display: block;
+}
+.compliance-table td > small {
+  margin-top: 2px;
+  color: var(--ink-soft);
+}
+.compliance-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 4px;
+  border-radius: 999px;
+  padding: 3px 9px 3px 7px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.compliance-state svg {
+  width: 14px;
+  height: 14px;
+}
+.compliance-state.is-ok {
+  background: #e3f6e6;
+  color: #1f6b32;
+}
+.compliance-state.is-risk {
+  background: #f8e1dd;
+  color: #9a2b20;
+}
+@media (max-width: 760px) {
+  .compliance-metrics {
+    grid-template-columns: 1fr;
+  }
+}

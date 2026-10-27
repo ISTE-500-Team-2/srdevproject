@@ -89,7 +89,7 @@ function NotificationSettings() {
           </label>
           <button
             type="button"
-            className="button"
+            className="button button--quiet"
             onClick={() => {
               setSaved(false);
               setSettings({
@@ -181,7 +181,7 @@ export function ProfilePage() {
           <h1>
             {user?.firstName} {user?.lastName}
           </h1>
-          <span>{user?.role}</span>
+          <span>{user?.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : null}</span>
         </div>
       </section>
       <div style={cardGridStyle}>
