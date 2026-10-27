@@ -134,7 +134,6 @@ p {
 .discovery-heading h2,
 .reservation-section__heading h1,
 .training-panel__heading h1,
-.catalog-hero h1,
 .profile-hero h1 {
   margin-bottom: 0;
   font-family: 'Black Ops One', sans-serif;
@@ -1977,164 +1976,6 @@ place-items: center;
   color: var(--ink-soft);
 }
 
-/* Class catalog */
-.classes-page {
-  display: grid;
-  gap: 34px;
-}
-
-.catalog-hero {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 40px;
-  padding: 20px 0 9px;
-}
-
-.catalog-hero h1 {
-  font-size: clamp(2.5rem, 4vw, 4.8rem);
-}
-
-.catalog-hero > div > p:last-child {
-  max-width: 650px;
-  margin: 12px 0 0;
-  color: var(--ink-soft);
-  font-size: 1.08rem;
-}
-
-.catalog-search {
-  min-width: min(360px, 36vw);
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: center;
-  gap: 10px;
-  border-bottom: 2px solid var(--ink);
-  padding: 6px 1px;
-}
-
-.catalog-search svg {
-  width: 19px;
-  color: var(--bronze);
-}
-
-.catalog-search input {
-  min-width: 0;
-  border: 0;
-  padding: 8px 0;
-  background: transparent;
-  outline: 0;
-}
-
-.class-catalog {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 24px;
-}
-
-.catalog-card {
-  overflow: hidden;
-  transition: transform 180ms ease, box-shadow 180ms ease;
-}
-
-.catalog-card:hover {
-  transform: translateY(-4px);
-  box-shadow: var(--shadow);
-}
-
-.catalog-card__image {
-  position: relative;
-  aspect-ratio: 1.55 / 1;
-  overflow: hidden;
-  background: #e4ddd8;
-}
-
-.catalog-card__image img[src="/assets/wood-lathe.webp"] {
-  object-fit: contain;
-}
-
-.catalog-card__image img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.catalog-card__image span {
-  position: absolute;
-  right: 12px;
-  bottom: 12px;
-  border-radius: 999px;
-  padding: 6px 10px;
-  background: rgba(35, 16, 6, 0.88);
-  color: white;
-  font-size: 0.78rem;
-  font-weight: 600;
-  backdrop-filter: blur(8px);
-}
-
-.catalog-card__body {
-  display: flex;
-  min-height: 390px;
-  flex-direction: column;
-  padding: 22px;
-}
-
-.catalog-card__body h2 {
-  margin-bottom: 10px;
-  font-family: 'Black Ops One', sans-serif;
-  font-size: 1.55rem;
-  font-weight: 400;
-}
-
-.catalog-card__body > p:not(.eyebrow) {
-  min-height: 48px;
-  color: var(--ink-soft);
-}
-
-.catalog-card dl {
-  display: grid;
-  gap: 12px;
-  margin: 14px 0 24px;
-}
-
-.catalog-card dl > div {
-  display: grid;
-  grid-template-columns: 104px 1fr;
-  gap: 10px;
-}
-
-.catalog-card dt {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--ink-soft);
-  font-size: 0.78rem;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-.catalog-card dt svg {
-  width: 15px;
-}
-
-.catalog-card dd {
-  margin: 0;
-  font-weight: 600;
-}
-
-.catalog-card__footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  margin-top: auto;
-  border-top: 1px solid #d9cec8;
-  padding-top: 18px;
-}
-
-.catalog-card__footer > strong {
-  font-size: 1.45rem;
-}
-
 .empty-state {
   grid-column: 1 / -1;
   margin: 0;
@@ -2326,7 +2167,6 @@ place-items: center;
 }
 
 /* Page-level actions keep their natural width instead of stretching. */
-.classes-page > .button,
 .management-page > .button,
 .management-page > section > .button {
   justify-self: start;
@@ -2397,10 +2237,6 @@ place-items: center;
   }
 
   .equipment-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .class-catalog {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -2536,7 +2372,6 @@ place-items: center;
   .member-summary__cards,
   .class-card-grid,
   .equipment-preview-grid,
-  .class-catalog,
   .equipment-grid,
   .studio-grid,
   .two-column-fields,
@@ -2557,8 +2392,7 @@ place-items: center;
     min-height: 220px;
   }
 
-  .reservation-section__heading,
-  .catalog-hero {
+  .reservation-section__heading {
     align-items: stretch;
     flex-direction: column;
     gap: 18px;
@@ -2571,15 +2405,6 @@ place-items: center;
 
   .select-control span {
     display: none;
-  }
-
-  .catalog-search {
-    width: 100%;
-    min-width: 0;
-  }
-
-  .catalog-card__body {
-    min-height: 0;
   }
 
   .profile-panel {
@@ -2647,19 +2472,6 @@ place-items: center;
   .reservation-form__summary img {
     width: 100%;
     height: 150px;
-  }
-
-  .catalog-card dl > div {
-    grid-template-columns: 92px 1fr;
-  }
-
-  .catalog-card__footer {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .catalog-card__footer .button {
-    width: 100%;
   }
 
   .not-found {

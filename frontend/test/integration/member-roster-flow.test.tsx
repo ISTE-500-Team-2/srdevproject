@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, expect, test, vi } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { act, cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import App from '../../src/App';
@@ -29,25 +29,25 @@ function mount(){vi.stubGlobal('fetch',bridge.fetch);render(<MemoryRouter initia
 
 test('member can open participants, refresh seats after withdrawal, and never sees instructor contact/actions',async()=>{
   await post('/auth/demo',{role:'member'});mount();const user=userEvent.setup();
-  await user.click(await screen.findByRole('button',{name:'View participants for Privacy-safe orientation'}));
-  const panel=await screen.findByRole('region',{name:'Privacy-safe orientation participants'});
+  await user.click(await screen.findByRole('button',{name:'Details for Privacy-safe orientation'}));
+  const panel=await screen.findByRole('region',{name:'Privacy-safe orientation details'});
   expect(await within(panel).findByText('Jordan D.')).toBeTruthy();
-  expect(within(panel).getByText(/1 \/ 2 registered/)).toBeTruthy();
-  expect(panel.textContent).not.toMatch(/demo.member@|collaboratory.invalid|Member \d|Approve completed training/);
-  expect(within(panel).queryByRole('link',{name:'Approve completed training'})).toBeNull();
-  expect(screen.queryByRole('heading',{name:'Schedule training'})).toBeNull();
+  expect(within(panel).getByText('1/2')).toBeTruthy();
+  expect(panel.textContent).not.toMatch(/demo.member@|collaboratory.invalid|Member \d|Open Training/);
+  expect(screen.queryByRole('button',{name:'Schedule class'})).toBeNull();
   await bridge.pool.query("UPDATE app_training_enrollment SET status='cancelled' WHERE class_id=$1 AND user_id=$2",[classId,memberId]);
-  await user.click(screen.getByRole('button',{name:'Refresh classes and rosters'}));
-  expect(await within(panel).findByText('No participants registered yet.')).toBeTruthy();
-  expect(within(panel).getByText(/0 \/ 2 registered/)).toBeTruthy();
+  // The page refreshes on focus when nothing is being edited.
+  await act(async()=>{window.dispatchEvent(new Event('focus'));});
+  expect(await within(panel).findByText('Nobody has registered yet.')).toBeTruthy();
+  expect(within(panel).getByText('0/2')).toBeTruthy();
   expect(within(panel).queryByText('Jordan D.')).toBeNull();
 });
 
-test('assigned instructor retains the existing detailed roster and training link',async()=>{
+test('assigned instructor retains the detailed roster and training link',async()=>{
   await bridge.pool.query("UPDATE app_training_enrollment SET status='enrolled' WHERE class_id=$1 AND user_id=$2",[classId,memberId]);
   await post('/auth/demo',{role:'admin'});mount();const user=userEvent.setup();
-  await user.click(await screen.findByRole('button',{name:'View roster for Privacy-safe orientation'}));
+  await user.click(await screen.findByRole('button',{name:'Roster for Privacy-safe orientation'}));
   const panel=await screen.findByRole('region',{name:'Privacy-safe orientation roster'});
   expect(await within(panel).findByText(/demo.member@collaboratory.invalid/)).toBeTruthy();
-  expect(within(panel).getByRole('link',{name:'Approve completed training'})).toBeTruthy();
+  expect(screen.getByRole('link',{name:'Open Training'})).toBeTruthy();
 });

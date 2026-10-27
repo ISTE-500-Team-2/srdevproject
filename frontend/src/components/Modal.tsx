@@ -40,7 +40,8 @@ interface ModalProps {
   title: string;
   children: ReactNode;
   onClose: () => void;
-  width?: "compact" | "regular";
+  /** "panel" slides in from the right, keeping the page behind it visible. */
+  width?: "compact" | "regular" | "panel";
 }
 
 export function Modal({
@@ -122,7 +123,7 @@ export function Modal({
   return createPortal(
     <div
       ref={backdropRef}
-      className="modal-backdrop"
+      className={`modal-backdrop modal-backdrop--${width}`}
       role="presentation"
       onMouseDown={onClose}
     >
