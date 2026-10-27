@@ -20,9 +20,7 @@ export function StaffPolicies() {
       <div>
         <h2>Policies and waiver versions</h2>
         <p>
-          Signed versions are retained. Publishing a new effective version under
-          the same policy name requires members to agree again. Scheduled versions
-          do not replace the current agreement until their effective time.
+          Publishing a new version asks members to sign again once it takes effect. Past signatures are kept.
         </p>
         <LoadState {...policies} />
         <div className="management-records">
@@ -95,8 +93,7 @@ export function StaffPolicies() {
             }}
           >
             <p>
-              Use the sponsor-authorized wording and record its source. A
-              reference entered here is not legal approval by the software.
+              Paste the approved wording and note where it came from.
             </p>
             <Field
               label="Policy name (reuse for a replacement version)"

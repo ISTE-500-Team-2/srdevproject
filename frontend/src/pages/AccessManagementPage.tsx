@@ -63,8 +63,7 @@ export function AccessManagementPage() {
     <section className="management-page">
       <h1>Reader access management</h1>
       <p>
-        Cards link to a member; every scan rechecks current safety and access
-        rules. Raw card identifiers are not shown in saved records.
+        Link an NFC card to a member. Every tap checks their access at that moment.
       </p>
       {message ? <p role="status">{message}</p> : null}
       <form

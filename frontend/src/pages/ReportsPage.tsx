@@ -257,8 +257,7 @@ export function ReportsPage() {
           </div>
           <h2>Membership trends</h2>
           <p>
-            Distinct people per period. Renewals are not new members;
-            cancellation requests do not immediately end paid access.
+            Distinct people per period. Renewals don't count as new members.
           </p>
           <table>
             <thead>
@@ -283,15 +282,11 @@ export function ReportsPage() {
             </tbody>
           </table>
           <p>
-            Coverage uses current membership records, not a reconstruction of
-            past account eligibility. See report definitions for cancellation
-            and legacy-data limits.
+            Based on current membership records.
           </p>
           <h2>Notification delivery evidence</h2>
           <p>
-            Deadline dates in the selected range. Only elapsed eligible
-            deadlines enter percentages. A delivered callback is provider
-            evidence, not proof of inbox placement.
+            Reminder emails due in the selected range, and whether they went out on time.
           </p>
           <table>
             <thead>
@@ -314,7 +309,7 @@ export function ReportsPage() {
                       {(
                         {
                           expirationCompliance:
-                            "Waiver & training expiration (BR-009)",
+                            "Waiver & training expiration",
                           membershipExpiration: "Membership expiration",
                           other: "Account, billing & other notices",
                         } as Record<string, string>

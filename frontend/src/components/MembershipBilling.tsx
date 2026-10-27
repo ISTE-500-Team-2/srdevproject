@@ -155,8 +155,7 @@ export function MembershipBilling() {
       ) : (
         state.data && (
           <p>
-            Online membership checkout is not configured. Contact staff for
-            membership or cash/card payment recording.
+            Online membership checkout is not configured. Ask at the front desk to start a membership.
           </p>
         )
       )}

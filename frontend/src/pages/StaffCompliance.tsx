@@ -72,8 +72,7 @@ export function StaffCompliance() {
           <div>
             <h2>Waiver and certification compliance</h2>
             <p>
-              Rates cover matching accounts and current required waiver versions,
-              with certification renewals checked against today.
+              Who is current on required waivers and certifications.
             </p>
           </div>
           <button className="button button--quiet" type="button" onClick={downloadCsv}>

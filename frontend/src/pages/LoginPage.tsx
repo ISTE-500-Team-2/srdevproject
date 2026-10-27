@@ -213,8 +213,7 @@ export function LoginPage() {
         width="compact"
       >
         <p>
-          Password reset is not available in this development version. No reset
-          email will be sent.
+          Online password reset isn't available yet.
         </p>
       </Modal>
 

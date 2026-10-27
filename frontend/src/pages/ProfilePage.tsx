@@ -59,7 +59,7 @@ function NotificationSettings() {
       <h2>Notification Settings</h2>
       <p>
         Choose whether to receive account, booking, payment, waiver, and
-        expiration emails. Turning this off disables all notification emails.
+        expiration emails. Turn it off to stop all of them.
       </p>
       {settings ? (
         <form onSubmit={save}>

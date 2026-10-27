@@ -89,7 +89,7 @@ export function UserDetail({
               {!d.memberships.some(m => m.effectiveStatus === "active") && !d.passes.some(p => p.effectiveStatus === "active") ? <p className="form-error"><strong>Membership / day pass missing.</strong> Issue valid access below before expecting an allowed scan.</p> : null}
               <p className="activity-byline">Updates automatically while you are not editing. <button type="button" className="button button--quiet" onClick={() => { detail.reload(); onChanged(); }}>Refresh now</button></p>
               <h3>Latest reader decision</h3>
-              <p>Historical result at the time of the tap; scan again after changing access.</p>
+              <p>Result at the time of the tap.</p>
               <AuditList items={d.audit.items.filter(a => a.entityType === "app_device_access_event").slice(0, 1)} />
             </div>
             {u.accessReason ? <p>Access note: {u.accessReason}</p> : null}
@@ -148,7 +148,7 @@ export function UserDetail({
                 await saveStatus("status", f, u.revision);
               }}
             >
-              <p>Suspending or blocking an account ends all sessions and prevents sign-in and account use. History and existing bookings are retained. Restoring an account requires a fresh sign-in and keeps its facility restrictions.</p>
+              <p>Suspending or blocking signs the member out and stops them signing in. Their history and bookings are kept.</p>
               <Field label="Account status" name="status">
                 <select name="status" defaultValue={u.status}>
                   <option value="active">Active</option>

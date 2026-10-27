@@ -141,8 +141,7 @@ function TrainingWorkspace({
       <p className="eyebrow">Equipment safety</p>
       <h1>Training & certification management</h1>
       <p>
-        Record completed in-person training, maintain approved validity periods,
-        and revoke qualifications when retraining is required.
+        Record completed training and revoke certifications that need retraining.
       </p>
       {message ? (
         <p role="status" className="form-notice">

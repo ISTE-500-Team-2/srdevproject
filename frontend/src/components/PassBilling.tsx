@@ -46,8 +46,7 @@ export function PassBilling() {
       <LoadState {...offers} />
       <p>
         Day passes cover one calendar day in the studio timezone. Cancellation
-        requires 3 days’ notice before that day begins. Purchases inside that
-        window cannot be cancelled for a refund.
+        requires 3 days’ notice before that day begins. Later cancellations aren't refunded.
       </p>
       <label>
         Visit date{" "}
