@@ -2627,3 +2627,83 @@ button:disabled { cursor: not-allowed; opacity: .6; }
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
+
+/* Reservation start: day chips, then a half-hour start time. */
+.start-picker {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.start-picker legend {
+  margin-bottom: 8px;
+  padding: 0;
+  font-weight: 600;
+}
+
+.start-picker__days {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 2px 8px;
+  scroll-snap-type: x proximity;
+}
+
+.start-picker__day {
+  flex: none;
+  width: 72px;
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  padding: 8px 4px;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  scroll-snap-align: start;
+}
+
+.start-picker__day span,
+.start-picker__day small {
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.start-picker__day strong {
+  font-size: 1.3rem;
+  line-height: 1.2;
+}
+
+.start-picker__day:hover {
+  border-color: var(--border-strong);
+}
+
+.start-picker__day[aria-checked="true"] {
+  border-color: #4d250b;
+  background: linear-gradient(135deg, #2b1306, #59300f);
+  color: #fff;
+}
+
+.start-picker__day[aria-checked="true"] span,
+.start-picker__day[aria-checked="true"] small {
+  color: #e0d1c9;
+}
+
+.start-picker__day:focus-visible {
+  outline: 3px solid var(--orange);
+  outline-offset: 2px;
+}
+
+.start-picker__summary {
+  margin: 0;
+  border-radius: var(--radius-small);
+  padding: 10px 14px;
+  background: #f3ece7;
+  font-weight: 600;
+}

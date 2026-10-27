@@ -3,6 +3,7 @@ import { CalendarDays, Filter, ShieldAlert } from 'lucide-react';
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Modal } from '../components/Modal';
+import { StartTimePicker } from '../components/StartTimePicker';
 import { Toast } from '../components/Toast';
 import { api, ApiError, errorMessage } from '../lib/api';
 import type { LiveEquipment, Reservation } from '../lib/contracts';
@@ -24,7 +25,7 @@ export function EquipmentPage() {
   const [error, setError] = useState('');
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   const [busy, setBusy] = useState(false);
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const [duration, setDuration] = useState(1);
   const equipment = (catalog.data ?? []).filter(
     (item) =>
       (filter === 'all' ||
@@ -233,16 +234,14 @@ export function EquipmentPage() {
               <input name="memberId" type="number" min="1" step="1" placeholder="Leave blank to book for yourself" />
               <small>Use the member ID from User management. Their membership, training and waivers will be checked. The booking appears in their account.</small>
             </label>}
-            <label className="form-field">
-              <span>Start date and time ({zone})</span>
-              <input name="start" type="datetime-local" required />
-            </label>
-            <label className="form-field">
-              <span>Duration</span>
-              <select name="duration" defaultValue="1">
-                {Array.from({length:24},(_,i)=><option key={i+1} value={i+1}>{i+1} {i===0?'hour':'hours'}</option>)}
-              </select>
-            </label>
+            <StartTimePicker name="start" hours={duration} onPick={() => setError('')}>
+              <label className="form-field">
+                <span>Duration</span>
+                <select name="duration" value={duration} onChange={e=>setDuration(Number(e.target.value))}>
+                  {Array.from({length:24},(_,i)=><option key={i+1} value={i+1}>{i+1} {i===0?'hour':'hours'}</option>)}
+                </select>
+              </label>
+            </StartTimePicker>
             {!selected.canReserve && !canBookForOthers ? (
               <p className="form-notice">
                 {selected.availability}.{' '}
