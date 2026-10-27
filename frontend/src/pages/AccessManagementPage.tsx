@@ -3,6 +3,7 @@ import { api, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
 import { LoadState } from "../components/Management";
 import { dateTime } from "../lib/display";
+import { AccessReadiness } from "../components/staff/AccessReadiness";
 import { MemberSelect } from "../components/MemberSelect";
 type Card = {
   id: number;
@@ -78,6 +79,7 @@ export function AccessManagementPage() {
       </form>
       {member ? (
         <>
+          <AccessReadiness key={member} userId={Number(member)} />
           <LoadState {...cards} />
           {cards.data?.map((c) => (
             <article className="saved-record" key={c.id}>

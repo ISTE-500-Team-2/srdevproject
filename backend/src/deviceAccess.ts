@@ -1,12 +1,11 @@
-import { accessDeadline } from './accessDeadline.js';
+import { evaluateReaderAccess } from "./services/ReaderEligibility.js";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { Router, type RequestHandler } from "express";
 import type { Pool } from "pg";
-import { transaction, type Database } from "./db.js";
+import { transaction } from "./db.js";
 import { AppError, positiveId, textField } from "./domain.js";
-import { UserModel } from "./models/UserModel.js";
 import { accessTransaction, AccessDeadlineError } from "./services/AccessTransaction.js";
-import { AccessService, type AccessTarget } from "./services/AccessService.js";
+import { AccessService } from "./services/AccessService.js";
 import { StaffModel } from "./models/StaffModel.js";
 import { authState, requireCsrf } from "./middleware/auth.js";
 import { requirePermission } from "./middleware/permissions.js";
@@ -139,7 +138,7 @@ export function deviceDecision(
           },
         )
       ).rows[0];
-      const verdict = await evaluate(db, timeZone, reader, card?.user_id);
+      const verdict = await evaluateReaderAccess(db, timeZone, reader, card?.user_id);
       const saved = (
         await db.query(
           `INSERT INTO app_device_access_event(reader_id,request_id,user_id,target_kind,target_id,allowed,reason,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
@@ -184,55 +183,46 @@ export function deviceDecision(
     res.json({ data: decision });
   };
 }
-async function evaluate(db: Database, tz: string, r: Reader, userId?: number) {
-  const deny = (reason: string) => ({
-    allowed: false,
-    reason,
-    expiresAt: null as string | null,
-    leaseSeconds: 0,
-    member: null as unknown,
-    buildingId: null as number | null,
-    reservationId: null as number | null,
-  });
-  if (!userId) return deny("CARD_NOT_ASSIGNED");
-  const now = new Date();
-  const target: AccessTarget = r.kind === 'building' ? {buildingId:r.resourceId ?? 1}
-    : r.kind === 'room' ? {roomId:r.resourceId} : {equipmentId:r.resourceId};
-  let grant: Awaited<ReturnType<AccessService['reservationForAccess']>>;
-  try {
-    grant = await new AccessService(db,tz).reservationForAccess(userId,target,now);
-  } catch (error) {
-    if (!(error instanceof AppError)) throw error;
-    const reason = error.code === 'ACCOUNT_INACTIVE' || error.code === 'ACCESS_BLOCKED' ? 'ACCOUNT_BLOCKED'
-      : error.code === 'MEMBERSHIP_REQUIRED' ? 'ENTITLEMENT_REQUIRED'
-      : error.code === 'NOT_FOUND' ? 'RESOURCE_UNAVAILABLE' : error.code;
-    return deny(reason);
-  }
-  const user = await new UserModel(db).findById(userId);
-  if (!user) return deny('ACCOUNT_BLOCKED');
-  const entitlement = grant.entitlement;
-  const expires = await accessDeadline(db,tz,userId,grant.endsAt,
-    r.kind === 'equipment' ? r.resourceId : undefined,now);
-  if (expires.getTime() <= Date.now()) return deny("ELIGIBILITY_EXPIRED");
-  return {
-    allowed: true,
-    reason: "ELIGIBLE",
-    buildingId: grant.buildingId,
-    reservationId: grant.reservationId,
-    expiresAt: expires.toISOString(),
-    leaseSeconds: Math.max(0, (expires.getTime() - Date.now()) / 1000),
-    member: {
-      id: user.id,
-      name: user.firstName + " " + user.lastName,
-      email: user.email,
-      membership: entitlement.membership,
-      dayPass: entitlement.dayPass,
-    },
-  };
-}
 export function cardManagement(pool: Pool, tz: string, c?: DeviceConfig) {
   const routes = Router(),
     permit = requirePermission(pool, "user_access", "update");
+  // Advisory only: never inserts an access event/check-in or sends a device command.
+  routes.get("/admin/users/:id/access-readiness", requirePermission(pool, "user", "read"), async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    if (!c?.readers.length) throw new AppError(503, "DEVICES_NOT_CONFIGURED", "No access readers are configured.");
+    const userId = positiveId(req.params.id);
+    const requested = req.query.readerId;
+    if (requested !== undefined && (typeof requested !== "string" || !/^[a-zA-Z0-9_-]{1,64}$/.test(requested)))
+      throw new AppError(400, "INVALID_READER", "Choose a configured reader.");
+    const reader = requested === undefined ? c.readers[0]! : c.readers.find(r => r.id === requested);
+    if (!reader) throw new AppError(404, "READER_NOT_FOUND", "Reader not found.");
+    try {
+      const data = await accessTransaction(pool, async db => {
+        if (!(await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR SHARE', [userId])).rowCount)
+          throw new AppError(404, "NOT_FOUND", "User not found.");
+        const readers = (await db.query<{id:string; kind:string; resourceId:number; name:string}>(`
+          SELECT r.id,r.kind,r."resourceId",COALESCE(b.name,rm.name,e.name,r.kind || ' #' || r."resourceId") AS name
+          FROM jsonb_to_recordset($1::jsonb) AS r(id text,kind text,"resourceId" int)
+          LEFT JOIN building b ON r.kind='building' AND b.buildingid=r."resourceId"
+          LEFT JOIN room rm ON r.kind='room' AND rm.roomid=r."resourceId"
+          LEFT JOIN equipment e ON r.kind='equipment' AND e.equipmentid=r."resourceId"
+          ORDER BY array_position($2::text[],r.id)`,
+          [JSON.stringify(c.readers.map(r => ({id:r.id,kind:r.kind,resourceId:r.resourceId ?? 1}))),c.readers.map(r=>r.id)])).rows;
+        const cardAssigned = !!(await db.query('SELECT id FROM app_access_card WHERE user_id=$1 AND active=true FOR SHARE', [userId])).rowCount;
+        const verdict = await evaluateReaderAccess(db, tz, reader, cardAssigned ? userId : undefined);
+        return {
+          userId, readers, readerId:reader.id, cardAssigned,
+          allowed:verdict.allowed, reason:verdict.reason,
+          checkedAt:new Date().toISOString(), expiresAt:verdict.expiresAt,
+        };
+      });
+      res.json({data});
+    } catch (error) {
+      if (error instanceof AccessDeadlineError || (error as {code?:string})?.code === '57014' || (error as {code?:string})?.code === '55P03')
+        throw new AppError(503, "READINESS_UNAVAILABLE", "Access verification timed out. Access readiness is unknown; retry.");
+      throw error;
+    }
+  });
   routes.get(
     "/admin/access/cards",
     requirePermission(pool, "user", "read"),
