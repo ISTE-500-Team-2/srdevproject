@@ -3,6 +3,7 @@ import { CalendarDays, Filter, ShieldAlert } from 'lucide-react';
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Modal } from '../components/Modal';
+import { MemberSelect } from '../components/MemberSelect';
 import { StartTimePicker } from '../components/StartTimePicker';
 import { Toast } from '../components/Toast';
 import { api, ApiError, errorMessage } from '../lib/api';
@@ -229,11 +230,10 @@ export function EquipmentPage() {
                 <span>{rateLabel(selected.rate)}</span>
               </div>
             </div>
-            {canBookForOthers&&<label className="form-field">
-              <span>Book for member ID (optional)</span>
-              <input name="memberId" type="number" min="1" step="1" placeholder="Leave blank to book for yourself" />
-              <small>Use the member ID from User management. Their membership, training and waivers will be checked. The booking appears in their account.</small>
-            </label>}
+            {canBookForOthers&&<div className="form-field">
+              <MemberSelect name="memberId" label="Book for a member (optional)" required={false} />
+              <small>Leave empty to book for yourself. Their membership, training and waivers are checked, and the booking appears in their account.</small>
+            </div>}
             <StartTimePicker name="start" hours={duration} onPick={() => setError('')}>
               <label className="form-field">
                 <span>Duration</span>

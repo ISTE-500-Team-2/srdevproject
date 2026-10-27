@@ -12,18 +12,16 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
 });
-test("searches names, submits selected identity and retains selection when results change", async () => {
-  vi.mocked(api)
-    .mockResolvedValueOnce({
-      items: [
-        { id: 12, name: "Jordan Example", email: "jordan@example.invalid" },
-      ],
-      hasMore: false,
-    })
-    .mockResolvedValueOnce({
-      items: [{ id: 99, name: "Other Person", email: "other@example.invalid" }],
-      hasMore: false,
-    });
+const formValue = (key: string) => new FormData(screen.getByRole("form") as HTMLFormElement).get(key);
+
+test("type a name, pick a match, and the form submits that person's id", async () => {
+  vi.mocked(api).mockResolvedValueOnce({
+    items: [
+      { id: 12, name: "Jordan Example", email: "jordan@example.invalid" },
+      { id: 13, name: "Jordan Other", email: "other@example.invalid" },
+    ],
+    hasMore: false,
+  });
   const user = userEvent.setup();
   const submit = vi.fn((event) => event.preventDefault());
   render(
@@ -32,51 +30,43 @@ test("searches names, submits selected identity and retains selection when resul
     </form>,
   );
   expect(api).not.toHaveBeenCalled();
-  await user.type(
-    screen.getByLabelText("Find member by name or email"),
-    "Jordan",
-  );
+  const box = screen.getByRole("combobox", { name: "Member" });
+  await user.type(box, "Jordan");
   await screen.findByRole("option", { name: /Jordan Example/ });
-  await user.selectOptions(screen.getByLabelText("Member"), "12");
-  expect(
-    new FormData(screen.getByRole("form") as HTMLFormElement).get("userId"),
-  ).toBe("12");
-  await user.clear(screen.getByLabelText("Find member by name or email"));
-  await user.type(
-    screen.getByLabelText("Find member by name or email"),
-    "Other",
-  );
-  await screen.findByRole("option", { name: /Other Person/ });
-  expect((screen.getByLabelText("Member") as HTMLSelectElement).value).toBe(
-    "12",
-  );
-  expect(screen.getByRole("option", { name: /Jordan Example/ })).toBeTruthy();
-  await user.click(screen.getByLabelText("Find member by name or email"));
-  await user.keyboard("{Enter}");
+  // Enter on a half-typed search picks the highlighted match, never submits.
+  await user.keyboard("{ArrowDown}{Enter}");
   expect(submit).not.toHaveBeenCalled();
+  expect(formValue("userId")).toBe("13");
+  expect(screen.getByText("Jordan Other")).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Change member" }));
+  expect(formValue("userId")).toBe("");
+  expect(screen.getByRole("combobox", { name: "Member" })).toBeTruthy();
 });
-test("instructor-only searches preserve permission scope; errors and capped results are visible", async () => {
+
+test("typed text that wasn't picked can't pass as a choice", async () => {
+  vi.mocked(api).mockResolvedValue({ items: [], hasMore: false });
+  const user = userEvent.setup();
+  render(
+    <form aria-label="Select member">
+      <MemberSelect name="userId" />
+    </form>,
+  );
+  const box = screen.getByRole("combobox", { name: "Member" }) as HTMLInputElement;
+  expect(box.validity.valueMissing).toBe(true);
+  await user.type(box, "Nobody");
+  expect(box.validationMessage).toBe("Choose member from the list.");
+  expect(await screen.findByText("No matching people.")).toBeTruthy();
+});
+
+test("instructor-only searches keep their scope; errors and capped results are visible", async () => {
   vi.mocked(api)
     .mockRejectedValueOnce(new Error("Lookup denied"))
     .mockResolvedValueOnce({ items: [], hasMore: true });
   const user = userEvent.setup();
-  render(
-    <MemberSelect
-      name="instructorId"
-      label="Assigned instructor"
-      instructorsOnly
-    />,
-  );
-  await user.type(
-    screen.getByLabelText("Find assigned instructor by name or email"),
-    "Alex",
-  );
-  expect((await screen.findByRole("alert")).textContent).toContain(
-    "Lookup denied",
-  );
+  render(<MemberSelect name="instructorId" label="Assigned instructor" instructorsOnly />);
+  await user.type(screen.getByRole("combobox", { name: "Assigned instructor" }), "Alex");
+  expect((await screen.findByRole("alert")).textContent).toContain("Lookup denied");
   expect(vi.mocked(api).mock.calls[0][0]).toContain("role=instructor");
   await user.click(screen.getByRole("button", { name: "Retry search" }));
-  expect(
-    await screen.findByText("More matches exist. Refine your search."),
-  ).toBeTruthy();
+  expect(await screen.findByText("More matches exist. Refine your search.")).toBeTruthy();
 });

@@ -60,11 +60,11 @@ test("staff training UI configures approved expiry, records actual instructor tr
   await user.click(screen.getByRole("button", { name: "Save certification" }));
   await screen.findByRole("heading", { name: "UI printer safety" });
   await user.type(
-    await screen.findByLabelText("Find member by name or email"),
+    await screen.findByRole("combobox", { name: "Member" }),
     "Jordan",
   );
-  await screen.findByRole("option", { name: /Jordan Demo/ });
-  await user.selectOptions(screen.getByLabelText("Member"), String(member));
+  await user.click(await screen.findByRole("option", { name: /Jordan Demo/ }));
+  void member;
   await user.click(screen.getByRole("button", { name: "Load member" }));
   await screen.findByRole("heading", { name: "Approve completed training" });
   const cert = (
@@ -147,9 +147,9 @@ test('staff schedules a class using named certification, instructor and room sel
   await user.type(await screen.findByLabelText('Title'),'Named selector orientation');
   await screen.findByRole('option',{name:'UI printer safety'});
   await user.selectOptions(screen.getByLabelText(/^Counts toward/),String(cert));
-  await user.type(screen.getByLabelText('Find instructor by name or email'),'Alex');
-  await screen.findByRole('option',{name:/Alex Demo/});
-  await user.selectOptions(screen.getByLabelText('Instructor'),String(admin));
+  await user.type(screen.getByRole('combobox',{name:'Instructor'}),'Alex');
+  await user.click(await screen.findByRole('option',{name:/Alex Demo/}));
+  void admin;
   await user.selectOptions(screen.getByLabelText(/^Room/),String(room));
   const seats=screen.getByRole('spinbutton');await user.clear(seats);await user.type(seats,'3');
   const start=new Date(Date.now()+2*86400000);start.setHours(10,0,0,0);
@@ -182,11 +182,11 @@ test("staff card assignment, revocation and timed override UI save audited recor
     )
   ).rows[0].userid;
   await user.type(
-    await screen.findByLabelText("Find member by name or email"),
+    await screen.findByRole("combobox", { name: "Member" }),
     "Jordan",
   );
-  await screen.findByRole("option", { name: /Jordan Demo/ });
-  await user.selectOptions(screen.getByLabelText("Member"), String(member));
+  await user.click(await screen.findByRole("option", { name: /Jordan Demo/ }));
+  void member;
   await user.click(screen.getByRole("button", { name: "Load cards" }));
   await screen.findByRole("heading", { name: "Assign scanned card" });
   await user.type(screen.getByLabelText("Card UID"), "04:A1:B2:C3:D4:E5:F6");

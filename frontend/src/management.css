@@ -320,21 +320,121 @@
 .management-form input[type="checkbox"] {
   width: auto;
 }
+/* Member picker: type a name, choose from the matches, see who's picked. */
 .member-select {
+  position: relative;
   display: grid;
-  gap: 0.4rem;
+  gap: 6px;
   min-width: 0;
+  max-width: 520px;
   flex: 1 1 240px;
 }
-.member-select input,
-.member-select select {
+.member-select__label {
+  font-weight: 600;
+}
+.member-select__field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border, #b4a59d);
+  border-radius: 9px;
+  padding: 0 12px;
+  background: #fff;
+}
+.member-select__field:focus-within {
+  border-color: var(--border-strong, #8b7163);
+  box-shadow: 0 0 0 3px rgba(247, 150, 29, 0.25);
+}
+.member-select__field svg {
+  flex: none;
+  width: 17px;
+  color: var(--bronze, #a86008);
+}
+.member-select .member-select__field input {
+  flex: 1;
   width: 100%;
   min-width: 0;
-  max-width: 100%;
+  min-height: 42px;
+  border: 0;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  font: inherit;
 }
-.member-select p {
-  margin: 0.25rem 0;
-  font-size: 0.9rem;
+.member-select .member-select__field input:focus,
+.member-select .member-select__field input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+.member-select__list {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
+  z-index: 20;
+  max-height: 260px;
+  overflow-y: auto;
+  margin: 4px 0 0;
+  border: 1px solid var(--border, #b4a59d);
+  border-radius: 10px;
+  padding: 4px;
+  background: #fff;
+  box-shadow: var(--shadow, 0 14px 38px rgba(41, 20, 8, 0.12));
+  list-style: none;
+}
+.member-select__list li {
+  display: grid;
+  gap: 1px;
+  border-radius: 7px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.member-select__list li.is-active {
+  background: #f3ece7;
+}
+.member-select__list small,
+.member-select__chosen small {
+  color: var(--ink-soft, #685d57);
+  font-size: 0.82rem;
+}
+.member-select__chosen {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 44px;
+  border: 1px solid var(--border, #b4a59d);
+  border-radius: 9px;
+  padding: 6px 6px 6px 12px;
+  background: #fbf7f3;
+}
+.member-select__chosen > span {
+  display: grid;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.member-select .member-select__change {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: auto;
+  border: 1px solid var(--border, #b4a59d);
+  border-radius: 7px;
+  padding: 5px 10px;
+  background: #fff;
+  color: var(--ink, #24150e);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.member-select__change svg {
+  width: 14px;
+}
+.member-select__status p {
+  margin: 0;
+  color: var(--ink-soft, #685d57);
+  font-size: 0.85rem;
 }
 
 /* Compact operational timeline: readable outcomes first, forensic detail on demand. */

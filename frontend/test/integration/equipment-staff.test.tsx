@@ -24,7 +24,8 @@ test('staff equipment UI saves four-hour reservation for selected member and doe
  const user=userEvent.setup();
  await user.click(await screen.findByRole('button',{name:/3D Printer/}));
  const modal=within(screen.getByRole('dialog'));
- await user.type(modal.getByLabelText(/Book for member ID/),String(member));
+ await user.type(modal.getByRole('combobox',{name:/Book for a member/}),'Jordan');
+ await user.click(await screen.findByRole('option',{name:/Jordan Demo/}));
  const start=new Date(Date.now()+3*86400000);start.setHours(14,0,0,0);
  const local=[start.getFullYear(),String(start.getMonth()+1).padStart(2,'0'),String(start.getDate()).padStart(2,'0')].join('-')+'T14:00';
  pickStart(modal,start);void local;
