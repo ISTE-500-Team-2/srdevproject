@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { api, ApiError } from "../../lib/api";
 import { dateTime } from "../../lib/display";
-import type { Entitlement, MemberDetail, Plan } from "../../lib/staffContracts";
+import type { Entitlement, MemberDetail, Person, Plan } from "../../lib/staffContracts";
 import { useApi } from "../../lib/useApi";
 import {
   ActionForm,
@@ -16,6 +16,7 @@ import {
 import { SignedWaiverRecords } from "../SignedWaiverRecords";
 import { PaymentEditor } from "./PaymentControls";
 
+import { AccessReadiness } from "./AccessReadiness";
 import { IssueAccess } from "./IssueAccess";
 
 export function UserDetail({
@@ -31,6 +32,7 @@ export function UserDetail({
 }) {
   const detail = useApi<MemberDetail>(`/admin/users/${id}`, { retainOnReload: true, refreshInterval: 3000 }),
     { user: actor } = useAuth();
+  const [confirmedUser, setConfirmedUser] = useState<Person | null>(null);
   const [notice, setNotice] = useState(""),
     [renewal, setRenewal] = useState<Entitlement | null>(null);
   const refresh = (message = "Change saved.") => {
@@ -40,7 +42,10 @@ export function UserDetail({
   };
   const saveStatus = async (kind: "status" | "access", f: FormData, revision: number) => {
     try {
-      await api(`/admin/users/${id}/${kind}`, { method: "POST", body: { status: f.get("status"), revision, reason: f.get("reason") } });
+      const updated = await api<Person>(`/admin/users/${id}/${kind}`, { method: "POST", body: { status: f.get("status"), revision, reason: f.get("reason") } });
+      // Adopt the committed server revision before announcing success. A second
+      // save must not use the old revision while the detail refresh is in flight.
+      setConfirmedUser(updated);
       refresh(kind === "status" ? "Account status updated." : "Facility access updated.");
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
@@ -50,7 +55,7 @@ export function UserDetail({
     }
   };
   const d = detail.data,
-    u = d?.user,
+    u = d?.user && confirmedUser && confirmedUser.revision > d.user.revision ? confirmedUser : d?.user,
     isAdmin = !!actor?.roles.includes("admin");
   const canManage =
     !!u && (isAdmin || !u.roles.some((r) => r === "admin" || r === "staff"));
@@ -77,21 +82,14 @@ export function UserDetail({
             <p>
               {u.email} · {u.roles.join(", ")} · Primary:{" "}
               {u.primaryRole ?? "member"}
-              {u.isStudent ? " · Student" : ""} · Facility access:{" "}
-              <strong>{u.accessStatus}</strong>
+              {u.isStudent ? " · Student" : ""} · Staff restriction:{" "}
+              <strong>{u.accessStatus === "active" ? "None" : u.accessStatus}</strong>
             </p>
             <p>
               Account status: <strong>{u.status}</strong> · Conduct flag:{" "}
               <strong>{u.conductFlag ? "Yes" : "No"}</strong>
             </p>
-            <div className="access-readiness" aria-label="Live access status">
-              <p><strong>{u.accessStatus === "active" ? "No staff access restriction" : `Facility access ${u.accessStatus}`}</strong>. Active does not bypass membership, waiver, training or reservation requirements.</p>
-              {!d.memberships.some(m => m.effectiveStatus === "active") && !d.passes.some(p => p.effectiveStatus === "active") ? <p className="form-error"><strong>Membership / day pass missing.</strong> Issue valid access below before expecting an allowed scan.</p> : null}
-              <p className="activity-byline">Updates automatically while you are not editing. <button type="button" className="button button--quiet" onClick={() => { detail.reload(); onChanged(); }}>Refresh now</button></p>
-              <h3>Latest reader decision</h3>
-              <p>Historical result at the time of the tap; scan again after changing access.</p>
-              <AuditList items={d.audit.items.filter(a => a.entityType === "app_device_access_event").slice(0, 1)} />
-            </div>
+            <AccessReadiness userId={id} revision={u.revision} />
             {u.accessReason ? <p>Access note: {u.accessReason}</p> : null}
             {u.accountReason ? <p>Account note: {u.accountReason}</p> : null}
             {!canManage ? (

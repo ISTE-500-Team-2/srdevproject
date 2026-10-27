@@ -2,6 +2,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { errorMessage } from "../lib/api";
 import type { Audit, Entitlement, Page, Payment } from "../lib/staffContracts";
 
+import { accessReasonLabel } from "../lib/accessReadiness";
 import { dateTime, dollars } from "../lib/display";
 
 export function Field({
@@ -233,7 +234,7 @@ export function AuditList({ items }: { items: Audit[] }) {
     const titles:Record<string,string>={'user.access_suspended':'Access suspended','user.access_restored':'Access restored','user.access_revoked':'Access revoked','user.account_suspended':'Account suspended','access.card_reassigned':'NFC card reassigned','access.card_assigned':'NFC card assigned','access.card_revoked':'NFC card revoked','member.demo_account_created':'Demo account created','owner.admin_account_created':'Administrator account created','policy.published':'Policy published','policy.retired':'Policy retired','user.insert':'Account created','user.update':'Account updated','user_role.insert':'Role assigned','check_in.insert':'Check-in recorded'};
     return {title:titles[a.action]??a.action.replace(/^app_/,'').replaceAll(/[._]/g,' ').replace(/^\w/,c=>c.toUpperCase()),tone:a.action.includes('suspend')||a.action.includes('revok')?'denied':'neutral',badge:system(a)?'System':'Updated'};
   };
-  const reasons:Record<string,string>={ACCOUNT_BLOCKED:'Access is suspended or the account is inactive.',ENTITLEMENT_REQUIRED:'An active membership or day pass is required.',WAIVER_REQUIRED:'Required waivers have not been signed.',CARD_NOT_ASSIGNED:'This card is not assigned to a member.',ELIGIBLE:'All access requirements passed.',RESERVATION_REQUIRED:'A valid reservation is required.',CERTIFICATION_REQUIRED:'Required training is missing or expired.'};
+
   const visible=items.filter(a=>(showSystem||!system(a))&&[describe(a).title,a.subjectName,a.actorName,a.resourceName,a.accessReason,a.reason].join(' ').toLowerCase().includes(search.toLowerCase()));
   return (
     <div className="activity-log">
@@ -248,7 +249,7 @@ export function AuditList({ items }: { items: Audit[] }) {
         <div className="activity-content">
           <div className="activity-title"><h3>{info.title}</h3><span className={`activity-badge is-${info.tone}`}>{info.badge}</span></div>
           {a.subjectName||a.resourceName?<p className="activity-context">{[a.subjectName,a.resourceName].filter(Boolean).join(' · ')}</p>:null}
-          {a.accessReason?<p className="activity-reason">{reasons[a.accessReason]??a.accessReason.toLowerCase().replaceAll('_',' ')}</p>:a.reason&&a.reason!=='Database change'?<p className="activity-reason">{a.reason}</p>:null}
+          {a.accessReason?<p className="activity-reason">{accessReasonLabel(a.accessReason)}</p>:a.reason&&a.reason!=='Database change'?<p className="activity-reason">{a.reason}</p>:null}
           <p className="activity-byline">{a.actorName==='System'?'Automatic reader / system event':`By ${a.actorName}`}</p>
           <details className="activity-details"><summary>Technical details</summary><dl><dt>Event</dt><dd>{a.action}</dd><dt>Record</dt><dd>{a.entityType} #{a.entityId}</dd>{a.readerId?<><dt>Reader</dt><dd>{a.readerId}</dd></>:null}<dt>Audit ID</dt><dd>{a.id}</dd></dl></details>
         </div>
