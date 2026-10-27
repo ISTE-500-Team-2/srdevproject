@@ -53,3 +53,11 @@ Cancellation saved at 390px.
 Cancellation cutoff and started-booking explanations at 390px.
 
 ![Cancellation explanations](evidence/mobile-reservations/after-cutoff-390.jpg)
+
+## CI timing follow-up
+
+The first GitHub verification run failed when the test tried to reopen equipment during the catalog reload after its first booking. A click could target a card from the old response just before it unmounted, leaving no booking dialog for the next date-field lookup. The earlier serial local pass did not exercise that ordering.
+
+The integration test now holds each post-booking equipment refresh pending, asserts the loading state and absence of the old card, releases the real HTTP request, and waits for the refreshed card before continuing. Date-field lookups also wait for the dialog input. There are no sleeps, longer timeouts, serial-only configuration changes or removed assertions. The one-request/one-row double-submit check, conflicts, cooldown and cancellation policy assertions remain intact.
+
+Follow-up validation: the complete default **parallel** frontend integration command passes all **27 tests**, with the catalog refresh deliberately delayed. This follow-up changes only the test and these notes; application code and policy rules are unchanged.
