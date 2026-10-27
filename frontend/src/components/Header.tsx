@@ -8,10 +8,40 @@ import {
   Settings,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import {
+  forwardRef,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type AnchorHTMLAttributes,
+  type CSSProperties,
+} from "react";
+import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { errorMessage } from "../lib/api";
+import CardNav from "./reactbits/CardNav";
+
+// CardNav renders plain anchors; route them through the router instead.
+const RouterLink = forwardRef<HTMLAnchorElement, AnchorHTMLAttributes<HTMLAnchorElement>>(
+  ({ href = "/", ...props }, ref) => <Link ref={ref} to={href} {...props} />,
+);
+
+// The mobile menu in the site palette: paper panel, espresso, brown and
+// orange cards, matching the desktop header.
+const cardNavStyle = {
+  "--cn-panel": "rgba(250, 248, 245, 0.94)",
+  "--cn-solid": "#faf8f5",
+  "--cn-edge": "rgba(92, 73, 62, 0.24)",
+  "--cn-text": "#24150e",
+  "--cn-muted": "#685d57",
+  "--cn-hover": "#f3ece7",
+  "--cn-ring": "#f7961d",
+  "--cn-shadow": "0 4px 12px rgba(36, 16, 6, 0.09)",
+  "--cn-cta": "linear-gradient(135deg, #2b1306, #59300f)",
+  "--cn-cta-ink": "#ffffff",
+  "--cn-logo": "34px",
+} as CSSProperties;
 
 const navItems: { label: string; to: string; desktop?: boolean }[] = [
   { label: "Home", to: "/" },
@@ -66,8 +96,68 @@ export function Header() {
     setQuery("");
   };
 
+  const cardNavItems = [
+    {
+      label: "Book",
+      description: "Reserve time in the shop.",
+      bgColor: "#241006",
+      textColor: "#ffffff",
+      links: [
+        { label: "Equipment", href: "/equipment" },
+        { label: "Studios", href: "/studios" },
+        { label: "Classes", href: "/classes" },
+      ],
+    },
+    {
+      label: "Account",
+      description: user ? `${user.firstName} ${user.lastName}` : undefined,
+      bgColor: "#59300f",
+      textColor: "#ffffff",
+      links: [
+        { label: "Home", href: "/" },
+        { label: "Membership", href: "/membership" },
+        { label: "Certifications & Waivers", href: "/certifications" },
+        { label: "Account settings", href: "/profile" },
+      ],
+    },
+    {
+      label: hasStaffWorkspace ? "Staff" : "Session",
+      bgColor: "#ffdba5",
+      textColor: "#241006",
+      links: [
+        ...(hasStaffWorkspace ? [{ label: "Staff workspace", href: "/admin" }] : []),
+        { label: "Sign out", signOut: true },
+      ],
+    },
+  ];
+
+  const signOut = async () => {
+    try {
+      await logout();
+      navigate("/login");
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  };
+
   return (
     <>
+      <CardNav
+        className="site-card-nav"
+        logo="/assets/collaboratory-logo.webp"
+        logoAlt="The Collaboratory home"
+        logoHref="/"
+        items={cardNavItems}
+        theme="light"
+        surface="glass"
+        cardHeight={196}
+        linkComponent={RouterLink}
+        ariaLabel="Primary navigation"
+        style={cardNavStyle}
+        onLinkClick={(link) => {
+          if (link.signOut) void signOut();
+        }}
+      />
       <header className="site-header">
         <button
           className="icon-button site-header__mobile-toggle"
@@ -169,14 +259,9 @@ export function Header() {
                   <Settings aria-hidden="true" /> Account settings
                 </button>
                 <button
-                  onClick={async () => {
-                    try {
-                      await logout();
-                      navigate("/login");
-                      setAccountOpen(false);
-                    } catch (err) {
-                      setError(errorMessage(err));
-                    }
+                  onClick={() => {
+                    setAccountOpen(false);
+                    void signOut();
                   }}
                 >
                   <LogOut aria-hidden="true" /> Sign out

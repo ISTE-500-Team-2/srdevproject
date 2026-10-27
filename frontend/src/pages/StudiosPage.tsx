@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AvailabilityCalendar } from "../components/studios/AvailabilityCalendar";
+import { BookingReference } from "../components/studios/BookingReference";
+import StatusMark from "../components/reactbits/StatusMark";
 import { StaffRental } from "../components/studios/StaffRental";
 import { StudioConfig } from "../components/studios/StudioConfig";
 import {
@@ -188,7 +190,13 @@ export function StudiosPage() {
       (r.status === "pending" && r.payment_method === "manual") ||
       ["refund_pending", "refund_failed"].includes(r.payment_status),
   );
-  const returning = new URLSearchParams(window.location.search).has("payment");
+  const returning =
+    new URLSearchParams(window.location.search).get("payment") === "returned";
+  // Only server records count as proof of payment: the newest rental, once
+  // it is confirmed and paid, is the one this checkout was for.
+  const newest = mine.reduce<Rental | null>((a, r) => (!a || r.id > a.id ? r : a), null);
+  const paidNow =
+    newest?.status === "confirmed" && newest.payment_status === "paid" ? newest : null;
 
   function rentalRow(r: Rental) {
     const status = rentalStatus(r);
@@ -268,9 +276,19 @@ export function StudiosPage() {
       {error && !size && <p className="form-error" role="alert">{error}</p>}
       {message && <p className="studio-message" role="status">{message}</p>}
       {returning && waiting && (
-        <p className="studio-message" role="status">
-          Checking your card payment. This page updates on its own.
-        </p>
+        <div className="studio-message studio-payment" role="status">
+          <StatusMark status="running" size={22} color="#a86008" />
+          <span>Checking your card payment. This page updates on its own.</span>
+        </div>
+      )}
+      {returning && !waiting && paidNow && (
+        <div className="studio-message studio-payment" role="status">
+          <StatusMark status="done" size={22} doneColor="#1f6b32" />
+          <span>
+            <b>Payment received.</b> {paidNow.name} is booked.
+          </span>
+          <BookingReference id={paidNow.id} />
+        </div>
       )}
 
       {active.length > 0 && (

@@ -2534,3 +2534,96 @@ button:disabled { cursor: not-allowed; opacity: .6; }
   .equipment-reservation-form .reservation-form__summary img { width: 64px; height: 64px; }
   .equipment-reservation-form .reservation-form__summary h3 { overflow-wrap: anywhere; }
 }
+
+/* React Bits components, themed to the site. Sources live in
+   components/reactbits; these rules only fit them into existing layouts. */
+
+/* Mobile header: Card Nav replaces the dropdown below 1040px. */
+.site-card-nav {
+  display: none;
+}
+
+.site-card-nav .card-nav__label {
+  font-family: 'Black Ops One', sans-serif;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+}
+
+.site-card-nav .card-nav__link {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+@media (max-width: 1040px) {
+  .site-header {
+    display: none;
+  }
+
+  .site-card-nav {
+    position: sticky;
+    top: 10px;
+    z-index: 100;
+    display: block;
+    padding: 0 12px;
+  }
+}
+
+/* Member home: check-in status, slider and badge. */
+.check-in__status {
+  margin: 16px 0;
+  color: var(--ink-soft);
+}
+
+.check-in__status .status-mark {
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.check-in__status .status-mark__label {
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+}
+
+.site-slide-commit {
+  width: 100%;
+  margin-top: auto;
+}
+
+.site-slide-commit .slide-commit {
+  font-weight: 600;
+}
+
+.member-badge {
+  height: 360px;
+  margin: 4px -28px 24px;
+}
+
+/* Hold-to-confirm, sized like .button. */
+.site-hold-button.hold-button {
+  min-height: 42px;
+  padding: 8px 18px;
+  border: 1px solid #e3b2ac;
+  font: 600 15px 'Barlow', sans-serif;
+}
+
+/* Studio checkout return. */
+.studio-payment {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 14px;
+}
+
+.booking-reference {
+  display: grid;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.booking-reference__label {
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}

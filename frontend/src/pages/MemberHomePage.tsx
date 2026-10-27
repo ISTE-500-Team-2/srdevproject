@@ -6,20 +6,31 @@ import {
   FileCheck2,
   LogIn,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api, errorMessage } from '../lib/api';
 import { useApi } from '../lib/useApi';
 import type { LiveEquipment, Overview } from '../lib/contracts';
 import { Toast } from '../components/Toast';
+import { MemberBadge } from '../components/MemberBadge';
+import { SiteSlideCommit } from '../components/SiteSlideCommit';
+import SplitText from '../components/reactbits/SplitText';
+import StatusMark from '../components/reactbits/StatusMark';
+
+/** The greeting animates once per browser session, then stays still. */
+function useFirstVisit(key: string) {
+  const first = useRef(!sessionStorage.getItem(key));
+  useEffect(() => sessionStorage.setItem(key, '1'), [key]);
+  return first.current;
+}
 
 export function MemberHomePage() {
   const { user, notification, clearNotification } = useAuth();
   const overview = useApi<Overview>('/me/overview');
   const catalog = useApi<LiveEquipment[]>('/equipment');
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const greet = useFirstVisit('collaboratory:greeted');
   const [toast, setToast] = useState<string | null>(null);
   const summary = overview.data;
   const accessLabel = summary?.entitlement.membership
@@ -27,21 +38,21 @@ export function MemberHomePage() {
     : summary?.entitlement.dayPass
       ? 'Day pass active'
       : 'No active access';
+  // Returns the request so the slider can show its own pending, done and
+  // failed states; a rejection shakes it back and the reason shows below.
   const checkIn = async () => {
-    setBusy(true);
     setError('');
     try {
       await api('/me/check-ins', {
         method: 'POST',
         body: {},
       });
-      overview.reload();
-      setToast('Check-in saved. Welcome to the Collaboratory!');
     } catch (err) {
       setError(errorMessage(err));
-    } finally {
-      setBusy(false);
+      throw err;
     }
+    overview.reload();
+    setToast('Check-in saved. Welcome to the Collaboratory!');
   };
   useEffect(() => {
     if (!notification) return;
@@ -53,7 +64,18 @@ export function MemberHomePage() {
       <section className="dashboard-intro">
         <div>
           <p className="eyebrow">Member dashboard</p>
-          <h1>Welcome back, {user?.firstName}</h1>
+          {greet && user ? (
+            <SplitText
+              tag="h1"
+              text={`Welcome back, ${user.firstName}`}
+              textAlign="left"
+              trigger="load"
+              delay={30}
+              duration={0.9}
+            />
+          ) : (
+            <h1>Welcome back, {user?.firstName}</h1>
+          )}
         </div>
         {summary ? (
           <span className="membership-pill">{accessLabel}</span>
@@ -104,29 +126,46 @@ export function MemberHomePage() {
               </article>
             ))}
             <article className="summary-card">
-              <h2>Visit check-in</h2>
-              <p>
-                {summary.canCheckIn
-                  ? 'Your access and required waivers are current.'
-                  : summary.reasons.join('. ') + '.'}
+              <div className="summary-card__heading">
+                <span className="summary-card__icon">
+                  <LogIn aria-hidden="true" />
+                </span>
+                <h2>Visit check-in</h2>
+              </div>
+              <p className="check-in__status">
+                <StatusMark
+                  status={summary.canCheckIn ? 'done' : 'failed'}
+                  strike={false}
+                  size={20}
+                  color="#a86008"
+                  doneColor="#1f6b32"
+                  errorColor="#b73a2e"
+                  label={
+                    summary.canCheckIn
+                      ? 'Your access and required waivers are current.'
+                      : summary.reasons.join('. ') + '.'
+                  }
+                />
               </p>
-              <button
-                className="button button--primary"
-                onClick={() => void checkIn()}
-                disabled={busy || !summary.canCheckIn}
-              >
-                <LogIn aria-hidden="true" />
-                {busy ? 'Checking…' : 'Check in'}
-              </button>
+              <SiteSlideCommit
+                label="Slide to check in"
+                doneLabel="Checked in"
+                errorLabel="Couldn't check in"
+                disabled={!summary.canCheckIn}
+                onConfirm={checkIn}
+              />
             </article>
           </div>
           <aside className="membership-card">
             <div className="membership-card__heading">Your access</div>
             <span className="membership-card__tier">{accessLabel}</span>
-            <hr />
-            <p>
-              To use equipment you need a membership or day pass, signed waivers, and any required training.
-            </p>
+            {user ? (
+              <MemberBadge
+                name={`${user.firstName} ${user.lastName}`}
+                access={accessLabel}
+                memberId={user.id}
+              />
+            ) : null}
             <Link to="/membership">
               Membership & payment records <ArrowUpRight aria-hidden="true" />
             </Link>
