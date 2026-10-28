@@ -48,6 +48,13 @@ export class ReservationModel {
       )
     ).rows;
   }
+  async upcomingEquipment(equipmentId: number, offset: number) {
+    return (await this.db.query(`SELECT ${selection},
+      EXISTS(SELECT 1 FROM app_training_class c WHERE c.reservation_id=r.reservationid) AS "isClass"
+      FROM reservation r ${joins} WHERE r.equipmentid=$1 AND r.status IN ('confirmed','pending')
+      AND r.endtime > clock_timestamp() AT TIME ZONE 'UTC'
+      ORDER BY r.starttime,r.reservationid LIMIT 51 OFFSET $2`, [equipmentId, offset])).rows;
+  }
   async find(id: number, lock = false) {
     return (
       await this.db.query(

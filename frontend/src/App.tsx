@@ -52,7 +52,7 @@ export default function App() {
             <Route path="admin" element={<AdminShell />}>
               <Route index element={<AdminIndex />} />
               {adminSections.map((section) => (
-                <Route key={section.path} path={section.path} element={<AdminSectionPage section={section} />} />
+                <Route key={section.path} path={section.path === 'equipment' ? 'equipment/:equipmentId?' : section.path} element={<AdminSectionPage section={section} />} />
               ))}
               <Route path="*" element={<Navigate replace to="/admin" />} />
             </Route>

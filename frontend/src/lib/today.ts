@@ -101,7 +101,7 @@ export function needsYou(compliance: ComplianceReport, machines: LiveEquipment[]
   if (studioPayments) items.push({ id: "studio-payments", icon: "payment", alert: false, title: `${studioPayments} studio ${studioPayments === 1 ? "payment" : "payments"} to record`, detail: "Manual payments and refunds waiting for staff.", action: "Record payments", to: "/admin/studios" });
   for (const m of machines.filter(m => m.status !== "available")) {
     const count = equipmentBookings(bookings).filter(b => b.equipmentId === m.id && Date.parse(b.endTime) > now).length;
-    items.push({ id: `machine-${m.id}`, icon: "machine", alert: true, title: `${m.name} is out of service`, detail: count ? `${count} ${count === 1 ? "booking" : "bookings"} today ${count === 1 ? "is" : "are"} affected.` : "No bookings affected today.", action: "See bookings", to: "/admin/reservations" });
+    items.push({ id: `machine-${m.id}`, icon: "machine", alert: true, title: `${m.name} is out of service`, detail: count ? `${count} ${count === 1 ? "booking" : "bookings"} today ${count === 1 ? "is" : "are"} affected.` : "No bookings affected today.", action: "Review equipment", to: `/admin/equipment/${m.id}` });
   }
   if (training) items.push({ id: "training", icon: "training", alert: false, title: `${training} ${training === 1 ? "member needs" : "members need"} training renewed`, detail: "They're locked out of the machines that need it.", action: "Open certifications", to: "/admin/certifications?section=certifications" });
   return items;

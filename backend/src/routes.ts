@@ -1,3 +1,4 @@
+import { equipmentManagement } from "./equipmentManagement.js";
 import { ReaderRegistry } from './readerRegistry.js';
 import {reportRoutes} from './reports.js';
 import {accountModeRoutes,paymentDetailsAreMemberOnly,settingsAreMemberOnly,signatureIsMemberOnly,waiverCopiesAreAdminOnly} from './accountMode.js';
@@ -96,6 +97,7 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   routes.get("/me/memberships", permit("entitlement", "read", "own"), member.memberships);
   routes.get("/me/payments", permit("payment", "read", "own"), member.payments);
   routes.use("/admin", requireStaff);
+  routes.use(equipmentManagement(pool, config.timeZone));
   routes.use(accountModeRoutes(pool, config));
   routes.use(reportRoutes(pool,config.timeZone));
   routes.use(cardManagement(pool,config.timeZone,config.devices,readers));

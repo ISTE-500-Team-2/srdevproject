@@ -17,6 +17,10 @@ export class EquipmentController {
       eligibility.entitlement(userId, new Date()),
       eligibility.waivers(userId),
     ]);
+    // Public summary is intentionally separate from the staff maintenance view.
+    const outages = (await this.pool.query(`SELECT equipment_id AS "equipmentId",reason,
+      expected_back::text AS "expectedBack",started_at AS "startedAt",ended_at AS "endedAt"
+      FROM app_equipment_outage WHERE ended_at IS NULL OR ended_at >= date_trunc('day', NOW() AT TIME ZONE $1) AT TIME ZONE $1`, [this.timeZone])).rows;
     const data = await Promise.all(
       items.map(async (item) => {
         const trainingRequired =
@@ -27,7 +31,11 @@ export class EquipmentController {
           reasons.push("Instructor accounts cannot create reservations");
         if (authState(res).user.accessStatus !== "active")
           reasons.push("Facility access is suspended or revoked");
-        if (item.status !== "available") reasons.push("Equipment unavailable");
+        if (item.status !== "available") {
+          const outage = outages.find(o => o.equipmentId === item.id && !o.endedAt);
+          const messages: Record<string, string> = { repair: 'Out of service for repair', maintenance: 'Out of service for maintenance', safety: 'Out of service for a safety check', other: 'Temporarily out of service' };
+          reasons.push(outage ? messages[outage.reason]! : 'Equipment unavailable');
+        }
         if (!entitlement.membership && !entitlement.dayPass)
           reasons.push("Membership or day pass required");
         if (trainingRequired) reasons.push("Current certification required");
@@ -43,6 +51,7 @@ export class EquipmentController {
           rate: item.rate === null ? null : Number(item.rate),
           image: item.image,
           status: item.status,
+          outages: outages.filter(o => o.equipmentId === item.id),
           trainingRequired,
           waiverRequired: item.waiverRequired,
           certification: item.certification,

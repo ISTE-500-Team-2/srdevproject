@@ -232,7 +232,7 @@ function FloorPanel({
                     )}
                     <div className="today-machine-text">
                       <div className="today-machine-line" title={`${machine.name}, ${machine.type}`}>
-                        <span className="today-machine-name">{machine.name}</span>
+                        <Link className="today-machine-name" to={`/admin/equipment/${machine.id}`}>{machine.name}</Link>
                         <span className="today-machine-type">{machine.type}</span>
                       </div>
                       <div className={`today-status${inUse ? " today-status--live" : down ? " today-status--down" : ""}`}>
@@ -243,8 +243,11 @@ function FloorPanel({
                     </div>
                   </div>
                   <div className="today-track" role="list" aria-label={`${machine.name} bookings today`}>
-                    {/* No status-change time is recorded, so an outage covers the whole day. */}
-                    {down ? <div className="today-outage" style={{ left: "0%", width: "100%" }} aria-hidden="true" /> : null}
+                    {(machine.outages?.length ? machine.outages : down ? [{ startedAt: new Date(window.start).toISOString(), endedAt: null }] : []).map((outage, index) => {
+                      const start = Math.max(window.start, Date.parse(outage.startedAt));
+                      const end = Math.min(window.end, outage.endedAt ? Date.parse(outage.endedAt) : window.end);
+                      return end > start ? <div key={index} className="today-outage" style={{ left: `${(start - window.start) / (window.end - window.start) * 100}%`, width: `${(end - start) / (window.end - window.start) * 100}%` }} aria-hidden="true" /> : null;
+                    })}
                     {blocks.map((block) => (
                       <div
                         key={block.id}

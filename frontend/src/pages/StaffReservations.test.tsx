@@ -23,6 +23,11 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.resetAllMocks(); vi.unstubAllGlobals(); });
 const mount = () => render(<MemoryRouter><StaffReservations /></MemoryRouter>);
 
+test("equipment detail links open reservations filtered to the selected machine", () => {
+  render(<MemoryRouter initialEntries={["/admin/reservations?equipmentId=3"]}><StaffReservations /></MemoryRouter>);
+  expect(vi.mocked(useApi).mock.calls.some(([path]) => path === "/admin/reservations?offset=0&equipmentId=3")).toBe(true);
+});
+
 test("Modify reveals and focuses the updated editor every time it is selected", async () => {
   mount();
   const modify = screen.getByRole("button", { name: "Modify" });

@@ -24,6 +24,21 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.resetAllMocks(); });
 const mount = () => render(<MemoryRouter><TodayPage /></MemoryRouter>);
+test("machine details and actual outage intervals remain available after restoration", async () => {
+  const original = api.getMockImplementation()!;
+  api.mockImplementation((path: string) => path === "/equipment" ? Promise.resolve([
+    { id: 9, name: "Restored machine", type: "Wood", status: "available", image: "", outages: [
+      { startedAt: "2026-10-28T04:30:00Z", endedAt: "2026-10-28T07:30:00Z", reason: "repair", expectedBack: null },
+    ] },
+  ]) : original(path));
+  mount();
+  const link = await screen.findByRole("link", { name: "Restored machine" });
+  expect(link.getAttribute("href")).toBe("/admin/equipment/9");
+  const track = await screen.findByRole("list", { name: "Restored machine bookings today" });
+  const outage = track.querySelector<HTMLElement>(".today-outage")!;
+  expect(Number.parseFloat(outage.style.left)).toBeCloseTo(100 / 12);
+  expect(outage.style.width).toBe("25%");
+});
 test("renders header counts from reports and times in the configured zone", async () => {
   mount();
   expect(await screen.findByText("Wednesday, October 28")).toBeTruthy();

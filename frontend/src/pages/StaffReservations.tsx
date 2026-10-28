@@ -31,7 +31,7 @@ export function StaffReservations() {
   const [filters, setFilters] = useState(() => ({
     date: "",
     userId: Number(params.get("member")) > 0 ? String(Number(params.get("member"))) : "",
-    equipmentId: "",
+    equipmentId: Number(params.get("equipmentId")) > 0 ? String(Number(params.get("equipmentId"))) : "",
   }));
   const [editing, setEditing] = useState<Reservation | null>(null);
   const editorTitle = useRef<HTMLHeadingElement>(null);

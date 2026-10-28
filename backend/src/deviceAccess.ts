@@ -76,7 +76,6 @@ export function deviceDecision(
       !/^[a-f0-9]{64}$/.test(signature)
     )
       throw authError();
-    await registry.ready();
     const decision = await accessTransaction(pool, async (db) => {
       // This lock also orders disable/enrollment commands against physical taps.
       const reader = (
@@ -228,7 +227,7 @@ export function deviceDecision(
         mode,
         ...verdict,
       };
-    }).catch((error) => {
+    }, 1800, () => registry.ready()).catch((error) => {
       if (
         error instanceof AccessDeadlineError ||
         error?.code === "57014" ||
