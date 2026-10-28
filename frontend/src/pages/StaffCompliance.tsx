@@ -55,11 +55,11 @@ function RequirementCard({ item, kind }: { item: ComplianceBreakdown; kind: stri
         <b>{item.name}</b>
         <span className="cw-tag cw-tag--grey">{kind}</span>
       </div>
-      <div className={`cw-bar${ratio < 0.5 ? " cw-bar--low" : ""}`} aria-hidden="true">
+      <div className={`cw-bar${!item.total ? " cw-bar--empty" : ratio < 0.5 ? " cw-bar--low" : ""}`} aria-hidden="true">
         <i style={{ width: `${Math.round(ratio * 100)}%` }} />
       </div>
       <small>
-        {item.compliant} of {item.total} current
+        {!item.total ? "Nobody needs this yet" : `${item.compliant} of ${item.total} current`}
         {missing ? ` · ${missing} ${kind === "Waiver" ? "haven't signed" : "not current"}` : ""}
         {item.expiring ? ` · ${item.expiring} expiring` : ""}
       </small>

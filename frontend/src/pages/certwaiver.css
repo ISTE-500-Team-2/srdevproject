@@ -4,9 +4,14 @@
 }
 .cw-tabs {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px 26px;
+  gap: 26px;
+  overflow-x: auto;
   border-bottom: 1px solid #ddd2ca;
+  scrollbar-width: none;
+}
+.management-page .cw-tabs button {
+  flex: none;
+  white-space: nowrap;
 }
 .management-page .cw-tabs button {
   border: 0;
@@ -127,6 +132,9 @@
 .cw-bar--low i {
   background: var(--red);
 }
+.cw-bar--empty i {
+  width: 0 !important;
+}
 
 /* Compliance */
 .cw-reqs {
@@ -164,9 +172,10 @@
   gap: 8px;
 }
 .management-page .cw-chip {
+  height: 34px;
   border: 1px solid var(--border);
   border-radius: 99px;
-  padding: 6px 13px;
+  padding: 0 13px;
   background: #fff;
   color: var(--ink);
   font: inherit;
@@ -180,14 +189,18 @@
   color: #fff;
 }
 .management-page .cw-select {
-  min-height: 36px;
+  height: 34px;
+  min-height: 0;
+  appearance: none;
   border: 1px solid var(--border);
   border-radius: 99px;
-  padding: 5px 12px;
-  background: #fff;
+  padding: 0 34px 0 13px;
+  background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23685d57' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 12px center;
+  color: var(--ink);
   font: inherit;
   font-size: 0.88rem;
   font-weight: 600;
+  cursor: pointer;
 }
 .cw-search {
   display: flex;
@@ -374,10 +387,12 @@
 .cw-two {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  align-items: start;
   gap: 14px;
 }
 .cw-field {
   display: grid;
+  align-content: start;
   gap: 6px;
   min-width: 0;
   margin: 0;
@@ -393,10 +408,13 @@
   color: var(--ink-soft);
   font-weight: 500;
 }
-.cw-field input,
+.cw-field input:not([type="checkbox"]):not([type="radio"]),
 .cw-field select,
 .cw-field textarea {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 44px;
   border: 1px solid var(--border);
   border-radius: 9px;
   padding: 9px 12px;
@@ -404,8 +422,19 @@
   font: inherit;
   font-weight: 500;
 }
-.cw-field input.is-locked {
+.cw-field input.is-locked:not([type="checkbox"]) {
   background: #f3ece7;
+  color: var(--ink-soft);
+}
+/* Native date-time controls have a built-in minimum width; let them shrink. */
+.cw-field input[type="datetime-local"] {
+  overflow: hidden;
+}
+.cw-field select {
+  appearance: none;
+  padding-right: 38px;
+  background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23685d57' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 12px center;
+  cursor: pointer;
 }
 .cw-field__row {
   display: flex;
@@ -476,10 +505,33 @@
 }
 .cw-equipment__list {
   display: grid;
-  gap: 4px;
+  gap: 2px;
   max-height: 220px;
   overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 6px;
+  background: #fff;
   font-weight: 500;
+}
+.cw-equipment__list label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 7px;
+  padding: 7px 8px;
+  cursor: pointer;
+}
+.cw-equipment__list label:hover {
+  background: #f6f1ec;
+}
+.cw-equipment__list input,
+.cw-check input {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--bronze);
 }
 
 /* Certifications */
