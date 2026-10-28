@@ -6,6 +6,7 @@ import { AdminIndex, AdminSectionPage } from './pages/admin/AdminSectionPage';
 import { adminSections } from './pages/admin/sections';
 import { AccountHomePage } from './pages/AccountHomePage';
 import { useAuth } from './context/AuthContext';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { ConfirmEmailPage } from './pages/ConfirmEmailPage';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
@@ -42,6 +43,7 @@ export default function App() {
   return (
     <AuthProvider>
       <Routes>
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/confirm-email" element={<ConfirmEmailPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/loading" element={<LoadingPage />} />

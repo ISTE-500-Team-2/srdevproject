@@ -40,12 +40,17 @@ export async function runNotificationBatch(pool:Pool,send:(notification:PendingN
     };
     try {
       const allowed=await pool.query(`SELECT 1 FROM "user" u LEFT JOIN app_notification_preferences p USING(userid)
-        WHERE u.userid=$1 AND u.status='active' AND COALESCE(p.enabled,true)`,[row.userId]);
+        WHERE u.userid=$1 AND u.status='active' AND (COALESCE(p.enabled,true) OR $2 IN ('password_reset','password_changed'))`,[row.userId,row.kind]);
       if(!allowed.rows.length) {await finish('suppressed');result.suppressed++;continue;}
       if (row.kind === 'account_confirmation') {
         const current = await pool.query(`SELECT 1 FROM app_email_confirmation c JOIN "user" u USING(userid)
           WHERE c.userid=$1 AND c.token_hash=$2 AND c.expires_at>$3 AND u.email_confirmed=false`,
           [row.userId,row.payload.confirmationHash,clock()]);
+        if (!current.rows.length) {await finish('obsolete');result.obsolete++;continue;}
+      }
+      if (row.kind === 'password_reset') {
+        const current = await pool.query(`SELECT 1 FROM app_password_reset
+          WHERE userid=$1 AND token_hash=$2 AND expires_at>$3`, [row.userId,row.payload.resetHash,clock()]);
         if (!current.rows.length) {await finish('obsolete');result.obsolete++;continue;}
       }
       if(!await expirationSourceCurrent(pool,row.userId,row.payload,clock())) {await finish('obsolete');result.obsolete++;continue;}

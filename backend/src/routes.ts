@@ -54,6 +54,9 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.post("/auth/register", rateLimit, auth.register);
   routes.post("/auth/confirm", rateLimit, auth.confirm);
   routes.post("/auth/confirmation", rateLimit, auth.confirmation);
+  routes.post("/auth/password-reset", rateLimit, auth.passwordReset);
+  routes.post("/auth/password-reset/check", rateLimit, auth.checkPasswordReset);
+  routes.post("/auth/password-reset/confirm", rateLimit, auth.confirmPasswordReset);
   if (config.demoLogin) routes.post("/auth/demo", rateLimit, auth.demo);
   routes.get("/auth/csrf", auth.csrf);
   routes.post("/auth/refresh", refreshLimit, auth.refresh);

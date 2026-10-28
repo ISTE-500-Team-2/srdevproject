@@ -25,7 +25,7 @@ export async function updateNotificationPreferences(db: Database, userId: number
     [userId,preferences.enabled,preferences.timeZone]);
   // Opting back in never resurrects notices that were intentionally suppressed.
   if (!preferences.enabled) await db.query(`UPDATE app_notification_outbox SET status='suppressed',counts_for_sla=(counts_for_sla AND deadline_at<NOW()),updated_at=NOW()
-    WHERE userid=$1 AND status='pending'`,[userId]);
+    WHERE userid=$1 AND status='pending' AND kind NOT IN ('password_reset','password_changed')`,[userId]);
   if (preferences.enabled) await db.query(`UPDATE app_notification_outbox SET due_at=LEAST(
     (((payload->>'expiresAt')::timestamptz AT TIME ZONE $2)::date-8+TIME '09:00') AT TIME ZONE $2,
     deadline_at-INTERVAL '1 hour'),updated_at=NOW()
@@ -39,7 +39,9 @@ export async function enqueueNotification(db: Database, input: NotificationInput
   const deadlineAt = input.deadlineAt ?? new Date(dueAt.getTime()+5*60_000);
   if (!Number.isFinite(dueAt.getTime()) || !Number.isFinite(deadlineAt.getTime())) throw new Error('Invalid notification date');
   await db.query(`INSERT INTO app_notification_outbox(userid,kind,dedupe_key,payload,due_at,deadline_at,status,counts_for_sla)
-    SELECT u.userid,$2,$3,$4::jsonb,$5,$6,CASE WHEN COALESCE(p.enabled,true) AND u.status='active' THEN 'pending' ELSE 'suppressed' END,COALESCE(p.enabled,true) AND u.status='active'
+    SELECT u.userid,$2,$3,$4::jsonb,$5,$6,
+      CASE WHEN (COALESCE(p.enabled,true) OR $2 IN ('password_reset','password_changed')) AND u.status='active' THEN 'pending' ELSE 'suppressed' END,
+      (COALESCE(p.enabled,true) OR $2 IN ('password_reset','password_changed')) AND u.status='active'
     FROM "user" u LEFT JOIN app_notification_preferences p USING(userid) WHERE u.userid=$1
     ON CONFLICT(dedupe_key) DO UPDATE SET due_at=EXCLUDED.due_at,deadline_at=EXCLUDED.deadline_at,updated_at=NOW()
     WHERE app_notification_outbox.status='pending' AND app_notification_outbox.attempts=0

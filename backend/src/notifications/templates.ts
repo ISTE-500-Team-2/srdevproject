@@ -1,6 +1,8 @@
 /** Requirement IDs are sourced from the live team Drive sheet, not older Jira numbering. */
 const headings = {
   account_confirmation: 'Confirm your email address',
+  password_reset: 'Reset your password',
+  password_changed: 'Your password has been changed',
   account_created: 'Your account has been created',
   account_creation_failed: 'Account creation could not be completed',
   account_closed: 'Your account has been closed',
@@ -81,6 +83,11 @@ const refunded = (f: Facts) => f.money ? `Your ${f.money} refund has been issued
 const copy: Record<NotificationKind, Copy> = {
   account_confirmation: { category: 'Account', status: 'Action needed', tone: 'warning',
     intro: () => 'Thanks for signing up. One quick step and your account is ready.' },
+  password_reset: { category: 'Account', status: 'Action needed', tone: 'warning',
+    intro: () => 'Use the link below to set a new password for your member account.' },
+  password_changed: { category: 'Account', status: 'Updated', tone: 'success',
+    intro: () => 'Your password is updated. For safety, we signed you out on your other devices. If you didn’t change it, contact the studio immediately.',
+    cta: ['Go to login', '/login'] },
   account_created: { category: 'Account', status: 'Ready', tone: 'success',
     intro: () => 'Your email is confirmed and you’re ready to sign in.', cta: ['Open my dashboard', '/'] },
   account_creation_failed: { category: 'Account', status: 'Not completed', tone: 'danger',
@@ -318,6 +325,12 @@ export function renderNotification(kind: NotificationKind, payload: Notification
     notes.push(`This link works once and expires ${expiry ? displayDate(expiry, timeZone) : '24 hours after you signed up'}.`,
       'Didn’t create this account? You can ignore this email.');
     rows.length = 0;
+  } else if (kind === 'password_reset') {
+    const link = safeUrl(field('resetUrl'), 'Invalid reset link');
+    if (link.pathname !== '/reset-password' || link.search || !/^#[A-Za-z0-9_-]{43}$/.test(link.hash)) throw new Error('Invalid reset link');
+    action = { label: 'Set a new password', url: link.href };
+    notes.push('This link works once and expires in 30 minutes.', 'If you didn’t ask for this, you can ignore this email.');
+    rows.length = 0;
   } else if (cta && preferenceLink) {
     action = { label: cta[0], url: new URL(cta[1], preferenceLink).href };
   }
@@ -326,7 +339,9 @@ export function renderNotification(kind: NotificationKind, payload: Notification
   const greeting = `Hi ${context.recipientName || 'there'},`;
   const lead = intro(facts);
   const recipient = context.recipientName ? `${context.recipientName} <${context.recipientEmail}>` : context.recipientEmail;
-  const optOut = 'You can opt out of all notifications in your profile notification settings';
+  const securityMail = kind === 'password_reset' || kind === 'password_changed';
+  const optOut = securityMail ? 'This security email is sent regardless of your notification preferences'
+    : 'You can opt out of all notifications in your profile notification settings';
   // Members get back what they signed: the completed form when there was one, not the blank document.
   const documentText = kind === 'waiver_signed' ? field('completedWaiverText') || field('waiverText') : '';
 
@@ -338,7 +353,7 @@ export function renderNotification(kind: NotificationKind, payload: Notification
     action && `${action.label}: ${action.url}`,
     ...notes,
     ['--', context.senderName, context.postalAddress, `Sent to ${recipient} from ${context.senderName} <${context.senderEmail}>.`,
-      preferenceLink ? `${optOut}: ${preferenceLink}` : `${optOut}.`].join('\n'),
+      preferenceLink && !securityMail ? `${optOut}: ${preferenceLink}` : `${optOut}.`].join('\n'),
   ].filter(Boolean).join('\n\n');
 
   const e = escapeHtml;
@@ -388,11 +403,11 @@ ${documentText ? `<h2 style="margin:0 0 12px;font-family:${font};font-size:18px;
 <div style="margin:0 0 28px;padding:20px;border:1px solid #e5dbd0;border-radius:12px;font-size:14px;line-height:1.7;color:#3d2f27;white-space:pre-wrap;overflow-wrap:anywhere">${e(documentText)}</div>` : ''}
 ${action ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="#2b1306" style="border-radius:10px;background-color:#2b1306;background-image:linear-gradient(135deg,#2b1306,#59300f)"><a href="${e(action.url)}" style="display:inline-block;padding:14px 26px;border:1px solid #4d250b;border-radius:10px;font-family:${font};font-size:16px;line-height:1.2;font-weight:700;color:#ffffff;text-decoration:none">${e(action.label)}</a></td></tr></table>` : ''}
 ${notes.map((note, i) => p(`margin-top:${i ? 6 : 20}px;font-size:14px;line-height:1.6;color:#685d57`, e(note))).join('\n')}
-${kind === 'account_confirmation' && action ? `<div style="margin-top:24px;padding-top:20px;border-top:1px solid #ebe2d8">${p('margin-bottom:6px;font-size:13px;line-height:1.6;color:#685d57', 'Button not working? Copy this link into your browser:')}${p('font-size:12px;line-height:1.6;word-break:break-all;overflow-wrap:anywhere', `<a href="${e(action.url)}" style="color:#8a4f06">${e(action.url)}</a>`)}</div>` : ''}
+${(kind === 'account_confirmation' || kind === 'password_reset') && action ? `<div style="margin-top:24px;padding-top:20px;border-top:1px solid #ebe2d8">${p('margin-bottom:6px;font-size:13px;line-height:1.6;color:#685d57', 'Button not working? Copy this link into your browser:')}${p('font-size:12px;line-height:1.6;word-break:break-all;overflow-wrap:anywhere', `<a href="${e(action.url)}" style="color:#8a4f06">${e(action.url)}</a>`)}</div>` : ''}
 </td></tr>
 <tr><td align="center" style="padding:24px 24px 0;font-family:${font};font-size:12px;line-height:1.7;color:#685d57">
 ${p('margin-bottom:6px', `${e(context.senderName)} · ${e(context.postalAddress)}`)}
-${p('', `This email was sent to ${e(context.recipientEmail)}. You can opt out of all notifications anytime${preferenceLink ? ` in your <a href="${e(preferenceLink)}" style="color:#8a4f06;font-weight:600">notification preferences</a>` : ' in your profile'}.`)}
+${p('', `This email was sent to ${e(context.recipientEmail)}. ${securityMail ? `${optOut}.` : `You can opt out of all notifications anytime${preferenceLink ? ` in your <a href="${e(preferenceLink)}" style="color:#8a4f06;font-weight:600">notification preferences</a>` : ' in your profile'}.`}`)}
 </td></tr>`)}
 </td></tr>`)}
 </body></html>`;

@@ -944,6 +944,45 @@ p {
   text-align: center;
 }
 
+/* Password reset: progress dots use the signup Stepper's dot colours. */
+.reset-progress { display: flex; justify-content: center; gap: 8px; margin: 0 0 14px; padding: 0; list-style: none; }
+.reset-progress__dot { width: 8px; height: 8px; border-radius: 999px; background: var(--border); transition: width 450ms cubic-bezier(0.34, 1.56, 0.64, 1), background-color 200ms ease; }
+.reset-progress__dot[data-status='complete'] { background: var(--ink-soft); }
+.reset-progress__dot[data-status='active'] { width: 26px; background: var(--espresso); }
+
+.reset-medallion { width: 64px; height: 64px; display: grid; place-items: center; margin: 0 auto 16px; border-radius: 50%; background: var(--orange-soft); color: var(--bronze); box-shadow: inset 0 0 0 1px rgba(168, 96, 8, 0.22), 0 8px 20px rgba(168, 96, 8, 0.16); animation: medallion-pop 520ms 120ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.reset-medallion svg { width: 28px; height: 28px; }
+.reset-medallion--done { background: var(--espresso); color: #fff; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), 0 9px 22px rgba(50, 22, 5, 0.24); }
+.reset-medallion--error { background: #f8e3df; color: var(--red); box-shadow: inset 0 0 0 1px rgba(183, 58, 46, 0.22); }
+
+.reset-email { color: var(--ink); font-weight: 600; overflow-wrap: anywhere; }
+.reset-actions { display: grid; gap: 14px; }
+.reset-actions .form-error { margin: 0; }
+.reset-hint { margin: 0; color: var(--ink-soft); font-size: 0.9rem; text-align: center; }
+.reset-countdown { font-variant-numeric: tabular-nums; }
+
+.reset-rules { display: grid; gap: 7px; margin: 2px 0 0; padding: 0; list-style: none; color: var(--ink-soft); font-size: 0.88rem; font-weight: 400; }
+.reset-rules li { display: flex; align-items: center; gap: 9px; transition: color 160ms ease; }
+.reset-rules__mark { width: 18px; height: 18px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--border); transition: background-color 200ms ease, box-shadow 200ms ease, transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1); }
+.reset-rules__mark svg { width: 11px; height: 11px; opacity: 0; transform: scale(0.4); transition: opacity 160ms ease, transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1); }
+.reset-rules li[data-met] { color: var(--ink); }
+.reset-rules li[data-met] .reset-rules__mark { background: var(--espresso); box-shadow: none; color: #fff; transform: scale(1.06); }
+.reset-rules li[data-met] .reset-rules__mark svg { opacity: 1; transform: none; }
+
+.form-field[data-invalid] .form-field__control { border-bottom-color: var(--red); }
+.form-field__error { margin: 0; color: var(--red); font-size: 0.85rem; font-weight: 400; }
+
+.reset-step { animation: step-in 360ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.spin { animation: spin 800ms linear infinite; }
+
+/* Preserve the reference's italic links without changing Login's font loading. */
+.reset-step .text-button { font-synthesis: style; position: relative; }
+/* Expand hit areas without changing the reference's spacing. */
+.reset-step .text-button::after { content: ''; position: absolute; top: 50%; left: 0; right: 0; min-height: 44px; transform: translateY(-50%); }
+.reset-step .form-field__reveal { height: 44px; }
+.reset-step input:focus-visible { outline: 3px solid var(--orange); outline-offset: 3px; }
+
+
 .prototype-access {
   display: grid;
   grid-template-columns: 1fr auto auto;
@@ -1051,6 +1090,9 @@ p {
 @keyframes toast-in { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
 @keyframes logo-arrive { from { opacity: 0; transform: translateY(-18px) scale(0.96); } to { opacity: 1; transform: none; } }
 @keyframes card-arrive { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
+@keyframes step-in { from { opacity: 0; transform: translateX(18px); } to { opacity: 1; transform: none; } }
+@keyframes medallion-pop { from { opacity: 0; transform: scale(0.6); } to { opacity: 1; transform: none; } }
+@keyframes spin { to { transform: rotate(360deg); } }
 @keyframes logo-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.015); } }
 @keyframes gear-spin { to { transform: rotate(360deg); } }
 

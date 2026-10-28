@@ -52,7 +52,7 @@ export function LoginPage() {
   const [remember, setRemember] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
-  const [dialog, setDialog] = useState<'forgot' | 'signup' | null>(null);
+  const [dialog, setDialog] = useState<'signup' | null>(null);
   const [busy, setBusy] = useState(false);
   const [signup, setSignup] = useState(EMPTY_SIGNUP);
   const [signupStep, setSignupStep] = useState(1);
@@ -237,7 +237,11 @@ export function LoginPage() {
               <button
                 className="text-button"
                 type="button"
-                onClick={() => setDialog('forgot')}
+                onClick={() =>
+                  navigate('/reset-password', {
+                    state: identifier.includes('@') ? { email: identifier.trim() } : undefined,
+                  })
+                }
               >
                 Forgot password?
               </button>
@@ -304,17 +308,6 @@ export function LoginPage() {
           ) : null}
         </div>
       </section>
-
-      <Modal
-        open={dialog === 'forgot'}
-        title="Reset your password"
-        onClose={() => setDialog(null)}
-        width="compact"
-      >
-        <p>
-          Online password reset isn't available yet.
-        </p>
-      </Modal>
 
       <Modal
         open={dialog === 'signup'}
