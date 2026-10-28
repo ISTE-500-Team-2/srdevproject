@@ -14,10 +14,12 @@ const service = new StudioService(pool);
 let created = false,
   member: number,
   admin: number;
+// Each studio's revision after the setup below configures it.
+const revisions = new Map<number, number>();
 const input = (studioId: number, extra = {}) => ({
   studioId,
   startDate: "2030-01-31",
-  expectedRevision: 3,
+  expectedRevision: revisions.get(studioId),
   paymentMethod: "manual",
   requestKey: randomUUID(),
   ...extra,
@@ -50,8 +52,10 @@ before(async () => {
       monthlyCents: 20000,
       cancellationPolicy: "full_before_start",
       policyConfirmed: true,
-      revision: 2,
+      revision: (await pool.query("SELECT revision FROM app_studio WHERE id=$1", [i])).rows[0].revision,
     });
+  for (const row of (await pool.query("SELECT id,revision FROM app_studio")).rows)
+    revisions.set(row.id, row.revision);
 });
 after(async () => {
   await pool.end();

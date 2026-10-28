@@ -35,7 +35,7 @@ test("member books monthly studio, staff confirms real manual receipt, cancellat
     monthlyCents: 25000,
     cancellationPolicy: "full_before_start",
     policyConfirmed: true,
-    revision: 2,
+    revision: (await bridge.pool.query("SELECT revision FROM app_studio WHERE id=1")).rows[0].revision,
   });
   await api("/auth/logout", { method: "POST" });
   setAccessToken(null);
@@ -62,11 +62,11 @@ test("member books monthly studio, staff confirms real manual receipt, cancellat
   );
   expect(within(dialog).getByText("Yours through Wed, Feb 27, 2030.")).toBeTruthy();
   expect(
-    (within(dialog).getByRole("radio", { name: /Small studio 1/ }) as HTMLInputElement)
+    (within(dialog).getByRole("radio", { name: /Harkonnen/ }) as HTMLInputElement)
       .checked,
   ).toBe(true);
   await userEvent.click(within(dialog).getByRole("button", { name: "Hold studio" }));
-  await within(dialog).findByText("Small studio 1 is held for you");
+  await within(dialog).findByText("Harkonnen is held for you");
   const r = (await bridge.pool.query("SELECT * FROM app_studio_rental"))
     .rows[0];
   expect(r).toMatchObject({ starts_on: expect.anything(), payment_status: "unpaid" });
@@ -81,10 +81,10 @@ test("member books monthly studio, staff confirms real manual receipt, cancellat
   await waitFor(() => expect(cancel.hasAttribute("disabled")).toBe(false));
   await userEvent.click(cancel);
   // Cancelling is confirmed in a dialog with a press-and-hold button.
-  const confirm = screen.getByRole("dialog", { name: "Cancel Small studio 1?" });
+  const confirm = screen.getByRole("dialog", { name: "Cancel Harkonnen?" });
   expect(within(confirm).getByText(/You'll get \$250\.00 back/)).toBeTruthy();
   fireEvent.keyDown(within(confirm).getByRole("button", { name: /Hold to cancel rental/ }), { key: " " });
-  await screen.findByText("Small studio 1 cancelled.");
+  await screen.findByText("Harkonnen cancelled.");
   const cancelled = (await bridge.pool.query("SELECT * FROM app_studio_rental"))
     .rows[0];
   expect(cancelled.status).toBe("cancelled");
@@ -120,7 +120,7 @@ test('Equipment replaces the old combined page without breaking studio navigatio
   vi.stubGlobal('fetch',captured);
   render(<MemoryRouter initialEntries={['/reservations?source=bookmark#my-reservations']}><App /><CurrentRoute /></MemoryRouter>);
   await screen.findByRole('heading',{name:'Equipment',exact:true});
-  await screen.findByRole('button',{name:/3D Printer/});
+  await screen.findByRole('button',{name:/Rachel/});
   expect(screen.getByLabelText('Current route').textContent).toBe('/equipment?source=bookmark#my-reservations');
   expect(screen.queryByRole('heading',{name:'Studio Spaces'})).toBeNull();
   expect(screen.queryByLabelText('Studio size filter')).toBeNull();

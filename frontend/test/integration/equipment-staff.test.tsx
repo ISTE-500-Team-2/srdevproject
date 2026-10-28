@@ -22,7 +22,7 @@ test('staff equipment UI saves four-hour reservation for selected member and doe
  const member=(await bridge.pool.query(`SELECT userid FROM "user" WHERE email='demo.member@collaboratory.invalid'`)).rows[0].userid;
  render(<MemoryRouter initialEntries={['/reservations']}><App/></MemoryRouter>);
  const user=userEvent.setup();
- await user.click(await screen.findByRole('button',{name:/3D Printer/}));
+ await user.click(await screen.findByRole('button',{name:/Rachel/}));
  const modal=within(screen.getByRole('dialog'));
  await user.type(modal.getByRole('combobox',{name:/Book for a member/}),'Jordan');
  await user.click(await screen.findByRole('option',{name:/Jordan Demo/}));
@@ -31,7 +31,7 @@ test('staff equipment UI saves four-hour reservation for selected member and doe
  pickStart(modal,start);void local;
  await user.selectOptions(modal.getByLabelText('Duration'),'4');
  await user.click(modal.getByRole('button',{name:'Confirm reservation'}));
- await screen.findByText('Reservation saved for 3D Printer for member #'+member+'.');
+ await screen.findByText('Reservation saved for Rachel for member #'+member+'.');
  const rows=(await bridge.pool.query('SELECT userid,endtime-starttime AS duration FROM reservation')).rows;
  expect(rows).toHaveLength(1);expect(rows[0].userid).toBe(member);expect(rows[0].duration.hours).toBe(4);
  expect(await screen.findByText(/No reservations yet/)).toBeTruthy();

@@ -191,7 +191,7 @@ test('React → Express controllers/models → PostgreSQL: login, save, refresh,
   await user.click(
     await screen.findByRole(
       'button',
-      { name: /3D Printer/ },
+      { name: /Rachel/ },
       { timeout: 20000 },
     ),
   );
@@ -218,7 +218,7 @@ test('React → Express controllers/models → PostgreSQL: login, save, refresh,
     within(dialog).getByRole('button', { name: 'Confirm reservation' }),
   );
   await screen.findByText(
-    'Reservation saved for 3D Printer.',
+    'Reservation saved for Rachel.',
     {},
     { timeout: 20000 },
   );

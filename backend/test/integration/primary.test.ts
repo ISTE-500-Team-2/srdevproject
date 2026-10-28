@@ -477,7 +477,7 @@ test("facility suspension and revocation kill sessions permanently while preserv
   await issue(admin, user, p.id);
   await signPolicies(user);
   const equipment = (await user.get("/equipment")).body.data.find(
-    (e: { name: string }) => e.name === "3D Printer",
+    (e: { name: string }) => e.name === "Rachel",
   );
   const start = new Date(Date.now() + 86400000),
     booking = {

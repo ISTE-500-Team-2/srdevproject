@@ -108,7 +108,7 @@ function client() {
     },
   };
 }
-async function equipment(name = '3D Printer') {
+async function equipment(name = 'Rachel') {
   return (
     await pool.query('SELECT equipmentid AS id FROM equipment WHERE name=$1', [
       name,
@@ -444,7 +444,7 @@ test('room reservations reject overlaps, enforce cooldown and gate active room a
 test('membership, certification and waiver eligibility are enforced; check-in is recorded', async () => {
   const user = client();
   await user.register();
-  const cnc = await equipment('CNC Machine');
+  const cnc = await equipment('Joey');
   const input = interval(cnc, 4);
   let res = await user.post('/reservations', input);
   assert.equal(res.status, 403);

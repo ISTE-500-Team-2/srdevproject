@@ -20,13 +20,13 @@ test('member finds equipment, books once, recovers from conflicts and cooldown, 
  // Hold every post-booking catalog refresh open. Without this, a fast run can
  // click the pre-refresh card just before useApi removes it, never opening a dialog.
  const finishBooking = async()=>{
-  await screen.findByText('Reservation saved for 3D Printer.');
+  await screen.findByText('Reservation saved for Rachel.');
   await screen.findByText('Loading equipment…');
-  expect(screen.queryByRole('button',{name:/^3D Printer/})).toBeNull();
+  expect(screen.queryByRole('button',{name:/^Rachel/})).toBeNull();
   expect(releaseCatalog).toBeTypeOf('function');
   releaseCatalog!();
   releaseCatalog=undefined;
-  await screen.findByRole('button',{name:/^3D Printer/});
+  await screen.findByRole('button',{name:/^Rachel/});
  };
  vi.stubGlobal('fetch',async(input:string,init:RequestInit={})=>{
   if(input==='/api/reservations'&&init.method==='POST')creates++;
@@ -37,7 +37,7 @@ test('member finds equipment, books once, recovers from conflicts and cooldown, 
  render(<MemoryRouter initialEntries={['/reservations']}><App/></MemoryRouter>);
  const user=userEvent.setup();
  await user.type(await screen.findByRole('searchbox',{name:'Find equipment'}),'3d print');
- await user.click(await screen.findByRole('button',{name:/^3D Printer/}));
+ await user.click(await screen.findByRole('button',{name:/^Rachel/}));
  const start=new Date(Date.now()+3*86400000);start.setHours(14,0,0,0);
  const local=(d:Date)=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
  const choose=async(d:Date)=>{await screen.findByLabelText('Start time');pickStart(screen,d);};
@@ -49,7 +49,7 @@ test('member finds equipment, books once, recovers from conflicts and cooldown, 
  expect(creates).toBe(1);
  const initial=(await bridge.pool.query('SELECT reservationid,endtime-starttime AS duration FROM reservation')).rows;
  expect(initial).toHaveLength(1);expect(initial[0].duration.hours).toBe(2);
- await user.click(await screen.findByRole('button',{name:/^3D Printer/}));
+ await user.click(await screen.findByRole('button',{name:/^Rachel/}));
  await choose(start);
  await user.click(screen.getByRole('button',{name:'Confirm reservation'}));
  const error=await screen.findByRole('alert');
@@ -70,7 +70,7 @@ test('member finds equipment, books once, recovers from conflicts and cooldown, 
  await screen.findByText('Reservation cancelled.');
  expect((await bridge.pool.query("SELECT reservationid FROM reservation WHERE status='cancelled'")).rowCount).toBe(1);
  // A booking less than 24h away remains non-cancellable in both UI and API.
- await user.click(screen.getByRole('button',{name:/^3D Printer/}));
+ await user.click(screen.getByRole('button',{name:/^Rachel/}));
  const soon=new Date(Date.now()+2*3600000);soon.setMinutes(0,0,0);await choose(soon);
  await user.click(screen.getByRole('button',{name:'Confirm reservation'}));
  await finishBooking();
