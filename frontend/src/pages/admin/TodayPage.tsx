@@ -103,10 +103,10 @@ function TodayContent({ config, now, day }: { config: Result<{ timeZone: string 
   );
   const people = report.data?.checkedInTodayCount ?? 0;
   const date = zone
-    ? new Intl.DateTimeFormat("en-US", { timeZone: zone, weekday: "long", month: "long", day: "numeric" }).format(now) + "."
+    ? new Intl.DateTimeFormat("en-US", { timeZone: zone, weekday: "long", month: "long", day: "numeric" }).format(now)
     : "";
   const summary = report.data
-    ? ` ${people} ${people === 1 ? "person" : "people"} checked in today, ${live.size} ${live.size === 1 ? "machine" : "machines"} running.`
+    ? `${people} ${people === 1 ? "person" : "people"} checked in today, ${live.size} ${live.size === 1 ? "machine" : "machines"} running.`
     : "";
   const studioList = studios.data?.studios ?? null;
 
@@ -115,10 +115,8 @@ function TodayContent({ config, now, day }: { config: Result<{ timeZone: string 
       {loaders}
       <header className="today-head">
         <h1 className="today-title">Today</h1>
-        <p className="today-summary">
-          {date}
-          {summary}
-        </p>
+        {date && <p className="today-date">{date}</p>}
+        {summary && <p className="today-summary">{summary}</p>}
       </header>
       <div className="today-grid">
         <div className="today-col">

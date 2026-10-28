@@ -77,3 +77,17 @@ test('failed revocation keeps the dialog and reason until a successful retry', a
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   expect(writes()).toHaveLength(2);
 });
+
+test('certification drafts survive closing and are discarded only after confirmation', async () => {
+  render(<TrainingPage />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Configure Laser safety' }));
+  const editor = screen.getByRole('dialog', { name: 'Edit Laser safety' });
+  fireEvent.change(within(editor).getByLabelText('Description'), { target: { value: 'Updated safety instructions' } });
+  fireEvent.click(within(editor).getByRole('button', { name: 'Close dialog' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+  expect(within(editor).getByLabelText('Description')).toHaveProperty('value', 'Updated safety instructions');
+  fireEvent.click(within(editor).getByRole('button', { name: 'Cancel' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(writes()).toHaveLength(0);
+});

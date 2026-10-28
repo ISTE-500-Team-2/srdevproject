@@ -1,3 +1,4 @@
+import { ReaderRegistry } from './readerRegistry.js';
 import {deviceDecision} from './deviceAccess.js';
 import {studioWebhook} from './studios/routes.js';
 import { auditContext, auditedPool } from './auditContext.js';
@@ -18,6 +19,7 @@ export function createApp(
 ) {
   const app = express();
   pool = auditedPool(pool);
+  const readers = new ReaderRegistry(pool,config.devices);
   app.use((_req, _res, next) => auditContext.run({}, next));
   app.disable('x-powered-by');
   app.use((_req, res, next) => {
@@ -29,7 +31,7 @@ export function createApp(
     res.set('Cache-Control', 'no-store');
     next();
   });
-  app.post('/api/devices/decision',express.raw({type:'application/json',limit:'2kb'}),deviceDecision(pool,config.timeZone,config.devices));
+  app.post('/api/devices/decision',express.raw({type:'application/json',limit:'2kb'}),deviceDecision(pool,config.timeZone,config.devices,readers));
   app.post('/api/webhooks/stripe-studios',express.raw({type:'application/json',limit:'96kb'}),studioWebhook(pool,config.timeZone,config.studioStripe));
   app.use(
     '/api/webhooks/brevo',
@@ -41,7 +43,7 @@ export function createApp(
     '/api',
     express.json({ limit: '96kb' }),
     checkOrigin(config),
-    apiRoutes(pool, config),
+    apiRoutes(pool, config, readers),
   );
   app.use('/api', (_req, _res, next) =>
     next(new AppError(404, 'NOT_FOUND', 'API endpoint not found.')),

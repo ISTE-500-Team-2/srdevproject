@@ -63,6 +63,7 @@ function PublishPanel({
   const [text, setText] = useState(latest?.description ?? "");
   const [name, setName] = useState(waiver?.name ?? "");
   const [tab, setTab] = useState<"edit" | "preview">("edit");
+  const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [imported, setImported] = useState<{ name: string; error?: string } | null>(null);
@@ -80,6 +81,7 @@ function PublishPanel({
       const fileText = await documentText(file);
       if (run !== importRun.current) return;
       setText(fileText);
+      setDirty(true);
       setTab("edit");
       setImported({
         name: file.name,
@@ -123,8 +125,8 @@ function PublishPanel({
     }
   };
   return (
-    <Modal open width="panel" title={waiver ? `Update ${waiver.name}` : "New waiver"} onClose={onClose}>
-      <form className="cw-form" onSubmit={(e) => void submit(e)}>
+    <Modal open width="panel" title={waiver ? `Update ${waiver.name}` : "New waiver"} dirty={dirty} dismissible={!busy && !importing} onClose={onClose}>
+      {(requestClose) => <form className="cw-form" onChangeCapture={() => setDirty(true)} onSubmit={(e) => void submit(e)}>
         <div className="cw-two">
           <label className="cw-field">
             <span>Waiver</span>
@@ -244,14 +246,14 @@ function PublishPanel({
           </p>
         ) : null}
         <div className="cw-form__actions">
-          <button type="button" className="button button--quiet" onClick={onClose} disabled={busy}>
+          <button type="button" className="button button--quiet" onClick={requestClose} disabled={busy || importing}>
             Cancel
           </button>
           <button className="button button--primary" disabled={busy || importing}>
             <Check aria-hidden="true" /> {busy ? "Publishing…" : "Publish version"}
           </button>
         </div>
-      </form>
+      </form>}
     </Modal>
   );
 }

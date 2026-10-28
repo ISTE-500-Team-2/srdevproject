@@ -24,9 +24,9 @@ class AccessClient:
         self.url = base_url.rstrip('/') + '/api/devices/decision'
         self.reader_id, self.secret, self.opener = reader_id, secret, opener
 
-    def decide(self, uid, check_in=False):
+    def _request(self, payload):
         event = str(uuid.uuid4())
-        body = json.dumps({'uid': uid, 'eventId': event, 'checkIn': check_in}, separators=(',', ':')).encode()
+        body = json.dumps({**payload, 'eventId': event}, separators=(',', ':')).encode()
         stamp = str(int(time.time()*1000))
         signature = hmac.new(self.secret.encode(), stamp.encode()+b'\n'+body, hashlib.sha256).hexdigest()
         request = urllib.request.Request(self.url, data=body, headers={
@@ -40,6 +40,23 @@ class AccessClient:
         elapsed = time.monotonic()-started
         if elapsed >= 1.8:
             raise TimeoutError('Late reader decision')
+        return data, elapsed
+
+    def status(self):
+        """Heartbeat and command read. Call every 15 seconds while idle.
+
+        mode is access, enroll or disabled. An enrollment tap never opens the
+        relay; staff confirm the captured card separately in the admin screen.
+        """
+        data, _ = self._request({'action': 'heartbeat'})
+        if data.get('mode') not in ('access', 'enroll', 'disabled'):
+            raise ValueError('Invalid reader mode')
+        return {'mode': data['mode'], 'enrollmentExpiresAt': data.get('enrollmentExpiresAt')}
+
+    def decide(self, uid, check_in=False, *, renewal=False):
+        data, elapsed = self._request({'uid': uid, 'checkIn': check_in, 'renewal': renewal})
+        if data.get('mode') in ('enroll', 'disabled'):
+            return 0.0
         if data.get('allowed') is not True:
             return 0.0
         lease = data.get('leaseSeconds')
@@ -90,9 +107,9 @@ class RelayLease:
             self._timer.daemon = True
             self._timer.start()
 
-    def authorize(self, client, uid, check_in=False):
+    def authorize(self, client, uid, check_in=False, *, renewal=False):
         try:
-            seconds = client.decide(uid, check_in)
+            seconds = client.decide(uid, check_in, renewal=True) if renewal else client.decide(uid, check_in)
             self.apply(seconds)
             return seconds > 0
         except Exception:
@@ -132,7 +149,7 @@ class RenewingAccessSession:
 
     def _renew(self):
         while not self._stop.wait(1):
-            if not self.relay.authorize(self.client, self.uid):
+            if not self.relay.authorize(self.client, self.uid, renewal=True):
                 self._stop.set()
                 self.relay.close()
                 self.uid = None

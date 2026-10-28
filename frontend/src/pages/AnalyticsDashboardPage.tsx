@@ -1,5 +1,6 @@
 import {
   CalendarDays,
+  ChevronDown,
   CircleDollarSign,
   DoorOpen,
   Gauge,
@@ -120,37 +121,39 @@ function RevenueBars({ points, period }: { points: RevenuePoint[]; period: Reven
   const top = niceMax(Math.max(0, ...points.map((p) => p.gross)));
   const every = Math.ceil(points.length / 8);
   return (
-    <div className="revenue-bars">
-      <div className="revenue-bars__axis" aria-hidden="true">
-        {[1, 0.75, 0.5, 0.25, 0].map((f) => (
-          <span key={f}>{money(top * f)}</span>
-        ))}
-      </div>
-      <div className="revenue-bars__plot">
-        {points.map((point, i) => {
-          const label = periodLabel(point, period);
-          const detail = `${label}: ${money(point.net)} paid, ${point.receipts} ${point.receipts === 1 ? "receipt" : "receipts"}${point.refunds ? `, ${money(point.refunds)} refunded` : ""}`;
-          return (
-            <div key={point.period} className="revenue-bars__col" tabIndex={0} aria-label={detail}>
-              <span className="revenue-bars__tip" aria-hidden="true">
-                <b>{money(point.net)} paid</b>
-                {point.receipts} {point.receipts === 1 ? "receipt" : "receipts"}
-                {point.refunds ? ` · ${money(point.refunds)} refunded` : " · no refunds"}
-              </span>
-              {point.gross ? (
-                <>
-                  {point.refunds ? (
-                    <i className="revenue-bars__refund" style={{ height: `${(point.refunds / top) * 100}%` }} />
-                  ) : null}
-                  <i className="revenue-bars__paid" style={{ height: `${(point.net / top) * 100}%` }} />
-                </>
-              ) : (
-                <i className="revenue-bars__zero" />
-              )}
-              <small aria-hidden="true">{i % every === 0 || i === points.length - 1 ? label : ""}</small>
-            </div>
-          );
-        })}
+    <div className="revenue-chart-scroll" role="region" aria-label="Revenue chart; scroll for more dates" tabIndex={0}>
+      <div className="revenue-bars" style={{ minWidth: 60 + points.length * 28 }}>
+        <div className="revenue-bars__axis" aria-hidden="true">
+          {[1, 0.75, 0.5, 0.25, 0].map((f) => (
+            <span key={f}>{money(top * f)}</span>
+          ))}
+        </div>
+        <div className="revenue-bars__plot">
+          {points.map((point, i) => {
+            const label = periodLabel(point, period);
+            const detail = `${label}: ${money(point.net)} paid, ${point.receipts} ${point.receipts === 1 ? "receipt" : "receipts"}${point.refunds ? `, ${money(point.refunds)} refunded` : ""}`;
+            return (
+              <div key={point.period} className="revenue-bars__col" tabIndex={0} aria-label={detail}>
+                <span className="revenue-bars__tip" aria-hidden="true">
+                  <b>{money(point.net)} paid</b>
+                  {point.receipts} {point.receipts === 1 ? "receipt" : "receipts"}
+                  {point.refunds ? ` · ${money(point.refunds)} refunded` : " · no refunds"}
+                </span>
+                {point.gross ? (
+                  <>
+                    {point.refunds ? (
+                      <i className="revenue-bars__refund" style={{ height: `${(point.refunds / top) * 100}%` }} />
+                    ) : null}
+                    <i className="revenue-bars__paid" style={{ height: `${(point.net / top) * 100}%` }} />
+                  </>
+                ) : (
+                  <i className="revenue-bars__zero" />
+                )}
+                <small aria-hidden="true">{i % every === 0 || i === points.length - 1 ? label : ""}</small>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -216,6 +219,7 @@ export function AnalyticsDashboardPage() {
                 </option>
               ))}
             </select>
+            <ChevronDown className="analytics-range__chevron" aria-hidden="true" />
           </label>
           <div className="analytics-period" role="radiogroup" aria-label="Group revenue by">
             {(["daily", "weekly", "monthly"] as RevenuePeriod[]).map((p) => (
@@ -296,7 +300,10 @@ export function AnalyticsDashboardPage() {
                 <div><dt>Net receipts</dt><dd>{dollars(String(sum(points, "net")))}</dd></div>
               </dl>
               {data.revenue.length ? (
-                <RevenueBars points={points} period={range.period} />
+                <>
+                  <p className="analytics-chart-hint">Swipe or scroll for more dates. Exact amounts are also available in the table.</p>
+                  <RevenueBars points={points} period={range.period} />
+                </>
               ) : (
                 <p className="analytics-empty">No paid receipts in this period.</p>
               )}
@@ -371,6 +378,16 @@ export function AnalyticsDashboardPage() {
                 <span>{dayLabel(data.from)}</span>
                 <span>{data.to === today ? "Today" : dayLabel(data.to)}</span>
               </div>
+              <details className="analytics-table">
+                <summary>Show daily visit counts</summary>
+                <table>
+                  <caption>Visits per day</caption>
+                  <thead><tr><th scope="col">Date</th><th scope="col">Visits</th></tr></thead>
+                  <tbody>
+                    {visits.map((v) => <tr key={v.day}><th scope="row">{v.day}</th><td>{v.visits}</td></tr>)}
+                  </tbody>
+                </table>
+              </details>
             </aside>
           </div>
 

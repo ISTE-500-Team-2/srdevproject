@@ -1,3 +1,5 @@
+import { MemberCards } from '../access/MemberCards';
+import { SupervisedAccess } from '../access/SupervisedAccess';
 import { useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { api, ApiError } from "../../lib/api";
@@ -32,6 +34,7 @@ export function UserDetail({
   const detail = useApi<MemberDetail>(`/admin/users/${id}`, { retainOnReload: true, refreshInterval: 3000 }),
     { user: actor } = useAuth();
   const [confirmedUser, setConfirmedUser] = useState<Person | null>(null);
+  const [cardRevision,setCardRevision] = useState(0);
   const [notice, setNotice] = useState(""),
     [renewal, setRenewal] = useState<Entitlement | null>(null);
   const refresh = (message = "Change saved.") => {
@@ -82,7 +85,7 @@ export function UserDetail({
               Account status: <strong>{u.status}</strong> · Conduct flag:{" "}
               <strong>{u.conductFlag ? "Yes" : "No"}</strong>
             </p>
-            <AccessReadiness userId={id} revision={u.revision} />
+            <AccessReadiness userId={id} revision={u.revision+cardRevision} headingLevel={3} />
             {u.accessReason ? <p>Access note: {u.accessReason}</p> : null}
             {u.accountReason ? <p>Account note: {u.accountReason}</p> : null}
             {!canManage ? (
@@ -242,6 +245,8 @@ export function UserDetail({
               </details>
             ) : null}
           </section>
+          <MemberCards key={`cards-${id}`} userId={id} memberName={`${u.firstName} ${u.lastName}`} onChanged={()=>setCardRevision(n=>n+1)}/>
+          <SupervisedAccess key={`supervision-${id}`} userId={id} memberName={`${u.firstName} ${u.lastName}`} timeZone={timeZone}/>
           <section className="panel management-panel">
             <IssueAccess
               key={renewal ? `${renewal.id}-${renewal.endsAt}` : "new"}

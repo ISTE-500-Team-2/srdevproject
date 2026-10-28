@@ -16,6 +16,7 @@ export function MemberSelect({
   label = "Member",
   required = true,
   instructorsOnly = false,
+  selectedMember,
 }: {
   name?: string;
   value?: string;
@@ -23,6 +24,7 @@ export function MemberSelect({
   label?: string;
   required?: boolean;
   instructorsOnly?: boolean;
+  selectedMember?: Member;
 }) {
   const id = useId();
   const input = useRef<HTMLInputElement>(null);
@@ -33,6 +35,7 @@ export function MemberSelect({
   const [selection, setSelection] = useState("");
   const [chosen, setChosen] = useState<Member | null>(null);
   const current = value ?? selection;
+  const displayed = chosen?.id === Number(current) ? chosen : selectedMember?.id === Number(current) ? selectedMember : null;
   useEffect(() => {
     const timer = window.setTimeout(() => setQuery(search.trim()), 250);
     return () => window.clearTimeout(timer);
@@ -89,8 +92,8 @@ export function MemberSelect({
       {current ? (
         <div className="member-select__chosen" role="group" aria-labelledby={id + "-label"}>
           <span>
-            <b>{chosen?.name ?? `${label} #${current}`}</b>
-            {chosen ? <small>{chosen.email}</small> : null}
+            <b>{displayed?.name ?? `${label} #${current}`}</b>
+            {displayed ? <small>{displayed.email}</small> : null}
           </span>
           <button type="button" className="member-select__change" onClick={clear} aria-label={`Change ${label.toLowerCase()}`}>
             <X aria-hidden="true" /> Change

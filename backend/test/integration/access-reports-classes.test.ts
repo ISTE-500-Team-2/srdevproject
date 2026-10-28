@@ -271,7 +271,7 @@ test("staff supervision creates a reservation without bypassing safety; card rev
   );
   assert.equal(
     (await scan({ reader: "entrance" })).body.data.reason,
-    "CARD_NOT_ASSIGNED",
+    "CARD_REVOKED",
   );
   const saved = (
     await pool.query("SELECT uid_hash FROM app_access_card WHERE id=$1", [

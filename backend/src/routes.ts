@@ -1,3 +1,4 @@
+import { ReaderRegistry } from './readerRegistry.js';
 import {reportRoutes} from './reports.js';
 import {accountModeRoutes,paymentDetailsAreMemberOnly,settingsAreMemberOnly,signatureIsMemberOnly,waiverCopiesAreAdminOnly} from './accountMode.js';
 import {trainingClassRoutes} from './trainingClasses.js';
@@ -24,7 +25,7 @@ import {
 } from "./middleware/auth.js";
 import { StaffController } from "./controllers/StaffController.js";
 
-export function apiRoutes(pool: Pool, config: AppConfig) {
+export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderRegistry(pool,config.devices)) {
   const routes = Router();
   const auth = new AuthController(pool, config);
   const notifications = new NotificationPreferencesController(pool);
@@ -92,7 +93,7 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.use("/admin", requireStaff);
   routes.use(accountModeRoutes(pool, config));
   routes.use(reportRoutes(pool,config.timeZone));
-  routes.use(cardManagement(pool,config.timeZone,config.devices));
+  routes.use(cardManagement(pool,config.timeZone,config.devices,readers));
   routes.get("/admin/plans", permit("plan","read","global"), staff.plans);
   routes.post("/admin/plans", permit("plan","create","global"), requireCsrf, staff.createPlan);
   routes.patch("/admin/plans/:id", permit("plan","update","global"), requireCsrf, staff.updatePlan);

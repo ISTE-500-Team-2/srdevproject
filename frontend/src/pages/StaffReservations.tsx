@@ -1,5 +1,5 @@
 import { CalendarDays, Pencil, Plus, RefreshCw, XCircle } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 import { Toast } from "../components/Toast";
 import { api, errorMessage } from "../lib/api";
 import type { LiveEquipment, Reservation } from "../lib/contracts";
@@ -8,6 +8,7 @@ import { useApi } from "../lib/useApi";
 import { useSearchParams } from "react-router-dom";
 import { MemberSelect } from "../components/MemberSelect";
 import { dateTime } from "../lib/display";
+import { Modal } from "../components/Modal";
 
 type ReservationForm = {
   userId: string;
@@ -33,6 +34,9 @@ export function StaffReservations() {
     equipmentId: "",
   }));
   const [editing, setEditing] = useState<Reservation | null>(null);
+  const editorTitle = useRef<HTMLHeadingElement>(null);
+  const [cancelling, setCancelling] = useState<Reservation | null>(null);
+  const [cancelError, setCancelError] = useState("");
   const [form, setForm] = useState<ReservationForm>(emptyForm);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -97,15 +101,16 @@ export function StaffReservations() {
 
   const cancel = async (reservation: Reservation) => {
     setBusy(true);
-    setMessage("");
+    setCancelError("");
     try {
       await api(`/admin/reservations/${reservation.id}/cancel`, {
         method: "POST",
       });
       setToast("Reservation cancelled.");
+      setCancelling(null);
       reservations.reload();
     } catch (error) {
-      setMessage(errorMessage(error));
+      setCancelError(errorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -134,6 +139,11 @@ export function StaffReservations() {
           ),
         ),
       ),
+    });
+    // Wait for the updated heading/form before moving focus from the record.
+    requestAnimationFrame(() => {
+      editorTitle.current?.focus({ preventScroll: true });
+      editorTitle.current?.scrollIntoView({ block: "start" });
     });
   };
 
@@ -214,7 +224,7 @@ export function StaffReservations() {
                   <button
                     className="button button--quiet"
                     disabled={busy}
-                    onClick={() => void cancel(item)}
+                    onClick={() => { setCancelError(""); setCancelling(item); }}
                   >
                     <XCircle aria-hidden="true" /> Cancel
                   </button>
@@ -244,7 +254,7 @@ export function StaffReservations() {
         </div>
       </div>
       <aside className="management-panel panel">
-        <h2>{editing ? "Modify reservation" : "Create reservation"}</h2>
+        <h2 ref={editorTitle} tabIndex={-1} className="reservation-editor-title">{editing ? "Modify reservation" : "Create reservation"}</h2>
         <form className="management-form" onSubmit={save}>
           <MemberSelect
             value={form.userId}
@@ -314,6 +324,18 @@ export function StaffReservations() {
           </div>
         </form>
       </aside>
+      {cancelling ? (
+        <Modal open width="compact" title="Cancel this reservation?" dismissible={!busy} onClose={() => setCancelling(null)}>
+          <p>{cancelling.equipmentName} · reservation #{cancelling.id}</p>
+          <p>{cancelling.memberName || `Member #${cancelling.userId}`} · {dateTime(cancelling.startTime)} to {dateTime(cancelling.endTime)}</p>
+          <p>This releases the reserved time. This action cannot be undone here.</p>
+          {cancelError ? <p className="form-error" role="alert">{cancelError}</p> : null}
+          <div className="management-actions">
+            <button type="button" className="button button--quiet" disabled={busy} onClick={() => setCancelling(null)}>Keep reservation</button>
+            <button type="button" className="button button--primary" disabled={busy} onClick={() => void cancel(cancelling)}>{busy ? "Cancelling…" : "Cancel reservation"}</button>
+          </div>
+        </Modal>
+      ) : null}
       <Toast message={toast} onClose={() => setToast(null)} />
     </section>
   );

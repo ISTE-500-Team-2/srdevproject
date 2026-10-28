@@ -1,231 +1,137 @@
-import { useState, type FormEvent } from "react";
-import { useSearchParams } from "react-router-dom";
-import { api, errorMessage } from "../lib/api";
+import { useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { useApi } from "../lib/useApi";
+import type { Person } from "../lib/staffContracts";
+import type { ReaderSetup } from "../lib/nfc";
 import { LoadState } from "../components/Management";
-import { dateTime } from "../lib/display";
-import { AccessReadiness } from "../components/staff/AccessReadiness";
 import { MemberSelect } from "../components/MemberSelect";
-type Card = {
-  id: number;
-  label: string;
-  active: boolean;
-  revision: number;
-  assignedAt: string;
-};
+import { AccessReadiness } from "../components/staff/AccessReadiness";
+import { MemberCards } from "../components/access/MemberCards";
+import { ReaderManager } from "../components/access/ReaderManager";
+import { CardLookup } from "../components/access/CardLookup";
+import { TapHistory } from "../components/access/TapHistory";
+
 export function AccessManagementPage() {
-  const [params] = useSearchParams();
-  // ?member= arrives from a member's account in account mode.
-  const [member, setMember] = useState(() => (Number(params.get("member")) > 0 ? String(Number(params.get("member"))) : "")),
-    [message, setMessage] = useState(""),
-    [busy, setBusy] = useState(false);
-  const cards = useApi<Card[]>(
-    member ? "/admin/access/cards?userId=" + member : null,
+  const [params, setParams] = useSearchParams();
+  const requested = Number(params.get("member"));
+  const member =
+    Number.isSafeInteger(requested) && requested > 0 ? String(requested) : "";
+  const view = ["readers", "lookup", "history"].includes(
+    params.get("view") ?? "",
+  )
+    ? params.get("view")!
+    : "cards";
+  const detail = useApi<{ user: Person }>(
+    member ? `/admin/users/${member}` : null,
   );
-  const overrides = useApi<
-    {
-      id: number;
-      kind: string;
-      resourceId: number;
-      endsAt: string;
-      reason: string;
-      revokedAt: string | null;
-    }[]
-  >(member ? "/admin/access/overrides?userId=" + member : null);
-  async function run(work: () => Promise<unknown>) {
-    setBusy(true);
-    setMessage("");
-    try {
-      await work();
-      cards.reload();
-      overrides.reload();
-      setMessage("Access record saved.");
-    } catch (e) {
-      setMessage(errorMessage(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function assign(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const f = new FormData(e.currentTarget);
-    const form = e.currentTarget;
-    await run(async () => {
-      await api("/admin/access/cards", {
-        method: "POST",
-        body: {
-          userId: Number(member),
-          uid: f.get("uid"),
-          label: f.get("label"),
-          reason: f.get("reason"),
-        },
-      });
-      form.reset();
-    });
-  }
+  const setup = useApi<ReaderSetup>("/admin/access/readers", {
+    retainOnReload: true,
+  });
+  const person =
+    detail.data?.user.id === Number(member) ? detail.data.user : undefined;
   return (
-    <section className="management-page">
-      <h1>Reader access management</h1>
-      <p>
-        Link an NFC card to a member. Every tap checks their access at that moment.
-      </p>
-      {message ? <p role="status">{message}</p> : null}
-      <form
-        className="management-search"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setMember(String(new FormData(e.currentTarget).get("member")));
-        }}
-      >
-        <MemberSelect name="member" />
-        <button className="button button--quiet">Load cards</button>
-      </form>
-      {member ? (
-        <>
-          <AccessReadiness key={member} userId={Number(member)} />
-          <LoadState {...cards} />
-          {cards.data?.map((c) => (
-            <article className="saved-record" key={c.id}>
-              <h2>{c.label}</h2>
-              <p>
-                {c.active ? "Active" : "Revoked"} · assigned{" "}
-                {dateTime(c.assignedAt)}
-              </p>
-              {c.active ? (
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    const f = new FormData(e.currentTarget);
-                    void run(() =>
-                      api(`/admin/access/cards/${c.id}/revoke`, {
-                        method: "POST",
-                        body: {
-                          expectedRevision: c.revision,
-                          reason: f.get("reason"),
-                        },
-                      }),
-                    );
-                  }}
-                >
-                  <label>
-                    Revocation reason
-                    <input name="reason" required maxLength={500} />
-                  </label>
-                  <button className="button button--quiet" disabled={busy}>
-                    Revoke {c.label}
-                  </button>
-                </form>
-              ) : null}
-            </article>
-          ))}
-          <form className="management-form" onSubmit={assign}>
-            <h2>Assign scanned card</h2>
-            <label>
-              Card UID
-              <input name="uid" autoComplete="off" required />
-            </label>
-            <label>
-              Card label
-              <input name="label" maxLength={100} required />
-            </label>
-            <label>
-              Assignment reason
-              <input name="reason" maxLength={500} required />
-            </label>
-            <button className="button button--primary" disabled={busy}>
-              Assign card
-            </button>
-          </form>
-          <h2>Timed access overrides</h2>
-          <LoadState {...overrides} />
-          {overrides.data?.map((o) => (
-            <article className="saved-record" key={o.id}>
-              <h3>
-                {o.kind} {o.resourceId}
-              </h3>
-              <p>
-                {o.reason} · ends {dateTime(o.endsAt)} ·{" "}
-                {o.revokedAt
-                  ? "Revoked"
-                  : new Date(o.endsAt) <= new Date()
-                    ? "Expired"
-                    : "Active"}
-              </p>
-              {!o.revokedAt && new Date(o.endsAt) > new Date() ? (
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    const reason = new FormData(e.currentTarget).get("reason");
-                    void run(() =>
-                      api(`/admin/access/overrides/${o.id}/revoke`, {
-                        method: "POST",
-                        body: { reason },
-                      }),
-                    );
-                  }}
-                >
-                  <label>
-                    Revocation reason
-                    <input name="reason" required maxLength={500} />
-                  </label>
-                  <button className="button button--quiet" disabled={busy}>
-                    Revoke override {o.id}
-                  </button>
-                </form>
-              ) : null}
-            </article>
-          ))}
-          <form
-            className="management-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const f = new FormData(e.currentTarget);
-              void run(() =>
-                api("/admin/access/overrides", {
-                  method: "POST",
-                  body: {
-                    userId: Number(member),
-                    kind: f.get("kind"),
-                    resourceId: Number(f.get("id")),
-                    endsAt: new Date(String(f.get("endsAt"))).toISOString(),
-                    reason: f.get("reason"),
-                  },
-                }),
-              );
-            }}
+    <section className="management-page nfc-page">
+      <header>
+        <h1>Reader access</h1>
+        <p>Assign NFC cards, manage readers, and investigate card taps.</p>
+      </header>
+      <nav className="nfc-nav" aria-label="Reader access sections">
+        {[
+          ["cards", "Member cards"],
+          ["readers", "Readers"],
+          ["lookup", "Find a card"],
+          ["history", "Tap history"],
+        ].map(([key, label]) => (
+          <Link
+            key={key}
+            aria-current={view === key ? "page" : undefined}
+            to={`?${new URLSearchParams({ ...(view === "cards" && member ? { member } : {}), ...(key === "cards" ? {} : { view: key }) })}`}
           >
-            <h2>Short staff access override</h2>
-            <p>
-              Creates a confirmed reservation for up to 30 minutes when no
-              current booking exists. Membership, waivers, training, and account
-              restrictions still apply. Revoking supervision cancels the
-              reservation it created.
+            {label}
+          </Link>
+        ))}
+      </nav>
+      {view === "cards" ? (
+        <>
+          <MemberSelect
+            name="member"
+            value={member}
+            selectedMember={
+              person
+                ? {
+                    id: person.id,
+                    name: `${person.firstName} ${person.lastName}`,
+                    email: person.email,
+                  }
+                : undefined
+            }
+            onChange={(value) => setParams(value ? { member: value } : {})}
+          />
+          {member ? (
+            <>
+              <LoadState {...detail} />
+              {detail.error ? (
+                <button
+                  className="button button--quiet"
+                  onClick={detail.reload}
+                >
+                  Retry member
+                </button>
+              ) : null}
+              {person ? (
+                <MemberWorkspace key={person.id} person={person} />
+              ) : null}
+            </>
+          ) : (
+            <p className="empty-state">
+              Choose a member to see their NFC cards and assign a new one. Cards
+              load as soon as you select a person.
             </p>
-            <label>
-              Resource
-              <select name="kind">
-                <option value="equipment">Equipment</option>
-                <option value="room">Room</option>
-              </select>
-            </label>
-            <label>
-              Resource ID
-              <input name="id" type="number" min={1} required />
-            </label>
-            <label>
-              Ends
-              <input name="endsAt" type="datetime-local" required />
-            </label>
-            <label>
-              Reason
-              <input name="reason" required maxLength={500} />
-            </label>
-            <button className="button button--primary" disabled={busy}>
-              Create timed override
-            </button>
-          </form>
+          )}
         </>
-      ) : null}
+      ) : (
+        <>
+          <LoadState {...setup} />
+          {setup.error ? (
+            <button className="button button--quiet" onClick={setup.reload}>
+              Retry reader setup
+            </button>
+          ) : null}
+          {setup.data ? (
+            view === "readers" ? (
+              <ReaderManager
+                setup={setup.data}
+                reload={setup.reload}
+                refreshing={setup.refreshing}
+              />
+            ) : view === "lookup" ? (
+              <CardLookup setup={setup.data} />
+            ) : (
+              <TapHistory setup={setup.data} />
+            )
+          ) : null}
+        </>
+      )}
     </section>
+  );
+}
+function MemberWorkspace({ person }: { person: Person }) {
+  const [revision, setRevision] = useState(0);
+  return (
+    <>
+      <MemberCards
+        userId={person.id}
+        memberName={`${person.firstName} ${person.lastName}`}
+        onChanged={() => setRevision((n) => n + 1)}
+      />
+      <AccessReadiness userId={person.id} revision={revision} />
+      <p className="nfc-help">
+        Supervised equipment and room access is managed in{" "}
+        <Link to={`/admin/members?member=${person.id}`}>
+          {person.firstName}’s member record
+        </Link>
+        .
+      </p>
+    </>
   );
 }

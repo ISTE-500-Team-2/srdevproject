@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import userEvent from "@testing-library/user-event";
 import type { User } from "../../lib/contracts";
 
 type Auth = {
@@ -173,6 +174,33 @@ test("opening an account from inside the workspace does not close it again", asy
   expect(auth.closeAccount).not.toHaveBeenCalled();
 });
 
+test("mobile navigation contains focus, locks the background, and restores the menu trigger", async () => {
+  auth.user = admin;
+  const user = userEvent.setup();
+  const view = at(<AdminShell />, "/admin");
+  expect(view.container.querySelector(".admin-top__view")?.getAttribute("aria-label")).toBe("View member site");
+  const trigger = screen.getByRole("button", { name: "Open navigation" });
+  // A touch activation need not focus the button first (notably in WebKit).
+  fireEvent.click(trigger);
+  const drawer = screen.getByRole("dialog", { name: "Workspace navigation" });
+  expect(drawer.contains(document.activeElement)).toBe(true);
+  expect(view.container.inert).toBe(true);
+  expect(document.body.classList.contains("modal-open")).toBe(true);
+  for (let i = 0; i < 20; i++) {
+    await user.tab();
+    expect(drawer.contains(document.activeElement)).toBe(true);
+  }
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(view.container.inert).not.toBe(true);
+  expect(document.activeElement).toBe(trigger);
+  expect(document.body.classList.contains("modal-open")).toBe(false);
+  fireEvent.click(trigger);
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("link", { name: "Members" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.getByLabelText("location").textContent).toBe("/admin/members");
+});
+
 test("staff see their tools, with admin-only and instructor actions locked", () => {
   auth.user = dana;
   auth.actor = staff;
@@ -183,7 +211,7 @@ test("staff see their tools, with admin-only and instructor actions locked", () 
   const locked = screen.getByRole("region", { name: "Needs an instructor or admin" });
   expect(within(locked).getByRole("button", { name: /Change role/ })).toHaveProperty("disabled", true);
   expect(within(locked).getByRole("button", { name: /Sign off training/ })).toHaveProperty("disabled", true);
-  expect(screen.getByRole("link", { name: /Assign a tag/ }).getAttribute("href")).toBe("/admin/access?member=7");
+  expect(screen.getByRole("link", { name: /Assign an NFC card/ }).getAttribute("href")).toBe("/admin/access?member=7");
   expect(screen.getByRole("link", { name: /Move a booking/ }).getAttribute("href")).toBe("/admin/reservations?member=7");
   // Problems on the account come first, with the next step staff can take.
   expect(screen.getByText("Dana has no active membership or day pass.")).toBeTruthy();

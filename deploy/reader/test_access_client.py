@@ -25,6 +25,30 @@ class Tests(unittest.TestCase):
                 'expiresAt':(datetime.now(timezone.utc)+timedelta(seconds=3)).isoformat()})
         c=AccessClient('https://example.invalid','test','x'*32,open_request)
         self.assertTrue(0<c.decide('01020304')<=3)
+    def test_heartbeat_reads_enrollment_command_without_uid_or_relay_lease(self):
+        def opener(req, timeout):
+            body = json.loads(req.data)
+            self.assertEqual(body['action'], 'heartbeat')
+            self.assertNotIn('uid', body)
+            return Response({'eventId': body['eventId'], 'readerId': 'test',
+                'mode': 'enroll', 'allowed': False, 'enrollmentExpiresAt': '2026-10-28T20:32:00Z'})
+        result = AccessClient('https://example.invalid', 'test', 'x'*32, opener).status()
+        self.assertEqual(result['mode'], 'enroll')
+
+    def test_physical_scan_and_renewal_are_distinct_and_enroll_never_energizes(self):
+        payloads = []
+        def opener(req, timeout):
+            body = json.loads(req.data)
+            payloads.append(body)
+            return Response({'eventId': body['eventId'], 'readerId': 'test', 'mode': 'enroll',
+                'allowed': True, 'leaseSeconds': 5,
+                'expiresAt': (datetime.now(timezone.utc)+timedelta(seconds=5)).isoformat()})
+        client = AccessClient('https://example.invalid', 'test', 'x'*32, opener)
+        self.assertEqual(client.decide('01020304', True), 0)
+        self.assertEqual(client.decide('01020304', renewal=True), 0)
+        self.assertFalse(payloads[0]['renewal'])
+        self.assertTrue(payloads[1]['renewal'])
+
     def test_expired_or_mismatched_decisions_do_not_grant(self):
         def opener(req,timeout):
             body=json.loads(req.data)
@@ -56,7 +80,7 @@ class Tests(unittest.TestCase):
     def test_active_session_rechecks_and_denial_terminates_relay(self):
         calls=[]
         class Revoked:
-            def decide(self, uid, check_in=False):
+            def decide(self, uid, check_in=False, *, renewal=False):
                 calls.append(check_in)
                 return 5 if len(calls)==1 else 0
         states=[];session=RenewingAccessSession(Revoked(),RelayLease(states.append),'01020304')
