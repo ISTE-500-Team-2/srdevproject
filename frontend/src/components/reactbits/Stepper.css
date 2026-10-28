@@ -99,7 +99,7 @@
   border-radius: 50%;
   box-shadow: inset 0 0 0 1px var(--stepper-faint);
   color: var(--stepper-muted);
-  font-size: 11.5px;
+  font-size: var(--text-xs);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1;
@@ -136,7 +136,7 @@
 
 .stepper__title {
   overflow: hidden;
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 600;
   line-height: 1.2;
   color: var(--stepper-muted);
@@ -151,7 +151,7 @@
 
 .stepper__description {
   overflow: hidden;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.35;
   color: var(--stepper-muted);
   text-overflow: ellipsis;
@@ -327,7 +327,7 @@
   border: none;
   border-radius: max(8px, calc(var(--stepper-radius) * 0.5));
   font-family: inherit;
-  font-size: 13.5px;
+  font-size: var(--text-base-sm);
   font-weight: 600;
   line-height: 1;
   cursor: pointer;

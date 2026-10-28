@@ -47,19 +47,19 @@
 .hold-button--sm {
   height: 36px;
   padding: 0 16px;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .hold-button--md {
   height: 44px;
   padding: 0 22px;
-  font-size: 15px;
+  font-size: var(--text-base);
 }
 
 .hold-button--lg {
   height: 52px;
   padding: 0 28px;
-  font-size: 17px;
+  font-size: var(--text-base);
 }
 
 @media (hover: hover) and (pointer: fine) {

@@ -232,7 +232,7 @@ export function LoginPage() {
                 checkColor="#fff"
                 boxSize={20}
                 boxRadius={5}
-                fontSize={14.4}
+                fontSize={14}
               />
               <button
                 className="text-button"

@@ -31,7 +31,7 @@
 }
 .membership-banner div span {
   color: var(--ink-soft);
-  font-size: 0.9rem;
+  font-size: var(--text-base-sm);
 }
 
 /* Status pills */
@@ -41,7 +41,7 @@
   border: 1px solid transparent;
   border-radius: 999px;
   padding: 3px 10px;
-  font-size: 0.78rem;
+  font-size: var(--text-xs);
   font-weight: 700;
   white-space: nowrap;
 }
@@ -91,7 +91,7 @@
 }
 .membership-status__title {
   margin: 6px 0 4px;
-  font-size: 1.35rem;
+  font-size: var(--text-2xl);
   line-height: 1.2;
 }
 .membership-status__main p {
@@ -151,7 +151,7 @@
 }
 .membership-passes__heading span {
   color: var(--ink-soft);
-  font-size: 0.85rem;
+  font-size: var(--text-base-sm);
 }
 .membership-passes ul {
   margin: 4px 0 0;
@@ -180,12 +180,12 @@
 .membership-pass__date small {
   display: block;
   color: var(--bronze);
-  font-size: 0.66rem;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.08em;
 }
 .membership-pass__date b {
-  font-size: 1.2rem;
+  font-size: var(--text-xl);
 }
 .membership-pass__body {
   flex: 1;
@@ -194,7 +194,7 @@
 }
 .membership-pass__body span {
   color: var(--ink-soft);
-  font-size: 0.88rem;
+  font-size: var(--text-base-sm);
 }
 
 /* Plan cards */
@@ -207,7 +207,7 @@
 }
 .membership-section-heading .membership-test-note {
   margin-top: 6px;
-  font-size: 0.85rem;
+  font-size: var(--text-base-sm);
 }
 .plan-cards {
   display: grid;
@@ -241,19 +241,19 @@
 }
 .plan-card__price {
   margin: 0;
-  font-size: 1.7rem;
+  font-size: var(--text-3xl);
   font-weight: 700;
   line-height: 1;
 }
 .plan-card__price small {
   color: var(--ink-soft);
-  font-size: 0.9rem;
+  font-size: var(--text-base-sm);
   font-weight: 500;
 }
 .plan-card__price s {
   margin-left: 8px;
   color: var(--ink-soft);
-  font-size: 0.95rem;
+  font-size: var(--text-base);
   font-weight: 500;
 }
 .plan-card__benefits {
@@ -262,7 +262,7 @@
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: 0.94rem;
+  font-size: var(--text-base);
 }
 .plan-card__benefits li {
   display: flex;
@@ -283,7 +283,7 @@
 .membership-field {
   display: grid;
   gap: 6px;
-  font-size: 0.88rem;
+  font-size: var(--text-base-sm);
   font-weight: 600;
 }
 .membership-field input {
@@ -301,7 +301,7 @@
   align-items: center;
   margin: 0;
   color: var(--ink-soft);
-  font-size: 0.86rem;
+  font-size: var(--text-base-sm);
 }
 .membership-hint svg {
   flex: none;
@@ -356,14 +356,14 @@
 }
 .membership-terms summary {
   color: var(--bronze);
-  font-size: 0.9rem;
+  font-size: var(--text-base-sm);
   font-weight: 600;
   cursor: pointer;
 }
 .membership-terms p {
   margin: 8px 0 0;
   color: var(--ink-soft);
-  font-size: 0.9rem;
+  font-size: var(--text-base-sm);
 }
 
 /* History */
@@ -383,7 +383,7 @@
   background: none;
   color: inherit;
   font: inherit;
-  font-size: 1.1rem;
+  font-size: var(--text-lg);
   font-weight: 700;
   text-align: left;
   cursor: pointer;
@@ -394,7 +394,7 @@
 }
 .membership-history__toggle small {
   color: var(--ink-soft);
-  font-size: 0.85rem;
+  font-size: var(--text-base-sm);
   font-weight: 500;
 }
 .membership-history__toggle svg {
@@ -428,7 +428,7 @@
 .membership-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.94rem;
+  font-size: var(--text-base);
 }
 .membership-table th,
 .membership-table td {
@@ -438,7 +438,7 @@
 }
 .membership-table th {
   color: var(--ink-soft);
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }

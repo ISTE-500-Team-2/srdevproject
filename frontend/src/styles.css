@@ -1,4 +1,18 @@
 :root {
+  /* Type scale. Every font-size in the app should use one of these steps. */
+  --text-2xs: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 1.75rem;
+  --text-4xl: 2rem;
+  --text-5xl: 2.5rem;
+  --text-page-title: clamp(2.25rem, 4vw, 3rem);
+  --text-admin-title: clamp(2rem, 3.4vw, 2.5rem);
   color: #24150e;
   background: #f7f4f0;
   font-family: 'Barlow', sans-serif;
@@ -82,6 +96,15 @@ p {
   margin-top: 0;
 }
 
+/* Browser defaults (1.17em, "smaller") fall between steps on the type scale. */
+h3 {
+  font-size: var(--text-lg);
+}
+
+small {
+  font-size: var(--text-sm);
+}
+
 :focus-visible {
   outline: 3px solid var(--orange);
   outline-offset: 3px;
@@ -123,7 +146,7 @@ p {
 .eyebrow {
   margin-bottom: 8px;
   color: var(--bronze);
-  font-size: 0.74rem;
+  font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: 0.15em;
   text-transform: uppercase;
@@ -367,7 +390,7 @@ p {
   margin-top: 3px;
   overflow: hidden;
   color: var(--ink-soft);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   text-overflow: ellipsis;
 }
 
@@ -437,7 +460,7 @@ p {
   border: 0;
   padding: 10px 0;
   background: transparent;
-  font-size: 1.08rem;
+  font-size: var(--text-lg);
   outline: 0;
 }
 
@@ -500,7 +523,7 @@ p {
 .site-footer h2 {
   margin-bottom: 24px;
   color: white;
-  font-size: 1rem;
+  font-size: var(--text-base);
 }
 
 .site-footer ul {
@@ -527,7 +550,7 @@ p {
   margin-top: 54px;
   padding-top: 20px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
-  font-size: 0.82rem;
+  font-size: var(--text-sm);
 }
 
 .site-footer__bottom p {
@@ -672,7 +695,7 @@ p {
 .form-error {
   margin: 14px 0 0;
   color: var(--red);
-  font-size: 0.9rem;
+  font-size: var(--text-base-sm);
 }
 
 .form-notice,
@@ -690,7 +713,7 @@ p {
   margin: 0;
   background: transparent;
   color: var(--ink-soft);
-  font-size: 0.82rem;
+  font-size: var(--text-sm);
   text-align: center;
 }
 
@@ -882,7 +905,7 @@ p {
   align-items: center;
   justify-content: space-between;
   gap: 12px 20px;
-  font-size: 0.9rem;
+  font-size: var(--text-base-sm);
 }
 
 .login-card__options .text-button {
@@ -921,7 +944,7 @@ p {
 .signup-stepper .stepper__button {
   min-height: 44px;
   border-radius: 8px;
-  font-size: 1rem;
+  font-size: var(--text-base);
 }
 
 .signup-stepper .stepper__button--next {
@@ -958,10 +981,10 @@ p {
 .reset-email { color: var(--ink); font-weight: 600; overflow-wrap: anywhere; }
 .reset-actions { display: grid; gap: 14px; }
 .reset-actions .form-error { margin: 0; }
-.reset-hint { margin: 0; color: var(--ink-soft); font-size: 0.9rem; text-align: center; }
+.reset-hint { margin: 0; color: var(--ink-soft); font-size: var(--text-base-sm); text-align: center; }
 .reset-countdown { font-variant-numeric: tabular-nums; }
 
-.reset-rules { display: grid; gap: 7px; margin: 2px 0 0; padding: 0; list-style: none; color: var(--ink-soft); font-size: 0.88rem; font-weight: 400; }
+.reset-rules { display: grid; gap: 7px; margin: 2px 0 0; padding: 0; list-style: none; color: var(--ink-soft); font-size: var(--text-base-sm); font-weight: 400; }
 .reset-rules li { display: flex; align-items: center; gap: 9px; transition: color 160ms ease; }
 .reset-rules__mark { width: 18px; height: 18px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--border); transition: background-color 200ms ease, box-shadow 200ms ease, transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1); }
 .reset-rules__mark svg { width: 11px; height: 11px; opacity: 0; transform: scale(0.4); transition: opacity 160ms ease, transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1); }
@@ -970,7 +993,7 @@ p {
 .reset-rules li[data-met] .reset-rules__mark svg { opacity: 1; transform: none; }
 
 .form-field[data-invalid] .form-field__control { border-bottom-color: var(--red); }
-.form-field__error { margin: 0; color: var(--red); font-size: 0.85rem; font-weight: 400; }
+.form-field__error { margin: 0; color: var(--red); font-size: var(--text-base-sm); font-weight: 400; }
 
 .reset-step { animation: step-in 360ms cubic-bezier(0.16, 1, 0.3, 1) both; }
 .spin { animation: spin 800ms linear infinite; }
@@ -996,7 +1019,7 @@ p {
   padding-top: 18px;
   border-top: 1px dashed var(--border);
   color: var(--ink-soft);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 @media (max-width: 560px) {
@@ -1082,7 +1105,7 @@ p {
 
 .loading-page__progress span {
   z-index: 1;
-  font-size: 1rem;
+  font-size: var(--text-base);
   font-weight: 600;
 }
 
@@ -1109,7 +1132,7 @@ p {
 }
 
 .dashboard-intro h1 {
-  font-size: clamp(2rem, 4vw, 3.2rem);
+  font-size: var(--text-page-title);
 }
 
 .membership-pill {
@@ -1121,7 +1144,7 @@ p {
   padding: 5px 12px;
   background: linear-gradient(135deg, #bc720d, #8d4d05);
   color: white;
-  font-size: 0.78rem;
+  font-size: var(--text-xs);
   font-weight: 700;
   box-shadow: 0 4px 12px rgba(116, 61, 4, 0.22);
 }
@@ -1164,12 +1187,12 @@ p {
 
 .summary-card__heading h2 {
   margin: 0;
-  font-size: clamp(1.05rem, 2vw, 1.35rem);
+  font-size: var(--text-xl);
   font-weight: 500;
 }
 
 .summary-card__heading > strong {
-  font-size: 1.35rem;
+  font-size: var(--text-2xl);
 }
 
 .summary-card__icon {
@@ -1206,11 +1229,11 @@ p {
 }
 
 .summary-card__action strong {
-  font-size: 0.88rem;
+  font-size: var(--text-base-sm);
 }
 
 .summary-card__action em {
-  font-size: 1rem;
+  font-size: var(--text-base);
 }
 
 .summary-card__action svg {
@@ -1238,7 +1261,7 @@ p {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 1.25rem;
+  font-size: var(--text-xl);
 }
 
 .membership-card__heading svg {
@@ -1251,7 +1274,7 @@ p {
   border-radius: 99px;
   padding: 4px 16px;
   background: var(--bronze);
-  font-size: 0.78rem;
+  font-size: var(--text-xs);
   font-weight: 700;
 }
 
@@ -1275,7 +1298,7 @@ p {
   align-items: center;
   gap: 7px;
   color: #e0d1c9;
-  font-size: 0.82rem;
+  font-size: var(--text-sm);
   font-style: italic;
   text-decoration: none;
 }
@@ -1308,7 +1331,7 @@ p {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.83rem;
+  font-size: var(--text-sm);
   font-style: italic;
   text-decoration: none;
   white-space: nowrap;
@@ -1345,7 +1368,7 @@ p {
 .class-card h3,
 .equipment-preview h3 {
   margin-bottom: 6px;
-  font-size: 1.35rem;
+  font-size: var(--text-2xl);
 }
 
 .class-card > a,
@@ -1356,7 +1379,7 @@ p {
   gap: 5px;
   padding: 8px 17px 14px;
   color: var(--bronze);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   font-weight: 600;
   text-decoration: none;
 }
@@ -1405,11 +1428,11 @@ p {
 
 .equipment-preview__body span {
   color: var(--ink-soft);
-  font-size: 0.74rem;
+  font-size: var(--text-xs);
 }
 
 .equipment-preview__body strong {
-  font-size: 0.85rem;
+  font-size: var(--text-base-sm);
 }
 
 /* Admin dashboard */
@@ -1477,7 +1500,7 @@ p {
 }
 
 .active-users strong {
-  font-size: 1.6rem;
+  font-size: var(--text-2xl);
 }
 
 .active-users i {
@@ -1527,7 +1550,7 @@ p {
 
 .admin-class > button strong {
   margin-bottom: 4px;
-  font-size: 1.24rem;
+  font-size: var(--text-xl);
 }
 
 .admin-class > button small {
@@ -1544,7 +1567,7 @@ p {
   padding: 4px 10px;
   background: var(--espresso);
   color: white;
-  font-size: 0.7rem;
+  font-size: var(--text-2xs);
 }
 
 .admin-class__meta time {
@@ -1592,7 +1615,7 @@ p {
   display: flex;
   align-items: center;
   gap: 9px;
-  font-size: 1.7rem;
+  font-size: var(--text-3xl);
 }
 
 .admin-class-list__footer svg {
@@ -1654,11 +1677,11 @@ p {
 .chart-label {
   fill: var(--ink-soft);
   font-family: 'Barlow', sans-serif;
-  font-size: 14px;
+  font-size: var(--text-base-sm);
 }
 
 .chart-label--date {
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .metric-card__footer {
@@ -1739,7 +1762,7 @@ p {
   top: -22px;
   left: 50%;
   color: var(--ink-soft);
-  font-size: 0.68rem;
+  font-size: var(--text-2xs);
   opacity: 0;
   transform: translateX(-50%);
   transition: opacity 160ms ease;
@@ -1752,7 +1775,7 @@ p {
 .bar-chart__column p {
   margin: 0;
   color: var(--ink-soft);
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
 }
 
 @keyframes details-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
@@ -1789,7 +1812,7 @@ p {
 }
 
 .training-panel__heading h1 {
-  font-size: clamp(1.9rem, 3.5vw, 2.7rem);
+  font-size: var(--text-page-title);
 }
 
 .training-schedule .training-panel__heading {
@@ -1804,7 +1827,7 @@ p {
   align-items: center;
   gap: 8px;
   color: var(--ink-soft);
-  font-size: 0.9rem;
+  font-size: var(--text-base-sm);
   font-weight: 600;
 }
 
@@ -1871,11 +1894,11 @@ p {
 
 .training-card h3 {
   margin-bottom: 8px;
-  font-size: 1.35rem;
+  font-size: var(--text-2xl);
 }
 
 .training-card__top strong {
-  font-size: 1.2rem;
+  font-size: var(--text-xl);
 }
 
 .training-card p {
@@ -1887,12 +1910,12 @@ p {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 0.82rem;
+  font-size: var(--text-sm);
 }
 
 .training-card .training-card__duration {
   margin-bottom: 8px;
-  font-size: 0.82rem;
+  font-size: var(--text-sm);
 }
 
 .training-card p svg {
@@ -1924,7 +1947,7 @@ p {
 }
 
 .reservation-section__heading h1 {
-  font-size: clamp(2rem, 3.2vw, 3.7rem);
+  font-size: var(--text-page-title);
 }
 
 /* Card titles use the body face; the display face is for page titles only. */
@@ -1932,7 +1955,7 @@ p {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 1.3rem;
+  font-size: var(--text-xl);
   font-weight: 700;
 }
 
@@ -2064,7 +2087,7 @@ place-items: center;
 .reservation-card__title h2 {
   margin-bottom: 5px;
   font-family: 'Black Ops One', sans-serif;
-  font-size: clamp(1.15rem, 1.7vw, 1.65rem);
+  font-size: var(--text-2xl);
   font-weight: 400;
 }
 
@@ -2073,7 +2096,7 @@ place-items: center;
   align-items: center;
   gap: 5px;
   color: var(--bronze);
-  font-size: 0.7rem;
+  font-size: var(--text-2xs);
   font-weight: 700;
   white-space: nowrap;
 }
@@ -2124,7 +2147,7 @@ place-items: center;
 .reservation-form__summary h3 {
   margin-bottom: 5px;
   font-family: 'Black Ops One', sans-serif;
-  font-size: 1.45rem;
+  font-size: var(--text-2xl);
   font-weight: 400;
 }
 
@@ -2158,7 +2181,7 @@ place-items: center;
   border-radius: 50%;
   background: var(--orange-soft);
   font-family: 'Black Ops One', sans-serif;
-  font-size: 1.5rem;
+  font-size: var(--text-2xl);
   box-shadow: 5px 5px 0 var(--espresso);
 }
 
@@ -2184,7 +2207,7 @@ place-items: center;
   max-width: 520px;
   margin-bottom: 26px;
   color: var(--ink-soft);
-  font-size: 1.08rem;
+  font-size: var(--text-lg);
 }
 
 /* Baseline for form controls that have no component styling of their own, so
@@ -2216,7 +2239,7 @@ place-items: center;
 .pass-date__hint {
   margin: 6px 0 0;
   color: var(--ink-soft);
-  font-size: 0.9rem;
+  font-size: var(--text-base-sm);
 }
 
 /* Page-level actions keep their natural width instead of stretching. */
@@ -2245,7 +2268,7 @@ place-items: center;
   align-items: center;
   border-radius: 999px;
   padding: 3px 10px;
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   font-weight: 700;
   white-space: nowrap;
 }
@@ -2539,7 +2562,7 @@ place-items: center;
 .waiver-name-cell .button { min-height: 36px; padding: 6px 12px; }
 .credentials-page--member-demo .certifications-table th {
   color: var(--ink);
-  font-size: clamp(1.05rem, 2vw, 1.35rem);
+  font-size: var(--text-xl);
   font-weight: 500;
 }
 .policy-text { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -2549,26 +2572,26 @@ place-items: center;
 .waiver-guardian-toggle { margin-bottom: 16px; }
 .waiver-acceptance-method { display: flex; flex-wrap: wrap; gap: 16px; margin: 0; padding: 0; border: 0; }
 .waiver-acceptance-method legend { margin-bottom: 8px; }
-.sample-data-banner { padding: .7rem 1rem; background: #fff1cc; color: #4a3600; text-align: center; font-size: .9rem; }
+.sample-data-banner { padding: .7rem 1rem; background: #fff1cc; color: #4a3600; text-align: center; font-size: var(--text-base-sm); }
 .credentials-page > section:first-child, .credentials-page > p { grid-column: 1 / -1; }
 button:disabled { cursor: not-allowed; opacity: .6; }
 
 /* Email-link landing: one primary action, with recovery only after an error. */
 .email-confirm-screen { min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; background: #f5f2ed; color: #292018; }
 .email-confirm-card { width: 100%; max-width: 480px; border: 1px solid #ddd4c8; border-radius: 16px; overflow: hidden; background: white; box-shadow: 0 12px 36px #29160712; }
-.email-confirm-brand { padding: 22px 28px; background: #291607; color: white; font-size: 20px; font-weight: 700; }
+.email-confirm-brand { padding: 22px 28px; background: #291607; color: white; font-size: var(--text-xl); font-weight: 700; }
 .email-confirm-content { padding: 36px 28px; text-align: center; }
-.email-confirm-icon { font-size: 42px; color: #a85d00; margin-bottom: 16px; }
+.email-confirm-icon { font-size: var(--text-5xl); color: #a85d00; margin-bottom: 16px; }
 .email-confirm-content h1 { font-size: clamp(26px, 5vw, 32px); line-height: 1.2; margin: 0 0 16px; }
 .email-confirm-content > p { color: #63584e; margin: 0 0 28px; line-height: 1.6; }
-.email-confirm-button { display: block; width: 100%; padding: 18px 24px; border: 0; border-radius: 8px; background: #a85d00; color: white; font: inherit; font-size: 20px; font-weight: 700; cursor: pointer; }
+.email-confirm-button { display: block; width: 100%; padding: 18px 24px; border: 0; border-radius: 8px; background: #a85d00; color: white; font: inherit; font-size: var(--text-xl); font-weight: 700; cursor: pointer; }
 .email-confirm-button:hover { background: #874a00; }
 .email-confirm-button:focus-visible { outline: 3px solid #291607; outline-offset: 4px; }
 .email-confirm-button:disabled { opacity: .65; cursor: wait; }
 .email-confirm-error { margin-top: 22px; color: #9c2626; }
 .email-confirm-error a { color: #754500; text-decoration: underline; }
 
-.email-confirm-help { color: #63584e; font-size: 14px; text-align: left; }
+.email-confirm-help { color: #63584e; font-size: var(--text-base-sm); text-align: left; }
 .email-confirm-help summary { cursor: pointer; text-align: center; }
 .email-confirm-help[open] summary { margin-bottom: 20px; }
 
@@ -2595,7 +2618,7 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 }
 
 .site-card-nav .card-nav__link {
-  font-size: 15px;
+  font-size: var(--text-base);
   font-weight: 600;
 }
 
@@ -2626,7 +2649,7 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 
 .check-in__status .status-mark__label {
   color: var(--ink-soft);
-  font-size: 0.95rem;
+  font-size: var(--text-base-sm);
 }
 
 .site-slide-commit {
@@ -2637,7 +2660,7 @@ button:disabled { cursor: not-allowed; opacity: .6; }
   margin: auto 0 8px;
   padding-top: 14px;
   color: var(--ink-soft);
-  font-size: 0.85rem;
+  font-size: var(--text-base-sm);
   font-weight: 600;
 }
 
@@ -2668,7 +2691,7 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 .summary-card__list li {
   display: grid;
   gap: 1px;
-  font-size: 0.9rem;
+  font-size: var(--text-base-sm);
 }
 
 .summary-card__list b {
@@ -2678,7 +2701,7 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 .summary-card__list span,
 .summary-card__note {
   color: var(--ink-soft);
-  font-size: 0.9rem;
+  font-size: var(--text-base-sm);
 }
 
 .summary-card__note {
@@ -2692,13 +2715,13 @@ button:disabled { cursor: not-allowed; opacity: .6; }
   border-radius: var(--radius-small);
   padding: 10px 12px;
   background: #f3ece7;
-  font-size: 0.9rem;
+  font-size: var(--text-base-sm);
 }
 
 .check-in__last span,
 .check-in__last small {
   color: var(--ink-soft);
-  font-size: 0.78rem;
+  font-size: var(--text-xs);
   font-weight: 600;
 }
 
@@ -2709,7 +2732,7 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 
 .check-in__history {
   margin-top: 8px;
-  font-size: 0.85rem;
+  font-size: var(--text-base-sm);
 }
 
 .check-in__history summary {
@@ -2794,7 +2817,7 @@ button:disabled { cursor: not-allowed; opacity: .6; }
   min-height: 42px;
   padding: 8px 18px;
   border: 1px solid #e3b2ac;
-  font: 600 15px 'Barlow', sans-serif;
+  font: 600 var(--text-base) 'Barlow', sans-serif;
 }
 
 /* Studio checkout return. */
@@ -2813,7 +2836,7 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 
 .booking-reference__label {
   color: var(--ink-soft);
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -2821,7 +2844,7 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 
 .booking-reference__value {
   color: #1f6b32;
-  font-size: 1.5rem;
+  font-size: var(--text-2xl);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.12em;
@@ -2873,12 +2896,12 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 .start-picker__day span,
 .start-picker__day small {
   color: var(--ink-soft);
-  font-size: 0.78rem;
+  font-size: var(--text-xs);
   font-weight: 600;
 }
 
 .start-picker__day strong {
-  font-size: 1.3rem;
+  font-size: var(--text-xl);
   line-height: 1.2;
 }
 
@@ -2952,7 +2975,7 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 
 /* Reader operations: a compact work surface with a visible scan/confirm sequence. */
 .nfc-page.management-page { display: grid; gap: 1.5rem; align-content: start; }
-.nfc-page > header h1 { margin: 0 0 .5rem; font-size: clamp(1.8rem, 3vw, 2.8rem); line-height: 1.1; }
+.nfc-page > header h1 { margin: 0 0 .5rem; font-size: var(--text-page-title); line-height: 1.1; }
 .nfc-page > header p { margin: 0; color: var(--ink-soft); }
 .nfc-page > .member-select { max-width: 48rem; }
 .nfc-nav { display: flex; flex-wrap: wrap; gap: .35rem; border-bottom: 1px solid var(--border); padding-bottom: .6rem; }
@@ -2960,15 +2983,15 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 .nfc-nav a[aria-current="page"] { background: var(--espresso); color: var(--paper); }
 .nfc-section { min-width: 0; display: grid; gap: 1rem; padding: 1.25rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--paper-raised); }
 .nfc-section > p, .nfc-section h2, .nfc-section h3 { margin: 0; }
-.nfc-section h2 { font-size: 1.4rem; }
-.nfc-section h3 { font-size: 1.12rem; }
+.nfc-section h2 { font-size: var(--text-2xl); }
+.nfc-section h3 { font-size: var(--text-lg); }
 .nfc-section__heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .7rem; }
 .nfc-section__heading h2, .nfc-section__heading h3 { margin: 0; }
 .nfc-card-list { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,20rem),1fr)); gap: .9rem; }
 .nfc-card { padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius-small); min-width: 0; overflow-wrap: anywhere; }
 .nfc-card p { margin: .5rem 0; }
 .nfc-card__suffix { font-variant-numeric: tabular-nums; font-weight: 600; }
-.nfc-help { display: block; font-size: .9rem; color: var(--ink-soft); line-height: 1.45; }
+.nfc-help { display: block; font-size: var(--text-base-sm); color: var(--ink-soft); line-height: 1.45; }
 .nfc-assignment { border-top: 1px solid var(--border); padding-top: 1.2rem; display: grid; gap: 1rem; }
 .nfc-steps { display: flex; flex-wrap: wrap; gap: .6rem 2rem; padding-left: 1.4rem; margin: 0; color: var(--ink-soft); }
 .nfc-steps li::marker { font-weight: 700; color: var(--bronze); }
