@@ -56,7 +56,7 @@
   margin: 0;
   color: var(--ink-soft);
 }
-.management-page .cw-small {
+.button.cw-small {
   min-height: 36px;
   padding: 5px 12px;
   font-size: 0.88rem;
@@ -65,7 +65,7 @@
   width: 15px;
   height: 15px;
 }
-.management-page .cw-danger {
+.button.cw-danger {
   border-color: #e3b2ac;
   background: #fff5f3;
   color: var(--red);
@@ -636,4 +636,33 @@
 }
 .cw-hinted > small {
   color: var(--ink-soft);
+}
+
+/* Waiver text: upload button beside the Edit/Preview toggle, drop target. */
+.cw-field__tools {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.cw-field textarea.is-dragging {
+  border-color: var(--orange);
+  background: #fff8ee;
+  box-shadow: 0 0 0 3px rgba(247, 150, 29, 0.25);
+}
+.cw-hint {
+  color: var(--ink-soft);
+  font-weight: 500;
+}
+.cw-hint--error {
+  color: var(--red);
+  font-weight: 600;
+}
+.cw-field__tools .button.cw-small,
+.cw-toggle {
+  height: 34px;
+  min-height: 0;
+}
+.cw-toggle button {
+  height: 100%;
 }

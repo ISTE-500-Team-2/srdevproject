@@ -1,5 +1,5 @@
-import { Archive, Check, Clock, Eye, FileText, History, Pencil, Plus, TriangleAlert } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { Archive, Check, Clock, Eye, FileText, History, Pencil, Plus, TriangleAlert, Upload } from "lucide-react";
+import { useRef, useState, type FormEvent } from "react";
 import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
@@ -8,6 +8,7 @@ import { LoadState } from "../components/Management";
 import { Modal } from "../components/Modal";
 import HoldButton from "../components/reactbits/HoldButton";
 import { dateTime, localInput, shortDate } from "../lib/display";
+import { documentText } from "../lib/documentText";
 import "./certwaiver.css";
 
 type Waiver = { name: string; current: Policy | null; upcoming: Policy | null; versions: Policy[] };
@@ -64,6 +65,25 @@ function PublishPanel({
   const [tab, setTab] = useState<"edit" | "preview">("edit");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [imported, setImported] = useState<{ name: string; error?: string } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  // Fills the text box from a Word or text file; the wording is still
+  // reviewed (and editable) before publishing.
+  const importFile = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      const fileText = await documentText(file);
+      setText(fileText);
+      setTab("edit");
+      setImported({
+        name: file.name,
+        error: fileText.length > 16000 ? `That's ${fileText.length.toLocaleString()} characters; the limit is 16,000. Shorten it before publishing.` : undefined,
+      });
+    } catch (err) {
+      setImported({ name: file.name, error: (err as Error).message });
+    }
+  };
   const starts = effectiveAt ? new Date(effectiveAt) : null;
   const startsLabel = starts && Number.isFinite(starts.getTime()) ? dateTime(starts) : "the start date";
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -113,6 +133,20 @@ function PublishPanel({
         <div className="cw-field">
           <span className="cw-field__row">
             <span id="waiver-text-label">Text members will read</span>
+            <span className="cw-field__tools">
+            <button type="button" className="button button--quiet cw-small" onClick={() => fileInput.current?.click()}>
+              <Upload aria-hidden="true" /> Upload document
+            </button>
+            <input
+              ref={fileInput}
+              type="file"
+              hidden
+              accept=".docx,.txt,.md,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              onChange={(e) => {
+                void importFile(e.target.files?.[0]);
+                e.target.value = "";
+              }}
+            />
             <span className="cw-toggle" role="tablist" aria-label="Text view">
               <button type="button" role="tab" aria-selected={tab === "edit"} onClick={() => setTab("edit")}>
                 Edit
@@ -121,9 +155,22 @@ function PublishPanel({
                 Preview
               </button>
             </span>
+            </span>
           </span>
           {tab === "edit" ? (
             <textarea
+              className={dragging ? "is-dragging" : ""}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragging(false);
+                void importFile(e.dataTransfer.files[0]);
+              }}
+              aria-describedby="waiver-text-hint"
               aria-labelledby="waiver-text-label"
               value={text}
               onChange={(e) => setText(e.target.value)}
@@ -131,7 +178,7 @@ function PublishPanel({
               minLength={20}
               maxLength={16000}
               rows={10}
-              placeholder="Paste the approved wording"
+              placeholder="Paste the approved wording, or drop a Word document here"
             />
           ) : (
             <div className="cw-preview" aria-labelledby="waiver-text-label">
@@ -139,6 +186,13 @@ function PublishPanel({
               <p className="policy-text">{text || "Nothing to preview yet."}</p>
             </div>
           )}
+          <small id="waiver-text-hint" className={imported?.error ? "cw-hint cw-hint--error" : "cw-hint"} role={imported ? "status" : undefined}>
+            {imported?.error
+              ? `${imported.name}: ${imported.error}`
+              : imported
+                ? `Filled in from ${imported.name}. Check the wording and formatting before publishing; only the text is saved.`
+                : "Word (.docx) or text files. Only the text is saved, not the file."}
+          </small>
         </div>
         <div className="cw-two">
           <div className="cw-hinted">
