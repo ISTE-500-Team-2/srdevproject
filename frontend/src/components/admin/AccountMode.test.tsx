@@ -183,7 +183,7 @@ test("staff see their tools, with admin-only and instructor actions locked", () 
   const locked = screen.getByRole("region", { name: "Needs an instructor or admin" });
   expect(within(locked).getByRole("button", { name: /Change role/ })).toHaveProperty("disabled", true);
   expect(within(locked).getByRole("button", { name: /Sign off training/ })).toHaveProperty("disabled", true);
-  expect(screen.getByRole("link", { name: /Assign a tag/ }).getAttribute("href")).toBe("/admin/access?member=7");
+  expect(screen.getByRole("link", { name: /Assign an NFC card/ }).getAttribute("href")).toBe("/admin/access?member=7");
   expect(screen.getByRole("link", { name: /Move a booking/ }).getAttribute("href")).toBe("/admin/reservations?member=7");
   // Problems on the account come first, with the next step staff can take.
   expect(screen.getByText("Dana has no active membership or day pass.")).toBeTruthy();

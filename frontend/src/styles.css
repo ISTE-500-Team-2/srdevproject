@@ -2903,3 +2903,52 @@ button:disabled { cursor: not-allowed; opacity: .6; }
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/* Reader operations: a compact work surface with a visible scan/confirm sequence. */
+.nfc-page.management-page { display: grid; gap: 1.5rem; align-content: start; }
+.nfc-page > header h1 { margin: 0 0 .5rem; font-size: clamp(1.8rem, 3vw, 2.8rem); line-height: 1.1; }
+.nfc-page > header p { margin: 0; color: var(--ink-soft); }
+.nfc-page > .member-select { max-width: 48rem; }
+.nfc-nav { display: flex; flex-wrap: wrap; gap: .35rem; border-bottom: 1px solid var(--border); padding-bottom: .6rem; }
+.nfc-nav a { padding: .6rem .9rem; border-radius: var(--radius-small); text-decoration: none; font-weight: 600; }
+.nfc-nav a[aria-current="page"] { background: var(--espresso); color: var(--paper); }
+.nfc-section { min-width: 0; display: grid; gap: 1rem; padding: 1.25rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--paper-raised); }
+.nfc-section > p, .nfc-section h2, .nfc-section h3 { margin: 0; }
+.nfc-section h2 { font-size: 1.4rem; }
+.nfc-section h3 { font-size: 1.12rem; }
+.nfc-section__heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .7rem; }
+.nfc-section__heading h2, .nfc-section__heading h3 { margin: 0; }
+.nfc-card-list { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,20rem),1fr)); gap: .9rem; }
+.nfc-card { padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius-small); min-width: 0; overflow-wrap: anywhere; }
+.nfc-card p { margin: .5rem 0; }
+.nfc-card__suffix { font-variant-numeric: tabular-nums; font-weight: 600; }
+.nfc-help { display: block; font-size: .9rem; color: var(--ink-soft); line-height: 1.45; }
+.nfc-assignment { border-top: 1px solid var(--border); padding-top: 1.2rem; display: grid; gap: 1rem; }
+.nfc-steps { display: flex; flex-wrap: wrap; gap: .6rem 2rem; padding-left: 1.4rem; margin: 0; color: var(--ink-soft); }
+.nfc-steps li::marker { font-weight: 700; color: var(--bronze); }
+.nfc-scan { display: grid; gap: .8rem; max-width: 38rem; }
+.nfc-scan__state { border-left: 4px solid var(--bronze); padding: .75rem; background: var(--paper); margin: 0; font-weight: 600; }
+.nfc-page .management-form, .nfc-section .management-form { margin: 0; gap: 1rem; max-width: 42rem; }
+.nfc-section fieldset, .nfc-page fieldset, .nfc-reader-form fieldset { display: grid; gap: 1rem; border: 0; padding: 0; margin: 0; min-width: 0; }
+.nfc-section label, .nfc-filters label, .nfc-credentials label { display: grid; gap: .4rem; min-width: 0; font-weight: 600; }
+.nfc-section input, .nfc-section select { max-width: 100%; min-width: 0; }
+.nfc-section .button, .nfc-page > .button { justify-self: start; }
+.nfc-section .form-error, .nfc-section .form-notice { padding: .8rem; border-radius: var(--radius-small); margin: 0; }
+.nfc-section .form-error { border: 1px solid var(--red); background: #fff3f1; }
+.nfc-section .form-notice { border: 1px solid #397548; color: #245332; background: #f0faf2; }
+.nfc-dismiss { border: 0; background: none; text-decoration: underline; cursor: pointer; padding: .2rem .4rem; }
+.nfc-credentials { display: grid; gap: .7rem; padding: 1rem; border: 2px solid var(--bronze); border-radius: var(--radius-small); }
+.nfc-checkbox { display: flex !important; align-items: center; }
+.nfc-checkbox input { width: auto; }
+.nfc-filters { display: flex; flex-wrap: wrap; gap: 1rem; }
+.nfc-filters label { flex: 1 1 12rem; }
+.nfc-taps { display: grid; gap: .8rem; }
+.nfc-tap { padding: 1rem 0; border-bottom: 1px solid var(--border); }
+.nfc-tap p { margin: .4rem 0; }
+.nfc-lookup-results { padding: .8rem; background: var(--paper); border-radius: var(--radius-small); }
+.nfc-lookup-results p { margin: .3rem 0; }
+@media (max-width: 600px) {
+  .nfc-section { padding: 1rem; }
+  .nfc-nav a { flex: 1 1 40%; text-align: center; }
+  .nfc-section__heading > .management-actions { width: 100%; }
+}
