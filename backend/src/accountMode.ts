@@ -1,4 +1,4 @@
-import { Router, type Request } from "express";
+import { Router, type NextFunction, type Request, type Response } from "express";
 import type { Pool } from "pg";
 import type { AppConfig } from "./config.js";
 import { AppError, publicUser, type UserView } from "./domain.js";
@@ -11,14 +11,19 @@ const isWorkspaceRole = (role: string) => role === "staff" || role === "admin";
 const isProtectedRole = (role: string) =>
   isWorkspaceRole(role) || role === "instructor";
 
+/** Express matches routes case-insensitively and ignores a trailing slash. */
+const normalize = (path: string) => path.toLowerCase().replace(/\/+$/, "") || "/";
+
 /**
  * Staff tools keep running as the staff member while a member's account is open.
  * The open account lives on the sign-in, so a workspace tab next to an account
  * tab must still reach these as staff (/training backs the member search box).
  */
 const workspacePrefixes = ["/admin", "/billing-management", "/studio-management", "/training"];
-export const isWorkspacePath = (path: string) =>
-  workspacePrefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+export const isWorkspacePath = (path: string) => {
+  const normalized = normalize(path);
+  return workspacePrefixes.some((prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`));
+};
 
 /**
  * Why `actor` may not open `subject`'s account, or null when they may.
@@ -35,30 +40,64 @@ export function accountModeRefusal(actor: UserView, subject: UserView | null): s
   return null;
 }
 
-// Personal settings and signatures belong to the member; staff use the workspace.
-const blockedWhileActing: { method: string; pattern: RegExp; message: string }[] = [
-  {
-    method: "POST",
-    pattern: /^\/me\/waivers\/[^/]+\/sign$/,
-    message: "Waivers have to be signed by the member, signed in to their own account.",
-  },
-  {
-    method: "PATCH",
-    pattern: /^\/me\/(profile|notifications)$/,
-    message: "Change these from the member's record in the staff workspace.",
-  },
+/**
+ * The only changes staff may make in someone else's account: the member actions
+ * account mode exists for. Everything else that writes is refused, so member
+ * routes added later stay closed until someone decides they belong here. Reads
+ * stay open (staff can already read member records), except where a route
+ * guard below says otherwise.
+ */
+const allowedWhileActing: RegExp[] = [
+  /^\/reservations$/,
+  /^\/reservations\/\d+\/cancel$/,
+  /^\/me\/check-ins$/,
+  /^\/classes\/\d+\/(enroll|withdraw)$/,
+  /^\/studio-rentals$/,
+  /^\/studio-rentals\/\d+\/(cancel|payment-status)$/,
+  /^\/me\/billing\/(checkout|free-membership)$/,
+  /^\/me\/billing\/passes\/checkout$/,
+  /^\/me\/billing\/[^/]+\/cancel$/,
+  /^\/me\/billing\/passes\/[^/]+\/cancel$/,
+  /^\/auth\/logout$/,
 ];
+const isRead = (method: string) => method === "GET" || method === "HEAD";
 
+/** Fail closed: anything that writes and isn't a listed member action is refused. */
 export function assertAllowedWhileActing(req: Request, actor: UserView, subject: UserView) {
-  if (actor.id === subject.id) return;
-  const blocked = blockedWhileActing.find(
-    (rule) => rule.method === req.method && rule.pattern.test(req.path),
-  );
-  if (blocked) throw new AppError(403, "NOT_IN_ACCOUNT_MODE", blocked.message);
-  // Signed waiver copies are admin-only in the workspace; don't widen that here.
-  if (/^\/me\/signed-waivers(\/|$)/.test(req.path) && !actor.roles.includes("admin"))
-    throw new AppError(403, "ADMIN_REQUIRED", "Only administrators can open signed waiver copies.");
+  if (actor.id === subject.id || isRead(req.method)) return;
+  const path = normalize(req.path);
+  if (!allowedWhileActing.some((pattern) => pattern.test(path)))
+    throw new AppError(403, "NOT_IN_ACCOUNT_MODE", "That isn't available while you're in someone else's account.");
 }
+
+/**
+ * Refuse a route while staff are acting in someone else's account. Attached to
+ * the routes themselves, after Express has matched them, so path spelling
+ * (case, trailing slashes) can't route around it. Gives a specific reason and
+ * also covers reads, which the write allowlist above lets through.
+ */
+export function forbidWhileActing(message: string, options: { adminMay?: boolean; code?: string } = {}) {
+  return (_req: Request, res: Response, next: NextFunction) => {
+    const { user, actor } = authState(res);
+    if (actor && actor.id !== user.id && !(options.adminMay && actor.roles.includes("admin")))
+      throw new AppError(403, options.code ?? "NOT_IN_ACCOUNT_MODE", message);
+    next();
+  };
+}
+export const signatureIsMemberOnly = forbidWhileActing(
+  "Waivers have to be signed by the member, signed in to their own account.",
+);
+export const settingsAreMemberOnly = forbidWhileActing(
+  "Change these from the member's record in the staff workspace.",
+);
+export const paymentDetailsAreMemberOnly = forbidWhileActing(
+  "Payment details are managed by the member, signed in to their own account.",
+);
+// Signed waiver copies are admin-only in the workspace; don't widen that here.
+export const waiverCopiesAreAdminOnly = forbidWhileActing(
+  "Only administrators can open signed waiver copies.",
+  { adminMay: true, code: "ADMIN_REQUIRED" },
+);
 
 export function accountModeView(user: UserView, actor?: UserView) {
   return { user: publicUser(user), actingAs: actor ? { actor: publicUser(actor) } : null };

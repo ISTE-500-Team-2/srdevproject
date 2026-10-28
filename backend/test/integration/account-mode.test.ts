@@ -87,10 +87,34 @@ test('signatures and personal settings stay with the member',async()=>{
   assert.equal(notifications.status,403);
 });
 
+test('path spelling can not route around account-mode limits',async()=>{
+  await as(admin).post('/admin/account-mode',{userId:member.user.id});
+  // Express matches these spellings to the same routes.
+  for(const path of ['/ME/WAIVERS/1/SIGN','/me/waivers/1/sign/','/Me/Waivers/1/Sign/'])
+    assert.equal((await as(admin).post(path,{accepted:true})).status,403,path);
+  for(const path of ['/ME/PROFILE','/me/profile/','/me/NOTIFICATIONS'])
+    assert.equal((await as(admin).patch(path,{firstName:'Changed'})).status,403,path);
+  assert.equal((await pool.query('SELECT firstname FROM "user" WHERE userid=$1',[member.user.id])).rows[0].firstname!=='Changed',true);
+});
+
+test('payment details and unlisted changes stay with the member',async()=>{
+  await as(admin).post('/admin/account-mode',{userId:member.user.id});
+  const portal=await as(admin).post('/me/billing/1/portal',{});
+  assert.equal(portal.status,403);assert.equal(portal.body.error.code,'NOT_IN_ACCOUNT_MODE');
+  const portalShout=await as(admin).post('/ME/BILLING/1/PORTAL/',{});
+  assert.equal(portalShout.status,403);
+  // Writes that aren't a listed member action are refused before any route runs.
+  const unlisted=await as(admin).post('/me/billing/offers',{});
+  assert.equal(unlisted.status,403);assert.equal(unlisted.body.error.code,'NOT_IN_ACCOUNT_MODE');
+  // Reads still work.
+  assert.equal((await as(admin).get('/me/overview')).status,200);
+});
+
 test('signed waiver copies stay admin-only even inside an open account',async()=>{
   assert.equal((await as(staff).post('/admin/account-mode',{userId:member.user.id})).status,200);
   const copies=await as(staff).get('/me/signed-waivers');
   assert.equal(copies.status,403);assert.equal(copies.body.error.code,'ADMIN_REQUIRED');
+  assert.equal((await as(staff).get('/ME/SIGNED-WAIVERS/')).status,403);
   await as(admin).post('/admin/account-mode',{userId:member.user.id});
   assert.notEqual((await as(admin).get('/me/signed-waivers')).status,403);
   await as(staff).post('/admin/account-mode/end');
