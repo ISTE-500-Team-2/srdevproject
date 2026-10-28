@@ -1,3 +1,4 @@
+import { waiverAcceptance } from '../helpers/waiver.js';
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID, createHmac } from "node:crypto";
 import { before, after, test } from "node:test";
@@ -133,7 +134,7 @@ test("authenticated NFC checks current eligibility, never caches safety decision
   const waivers = (await member.get("/api/me/waivers")).body.data;
   for (const w of waivers)
     assert.equal(
-      (await memberPost(`/me/waivers/${w.id}/sign`, { accepted: true })).status,
+      (await memberPost(`/me/waivers/${w.id}/sign`, waiverAcceptance(w))).status,
       200,
     );
   r = await scan();

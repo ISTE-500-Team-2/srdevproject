@@ -1,3 +1,4 @@
+import { waiverAcceptance } from '../helpers/waiver.js';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID, createHmac } from 'node:crypto';
 import { before, after, test } from 'node:test';
@@ -34,7 +35,7 @@ before(async () => {
   assert.equal(login.status,200);
   token=login.body.data.accessToken; csrf=login.body.data.csrfToken; userId=login.body.data.user.id;
   for (const w of (await request(app).get('/api/me/waivers').set('Authorization','Bearer '+token)).body.data)
-    assert.equal((await post(`/me/waivers/${w.id}/sign`,{accepted:true})).status,200);
+    assert.equal((await post(`/me/waivers/${w.id}/sign`,waiverAcceptance(w))).status,200);
   await pool.query('INSERT INTO app_access_card(user_id,uid_hash,label,assigned_by) VALUES($1,$2,$3,$1)',
     [userId,createHmac('sha256',hashKey).update(uid).digest('hex'),'Access test card']);
 });

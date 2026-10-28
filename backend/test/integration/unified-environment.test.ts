@@ -1,3 +1,4 @@
+import { waiverAcceptance } from '../helpers/waiver.js';
 /** Real HTTP gateway + application + disposable PostgreSQL. No provider calls,
  * hardware, live accounts, production config or migrations are changed here.
  */
@@ -74,7 +75,7 @@ test('staff-recorded payment, signed waivers and reservation produce a linked NF
   const payments=await member.get('/api/me/payments');
   assert.ok(payments.body.data.items.some((p:any)=>p.reference==='isolated-fixture'));
   for(const waiver of (await member.get('/api/me/waivers')).body.data)
-    assert.equal((await memberPost(`/me/waivers/${waiver.id}/sign`,{accepted:true})).status,200);
+    assert.equal((await memberPost(`/me/waivers/${waiver.id}/sign`,waiverAcceptance(waiver))).status,200);
   assert.equal((await scan()).body.data.reason,'RESERVATION_REQUIRED');
   // Only the active booking clock is a SQL fixture; all identity/payment/card/waiver operations above use APIs.
   const reservation=(await pool.query(`INSERT INTO reservation(userid,roomid,location,starttime,endtime,status)

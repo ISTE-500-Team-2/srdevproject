@@ -1,3 +1,4 @@
+import { waiverAcceptance } from '../helpers/waiver.js';
 import assert from 'node:assert/strict';
 import {randomBytes,randomUUID,createHmac} from 'node:crypto';
 import {before,after,test} from 'node:test';
@@ -55,7 +56,7 @@ test('combined pricing, TOS, paid passes, bounded NFC decisions and policy repla
   assert.equal(providerCalls,0);
   const waivers=(await get('/me/waivers')).body.data;
   assert.ok(waivers.some((w:any)=>w.name==='Terms of Service'));
-  for(const waiver of waivers)assert.equal((await post(`/me/waivers/${waiver.id}/sign`,{accepted:true})).status,200);
+  for(const waiver of waivers)assert.equal((await post(`/me/waivers/${waiver.id}/sign`,waiverAcceptance(waiver))).status,200);
   assert.equal((await post('/admin/access/cards',{userId:member.user.id,uid,label:'Combined fixture',reason:'Isolated cross-PR verification'},staff)).status,201);
   await pool.query("INSERT INTO reservation(userid,roomid,location,starttime,endtime,status) VALUES($1,$2,'Combined fixture room',(now()-interval '1 minute') AT TIME ZONE 'UTC',(now()+interval '30 minutes') AT TIME ZONE 'UTC','confirmed')",[member.user.id,room]);
   assert.equal((await scan()).body.data.allowed,false,'A checkout is not a paid entitlement');

@@ -1,3 +1,4 @@
+import { waiverAcceptance } from '../helpers/waiver.js';
 import assert from 'node:assert/strict';
 import {randomBytes,randomUUID,createHmac} from 'node:crypto';
 import {before,after,test} from 'node:test';
@@ -28,7 +29,7 @@ test('real signed API grants stop after an incident and require newly verified t
   member.set('Authorization','Bearer '+ml.accessToken);staff.set('Authorization','Bearer '+sl.accessToken);
   const post=(path:string,body:unknown)=>staff.post('/api'+path).set('X-CSRF-Token',sl.csrfToken).send(body);
   for(const waiver of (await member.get('/api/me/waivers')).body.data)
-    assert.equal((await member.post(`/api/me/waivers/${waiver.id}/sign`).set('X-CSRF-Token',ml.csrfToken).send({accepted:true})).status,200);
+    assert.equal((await member.post(`/api/me/waivers/${waiver.id}/sign`).set('X-CSRF-Token',ml.csrfToken).send(waiverAcceptance(waiver))).status,200);
   await pool.query('INSERT INTO app_access_card(user_id,uid_hash,label,assigned_by) VALUES($1,$2,\'Relay test\',$3)',[ml.user.id,createHmac('sha256',hashKey).update(uid).digest('hex'),sl.user.id]);
   await pool.query(`INSERT INTO reservation(userid,equipmentid,location,starttime,endtime,status)
     VALUES($1,$2,'Relay fixture',(NOW()-INTERVAL '1 minute') AT TIME ZONE 'UTC',(NOW()+INTERVAL '30 minutes') AT TIME ZONE 'UTC','confirmed')`,[ml.user.id,machine]);

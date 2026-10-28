@@ -1,3 +1,4 @@
+import { waiverAcceptance } from '../helpers/waiver.js';
 import { SessionModel } from '../../src/models/SessionModel.js';
 import { confirmationToken } from '../helpers/confirmation.js';
 import assert from "node:assert/strict";
@@ -138,7 +139,7 @@ async function signPolicies(user: Client) {
   assert.equal(r.status, 200);
   for (const w of r.body.data)
     assert.equal(
-      (await user.post(`/me/waivers/${w.id}/sign`, { accepted: true })).status,
+      (await user.post(`/me/waivers/${w.id}/sign`, waiverAcceptance(w))).status,
       200,
     );
 }

@@ -15,6 +15,7 @@ import App from '../../src/App';
 import { api, setAccessToken, setCsrfToken } from '../../src/lib/api';
 import { createBrowserBridge } from '../../../backend/test/helpers/browserBridge';
 import { confirmationToken } from '../../../backend/test/helpers/confirmation';
+import { equipmentWaiverName, waiverAcceptance } from '../../../backend/test/helpers/waiver';
 
 let bridge: Awaited<ReturnType<typeof createBrowserBridge>>;
 beforeAll(async () => {
@@ -200,11 +201,16 @@ test('React → Express controllers/models → PostgreSQL: login, save, refresh,
       screen.getByRole('navigation', { name: 'Primary navigation' }),
     ).getByRole('link', { name: 'Certifications & Waivers', exact: true }),
   );
-  // Check-in requires both policies; select each table row by its policy name because
+  // Check-in requires every policy; select each table row by its policy name because
   // unsigned policies share the same review button label.
   for (const policy of [
     {
       name: 'Demo makerspace policy',
+      submit: 'Record agreement',
+      confirmation: 'Your agreement has been recorded.',
+    },
+    {
+      name: equipmentWaiverName,
       submit: 'Record agreement',
       confirmation: 'Your agreement has been recorded.',
     },
@@ -220,7 +226,14 @@ test('React → Express controllers/models → PostgreSQL: login, save, refresh,
       within(card).getByRole('button', { name: 'Review and agree' }),
     );
     const policyDialog = await screen.findByRole('dialog', { name: policy.name });
-    await user.click(within(policyDialog).getByRole('checkbox'));
+    if (policy.name === equipmentWaiverName) {
+      const waiver = (await api<any[]>('/me/waivers')).find(w => w.name === policy.name)!;
+      const body = waiverAcceptance(waiver);
+      for (const [key, value] of Object.entries(body.formValues ?? {})) {
+        fireEvent.change(policyDialog.querySelector(`input[name="${key}"]`)!, { target: { value } });
+      }
+    }
+    await user.click(within(policyDialog).getByRole('checkbox', { name: /I have read/ }));
     await user.click(
       within(policyDialog).getByRole('button', { name: policy.submit }),
     );
@@ -242,6 +255,7 @@ test('React → Express controllers/models → PostgreSQL: login, save, refresh,
   );
   expect(signedPolicies.rows).toEqual([
     { name: 'Demo makerspace policy' },
+    { name: equipmentWaiverName },
     { name: 'Terms of Service' },
   ]);
   const accessRoom = (await bridge.pool.query("INSERT INTO room(name,location) VALUES('Browser check-in','Test') RETURNING roomid")).rows[0].roomid;
