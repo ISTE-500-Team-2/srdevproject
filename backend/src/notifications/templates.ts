@@ -123,13 +123,13 @@ const copy: Record<NotificationKind, Copy> = {
     title: f => f.item ? `Your ${f.item} session changed` : '', intro: () => 'Here are the new details.', cta: reservations },
   reservation_cancelled: { category: 'Reservation', status: 'Cancelled', tone: 'info',
     title: f => f.item ? `Your ${f.item} session is cancelled` : '',
-    intro: f => f.item ? 'That time is open for other members again.' : 'Here are the details.' },
+    intro: f => f.item ? 'It’s been removed from your reservations.' : 'Here are the details.' },
   studio_reservation_confirmed: { category: 'Studio rental', status: 'Confirmed', tone: 'success',
     title: f => `You’re booked in ${f.item || 'the studio'}`,
     intro: () => 'It’s all yours for the dates below. You can manage the rental from the Studios page.', cta: ['View my rental', '/studios'] },
   studio_reservation_cancelled: { category: 'Studio rental', status: 'Cancelled', tone: 'info',
     title: f => `Your ${f.item || 'studio'} booking is cancelled`,
-    intro: f => `Those dates are open for booking again.${f.refund ? ` ${f.refund}` : ''}`, cta: ['Book new dates', '/studios'] },
+    intro: f => f.refund || 'There’s nothing else you need to do.' },
   payment_receipt: { category: 'Payments', status: 'Paid', tone: 'success', title: received,
     intro: () => 'Thank you. Keep this email as your receipt.' },
   payment_recorded: { category: 'Payments', status: 'Paid', tone: 'success', title: received,
@@ -255,7 +255,7 @@ export function renderNotification(kind: NotificationKind, payload: Notification
     refund: !refundAmount ? ''
       : Number(refundAmount) <= 0
         ? paid === 'paid' ? 'Under this studio’s cancellation policy, this booking isn’t eligible for a refund.'
-          : 'No payment was collected, so there’s nothing to refund.'
+          : 'You weren’t charged for this rental, so there’s nothing to refund.'
         : paid === 'refunded' ? `${refund} has been returned to your original payment method.`
           : `We’re returning ${refund} to your original payment method. You’ll get another email once it’s done.`,
   };

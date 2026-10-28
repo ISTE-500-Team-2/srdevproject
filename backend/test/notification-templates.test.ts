@@ -47,11 +47,11 @@ test('studio cancellation reads as a receipt, not a field dump', () => {
   const result = renderNotification('studio_reservation_cancelled', payload, {...context, recipientName:'Brian'});
   for (const line of ['Your Studio 1 booking is cancelled', 'Studio: Studio 1', 'Dates: Sat, Oct 31 – Mon, Nov 30, 2026',
     'Booking: #4', 'Rental total: $350.00', 'Refund: $0.00', 'Payment method: In person at the studio',
-    'No payment was collected, so there’s nothing to refund.', 'Book new dates: https://studio.example/studios'])
+    'You weren’t charged for this rental, so there’s nothing to refund.'])
     assert.ok(result.textContent.includes(line), line);
   for (const raw of ['Currency:', 'Time zone:', 'unpaid', '2026-10-31', 'Refund 0 USD'])
     assert.ok(!result.textContent.includes(raw) && !result.htmlContent.includes(raw), raw);
-  assert.ok(result.htmlContent.includes('href="https://studio.example/studios"'));
+  assert.ok(!result.textContent.includes('open for booking') && !result.htmlContent.includes('/studios'), 'no rebooking pitch after a cancellation');
 
   const paid = renderNotification('studio_reservation_cancelled', {...payload, paymentStatus:'refund_pending', refundAmount:'350.00'}, context);
   assert.ok(paid.textContent.includes('We’re returning $350.00 to your original payment method.'));
