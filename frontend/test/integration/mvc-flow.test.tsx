@@ -55,26 +55,24 @@ test('signup form creates an account with DOB and the new password policy', asyn
 
   const dialog = screen.getByRole('dialog', { name: 'Create your account' });
 
+  await user.type(within(dialog).getByLabelText('First name'), 'Signup');
+  await user.type(within(dialog).getByLabelText('Last name'), 'Test');
+  fireEvent.change(within(dialog).getByLabelText('Date of birth'), {
+    target: { value: '2000-01-01' },
+  });
+  await user.click(within(dialog).getByRole('button', { name: 'Continue' }));
+
+  await user.type(await within(dialog).findByLabelText('Email'), email);
+  await user.type(within(dialog).getByLabelText('Phone'), '0000000000');
+  await user.click(within(dialog).getByRole('button', { name: 'Continue' }));
+
+  const username = 'signup_' + email.slice(0, 16);
+  await user.type(await within(dialog).findByLabelText('Username'), username);
   expect(
     within(dialog).getByText(
       /8–128 characters with at least one uppercase letter and one special character/i,
     ),
   ).toBeTruthy();
-
-  await user.type(within(dialog).getByLabelText('First name'), 'Signup');
-  await user.type(within(dialog).getByLabelText('Last name'), 'Test');
-  const username = 'signup_' + email.slice(0, 16);
-  await user.type(within(dialog).getByLabelText('Username'), username);
-  await user.type(
-    within(dialog).getByLabelText('Email'),
-    email,
-  );
-  await user.type(within(dialog).getByLabelText('Phone'), '0000000000');
-
-  fireEvent.change(within(dialog).getByLabelText('Date of birth'), {
-    target: { value: '2000-01-01' },
-  });
-
   await user.type(
     within(dialog).getByLabelText('Password', { exact: false }),
     'ValidPassword!',
@@ -138,13 +136,25 @@ test('duplicate username error stays in signup dialog and user can correct it wi
   expect(response.status).toBe(202);
   mount();const user=userEvent.setup();await user.click(await screen.findByRole('button',{name:'Sign up'}));
   const dialog=screen.getByRole('dialog',{name:'Create your account'});
-  for(const [label,value] of [['First name','Retry'],['Last name','Test'],['Username',taken],['Email','retry_'+email],['Phone','0000000000']])await user.type(within(dialog).getByLabelText(label),value);
+  const next=()=>user.click(within(dialog).getByRole('button',{name:'Continue'}));
+  await user.type(within(dialog).getByLabelText('First name'),'Retry');
+  await user.type(within(dialog).getByLabelText('Last name'),'Test');
   fireEvent.change(within(dialog).getByLabelText('Date of birth'),{target:{value:'2000-01-01'}});
+  await next();
+  await user.type(await within(dialog).findByLabelText('Email'),'retry_'+email);
+  await user.type(within(dialog).getByLabelText('Phone'),'0000000000');
+  await next();
+  await user.type(await within(dialog).findByLabelText('Username'),taken);
   await user.type(within(dialog).getByLabelText('Password',{exact:false}),'ValidPassword!');
   await user.click(within(dialog).getByRole('button',{name:'Create account'}));
   expect((await within(dialog).findByRole('alert')).textContent).toContain('That username is unavailable');
-  expect((within(dialog).getByLabelText('First name') as HTMLInputElement).value).toBe('Retry');
-  await user.clear(within(dialog).getByLabelText('Username'));
+  // Earlier steps keep their values when the user goes back.
+  await user.click(within(dialog).getByRole('button',{name:'Back'}));
+  await user.click(await within(dialog).findByRole('button',{name:'Back'}));
+  expect((await within(dialog).findByLabelText('First name') as HTMLInputElement).value).toBe('Retry');
+  await next();
+  await next();
+  await user.clear(await within(dialog).findByLabelText('Username'));
   await user.type(within(dialog).getByLabelText('Username'),'new_'+email.slice(0,16));
   await user.click(within(dialog).getByRole('button',{name:'Create account'}));
   expect(await screen.findByRole('heading',{name:'Email unavailable'})).toBeTruthy();

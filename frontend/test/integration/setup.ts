@@ -26,11 +26,15 @@ globalThis.ResizeObserver ??= class {
   disconnect() {}
 } as unknown as typeof ResizeObserver;
 
-// jsdom has no Web Animations API; the mobile nav plays a short intro with it.
+// jsdom has no Web Animations API; the mobile nav and signup stepper animate with it.
+// Animations finish on the next tick so onfinish handlers still run.
 if (!Element.prototype.animate)
   Element.prototype.animate = function () {
-    return { cancel() {}, finish() {}, finished: Promise.resolve(), onfinish: null } as unknown as Animation;
+    const animation = { cancel() {}, finish() {}, finished: Promise.resolve(), onfinish: null as null | (() => void) };
+    setTimeout(() => animation.onfinish?.(), 0);
+    return animation as unknown as Animation;
   };
+Element.prototype.getAnimations ??= () => [];
 
 // The Express bridge runs in this same process. jsdom's Crypto omits subtle;
 // use Node's real Web Crypto for JWT signing/verification, never a crypto mock.

@@ -889,6 +889,56 @@ p {
   white-space: nowrap;
 }
 
+.login-card__remember {
+  min-height: 0;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+/* The default 28% ring is too faint on paper to read as a checkbox. */
+.login-card__remember .spring-check__ring {
+  opacity: 0.85;
+}
+
+.login-card__heading .split-parent {
+  vertical-align: top;
+}
+
+/* Stepper sets its theme colours inline; LoginPage passes the app palette through its style prop. */
+.signup-stepper .stepper__segment:disabled {
+  opacity: 1;
+}
+
+.signup-step small {
+  color: var(--ink-soft);
+  font-weight: 400;
+}
+
+.signup-stepper .stepper__body {
+  padding-top: 22px;
+}
+
+.signup-stepper .stepper__button {
+  min-height: 44px;
+  border-radius: 8px;
+  font-size: 1rem;
+}
+
+.signup-stepper .stepper__button--next {
+  border: 1px solid #4d250b;
+  background: linear-gradient(135deg, #2b1306, #59300f);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 9px 22px rgba(50, 22, 5, 0.2);
+}
+
+.signup-step {
+  display: grid;
+  gap: 18px;
+}
+
+.signup-form .form-error {
+  margin: 0;
+}
+
 .login-card__signup {
   margin: 30px 0 0;
   text-align: center;
