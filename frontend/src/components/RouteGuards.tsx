@@ -37,10 +37,16 @@ export function RequireUser() {
   return user ? <Outlet /> : <Navigate to="/login" replace />;
 }
 
-/** Staff and admins share the workspace; admin-only mutations stay server-enforced. */
+export const isWorkspaceUser = (user: { roles: string[] } | null | undefined) =>
+  !!user?.roles.some(role => role === 'staff' || role === 'admin');
+
+/**
+ * Staff and admins share the workspace; admin-only mutations stay server-enforced.
+ * While a member's account is open, the signed-in staff member is the actor.
+ */
 export function RequireStaff() {
-  const { user } = useAuth();
-  if (user?.roles.some(role => role === 'staff' || role === 'admin')) return <Outlet />;
+  const { user, actor } = useAuth();
+  if (isWorkspaceUser(actor ?? user)) return <Outlet />;
   return <section aria-labelledby="access-denied-title">
     <h1 id="access-denied-title">Access denied</h1>
     <p>This page is available to staff and administrators only.</p>

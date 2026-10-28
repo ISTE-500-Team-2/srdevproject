@@ -11,9 +11,13 @@ import {
 import { api, ApiError, errorMessage, setCsrfToken, setAccessToken } from '../lib/api';
 import type { NotificationMessage, Registration, Session, User } from '../lib/contracts';
 import type { UserRole } from '../types';
+import { forgetRecentAccounts } from '../components/admin/people';
 
 interface AuthContextValue {
+  /** Whose account the app is showing (an opened member account while staff act for them). */
   user: User | null;
+  /** The staff member who opened `user`'s account; null outside account mode. */
+  actor: User | null;
   notification: NotificationMessage | null;
   loading: boolean;
   error: string;
@@ -28,11 +32,14 @@ interface AuthContextValue {
   confirmEmail: (token:string) => Promise<UserRole>;
   logout: () => Promise<void>;
   refresh: (blocking?: boolean) => Promise<void>;
+  openAccount: (userId: number) => Promise<void>;
+  closeAccount: () => Promise<void>;
   clearNotification: () => void;
 }
 const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [actor, setActor] = useState<User | null>(null);
   const [notification, setNotification] = useState<NotificationMessage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -44,6 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (session.accessToken) setAccessToken(session.accessToken);
     setCsrfToken(session.csrfToken);
     setUser(session.user);
+    setActor(session.actingAs?.actor ?? null);
     if (session.notification) setNotification(session.notification);
     setError('');
     return session.user.role;
@@ -62,6 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (requestRevision !== revision.current) return;
       if (err instanceof ApiError && err.status === 401) {
         setUser(null);
+        setActor(null);
         setCsrfToken(null);
         setAccessToken(null);
       } else setError(errorMessage(err));
@@ -80,6 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setError('');
       setNotification(null);
       setUser(null);
+      setActor(null);
       setCsrfToken(null);
         setAccessToken(null);
     };
@@ -117,14 +127,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setCsrfToken(null);
         setAccessToken(null);
     setUser(null);
+    setActor(null);
     setNotification(null);
+    forgetRecentAccounts();
   }, []);
+  const openAccount = useCallback(async (userId: number) => {
+    acceptSession(await api<Session>('/admin/account-mode', { method: 'POST', body: { userId } }));
+  }, [acceptSession]);
+  const closeAccount = useCallback(async () => {
+    acceptSession(await api<Session>('/admin/account-mode/end', { method: 'POST' }));
+  }, [acceptSession]);
   const clearNotification = useCallback(() => {
     setNotification(null);
   }, []);
   const value = useMemo(
     () => ({
       user,
+      actor,
       notification,
       loading,
       error,
@@ -135,10 +154,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       confirmEmail,
       logout,
       refresh,
+      openAccount,
+      closeAccount,
       clearNotification,
     }),
     [
       user,
+      actor,
       notification,
       loading,
       error,
@@ -149,6 +171,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       confirmEmail,
       logout,
       refresh,
+      openAccount,
+      closeAccount,
       clearNotification,
     ],
   );

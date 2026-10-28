@@ -7,12 +7,14 @@ import { setAccessToken, setCsrfToken } from '../lib/api';
 import { RequireStaff, RequireUser } from './RouteGuards';
 
 let roles = ['member'];
+let actorRoles: string[] | null = null;
 let expired = false;
 let unavailable = false;
 let calls = 0;
 let hold: Promise<void> | undefined;
 function session() {
-  return { accessToken:'test-token', csrfToken:'test-csrf', user:{id:1,role:'member',roles:[...roles],firstName:'Test'} };
+  return { accessToken:'test-token', csrfToken:'test-csrf', user:{id:1,role:'member',roles:[...roles],firstName:'Test'},
+    actingAs: actorRoles ? { actor:{id:2,role:'staff',roles:[...actorRoles],firstName:'Staff'} } : null };
 }
 function mount(path='/profile') {
   setAccessToken('test-token');
@@ -40,7 +42,7 @@ function Protected() {
   return <><h1>Private profile</h1><input aria-label="Unsaved name" defaultValue="" /><Link to="/admin">Direct staff link</Link>
     <button onClick={()=>void logout()}>Log out</button></>;
 }
-afterEach(()=>{ cleanup();vi.unstubAllGlobals();setAccessToken(null);setCsrfToken(null);roles=['member'];expired=false;unavailable=false;calls=0;hold=undefined; });
+afterEach(()=>{ cleanup();vi.unstubAllGlobals();setAccessToken(null);setCsrfToken(null);roles=['member'];actorRoles=null;expired=false;unavailable=false;calls=0;hold=undefined; });
 
 test('signed-out deep links never render protected content', async()=>{
   expired=true; mount('/admin');
@@ -61,6 +63,12 @@ test.each([['staff'],['admin']])('role %s can open staff workspace directly',asy
 });
 test('additional staff role grants access even with member primary role',async()=>{
   roles=['member','staff'];mount('/admin');await screen.findByText('Private staff workspace');
+});
+test('staff with a member account open can still reach the workspace',async()=>{
+  roles=['member'];actorRoles=['staff'];mount('/admin');await screen.findByText('Private staff workspace');
+});
+test('a member account without a staff actor is still kept out',async()=>{
+  roles=['member'];actorRoles=['member'];mount('/admin');await screen.findByText('Access denied');
 });
 test('navigation checks current roles rather than previously cached roles',async()=>{
   roles=['staff'];mount();await screen.findByText('Private profile');

@@ -1,5 +1,9 @@
-import { Search } from "lucide-react";
+import { Eye, Search } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { isProtectedAccount, rememberAccount } from "../components/admin/people";
+import { useAuth } from "../context/AuthContext";
+import { errorMessage } from "../lib/api";
 import { LoadState, Pager } from "../components/Management";
 import { Modal } from "../components/Modal";
 import { UserDetail } from "../components/staff/UserDetail";
@@ -9,10 +13,48 @@ import { useApi } from "../lib/useApi";
 
 /** Staff directory: a searchable table; a member's record opens beside it. */
 export function StaffUsers() {
-  const [input, setInput] = useState(""),
-    [search, setSearch] = useState(""),
+  // ?search= comes from the workspace's member search; ?member= opens a record.
+  const [params, setParams] = useSearchParams();
+  const linkedSearch = params.get("search") ?? "";
+  const linkedMember = Number(params.get("member")) || null;
+  const [input, setInput] = useState(linkedSearch),
+    [search, setSearch] = useState(linkedSearch.trim()),
     [offset, setOffset] = useState(0),
-    [selected, setSelected] = useState<Person | null>(null);
+    [selected, setSelected] = useState<Person | null>(null),
+    [opening, setOpening] = useState(false),
+    [openError, setOpenError] = useState("");
+  const { openAccount } = useAuth();
+  const navigate = useNavigate();
+  const linked = useApi<{ user: Person }>(
+    linkedMember && selected?.id !== linkedMember ? `/admin/users/${linkedMember}` : null,
+  );
+  useEffect(() => {
+    if (linked.data) setSelected(linked.data.user);
+  }, [linked.data]);
+  useEffect(() => {
+    setInput(linkedSearch);
+  }, [linkedSearch]);
+  const close = () => {
+    setSelected(null);
+    setOpenError("");
+    if (params.has("member")) {
+      const next = new URLSearchParams(params);
+      next.delete("member");
+      setParams(next, { replace: true });
+    }
+  };
+  const openMemberAccount = async (person: Person) => {
+    setOpening(true);
+    setOpenError("");
+    try {
+      await openAccount(person.id);
+      rememberAccount(person);
+      navigate("/");
+    } catch (err) {
+      setOpenError(errorMessage(err));
+      setOpening(false);
+    }
+  };
   // Search as staff type, without a separate button.
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -97,8 +139,23 @@ export function StaffUsers() {
           open
           width="panel"
           title={`${selected.firstName} ${selected.lastName}`}
-          onClose={() => setSelected(null)}
+          onClose={close}
         >
+          {isProtectedAccount(selected) || selected.status !== "active" || selected.accessStatus !== "active" ? null : (
+            <div className="staff-directory__open">
+              <button
+                type="button"
+                className="button button--quiet"
+                onClick={() => void openMemberAccount(selected)}
+                disabled={opening}
+              >
+                <Eye aria-hidden="true" />
+                {opening ? "Opening…" : `Open ${selected.firstName}'s account`}
+              </button>
+              <span>See the member site as {selected.firstName} does and book or sign up for them.</span>
+              {openError ? <p className="form-error" role="alert">{openError}</p> : null}
+            </div>
+          )}
           <UserDetail
             key={selected.id}
             id={selected.id}

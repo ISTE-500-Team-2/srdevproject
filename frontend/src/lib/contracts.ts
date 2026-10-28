@@ -22,7 +22,10 @@ export interface UserProfile {
 export interface Session {
   accessToken?: string;
   expiresIn?: number;
+  /** Whose account requests act on: an opened member account, or the signed-in person. */
   user: User;
+  /** Set while a staff member has opened `user`'s account from the workspace. */
+  actingAs?: { actor: User } | null;
   csrfToken: string;
   notification?: NotificationMessage;
 }
