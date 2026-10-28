@@ -6,6 +6,7 @@ import request from 'supertest';
 import { createApp } from '../../src/app.js';
 import { initializeDemo } from '../../src/scripts/init-demo.js';
 import { confirmationToken } from '../helpers/confirmation.js';
+import { waiverAcceptance } from '../helpers/waiver.js';
 
 const database='arbor_account_mode_'+randomBytes(6).toString('hex')+'_mvc_test';
 const owner=new Pool(),pool=new Pool({database});
@@ -58,9 +59,9 @@ test('an admin opens a member account: member requests act as the member, worksp
 
 test('changes made in an open account are logged under the staff member',async()=>{
   // The member signs their own waivers so check-in is allowed.
-  const waivers=(await as(member).get('/me/waivers')).body.data as {id:number;signed?:boolean}[];
+  const waivers=(await as(member).get('/me/waivers')).body.data as {id:number;signed?:boolean;description?:string;signerName?:string}[];
   for(const waiver of waivers.filter(w=>!w.signed))
-    assert.equal((await as(member).post(`/me/waivers/${waiver.id}/sign`,{accepted:true})).status,200);
+    assert.equal((await as(member).post(`/me/waivers/${waiver.id}/sign`,waiverAcceptance(waiver))).status,200);
   // Check-in needs a current booking: give the member one in the first room.
   const room=(await pool.query('SELECT roomid FROM room ORDER BY roomid LIMIT 1')).rows[0].roomid;
   await pool.query("INSERT INTO reservation(userid,roomid,location,starttime,endtime,status) VALUES($1,$2,'Account mode room',(now()-interval '1 minute') AT TIME ZONE 'UTC',(now()+interval '30 minutes') AT TIME ZONE 'UTC','confirmed')",[member.user.id,room]);
