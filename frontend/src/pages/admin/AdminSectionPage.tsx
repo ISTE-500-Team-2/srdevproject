@@ -4,7 +4,7 @@ import { legacyAdminPath } from "./sections";
 import { TodayPage } from "./TodayPage";
 
 // Pages that already render their own top-level heading.
-const ownHeading = new Set(["access", "reports"]);
+const ownHeading = new Set(["access", "reports", "studios"]);
 
 /** One workspace section under /admin/<path>. */
 export function AdminSectionPage({ section }: { section: AdminSection }) {

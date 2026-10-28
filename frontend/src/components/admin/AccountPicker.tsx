@@ -24,8 +24,8 @@ function unavailable(person: Person, selfId: number | undefined) {
   return null;
 }
 
-/** Choose whose account to open on the member site. */
-export function AccountPicker({ onClose }: { onClose: () => void }) {
+/** Choose whose account to open on the member site, landing on `destination`. */
+export function AccountPicker({ onClose, destination = "/" }: { onClose: () => void; destination?: string }) {
   const { user, actor, openAccount } = useAuth();
   const staff = actor ?? user;
   const navigate = useNavigate();
@@ -49,7 +49,7 @@ export function AccountPicker({ onClose }: { onClose: () => void }) {
       await openAccount(account.id);
       if (account.id !== staff?.id) rememberAccount(account);
       onClose();
-      navigate("/");
+      navigate(destination);
     } catch (err) {
       setError(errorMessage(err));
       setBusy(null);

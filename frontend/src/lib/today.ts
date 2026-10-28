@@ -1,6 +1,7 @@
 import type { LiveEquipment, Reservation } from "./contracts";
 import type { ComplianceReport } from "./staffContracts";
 import type { Rental, Studio } from "./studioContracts";
+import { needsStaff } from "./studioDesk";
 
 const HOUR = 3_600_000;
 export function dayKey(now: number, timeZone: string) {
@@ -88,9 +89,9 @@ export function studioOccupancy(studios: Studio[], day: string) {
     return { id: studio.id, name: studio.name, size: studio.size, state };
   });
 }
-/** Same rule as the Studios page's "Payments to record" list. */
+/** Same rule as the Studios page's Needs you list. */
 export function studioPaymentsToRecord(rentals: Rental[]) {
-  return rentals.filter(r => (r.status === "pending" && r.payment_method === "manual") || ["refund_pending", "refund_failed"].includes(r.payment_status)).length;
+  return rentals.filter(needsStaff).length;
 }
 export type NeedsYouItem = { id: string; icon: "waiver" | "payment" | "machine" | "training"; alert: boolean; title: string; detail: string; action: string; to: string };
 export function needsYou(compliance: ComplianceReport, machines: LiveEquipment[], bookings: Reservation[], now: number, studioPayments = 0) {
