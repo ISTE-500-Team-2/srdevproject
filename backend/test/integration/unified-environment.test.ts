@@ -96,7 +96,7 @@ test('signature failure and staff card revocation fail closed without new check-
   assert.equal((await scan(true,'wrong-secret')).status,401);
   const revoked=await post(`/admin/access/cards/${cardId}/revoke`,{expectedRevision:1,reason:'Fixture revocation'});
   assert.equal(revoked.status,200,JSON.stringify(revoked.body));
-  assert.equal((await scan(true)).body.data.reason,'CARD_NOT_ASSIGNED');
+  assert.equal((await scan(true)).body.data.reason,'CARD_REVOKED');
   const portal=await staff.get(`/api/admin/users/${userId}`);
   assert.equal(portal.body.data.checkIns.length,1);
   const audit=await pool.query("SELECT action FROM app_staff_audit WHERE subject_id=$1 AND action IN ('access.card_assigned','access.card_revoked')",[userId]);

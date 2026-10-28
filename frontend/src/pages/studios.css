@@ -263,6 +263,7 @@
 
 /* Staff-only desk */
 .studio-desk {
+  min-width: 0;
   margin-top: 56px;
   padding: 24px;
   border: 1px dashed var(--border-strong);
@@ -347,6 +348,7 @@
 }
 .studio-calendar-scroll {
   overflow-x: auto;
+  overscroll-behavior-x: contain;
   max-width: 100%;
   margin: 1rem 0;
 }
@@ -364,6 +366,10 @@
   min-width: 1.8rem;
 }
 .studio-calendar th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: #fff;
   min-width: 8rem;
   text-align: left;
 }

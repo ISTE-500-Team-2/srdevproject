@@ -1,6 +1,6 @@
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 const modalStack: HTMLElement[] = [];
 const originalInert = new Map<HTMLElement, boolean>();
@@ -38,10 +38,13 @@ function focusable(dialog: HTMLElement) {
 interface ModalProps {
   open: boolean;
   title: string;
-  children: ReactNode;
+  /** Use the close callback for footer buttons that must respect draft protection. */
+  children: ReactNode | ((requestClose: () => void) => ReactNode);
   onClose: () => void;
+  dirty?: boolean;
+  dismissible?: boolean;
   /** "panel" slides in from the right, keeping the page behind it visible. */
-  width?: "compact" | "regular" | "panel";
+  width?: "compact" | "regular" | "panel" | "navigation";
 }
 
 export function Modal({
@@ -49,16 +52,27 @@ export function Modal({
   title,
   children,
   onClose,
+  dirty = false,
+  dismissible = true,
   width = "regular",
 }: ModalProps) {
+  const [confirmingClose, setConfirmingClose] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const titleId = useId();
   const onCloseRef = useRef(onClose);
+  const requestClose = () => {
+    if (!dismissible) return;
+    if (dirty) setConfirmingClose(true);
+    else onClose();
+  };
   useEffect(() => {
-    onCloseRef.current = onClose;
-  }, [onClose]);
+    onCloseRef.current = requestClose;
+  });
+  useEffect(() => {
+    if (!open) setConfirmingClose(false);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -120,36 +134,51 @@ export function Modal({
 
   if (!open) return null;
 
-  return createPortal(
-    <div
-      ref={backdropRef}
-      className={`modal-backdrop modal-backdrop--${width}`}
-      role="presentation"
-      onMouseDown={onClose}
-    >
-      <section
-        ref={dialogRef}
-        tabIndex={-1}
-        aria-modal="true"
-        aria-labelledby={titleId}
-        className={`modal-card modal-card--${width}`}
-        role="dialog"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <header className="modal-card__header">
-          <h2 id={titleId}>{title}</h2>
-          <button
-            ref={closeRef}
-            className="icon-button"
-            onClick={onClose}
-            aria-label="Close dialog"
+  return (
+    <>
+      {createPortal(
+        <div
+          ref={backdropRef}
+          className={`modal-backdrop modal-backdrop--${width}`}
+          role="presentation"
+          onMouseDown={requestClose}
+        >
+          <section
+            ref={dialogRef}
+            tabIndex={-1}
+            aria-modal="true"
+            aria-labelledby={titleId}
+            className={`modal-card modal-card--${width}`}
+            role="dialog"
+            onMouseDown={(event) => event.stopPropagation()}
           >
-            <X aria-hidden="true" />
-          </button>
-        </header>
-        <div className="modal-card__body">{children}</div>
-      </section>
-    </div>,
-    document.body,
+            <header className="modal-card__header">
+              <h2 id={titleId}>{title}</h2>
+              <button
+                ref={closeRef}
+                className="icon-button"
+                type="button"
+                onClick={requestClose}
+                disabled={!dismissible}
+                aria-label="Close dialog"
+              >
+                <X aria-hidden="true" />
+              </button>
+            </header>
+            <div className="modal-card__body">{typeof children === "function" ? children(requestClose) : children}</div>
+          </section>
+        </div>,
+        document.body,
+      )}
+      {confirmingClose ? (
+        <Modal open width="compact" title="Discard unsaved changes?" dismissible={dismissible} onClose={() => setConfirmingClose(false)}>
+          <p>Your changes haven't been saved. Keep editing to retain your draft.</p>
+          <div className="management-actions">
+            <button type="button" className="button button--primary" disabled={!dismissible} onClick={() => setConfirmingClose(false)}>Keep editing</button>
+            <button type="button" className="button button--quiet" disabled={!dismissible} onClick={() => { setConfirmingClose(false); onClose(); }}>Discard changes</button>
+          </div>
+        </Modal>
+      ) : null}
+    </>
   );
 }

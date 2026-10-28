@@ -5,6 +5,7 @@ import {
   render,
   screen,
   within,
+  waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -188,9 +189,8 @@ test("staff card assignment, revocation and timed override UI save audited recor
   );
   await user.click(await screen.findByRole("option", { name: /Jordan Demo/ }));
   void member;
-  await user.click(screen.getByRole("button", { name: "Load cards" }));
-  await screen.findByRole("heading", { name: "Assign scanned card" });
-  await user.type(screen.getByLabelText("Card UID"), "04:A1:B2:C3:D4:E5:F6");
+  await user.click(await screen.findByRole("button", { name: "Enter a card ID manually" }));
+  await user.type(screen.getByLabelText("NFC card ID"), "04:A1:B2:C3:D4:E5:F6");
   await user.type(screen.getByLabelText("Card label"), "UI test card");
   await user.type(
     screen.getByLabelText("Assignment reason"),
@@ -198,31 +198,24 @@ test("staff card assignment, revocation and timed override UI save audited recor
   );
   await user.click(screen.getByRole("button", { name: "Assign card" }));
   await screen.findByRole("heading", { name: "UI test card" });
-  await user.type(screen.getByLabelText("Revocation reason"), "Lost card");
   await user.click(screen.getByRole("button", { name: "Revoke UI test card" }));
-  await screen.findByText(/Revoked · assigned/);
+  const revokeDialog = screen.getByRole("dialog");
+  await user.type(within(revokeDialog).getByLabelText("Reason"), "Lost card");
+  await user.click(within(revokeDialog).getByRole("button", { name: "Confirm revocation" }));
+  await screen.findByRole("button", {name:"Reactivate UI test card"});
   const equipment = (
     await bridge.pool.query(
       "SELECT equipmentid FROM equipment ORDER BY equipmentid LIMIT 1",
     )
   ).rows[0].equipmentid;
-  await user.type(screen.getByLabelText("Resource ID"), String(equipment));
-  const t = new Date(Date.now() + 10 * 60000),
-    local = new Date(t.getTime() - t.getTimezoneOffset() * 60000)
-      .toISOString()
-      .slice(0, 16);
-  fireEvent.change(screen.getByLabelText("Ends"), { target: { value: local } });
-  const form = screen
-    .getByRole("heading", { name: "Short staff access override" })
-    .closest("form")!;
-  await user.type(
-    within(form).getByLabelText("Reason"),
-    "Supervised operation",
-  );
-  await user.click(
-    screen.getByRole("button", { name: "Create timed override" }),
-  );
-  await screen.findByText(/Supervised operation · ends/);
+  await user.click(screen.getByRole("link", {name:"Jordan’s member record"}));
+  const form = await screen.findByRole("form", {name:"Create supervised access"});
+  await waitFor(()=>expect(within(form).getByLabelText("Equipment or room").querySelector(`option[value="equipment:${equipment}"]`)).toBeTruthy());
+  await user.selectOptions(within(form).getByLabelText("Equipment or room"), `equipment:${equipment}`);
+  await user.selectOptions(within(form).getByLabelText("Duration"), "10");
+  await user.type(within(form).getByLabelText("Reason"), "Supervised operation");
+  await user.click(within(form).getByRole("button", {name:"Create supervised access"}));
+  await screen.findByText(/Supervised access created for Jordan/);
   const card = (
     await bridge.pool.query(
       "SELECT active FROM app_access_card WHERE label='UI test card'",

@@ -26,7 +26,7 @@ export function AvailabilityCalendar({
           }}
         />
       </label>
-      <div className="studio-calendar-scroll">
+      <div className="studio-calendar-scroll" role="region" aria-label="Monthly studio occupancy; scroll for more dates" tabIndex={0}>
         <table className="studio-calendar">
           <caption>H = held for payment · B = booked</caption>
           <thead>

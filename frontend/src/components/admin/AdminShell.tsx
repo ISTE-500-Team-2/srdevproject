@@ -1,10 +1,11 @@
-import { CalendarDays, Eye, LogOut, Menu, Search, X } from "lucide-react";
+import { CalendarDays, Eye, LogOut, Menu, Search } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { errorMessage } from "../../lib/api";
 import { adminGroups } from "../../pages/admin/sections";
 import { AccountPicker } from "./AccountPicker";
+import { Modal } from "../Modal";
 import { initials, lastWorkspacePathKey, roleLabel } from "./people";
 
 /** The staff workspace: its own sidebar layout, separate from the member site. */
@@ -105,20 +106,16 @@ export function AdminShell() {
       <aside className="admin-side" aria-label="Workspace navigation">
         {sidebar}
       </aside>
-      {menuOpen ? (
-        <div className="admin-drawer" role="dialog" aria-modal="true" aria-label="Workspace navigation">
-          <button type="button" className="admin-drawer__scrim" aria-label="Close navigation" onClick={() => setMenuOpen(false)} />
-          <div className="admin-drawer__panel">
-            <button type="button" className="icon-button admin-drawer__close" aria-label="Close navigation" onClick={() => setMenuOpen(false)}>
-              <X aria-hidden="true" />
-            </button>
-            {sidebar}
-          </div>
-        </div>
-      ) : null}
+      <Modal open={menuOpen} width="navigation" title="Workspace navigation" onClose={() => setMenuOpen(false)}>
+        {sidebar}
+      </Modal>
       <div className="admin-main">
         <header className="admin-top">
-          <button type="button" className="icon-button admin-top__menu" aria-label="Open navigation" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}>
+          <button type="button" className="icon-button admin-top__menu" aria-label="Open navigation" aria-expanded={menuOpen} onClick={(event) => {
+            // WebKit does not focus buttons on tap. Give the dialog a return target.
+            event.currentTarget.focus({ preventScroll: true });
+            setMenuOpen(true);
+          }}>
             <Menu aria-hidden="true" />
           </button>
           <Link className="admin-top__brand" to="/admin" aria-label="Staff workspace home">
@@ -135,7 +132,7 @@ export function AdminShell() {
               maxLength={100}
             />
           </form>
-          <button type="button" className="button admin-top__view" onClick={() => setPickerOpen(true)}>
+          <button type="button" className="button admin-top__view" aria-label="View member site" title="View member site" onClick={() => setPickerOpen(true)}>
             <Eye aria-hidden="true" />
             <span>View member site</span>
           </button>

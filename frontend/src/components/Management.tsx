@@ -110,7 +110,7 @@ export function LoadState({
       {loading ? <p role="status">Loading records…</p> : null}
       {error ? (
         <p role="alert" className="form-error">
-          {error} <button onClick={reload}>Retry</button>
+          {error} <button type="button" onClick={reload}>Retry</button>
         </p>
       ) : null}
     </>

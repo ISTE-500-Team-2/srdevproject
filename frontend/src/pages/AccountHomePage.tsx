@@ -153,7 +153,7 @@ export function AccountHomePage() {
         ? "Checking in…"
         : o && !o.canCheckIn
           ? (o.reasons[0] ?? "Not available right now")
-          : "Record a visit without a tag",
+          : "Record a visit without an NFC card",
       onClick: () => void doCheckIn(),
       disabled: checkIn.busy || !o?.canCheckIn,
     },
@@ -163,7 +163,7 @@ export function AccountHomePage() {
   const tools: Action[] = own
     ? []
     : [
-        { icon: ScanLine, title: "Assign a tag", detail: `Scan a new NFC tag to ${user.firstName}`, to: `/admin/access?member=${user.id}` },
+        { icon: ScanLine, title: "Assign an NFC card", detail: `Choose a reader and scan a card for ${user.firstName}`, to: `/admin/access?member=${user.id}` },
         { icon: Lock, title: "Pause access", detail: "Lock every reader until restored", to: memberRecord },
         { icon: Ticket, title: "Issue a pass or membership", detail: "Records the payment too", to: memberRecord },
         { icon: CalendarSync, title: "Move a booking", detail: "Move or cancel one of their bookings", to: `/admin/reservations?member=${user.id}` },
