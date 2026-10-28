@@ -82,6 +82,10 @@ test("one winner in concurrent monthly bookings; manual payment requires staff; 
     code: "STAFF_REQUIRED",
   });
   await service.manualPay(admin, rental.id, "cash receipt 123");
+  const listed = (await service.staffList(admin)).find((r: any) => r.id === rental.id);
+  const person = (await pool.query("SELECT firstname||' '||lastname AS name,email FROM \"user\" WHERE userid=$1", [member])).rows[0];
+  assert.equal(listed.member_name, person.name);
+  assert.equal(listed.email, person.email);
   assert.equal((await service.mine(member))[0].payment_status, "paid");
   await service.cancel(member, rental.id);
   assert.equal(
