@@ -95,20 +95,25 @@ export function StaffPlans() {
         </div>
         {selected && (selected.mode === "new" || editing) ? (
           <PlanEditor
-            key={editing ? `${editing.id}-${editing.revision}-${priceFor(editing.id)?.revision ?? 0}` : "new"}
+            key={editing?.id ?? "new"}
             plan={editing}
-            price={editing ? priceFor(editing.id) : undefined}
+            priceFor={priceFor}
             isAdmin={isAdmin}
             notice={notice}
-            onClose={() => open(null)}
-            onSaved={(saved, problem) => {
+            onClose={() => {
+              // A partial save may have persisted the plan while the editor stayed open.
               plans.reload();
               prices.reload();
+              open(null);
+            }}
+            onSaved={(saved, problem) => {
+              prices.reload();
               if (problem) {
-                // The plan itself saved; keep it open so the discount can be retried.
-                setSelected({ mode: "edit", id: saved.id });
-                setNotice(problem);
+                // Keep this editor mounted: its draft and successful plan write
+                // must survive while pricing reloads its optimistic revision.
+                return;
               } else {
+                plans.reload();
                 setSelected(null);
                 setNotice(`Saved ${saved.name}.`);
               }
@@ -203,20 +208,24 @@ function PlanGroup({
 }
 
 function PlanEditor({
-  plan,
-  price,
+  plan: initialPlan,
+  priceFor,
   isAdmin,
   notice,
   onClose,
   onSaved,
 }: {
   plan: Plan | null;
-  price: EligibilityPrice | undefined;
+  priceFor: (id: number) => EligibilityPrice | undefined;
   isAdmin: boolean;
   notice: string;
   onClose: () => void;
   onSaved: (plan: Plan, problem?: string) => void;
 }) {
+  // Advance the baseline after a successful plan write, even if discounts fail.
+  // A retry then updates discounts only, including after creating a new plan.
+  const [plan, setPlan] = useState(initialPlan);
+  const price = plan ? priceFor(plan.id) : undefined;
   const [kind, setKind] = useState<Plan["kind"]>(plan?.kind ?? "membership");
   const [active, setActive] = useState(plan?.active ?? true);
   const [busy, setBusy] = useState(false);
@@ -268,6 +277,7 @@ function PlanEditor({
           method: plan ? "PATCH" : "POST",
           body: { ...body, reason, ...(plan ? { revision: plan.revision } : {}) },
         });
+        setPlan(saved);
       }
       if (discountChanged && saved) {
         await api(`/billing-management/pricing/${saved.id}`, {
@@ -279,11 +289,13 @@ function PlanEditor({
     } catch (err) {
       if (planChanged && saved && saved !== plan) {
         const problem = `${saved.name} was saved, but its discounts weren't: ${errorMessage(err)}`;
-        // Shown now, and again by the fresh editor once the saved plan reloads.
+        // Do not remount the editor or discard the unsaved discount/reason.
         setError(problem);
         onSaved(saved, problem);
       } else {
         setError(errorMessage(err));
+        // Another pricing conflict can happen on a retry, too.
+        if (!planChanged && saved && discountChanged) onSaved(saved, errorMessage(err));
       }
     } finally {
       setBusy(false);

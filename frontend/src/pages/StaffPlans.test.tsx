@@ -122,3 +122,82 @@ test("new plans pick their type with a toggle, and day passes have no length", a
   expect(within(form).queryByLabelText("Length (calendar months)")).toBeNull();
   expect(within(form).getByText("One calendar day")).toBeTruthy();
 });
+
+test("failed discounts retain their draft and retry only pricing with its refreshed revision", async () => {
+  let persisted = monthly;
+  let attempts = 0;
+  api.mockImplementation((path: string, options?: { method?: string }) => {
+    if (path === "/admin/plans/1" && options?.method === "PATCH") {
+      persisted = { ...monthly, name: "Monthly revised", price: "99.00", revision: 4 };
+      return Promise.resolve(persisted);
+    }
+    if (path === "/billing-management/pricing/1") {
+      attempts++;
+      return attempts < 3 ? Promise.reject(new Error(attempts === 1 ? "Refresh pricing before saving." : "Refresh pricing again.")) : Promise.resolve({});
+    }
+    if (path === "/admin/plans") return Promise.resolve([persisted, dayPass]);
+    if (path === "/billing-management/pricing") return Promise.resolve([{ tierid: 1, student_cents: 6500, partner_free: true, revision: attempts + 2 }]);
+    return Promise.resolve([]);
+  });
+  render(<StaffPlans />);
+  await userEvent.click(await screen.findByRole("button", { name: "Monthly" }));
+  const form = screen.getByRole("form", { name: "Edit Monthly" });
+  fireEvent.change(within(form).getByLabelText("Plan name"), { target: { value: "Monthly revised" } });
+  fireEvent.change(within(form).getByLabelText("Price (USD)"), { target: { value: "99.00" } });
+  fireEvent.change(within(form).getByLabelText("Student price (USD)"), { target: { value: "70" } });
+  await userEvent.type(within(form).getByLabelText("Reason for change"), "Fall pricing");
+  await userEvent.click(within(form).getByRole("button", { name: "Save plan" }));
+  await screen.findByText("Monthly revised was saved, but its discounts weren't: Refresh pricing before saving.");
+  await waitFor(() => expect(api.mock.calls.filter(([path]) => path === "/billing-management/pricing")).toHaveLength(2));
+  const reloaded = await screen.findByRole("form", { name: "Edit Monthly revised" });
+  expect((within(reloaded).getByLabelText("Student price (USD)") as HTMLInputElement).value).toBe("70");
+  expect((within(reloaded).getByLabelText("Reason for change") as HTMLInputElement).value).toBe("Fall pricing");
+  await userEvent.click(within(reloaded).getByRole("button", { name: "Save plan" }));
+  await screen.findByText("Refresh pricing again.");
+  await waitFor(() => expect(api.mock.calls.filter(([path]) => path === "/billing-management/pricing")).toHaveLength(3));
+  expect((within(reloaded).getByLabelText("Student price (USD)") as HTMLInputElement).value).toBe("70");
+  await userEvent.click(within(reloaded).getByRole("button", { name: "Save plan" }));
+  await screen.findByText("Saved Monthly revised.");
+  expect(writes().filter(([path]) => path === "/admin/plans/1")).toHaveLength(1);
+  expect(writes().filter(([path]) => path === "/billing-management/pricing/1")).toHaveLength(3);
+  expect(writes().at(-1)).toEqual(["/billing-management/pricing/1", {
+    method: "PATCH", body: { studentCents: 7000, partnerFree: true, revision: 4, reason: "Fall pricing" },
+  }]);
+});
+
+test("a new plan is not created twice when its discount save is retried", async () => {
+  const created = { ...monthly, id: 9, name: "New membership", price: "80.00", benefits: "", revision: 0 };
+  let attempts = 0;
+  api.mockImplementation((path: string, options?: { method?: string }) => {
+    if (path === "/admin/plans" && options?.method === "POST") return Promise.resolve(created);
+    if (path === "/billing-management/pricing/9") {
+      attempts++;
+      return attempts === 1 ? Promise.reject(new Error("Temporary pricing failure")) : Promise.resolve({});
+    }
+    if (path === "/admin/plans") return Promise.resolve([monthly, dayPass]);
+    if (path === "/billing-management/pricing") return Promise.resolve(attempts ? [{ tierid: 9, student_cents: 6000, partner_free: false, revision: 3 }] : []);
+    return Promise.resolve([]);
+  });
+  render(<StaffPlans />);
+  await userEvent.click(await screen.findByRole("button", { name: "New plan" }));
+  const form = screen.getByRole("form", { name: "Create a plan" });
+  fireEvent.change(within(form).getByLabelText("Plan name"), { target: { value: created.name } });
+  fireEvent.change(within(form).getByLabelText("Price (USD)"), { target: { value: created.price } });
+  fireEvent.change(within(form).getByLabelText("Student price (USD)"), { target: { value: "50" } });
+  await userEvent.click(within(form).getByLabelText("Free for verified school partners"));
+  await userEvent.type(within(form).getByLabelText("Reason for change"), "New offer");
+  await userEvent.click(within(form).getByRole("button", { name: "Create plan" }));
+  await screen.findByText("New membership was saved, but its discounts weren't: Temporary pricing failure");
+  await waitFor(() => expect(api.mock.calls.filter(([path]) => path === "/billing-management/pricing")).toHaveLength(2));
+  const retry = await screen.findByRole("form", { name: "Edit New membership" });
+  expect((within(retry).getByLabelText("Student price (USD)") as HTMLInputElement).value).toBe("50");
+  expect((within(retry).getByLabelText("Free for verified school partners") as HTMLInputElement).checked).toBe(true);
+  await userEvent.click(within(retry).getByRole("button", { name: "Save plan" }));
+  await screen.findByText("Saved New membership.");
+  expect(writes().filter(([path, options]) => path === "/admin/plans" && options.method === "POST")).toHaveLength(1);
+  expect(writes().filter(([path]) => path === "/billing-management/pricing/9")).toHaveLength(2);
+  expect(writes().filter(([path]) => path === "/admin/plans/9")).toHaveLength(0);
+  expect(writes().at(-1)).toEqual(["/billing-management/pricing/9", {
+    method: "PATCH", body: { studentCents: 5000, partnerFree: true, revision: 3, reason: "New offer" },
+  }]);
+});
