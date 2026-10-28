@@ -82,13 +82,12 @@ test("staff React flow creates a plan, issues access/payment, survives reload, s
   await bridge.pool.query(`UPDATE user_role SET roleid=(SELECT roleid FROM role WHERE role='staff') WHERE userid=(SELECT userid FROM "user" WHERE email='demo.admin@collaboratory.invalid')`);
   const staffSession = (await (await bridge.fetch('/api/auth/session')).json()).data;
   expect(staffSession.user.role).toBe('staff');
-  const user = userEvent.setup();
   mount("/admin/plans");
-  const create = await screen.findByRole(
-    "form",
-    { name: "Create a plan" },
-    { timeout: 20000 },
+  const user = userEvent.setup();
+  await user.click(
+    await screen.findByRole("button", { name: "New plan" }, { timeout: 20000 }),
   );
+  const create = screen.getByRole("form", { name: "Create a plan" });
   // Staff get the workspace sidebar, not the member site header.
   const workspaceNav = screen.getByRole('navigation', {name:'Staff workspace'});
   expect(within(workspaceNav).getByRole('link', {name:'Plans'}).getAttribute('aria-current')).toBe('page');
