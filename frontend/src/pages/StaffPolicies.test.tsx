@@ -57,3 +57,20 @@ test("next version: dated versions take the start date, numbered ones count up",
   expect(suggestVersion("Spring edition", "2026-10-30")).toBe("2026-10-30");
   expect(suggestVersion(undefined, "2026-10-30")).toBe("2026-10-30");
 });
+
+test('waiver text and approval evidence survive accidental closing until discard is confirmed', () => {
+  vi.mocked(useApi).mockImplementation(path => ({ data: path === '/admin/policies' ? [] : null, loading: false, refreshing: false, error: '', reload: vi.fn() }));
+  render(<StaffPolicies />);
+  fireEvent.click(screen.getByRole('button', { name: 'New waiver' }));
+  const editor = screen.getByRole('dialog', { name: 'New waiver' });
+  fireEvent.change(within(editor).getByLabelText('Text members will read'), { target: { value: 'Approved wording that has not yet been published.' } });
+  fireEvent.change(within(editor).getByLabelText('Approval reference'), { target: { value: 'Board approval' } });
+  fireEvent.click(within(editor).getByRole('button', { name: 'Cancel' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+  expect(within(editor).getByLabelText('Text members will read')).toHaveProperty('value', 'Approved wording that has not yet been published.');
+  expect(within(editor).getByLabelText('Approval reference')).toHaveProperty('value', 'Board approval');
+  fireEvent.keyDown(window, { key: 'Escape' });
+  fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(api).not.toHaveBeenCalled();
+});

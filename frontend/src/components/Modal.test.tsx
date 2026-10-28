@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { Modal } from "./Modal";
 import userEvent from "@testing-library/user-event";
 afterEach(cleanup);
@@ -136,4 +136,42 @@ test("parent updates preserve form focus while Escape uses the current close han
   fireEvent.keyDown(window, { key: "Escape" });
   expect(latest).toHaveBeenCalledOnce();
   expect(first).not.toHaveBeenCalled();
+});
+
+test.each(["close", "backdrop", "Escape", "footer"])("dirty drafts survive %s dismissal until discard is confirmed", async (method) => {
+  const close = vi.fn();
+  render(
+    <Modal open title="Edit waiver" dirty onClose={close}>
+      {(requestClose) => <><input aria-label="Wording" defaultValue="Unsaved wording" /><button onClick={requestClose}>Cancel editing</button></>}
+    </Modal>,
+  );
+  const editor = screen.getByRole("dialog", { name: "Edit waiver" });
+  const input = within(editor).getByLabelText("Wording");
+  input.focus();
+  if (method === "close") fireEvent.click(within(editor).getByLabelText("Close dialog"));
+  else if (method === "backdrop") fireEvent.mouseDown(editor.parentElement!);
+  else if (method === "footer") fireEvent.click(within(editor).getByText("Cancel editing"));
+  else fireEvent.keyDown(window, { key: "Escape" });
+  const confirmation = screen.getByRole("dialog", { name: "Discard unsaved changes?" });
+  expect(close).not.toHaveBeenCalled();
+  fireEvent.click(within(confirmation).getByRole("button", { name: "Keep editing" }));
+  expect(input).toHaveProperty("value", "Unsaved wording");
+  expect(editor.parentElement?.inert).not.toBe(true);
+  expect(document.body.classList.contains("modal-open")).toBe(true);
+  fireEvent.keyDown(window, { key: "Escape" });
+  fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+  expect(close).toHaveBeenCalledOnce();
+});
+
+test("pending saves cannot be dismissed and clean forms close without a discard prompt", () => {
+  const close = vi.fn();
+  const view = render(<Modal open title="Saving" dirty dismissible={false} onClose={close}>Draft</Modal>);
+  expect(screen.getByRole("button", { name: "Close dialog" })).toHaveProperty("disabled", true);
+  fireEvent.keyDown(window, { key: "Escape" });
+  fireEvent.mouseDown(screen.getByRole("dialog").parentElement!);
+  expect(close).not.toHaveBeenCalled();
+  expect(screen.queryByText("Discard unsaved changes?")).toBeNull();
+  view.rerender(<Modal open title="Saving" onClose={close}>Saved</Modal>);
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(close).toHaveBeenCalledOnce();
 });

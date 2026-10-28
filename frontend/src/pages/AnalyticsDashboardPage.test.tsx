@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { AnalyticsDashboardPage } from './AnalyticsDashboardPage';
 import { useApi } from '../lib/useApi';
 vi.mock('../lib/useApi', () => ({ useApi: vi.fn() }));
@@ -38,4 +38,12 @@ test('today count and remaining visitors use the full total, not the capped rece
   expect(screen.getByText('75 people')).toBeTruthy();
   expect(screen.getByText('+69 more')).toBeTruthy();
   expect(screen.queryByText('Visitor 6')).toBeNull();
+});
+
+test('daily visit values including zero-count days are readable without hover', () => {
+  vi.mocked(useApi).mockReturnValue({ data: { from: '2026-10-25', to: '2026-10-27', period: 'daily', timeZone: 'America/New_York', generatedAt: '2026-10-27T16:00:00Z', revenue: [], classes: [], active: { approvedCheckIns: 9, activeUsers: 9 }, visitsByDay: [{ day: '2026-10-25', visits: 2 }, { day: '2026-10-26', visits: 0 }, { day: '2026-10-27', visits: 7 }], checkedInToday: [], notes: [] }, loading: false, refreshing: false, error: '', reload: vi.fn() });
+  render(<AnalyticsDashboardPage />);
+  fireEvent.click(screen.getByText('Show daily visit counts'));
+  const table = screen.getByRole('table', { name: 'Visits per day' });
+  expect(within(table).getAllByRole('row').map(row => row.textContent)).toEqual(['DateVisits', '2026-10-252', '2026-10-260', '2026-10-277']);
 });

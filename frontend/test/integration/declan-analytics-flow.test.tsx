@@ -63,7 +63,7 @@ test("analytics uses the full settled ledger, real check-ins/classes and zero-fi
   expect(within(totals).getByText("$95.00")).toBeTruthy();
   expect(within(totals).getByText("$20.00")).toBeTruthy();
   expect(screen.queryByText("Active Users: 56")).toBeNull();
-  const visits = screen.getByText("Visits").closest("article")!;
+  const visits = screen.getByText("Visits", { selector: ".kpi__label" }).closest("article")!;
   expect(within(visits).getByText("0")).toBeTruthy();
   expect(screen.getByText("Nobody has checked in yet today.")).toBeTruthy();
   expect(screen.getByText("No classes in this period.")).toBeTruthy();

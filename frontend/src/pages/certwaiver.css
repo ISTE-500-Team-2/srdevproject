@@ -1,13 +1,13 @@
 /* Certifications & waivers (staff): compliance, waivers, certifications. */
 .cw-tabs {
   display: flex;
-  gap: 26px;
-  overflow-x: auto;
+  flex-wrap: wrap;
+  gap: 0 20px;
   border-bottom: 1px solid #ddd2ca;
-  scrollbar-width: none;
 }
 .management-page .cw-tabs button {
   flex: none;
+  min-height: 44px;
   white-space: nowrap;
 }
 .management-page .cw-tabs button {
@@ -169,7 +169,7 @@
   gap: 8px;
 }
 .management-page .cw-chip {
-  height: 34px;
+  min-height: 44px;
   border: 1px solid var(--border);
   border-radius: 99px;
   padding: 0 13px;
@@ -186,8 +186,8 @@
   color: #fff;
 }
 .management-page .cw-select {
-  height: 34px;
-  min-height: 0;
+  height: 44px;
+  min-height: 44px;
   appearance: none;
   border: 1px solid var(--border);
   border-radius: 99px;

@@ -73,9 +73,11 @@ function TrainingWorkspace({
     selectedMember ? `/training/users/${selectedMember}` : null,
   );
   const [editing, setEditing] = useState<Course | null>(null);
+  const [catalogDirty, setCatalogDirty] = useState(false);
   useEffect(() => {
     setEquipmentIds(editing?.equipmentIds ?? []);
     setEquipmentSearch("");
+    setCatalogDirty(false);
   }, [editing]);
   const [renewing, setRenewing] = useState<Record | null>(null);
   const [revoking, setRevoking] = useState<Record | null>(null);
@@ -302,8 +304,8 @@ function TrainingWorkspace({
       </section>
 
       {editing ? (
-        <Modal open width="panel" title={editing.id ? `Edit ${editing.name}` : "New certification"} onClose={() => setEditing(null)}>
-          <form className="cw-form" key={editing.id} onSubmit={saveCourse}>
+        <Modal open width="panel" title={editing.id ? `Edit ${editing.name}` : "New certification"} dirty={catalogDirty} dismissible={!busy} onClose={() => setEditing(null)}>
+          {(requestClose) => <form className="cw-form" key={editing.id} onChangeCapture={() => setCatalogDirty(true)} onSubmit={saveCourse}>
             {error ? <p className="form-error" role="alert">{error}</p> : null}
             <label className="cw-field">
               <span>Name</span>
@@ -353,14 +355,14 @@ function TrainingWorkspace({
               <input name="reason" required maxLength={500} />
             </label>
             <div className="cw-form__actions">
-              <button type="button" className="button button--quiet" onClick={() => setEditing(null)}>
+              <button type="button" className="button button--quiet" onClick={requestClose} disabled={busy}>
                 Cancel
               </button>
               <button className="button button--primary" disabled={busy || equipment.loading || !!equipment.error}>
                 Save certification
               </button>
             </div>
-          </form>
+          </form>}
         </Modal>
       ) : null}
 

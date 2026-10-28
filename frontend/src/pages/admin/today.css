@@ -41,6 +41,7 @@
 }
 .today-count--hot { background: var(--orange-soft); color: #6b3d05; }
 .today-link {
+  min-height: 44px;
   margin-left: auto;
   display: inline-flex;
   align-items: center;
@@ -65,7 +66,7 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-height: 30px;
+  min-height: 44px;
   margin-top: 9px;
   border: 1px solid var(--border);
   border-radius: 8px;

@@ -208,6 +208,13 @@
   font-weight: 700;
 }
 
+.revenue-chart-scroll {
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding: 64px 8px 8px;
+}
+.analytics-chart-hint { margin: 0; color: var(--ink-soft); font-size: 0.85rem; }
 .revenue-bars {
   display: grid;
   grid-template-columns: 52px minmax(0, 1fr);
@@ -309,8 +316,11 @@
 }
 .analytics-table {
   margin-top: 10px;
+  overflow-x: auto;
 }
 .analytics-table summary {
+  min-height: 44px;
+  padding: 12px 0;
   color: var(--bronze);
   font-weight: 600;
   cursor: pointer;
@@ -387,12 +397,12 @@
 .visits-strip {
   display: flex;
   align-items: flex-end;
-  gap: 3px;
+  gap: min(3px, 0.3vw);
   height: 70px;
 }
 .visits-strip i {
   flex: 1;
-  min-width: 2px;
+  min-width: 0;
   border-radius: 3px 3px 0 0;
   background: #d9a868;
 }
@@ -481,7 +491,7 @@
 
 @media (max-width: 900px) {
   .kpis {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
   }
   .analytics-layout {
     grid-template-columns: 1fr;

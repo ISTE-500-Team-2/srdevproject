@@ -616,6 +616,8 @@
   vertical-align: middle;
 }
 .staff-directory td:first-child button {
+  min-height: 44px;
+  min-width: 44px;
   border: 0;
   padding: 0;
   background: none;
@@ -625,6 +627,7 @@
   text-align: left;
   cursor: pointer;
 }
+.reservation-editor-title { scroll-margin-top: 80px; }
 .staff-directory td:first-child button:hover {
   color: var(--bronze);
   text-decoration: underline;
