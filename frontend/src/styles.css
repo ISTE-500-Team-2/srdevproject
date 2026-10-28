@@ -133,10 +133,8 @@ p {
 .dashboard-intro h1,
 .discovery-heading h2,
 .reservation-section__heading h1,
-.credentials-page--member-demo .certifications-heading,
 .training-panel__heading h1,
-.catalog-hero h1,
-.profile-hero h1 {
+.account-hero h1 {
   margin-bottom: 0;
   font-family: 'Black Ops One', sans-serif;
   font-weight: 400;
@@ -149,9 +147,12 @@ p {
   align-items: center;
   justify-content: center;
   gap: 9px;
-  border: 1px solid transparent;
+  /* A button without a variant looks secondary, never the browser's grey. */
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px 18px;
+  background: rgba(255, 255, 255, 0.56);
+  color: var(--ink);
   font-weight: 600;
   text-decoration: none;
   cursor: pointer;
@@ -624,9 +625,11 @@ p {
 }
 
 .check-control {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 9px;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -636,16 +639,34 @@ p {
 }
 
 .check-control > span {
+  flex-shrink: 0;
   width: 18px;
   height: 18px;
+  display: grid;
+  place-items: center;
   border: 2px solid var(--ink);
   border-radius: 4px;
   background: white;
 }
 
 .check-control input:checked + span {
+  border-color: var(--espresso);
   background: var(--espresso);
-  box-shadow: inset 0 0 0 3px white;
+}
+
+.check-control input:checked + span::after {
+  content: '';
+  width: 4px;
+  height: 8px;
+  margin-top: -2px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.check-control input:focus-visible + span {
+  outline: 2px solid var(--bronze);
+  outline-offset: 2px;
 }
 
 .form-error {
@@ -847,6 +868,7 @@ p {
 .login-card__heading > p:last-child {
   margin-bottom: 0;
   color: var(--ink-soft);
+  text-wrap: balance;
 }
 
 .login-card form {
@@ -856,9 +878,65 @@ p {
 
 .login-card__options {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
-  gap: 20px;
+  gap: 12px 20px;
   font-size: 0.9rem;
+}
+
+.login-card__options .text-button {
+  white-space: nowrap;
+}
+
+.login-card__remember {
+  min-height: 0;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+/* The default 28% ring is too faint on paper to read as a checkbox. */
+.login-card__remember .spring-check__ring {
+  opacity: 0.85;
+}
+
+.login-card__heading .split-parent {
+  vertical-align: top;
+}
+
+/* Stepper sets its theme colours inline; LoginPage passes the app palette through its style prop. */
+.signup-stepper .stepper__segment:disabled {
+  opacity: 1;
+}
+
+.signup-step small {
+  color: var(--ink-soft);
+  font-weight: 400;
+}
+
+.signup-stepper .stepper__body {
+  padding-top: 22px;
+}
+
+.signup-stepper .stepper__button {
+  min-height: 44px;
+  border-radius: 8px;
+  font-size: 1rem;
+}
+
+.signup-stepper .stepper__button--next {
+  border: 1px solid #4d250b;
+  background: linear-gradient(135deg, #2b1306, #59300f);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 9px 22px rgba(50, 22, 5, 0.2);
+}
+
+.signup-step {
+  display: grid;
+  gap: 18px;
+}
+
+.signup-form .form-error {
+  margin: 0;
 }
 
 .login-card__signup {
@@ -876,6 +954,37 @@ p {
   border-top: 1px dashed var(--border);
   color: var(--ink-soft);
   font-size: 0.8rem;
+}
+
+@media (max-width: 560px) {
+  .login-page {
+    padding: 28px 14px;
+  }
+
+  .login-page__logo {
+    width: min(360px, 88vw);
+    margin-bottom: 20px;
+  }
+
+  .login-card {
+    padding: 28px 22px 24px;
+  }
+
+  .login-card__heading {
+    margin-bottom: 24px;
+  }
+
+  .login-card form {
+    gap: 20px;
+  }
+
+  .prototype-access {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .prototype-access > span {
+    grid-column: 1 / -1;
+  }
 }
 
 .prototype-access button {
@@ -1768,9 +1877,17 @@ p {
   margin-bottom: 30px;
 }
 
-.reservation-section__heading h1,
-.credentials-page--member-demo .certifications-heading {
+.reservation-section__heading h1 {
   font-size: clamp(2rem, 3.2vw, 3.7rem);
+}
+
+/* Card titles use the body face; the display face is for page titles only. */
+.credentials-page--member-demo .certifications-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1.3rem;
+  font-weight: 700;
 }
 
 .select-control {
@@ -1829,6 +1946,17 @@ p {
   box-shadow: var(--shadow-small);
 }
 
+/* Studio photos fill their tile instead of leaving a grey band below. */
+.studio-card__image {
+  aspect-ratio: 1 / 0.82;
+}
+.studio-card__image img {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  object-fit: cover;
+}
+
 .reservation-card__image {
   aspect-ratio: 1 / 0.9;
 }
@@ -1866,7 +1994,6 @@ place-items: center;
 .equipment-card:hover img {
   transform: none;
 }
-
 
 .reservation-card__rule {
   width: 100%;
@@ -1941,8 +2068,11 @@ place-items: center;
 .reservation-form__summary img {
   width: 136px;
   height: 100px;
+  border: 1px solid #e6ddd5;
   border-radius: 8px;
-  object-fit: cover;
+  padding: 8px;
+  background: #fffdfa;
+  object-fit: contain;
 }
 
 .reservation-form__summary h3 {
@@ -1956,185 +2086,20 @@ place-items: center;
   color: var(--ink-soft);
 }
 
-/* Class catalog */
-.classes-page {
-  display: grid;
-  gap: 34px;
-}
-
-.catalog-hero {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 40px;
-  padding: 20px 0 9px;
-}
-
-.catalog-hero h1 {
-  font-size: clamp(2.5rem, 4vw, 4.8rem);
-}
-
-.catalog-hero > div > p:last-child {
-  max-width: 650px;
-  margin: 12px 0 0;
-  color: var(--ink-soft);
-  font-size: 1.08rem;
-}
-
-.catalog-search {
-  min-width: min(360px, 36vw);
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: center;
-  gap: 10px;
-  border-bottom: 2px solid var(--ink);
-  padding: 6px 1px;
-}
-
-.catalog-search svg {
-  width: 19px;
-  color: var(--bronze);
-}
-
-.catalog-search input {
-  min-width: 0;
-  border: 0;
-  padding: 8px 0;
-  background: transparent;
-  outline: 0;
-}
-
-.class-catalog {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 24px;
-}
-
-.catalog-card {
-  overflow: hidden;
-  transition: transform 180ms ease, box-shadow 180ms ease;
-}
-
-.catalog-card:hover {
-  transform: translateY(-4px);
-  box-shadow: var(--shadow);
-}
-
-.catalog-card__image {
-  position: relative;
-  aspect-ratio: 1.55 / 1;
-  overflow: hidden;
-  background: #e4ddd8;
-}
-
-.catalog-card__image img[src="/assets/wood-lathe.webp"] {
-  object-fit: contain;
-}
-
-.catalog-card__image img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.catalog-card__image span {
-  position: absolute;
-  right: 12px;
-  bottom: 12px;
-  border-radius: 999px;
-  padding: 6px 10px;
-  background: rgba(35, 16, 6, 0.88);
-  color: white;
-  font-size: 0.78rem;
-  font-weight: 600;
-  backdrop-filter: blur(8px);
-}
-
-.catalog-card__body {
-  display: flex;
-  min-height: 390px;
-  flex-direction: column;
-  padding: 22px;
-}
-
-.catalog-card__body h2 {
-  margin-bottom: 10px;
-  font-family: 'Black Ops One', sans-serif;
-  font-size: 1.55rem;
-  font-weight: 400;
-}
-
-.catalog-card__body > p:not(.eyebrow) {
-  min-height: 48px;
-  color: var(--ink-soft);
-}
-
-.catalog-card dl {
-  display: grid;
-  gap: 12px;
-  margin: 14px 0 24px;
-}
-
-.catalog-card dl > div {
-  display: grid;
-  grid-template-columns: 104px 1fr;
-  gap: 10px;
-}
-
-.catalog-card dt {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--ink-soft);
-  font-size: 0.78rem;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-.catalog-card dt svg {
-  width: 15px;
-}
-
-.catalog-card dd {
-  margin: 0;
-  font-weight: 600;
-}
-
-.catalog-card__footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  margin-top: auto;
-  border-top: 1px solid #d9cec8;
-  padding-top: 18px;
-}
-
-.catalog-card__footer > strong {
-  font-size: 1.45rem;
-}
-
 .empty-state {
   grid-column: 1 / -1;
-  min-height: 260px;
-  display: grid;
-  place-items: center;
-  border: 1px dashed var(--border-strong);
-  border-radius: var(--radius);
+  margin: 0;
+  padding: 16px 18px;
+  border: 1px solid #e7ded7;
+  border-radius: var(--radius-small);
+  background: rgba(255, 253, 250, 0.7);
   color: var(--ink-soft);
-  text-align: center;
 }
 
 /* Profile and not-found */
 .profile-page {
   display: grid;
   gap: 34px;
-}
-
-.profile-hero {
-  display: flex;
-  align-items: center;
-  gap: 22px;
 }
 
 .profile-hero__avatar {
@@ -2149,104 +2114,6 @@ place-items: center;
   font-family: 'Black Ops One', sans-serif;
   font-size: 1.5rem;
   box-shadow: 5px 5px 0 var(--espresso);
-}
-
-.profile-hero h1 {
-  font-size: clamp(2rem, 3vw, 3.4rem);
-}
-
-.profile-hero span {
-  display: block;
-  margin-top: 6px;
-  color: var(--ink-soft);
-}
-
-.profile-panel {
-  min-height: 450px;
-  padding: 30px;
-}
-
-.profile-panel h2 {
-  margin-bottom: 26px;
-  font-family: 'Black Ops One', sans-serif;
-  font-size: 1.75rem;
-  font-weight: 400;
-}
-
-.membership-options {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
-  margin-top: 24px;
-}
-
-.membership-option {
-  display: grid;
-  align-content: start;
-  gap: 12px;
-  min-width: 0;
-  margin: 0;
-  border: 1px solid #ded4cd;
-  border-radius: 10px;
-  padding: 18px;
-}
-
-.membership-option legend {
-  padding: 0 8px;
-  font-size: 1.15rem;
-  font-weight: 700;
-}
-
-.membership-option label {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 10px;
-  border-radius: 8px;
-  padding: 12px;
-  background: #f7f3ef;
-  cursor: pointer;
-}
-
-.membership-option input {
-  accent-color: var(--orange);
-}
-
-.membership-option strong {
-  white-space: nowrap;
-}
-
-.membership-option[data-selected='true'] {
-  border-color: var(--orange);
-  box-shadow: 0 0 0 2px rgba(216, 100, 34, 0.16);
-}
-
-.membership-change-button {
-  margin-top: 28px;
-}
-
-.membership-option:disabled {
-  border-color: #d1d1d1;
-  background: #eeeeee;
-  color: #858585;
-}
-
-.membership-option:disabled label {
-  background: #e2e2e2;
-  cursor: not-allowed;
-}
-
-.membership-option:disabled input {
-  cursor: not-allowed;
-}
-
-.profile-panel form {
-  display: grid;
-  gap: 24px;
-}
-
-.profile-panel .button--primary {
-  justify-self: start;
 }
 
 .not-found {
@@ -2274,12 +2141,94 @@ place-items: center;
   font-size: 1.08rem;
 }
 
+/* Baseline for form controls that have no component styling of their own, so
+   no page falls back to the browser's tiny default select or date field.
+   :where() keeps specificity at zero; any existing rule still wins. */
+:where(.page-shell) :where(select, textarea, input:not([type="checkbox"], [type="radio"], [type="file"], [type="range"], [type="color"])) {
+  min-height: 40px;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+}
+:where(.page-shell) :where(textarea) {
+  padding: 8px 10px;
+}
+:where(.page-shell) :where(select) {
+  padding-right: 6px;
+}
+
+.pass-date {
+  display: grid;
+  gap: 6px;
+  max-width: 260px;
+  font-weight: 600;
+}
+.pass-date__hint {
+  margin: 6px 0 0;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+/* Page-level actions keep their natural width instead of stretching. */
+.management-page > .button,
+.management-page > section > .button {
+  justify-self: start;
+}
+
+:where(.page-shell) :where(summary) {
+  cursor: pointer;
+  font-weight: 600;
+}
+:where(.page-shell) :where(summary):hover {
+  color: var(--bronze);
+}
+
+.report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Status pill shared by rentals, size cards and staff tables. */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.status-pill--ok {
+  background: #e3f6e6;
+  color: #1f6b32;
+}
+.status-pill--warn {
+  background: #ffecd0;
+  color: #8a4b00;
+}
+.status-pill--neutral {
+  background: #efe8e2;
+  color: var(--ink-soft);
+}
+
 /* class which only displays on mobile devices */
 .mobile-only {
   display: none;
 }
 
 /* Responsive layout */
+/* Keep the left-hand links clear of the centred logo on common laptop widths. */
+@media (max-width: 1480px) {
+  .site-nav {
+    gap: 24px;
+  }
+}
+
 @media (max-width: 1320px) {
   .site-header {
     padding: 0 30px;
@@ -2295,10 +2244,6 @@ place-items: center;
   }
 
   .equipment-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .class-catalog {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -2359,8 +2304,7 @@ place-items: center;
   .member-summary,
   .discovery-grid,
   .admin-layout,
-  .credentials-page,
-  .profile-layout {
+  .credentials-page {
     grid-template-columns: 1fr;
   }
 
@@ -2434,11 +2378,9 @@ place-items: center;
   .member-summary__cards,
   .class-card-grid,
   .equipment-preview-grid,
-  .class-catalog,
   .equipment-grid,
   .studio-grid,
-  .two-column-fields,
-  .profile-nav {
+  .two-column-fields {
     grid-template-columns: 1fr;
   }
 
@@ -2455,8 +2397,7 @@ place-items: center;
     min-height: 220px;
   }
 
-  .reservation-section__heading,
-  .catalog-hero {
+  .reservation-section__heading {
     align-items: stretch;
     flex-direction: column;
     gap: 18px;
@@ -2469,24 +2410,6 @@ place-items: center;
 
   .select-control span {
     display: none;
-  }
-
-  .catalog-search {
-    width: 100%;
-    min-width: 0;
-  }
-
-  .catalog-card__body {
-    min-height: 0;
-  }
-
-  .profile-panel {
-    min-height: 0;
-    padding: 22px;
-  }
-
-  .membership-options {
-    grid-template-columns: 1fr;
   }
 
   .reservation-form__summary {
@@ -2547,19 +2470,6 @@ place-items: center;
     height: 150px;
   }
 
-  .catalog-card dl > div {
-    grid-template-columns: 92px 1fr;
-  }
-
-  .catalog-card__footer {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .catalog-card__footer .button {
-    width: 100%;
-  }
-
   .not-found {
     padding: 24px;
   }
@@ -2615,3 +2525,370 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 .email-confirm-help { color: #63584e; font-size: 14px; text-align: left; }
 .email-confirm-help summary { cursor: pointer; text-align: center; }
 .email-confirm-help[open] summary { margin-bottom: 20px; }
+
+/* Keep reservation navigation and the time picker usable on small phones. */
+.equipment-search { margin-bottom: 24px; }
+@media (max-width: 430px) {
+  .equipment-reservation-form .reservation-form__summary { grid-template-columns: 64px minmax(0, 1fr); gap: 12px; }
+  .equipment-reservation-form .reservation-form__summary img { width: 64px; height: 64px; }
+  .equipment-reservation-form .reservation-form__summary h3 { overflow-wrap: anywhere; }
+}
+
+/* React Bits components, themed to the site. Sources live in
+   components/reactbits; these rules only fit them into existing layouts. */
+
+/* Mobile header: Card Nav replaces the dropdown below 1040px. */
+.site-card-nav {
+  display: none;
+}
+
+.site-card-nav .card-nav__label {
+  font-family: 'Black Ops One', sans-serif;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+}
+
+.site-card-nav .card-nav__link {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+@media (max-width: 1040px) {
+  .site-header {
+    display: none;
+  }
+
+  .site-card-nav {
+    position: sticky;
+    top: 10px;
+    z-index: 100;
+    display: block;
+    padding: 0 12px;
+  }
+}
+
+/* Member home: check-in status, slider and badge. */
+.check-in__status {
+  margin: 16px 0;
+  color: var(--ink-soft);
+}
+
+.check-in__status .status-mark {
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.check-in__status .status-mark__label {
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+}
+
+.site-slide-commit {
+  width: 100%;
+}
+
+.check-in__fallback {
+  margin: auto 0 8px;
+  padding-top: 14px;
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+/* Home summary cards size to their content instead of a fixed 320px, and
+   don't stretch to the height of the access card beside them. */
+.member-summary {
+  align-items: start;
+}
+
+.member-summary .summary-card {
+  min-height: 0;
+  gap: 0;
+}
+
+.member-summary .summary-card__action {
+  margin-top: auto;
+  padding: 12px 14px;
+}
+
+.summary-card__list {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0 18px;
+  padding: 0;
+  list-style: none;
+}
+
+.summary-card__list li {
+  display: grid;
+  gap: 1px;
+  font-size: 0.9rem;
+}
+
+.summary-card__list b {
+  font-weight: 600;
+}
+
+.summary-card__list span,
+.summary-card__note {
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.summary-card__note {
+  margin: 16px 0 18px;
+}
+
+.check-in__last {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  border-radius: var(--radius-small);
+  padding: 10px 12px;
+  background: #f3ece7;
+  font-size: 0.9rem;
+}
+
+.check-in__last span,
+.check-in__last small {
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.check-in__last span {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.check-in__history {
+  margin-top: 8px;
+  font-size: 0.85rem;
+}
+
+.check-in__history summary {
+  color: var(--bronze);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.check-in__history ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--ink-soft);
+}
+
+.site-slide-commit .slide-commit {
+  font-weight: 600;
+}
+
+/* Centre the label in the track to the right of the knob, not under it. */
+.site-slide-commit .slide-commit__label {
+  padding-left: 48px;
+}
+
+/* The three cards take the full width; the access card sits under them as
+   a band, details on the left and the badge on the right. */
+.member-summary {
+  grid-template-columns: 1fr;
+}
+
+.access-band.membership-card {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  align-items: center;
+  gap: 24px;
+  padding: 0 0 0 32px;
+}
+
+.access-band__info {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  padding: 28px 0;
+}
+
+.access-band .membership-card__tier {
+  margin: 0;
+}
+
+.access-band__info p {
+  margin: 0;
+  color: #e0d1c9;
+}
+
+.access-band.membership-card a {
+  position: static;
+}
+
+.member-badge {
+  height: 280px;
+}
+
+@media (max-width: 640px) {
+  .access-band.membership-card {
+    grid-template-columns: 1fr;
+    gap: 0;
+    padding: 0 24px;
+  }
+
+  .access-band__info {
+    padding-bottom: 0;
+  }
+
+  .member-badge {
+    height: 260px;
+    margin: 0 -24px;
+  }
+}
+
+/* Hold-to-confirm, sized like .button. */
+.site-hold-button.hold-button {
+  min-height: 42px;
+  padding: 8px 18px;
+  border: 1px solid #e3b2ac;
+  font: 600 15px 'Barlow', sans-serif;
+}
+
+/* Studio checkout return. */
+.studio-payment {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 14px;
+}
+
+.booking-reference {
+  display: grid;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.booking-reference__label {
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* Reservation start: day chips, then a half-hour start time. */
+.start-picker {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.start-picker legend {
+  margin-bottom: 8px;
+  padding: 0;
+  font-weight: 600;
+}
+
+.start-picker__days {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 2px 8px;
+  scroll-snap-type: x proximity;
+}
+
+.start-picker__day {
+  flex: none;
+  width: 72px;
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  padding: 8px 4px;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  scroll-snap-align: start;
+}
+
+.start-picker__day span,
+.start-picker__day small {
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.start-picker__day strong {
+  font-size: 1.3rem;
+  line-height: 1.2;
+}
+
+.start-picker__day:hover {
+  border-color: var(--border-strong);
+}
+
+.start-picker__day[aria-checked="true"] {
+  border-color: #4d250b;
+  background: linear-gradient(135deg, #2b1306, #59300f);
+  color: #fff;
+}
+
+.start-picker__day[aria-checked="true"] span,
+.start-picker__day[aria-checked="true"] small {
+  color: #e0d1c9;
+}
+
+.start-picker__day:focus-visible {
+  outline: 3px solid var(--orange);
+  outline-offset: 2px;
+}
+
+.start-picker__summary {
+  margin: 0;
+  border-radius: var(--radius-small);
+  padding: 10px 14px;
+  background: #f3ece7;
+  font-weight: 600;
+}
+
+/* Side-panel modal (Modal width="panel"): slides in from the right. Used by
+   the class roster and the staff member record. */
+.modal-backdrop.modal-backdrop--panel {
+  place-items: stretch end;
+  padding: 0;
+}
+.modal-card.modal-card--panel {
+  width: min(540px, 100%);
+  max-height: none;
+  height: 100%;
+  border-radius: 0;
+  border-width: 0 0 0 1px;
+  animation: panel-in 220ms ease both;
+}
+@keyframes panel-in {
+  from {
+    transform: translateX(40px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+.modal-card.modal-card--panel .modal-card__body {
+  min-height: calc(100% - 85px);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Visible to screen readers only. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

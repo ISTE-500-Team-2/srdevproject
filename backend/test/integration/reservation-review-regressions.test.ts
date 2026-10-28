@@ -250,7 +250,7 @@ test('concurrent HTTP requests for adjacent equipment bookings return one cooldo
       agent.set('Authorization', 'Bearer ' + login.body.data.accessToken);
       users.push({ agent, csrf: login.body.data.csrfToken });
     }
-    const equipment = (await pool.query("SELECT equipmentid FROM equipment WHERE name='3D Printer'")).rows[0].equipmentid;
+    const equipment = (await pool.query("SELECT equipmentid FROM equipment WHERE name='Rachel'")).rows[0].equipmentid;
     const start = Date.now() + 5 * 86_400_000;
     const requests = users.map(({ agent, csrf }, i) => agent.post('/api/reservations').set('X-CSRF-Token', csrf).send({
       equipmentId: equipment,

@@ -314,6 +314,7 @@ export class StaffController {
         "User status",
       ),
       offset: pageOffset(req.query.offset),
+      attention: req.query.attention === "true",
     };
     if (req.query.format === "csv") {
       const report = await this.model.compliance({ ...filters, offset: 0 }, true);

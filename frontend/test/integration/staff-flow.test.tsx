@@ -49,6 +49,7 @@ test("staff React flow creates a plan, issues access/payment, survives reload, s
   const password = `A!${randomBytes(24).toString("hex")}`,
     email = randomUUID() + "@example.invalid";
   const registration = await direct("/auth/register", {
+    username: 'taylor_' + email.slice(0, 16),
     firstName: "Taylor",
     lastName: "UI Member",
     email,

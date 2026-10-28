@@ -20,7 +20,7 @@ export class UserModel {
   async findById(id: number): Promise<UserView | null> {
     const { rows } = await this.db.query<UserView>(
       `
-      SELECT u.userid AS id, u.firstname AS "firstName", u.lastname AS "lastName", u.email,
+      SELECT u.userid AS id, u.firstname AS "firstName", u.lastname AS "lastName", u.username, u.email,
              u.primary_role AS "primaryRole",u.is_student AS "isStudent",u.phone, COALESCE(u.status, '') AS status,u.accessstatus AS "accessStatus",
              CASE
                WHEN EXISTS (SELECT 1 FROM user_role ur JOIN role r USING (roleid)
@@ -40,11 +40,12 @@ export class UserModel {
   }
 
   async credentials(
-    email: string,
+    identifier: string,
   ): Promise<{ id: number; password: string; emailConfirmed:boolean } | null> {
     const { rows } = await this.db.query<{ id: number; password: string; emailConfirmed:boolean }>(
-      'SELECT userid AS id, password,email_confirmed AS "emailConfirmed" FROM "user" WHERE lower(email)=$1',
-      [email],
+      `SELECT userid AS id,password,email_confirmed AS "emailConfirmed" FROM "user"
+       WHERE lower(email)=$1 OR lower(username)=$1`,
+      [identifier],
     );
     return rows[0] ?? null;
   }
@@ -52,6 +53,7 @@ export class UserModel {
   async create(input: {
     firstName: string;
     lastName: string;
+    username: string;
     email: string;
     phone: string;
     password: string;
@@ -59,8 +61,8 @@ export class UserModel {
   }): Promise<number> {
     const { rows } = await this.db.query<{ id: number }>(
       `
-      INSERT INTO "user" (firstname,lastname,email,password,phone,dob,status,statusdesc,registration_date)
-      VALUES ($1,$2,$3,$4,$5,$6,'active','Registered',NOW() AT TIME ZONE 'UTC') RETURNING userid AS id`,
+      INSERT INTO "user" (firstname,lastname,email,password,phone,dob,username,status,statusdesc,registration_date)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,'active','Registered',NOW() AT TIME ZONE 'UTC') RETURNING userid AS id`,
       [
         input.firstName,
         input.lastName,
@@ -68,6 +70,7 @@ export class UserModel {
         input.password,
         input.phone,
         input.dob,
+        input.username,
       ],
     );
     const id = rows[0]!.id;
@@ -106,6 +109,7 @@ export class UserModel {
       id: number;
       firstName: string;
       lastName: string;
+      username: string | null;
       email: string;
       phone: string;
       role: UserView["role"];
@@ -115,7 +119,7 @@ export class UserModel {
       contactPreferences: ProfileFields;
     }>(
       `
-      SELECT u.userid AS id, u.firstname AS "firstName", u.lastname AS "lastName", u.email, u.phone,
+      SELECT u.userid AS id, u.firstname AS "firstName", u.lastname AS "lastName", u.username, u.email, u.phone,
              CASE
                WHEN EXISTS (SELECT 1 FROM user_role ur JOIN role r USING (roleid)
                             WHERE ur.userid=u.userid AND r.role = 'admin') THEN 'admin'
@@ -139,6 +143,7 @@ export class UserModel {
             id: row.id,
             firstName: row.firstName,
             lastName: row.lastName,
+            username: row.username,
             email: row.email,
             phone: row.phone,
             role: row.role,

@@ -39,7 +39,7 @@ export class StudioStripe {
         metadata: { studioRentalId: String(r.id) },
         payment_intent_data: { metadata: { studioRentalId: String(r.id) } },
         expires_at: Math.floor(new Date(r.hold_until).getTime() / 1000),
-        success_url: this.config.origin + "/studios?payment=returned",
+        success_url: this.config.origin + `/studios?payment=returned&rental=${r.id}&session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: this.config.origin + "/studios?payment=cancelled",
         line_items: [
           {

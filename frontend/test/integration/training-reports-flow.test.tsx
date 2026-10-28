@@ -49,10 +49,11 @@ test("staff training UI configures approved expiry, records actual instructor tr
     </MemoryRouter>,
   );
   const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "New certification" }));
   await user.type(await screen.findByLabelText("Name"), "UI printer safety");
   await user.type(screen.getByLabelText("Approved validity in days"), "90");
-  await user.type(screen.getByLabelText('Find equipment'), 'Laser');
-  await user.click(await screen.findByRole('checkbox',{name:/Laser/}));
+  await user.type(screen.getByLabelText('Find equipment'), 'Darth');
+  await user.click(await screen.findByRole('checkbox',{name:/Darth Vader/}));
   await user.type(
     screen.getByLabelText("Policy approval/reference"),
     "Sponsor-approved training policy",
@@ -60,23 +61,21 @@ test("staff training UI configures approved expiry, records actual instructor tr
   await user.click(screen.getByRole("button", { name: "Save certification" }));
   await screen.findByRole("heading", { name: "UI printer safety" });
   await user.type(
-    await screen.findByLabelText("Find member by name or email"),
+    await screen.findByRole("combobox", { name: "Member" }),
     "Jordan",
   );
-  await screen.findByRole("option", { name: /Jordan Demo/ });
-  await user.selectOptions(screen.getByLabelText("Member"), String(member));
-  await user.click(screen.getByRole("button", { name: "Load member" }));
-  await screen.findByRole("heading", { name: "Approve completed training" });
+  await user.click(await screen.findByRole("option", { name: /Jordan Demo/ }));
+  void member;
+  // Picking a member loads their records; untrained certifications offer
+  // "Record training", which opens the approval form.
+  await user.click(await screen.findByRole("button", { name: "Record training" }));
   const cert = (
     await bridge.pool.query(
       "SELECT certid FROM certifications WHERE name='UI printer safety'",
     )
   ).rows[0].certid;
-  expect((await bridge.pool.query("SELECT certid FROM equipment WHERE name='Laser'")).rows[0].certid).toBe(cert);
-  await user.selectOptions(
-    screen.getByLabelText("Certification"),
-    String(cert),
-  );
+  expect((await bridge.pool.query("SELECT certid FROM equipment WHERE name='Darth Vader'")).rows[0].certid).toBe(cert);
+  expect((document.querySelector('input[name="certId"]') as HTMLInputElement).value).toBe(String(cert));
   const t = new Date(Date.now() - 86400000),
     local = new Date(t.getTime() - t.getTimezoneOffset() * 60000)
       .toISOString()
@@ -101,14 +100,16 @@ test("staff training UI configures approved expiry, records actual instructor tr
   expect(saved.approved_by).toBeTruthy();
   expect(saved.verified_in_person).toBe(true);
   expect(saved.trained_at).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Revoke" }));
   await user.type(
     screen.getByLabelText("Revocation/retraining reason"),
     "Retraining required after incident",
   );
-  await user.click(
-    screen.getByRole("button", { name: "Revoke UI printer safety" }),
+  fireEvent.keyDown(
+    screen.getByRole("button", { name: /Hold to revoke UI printer safety/ }),
+    { key: " " },
   );
-  await screen.findByText("Not current · revoked");
+  await screen.findByText("Not current · revoked", {}, { timeout: 5000 });
   cleanup();
 });
 test("staff reports UI reads actual ledger instead of sample charts", async () => {
@@ -126,7 +127,7 @@ test("staff reports UI reads actual ledger instead of sample charts", async () =
   await screen.findByRole("heading", { name: "Recorded revenue" });
   expect(await screen.findByRole('heading',{name:'Membership trends'})).toBeTruthy();
   expect(await screen.findByRole('heading',{name:'Notification delivery evidence'})).toBeTruthy();
-  expect(screen.getByRole('rowheader',{name:'Waiver & training expiration (BR-009)'})).toBeTruthy();
+  expect(screen.getByRole('rowheader',{name:'Waiver & training expiration'})).toBeTruthy();
   const table = screen.getAllByRole("table")[0];
   expect(within(table).getByText("cash")).toBeTruthy();
   expect(within(table).getAllByText("$125.50")).toHaveLength(2);
@@ -143,19 +144,21 @@ test('staff schedules a class using named certification, instructor and room sel
   const room=(await bridge.pool.query("SELECT roomid FROM room WHERE status='available' ORDER BY roomid LIMIT 1")).rows[0].roomid;
   render(<MemoryRouter initialEntries={['/classes']}><App /></MemoryRouter>);
   const user=userEvent.setup();
+  await user.click(await screen.findByRole('button',{name:'Schedule class'}));
   await user.type(await screen.findByLabelText('Title'),'Named selector orientation');
   await screen.findByRole('option',{name:'UI printer safety'});
-  await user.selectOptions(screen.getByLabelText('Certification'),String(cert));
-  await user.type(screen.getByLabelText('Find assigned instructor by name or email'),'Alex');
-  await screen.findByRole('option',{name:/Alex Demo/});
-  await user.selectOptions(screen.getByLabelText('Assigned instructor'),String(admin));
-  await user.selectOptions(screen.getByLabelText('Room'),String(room));
-  await user.type(screen.getByLabelText('Capacity'),'3');
-  const start=new Date(Date.now()+2*86400000),end=new Date(start.getTime()+3600000);
-  const local=(d:Date)=>new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16);
-  fireEvent.change(screen.getByLabelText('Starts'),{target:{value:local(start)}});
-  fireEvent.change(screen.getByLabelText('Ends'),{target:{value:local(end)}});
-  await user.type(screen.getByLabelText('Scheduling reason'),'Approved orientation');
+  await user.selectOptions(screen.getByLabelText(/^Counts toward/),String(cert));
+  await user.type(screen.getByRole('combobox',{name:'Instructor'}),'Alex');
+  await user.click(await screen.findByRole('option',{name:/Alex Demo/}));
+  void admin;
+  await user.selectOptions(screen.getByLabelText(/^Room/),String(room));
+  const seats=screen.getByRole('spinbutton');await user.clear(seats);await user.type(seats,'3');
+  const start=new Date(Date.now()+2*86400000);start.setHours(10,0,0,0);
+  const day=new Date(start.getTime()-start.getTimezoneOffset()*60000).toISOString().slice(0,10);
+  fireEvent.change(screen.getByLabelText('Date'),{target:{value:day}});
+  fireEvent.change(screen.getByLabelText('Starts'),{target:{value:'10:00'}});
+  fireEvent.change(screen.getByLabelText('Ends'),{target:{value:'11:00'}});
+  await user.type(screen.getByLabelText(/^Reason/),'Approved orientation');
   await user.click(screen.getByRole('button',{name:'Publish class'}));
   await screen.findByRole('heading',{name:'Named selector orientation'});
   const saved=(await bridge.pool.query("SELECT c.instructor_id,c.certification_id,v.roomid FROM app_training_class c JOIN reservation v ON v.reservationid=c.reservation_id WHERE c.title='Named selector orientation'")).rows[0];
@@ -180,11 +183,11 @@ test("staff card assignment, revocation and timed override UI save audited recor
     )
   ).rows[0].userid;
   await user.type(
-    await screen.findByLabelText("Find member by name or email"),
+    await screen.findByRole("combobox", { name: "Member" }),
     "Jordan",
   );
-  await screen.findByRole("option", { name: /Jordan Demo/ });
-  await user.selectOptions(screen.getByLabelText("Member"), String(member));
+  await user.click(await screen.findByRole("option", { name: /Jordan Demo/ }));
+  void member;
   await user.click(screen.getByRole("button", { name: "Load cards" }));
   await screen.findByRole("heading", { name: "Assign scanned card" });
   await user.type(screen.getByLabelText("Card UID"), "04:A1:B2:C3:D4:E5:F6");

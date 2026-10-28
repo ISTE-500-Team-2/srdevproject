@@ -22,6 +22,7 @@ export type Rental = {
   status: string;
   payment_status: string;
   payment_method: string;
+  checkout_id?: string | null;
   hold_until: string;
   refund_cents: number;
   refund_id?: string | null;

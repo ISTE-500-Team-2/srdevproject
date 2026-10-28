@@ -10,6 +10,8 @@ import {
   AppError,
   dateOfBirthField,
   emailField,
+  usernameField,
+  loginIdentifier,
   newPasswordField,
   passwordField,
   publicUser,
@@ -89,9 +91,9 @@ export class AuthController {
   };
 
   login = async (req: Request, res: Response) => {
-    const email = emailField(req.body.email);
+    const identifier = loginIdentifier(req.body.identifier ?? req.body.email);
     const password = passwordField(req.body.password);
-    const account = await new UserModel(this.pool).credentials(email);
+    const account = await new UserModel(this.pool).credentials(identifier);
     const valid = await verifyPassword(
       password,
       account?.password ?? (await this.dummyHash),
@@ -100,7 +102,7 @@ export class AuthController {
       throw new AppError(
         401,
         'INVALID_CREDENTIALS',
-        'Email or password is incorrect.',
+        'Email, username or password is incorrect.',
       );
     if (needsPasswordUpgrade(account.password) && Buffer.byteLength(password,'utf8') <= 72) {
       const upgraded = await hashPassword(password);
@@ -114,6 +116,7 @@ export class AuthController {
     const input = {
       firstName: textField(req.body.firstName, 'First name', 50),
       lastName: textField(req.body.lastName, 'Last name', 50),
+      username: usernameField(req.body.username),
       phone: textField(req.body.phone, 'Phone', 15),
       email: emailField(req.body.email),
       dob: dateOfBirthField(req.body.dob),
@@ -136,6 +139,8 @@ export class AuthController {
         'code' in error &&
         error.code === '23505'
       ) {
+        if ('constraint' in error && error.constraint === 'user_username_unique')
+          throw new AppError(409, 'USERNAME_UNAVAILABLE', 'That username is unavailable. Choose another.');
         throw new AppError(
           409,
           'EMAIL_ALREADY_REGISTERED',

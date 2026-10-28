@@ -1,3 +1,4 @@
+import { dateTime } from "../lib/display";
 import {
   Check,
   CheckCircle2,
@@ -92,8 +93,7 @@ export function CertificationsPage() {
       className={`credentials-page page-enter${isMemberDemo ? ' credentials-page--member-demo' : ''}`}
     >
       <section>
-        <p className="eyebrow">Your access records</p>
-        <h1>Certifications & waivers</h1>
+        <h1 className="display-heading">Certifications & waivers</h1>
         {user?.roles.some(r=>['admin','staff','instructor'].includes(r))?<Link to="/training">Manage training records</Link>:null}
       </section>
       <section className="panel feature-notice">
@@ -298,7 +298,7 @@ export function CertificationsPage() {
                       <CheckCircle2 aria-hidden="true" />{' '}
                       {item.name === 'Terms of Service' ? 'Completed' : 'Signed'}{' '}
                       {item.signedAt
-                        ? new Date(item.signedAt).toLocaleString()
+                        ? dateTime(item.signedAt)
                         : ''}
                     </p>
                   ) : item.expiredSignature ? (

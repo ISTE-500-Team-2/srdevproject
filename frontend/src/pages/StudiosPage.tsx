@@ -1,37 +1,82 @@
-import { useEffect, useState } from "react";
-import { AvailabilityCalendar } from "../components/studios/AvailabilityCalendar";
-import { StaffRental } from "../components/studios/StaffRental";
-import { StudioConfig } from "../components/studios/StudioConfig";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { BookingReference } from "../components/studios/BookingReference";
+import { CancelRentalDialog } from "../components/studios/CancelRentalDialog";
+import StatusMark from "../components/reactbits/StatusMark";
+import {
+  StudioBooking,
+  type BookingRequest,
+} from "../components/studios/StudioBooking";
 import { useAuth } from "../context/AuthContext";
+import { useSearchParams } from "react-router-dom";
 import { api, errorMessage } from "../lib/api";
 import type { Rental, Studio } from "../lib/studioContracts";
-import { dateOnly, money, nextMonth, policy } from "../lib/studioDisplay";
+import {
+  bookable,
+  calendarDate,
+  dateOnly,
+  freeFor,
+  money,
+  nextOpening,
+  policy,
+  rentalRange,
+  SIZE_ORDER,
+  sizeKey,
+  sizeLabel,
+  studioImage,
+} from "../lib/studioDisplay";
 import "./studios.css";
+
+const ACTIVE = ["pending", "confirmed"];
+
+function rentalStatus(r: Rental) {
+  if (r.status === "confirmed") return { label: "Confirmed", tone: "ok" };
+  if (r.status === "pending") return { label: "Awaiting payment", tone: "warn" };
+  if (r.status === "expired") return { label: "Hold expired", tone: "neutral" };
+  return { label: "Cancelled", tone: "neutral" };
+}
+
+function paymentLine(r: Rental) {
+  const how = r.payment_method === "stripe_test" ? "card" : "front desk";
+  if (r.status === "pending" && r.payment_method === "manual")
+    return `Pay at the front desk by ${new Date(r.hold_until).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`;
+  if (r.status === "pending") return "Card payment not finished yet.";
+  if (r.status === "expired") return "The hold ran out before payment.";
+  if (r.refund_cents > 0) {
+    const state =
+      r.payment_status === "refunded"
+        ? "refunded"
+        : r.payment_status === "refund_failed"
+          ? "refund failed — staff will follow up"
+          : "refund in progress";
+    return `${money(r.refund_cents)} ${state} to your original payment method.`;
+  }
+  return r.payment_status === "paid" ? `Paid at the ${how}.` : "";
+}
 
 export function StudiosPage() {
   const { user } = useAuth();
-  const staff = !!user?.roles.some((r) =>
-    ["admin", "staff", "super-admin"].includes(r),
-  );
-  const admin = !!user?.roles.some((r) => ["admin", "super-admin"].includes(r));
+  const [params] = useSearchParams();
   const [studios, setStudios] = useState<Studio[]>([]),
     [mine, setMine] = useState<Rental[]>([]),
-    [management, setManagement] = useState<Rental[]>([]),
     [card, setCard] = useState(false),
-    [zone, setZone] = useState("America/New_York");
-  const [start, setStart] = useState(""),
-    [method, setMethod] = useState("manual"),
-    [requestKey, setRequestKey] = useState(() => crypto.randomUUID()),
+    [zone, setZone] = useState("America/New_York"),
+    [loaded, setLoaded] = useState(false);
+  const [size, setSize] = useState<string | null>(null),
+    [held, setHeld] = useState<{ name: string; holdUntil: string } | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
-    [message, setMessage] = useState("");
+    [message, setMessage] = useState(""),
+    [cancelling, setCancelling] = useState<Rental | null>(null);
   const today = new Intl.DateTimeFormat("en-CA", {
     timeZone: zone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
   }).format(new Date());
-  const end = nextMonth(start);
+  // One idempotency key per distinct booking: an identical retry (for example
+  // after a lost response) reuses it, while a changed studio, date or payment
+  // method gets a fresh key so the server doesn't reject it as KEY_REUSED.
+  const attempt = useRef<{ signature: string; key: string } | null>(null);
   async function refresh() {
     const [data, rentals] = await Promise.all([
       api<{ studios: Studio[]; cardTestEnabled: boolean; timeZone: string }>(
@@ -43,11 +88,26 @@ export function StudiosPage() {
     setCard(data.cardTestEnabled);
     setZone(data.timeZone);
     setMine(rentals);
-    if (staff) setManagement(await api<Rental[]>("/studio-management/rentals"));
+    setLoaded(true);
   }
   useEffect(() => {
     void refresh().catch((e) => setError(errorMessage(e)));
-  }, [staff]);
+  }, []);
+  // Holds, payments and availability change outside this page (front desk,
+  // card checkout, other members), so keep it current without a manual
+  // refresh while the viewer has something pending or is choosing dates.
+  const waiting = mine.some((r) => r.status === "pending");
+  const live = waiting || size !== null;
+  useEffect(() => {
+    if (!live) return;
+    const update = () => void refresh().catch(() => {});
+    const timer = window.setInterval(update, 15000);
+    window.addEventListener("focus", update);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", update);
+    };
+  }, [live]);
   async function action(work: () => Promise<void>) {
     setBusy(true);
     setError("");
@@ -61,18 +121,22 @@ export function StudiosPage() {
       setBusy(false);
     }
   }
-  async function book(s: Studio) {
+  async function book({ studio, startDate, paymentMethod }: BookingRequest) {
+    const signature = `${studio.id}|${startDate}|${paymentMethod}`;
+    if (attempt.current?.signature !== signature)
+      attempt.current = { signature, key: crypto.randomUUID() };
+    const requestKey = attempt.current.key;
     await action(async () => {
       const r = await api<Rental & { checkoutUrl?: string }>(
         "/studio-rentals",
         {
           method: "POST",
           body: {
-            studioId: s.id,
-            startDate: start,
-            paymentMethod: method,
+            studioId: studio.id,
+            startDate,
+            paymentMethod,
             requestKey,
-            expectedRevision: s.revision,
+            expectedRevision: studio.revision,
           },
         },
       );
@@ -80,192 +144,65 @@ export function StudiosPage() {
         window.location.assign(r.checkoutUrl);
         return;
       }
-      setRequestKey(crypto.randomUUID());
-      setMessage(
-        `Studio held until ${new Date(r.hold_until).toLocaleTimeString()}. Pay with staff before then; your booking is not confirmed yet.`,
-      );
+      attempt.current = null;
+      setHeld({ name: studio.name, holdUntil: r.hold_until });
     });
   }
-  const canBook =
-    user?.membership === "Monthly" && !user?.roles.includes("instructor");
-  return (
-    <section className="studios-page">
-      <h1>Monthly studio rentals</h1>
-      <p>
-        Choose your own workspace for one month. Equipment reservations are
-        separate.
-      </p>
-      <p className="studio-note">
-        Dates use {zone}. Your rental ends on the same day next month, or that
-        month’s last day if needed. This date rule is provisional pending studio
-        approval.
-      </p>
-      {error && <p role="alert">{error}</p>}
-      {message && <p role="status">{message}</p>}
-      {new URLSearchParams(window.location.search).has("payment") && (
-        <p role="status">
-          Returning from checkout does not confirm payment. Refresh below to see
-          the verified payment status.
-        </p>
-      )}
-      <button
-        className="button button--secondary"
-        disabled={busy}
-        onClick={() => void action(async () => {})}
-      >
-        Refresh availability and payment status
-      </button>
-      <div className="studio-controls">
-        <label>
-          Rental start date
-          <input
-            type="date"
-            min={today}
-            value={start}
-            onChange={(e) => {
-              setStart(e.target.value);
-              setRequestKey(crypto.randomUUID());
-            }}
-          />
-        </label>
-        <label>
-          Payment method
-          <select
-            value={method}
-            onChange={(e) => {
-              setMethod(e.target.value);
-              setRequestKey(crypto.randomUUID());
-            }}
-          >
-            <option value="manual">Pay with staff</option>
-            {card && (
-              <option value="stripe_test">
-                Card checkout — TEST MODE, no real charges
-              </option>
-            )}
-          </select>
-        </label>
-      </div>
-      {end && (
-        <p>
-          Rental period:{" "}
-          <strong>
-            {start} through {end}
-          </strong>{" "}
-          (end date exclusive).
-        </p>
-      )}
-      {!canBook && (
-        <p>
-          An active monthly subscription is required. Instructor accounts cannot
-          create reservations.
-        </p>
-      )}
-      <h2>All-studio availability</h2>
-      <p>
-        Select a start date to compare all spaces for the entire month. Existing
-        holds count as unavailable until released.
-      </p>
-      <AvailabilityCalendar
-        studios={studios}
-        selectedStart={start}
-        onSelect={(value) => {
-          setStart(value);
-          setRequestKey(crypto.randomUUID());
-        }}
-      />
-      <div className="studio-grid">
-        {studios.map((s) => {
-          const conflict = s.availability.some(
-            (r) => dateOnly(r.starts_on) < end && dateOnly(r.ends_on) > start,
-          );
-          return (
-            <article className="studio-card" key={s.id}>
-              <h3>{s.name}</h3>
-              <p>
-                {s.size} ·{" "}
-                {s.monthly_cents
-                  ? money(s.monthly_cents) + " / month"
-                  : "Rate pending"}
-              </p>
-              <p>{policy(s.cancellation_policy)}</p>
-              <strong>
-                {!start
-                  ? "Select dates"
-                  : conflict
-                    ? "Unavailable for selected month"
-                    : "Available for selected month"}
-              </strong>
-              <ul aria-label={`${s.name} occupied dates`}>
-                {s.availability.map((r, i) => (
-                  <li key={i}>
-                    {dateOnly(r.starts_on)} – {dateOnly(r.ends_on)} ·{" "}
-                    {r.status === "pending" ? "Checkout hold" : "Booked"}
-                  </li>
-                ))}
-              </ul>
-              <button
-                className="button"
-                disabled={
-                  busy ||
-                  !canBook ||
-                  !start ||
-                  conflict ||
-                  !s.policy_confirmed ||
-                  !s.monthly_cents
-                }
-                onClick={() => void book(s)}
-              >
-                {method === "manual"
-                  ? "Hold and pay with staff"
-                  : "Continue to test card checkout"}
-              </button>
-              {admin && (
-                <StudioConfig
-                  studio={s}
-                  busy={busy}
-                  save={(body) =>
-                    action(async () => {
-                      await api(`/studio-management/studios/${s.id}`, {
-                        method: "PATCH",
-                        body,
-                      });
-                      setMessage(
-                        "Studio rate and policy saved. Existing rentals keep their agreed terms.",
-                      );
-                    })
-                  }
-                />
-              )}
-            </article>
-          );
-        })}
-      </div>
-      <h2>Your rentals</h2>
-      {!mine.length && <p>No studio rentals yet.</p>}
-      {mine.map((r) => (
-        <article className="studio-card" key={r.id}>
+  const instructor = !!user?.roles.includes("instructor");
+  const canBook = user?.membership === "Monthly" && !instructor;
+  const blockedReason = instructor
+    ? "Instructor accounts can't rent studios."
+    : "Studio rentals need an active monthly membership.";
+  const groups = useMemo(
+    () =>
+      SIZE_ORDER.map((key) => {
+        const list = studios.filter(
+          (s) => sizeKey(s.size) === key && bookable(s),
+        );
+        const prices = list.map((s) => s.monthly_cents ?? 0);
+        return {
+          key,
+          list,
+          price: Math.min(...prices),
+          varies: new Set(prices).size > 1,
+          freeToday: list.filter((s) => freeFor(s, today)).length,
+          opening: nextOpening(list, today),
+        };
+      }).filter((g) => g.list.length),
+    [studios, today],
+  );
+  const active = mine.filter((r) => ACTIVE.includes(r.status));
+  const past = mine.filter((r) => !ACTIVE.includes(r.status));
+  const returning = params.get("payment") === "returned";
+  // A return URL is not payment evidence. Match this checkout to a rental
+  // returned by the authenticated API; never substitute a historical payment.
+  const returnedRental = mine.find((r) =>
+    String(r.id) === params.get("rental") &&
+    !!r.checkout_id && r.checkout_id === params.get("session_id") &&
+    r.payment_method === "stripe_test",
+  );
+  const paidNow =
+    returnedRental?.status === "confirmed" && returnedRental.payment_status === "paid" ? returnedRental : null;
+
+  function rentalRow(r: Rental) {
+    const status = rentalStatus(r);
+    return (
+      <article className="studio-rental" key={r.id}>
+        <img src={studioImage(studios.find((s) => s.name === r.name)?.size ?? "")} alt="" />
+        <div className="studio-rental__body">
           <h3>{r.name}</h3>
           <p>
-            {dateOnly(r.starts_on)} – {dateOnly(r.ends_on)} ·{" "}
-            {money(r.amount_cents)}
+            {rentalRange(r.starts_on, r.ends_on)} · {money(r.amount_cents)}
           </p>
-          <p>
-            Booking: <strong>{r.status}</strong> · Payment:{" "}
-            <strong>{r.payment_status.replaceAll("_", " ")}</strong> (
-            {r.payment_method === "stripe_test" ? "test card" : "staff payment"}
-            )
-          </p>
-          <p>{policy(r.cancellation_policy)}</p>
-          {r.refund_cents > 0 && (
-            <p>
-              Refund: {money(r.refund_cents)} to the original payment method ·{" "}
-              {r.payment_status.replaceAll("_", " ")}
-            </p>
-          )}
+          <p className="studio-rental__note">{paymentLine(r)}</p>
+        </div>
+        <span className={`status-pill status-pill--${status.tone}`}>
+          {status.label}
+        </span>
+        <div className="studio-rental__actions">
           {r.payment_method === "stripe_test" && r.status === "pending" && (
             <button
-              className="button"
+              className="button button--quiet"
               disabled={busy}
               onClick={() =>
                 void action(async () => {
@@ -275,67 +212,159 @@ export function StudiosPage() {
                   );
                   if (result.checkoutUrl)
                     window.location.assign(result.checkoutUrl);
-                  else setMessage("Payment status reconciled.");
+                  else setMessage("Payment status updated.");
                 })
               }
             >
-              Resume / verify test checkout
+              Finish card payment
             </button>
           )}
-          {["pending", "confirmed"].includes(r.status) && (
+          {ACTIVE.includes(r.status) && (
             <button
-              className="button button--secondary"
+              className="button button--quiet"
               disabled={busy}
-              onClick={() => {
-                const refundable =
-                  r.payment_status === "paid" &&
-                  r.cancellation_policy === "full_before_start" &&
-                  today < dateOnly(r.starts_on)
-                    ? r.amount_cents
-                    : 0;
-                if (
-                  window.confirm(
-                    `Cancel this rental? Expected refund: ${money(refundable)} to the original payment method. ${policy(r.cancellation_policy)}`,
-                  )
-                )
-                  void action(async () => {
-                    await api(`/studio-rentals/${r.id}/cancel`, {
-                      method: "POST",
-                    });
-                    setMessage(
-                      "Rental cancelled. Check its refund status below.",
-                    );
-                  });
-              }}
+              onClick={() => setCancelling(r)}
             >
               Cancel rental
             </button>
           )}
-        </article>
-      ))}
-      {staff && (
-        <>
-          <h2>Staff payment desk</h2>
-          <p>
-            Record only payments already received. Never enter full card
-            numbers. Manual refunds must be returned using the original payment
-            method before marking complete.
-          </p>
-          {management.map((r) => (
-            <StaffRental
-              key={r.id}
-              rental={r}
-              busy={busy}
-              perform={(path, body) =>
-                action(async () => {
-                  await api(path, { method: "POST", body });
-                  setMessage("Payment record updated.");
-                })
-              }
-            />
-          ))}
-        </>
+        </div>
+      </article>
+    );
+  }
+
+  return (
+    <section className="studios-page page-enter">
+      <h1 className="display-heading">Studio spaces</h1>
+      <p className="studios-page__lead">
+        Your own workspace for a month at a time. Equipment is booked separately
+        by the hour.
+      </p>
+      {error && !size && !cancelling && <p className="form-error" role="alert">{error}</p>}
+      {message && <p className="studio-message" role="status">{message}</p>}
+      {returning && returnedRental?.status === "pending" && (
+        <div className="studio-message studio-payment" role="status">
+          <StatusMark status="running" size={22} color="#a86008" />
+          <span>Checking your card payment. This page updates on its own.</span>
+        </div>
       )}
+      {returning && paidNow && (
+        <div className="studio-message studio-payment" role="status">
+          <StatusMark status="done" size={22} doneColor="#1f6b32" />
+          <span>
+            <b>Payment received.</b> {paidNow.name} is booked.
+          </span>
+          <BookingReference id={paidNow.id} />
+        </div>
+      )}
+      {returning && loaded && !returnedRental && (
+        <p className="studio-message" role="status">
+          We couldn’t match this checkout return to a rental. Your current rental and payment statuses are shown below.
+        </p>
+      )}
+
+      {active.length > 0 && (
+        <section className="studio-rentals" aria-labelledby="your-rentals">
+          <h2 id="your-rentals">Your rentals</h2>
+          {active.map(rentalRow)}
+        </section>
+      )}
+
+      <div className="studio-grid">
+        {groups.map((g) => (
+          <button
+            key={g.key}
+            type="button"
+            className="reservation-card studio-size"
+            aria-label={`${sizeLabel(g.key)} studios, ${g.varies ? "from " : ""}${money(g.price)} a month`}
+            onClick={() => {
+              setHeld(null);
+              setError("");
+              setSize(g.key);
+            }}
+          >
+            <div className="reservation-card__image studio-size__image">
+              <img src={studioImage(g.key)} alt="" />
+              <span
+                className={`status-pill status-pill--${g.freeToday ? "ok" : g.opening ? "warn" : "neutral"}`}
+              >
+                {g.freeToday
+                  ? `${g.freeToday} of ${g.list.length} free today`
+                  : g.opening
+                    ? `Next opening ${calendarDate(g.opening, { month: "short", day: "numeric" })}`
+                    : "Fully booked"}
+              </span>
+            </div>
+            <div className="reservation-card__rule" />
+            <div className="reservation-card__title">
+              <h2>{sizeLabel(g.key)}</h2>
+              <strong>
+                {g.varies ? "from " : ""}
+                {money(g.price)}/mo
+              </strong>
+            </div>
+            <small>{g.list.map((s) => s.name).join(" · ")}</small>
+          </button>
+        ))}
+      </div>
+      {loaded && !groups.length && (
+        <p className="empty-state">No studios are open for rental right now.</p>
+      )}
+
+      {past.length > 0 && (
+        <details className="studio-past">
+          <summary>Past rentals ({past.length})</summary>
+          {past.map(rentalRow)}
+        </details>
+      )}
+
+      {cancelling && (
+        <CancelRentalDialog
+          rental={cancelling}
+          started={today >= dateOnly(cancelling.starts_on)}
+          refundable={
+            cancelling.payment_status === "paid" &&
+            cancelling.cancellation_policy === "full_before_start" &&
+            today < dateOnly(cancelling.starts_on)
+              ? cancelling.amount_cents
+              : 0
+          }
+          busy={busy}
+          error={error}
+          onClose={() => {
+            setCancelling(null);
+            setError("");
+          }}
+          onConfirm={() => {
+            const r = cancelling;
+            void action(async () => {
+              await api(`/studio-rentals/${r.id}/cancel`, { method: "POST" });
+              setCancelling(null);
+              setMessage(`${r.name} cancelled.`);
+            });
+          }}
+        />
+      )}
+
+      <StudioBooking
+        key={size ?? "closed"}
+        size={size}
+        studios={groups.find((g) => g.key === size)?.list ?? []}
+        today={today}
+        cardEnabled={card}
+        canBook={canBook}
+        blockedReason={blockedReason}
+        busy={busy}
+        error={size ? error : ""}
+        held={held}
+        onClose={() => {
+          setSize(null);
+          setHeld(null);
+          setError("");
+        }}
+        onBook={(request) => void book(request)}
+      />
+
     </section>
   );
 }

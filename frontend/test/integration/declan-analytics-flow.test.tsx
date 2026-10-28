@@ -56,24 +56,24 @@ test("analytics uses the full settled ledger, real check-ins/classes and zero-fi
     [member, today],
   );
   mount("analytics");
-  await screen.findByRole("heading", { name: "Recorded revenue" });
+  await screen.findByRole("heading", { name: /^Revenue by/ });
   const user = userEvent.setup();
   const totals = screen.getByText("Net receipts").closest("dl")!;
   expect(within(totals).getByText("$75.00")).toBeTruthy();
   expect(within(totals).getByText("$95.00")).toBeTruthy();
   expect(within(totals).getByText("$20.00")).toBeTruthy();
   expect(screen.queryByText("Active Users: 56")).toBeNull();
-  expect(
-    screen.getByText(/unique checked-in users in the selected period/)
-      .textContent,
-  ).toContain("0 unique checked-in users");
+  const visits = screen.getByText("Visits").closest("article")!;
+  expect(within(visits).getByText("0")).toBeTruthy();
+  expect(screen.getByText("Nobody has checked in yet today.")).toBeTruthy();
   expect(screen.getByText("No classes in this period.")).toBeTruthy();
+  // Custom dates and grouping apply as soon as they change.
+  await user.selectOptions(screen.getByLabelText("Date range"), "custom");
   fireEvent.change(screen.getByLabelText("From"), { target: { value: today } });
   fireEvent.change(screen.getByLabelText("Through"), {
     target: { value: today },
   });
-  await user.selectOptions(screen.getByLabelText("Group receipts"), "daily");
-  await user.click(screen.getByRole("button", { name: "Apply dates" }));
+  await user.click(screen.getByRole("radio", { name: "Daily" }));
   const table = await screen.findByRole("table", {
     name: "Revenue by period (period starting date)",
   });
@@ -86,14 +86,16 @@ test("analytics uses the full settled ledger, real check-ins/classes and zero-fi
 test("combined waiver/certification tab mounts real admin tools instead of personal endpoints", async () => {
   await login();
   mount("adminCertWaiver");
-  await screen.findByRole("heading", { name: "Certifications and waivers" });
-  await screen.findByRole("button", { name: "Filter" });
+  await screen.findByRole("heading", { name: "Certifications & waivers" });
+  await screen.findByRole("radio", { name: /Needs attention/ });
   const user = userEvent.setup();
-  await user.click(screen.getByRole("button", { name: "Waiver and Policy Management" }));
-  await screen.findByRole("heading", { name: "Policies and waiver versions" });
-  await screen.findByRole("button", { name: "Publish Version" });
+  await user.click(screen.getByRole("button", { name: "Waivers & policies" }));
+  await user.click(await screen.findByRole("button", { name: "New waiver" }));
+  await screen.findByRole("button", { name: "Publish version" });
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
   await user.click(
-    screen.getByRole("button", { name: "Certification Management" }),
+    screen.getByRole("button", { name: "Certifications" }),
   );
+  await user.click(await screen.findByRole("button", { name: "New certification" }));
   await screen.findByRole("button", { name: "Save certification" });
 });

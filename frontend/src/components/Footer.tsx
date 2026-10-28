@@ -5,10 +5,11 @@ const footerLinks = [
     title: 'Sitemap',
     links: [
       ['Home', '/'],
-      ['Reservations', '/reservations'],
+      ['Equipment', '/equipment'],
+      ['Studios', '/studios'],
       ['Certifications', '/certifications'],
       ['Classes', '/classes'],
-      ['Search', '/reservations'],
+      ['Search', '/equipment'],
       ['Profile', '/profile'],
     ],
   },

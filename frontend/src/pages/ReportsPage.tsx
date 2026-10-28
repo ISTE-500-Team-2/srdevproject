@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { api, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
 import { LoadState } from "../components/Management";
@@ -51,6 +51,9 @@ export type Report = {
     distinctVisitors: number;
   }[];
   active: { activeUsers: number; approvedCheckIns: number };
+  visitsByDay: { day: string; visits: number; people: number }[];
+  checkedInToday: { userId: number; name: string; location: string; at: string; method: "nfc" | "portal" }[];
+  checkedInTodayCount: number;
   compliance: {
     activeAccounts: number;
     restrictedAccounts: number;
@@ -92,12 +95,9 @@ export function ReportsPage() {
   const [query, setQuery] = useState(`from=${today}&to=${today}&period=daily`),
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false);
-  const report = useApi<Report>("/admin/reports?" + query);
+  const report = useApi<Report>("/admin/reports?" + query, { retainOnReload: true, refreshInterval: 30000 });
   const { reload } = report;
-  useEffect(() => {
-    const id = window.setInterval(reload, 30000);
-    return () => window.clearInterval(id);
-  }, [reload]);
+
   function filter(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
@@ -163,25 +163,24 @@ export function ReportsPage() {
             <option value="monthly">Monthly</option>
           </select>
         </label>
-        <button className="button">Apply dates</button>
+        <button className="button button--quiet">Apply dates</button>
       </form>
-      <button className="button button--quiet" onClick={reload}>
-        Refresh now
-      </button>{" "}
-      <button
-        className="button button--quiet"
-        disabled={busy || !d}
-        onClick={() => void download("csv")}
-      >
-        Export CSV
-      </button>{" "}
-      <button
-        className="button button--quiet"
-        disabled={busy || !d}
-        onClick={() => void download("pdf")}
-      >
-        Export PDF
-      </button>
+      <div className="report-actions">
+        <button
+          className="button button--quiet"
+          disabled={busy || !d}
+          onClick={() => void download("csv")}
+        >
+          Export CSV
+        </button>
+        <button
+          className="button button--quiet"
+          disabled={busy || !d}
+          onClick={() => void download("pdf")}
+        >
+          Export PDF
+        </button>
+      </div>
       {message ? <p role="alert">{message}</p> : null}
       <LoadState {...report} />
       {d ? (
@@ -257,8 +256,7 @@ export function ReportsPage() {
           </div>
           <h2>Membership trends</h2>
           <p>
-            Distinct people per period. Renewals are not new members;
-            cancellation requests do not immediately end paid access.
+            Distinct people per period. Renewals don't count as new members.
           </p>
           <table>
             <thead>
@@ -283,15 +281,11 @@ export function ReportsPage() {
             </tbody>
           </table>
           <p>
-            Coverage uses current membership records, not a reconstruction of
-            past account eligibility. See report definitions for cancellation
-            and legacy-data limits.
+            Based on current membership records.
           </p>
           <h2>Notification delivery evidence</h2>
           <p>
-            Deadline dates in the selected range. Only elapsed eligible
-            deadlines enter percentages. A delivered callback is provider
-            evidence, not proof of inbox placement.
+            Reminder emails due in the selected range, and whether they went out on time.
           </p>
           <table>
             <thead>
@@ -314,7 +308,7 @@ export function ReportsPage() {
                       {(
                         {
                           expirationCompliance:
-                            "Waiver & training expiration (BR-009)",
+                            "Waiver & training expiration",
                           membershipExpiration: "Membership expiration",
                           other: "Account, billing & other notices",
                         } as Record<string, string>

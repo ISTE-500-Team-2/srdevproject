@@ -69,6 +69,7 @@ function client() {
       email = randomUUID() + '@example.invalid';
       password = `A!${randomBytes(24).toString('hex')}`;
       let r = await agent.post("/api/auth/register").send({
+        username: 'primary_' + email.slice(0, 16),
         firstName: "Primary",
         lastName: "Test",
         phone: "0000000000",
@@ -477,7 +478,7 @@ test("facility suspension and revocation kill sessions permanently while preserv
   await issue(admin, user, p.id);
   await signPolicies(user);
   const equipment = (await user.get("/equipment")).body.data.find(
-    (e: { name: string }) => e.name === "3D Printer",
+    (e: { name: string }) => e.name === "Rachel",
   );
   const start = new Date(Date.now() + 86400000),
     booking = {

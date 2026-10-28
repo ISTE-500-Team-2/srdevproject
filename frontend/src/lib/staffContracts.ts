@@ -67,6 +67,12 @@ export interface Audit {
   entityType: string;
   entityId: number;
   createdAt: string;
+  subjectName?: string | null;
+  reason?: string;
+  allowed?: boolean | null;
+  accessReason?: string | null;
+  readerId?: string | null;
+  resourceName?: string | null;
 }
 export interface Policy {
   id: number;
@@ -123,6 +129,14 @@ export interface ComplianceUser {
   expiringWaivers: string[];
   missingCertifications: string[];
   expiringCertifications: string[];
+  /** What's wrong, item by item: never signed/trained, expired, or expiring soon. */
+  issues: ComplianceIssue[];
+}
+export interface ComplianceIssue {
+  kind: "waiver" | "certification";
+  name: string;
+  state: "missing" | "expired" | "expiring";
+  expiresAt: string | null;
 }
 export interface ComplianceReport {
   summary: {
@@ -130,6 +144,7 @@ export interface ComplianceReport {
     compliantUsers: number;
     waiverCompliantUsers: number;
     certificationCompliantUsers: number;
+    attentionUsers: number;
     complianceRate: number;
     waiverComplianceRate: number;
     certificationComplianceRate: number;

@@ -1,10 +1,48 @@
-import { Eye, EyeOff, LockKeyhole, Mail, UserPlus } from 'lucide-react';
-import { type FormEvent, useState } from 'react';
+import { Eye, EyeOff, LockKeyhole, Mail } from 'lucide-react';
+import { type ChangeEvent, type CSSProperties, type FormEvent, type KeyboardEvent, lazy, Suspense, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Modal } from '../components/Modal';
+import ClickSpark from '../components/reactbits/ClickSpark';
+import SpringCheck from '../components/reactbits/SpringCheck';
+import Stepper, { Step } from '../components/reactbits/Stepper';
 import { useAuth } from '../context/AuthContext';
 import type { UserRole } from '../types';
 import { errorMessage } from '../lib/api';
+
+const SplitText = lazy(() => import('../components/reactbits/SplitText'));
+
+const SPARK_COLORS = ['#f7961d', '#ffb54d', '#ffdba5', '#a86008'];
+const STEPPER_THEME = {
+  '--stepper-well': 'rgba(113, 91, 78, 0.1)',
+  '--stepper-tile': '#fffdfa',
+  '--stepper-tile-edge': 'rgba(113, 91, 78, 0.22)',
+  '--stepper-ink': 'var(--ink)',
+  '--stepper-muted': 'var(--ink-soft)',
+  '--stepper-faint': 'var(--border)',
+  '--stepper-solid': 'var(--espresso)',
+  '--stepper-solid-ink': '#fff',
+} as CSSProperties;
+const SIGNUP_STEPS = 3;
+const EMPTY_SIGNUP = {
+  firstName: '',
+  lastName: '',
+  dob: '',
+  email: '',
+  phone: '',
+  username: '',
+  password: '',
+};
+type SignupField = keyof typeof EMPTY_SIGNUP;
+
+// Sends a server error back to the step that holds the field it names.
+const stepForError = (message: string) =>
+  /username|password/i.test(message)
+    ? 3
+    : /email|phone/i.test(message)
+      ? 2
+      : /name|birth|age/i.test(message)
+        ? 1
+        : null;
 
 export function LoginPage() {
   const { login, loginAs, register, demoLogin, loading } = useAuth();
@@ -16,6 +54,18 @@ export function LoginPage() {
   const [error, setError] = useState('');
   const [dialog, setDialog] = useState<'forgot' | 'signup' | null>(null);
   const [busy, setBusy] = useState(false);
+  const [signup, setSignup] = useState(EMPTY_SIGNUP);
+  const [signupStep, setSignupStep] = useState(1);
+  const signupForm = useRef<HTMLFormElement>(null);
+  // Set synchronously so a second Enter or click can't start another registration.
+  const registering = useRef(false);
+
+  const signupField = (name: SignupField) => ({
+    name,
+    value: signup[name],
+    onChange: (event: ChangeEvent<HTMLInputElement>) =>
+      setSignup((current) => ({ ...current, [name]: event.target.value })),
+  });
 
   const continueAs = async (role: UserRole) => {
     setBusy(true);
@@ -33,7 +83,7 @@ export function LoginPage() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!identifier.trim() || !password.trim()) {
-      setError('Enter both your email and password to continue.');
+      setError('Enter your email or username and password to continue.');
       return;
     }
     setError('');
@@ -48,26 +98,50 @@ export function LoginPage() {
     }
   };
 
-  const handleRegister = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
+  const createAccount = async () => {
+    if (registering.current) return;
+    registering.current = true;
     setError('');
     setBusy(true);
     try {
-      const result = await register({
-        firstName: String(form.get('firstName')),
-        lastName: String(form.get('lastName')),
-        phone: String(form.get('phone')),
-        email: String(form.get('email')),
-        dob: String(form.get('dob')),
-        password: String(form.get('password')),
-      });
+      const result = await register(signup);
       navigate('/confirm-email', {state:{email:result.email,emailSendingEnabled:result.emailSendingEnabled}});
     } catch (err) {
-      setError(errorMessage(err));
+      const message = errorMessage(err);
+      setError(message);
+      setSignupStep((current) => stepForError(message) ?? current);
     } finally {
+      registering.current = false;
       setBusy(false);
     }
+  };
+
+  // Only creating the account waits on the session check; moving between steps never does.
+  const creatingBlocked = signupStep === SIGNUP_STEPS && (busy || loading);
+
+  // Only the visible step's fields are mounted, so validate those before moving on.
+  const advanceSignup = () => {
+    if (creatingBlocked) return;
+    const pane = signupForm.current?.querySelector(
+      '.stepper__pane:not(.stepper__pane--leaving)',
+    );
+    const invalid = Array.from(pane?.querySelectorAll('input') ?? []).find(
+      (input) => !input.checkValidity(),
+    );
+    if (invalid) {
+      invalid.reportValidity();
+      return;
+    }
+    setError('');
+    if (signupStep < SIGNUP_STEPS) setSignupStep(signupStep + 1);
+    else void createAccount();
+  };
+
+  // Enter in any field moves to the next step, like the Continue button.
+  const handleSignupKey = (event: KeyboardEvent<HTMLFormElement>) => {
+    if (event.key !== 'Enter' || !(event.target instanceof HTMLInputElement)) return;
+    event.preventDefault();
+    advanceSignup();
   };
 
   return (
@@ -89,20 +163,32 @@ export function LoginPage() {
         <div className="login-card">
           <div className="login-card__heading">
             <p className="eyebrow">Member portal</p>
-            <h1 id="login-title">Login</h1>
-            <p>Pick up where your last project left off.</p>
+            <h1 id="login-title">
+              <Suspense fallback="Login">
+                <SplitText
+                  tag="span"
+                  text="Login"
+                  trigger="load"
+                  delay={70}
+                  duration={0.9}
+                />
+              </Suspense>
+            </h1>
+            <p>Sign in to book equipment, studios and classes.</p>
           </div>
           <form onSubmit={handleSubmit} noValidate>
             <label className="form-field">
-              <span>Email address</span>
+              <span>Email or username</span>
               <span className="form-field__control">
                 <Mail aria-hidden="true" />
                 <input
                   value={identifier}
                   onChange={(event) => setIdentifier(event.target.value)}
                   autoComplete="username"
-                  type="email"
-                  placeholder="Enter your email…"
+                  type="text"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  placeholder="Enter your email or username…"
                 />
               </span>
             </label>
@@ -134,15 +220,20 @@ export function LoginPage() {
             </label>
 
             <div className="login-card__options">
-              <label className="check-control">
-                <input
-                  type="checkbox"
-                  checked={remember}
-                  onChange={(event) => setRemember(event.target.checked)}
-                />
-                <span aria-hidden="true" />
-                Remember me
-              </label>
+              <SpringCheck
+                className="login-card__remember"
+                label="Remember me"
+                checked={remember}
+                onChange={setRemember}
+                strike="none"
+                doneOpacity={1}
+                color="var(--ink)"
+                fillColor="var(--espresso)"
+                checkColor="#fff"
+                boxSize={20}
+                boxRadius={5}
+                fontSize={14.4}
+              />
               <button
                 className="text-button"
                 type="button"
@@ -158,13 +249,24 @@ export function LoginPage() {
               </p>
             ) : null}
 
-            <button
-              className="button button--primary button--wide"
-              type="submit"
-              disabled={busy || loading}
+            <ClickSpark
+              sparkColor={SPARK_COLORS}
+              sparkCount={12}
+              sparkRadius={34}
+              sparkSize={12}
+              duration={520}
+              gravity={0.6}
+              randomness={0.6}
+              style={{ height: 'auto' }}
             >
-              {busy ? 'Please wait…' : 'Login'}
-            </button>
+              <button
+                className="button button--primary button--wide"
+                type="submit"
+                disabled={busy || loading}
+              >
+                {busy ? 'Please wait…' : 'Login'}
+              </button>
+            </ClickSpark>
           </form>
 
           <p className="login-card__signup">
@@ -210,8 +312,7 @@ export function LoginPage() {
         width="compact"
       >
         <p>
-          Password reset is not available in this development version. No reset
-          email will be sent.
+          Online password reset isn't available yet.
         </p>
       </Modal>
 
@@ -220,89 +321,134 @@ export function LoginPage() {
         title="Create your account"
         onClose={() => setDialog(null)}
       >
-        <form className="stack-form" onSubmit={handleRegister}>
+        <form
+          ref={signupForm}
+          className="stack-form signup-form"
+          onSubmit={(event) => event.preventDefault()}
+          onKeyDown={handleSignupKey}
+          noValidate
+        >
           <p>
             Create your member account. Membership or a day pass must be
             assigned before equipment access.
           </p>
-          <div className="two-column-fields">
-            <label className="form-field">
-              <span>First name</span>
-              <input
-                name="firstName"
-                required
-                maxLength={50}
-                autoComplete="given-name"
-              />
-            </label>
-            <label className="form-field">
-              <span>Last name</span>
-              <input
-                name="lastName"
-                required
-                maxLength={50}
-                autoComplete="family-name"
-              />
-            </label>
-          </div>
-          <label className="form-field">
-            <span>Email</span>
-            <input
-              name="email"
-              type="email"
-              required
-              maxLength={100}
-              autoComplete="email"
-            />
-          </label>
-          <label className="form-field">
-            <span>Phone</span>
-            <input
-              name="phone"
-              type="tel"
-              required
-              maxLength={15}
-              autoComplete="tel"
-            />
-          </label>
-          <label className="form-field">
-            <span>Date of birth</span>
-            <input
-              name="dob"
-              type="date"
-              required
-              autoComplete="bday"
-            />
-          </label>
-          <label className="form-field">
-            <span>Password</span>
-            <input
-              name="password"
-              type="password"
-              required
-              minLength={8}
-              maxLength={128}
-              autoComplete="new-password"
-              placeholder="Create a password"
-              aria-describedby="signup-password-requirements"
-            />
-            <small id="signup-password-requirements">
-              8–128 characters with at least one uppercase letter and one special character.
-            </small>
-          </label>
+          <Stepper
+            className="signup-stepper"
+            step={signupStep}
+            onStepChange={setSignupStep}
+            linear
+            theme="light"
+            frame={false}
+            width="100%"
+            style={STEPPER_THEME}
+            completeButtonText={busy ? 'Creating…' : 'Create account'}
+            nextButtonProps={{
+              disabled: creatingBlocked,
+              onClick: (event) => {
+                event.preventDefault();
+                advanceSignup();
+              },
+            }}
+          >
+            <Step title="About you">
+              <div className="signup-step">
+                <div className="two-column-fields">
+                  <label className="form-field">
+                    <span>First name</span>
+                    <input
+                      {...signupField('firstName')}
+                      required
+                      maxLength={50}
+                      autoComplete="given-name"
+                    />
+                  </label>
+                  <label className="form-field">
+                    <span>Last name</span>
+                    <input
+                      {...signupField('lastName')}
+                      required
+                      maxLength={50}
+                      autoComplete="family-name"
+                    />
+                  </label>
+                </div>
+                <label className="form-field">
+                  <span>Date of birth</span>
+                  <input
+                    {...signupField('dob')}
+                    type="date"
+                    required
+                    autoComplete="bday"
+                  />
+                </label>
+              </div>
+            </Step>
+            <Step title="Contact">
+              <div className="signup-step">
+                <label className="form-field">
+                  <span>Email</span>
+                  <input
+                    {...signupField('email')}
+                    type="email"
+                    required
+                    maxLength={100}
+                    autoComplete="email"
+                  />
+                </label>
+                <label className="form-field">
+                  <span>Phone</span>
+                  <input
+                    {...signupField('phone')}
+                    type="tel"
+                    required
+                    maxLength={15}
+                    autoComplete="tel"
+                  />
+                </label>
+              </div>
+            </Step>
+            <Step title="Sign-in">
+              <div className="signup-step">
+                <label className="form-field">
+                  <span>Username</span>
+                  <input
+                    {...signupField('username')}
+                    aria-label="Username"
+                    required
+                    minLength={3}
+                    maxLength={30}
+                    pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{2,29}"
+                    autoComplete="username"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    aria-describedby="signup-username-help"
+                  />
+                  <small id="signup-username-help">3–30 letters, numbers, periods, underscores or hyphens. Start with a letter or number. You can also sign in with your email.</small>
+                </label>
+                <label className="form-field">
+                  <span>Password</span>
+                  <input
+                    {...signupField('password')}
+                    type="password"
+                    required
+                    minLength={8}
+                    maxLength={128}
+                    autoComplete="new-password"
+                    placeholder="Create a password"
+                    aria-describedby="signup-password-requirements"
+                  />
+                  <small id="signup-password-requirements">
+                    8–128 characters with at least one uppercase letter and one special character.
+                  </small>
+                </label>
+              </div>
+            </Step>
+          </Stepper>
           {error ? (
             <p role="alert" className="form-error">
               {error}
             </p>
           ) : null}
-          <button
-            className="button button--primary"
-            type="submit"
-            disabled={busy || loading}
-          >
-            <UserPlus aria-hidden="true" />{' '}
-            {busy ? 'Creating…' : 'Create account'}
-          </button>
         </form>
       </Modal>
     </main>
