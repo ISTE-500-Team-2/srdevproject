@@ -28,4 +28,8 @@ export type Rental = {
   refund_id?: string | null;
   cancellation_policy: string;
   email?: string;
+  /** Staff list only. */
+  member_name?: string;
+  userid?: number;
+  studio_id?: number;
 };
