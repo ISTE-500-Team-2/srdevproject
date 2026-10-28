@@ -26,7 +26,7 @@ test('existing staff session loses workspace on demotion and API refuses access'
   await bridge.pool.query('DELETE FROM user_role WHERE userid=$1',[data.user.id]);
   await bridge.pool.query("INSERT INTO user_role (userid,roleid) SELECT $1,roleid FROM role WHERE role='staff'",[data.user.id]);
   await bridge.pool.query("UPDATE \"user\" SET primary_role='staff' WHERE userid=$1",[data.user.id]);
-  mount('/admin');await screen.findByText('Membership & access management');
+  mount('/admin');await screen.findByRole('navigation',{name:'Staff workspace'});
   await bridge.pool.query('DELETE FROM user_role WHERE userid=$1',[data.user.id]);
   await bridge.pool.query("INSERT INTO user_role (userid,roleid) SELECT $1,roleid FROM role WHERE role='member'",[data.user.id]);
   await bridge.pool.query("UPDATE \"user\" SET primary_role='member' WHERE userid=$1",[data.user.id]);

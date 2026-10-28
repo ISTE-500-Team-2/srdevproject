@@ -1,0 +1,260 @@
+/* Staff "Today" page. Ported from the approved admin mockup; every class is
+   prefixed with today- so it can't collide with member or management styles. */
+.today {
+  --today-line: rgba(92, 73, 62, 0.1);
+  --today-line-strong: rgba(92, 73, 62, 0.24);
+  --today-muted: #8b7163;
+  font-variant-numeric: tabular-nums;
+}
+.today h1, .today h2, .today h3, .today p { margin: 0; }
+
+.today-head { margin-bottom: 22px; }
+.today-title {
+  font-family: 'Black Ops One', sans-serif;
+  font-weight: 400;
+  font-size: clamp(2rem, 3.4vw, 2.5rem);
+  letter-spacing: 0.015em;
+  line-height: 1;
+}
+.today-summary { margin-top: 9px; color: var(--ink-soft); font-size: 15px; }
+
+.today-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+.today-col { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.today-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
+
+.today-panel {
+  border: 1px solid rgba(180, 165, 157, 0.75);
+  border-radius: var(--radius);
+  background: rgba(255, 253, 250, 0.94);
+  box-shadow: 0 5px 14px rgba(41, 20, 8, 0.07);
+  min-width: 0;
+}
+.today-panel-head { display: flex; align-items: center; gap: 9px; padding: 16px 20px 12px; }
+.today-panel-head h2 { font-size: 17px; font-weight: 600; }
+.today-count {
+  border-radius: 10px;
+  padding: 1px 8px;
+  background: #efe6de;
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.today-count--hot { background: var(--orange-soft); color: #6b3d05; }
+.today-link {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--bronze);
+  font-size: 13.5px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+.today-link svg { width: 15px; height: 15px; }
+.today-panel-foot { padding: 10px 20px 14px; border-top: 1px solid var(--today-line); }
+.today-panel-foot .today-link { margin-left: 0; }
+.today-empty { padding: 4px 20px 18px; color: var(--ink-soft); font-size: 14px; }
+.today-panel .load-state { margin: 0 20px 16px; }
+
+.today-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  margin-top: 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 11px;
+  background: rgba(255, 255, 255, 0.56);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.today-button:hover { background: #fff; border-color: var(--border-strong); }
+
+/* On the floor: one row per machine, a day timeline on the right. */
+.today-legend { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px 14px; color: var(--ink-soft); font-size: 12.5px; }
+.today-legend-item { display: flex; align-items: center; gap: 6px; }
+.today-swatch { display: block; width: 16px; height: 10px; border-radius: 3px; }
+.today-swatch--live { background: var(--espresso-2); }
+.today-swatch--booked { background: var(--orange-soft); box-shadow: inset 3px 0 0 var(--orange); }
+.today-swatch--class { background: #e5d9ce; box-shadow: inset 3px 0 0 var(--today-muted); }
+.today-swatch--down { background: repeating-linear-gradient(135deg, rgba(183, 58, 46, 0.35) 0 3px, transparent 3px 6px); }
+
+.today-floor { position: relative; padding: 0 20px 12px; }
+.today-axis, .today-row { display: grid; grid-template-columns: 196px minmax(0, 1fr); column-gap: 16px; }
+.today-axis { height: 26px; border-bottom: 1px solid rgba(92, 73, 62, 0.16); }
+.today-ticks { position: relative; }
+.today-tick {
+  position: absolute;
+  bottom: 6px;
+  color: var(--today-muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+.today-tick:first-child { transform: none; }
+.today-tick:last-child { transform: translateX(-100%); }
+/* --today-now is the current time as a 0..1 fraction of the window. */
+.today-now, .today-nowtag { left: calc(232px + (100% - 252px) * var(--today-now)); }
+.today-now {
+  position: absolute;
+  z-index: 1;
+  top: 26px;
+  bottom: 12px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--orange);
+}
+.today-nowtag {
+  position: absolute;
+  z-index: 3;
+  top: 3px;
+  transform: translateX(-50%);
+  border-radius: 5px;
+  padding: 1px 6px;
+  background: var(--orange);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 700;
+}
+.today-row { align-items: center; min-height: 52px; border-bottom: 1px solid rgba(92, 73, 62, 0.09); }
+.today-row--group-end { border-bottom-color: var(--today-line-strong); }
+.today-row:last-of-type { border-bottom: 0; }
+.today-machine { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.today-machine img, .today-machine-placeholder {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(92, 73, 62, 0.2);
+  border-radius: 8px;
+  object-fit: cover;
+}
+.today-machine-placeholder { display: grid; place-items: center; background: #f6ece3; color: var(--bronze); }
+.today-machine-placeholder svg { width: 17px; height: 17px; }
+.today-machine-text { min-width: 0; }
+.today-machine-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.today-machine-name { font-size: 14.5px; font-weight: 600; }
+.today-machine-type { margin-left: 5px; color: var(--today-muted); font-size: 12.5px; }
+.today-status { display: flex; align-items: center; gap: 6px; color: var(--ink-soft); font-size: 12.5px; }
+.today-status svg { width: 13px; height: 13px; }
+.today-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: #c8b8ad; }
+.today-status--live { color: #22602f; }
+.today-status--live .today-dot { background: #3a9a52; box-shadow: 0 0 0 3px rgba(143, 220, 155, 0.45); }
+.today-status--down { color: var(--red); }
+.today-next { display: none; color: var(--ink-soft); font-size: 12.5px; }
+
+/* --today-hours is the window length; major lines every 3 hours, minor hourly. */
+.today-track {
+  position: relative;
+  height: 34px;
+  background-image:
+    linear-gradient(to right, rgba(92, 73, 62, 0.16) 1px, transparent 1px),
+    linear-gradient(to right, rgba(92, 73, 62, 0.06) 1px, transparent 1px);
+  background-size: calc(300% / var(--today-hours)) 100%, calc(100% / var(--today-hours)) 100%;
+}
+.today-block {
+  position: absolute;
+  z-index: 2;
+  top: 4px;
+  bottom: 4px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  border-radius: 6px;
+  padding: 0 7px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.today-block--booked { background: var(--orange-soft); color: #6b3d05; box-shadow: inset 3px 0 0 var(--orange); }
+.today-block--live { background: var(--espresso-2); color: #fff; }
+.today-block--past { border: 1px dashed #c8b8ad; color: #a3938a; font-weight: 500; }
+.today-block--class { background: #e5d9ce; color: #3d2a20; box-shadow: inset 3px 0 0 var(--today-muted); }
+.today-block--conflict { border: 1.5px solid var(--red); background: #fffdfa; color: var(--red); }
+.today-outage {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  border-radius: 6px;
+  background: repeating-linear-gradient(135deg, rgba(183, 58, 46, 0.15) 0 5px, transparent 5px 10px);
+}
+
+/* Needs you */
+.today-todo { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 12px; padding: 13px 20px 14px; border-top: 1px solid var(--today-line); }
+.today-todo-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9px; background: #f6ece3; color: var(--bronze); }
+.today-todo-icon svg { width: 18px; height: 18px; }
+.today-todo-icon--alert { background: rgba(183, 58, 46, 0.09); color: var(--red); }
+.today-todo-title { display: block; font-size: 14.5px; font-weight: 600; line-height: 1.3; }
+.today-todo-detail { margin-top: 3px; color: var(--ink-soft); font-size: 13px; }
+
+/* Checked in today */
+.today-who { display: flex; align-items: center; gap: 10px; padding: 8px 20px; border-top: 1px solid var(--today-line); }
+.today-avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #f0dfcc;
+  color: #6b3d05;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.today-avatar--1 { background: #dfe9dc; color: #2c5432; }
+.today-avatar--2 { background: #e6dde8; color: #4d3556; }
+.today-avatar--3 { background: #dde4ea; color: #2f4656; }
+.today-avatar--4 { background: #f3d9d3; color: #7a2e22; }
+.today-who-text { min-width: 0; }
+.today-who-name { display: block; font-size: 14px; font-weight: 600; line-height: 1.25; }
+.today-who-place { display: block; overflow: hidden; color: var(--today-muted); font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
+.today-who-time { margin-left: auto; display: flex; align-items: center; gap: 5px; color: var(--ink-soft); font-size: 12.5px; white-space: nowrap; }
+.today-who-time svg { width: 14px; height: 14px; color: #a3938a; }
+
+/* Studios */
+.today-studios { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 2px 16px 16px; }
+.today-studio { min-width: 0; border: 1px solid rgba(92, 73, 62, 0.16); border-radius: 10px; padding: 8px 11px; background: #fff; }
+.today-studio-name { font-size: 14px; font-weight: 600; }
+.today-studio-size { margin-left: 5px; color: var(--today-muted); font-size: 12px; }
+.today-studio-state { display: block; overflow: hidden; margin-top: 1px; color: var(--ink-soft); font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
+.today-studio--open { border-style: dashed; background: transparent; }
+.today-studio--open .today-studio-state { color: #22602f; }
+.today-studio--due { border-color: var(--orange); box-shadow: inset 3px 0 0 var(--orange); }
+.today-studio--due .today-studio-state { color: var(--bronze); font-weight: 600; }
+
+/* Classes today */
+.today-class { padding: 13px 20px 14px; border-top: 1px solid var(--today-line); }
+.today-class-title { display: block; font-size: 14.5px; font-weight: 600; }
+.today-class-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 2px; color: var(--ink-soft); font-size: 12.5px; }
+.today-bar { height: 6px; margin-top: 8px; overflow: hidden; border-radius: 3px; background: #efe6de; }
+.today-bar-fill { display: block; height: 100%; border-radius: 3px; background: var(--bronze); }
+
+.today-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (max-width: 1100px) {
+  .today-pair { grid-template-columns: minmax(0, 1fr); }
+}
+/* Phones and narrow tablets: to-do list first, the timeline becomes a list. */
+@media (max-width: 900px) {
+  .today-grid { grid-template-columns: minmax(0, 1fr); }
+  .today-col--side { order: -1; }
+  .today-legend, .today-axis, .today-track, .today-now, .today-nowtag { display: none; }
+  .today-floor { padding-bottom: 4px; }
+  .today-row { grid-template-columns: minmax(0, 1fr); padding: 10px 0; }
+  .today-next { display: block; }
+}

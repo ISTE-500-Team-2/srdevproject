@@ -6,6 +6,7 @@ import type { AppConfig } from "../config.js";
 import { AppError, type UserView } from "../domain.js";
 import { SessionModel } from "../models/SessionModel.js";
 import { UserModel } from "../models/UserModel.js";
+import { accountModeRefusal, assertAllowedWhileActing, isWorkspacePath } from "../accountMode.js";
 
 export const cookieName = "arbor_refresh";
 export function refreshToken(req: Request): string {
@@ -22,7 +23,10 @@ export function sessionToken(req: Request): string {
   return header.startsWith("Bearer ") ? header.slice(7) : "";
 }
 export interface AuthState {
+  /** Whose account the request acts on: the open member account, or the signed-in person. */
   user: UserView;
+  /** The staff member who opened `user`'s account, when one is open. */
+  actor?: UserView;
   csrfToken: string;
   token: string;
 }
@@ -61,13 +65,26 @@ export function requireUser(pool: Pool, config: AppConfig) {
         "ACCOUNT_INACTIVE",
         "This account does not currently have access. Please see staff.",
       );
+    let subject = user;
+    if (session.actingAsUserId && !isWorkspacePath(req.path)) {
+      const opened = await new UserModel(pool).findById(session.actingAsUserId);
+      // Re-check every request: roles, suspensions and restrictions change.
+      if (accountModeRefusal(user, opened)) await sessions.setActingAs(token, null);
+      else subject = opened!;
+    }
+    if (subject !== user) assertAllowedWhileActing(req, user, subject);
     res.locals.auth = {
-      user,
+      user: subject,
+      ...(subject !== user ? { actor: user } : {}),
       csrfToken: session.csrfToken,
       token,
     } satisfies AuthState;
+    // Audit rows always name the person at the keyboard.
     const context = auditContext.getStore();
-    if (context) context.actorId = user.id;
+    if (context) {
+      context.actorId = user.id;
+      if (subject !== user) context.actingForId = subject.id;
+    }
     next();
   };
 }

@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom';
 import { Footer } from './Footer';
 import { Header } from './Header';
+import { AccountBar } from './admin/AccountBar';
 import { useAuth } from '../context/AuthContext';
 
 export function AppShell() {
@@ -10,6 +11,7 @@ export function AppShell() {
       <a className="skip-link" href="#main-content">
         Skip to main content
       </a>
+      <AccountBar />
       <Header />
       {demoLogin ? (
         <div className="sample-data-banner">

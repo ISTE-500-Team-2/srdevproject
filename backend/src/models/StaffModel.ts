@@ -1,3 +1,4 @@
+import { auditContext } from "../auditContext.js";
 import type { Database } from "../db.js";
 import type { PlanInput } from "../staffDomain.js";
 
@@ -360,6 +361,11 @@ export class StaffModel {
     before: unknown,
     after: unknown,
   ) {
+    // Member flows record the member as actor; when staff have the member's
+    // account open, the change was made by the staff member.
+    const context = auditContext.getStore();
+    if (context?.actingForId != null && actor === context.actingForId)
+      actor = context.actorId ?? actor;
     await this.db.query(
       `INSERT INTO app_staff_audit(actor_id,subject_id,action,entity_type,entity_id,reason,before_state,after_state) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
       [

@@ -1,11 +1,15 @@
 import { TrainingPage } from './pages/TrainingPage';
 import { StudiosPage } from './pages/StudiosPage';
-import { RequireUser, RequireStaff } from './components/RouteGuards';
+import { RequireUser, RequireStaff, isWorkspaceUser } from './components/RouteGuards';
+import { AdminShell } from './components/admin/AdminShell';
+import { AdminIndex, AdminSectionPage } from './pages/admin/AdminSectionPage';
+import { adminSections } from './pages/admin/sections';
+import { AccountHomePage } from './pages/AccountHomePage';
+import { useAuth } from './context/AuthContext';
 import { ConfirmEmailPage } from './pages/ConfirmEmailPage';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
 import { AuthProvider } from './context/AuthContext';
-import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { CertificationsPage } from './pages/CertificationsPage';
 import { ClassesPage } from './pages/ClassesPage';
 import { LoadingPage } from './pages/LoadingPage';
@@ -16,6 +20,18 @@ import { ProfilePage } from './pages/ProfilePage';
 import { EquipmentPage } from './pages/EquipmentPage';
 import { MembershipPage } from './pages/MembershipPage';
 import './management.css';
+import './admin.css';
+
+/**
+ * Home: staff land in the workspace; with a member's account open, staff see
+ * what they can do for that member instead of the member's welcome screen.
+ */
+export function HomeRoute() {
+  const { user, actor } = useAuth();
+  if (actor) return <AccountHomePage />;
+  if (isWorkspaceUser(user)) return <Navigate replace to="/admin" />;
+  return <MemberHomePage />;
+}
 
 function LegacyEquipmentRedirect() {
   const { search, hash } = useLocation();
@@ -30,8 +46,17 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/loading" element={<LoadingPage />} />
         <Route element={<RequireUser />}>
+          <Route element={<RequireStaff />}>
+            <Route path="admin" element={<AdminShell />}>
+              <Route index element={<AdminIndex />} />
+              {adminSections.map((section) => (
+                <Route key={section.path} path={section.path} element={<AdminSectionPage section={section} />} />
+              ))}
+              <Route path="*" element={<Navigate replace to="/admin" />} />
+            </Route>
+          </Route>
           <Route element={<AppShell />}>
-            <Route index element={<MemberHomePage />} />
+            <Route index element={<HomeRoute />} />
             <Route path="equipment" element={<EquipmentPage />} />
             <Route path="reservations" element={<LegacyEquipmentRedirect />} />
             <Route path="studios" element={<StudiosPage />} />
@@ -40,9 +65,6 @@ export default function App() {
             <Route path="training" element={<TrainingPage />} />
             <Route path="profile" element={<ProfilePage />} />
             <Route path="membership" element={<MembershipPage />} />
-            <Route element={<RequireStaff />}>
-              <Route path="admin" element={<AdminDashboardPage />} />
-            </Route>
           </Route>
         </Route>
         <Route path="*" element={<NotFoundPage />} />

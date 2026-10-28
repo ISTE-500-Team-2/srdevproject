@@ -14,6 +14,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { setAccessToken, setCsrfToken } from "../../src/lib/api";
+import { lastWorkspacePathKey } from "../../src/components/admin/people";
 import App from "../../src/App";
 import { createBrowserBridge } from "../../../backend/test/helpers/browserBridge";
 
@@ -82,15 +83,20 @@ test("staff React flow creates a plan, issues access/payment, survives reload, s
   const staffSession = (await (await bridge.fetch('/api/auth/session')).json()).data;
   expect(staffSession.user.role).toBe('staff');
   const user = userEvent.setup();
-  mount("/admin?tab=plans");
+  mount("/admin/plans");
   const create = await screen.findByRole(
     "form",
     { name: "Create a plan" },
     { timeout: 20000 },
   );
-  expect(within(screen.getByRole('navigation', {name:'Primary navigation'})).getByRole('link', {name:'Staff workspace'})).toBeTruthy();
+  // Staff get the workspace sidebar, not the member site header.
+  const workspaceNav = screen.getByRole('navigation', {name:'Staff workspace'});
+  expect(within(workspaceNav).getByRole('link', {name:'Plans'}).getAttribute('aria-current')).toBe('page');
+  expect(screen.queryByRole('navigation', {name:'Primary navigation'})).toBeNull();
   expect(window.localStorage.length).toBe(0);
-  expect(window.sessionStorage.length).toBe(0);
+  // The workspace remembers only the page staff were on; no tokens or session data.
+  expect(Object.keys(window.sessionStorage)).toEqual([lastWorkspacePathKey]);
+  expect(window.sessionStorage.getItem(lastWorkspacePathKey)).toBe("/admin/plans");
   const name = "UI monthly plan";
   await user.type(within(create).getByLabelText("Plan name"), name);
   fireEvent.change(within(create).getByLabelText("Price (USD)"), {
@@ -111,8 +117,8 @@ test("staff React flow creates a plan, issues access/payment, survives reload, s
   ).rows[0];
   await user.click(
     within(
-      screen.getByRole("navigation", { name: "Staff sections" }),
-    ).getByRole("button", { name: "Members", exact: true }),
+      screen.getByRole("navigation", { name: "Staff workspace" }),
+    ).getByRole("link", { name: "Members", exact: true }),
   );
   await user.click(
     await screen.findByRole(
@@ -171,7 +177,7 @@ test("staff React flow creates a plan, issues access/payment, survives reload, s
 
   cleanup();
   setAccessToken(null); setCsrfToken(null);
-  mount();
+  mount("/admin/members");
   await user.click(
     await screen.findByRole(
       "button",
@@ -213,7 +219,7 @@ test("staff React flow creates a plan, issues access/payment, survives reload, s
   ).toBe(0);
   cleanup();
   expect((await direct('/auth/demo',{role:'admin'})).status).toBe(200);
-  mount('/admin?tab=users');
+  mount('/admin/members');
   await user.click(await screen.findByRole('button',{name:/Taylor UI Member/},{timeout:20000}));
   for (const status of ['suspended','inactive','active']) {
     const account = await screen.findByRole('form',{name:'Account status control'});

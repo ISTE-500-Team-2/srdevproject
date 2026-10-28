@@ -66,7 +66,7 @@ export function StaffStudios() {
 
   return (
     <section className="studio-desk" aria-labelledby="studio-desk">
-      <h2 id="studio-desk">Studios</h2>
+      <h2 id="studio-desk">Studio desk</h2>
       {error && <p className="form-error" role="alert">{error}</p>}
       {message && <p className="studio-message" role="status">{message}</p>}
       {!loaded && !error && <p role="status">Loading studios…</p>}

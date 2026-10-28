@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
 import { LoadState } from "../components/Management";
@@ -13,7 +14,9 @@ type Card = {
   assignedAt: string;
 };
 export function AccessManagementPage() {
-  const [member, setMember] = useState(""),
+  const [params] = useSearchParams();
+  // ?member= arrives from a member's account in account mode.
+  const [member, setMember] = useState(() => (Number(params.get("member")) > 0 ? String(Number(params.get("member"))) : "")),
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false);
   const cards = useApi<Card[]>(

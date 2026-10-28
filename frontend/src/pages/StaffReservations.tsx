@@ -5,6 +5,7 @@ import { api, errorMessage } from "../lib/api";
 import type { LiveEquipment, Reservation } from "../lib/contracts";
 import type { Page } from "../lib/staffContracts";
 import { useApi } from "../lib/useApi";
+import { useSearchParams } from "react-router-dom";
 import { MemberSelect } from "../components/MemberSelect";
 import { dateTime } from "../lib/display";
 
@@ -23,12 +24,14 @@ const emptyForm: ReservationForm = {
 };
 
 export function StaffReservations() {
+  const [params] = useSearchParams();
   const [offset, setOffset] = useState(0);
-  const [filters, setFilters] = useState({
+  // ?member= arrives from a member's account in account mode.
+  const [filters, setFilters] = useState(() => ({
     date: "",
-    userId: "",
+    userId: Number(params.get("member")) > 0 ? String(Number(params.get("member"))) : "",
     equipmentId: "",
-  });
+  }));
   const [editing, setEditing] = useState<Reservation | null>(null);
   const [form, setForm] = useState<ReservationForm>(emptyForm);
   const [busy, setBusy] = useState(false);

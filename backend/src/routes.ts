@@ -1,4 +1,5 @@
 import {reportRoutes} from './reports.js';
+import {accountModeRoutes,paymentDetailsAreMemberOnly,settingsAreMemberOnly,signatureIsMemberOnly,waiverCopiesAreAdminOnly} from './accountMode.js';
 import {trainingClassRoutes} from './trainingClasses.js';
 import {cardManagement} from './deviceAccess.js';
 import { certificationRoutes } from './certifications.js';
@@ -75,20 +76,21 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.get("/studio/contact", member.studioContact);
 
   routes.get("/me/notifications", permit("notification", "read", "own"), notifications.get);
-  routes.patch("/me/notifications", permit("notification", "update", "own"), requireCsrf, notifications.update);
+  routes.patch("/me/notifications", permit("notification", "update", "own"), settingsAreMemberOnly, requireCsrf, notifications.update);
 
-  routes.patch("/me/profile", permit("user", "update", "own"), requireCsrf, member.profile);
-  routes.get("/me/signed-waivers", permit("waiver", "read", "own"), waiverRecords.mine);
-  routes.get("/me/signed-waivers/:id/copy", permit("waiver", "read", "own"), waiverRecords.ownCopy);
+  routes.patch("/me/profile", permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, member.profile);
+  routes.get("/me/signed-waivers", permit("waiver", "read", "own"), waiverCopiesAreAdminOnly, waiverRecords.mine);
+  routes.get("/me/signed-waivers/:id/copy", permit("waiver", "read", "own"), waiverCopiesAreAdminOnly, waiverRecords.ownCopy);
   routes.get("/me/waivers", permit("waiver", "read", "own"), member.waivers);
   routes.get("/me/certifications", permit("certification", "read", "own"), member.certifications);
-  routes.post("/me/waivers/:id/sign", permit("waiver", "create", "own"), requireCsrf, member.signWaiver);
+  routes.post("/me/waivers/:id/sign", permit("waiver", "create", "own"), signatureIsMemberOnly, requireCsrf, member.signWaiver);
   routes.post("/me/check-ins", permit("check_in", "create", "own"), requireCsrf, member.checkIn);
 
   routes.get("/plans", permit("plan", "read", "own"), member.plans);
   routes.get("/me/memberships", permit("entitlement", "read", "own"), member.memberships);
   routes.get("/me/payments", permit("payment", "read", "own"), member.payments);
   routes.use("/admin", requireStaff);
+  routes.use(accountModeRoutes(pool, config));
   routes.use(reportRoutes(pool,config.timeZone));
   routes.use(cardManagement(pool,config.timeZone,config.devices));
   routes.get("/admin/plans", permit("plan","read","global"), staff.plans);

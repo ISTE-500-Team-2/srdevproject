@@ -32,9 +32,9 @@ async function login(role = "admin") {
     ).status,
   ).toBe(200);
 }
-function mount(tab: string) {
+function mount(path: string) {
   render(
-    <MemoryRouter initialEntries={["/admin?tab=" + tab]}>
+    <MemoryRouter initialEntries={[path]}>
       <App />
     </MemoryRouter>,
   );
@@ -55,7 +55,7 @@ test("analytics uses the full settled ledger, real check-ins/classes and zero-fi
     `INSERT INTO payment(userid,price,paymentstatus,paymentdate,method) VALUES ($1,20,'refunded',($2::date+time '12:00') AT TIME ZONE 'America/New_York' AT TIME ZONE 'UTC','cash'),($1,999,'void',($2::date+time '12:00') AT TIME ZONE 'America/New_York' AT TIME ZONE 'UTC','cash')`,
     [member, today],
   );
-  mount("analytics");
+  mount("/admin/analytics");
   await screen.findByRole("heading", { name: /^Revenue by/ });
   const user = userEvent.setup();
   const totals = screen.getByText("Net receipts").closest("dl")!;
@@ -85,7 +85,7 @@ test("analytics uses the full settled ledger, real check-ins/classes and zero-fi
 });
 test("combined waiver/certification tab mounts real admin tools instead of personal endpoints", async () => {
   await login();
-  mount("adminCertWaiver");
+  mount("/admin/certifications");
   await screen.findByRole("heading", { name: "Certifications & waivers" });
   await screen.findByRole("radio", { name: /Needs attention/ });
   const user = userEvent.setup();
