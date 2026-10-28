@@ -202,7 +202,7 @@ test('React → Express controllers/models → PostgreSQL: login, save, refresh,
     }),
   );
   fireEvent.change(within(dialog).getByLabelText('Start time'), {
-    target: { value: String(14 * 60) },
+    target: { value: "14:00" },
   });
   await user.click(
     within(dialog).getByRole('button', { name: 'Confirm reservation' }),

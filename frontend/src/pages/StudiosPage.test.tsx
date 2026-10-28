@@ -52,9 +52,9 @@ afterEach(() => {
   auth.user = { roles: ["member"], membership: "Monthly" };
 });
 
-function mount() {
+function mount(path = "/studios") {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <StudiosPage />
     </MemoryRouter>,
   );
@@ -179,4 +179,42 @@ test("an unpaid hold says there's nothing to refund instead of $0.00", async () 
   expect(within(dialog).queryByText(/\$0\.00/)).toBeNull();
   fireEvent.click(within(dialog).getByRole("button", { name: "Keep rental" }));
   expect(screen.queryByRole("dialog", { name: "Cancel Harkonnen?" })).toBeNull();
+});
+
+const returned = "/studios?payment=returned&rental=7&session_id=cs_test_matching";
+
+test("a checkout return cannot confirm an unrelated historical or manual payment", async () => {
+  withRentals([rental({ id: 99, checkout_id: "cs_test_other" })]);
+  mount(returned);
+  await screen.findByRole("button", { name: /^Small studios/ });
+  expect(screen.queryByText("Payment received.")).toBeNull();
+  expect(screen.getByText(/couldn’t match this checkout return/)).toBeTruthy();
+});
+
+test("a matching paid card checkout confirms that rental even when another rental is newer or pending", async () => {
+  withRentals([
+    rental({ id: 99, name: "Unrelated", status: "pending", payment_status: "unpaid" }),
+    rental({ checkout_id: "cs_test_matching", payment_method: "stripe_test" }),
+  ]);
+  mount(returned);
+  await screen.findByText("Payment received.");
+  expect(screen.getByText("Harkonnen is booked.", { exact: false })).toBeTruthy();
+  expect(screen.getByRole("group", { name: "Booking reference 000007" })).toBeTruthy();
+});
+
+test("a matching pending checkout stays pending rather than borrowing another paid rental", async () => {
+  withRentals([
+    rental({ id: 99, name: "Older paid rental", checkout_id: "cs_test_other", payment_method: "stripe_test" }),
+    rental({ checkout_id: "cs_test_matching", payment_method: "stripe_test", status: "pending", payment_status: "unpaid" }),
+  ]);
+  mount(returned);
+  await screen.findByText(/Checking your card payment/);
+  expect(screen.queryByText("Payment received.")).toBeNull();
+});
+
+test("legacy or mismatched checkout returns never claim a new payment", async () => {
+  withRentals([rental({ checkout_id: "cs_test_matching", payment_method: "stripe_test" })]);
+  mount("/studios?payment=returned");
+  await screen.findByText(/couldn’t match this checkout return/);
+  expect(screen.queryByText("Payment received.")).toBeNull();
 });

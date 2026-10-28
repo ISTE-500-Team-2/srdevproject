@@ -68,12 +68,17 @@ function PublishPanel({
   const [imported, setImported] = useState<{ name: string; error?: string } | null>(null);
   const [dragging, setDragging] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
-  // Fills the text box from a Word or text file; the wording is still
+  const importRun = useRef(0);
+  const [importing, setImporting] = useState(false);
+  // Fills the text box from PDF, Word or text files; the wording is still
   // reviewed (and editable) before publishing.
   const importFile = async (file: File | undefined) => {
     if (!file) return;
+    const run = ++importRun.current;
+    setImporting(true);
     try {
       const fileText = await documentText(file);
+      if (run !== importRun.current) return;
       setText(fileText);
       setTab("edit");
       setImported({
@@ -81,13 +86,20 @@ function PublishPanel({
         error: fileText.length > 16000 ? `That's ${fileText.length.toLocaleString()} characters; the limit is 16,000. Shorten it before publishing.` : undefined,
       });
     } catch (err) {
-      setImported({ name: file.name, error: (err as Error).message });
+      if (run === importRun.current) setImported({ name: file.name, error: (err as Error).message });
+    } finally {
+      if (run === importRun.current) setImporting(false);
     }
   };
   const starts = effectiveAt ? new Date(effectiveAt) : null;
   const startsLabel = starts && Number.isFinite(starts.getTime()) ? dateTime(starts) : "the start date";
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (importing) return;
+    if (text.trim().length < 20 || text.length > 16000) {
+      setError("Waiver text must contain between 20 and 16,000 characters. Review the text before publishing.");
+      return;
+    }
     const form = new FormData(event.currentTarget);
     setBusy(true);
     setError("");
@@ -134,14 +146,14 @@ function PublishPanel({
           <span className="cw-field__row">
             <span id="waiver-text-label">Text members will read</span>
             <span className="cw-field__tools">
-            <button type="button" className="button button--quiet cw-small" onClick={() => fileInput.current?.click()}>
-              <Upload aria-hidden="true" /> Upload document
+            <button type="button" className="button button--quiet cw-small" disabled={importing || busy} onClick={() => fileInput.current?.click()}>
+              <Upload aria-hidden="true" /> {importing ? "Reading document…" : "Upload document"}
             </button>
             <input
               ref={fileInput}
               type="file"
               hidden
-              accept=".docx,.txt,.md,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              accept=".pdf,.docx,.txt,.md,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
               onChange={(e) => {
                 void importFile(e.target.files?.[0]);
                 e.target.value = "";
@@ -178,7 +190,7 @@ function PublishPanel({
               minLength={20}
               maxLength={16000}
               rows={10}
-              placeholder="Paste the approved wording, or drop a Word document here"
+              placeholder="Paste the approved wording, or drop a PDF, Word or text document here"
             />
           ) : (
             <div className="cw-preview" aria-labelledby="waiver-text-label">
@@ -191,7 +203,7 @@ function PublishPanel({
               ? `${imported.name}: ${imported.error}`
               : imported
                 ? `Filled in from ${imported.name}. Check the wording and formatting before publishing; only the text is saved.`
-                : "Word (.docx) or text files. Only the text is saved, not the file."}
+                : "PDF, Word (.docx) or text files. Review the extracted wording before publishing. Only the text is saved, not the file."}
           </small>
         </div>
         <div className="cw-two">
@@ -235,7 +247,7 @@ function PublishPanel({
           <button type="button" className="button button--quiet" onClick={onClose} disabled={busy}>
             Cancel
           </button>
-          <button className="button button--primary" disabled={busy}>
+          <button className="button button--primary" disabled={busy || importing}>
             <Check aria-hidden="true" /> {busy ? "Publishing…" : "Publish version"}
           </button>
         </div>

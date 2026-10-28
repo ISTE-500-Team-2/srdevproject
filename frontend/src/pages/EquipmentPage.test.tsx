@@ -22,7 +22,7 @@ afterEach(()=>{cleanup();vi.clearAllMocks();});
 async function mount(){await act(async()=>{render(<MemoryRouter><EquipmentPage/></MemoryRouter>);});}
 const tomorrow=()=>{const d=new Date();d.setDate(d.getDate()+1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
 const startValue=()=>(document.querySelector('input[name="start"]') as HTMLInputElement).value;
-const pickTime=(minutes:number)=>fireEvent.change(screen.getByLabelText('Start time'),{target:{value:String(minutes)}});
+const pickTime=(minutes:number)=>fireEvent.change(screen.getByLabelText('Start time'),{target:{value:`${String(Math.floor(minutes/60)).padStart(2,"0")}:${String(minutes%60).padStart(2,"0")}`}});
 async function open(){await act(async()=>{fireEvent.click(screen.getByRole('button',{name:/^3D Printer 3D printing/}));});
  fireEvent.click(screen.getAllByRole('radio')[1]!);
  pickTime(14*60);

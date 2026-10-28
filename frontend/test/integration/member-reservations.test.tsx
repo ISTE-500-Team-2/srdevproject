@@ -10,7 +10,7 @@ afterAll(async()=>{cleanup();vi.unstubAllGlobals();await bridge?.close();},30000
 // Picks a start in the day-and-time picker: the day button, then the time.
 const pickStart=(scope:{getByRole:typeof screen.getByRole;getByLabelText:typeof screen.getByLabelText},d:Date)=>{
   fireEvent.click(scope.getByRole('radio',{name:d.toLocaleDateString([],{weekday:'long',month:'long',day:'numeric'})}));
-  fireEvent.change(scope.getByLabelText('Start time'),{target:{value:String(d.getHours()*60+d.getMinutes())}});
+  fireEvent.change(scope.getByLabelText('Start time'),{target:{value:`${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`}});
 };
 
 test('member finds equipment, books once, recovers from conflicts and cooldown, and cancels under existing rules',async()=>{

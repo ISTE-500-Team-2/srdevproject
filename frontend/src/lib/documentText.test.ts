@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import JSZip from "jszip";
-import { documentText } from "./documentText";
+import { documentText, MAX_DOCUMENT_BYTES } from "./documentText";
 
 /** A minimal real .docx: two paragraphs. */
 async function docx(paragraphs: string[]) {
@@ -37,7 +37,44 @@ test("reads plain text and tidies line endings and blank runs", async () => {
 
 test("explains files it can't read instead of failing silently", async () => {
   await expect(documentText(new File(["x"], "old.doc"))).rejects.toThrow(/save it as \.docx/);
-  await expect(documentText(new File(["x"], "scan.pdf"))).rejects.toThrow(/PDFs can't be read/);
-  await expect(documentText(new File(["x"], "photo.png", { type: "image/png" }))).rejects.toThrow(/Word \(\.docx\) or text/);
+  await expect(documentText(new File(["x"], "broken.pdf"))).rejects.toThrow(/PDF could not be read/);
+  await expect(documentText(new File(["x"], "photo.png", { type: "image/png" }))).rejects.toThrow(/PDF.*Word.*text/);
   await expect(documentText(new File(["   "], "blank.txt", { type: "text/plain" }))).rejects.toThrow(/empty/);
+});
+
+/** Real small PDF with a proper object table, exercising PDF.js rather than a parser mock. */
+function pdfFile(pages: string[]) {
+  const objects = ["<< /Type /Catalog /Pages 2 0 R >>", "", "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"];
+  const kids: string[] = [];
+  for (const text of pages) {
+    const page = objects.length + 1;
+    kids.push(`${page} 0 R`);
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${page + 1} 0 R >>`);
+    const escaped = text.replace(/[\\()]/g, "\\$&");
+    const stream = `BT /F1 12 Tf 72 720 Td (${escaped}) Tj ET`;
+    objects.push(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
+  }
+  objects[1] = `<< /Type /Pages /Kids [${kids.join(" ")}] /Count ${pages.length} >>`;
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((object, i) => { offsets.push(pdf.length); pdf += `${i + 1} 0 obj\n${object}\nendobj\n`; });
+  const xref = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  pdf += offsets.slice(1).map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("");
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  return new File([pdf], "waiver.pdf", { type: "application/pdf" });
+}
+
+test("extracts all pages of a real PDF in order", async () => {
+  expect(await documentText(pdfFile(["Terms of Service", "Follow the posted safety rules."])))
+    .toBe("Terms of Service\n\nFollow the posted safety rules.");
+});
+
+test("explains a scanned/image-only PDF without silently importing an empty waiver", async () => {
+  await expect(documentText(pdfFile([""]))).rejects.toThrow(/no selectable text.*OCR/);
+});
+
+test("rejects oversized documents before parsing", async () => {
+  const file = new File([new Uint8Array(MAX_DOCUMENT_BYTES + 1)], "large.pdf");
+  await expect(documentText(file)).rejects.toThrow(/over 5 MB/);
 });

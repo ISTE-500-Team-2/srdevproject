@@ -13,7 +13,7 @@ function tidy(text: string) {
 }
 
 /**
- * Reads the text out of a Word (.docx) or plain-text file, entirely in the
+ * Reads text from PDF, Word (.docx) or plain-text files, entirely in the
  * browser. Only the text is used; the file itself is not uploaded or kept.
  */
 export async function documentText(file: File): Promise<string> {
@@ -21,7 +21,10 @@ export async function documentText(file: File): Promise<string> {
   if (file.size > MAX_DOCUMENT_BYTES) throw new Error("That file is over 5 MB. Use a smaller document.");
   if (ext === "doc")
     throw new Error("Older .doc files can't be read. Open it in Word, save it as .docx, and try again.");
-  if (ext === "pdf") throw new Error("PDFs can't be read here. Save the document as .docx, or paste the text in.");
+  if (ext === "pdf" || file.type === "application/pdf") {
+    const { pdfText } = await import("./pdfText");
+    return tidy(await pdfText(new Uint8Array(await file.arrayBuffer())));
+  }
   if (ext === "docx") {
     // mammoth is only needed here, so it loads on first use.
     const mammoth = await import("mammoth");
@@ -40,5 +43,5 @@ export async function documentText(file: File): Promise<string> {
     if (!text) throw new Error("That file is empty.");
     return text;
   }
-  throw new Error("Upload a Word (.docx) or text (.txt) file.");
+  throw new Error("Upload a PDF (.pdf), Word (.docx) or text (.txt) file.");
 }

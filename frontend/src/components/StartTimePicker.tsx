@@ -1,117 +1,84 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 
-const DAYS = 14;
-const STEP_MINUTES = 30;
-
+const QUICK_DAYS = 14;
 const pad = (n: number) => String(n).padStart(2, "0");
 const dayKey = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const clockKey = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const nextMinute = (d: Date) => new Date(Math.floor(d.getTime() / 60000) * 60000 + 60000);
 const timeLabel = (minutes: number) =>
   new Date(2000, 0, 1, Math.floor(minutes / 60), minutes % 60).toLocaleTimeString([], {
     hour: "numeric",
     minute: "2-digit",
   });
 
-/** The next half-hour after `now`, in minutes since midnight. */
-const nextSlot = (now: Date) =>
-  Math.ceil((now.getHours() * 60 + now.getMinutes() + 1) / STEP_MINUTES) * STEP_MINUTES;
-
-/**
- * Pick a day from the next two weeks, then a start time on the half hour.
- * Submits as a hidden `name` field in the `YYYY-MM-DDTHH:MM` local format the
- * native datetime-local input used, so the form's handling is unchanged.
- */
-export function StartTimePicker({
-  name,
-  hours,
-  onPick,
-  children,
-  now: nowProp,
-}: {
+/** Quick day buttons, plus unrestricted local date and minute-precision time inputs. */
+export function StartTimePicker({ name, hours, onPick, children, now: nowProp }: {
   name: string;
   hours: number;
-  /** Called whenever the member picks a day or time. */
   onPick?: () => void;
-  /** Extra fields (such as duration) shown above the summary. */
   children?: ReactNode;
   now?: Date;
 }) {
-  const [now] = useState(() => nowProp ?? new Date());
-  const days = useMemo(() => {
-    // Late at night there are no slots left today, so start from tomorrow.
-    const first = nextSlot(now) >= 24 * 60 ? 1 : 0;
-    return Array.from({ length: DAYS }, (_, i) => {
-      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + first + i);
-      return { key: dayKey(d), date: d, offset: first + i };
-    });
-  }, [now]);
-  const [day, setDay] = useState(days[0]!.key);
-  const today = day === dayKey(now);
-  const slots = useMemo(() => {
-    const from = today ? nextSlot(now) : 0;
-    const list: number[] = [];
-    for (let m = from; m < 24 * 60; m += STEP_MINUTES) list.push(m);
-    return list;
-  }, [today, now]);
-  const [picked, setPicked] = useState<number | null>(null);
-  // Keep the chosen time when it still exists on the new day, otherwise use
-  // the first slot, so there is always a valid start.
-  const start = picked !== null && slots.includes(picked) ? picked : slots[0]!;
-  const chosen = days.find((d) => d.key === day)!;
-  const endMinutes = start + hours * 60;
-  const endsNextDay = endMinutes >= 24 * 60;
-  const dayName = (d: { date: Date; offset: number }) =>
-    d.offset === 0
-      ? "Today"
-      : d.offset === 1
-        ? "Tomorrow"
-        : d.date.toLocaleDateString([], { weekday: "short" });
-
+  const [now, setNow] = useState(() => nowProp ?? new Date());
+  useEffect(() => {
+    if (nowProp) { setNow(nowProp); return; }
+    const timer = window.setInterval(() => setNow(new Date()), 30000);
+    return () => window.clearInterval(timer);
+  }, [nowProp]);
+  const [day, setDay] = useState(() => dayKey(nextMinute(now)));
+  const [time, setTime] = useState(() => clockKey(nextMinute(now)));
+  const minimum = nextMinute(now);
+  const days = useMemo(() => Array.from({ length: QUICK_DAYS }, (_, offset) => {
+    const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset);
+    return { key: dayKey(date), date, offset };
+  }), [now]);
+  const chooseDay = (value: string) => {
+    setDay(value);
+    if (value === dayKey(now) && time < clockKey(minimum)) setTime(clockKey(minimum));
+    onPick?.();
+  };
+  const listId = useId();
+  const [year, month, date] = day.split("-").map(Number);
+  const chosen = new Date(year!, month! - 1, date!);
+  const [hour, minute] = time.split(":").map(Number);
+  const start = hour! * 60 + minute!;
+  const end = start + hours * 60;
+  const valid = !!day && !!time && Number.isFinite(chosen.getTime()) && Number.isFinite(start);
   return (
     <fieldset className="start-picker">
       <legend>Day</legend>
       <div className="start-picker__days" role="radiogroup" aria-label="Day">
         {days.map((d) => (
-          <button
-            key={d.key}
-            type="button"
-            role="radio"
-            aria-checked={d.key === day}
+          <button key={d.key} type="button" role="radio" aria-checked={d.key === day}
             aria-label={d.date.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}
-            className="start-picker__day"
-            onClick={() => {
-              setDay(d.key);
-              onPick?.();
-            }}
-          >
-            <span>{dayName(d)}</span>
+            className="start-picker__day" disabled={d.key < dayKey(minimum)} onClick={() => chooseDay(d.key)}>
+            <span>{d.offset === 0 ? "Today" : d.offset === 1 ? "Tomorrow" : d.date.toLocaleDateString([], { weekday: "short" })}</span>
             <strong>{d.date.getDate()}</strong>
             <small>{d.date.toLocaleDateString([], { month: "short" })}</small>
           </button>
         ))}
       </div>
       <label className="form-field">
+        <span>Booking date</span>
+        <input aria-label="Booking date" type="date" value={day} min={dayKey(minimum)} required onChange={(e) => chooseDay(e.target.value)} />
+        <small>Choose any future date, including dates beyond the quick choices above.</small>
+      </label>
+      <label className="form-field">
         <span>Start time</span>
-        <select
-          value={start}
-          onChange={(e) => {
-            setPicked(Number(e.target.value));
-            onPick?.();
-          }}
-        >
-          {slots.map((m) => (
-            <option key={m} value={m}>
-              {timeLabel(m)}
-            </option>
-          ))}
-        </select>
+        <input aria-label="Start time" type="time" step={60} value={time} min={day === dayKey(minimum) ? clockKey(minimum) : undefined}
+          required list={listId} onChange={(e) => { setTime(e.target.value); onPick?.(); }} />
+        <datalist id={listId}>
+          {Array.from({ length: 48 }, (_, i) => `${pad(Math.floor(i / 2))}:${i % 2 ? "30" : "00"}`)
+            .filter((value) => day !== dayKey(minimum) || value >= clockKey(minimum))
+            .map((value) => <option key={value} value={value} />)}
+        </datalist>
+        <small>{Intl.DateTimeFormat().resolvedOptions().timeZone} · choose any minute.</small>
       </label>
       {children}
       <p className="start-picker__summary" aria-live="polite">
-        {chosen.date.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })} ·{" "}
-        {timeLabel(start)} – {timeLabel(endMinutes % (24 * 60))}
-        {endsNextDay ? " the next day" : ""}
+        {valid ? <>{chosen.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })} · {timeLabel(start)} – {timeLabel(end % (24 * 60))}{end >= 24 * 60 ? " the next day" : ""}</> : "Choose a date and start time."}
       </p>
-      <input type="hidden" name={name} value={`${day}T${pad(Math.floor(start / 60))}:${pad(start % 60)}`} />
+      <input type="hidden" name={name} value={valid ? `${day}T${time}` : ""} />
     </fieldset>
   );
 }

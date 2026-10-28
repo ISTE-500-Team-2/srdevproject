@@ -7,6 +7,7 @@ import {
   type BookingRequest,
 } from "../components/studios/StudioBooking";
 import { useAuth } from "../context/AuthContext";
+import { useSearchParams } from "react-router-dom";
 import { api, errorMessage } from "../lib/api";
 import type { Rental, Studio } from "../lib/studioContracts";
 import {
@@ -54,6 +55,7 @@ function paymentLine(r: Rental) {
 
 export function StudiosPage() {
   const { user } = useAuth();
+  const [params] = useSearchParams();
   const [studios, setStudios] = useState<Studio[]>([]),
     [mine, setMine] = useState<Rental[]>([]),
     [card, setCard] = useState(false),
@@ -171,13 +173,16 @@ export function StudiosPage() {
   );
   const active = mine.filter((r) => ACTIVE.includes(r.status));
   const past = mine.filter((r) => !ACTIVE.includes(r.status));
-  const returning =
-    new URLSearchParams(window.location.search).get("payment") === "returned";
-  // Only server records count as proof of payment: the newest rental, once
-  // it is confirmed and paid, is the one this checkout was for.
-  const newest = mine.reduce<Rental | null>((a, r) => (!a || r.id > a.id ? r : a), null);
+  const returning = params.get("payment") === "returned";
+  // A return URL is not payment evidence. Match this checkout to a rental
+  // returned by the authenticated API; never substitute a historical payment.
+  const returnedRental = mine.find((r) =>
+    String(r.id) === params.get("rental") &&
+    !!r.checkout_id && r.checkout_id === params.get("session_id") &&
+    r.payment_method === "stripe_test",
+  );
   const paidNow =
-    newest?.status === "confirmed" && newest.payment_status === "paid" ? newest : null;
+    returnedRental?.status === "confirmed" && returnedRental.payment_status === "paid" ? returnedRental : null;
 
   function rentalRow(r: Rental) {
     const status = rentalStatus(r);
@@ -237,13 +242,13 @@ export function StudiosPage() {
       </p>
       {error && !size && !cancelling && <p className="form-error" role="alert">{error}</p>}
       {message && <p className="studio-message" role="status">{message}</p>}
-      {returning && waiting && (
+      {returning && returnedRental?.status === "pending" && (
         <div className="studio-message studio-payment" role="status">
           <StatusMark status="running" size={22} color="#a86008" />
           <span>Checking your card payment. This page updates on its own.</span>
         </div>
       )}
-      {returning && !waiting && paidNow && (
+      {returning && paidNow && (
         <div className="studio-message studio-payment" role="status">
           <StatusMark status="done" size={22} doneColor="#1f6b32" />
           <span>
@@ -251,6 +256,11 @@ export function StudiosPage() {
           </span>
           <BookingReference id={paidNow.id} />
         </div>
+      )}
+      {returning && loaded && !returnedRental && (
+        <p className="studio-message" role="status">
+          We couldn’t match this checkout return to a rental. Your current rental and payment statuses are shown below.
+        </p>
       )}
 
       {active.length > 0 && (
