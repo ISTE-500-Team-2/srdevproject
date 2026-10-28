@@ -1,5 +1,6 @@
 import {
   CalendarDays,
+  ChevronDown,
   CircleDollarSign,
   DoorOpen,
   Gauge,
@@ -216,6 +217,7 @@ export function AnalyticsDashboardPage() {
                 </option>
               ))}
             </select>
+            <ChevronDown className="analytics-range__chevron" aria-hidden="true" />
           </label>
           <div className="analytics-period" role="radiogroup" aria-label="Group revenue by">
             {(["daily", "weekly", "monthly"] as RevenuePeriod[]).map((p) => (
