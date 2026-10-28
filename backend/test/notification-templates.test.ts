@@ -32,6 +32,26 @@ test('signed copy uses complete snapshot and rejects absent signature/text inste
   assert.throws(() => renderNotification('account_created', {}, {...context,preferencesUrl:'javascript:alert(1)'}), /Invalid/);
 });
 
+test('a signed form sends back the completed copy, not the blank document, in HTML and text', () => {
+  const blank = 'Participant Name: __________\nEmergency Contact Phone: __________';
+  const completed = 'Participant Name: Dana Whitfield\nEmergency Contact Phone: +1 (555) 010-1234';
+  const result = renderNotification('waiver_signed', {waiverText:blank, completedWaiverText:completed,
+    signature:'Dana Whitfield (electronic agreement)', signedAt:'2030-01-01T00:00:00Z', waiverVersion:'v2'}, context);
+  for (const content of [result.textContent, result.htmlContent]) {
+    assert.ok(content.includes('Emergency Contact Phone: +1 (555) 010-1234'));
+    assert.ok(!content.includes('__________'));
+  }
+});
+
+test('staff notices are written for staff and link to the staff workspace', () => {
+  const result = renderNotification('admin_certification_revoked', {certificationName:'Laser', memberName:'Priya Nair',
+    reason:'Unsafe operation'}, {...context, preferencesUrl:'https://studio.example/profile'});
+  assert.ok(result.textContent.includes('Laser certification revoked'));
+  assert.ok(result.textContent.includes('Priya Nair’s certification was revoked. This copy is for the staff record'));
+  assert.ok(result.textContent.includes('Review certifications: https://studio.example/admin?tab=adminCertWaiver&section=certifications'));
+  assert.ok(!/Here are the details/.test(result.textContent));
+});
+
 test('scheduler membership payload renders plan and expiry in user timezone without shifting calendar dates', () => {
   const result = renderNotification('membership_expiring', {sourceType:'membership',name:'Monthly Studio',
     expiresAt:'2030-01-02T01:00:00Z', startsAt:'2030-01-01',timeZone:'America/Los_Angeles'},context);

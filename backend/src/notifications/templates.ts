@@ -58,7 +58,7 @@ function text(value: unknown): string {
 }
 
 type Tone = 'success' | 'info' | 'warning' | 'danger';
-interface Facts { item: string; money: string; role: string; refund: string }
+interface Facts { item: string; money: string; role: string; refund: string; certificationName: string; memberName: string }
 interface Copy {
   category: string;
   status: string;
@@ -148,8 +148,11 @@ const copy: Record<NotificationKind, Copy> = {
     intro: () => 'Everything is working normally again.' },
   role_granted: { category: 'Account', status: 'Updated', tone: 'info',
     intro: f => f.role ? `Your studio role is now ${f.role}.` : 'Here are the details.' },
+  // Sent to staff, not the member: say what was recorded and where to review it.
   admin_certification_revoked: { category: 'Staff notice', status: 'Recorded', tone: 'info',
-    intro: () => 'Here are the details.' },
+    title: f => f.certificationName ? `${f.certificationName} certification revoked` : '',
+    intro: f => `${f.memberName ? `${f.memberName}’s` : 'A member’s'} certification was revoked. This copy is for the staff record; the member gets their own notice.`,
+    cta: ['Review certifications', '/admin?tab=adminCertWaiver&section=certifications'] },
 };
 
 const tones: Record<Tone, { ink: string; wash: string }> = {
@@ -251,7 +254,7 @@ export function renderNotification(kind: NotificationKind, payload: Notification
   const refund = refundAmount && money(refundAmount, currency);
   const paid = field('paymentStatus');
   const facts: Facts = {
-    item, money: amount, role: field('role'),
+    item, money: amount, role: field('role'), certificationName: field('certificationName'), memberName: field('memberName'),
     refund: !refundAmount ? ''
       : Number(refundAmount) <= 0
         ? paid === 'paid' ? 'Under this studio’s cancellation policy, this booking isn’t eligible for a refund.'
@@ -324,7 +327,8 @@ export function renderNotification(kind: NotificationKind, payload: Notification
   const lead = intro(facts);
   const recipient = context.recipientName ? `${context.recipientName} <${context.recipientEmail}>` : context.recipientEmail;
   const optOut = 'You can opt out of all notifications in your profile notification settings';
-  const documentText = kind === 'waiver_signed' ? field('waiverText') : '';
+  // Members get back what they signed: the completed form when there was one, not the blank document.
+  const documentText = kind === 'waiver_signed' ? field('completedWaiverText') || field('waiverText') : '';
 
   const textContent = [
     headline, greeting, lead,
