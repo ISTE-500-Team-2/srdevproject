@@ -106,7 +106,7 @@ function TodayContent({ config, now, day }: { config: Result<{ timeZone: string 
     ? new Intl.DateTimeFormat("en-US", { timeZone: zone, weekday: "long", month: "long", day: "numeric" }).format(now) + "."
     : "";
   const summary = report.data
-    ? ` ${people} ${people === 1 ? "person" : "people"} in the building, ${live.size} ${live.size === 1 ? "machine" : "machines"} running.`
+    ? ` ${people} ${people === 1 ? "person" : "people"} checked in today, ${live.size} ${live.size === 1 ? "machine" : "machines"} running.`
     : "";
   const studioList = studios.data?.studios ?? null;
 
@@ -147,7 +147,7 @@ function TodayContent({ config, now, day }: { config: Result<{ timeZone: string 
                 : []
             }
           />
-          <BuildingPanel state={waitingOn(config, report)} report={report.data} zone={zone} />
+          <CheckedInPanel state={waitingOn(config, report)} report={report.data} zone={zone} />
         </div>
       </div>
     </div>
@@ -392,14 +392,14 @@ function NeedsPanel({ state, items }: { state: Result<unknown> | undefined; item
   );
 }
 
-function BuildingPanel({ state, report, zone }: { state: Result<unknown> | undefined; report: Report | null; zone?: string }) {
+function CheckedInPanel({ state, report, zone }: { state: Result<unknown> | undefined; report: Report | null; zone?: string }) {
   const [showAll, setShowAll] = useState(false);
   const people = report?.checkedInToday ?? [];
   const count = report?.checkedInTodayCount ?? 0;
   return (
-    <section className="today-panel" aria-labelledby="today-building-title">
+    <section className="today-panel" aria-labelledby="today-checkedin-title">
       <div className="today-panel-head">
-        <h2 id="today-building-title">In the building</h2>
+        <h2 id="today-checkedin-title">Checked in today</h2>
         {report ? <span className="today-count">{count}</span> : null}
       </div>
       {state || !zone ? (

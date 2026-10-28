@@ -24,7 +24,6 @@ export function AdminCertificationsPage() {
   }).data?.summary.attentionUsers;
   return (
     <section className="management-page">
-      <h2 className="cw-title">Certifications &amp; waivers</h2>
       <nav className="cw-tabs" aria-label="Certification and waiver tools">
         {sections.map((section) => (
           <button

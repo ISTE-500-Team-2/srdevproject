@@ -46,7 +46,7 @@ async function direct(path: string, body: unknown, csrf?: string) {
 test("administrator changes primary/additional roles and student modifier through the real form", async () => {
   vi.stubGlobal("fetch",bridge.fetch);
   expect((await direct("/auth/demo",{role:"admin"})).status).toBe(200);
-  const user=userEvent.setup(); mount("/admin");
+  const user=userEvent.setup(); mount("/admin/members");
   await user.click(await screen.findByRole("button",{name:/Jordan Demo/}));
   await user.click(await screen.findByText("Change account role"));
   const form=await screen.findByRole("form",{name:"Account role"});

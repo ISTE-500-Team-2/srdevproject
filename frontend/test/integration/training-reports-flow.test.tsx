@@ -123,7 +123,7 @@ test("staff reports UI reads actual ledger instead of sample charts", async () =
     </MemoryRouter>,
   );
   const user = userEvent.setup();
-  await user.click(await screen.findByRole("button", { name: "Reports" }));
+  await user.click(await screen.findByRole("link", { name: "Reports" }));
   await screen.findByRole("heading", { name: "Recorded revenue" });
   expect(await screen.findByRole('heading',{name:'Membership trends'})).toBeTruthy();
   expect(await screen.findByRole('heading',{name:'Notification delivery evidence'})).toBeTruthy();
@@ -175,7 +175,7 @@ test("staff card assignment, revocation and timed override UI save audited recor
   );
   const user = userEvent.setup();
   await user.click(
-    await screen.findByRole("button", { name: "Reader access" }),
+    await screen.findByRole("link", { name: "Reader access" }),
   );
   const member = (
     await bridge.pool.query(
