@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import type { Pool } from "pg";
 import { createPool, transaction } from "../db.js";
 import { hashPassword } from "../passwords.js";
+import { specializedEquipmentWaiver } from "../specializedEquipmentWaiver.js";
 
 export async function assertDemoDatabase(pool: Pool) {
   const { rows } = await pool.query<{ name: string }>(
@@ -103,6 +104,14 @@ export async function seedDemo(pool: Pool) {
       SELECT 'Demo makerspace policy','DEMO-1',$1,NOW() AT TIME ZONE 'UTC'
       WHERE NOT EXISTS (SELECT 1 FROM waiver WHERE name='Demo makerspace policy')`,
       ["Training fixture only. This is not the sponsor's legal waiver."],
+    );
+    // Demo and test databases show the fillable equipment waiver; production
+    // publishes it from the staff workspace when the shop is ready.
+    await db.query(
+      `INSERT INTO waiver (name,version,description,effectivedate,isactive,required,approval_reference)
+      SELECT $1::varchar,$2::varchar,$3,TIMESTAMP '2026-10-27 00:00:00',true,true,$4
+      WHERE NOT EXISTS (SELECT 1 FROM waiver WHERE name=$1)`,
+      [specializedEquipmentWaiver.name, specializedEquipmentWaiver.version, specializedEquipmentWaiver.text, specializedEquipmentWaiver.approvalReference],
     );
   });
   console.log(

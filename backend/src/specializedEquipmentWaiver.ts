@@ -1,11 +1,13 @@
--- Preserve the supplied document verbatim; form values are stored with each signed copy.
-ALTER TABLE waiver ADD COLUMN form_key TEXT;
-
-INSERT INTO waiver (name, version, description, effectivedate, isactive, required, approval_reference, form_key)
-VALUES (
-  'Specialized Equipment Use – Acknowledgment of Risk, Release & Safety Agreement',
-  '2026-10-27',
-  $equipment$Waiver Language
+/**
+ * The sponsor's specialized equipment waiver (source: docs/assets/Waiver Language2.docx).
+ * Production publishes it deliberately from Certifications & waivers > Waivers &
+ * policies > Publish, with an effective date; only dev/test demo databases seed it.
+ */
+export const specializedEquipmentWaiver = {
+  name: "Specialized Equipment Use – Acknowledgment of Risk, Release & Safety Agreement",
+  version: "2026-10-27",
+  approvalReference: "Source: docs/assets/Waiver Language2.docx",
+  text: `Waiver Language
 THE COLLABORATORY
 Specialized Equipment Use – Acknowledgment of Risk, Release & Safety Agreement
 Participant Name: __________________________________________
@@ -144,10 +146,5 @@ Accepted Date/Time: _________________________________________
 User/Member ID: _____________________________________________
 Staff Witness, if applicable: _________________________________
 Method of Acceptance: ☐ Electronic ☐ In Person ☐ Other
-Important: Signing this agreement does not constitute equipment certification. Equipment authorization should be recorded separately for each machine or equipment category for which training is required.$equipment$,
-  TIMESTAMP '2026-10-27 00:00:00',
-  true,
-  true,
-  'Source: docs/assets/Waiver Language2.docx; added at user request.',
-  'specialized-equipment-v1'
-);
+Important: Signing this agreement does not constitute equipment certification. Equipment authorization should be recorded separately for each machine or equipment category for which training is required.`,
+};
