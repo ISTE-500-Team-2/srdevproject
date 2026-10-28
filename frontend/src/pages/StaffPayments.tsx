@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { BillingRefunds } from "../components/BillingRefunds";
+import { MemberSelect } from "../components/MemberSelect";
 import { LoadState, Pager, PaymentList } from "../components/Management";
 import { PaymentEditor } from "../components/staff/PaymentControls";
 import type { Page, Payment } from "../lib/staffContracts";
@@ -18,19 +19,18 @@ export function StaffPayments() {
       <p>
         These records track payments taken at the front desk. Changing them doesn't charge or refund a card.
       </p>
-      <form
-        className="management-search"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setUserId(String(new FormData(e.currentTarget).get("userId") ?? ""));
-          setOffset(0);
-        }}
-      >
-        <label>
-          Filter by member ID <input name="userId" type="number" min="1" />
-        </label>
-        <button className="button button--quiet">Filter records</button>
-      </form>
+      <div className="management-search">
+        {/* Picking a member filters straight away; Change clears it. */}
+        <MemberSelect
+          label="Filter by member"
+          required={false}
+          value={userId}
+          onChange={(id) => {
+            setUserId(id);
+            setOffset(0);
+          }}
+        />
+      </div>
       <LoadState {...payments} />
       {payments.data ? (
         <>

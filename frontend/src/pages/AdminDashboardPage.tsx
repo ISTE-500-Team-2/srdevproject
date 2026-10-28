@@ -5,10 +5,12 @@ import { useSearchParams } from "react-router-dom";
 import { useApi } from "../lib/useApi";
 import type { Audit, Page } from "../lib/staffContracts";
 import { AuditList, LoadState, Pager } from "../components/Management";
+import { MemberSelect } from "../components/MemberSelect";
 import { StaffUsers } from "./StaffUsers";
 import { StaffPlans } from "./StaffPlans";
 import { StaffPayments } from "./StaffPayments";
 import { StaffReservations } from "./StaffReservations";
+import { StaffStudios } from "./StaffStudios";
 import { ReportsPage } from "./ReportsPage";
 import { AccessManagementPage } from "./AccessManagementPage";
 
@@ -45,6 +47,7 @@ const groups: { label: string; tabs: Tab[] }[] = [
     label: "Operations",
     tabs: [
       { key: "reservations", label: "Reservations", component: StaffReservations },
+      { key: "studios", label: "Studios", component: StaffStudios },
       { key: "access", label: "Reader access", component: AccessManagementPage },
       { key: "audit", label: "Change log", component: ChangeLog },
     ],
@@ -161,12 +164,8 @@ function ChangeLog() {
           setOffset(0);
         }}
       >
-        <label>
-          User ID <input name="userId" type="number" min="1" />
-        </label>
-        <label>
-          Actor ID <input name="actorId" type="number" min="1" />
-        </label>
+        <MemberSelect name="userId" label="Person changed" required={false} />
+        <MemberSelect name="actorId" label="Changed by" required={false} />
         <label>
           Action <input name="action" placeholder="user.role_changed" />
         </label>

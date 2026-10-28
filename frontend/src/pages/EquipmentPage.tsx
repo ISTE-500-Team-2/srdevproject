@@ -1,8 +1,10 @@
 import { useAuth } from '../context/AuthContext';
 import { CalendarDays, Filter, ShieldAlert } from 'lucide-react';
-import { type FormEvent, type MouseEvent, useEffect, useRef, useState } from 'react';
+import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Modal } from '../components/Modal';
+import { MemberSelect } from '../components/MemberSelect';
+import { StartTimePicker } from '../components/StartTimePicker';
 import { Toast } from '../components/Toast';
 import { api, ApiError, errorMessage } from '../lib/api';
 import type { LiveEquipment, Reservation } from '../lib/contracts';
@@ -10,13 +12,6 @@ import { useApi } from '../lib/useApi';
 import { reservationInput } from '../lib/reservationInput';
 import { dateTime } from "../lib/display";
 
-function jumpToSection(event: MouseEvent<HTMLAnchorElement>, id: string) {
-  // Hash navigation revalidates the route and unmounts the form/catalog state.
-  event.preventDefault();
-  const section = document.getElementById(id);
-  section?.scrollIntoView({ block: 'start' });
-  section?.focus({ preventScroll: true });
-}
 export function EquipmentPage() {
   const {user}=useAuth();
   const canBookForOthers=!!user?.roles.some(r=>['staff','admin'].includes(r)) && !user.roles.includes('instructor');
@@ -31,7 +26,7 @@ export function EquipmentPage() {
   const [error, setError] = useState('');
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   const [busy, setBusy] = useState(false);
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const [duration, setDuration] = useState(1);
   const equipment = (catalog.data ?? []).filter(
     (item) =>
       (filter === 'all' ||
@@ -89,10 +84,6 @@ export function EquipmentPage() {
   };
   return (
     <div className="reservations-page page-enter">
-      <nav className="reservation-shortcuts" aria-label="Equipment sections">
-        <a href="#equipment" onClick={e => jumpToSection(e, 'equipment')}>Find equipment</a>
-        <a href="#my-reservations" onClick={e => jumpToSection(e, 'my-reservations')}>My reservations</a>
-      </nav>
       <section className="reservation-section" id="equipment" tabIndex={-1}>
         <div className="reservation-section__heading">
           <div>
@@ -239,21 +230,18 @@ export function EquipmentPage() {
                 <span>{rateLabel(selected.rate)}</span>
               </div>
             </div>
-            {canBookForOthers&&<label className="form-field">
-              <span>Book for member ID (optional)</span>
-              <input name="memberId" type="number" min="1" step="1" placeholder="Leave blank to book for yourself" />
-              <small>Use the member ID from User management. Their membership, training and waivers will be checked. The booking appears in their account.</small>
-            </label>}
-            <label className="form-field">
-              <span>Start date and time ({zone})</span>
-              <input name="start" type="datetime-local" required />
-            </label>
-            <label className="form-field">
-              <span>Duration</span>
-              <select name="duration" defaultValue="1">
-                {Array.from({length:24},(_,i)=><option key={i+1} value={i+1}>{i+1} {i===0?'hour':'hours'}</option>)}
-              </select>
-            </label>
+            {canBookForOthers&&<div className="form-field">
+              <MemberSelect name="memberId" label="Book for a member (optional)" required={false} />
+              <small>Leave empty to book for yourself. Their membership, training and waivers are checked, and the booking appears in their account.</small>
+            </div>}
+            <StartTimePicker name="start" hours={duration} onPick={() => setError('')}>
+              <label className="form-field">
+                <span>Duration</span>
+                <select name="duration" value={duration} onChange={e=>setDuration(Number(e.target.value))}>
+                  {Array.from({length:24},(_,i)=><option key={i+1} value={i+1}>{i+1} {i===0?'hour':'hours'}</option>)}
+                </select>
+              </label>
+            </StartTimePicker>
             {!selected.canReserve && !canBookForOthers ? (
               <p className="form-notice">
                 {selected.availability}.{' '}

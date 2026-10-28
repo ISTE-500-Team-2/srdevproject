@@ -14,6 +14,9 @@ vi.mock("./StaffPlans", () => ({ StaffPlans: () => <h2>Plans workspace</h2> }));
 vi.mock("./StaffReservations", () => ({
   StaffReservations: () => <h2>Reservations workspace</h2>,
 }));
+vi.mock("./StaffStudios", () => ({
+  StaffStudios: () => <h2>Studios workspace</h2>,
+}));
 vi.mock("./StaffPayments", () => ({
   StaffPayments: () => <h2>Payments workspace</h2>,
 }));
@@ -46,6 +49,7 @@ test.each([
   ["members", "Members workspace"],
   ["plans", "Plans workspace"],
   ["reservations", "Reservations workspace"],
+  ["studios", "Studios workspace"],
   ["payments", "Payments workspace"],
   ["audit", "Staff change log"],
   ["reports", "Reports workspace"],
@@ -72,6 +76,7 @@ test.each([
     "Plans",
     "Payments",
     "Reservations",
+    "Studios",
     "Reader access",
     "Change log",
   ]);

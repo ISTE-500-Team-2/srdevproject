@@ -7,6 +7,13 @@ import { api, ApiError } from '../lib/api';
 
 const auth = vi.hoisted(() => ({ user: { id: 1, roles: ['admin'] as string[] } }));
 vi.mock('../context/AuthContext', () => ({ useAuth: () => auth }));
+// jsdom has no ResizeObserver; the hold-to-cancel button measures itself.
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+} as unknown as typeof ResizeObserver;
+
 vi.mock('../lib/api', async importOriginal => ({ ...await importOriginal<typeof import('../lib/api')>(), api: vi.fn() }));
 
 const HOUR = 3600000;
@@ -219,6 +226,13 @@ test('cancelling sends the record revision and the staff reason', async () => {
   await act(async () => { fireEvent.click(screen.getByRole('menuitem', { name: /Cancel class/ })); });
   expect(screen.getByText(/2 people are registered\./)).toBeTruthy();
   fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: 'Instructor out sick' } });
-  await click('Cancel class');
+  const hold = screen.getByRole('button', { name: /Hold to cancel class/ });
+  // A short press does nothing; cancelling needs the full hold.
+  fireEvent.keyDown(hold, { key: ' ' });
+  fireEvent.keyUp(hold, { key: ' ' });
+  await act(async () => { await new Promise((r) => setTimeout(r, 300)); });
+  expect(calls('/classes/5/cancel', 'POST')).toHaveLength(0);
+  fireEvent.keyDown(hold, { key: ' ' });
+  await act(async () => { await new Promise((r) => setTimeout(r, 1500)); });
   expect(calls('/classes/5/cancel', 'POST')[0][1]?.body).toEqual({ expectedRevision: 4, reason: 'Instructor out sick' });
 });

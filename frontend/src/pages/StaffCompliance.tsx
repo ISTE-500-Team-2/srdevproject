@@ -1,12 +1,20 @@
-import { Download, Filter, ShieldAlert, ShieldCheck } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { Check, ChevronRight, Download, Search } from "lucide-react";
+import { useEffect, useState } from "react";
 import { apiText, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
-import type { ComplianceBreakdown, ComplianceReport } from "../lib/staffContracts";
+import type { ComplianceBreakdown, ComplianceIssue, ComplianceReport, Plan } from "../lib/staffContracts";
 import { LoadState, Pager } from "../components/Management";
+import { Modal } from "../components/Modal";
+import { UserDetail } from "../components/staff/UserDetail";
+import { shortDate } from "../lib/display";
+import "./certwaiver.css";
 
-function percent(value: number) {
-  return `${Math.round(value * 1000) / 10}%`;
+type View = "attention" | "expiring" | "everyone";
+
+interface ComplianceFilters {
+  view: View;
+  userStatus: string;
+  offset: number;
 }
 
 function reportPath(filters: ComplianceFilters, format?: "csv") {
@@ -14,42 +22,65 @@ function reportPath(filters: ComplianceFilters, format?: "csv") {
     userStatus: filters.userStatus,
     offset: String(filters.offset),
   });
-  if (filters.waiverId) params.set("waiverId", filters.waiverId);
-  if (filters.certificationId) params.set("certificationId", filters.certificationId);
-  if (filters.expiresWithinDays !== "") params.set("expiresWithinDays", filters.expiresWithinDays);
+  if (filters.view === "attention") params.set("attention", "true");
+  if (filters.view === "expiring") params.set("expiresWithinDays", "30");
   if (format) params.set("format", format);
   return `/admin/compliance?${params}`;
 }
 
-interface ComplianceFilters {
-  waiverId: string;
-  certificationId: string;
-  expiresWithinDays: string;
-  userStatus: string;
-  offset: number;
+/** "Not signed", "Expired Oct 2" or "Expires Nov 8", with the item's name. */
+function IssueTag({ issue }: { issue: ComplianceIssue }) {
+  const date = issue.expiresAt ? shortDate(issue.expiresAt) : "";
+  const what =
+    issue.state === "missing"
+      ? issue.kind === "waiver"
+        ? "Not signed"
+        : "Not trained"
+      : issue.state === "expired"
+        ? `Expired${date ? " " + date : ""}`
+        : `Expires${date ? " " + date : " soon"}`;
+  return (
+    <span className={`cw-tag cw-tag--${issue.state === "expiring" ? "amber" : "red"}`}>
+      {what} · {issue.name}
+    </span>
+  );
+}
+
+function RequirementCard({ item, kind }: { item: ComplianceBreakdown; kind: string }) {
+  const ratio = item.total ? item.compliant / item.total : 1;
+  const missing = item.total - item.compliant;
+  return (
+    <article className="cw-req">
+      <div className="cw-req__top">
+        <b>{item.name}</b>
+        <span className="cw-tag cw-tag--grey">{kind}</span>
+      </div>
+      <div className={`cw-bar${!item.total ? " cw-bar--empty" : ratio < 0.5 ? " cw-bar--low" : ""}`} aria-hidden="true">
+        <i style={{ width: `${Math.round(ratio * 100)}%` }} />
+      </div>
+      <small>
+        {!item.total ? "Nobody needs this yet" : `${item.compliant} of ${item.total} current`}
+        {missing ? ` · ${missing} ${kind === "Waiver" ? "haven't signed" : "not current"}` : ""}
+        {item.expiring ? ` · ${item.expiring} expiring` : ""}
+      </small>
+    </article>
+  );
 }
 
 export function StaffCompliance() {
-  const [filters, setFilters] = useState<ComplianceFilters>({
-    waiverId: "",
-    certificationId: "",
-    expiresWithinDays: "",
-    userStatus: "active",
-    offset: 0,
-  });
+  const [filters, setFilters] = useState<ComplianceFilters>({ view: "attention", userStatus: "active", offset: 0 });
+  const [input, setInput] = useState("");
+  const [search, setSearch] = useState("");
+  const [open, setOpen] = useState<{ id: number; name: string } | null>(null);
   const [exportError, setExportError] = useState("");
-  const report = useApi<ComplianceReport>(reportPath(filters));
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    setFilters({
-      waiverId: String(form.get("waiverId") ?? ""),
-      certificationId: String(form.get("certificationId") ?? ""),
-      expiresWithinDays: String(form.get("expiresWithinDays") ?? ""),
-      userStatus: String(form.get("userStatus") ?? "active"),
-      offset: 0,
-    });
-  };
+  const report = useApi<ComplianceReport>(reportPath(filters), { retainOnReload: true });
+  const plans = useApi<Plan[]>("/admin/plans");
+  const config = useApi<{ timeZone: string }>("/config");
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearch(input.trim().toLowerCase()), 200);
+    return () => window.clearTimeout(timer);
+  }, [input]);
+  const set = (change: Partial<ComplianceFilters>) => setFilters((f) => ({ ...f, ...change, offset: 0 }));
   const downloadCsv = async () => {
     setExportError("");
     try {
@@ -64,176 +95,146 @@ export function StaffCompliance() {
       setExportError(errorMessage(error));
     }
   };
-  const summary = report.data?.summary;
+  const data = report.data;
+  // Search narrows the page already loaded; the server pages the full list.
+  const rows = (data?.users.items ?? []).filter(
+    (u) => !search || `${u.firstName} ${u.lastName} ${u.email}`.toLowerCase().includes(search),
+  );
+  const allSet = data && filters.view === "attention" ? data.summary.userCount - data.summary.attentionUsers : 0;
+
   return (
-    <section className="management-records">
-      <div className="panel management-panel">
-        <div className="compliance-heading">
-          <div>
-            <h2>Waiver and certification compliance</h2>
-            <p>
-              Who is current on required waivers and certifications.
-            </p>
+    <section className="cw-section">
+      <div className="cw-row">
+        <p className="cw-muted">Who is current on required waivers and certifications.</p>
+        <button className="button button--quiet cw-small" type="button" onClick={() => void downloadCsv()}>
+          <Download aria-hidden="true" /> Export CSV
+        </button>
+      </div>
+      {exportError ? <p className="form-error">{exportError}</p> : null}
+      <LoadState {...report} loading={report.loading && !report.data} />
+      {data ? (
+        <>
+          <div className="cw-reqs" aria-label="Requirements">
+            {data.waiverBreakdown.map((w) => (
+              <RequirementCard key={`w${w.id}`} item={w} kind="Waiver" />
+            ))}
+            {data.certificationBreakdown.map((c) => (
+              <RequirementCard key={`c${c.id}`} item={c} kind="Certification" />
+            ))}
+            {!data.waiverBreakdown.length && !data.certificationBreakdown.length ? (
+              <p className="cw-muted">No required waivers or certifications are set up yet.</p>
+            ) : null}
           </div>
-          <button className="button button--quiet" type="button" onClick={downloadCsv}>
-            <Download aria-hidden="true" /> Export CSV
-          </button>
-        </div>
-        {exportError ? <p className="form-error">{exportError}</p> : null}
-        <form className="management-search compliance-filters" onSubmit={submit}>
-          <label>
-            Waiver type
-            <select name="waiverId" defaultValue={filters.waiverId}>
-              <option value="">All required waivers</option>
-              {report.data?.options.waivers.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name} {w.version}
-                </option>
+
+          <div className="cw-toolbar">
+            <div className="cw-chips" role="radiogroup" aria-label="Show">
+              {(
+                [
+                  ["attention", `Needs attention · ${data.summary.attentionUsers}`],
+                  ["expiring", "Expiring in 30 days"],
+                  ["everyone", "Everyone"],
+                ] as const
+              ).map(([view, label]) => (
+                <button
+                  key={view}
+                  type="button"
+                  role="radio"
+                  aria-checked={filters.view === view}
+                  className="cw-chip"
+                  onClick={() => set({ view })}
+                >
+                  {label}
+                </button>
               ))}
-            </select>
-          </label>
-          <label>
-            Certification
-            <select name="certificationId" defaultValue={filters.certificationId}>
-              <option value="">All certifications</option>
-              {report.data?.options.certifications.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Expiration window
-            <select name="expiresWithinDays" defaultValue={filters.expiresWithinDays}>
-              <option value="">All records</option>
-              <option value="0">Expired today</option>
-              <option value="30">Next 30 days</option>
-              <option value="60">Next 60 days</option>
-              <option value="90">Next 90 days</option>
-            </select>
-          </label>
-          <label>
-            User status
-            <select name="userStatus" defaultValue={filters.userStatus}>
+            </div>
+            <select
+              className="cw-select"
+              aria-label="Account status"
+              value={filters.userStatus}
+              onChange={(e) => set({ userStatus: e.target.value })}
+            >
               <option value="active">Active accounts</option>
               <option value="inactive">Inactive accounts</option>
               <option value="all">All accounts</option>
             </select>
-          </label>
-          <button className="button button--quiet">
-            <Filter aria-hidden="true" /> Filter
-          </button>
-        </form>
-        <LoadState {...report} />
-        {summary ? (
-          <div className="compliance-metrics" aria-label="Compliance rates">
-            <Metric label="Overall compliant" ratio={summary.complianceRate} value={percent(summary.complianceRate)} detail={`${summary.compliantUsers} of ${summary.userCount} users`} />
-            <Metric label="Waiver compliant" ratio={summary.waiverComplianceRate} value={percent(summary.waiverComplianceRate)} detail={`${summary.waiverCompliantUsers} of ${summary.userCount} users`} />
-            <Metric label="Certification compliant" ratio={summary.certificationComplianceRate} value={percent(summary.certificationComplianceRate)} detail={`${summary.certificationCompliantUsers} of ${summary.userCount} users`} />
+            <label className="cw-search">
+              <Search aria-hidden="true" />
+              <input
+                type="search"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Search members"
+                aria-label="Search members"
+              />
+            </label>
           </div>
-        ) : null}
-      </div>
-      {report.data ? (
-        <>
-          <Breakdown title="Waiver compliance by type" items={report.data.waiverBreakdown} />
-          <Breakdown title="Certification compliance" items={report.data.certificationBreakdown} />
-          <div className="panel management-panel">
-            <h2>Member exceptions and expirations</h2>
-            <div className="compliance-table-wrap">
-              <table className="compliance-table">
-                <thead>
-                  <tr>
-                    <th>Member</th>
-                    <th>Status</th>
-                    <th>Waivers</th>
-                    <th>Certifications</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {report.data.users.items.map((u) => (
-                    <tr key={u.id}>
-                      <td>
-                        <strong>{u.firstName} {u.lastName}</strong>
-                        <small>#{u.id} · {u.email}</small>
-                      </td>
-                      <td>
-                        <span className={`status-pill status-pill--${u.accessStatus === "active" ? "ok" : "neutral"}`}>
-                          {u.accessStatus.charAt(0).toUpperCase() + u.accessStatus.slice(1)}
-                        </span>
-                      </td>
-                      <td>
-                        <ComplianceState ok={u.waiverCompliant} />
-                        <ExceptionList label="Missing or expired" values={u.missingWaivers} />
-                        <ExceptionList label="Expired or expiring" values={u.expiringWaivers} />
-                      </td>
-                      <td>
-                        <ComplianceState ok={u.certificationCompliant} />
-                        <ExceptionList label="Missing or expired" values={u.missingCertifications} />
-                        <ExceptionList label="Expired or expiring" values={u.expiringCertifications} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!report.data.users.items.length ? <p>No matching compliance records.</p> : null}
+
+          <div className="cw-list">
+            <div className="cw-list__head" aria-hidden="true">
+              <span>Member</span>
+              <span>What's missing</span>
             </div>
-            <Pager
-              offset={filters.offset}
-              nextOffset={report.data.users.nextOffset}
-              onChange={(offset) => setFilters((current) => ({ ...current, offset }))}
-            />
+            {rows.map((u) => (
+              <div className="cw-list__row" key={u.id}>
+                <div>
+                  <b>
+                    {u.firstName} {u.lastName}
+                  </b>
+                  <small>{u.email}</small>
+                  {u.accessStatus !== "active" ? <span className="cw-tag cw-tag--grey">{u.accessStatus}</span> : null}
+                </div>
+                <div className="cw-issues">
+                  {u.issues.length ? (
+                    u.issues.map((issue) => <IssueTag key={issue.kind + issue.name} issue={issue} />)
+                  ) : (
+                    <span className="cw-tag cw-tag--green">
+                      <Check aria-hidden="true" /> All current
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="button button--quiet cw-small"
+                  onClick={() => setOpen({ id: u.id, name: `${u.firstName} ${u.lastName}` })}
+                  aria-label={`Open record for ${u.firstName} ${u.lastName}`}
+                >
+                  Open record <ChevronRight aria-hidden="true" />
+                </button>
+              </div>
+            ))}
+            {!rows.length ? (
+              <p className="cw-list__empty">
+                {search
+                  ? `No members on this page match “${input}”.`
+                  : filters.view === "attention"
+                    ? "Everyone is current. Nothing needs attention."
+                    : "No members match these filters."}
+              </p>
+            ) : null}
+            {allSet > 0 ? (
+              <button type="button" className="cw-allset" onClick={() => set({ view: "everyone" })}>
+                <Check aria-hidden="true" /> {allSet} {allSet === 1 ? "member is" : "members are"} all set · show everyone
+              </button>
+            ) : null}
           </div>
+          <Pager
+            offset={filters.offset}
+            nextOffset={data.users.nextOffset}
+            onChange={(offset) => setFilters((current) => ({ ...current, offset }))}
+          />
         </>
+      ) : null}
+      {open ? (
+        <Modal open width="panel" title={open.name} onClose={() => setOpen(null)}>
+          <UserDetail
+            key={open.id}
+            id={open.id}
+            plans={plans.data ?? []}
+            timeZone={config.data?.timeZone ?? "America/New_York"}
+            onChanged={report.reload}
+          />
+        </Modal>
       ) : null}
     </section>
   );
-}
-
-function Metric({ label, value, detail, ratio }: { label: string; value: string; detail: string; ratio: number }) {
-  return (
-    <article>
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <div className="compliance-bar" aria-hidden="true">
-        <i className={ratio < 0.9 ? "is-low" : ""} style={{ width: `${Math.round(ratio * 100)}%` }} />
-      </div>
-      <small>{detail}</small>
-    </article>
-  );
-}
-
-function Breakdown({ title, items }: { title: string; items: ComplianceBreakdown[] }) {
-  return (
-    <div className="panel management-panel">
-      <h2>{title}</h2>
-      <div className="compliance-breakdown">
-        {items.map((item) => (
-          <article className="management-record" key={item.id}>
-            <h3>{item.name}{item.version ? ` ${item.version}` : ""}</h3>
-            <p>{percent(item.total ? item.compliant / item.total : 1)} compliant</p>
-            <small>{item.compliant} of {item.total} users current; {item.expiring} expired or expiring in the selected window.</small>
-          </article>
-        ))}
-        {!items.length ? <p>No records for this filter.</p> : null}
-      </div>
-    </div>
-  );
-}
-
-function ComplianceState({ ok }: { ok: boolean }) {
-  return (
-    <span className={ok ? "compliance-state is-ok" : "compliance-state is-risk"}>
-      {ok ? <ShieldCheck aria-hidden="true" /> : <ShieldAlert aria-hidden="true" />}
-      {ok ? "Current" : "Needs review"}
-    </span>
-  );
-}
-
-function ExceptionList({ label, values }: { label: string; values: string[] }) {
-  return values.length ? (
-    <small>
-      {label}: {values.join("; ")}
-    </small>
-  ) : null;
 }

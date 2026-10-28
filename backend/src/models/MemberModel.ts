@@ -41,7 +41,10 @@ export class MemberModel {
   async recentCheckIns(userId: number) {
     return (
       await this.db.query(
-        `SELECT checkinid AS id,location,checkintime AT TIME ZONE 'UTC' AS "checkedInAt"
+        // Reader check-ins are recorded with an NFC status description
+        // (see deviceAccess.ts); everything else came from the member portal.
+        `SELECT checkinid AS id,location,checkintime AT TIME ZONE 'UTC' AS "checkedInAt",
+        CASE WHEN statusdesc ILIKE '%NFC%' THEN 'nfc' ELSE 'portal' END AS method
       FROM check_in WHERE userid=$1 ORDER BY checkintime DESC LIMIT 5`,
         [userId],
       )

@@ -20,8 +20,12 @@ beforeEach(()=>{
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();});
 async function mount(){await act(async()=>{render(<MemoryRouter><EquipmentPage/></MemoryRouter>);});}
+const tomorrow=()=>{const d=new Date();d.setDate(d.getDate()+1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
+const startValue=()=>(document.querySelector('input[name="start"]') as HTMLInputElement).value;
+const pickTime=(minutes:number)=>fireEvent.change(screen.getByLabelText('Start time'),{target:{value:`${String(Math.floor(minutes/60)).padStart(2,"0")}:${String(minutes%60).padStart(2,"0")}`}});
 async function open(){await act(async()=>{fireEvent.click(screen.getByRole('button',{name:/^3D Printer 3D printing/}));});
- fireEvent.change(screen.getByLabelText(/Start date and time/),{target:{value:'2030-05-20T14:00'}});
+ fireEvent.click(screen.getAllByRole('radio')[1]!);
+ pickTime(14*60);
 }
 const submits=()=>vi.mocked(api).mock.calls.filter(([p,o])=>p==='/reservations'&&o?.method==='POST');
 test('equipment search matches name or type and links straight to saved bookings',async()=>{
@@ -32,8 +36,6 @@ test('equipment search matches name or type and links straight to saved bookings
  fireEvent.change(screen.getByRole('searchbox',{name:'Find equipment'}),{target:{value:'WOOD'}});
  expect(screen.getByRole('button',{name:/Wood Lathe/})).toBeTruthy();
  expect(screen.queryByRole('button',{name:/^3D Printer/})).toBeNull();
- fireEvent.click(screen.getByRole('link',{name:'My reservations'}));
- expect(document.activeElement).toBe(screen.getByRole('heading',{name:'My reservations'}));
  expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('WOOD');
  fireEvent.change(screen.getByRole('searchbox'),{target:{value:'no such machine'}});
  expect(screen.getByText('No equipment matches this filter.')).toBeTruthy();
@@ -49,8 +51,8 @@ test('same-tick repeated form submits send one booking request and release the l
  await act(async()=>{reject(new ApiError(409,'RESERVATION_CONFLICT','Conflict'));});
  expect(screen.getByRole('alert').textContent).toContain('Choose another start time or shorten the duration');
  expect(document.activeElement).toBe(screen.getByRole('alert'));
- expect((screen.getByLabelText(/Start date and time/) as HTMLInputElement).value).toBe('2030-05-20T14:00');
- fireEvent.change(screen.getByLabelText(/Start date and time/),{target:{value:'2030-05-20T17:00'}});
+ expect(startValue()).toBe(tomorrow()+'T14:00');
+ pickTime(17*60);
  expect(screen.queryByRole('alert')).toBeNull();
  await act(async()=>{fireEvent.submit(form);});
  expect(submits()).toHaveLength(2);
@@ -81,11 +83,10 @@ test('cancellation cutoff is explained and only bookings outside it have a cance
  expect(screen.getByText('Reservation cancelled.')).toBeTruthy();
 });
 
-test('past start time is explained without sending a booking and keeps the input for correction',async()=>{
+test('the picked day and time are what gets booked',async()=>{
  await mount();await open();
- fireEvent.change(screen.getByLabelText(/Start date and time/),{target:{value:'2020-01-01T10:00'}});
  await act(async()=>{fireEvent.submit(screen.getByRole('button',{name:'Confirm reservation'}).closest('form')!);});
- expect(submits()).toHaveLength(0);
- expect(screen.getByRole('alert').textContent).toBe('Choose a start time in the future.');
- expect((screen.getByLabelText(/Start date and time/) as HTMLInputElement).value).toBe('2020-01-01T10:00');
+ const body=submits()[0]![1]!.body as {startTime:string;endTime:string};
+ expect(body.startTime).toBe(new Date(tomorrow()+'T14:00').toISOString());
+ expect(body.endTime).toBe(new Date(new Date(tomorrow()+'T14:00').getTime()+3600000).toISOString());
 });

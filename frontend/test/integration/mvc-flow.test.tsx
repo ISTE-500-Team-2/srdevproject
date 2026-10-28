@@ -194,8 +194,15 @@ test('React → Express controllers/models → PostgreSQL: login, save, refresh,
       String(start.getMonth() + 1).padStart(2, '0'),
       String(start.getDate()).padStart(2, '0'),
     ].join('-') + 'T14:00';
-  fireEvent.change(within(dialog).getByLabelText(/Start date and time/), {
-    target: { value: local },
+  void local;
+  // Day button, then start time, in the reservation picker.
+  fireEvent.click(
+    within(dialog).getByRole('radio', {
+      name: start.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }),
+    }),
+  );
+  fireEvent.change(within(dialog).getByLabelText('Start time'), {
+    target: { value: "14:00" },
   });
   await user.click(
     within(dialog).getByRole('button', { name: 'Confirm reservation' }),
@@ -285,16 +292,13 @@ test('React → Express controllers/models → PostgreSQL: login, save, refresh,
       screen.getByRole('navigation', { name: 'Primary navigation' }),
     ).getByRole('link', { name: 'Home', exact: true }),
   );
+  // The slider only appears once check-in is allowed; End completes it.
   const checkin = await screen.findByRole(
-    'button',
-    { name: 'Check in' },
+    'slider',
+    { name: 'Slide to check in' },
     { timeout: 20000 },
   );
-  await waitFor(
-    () => expect((checkin as HTMLButtonElement).disabled).toBe(false),
-    { timeout: 20000 },
-  );
-  await user.click(checkin);
+  fireEvent.keyDown(checkin, { key: 'End' });
   await screen.findByText(
     'Check-in saved. Welcome to the Collaboratory!',
     {},

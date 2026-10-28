@@ -129,6 +129,14 @@ export interface ComplianceUser {
   expiringWaivers: string[];
   missingCertifications: string[];
   expiringCertifications: string[];
+  /** What's wrong, item by item: never signed/trained, expired, or expiring soon. */
+  issues: ComplianceIssue[];
+}
+export interface ComplianceIssue {
+  kind: "waiver" | "certification";
+  name: string;
+  state: "missing" | "expired" | "expiring";
+  expiresAt: string | null;
 }
 export interface ComplianceReport {
   summary: {
@@ -136,6 +144,7 @@ export interface ComplianceReport {
     compliantUsers: number;
     waiverCompliantUsers: number;
     certificationCompliantUsers: number;
+    attentionUsers: number;
     complianceRate: number;
     waiverComplianceRate: number;
     certificationComplianceRate: number;

@@ -134,7 +134,7 @@ p {
 .discovery-heading h2,
 .reservation-section__heading h1,
 .training-panel__heading h1,
-.profile-hero h1 {
+.account-hero h1 {
   margin-bottom: 0;
   font-family: 'Black Ops One', sans-serif;
   font-weight: 400;
@@ -1887,7 +1887,6 @@ place-items: center;
   transform: none;
 }
 
-
 .reservation-card__rule {
   width: 100%;
   height: 2px;
@@ -1961,8 +1960,11 @@ place-items: center;
 .reservation-form__summary img {
   width: 136px;
   height: 100px;
+  border: 1px solid #e6ddd5;
   border-radius: 8px;
-  object-fit: cover;
+  padding: 8px;
+  background: #fffdfa;
+  object-fit: contain;
 }
 
 .reservation-form__summary h3 {
@@ -1992,12 +1994,6 @@ place-items: center;
   gap: 34px;
 }
 
-.profile-hero {
-  display: flex;
-  align-items: center;
-  gap: 22px;
-}
-
 .profile-hero__avatar {
   width: 84px;
   height: 84px;
@@ -2010,103 +2006,6 @@ place-items: center;
   font-family: 'Black Ops One', sans-serif;
   font-size: 1.5rem;
   box-shadow: 5px 5px 0 var(--espresso);
-}
-
-.profile-hero h1 {
-  font-size: clamp(2rem, 3vw, 3.4rem);
-}
-
-.profile-hero span {
-  display: block;
-  margin-top: 6px;
-  color: var(--ink-soft);
-}
-
-.profile-panel {
-  min-height: 450px;
-  padding: 30px;
-}
-
-.profile-panel h2 {
-  margin-bottom: 20px;
-  font-size: 1.3rem;
-  font-weight: 700;
-}
-
-.membership-options {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
-  margin-top: 24px;
-}
-
-.membership-option {
-  display: grid;
-  align-content: start;
-  gap: 12px;
-  min-width: 0;
-  margin: 0;
-  border: 1px solid #ded4cd;
-  border-radius: 10px;
-  padding: 18px;
-}
-
-.membership-option legend {
-  padding: 0 8px;
-  font-size: 1.15rem;
-  font-weight: 700;
-}
-
-.membership-option label {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 10px;
-  border-radius: 8px;
-  padding: 12px;
-  background: #f7f3ef;
-  cursor: pointer;
-}
-
-.membership-option input {
-  accent-color: var(--orange);
-}
-
-.membership-option strong {
-  white-space: nowrap;
-}
-
-.membership-option[data-selected='true'] {
-  border-color: var(--orange);
-  box-shadow: 0 0 0 2px rgba(216, 100, 34, 0.16);
-}
-
-.membership-change-button {
-  margin-top: 28px;
-}
-
-.membership-option:disabled {
-  border-color: #d1d1d1;
-  background: #eeeeee;
-  color: #858585;
-}
-
-.membership-option:disabled label {
-  background: #e2e2e2;
-  cursor: not-allowed;
-}
-
-.membership-option:disabled input {
-  cursor: not-allowed;
-}
-
-.profile-panel form {
-  display: grid;
-  gap: 24px;
-}
-
-.profile-panel .button--primary {
-  justify-self: start;
 }
 
 .not-found {
@@ -2297,8 +2196,7 @@ place-items: center;
   .member-summary,
   .discovery-grid,
   .admin-layout,
-  .credentials-page,
-  .profile-layout {
+  .credentials-page {
     grid-template-columns: 1fr;
   }
 
@@ -2374,8 +2272,7 @@ place-items: center;
   .equipment-preview-grid,
   .equipment-grid,
   .studio-grid,
-  .two-column-fields,
-  .profile-nav {
+  .two-column-fields {
     grid-template-columns: 1fr;
   }
 
@@ -2405,15 +2302,6 @@ place-items: center;
 
   .select-control span {
     display: none;
-  }
-
-  .profile-panel {
-    min-height: 0;
-    padding: 22px;
-  }
-
-  .membership-options {
-    grid-template-columns: 1fr;
   }
 
   .reservation-form__summary {
@@ -2525,12 +2413,368 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 .email-confirm-help[open] summary { margin-bottom: 20px; }
 
 /* Keep reservation navigation and the time picker usable on small phones. */
-.reservation-shortcuts { display: flex; flex-wrap: wrap; gap: 12px 24px; margin-bottom: 24px; }
-.reservation-shortcuts a { min-height: 44px; display: inline-flex; align-items: center; }
 .equipment-search { margin-bottom: 24px; }
-#equipment, #my-reservations { scroll-margin-top: 110px; }
 @media (max-width: 430px) {
   .equipment-reservation-form .reservation-form__summary { grid-template-columns: 64px minmax(0, 1fr); gap: 12px; }
   .equipment-reservation-form .reservation-form__summary img { width: 64px; height: 64px; }
   .equipment-reservation-form .reservation-form__summary h3 { overflow-wrap: anywhere; }
+}
+
+/* React Bits components, themed to the site. Sources live in
+   components/reactbits; these rules only fit them into existing layouts. */
+
+/* Mobile header: Card Nav replaces the dropdown below 1040px. */
+.site-card-nav {
+  display: none;
+}
+
+.site-card-nav .card-nav__label {
+  font-family: 'Black Ops One', sans-serif;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+}
+
+.site-card-nav .card-nav__link {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+@media (max-width: 1040px) {
+  .site-header {
+    display: none;
+  }
+
+  .site-card-nav {
+    position: sticky;
+    top: 10px;
+    z-index: 100;
+    display: block;
+    padding: 0 12px;
+  }
+}
+
+/* Member home: check-in status, slider and badge. */
+.check-in__status {
+  margin: 16px 0;
+  color: var(--ink-soft);
+}
+
+.check-in__status .status-mark {
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.check-in__status .status-mark__label {
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+}
+
+.site-slide-commit {
+  width: 100%;
+}
+
+.check-in__fallback {
+  margin: auto 0 8px;
+  padding-top: 14px;
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+/* Home summary cards size to their content instead of a fixed 320px, and
+   don't stretch to the height of the access card beside them. */
+.member-summary {
+  align-items: start;
+}
+
+.member-summary .summary-card {
+  min-height: 0;
+  gap: 0;
+}
+
+.member-summary .summary-card__action {
+  margin-top: auto;
+  padding: 12px 14px;
+}
+
+.summary-card__list {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0 18px;
+  padding: 0;
+  list-style: none;
+}
+
+.summary-card__list li {
+  display: grid;
+  gap: 1px;
+  font-size: 0.9rem;
+}
+
+.summary-card__list b {
+  font-weight: 600;
+}
+
+.summary-card__list span,
+.summary-card__note {
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.summary-card__note {
+  margin: 16px 0 18px;
+}
+
+.check-in__last {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  border-radius: var(--radius-small);
+  padding: 10px 12px;
+  background: #f3ece7;
+  font-size: 0.9rem;
+}
+
+.check-in__last span,
+.check-in__last small {
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.check-in__last span {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.check-in__history {
+  margin-top: 8px;
+  font-size: 0.85rem;
+}
+
+.check-in__history summary {
+  color: var(--bronze);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.check-in__history ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--ink-soft);
+}
+
+.site-slide-commit .slide-commit {
+  font-weight: 600;
+}
+
+/* Centre the label in the track to the right of the knob, not under it. */
+.site-slide-commit .slide-commit__label {
+  padding-left: 48px;
+}
+
+/* The three cards take the full width; the access card sits under them as
+   a band, details on the left and the badge on the right. */
+.member-summary {
+  grid-template-columns: 1fr;
+}
+
+.access-band.membership-card {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  align-items: center;
+  gap: 24px;
+  padding: 0 0 0 32px;
+}
+
+.access-band__info {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  padding: 28px 0;
+}
+
+.access-band .membership-card__tier {
+  margin: 0;
+}
+
+.access-band__info p {
+  margin: 0;
+  color: #e0d1c9;
+}
+
+.access-band.membership-card a {
+  position: static;
+}
+
+.member-badge {
+  height: 280px;
+}
+
+@media (max-width: 640px) {
+  .access-band.membership-card {
+    grid-template-columns: 1fr;
+    gap: 0;
+    padding: 0 24px;
+  }
+
+  .access-band__info {
+    padding-bottom: 0;
+  }
+
+  .member-badge {
+    height: 260px;
+    margin: 0 -24px;
+  }
+}
+
+/* Hold-to-confirm, sized like .button. */
+.site-hold-button.hold-button {
+  min-height: 42px;
+  padding: 8px 18px;
+  border: 1px solid #e3b2ac;
+  font: 600 15px 'Barlow', sans-serif;
+}
+
+/* Studio checkout return. */
+.studio-payment {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 14px;
+}
+
+.booking-reference {
+  display: grid;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.booking-reference__label {
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* Reservation start: day chips, then a half-hour start time. */
+.start-picker {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.start-picker legend {
+  margin-bottom: 8px;
+  padding: 0;
+  font-weight: 600;
+}
+
+.start-picker__days {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 2px 8px;
+  scroll-snap-type: x proximity;
+}
+
+.start-picker__day {
+  flex: none;
+  width: 72px;
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  padding: 8px 4px;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  scroll-snap-align: start;
+}
+
+.start-picker__day span,
+.start-picker__day small {
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.start-picker__day strong {
+  font-size: 1.3rem;
+  line-height: 1.2;
+}
+
+.start-picker__day:hover {
+  border-color: var(--border-strong);
+}
+
+.start-picker__day[aria-checked="true"] {
+  border-color: #4d250b;
+  background: linear-gradient(135deg, #2b1306, #59300f);
+  color: #fff;
+}
+
+.start-picker__day[aria-checked="true"] span,
+.start-picker__day[aria-checked="true"] small {
+  color: #e0d1c9;
+}
+
+.start-picker__day:focus-visible {
+  outline: 3px solid var(--orange);
+  outline-offset: 2px;
+}
+
+.start-picker__summary {
+  margin: 0;
+  border-radius: var(--radius-small);
+  padding: 10px 14px;
+  background: #f3ece7;
+  font-weight: 600;
+}
+
+/* Side-panel modal (Modal width="panel"): slides in from the right. Used by
+   the class roster and the staff member record. */
+.modal-backdrop.modal-backdrop--panel {
+  place-items: stretch end;
+  padding: 0;
+}
+.modal-card.modal-card--panel {
+  width: min(540px, 100%);
+  max-height: none;
+  height: 100%;
+  border-radius: 0;
+  border-width: 0 0 0 1px;
+  animation: panel-in 220ms ease both;
+}
+@keyframes panel-in {
+  from {
+    transform: translateX(40px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+.modal-card.modal-card--panel .modal-card__body {
+  min-height: calc(100% - 85px);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Visible to screen readers only. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

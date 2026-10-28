@@ -77,10 +77,13 @@ test("member books monthly studio, staff confirms real manual receipt, cancellat
   // Pending rentals refresh on their own when the window regains focus.
   window.dispatchEvent(new Event("focus"));
   await within(rentals).findByText("Confirmed");
-  vi.spyOn(window, "confirm").mockReturnValue(true);
   const cancel = within(rentals).getByRole("button", { name: "Cancel rental" });
   await waitFor(() => expect(cancel.hasAttribute("disabled")).toBe(false));
   await userEvent.click(cancel);
+  // Cancelling is confirmed in a dialog with a press-and-hold button.
+  const confirm = screen.getByRole("dialog", { name: "Cancel Small studio 1?" });
+  expect(within(confirm).getByText(/You'll get \$250\.00 back/)).toBeTruthy();
+  fireEvent.keyDown(within(confirm).getByRole("button", { name: /Hold to cancel rental/ }), { key: " " });
   await screen.findByText("Small studio 1 cancelled.");
   const cancelled = (await bridge.pool.query("SELECT * FROM app_studio_rental"))
     .rows[0];

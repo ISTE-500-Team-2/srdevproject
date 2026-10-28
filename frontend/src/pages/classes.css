@@ -4,15 +4,6 @@
   margin: 0 auto;
   display: block;
 }
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
 /* Page head */
 .classes-head {
   display: flex;
@@ -840,7 +831,7 @@
   display: grid;
   gap: 6px;
 }
-.class-field--picker label {
+.class-field--picker .member-select__label {
   font-size: 0.86rem;
   font-weight: 700;
 }
@@ -973,34 +964,7 @@
   color: var(--red);
 }
 
-/* Roster side panel (Modal width="panel") */
-.modal-backdrop.modal-backdrop--panel {
-  place-items: stretch end;
-  padding: 0;
-}
-.modal-card.modal-card--panel {
-  width: min(540px, 100%);
-  max-height: none;
-  height: 100%;
-  border-radius: 0;
-  border-width: 0 0 0 1px;
-  animation: panel-in 220ms ease both;
-}
-@keyframes panel-in {
-  from {
-    transform: translateX(40px);
-    opacity: 0;
-  }
-  to {
-    transform: none;
-    opacity: 1;
-  }
-}
-.modal-card.modal-card--panel .modal-card__body {
-  min-height: calc(100% - 85px);
-  display: flex;
-  flex-direction: column;
-}
+/* Roster side panel (panel modal styles live in styles.css) */
 .roster {
   flex: 1;
 }

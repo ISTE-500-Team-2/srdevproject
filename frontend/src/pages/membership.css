@@ -29,24 +29,9 @@
   display: grid;
   gap: 2px;
 }
-.membership-banner span {
+.membership-banner div span {
   color: var(--ink-soft);
   font-size: 0.9rem;
-}
-.membership-spin {
-  flex: none;
-  color: var(--bronze);
-  animation: membership-spin 1s linear infinite;
-}
-@keyframes membership-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .membership-spin {
-    animation: none;
-  }
 }
 
 /* Status pills */

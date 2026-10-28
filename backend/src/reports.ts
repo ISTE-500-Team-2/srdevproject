@@ -117,6 +117,33 @@ export function reportRoutes(pool: Pool, tz: string) {
             params.slice(0, 2),
           )
         ).rows[0];
+        // Visits per local day across the whole window, zero-filled so quiet
+        // days show as gaps rather than disappearing.
+        const visitsByDay = (
+          await db.query(
+            `SELECT to_char(d,'YYYY-MM-DD') AS day,COUNT(i.checkinid)::int AS visits,COUNT(DISTINCT i.userid)::int AS people
+ FROM generate_series($2::date,$3::date,interval '1 day') d
+ LEFT JOIN check_in i ON i.status='approved' AND (i.checkintime AT TIME ZONE 'UTC' AT TIME ZONE $1)::date=d::date
+ GROUP BY d ORDER BY d`,
+            [tz, from, to],
+          )
+        ).rows;
+        // There is no check-out record, so this is who checked in today (each
+        // person's latest check-in), not a live headcount.
+        const recentCheckIns = (
+          await db.query(
+            `SELECT latest.*,COUNT(*) OVER()::int AS total FROM (
+ SELECT DISTINCT ON (i.userid) i.userid AS "userId",u.firstname || ' ' || u.lastname AS name,i.location,
+ i.checkintime AT TIME ZONE 'UTC' AS at,CASE WHEN i.statusdesc ILIKE '%NFC%' THEN 'nfc' ELSE 'portal' END AS method
+ FROM check_in i JOIN "user" u USING(userid)
+ WHERE i.status='approved' AND i.checkintime AT TIME ZONE 'UTC'>=date_trunc('day',NOW() AT TIME ZONE $1) AT TIME ZONE $1
+ ORDER BY i.userid,i.checkintime DESC,i.checkinid DESC
+ ) latest ORDER BY at DESC,"userId" LIMIT 50`,
+            [tz],
+          )
+        ).rows;
+        const checkedInTodayCount = recentCheckIns[0]?.total ?? 0;
+        const checkedInToday = recentCheckIns.map(({ total, ...person }) => person);
         const compliance = (
           await db.query(
             `SELECT COUNT(*) FILTER(WHERE status='active')::int AS "activeAccounts",COUNT(*) FILTER(WHERE accessstatus<>'active')::int AS "restrictedAccounts",(SELECT COUNT(*)::int FROM user_certifications WHERE status='active' AND renewaldate<NOW() AT TIME ZONE 'UTC') AS "expiredTraining" FROM "user"`,
@@ -149,6 +176,9 @@ export function reportRoutes(pool: Pool, tz: string) {
           compliance,
           live,
           usage,
+          visitsByDay,
+          checkedInToday,
+          checkedInTodayCount,
           memberships,
           notifications,
           notes: [
@@ -157,6 +187,7 @@ export function reportRoutes(pool: Pool, tz: string) {
             "Revenue groups recorded receipts by original purchase date and current refund state; it is not a historical cash-flow ledger.",
             "Booking utilization uses the full selected calendar window, not operating-hours availability. Reader-authorized time is separately measured and is not proof of physical machine operation.",
             "Room visits are historical check-ins, not current headcount. Active reader leases and verified class attendance are reported separately.",
+            "Visits count approved check-ins by day in the reporting time zone. Checked in today lists each person's latest check-in since local midnight; there is no check-out, so it is not a live headcount.",
           ],
         };
       });

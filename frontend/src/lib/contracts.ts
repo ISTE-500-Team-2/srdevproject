@@ -94,5 +94,5 @@ export interface Overview {
   activeReservations: number;
   canCheckIn: boolean;
   reasons: string[];
-  recentCheckIns: { id: number; location: string; checkedInAt: string }[];
+  recentCheckIns: { id: number; location: string; checkedInAt: string; method?: 'nfc' | 'portal' }[];
 }

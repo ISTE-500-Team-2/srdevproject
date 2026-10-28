@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { LoaderCircle } from "lucide-react";
+import StatusMark from "../components/reactbits/StatusMark";
 import { useApi } from "../lib/useApi";
 import { api, errorMessage } from "../lib/api";
 import type { MembershipHistory, Plan } from "../lib/staffContracts";
@@ -131,7 +131,7 @@ export function MembershipPage() {
 
       {confirming ? (
         <div className="membership-banner" role="status">
-          <LoaderCircle className="membership-spin" aria-hidden="true" />
+          <StatusMark status="running" size={24} color="#a86008" />
           <div>
             <strong>Confirming your payment…</strong>
             <span>This usually takes a few seconds. Your access will show here once it's confirmed.</span>

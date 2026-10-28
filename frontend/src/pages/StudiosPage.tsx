@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AvailabilityCalendar } from "../components/studios/AvailabilityCalendar";
-import { StaffRental } from "../components/studios/StaffRental";
-import { StudioConfig } from "../components/studios/StudioConfig";
+import { BookingReference } from "../components/studios/BookingReference";
+import { CancelRentalDialog } from "../components/studios/CancelRentalDialog";
+import StatusMark from "../components/reactbits/StatusMark";
 import {
   StudioBooking,
   type BookingRequest,
 } from "../components/studios/StudioBooking";
 import { useAuth } from "../context/AuthContext";
+import { useSearchParams } from "react-router-dom";
 import { api, errorMessage } from "../lib/api";
 import type { Rental, Studio } from "../lib/studioContracts";
 import {
@@ -54,13 +55,9 @@ function paymentLine(r: Rental) {
 
 export function StudiosPage() {
   const { user } = useAuth();
-  const staff = !!user?.roles.some((r) =>
-    ["admin", "staff", "super-admin"].includes(r),
-  );
-  const admin = !!user?.roles.some((r) => ["admin", "super-admin"].includes(r));
+  const [params] = useSearchParams();
   const [studios, setStudios] = useState<Studio[]>([]),
     [mine, setMine] = useState<Rental[]>([]),
-    [management, setManagement] = useState<Rental[]>([]),
     [card, setCard] = useState(false),
     [zone, setZone] = useState("America/New_York"),
     [loaded, setLoaded] = useState(false);
@@ -68,7 +65,8 @@ export function StudiosPage() {
     [held, setHeld] = useState<{ name: string; holdUntil: string } | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
-    [message, setMessage] = useState("");
+    [message, setMessage] = useState(""),
+    [cancelling, setCancelling] = useState<Rental | null>(null);
   const today = new Intl.DateTimeFormat("en-CA", {
     timeZone: zone,
     year: "numeric",
@@ -79,8 +77,6 @@ export function StudiosPage() {
   // after a lost response) reuses it, while a changed studio, date or payment
   // method gets a fresh key so the server doesn't reject it as KEY_REUSED.
   const attempt = useRef<{ signature: string; key: string } | null>(null);
-  const staffRef = useRef(staff);
-  staffRef.current = staff;
   async function refresh() {
     const [data, rentals] = await Promise.all([
       api<{ studios: Studio[]; cardTestEnabled: boolean; timeZone: string }>(
@@ -92,19 +88,16 @@ export function StudiosPage() {
     setCard(data.cardTestEnabled);
     setZone(data.timeZone);
     setMine(rentals);
-    if (staffRef.current)
-      setManagement(await api<Rental[]>("/studio-management/rentals"));
     setLoaded(true);
   }
   useEffect(() => {
     void refresh().catch((e) => setError(errorMessage(e)));
-  }, [staff]);
+  }, []);
   // Holds, payments and availability change outside this page (front desk,
   // card checkout, other members), so keep it current without a manual
-  // refresh: while the viewer has something pending, while they are choosing
-  // dates, and always for staff watching incoming holds.
+  // refresh while the viewer has something pending or is choosing dates.
   const waiting = mine.some((r) => r.status === "pending");
-  const live = waiting || staff || size !== null;
+  const live = waiting || size !== null;
   useEffect(() => {
     if (!live) return;
     const update = () => void refresh().catch(() => {});
@@ -180,15 +173,16 @@ export function StudiosPage() {
   );
   const active = mine.filter((r) => ACTIVE.includes(r.status));
   const past = mine.filter((r) => !ACTIVE.includes(r.status));
-  const unconfigured = studios.filter((s) => !bookable(s));
-  // Staff only need rentals with a payment or refund to record here; the
-  // occupancy grid below covers everything else.
-  const toRecord = management.filter(
-    (r) =>
-      (r.status === "pending" && r.payment_method === "manual") ||
-      ["refund_pending", "refund_failed"].includes(r.payment_status),
+  const returning = params.get("payment") === "returned";
+  // A return URL is not payment evidence. Match this checkout to a rental
+  // returned by the authenticated API; never substitute a historical payment.
+  const returnedRental = mine.find((r) =>
+    String(r.id) === params.get("rental") &&
+    !!r.checkout_id && r.checkout_id === params.get("session_id") &&
+    r.payment_method === "stripe_test",
   );
-  const returning = new URLSearchParams(window.location.search).has("payment");
+  const paidNow =
+    returnedRental?.status === "confirmed" && returnedRental.payment_status === "paid" ? returnedRental : null;
 
   function rentalRow(r: Rental) {
     const status = rentalStatus(r);
@@ -229,25 +223,7 @@ export function StudiosPage() {
             <button
               className="button button--quiet"
               disabled={busy}
-              onClick={() => {
-                const refundable =
-                  r.payment_status === "paid" &&
-                  r.cancellation_policy === "full_before_start" &&
-                  today < dateOnly(r.starts_on)
-                    ? r.amount_cents
-                    : 0;
-                if (
-                  window.confirm(
-                    `Cancel ${r.name}? You'll get ${money(refundable)} back to your original payment method. ${policy(r.cancellation_policy)}`,
-                  )
-                )
-                  void action(async () => {
-                    await api(`/studio-rentals/${r.id}/cancel`, {
-                      method: "POST",
-                    });
-                    setMessage(`${r.name} cancelled.`);
-                  });
-              }}
+              onClick={() => setCancelling(r)}
             >
               Cancel rental
             </button>
@@ -259,17 +235,31 @@ export function StudiosPage() {
 
   return (
     <section className="studios-page page-enter">
-      <p className="eyebrow">Reserve by the month</p>
       <h1 className="display-heading">Studio spaces</h1>
       <p className="studios-page__lead">
         Your own workspace for a month at a time. Equipment is booked separately
         by the hour.
       </p>
-      {error && !size && <p className="form-error" role="alert">{error}</p>}
+      {error && !size && !cancelling && <p className="form-error" role="alert">{error}</p>}
       {message && <p className="studio-message" role="status">{message}</p>}
-      {returning && waiting && (
+      {returning && returnedRental?.status === "pending" && (
+        <div className="studio-message studio-payment" role="status">
+          <StatusMark status="running" size={22} color="#a86008" />
+          <span>Checking your card payment. This page updates on its own.</span>
+        </div>
+      )}
+      {returning && paidNow && (
+        <div className="studio-message studio-payment" role="status">
+          <StatusMark status="done" size={22} doneColor="#1f6b32" />
+          <span>
+            <b>Payment received.</b> {paidNow.name} is booked.
+          </span>
+          <BookingReference id={paidNow.id} />
+        </div>
+      )}
+      {returning && loaded && !returnedRental && (
         <p className="studio-message" role="status">
-          Checking your card payment. This page updates on its own.
+          We couldn’t match this checkout return to a rental. Your current rental and payment statuses are shown below.
         </p>
       )}
 
@@ -328,6 +318,34 @@ export function StudiosPage() {
         </details>
       )}
 
+      {cancelling && (
+        <CancelRentalDialog
+          rental={cancelling}
+          started={today >= dateOnly(cancelling.starts_on)}
+          refundable={
+            cancelling.payment_status === "paid" &&
+            cancelling.cancellation_policy === "full_before_start" &&
+            today < dateOnly(cancelling.starts_on)
+              ? cancelling.amount_cents
+              : 0
+          }
+          busy={busy}
+          error={error}
+          onClose={() => {
+            setCancelling(null);
+            setError("");
+          }}
+          onConfirm={() => {
+            const r = cancelling;
+            void action(async () => {
+              await api(`/studio-rentals/${r.id}/cancel`, { method: "POST" });
+              setCancelling(null);
+              setMessage(`${r.name} cancelled.`);
+            });
+          }}
+        />
+      )}
+
       <StudioBooking
         key={size ?? "closed"}
         size={size}
@@ -347,68 +365,6 @@ export function StudiosPage() {
         onBook={(request) => void book(request)}
       />
 
-      {staff && (
-        <section className="studio-desk" aria-labelledby="studio-desk">
-          <h2 id="studio-desk">Studio desk</h2>
-          <p>Only staff see this section.</p>
-          {unconfigured.length > 0 && (
-            <p className="studio-desk__warning" role="note">
-              Not offered to members until a rate and terms are saved:{" "}
-              {unconfigured.map((s) => s.name).join(", ")}.
-            </p>
-          )}
-          <h3>Payments to record</h3>
-          {!toRecord.length && <p>Nothing waiting.</p>}
-          {toRecord.map((r) => (
-            <StaffRental
-              key={r.id}
-              rental={r}
-              busy={busy}
-              perform={(path, body) =>
-                action(async () => {
-                  await api(path, { method: "POST", body });
-                  setMessage("Payment record updated.");
-                })
-              }
-            />
-          ))}
-          <h3>Occupancy</h3>
-          <AvailabilityCalendar studios={studios} />
-          {admin && (
-            <>
-              <h3>Rates and terms</h3>
-              <div className="studio-config-list">
-                {studios.map((s) => (
-                  <article className="studio-config" key={s.id}>
-                    <h4>
-                      {s.name} <small>{sizeLabel(s.size)}</small>
-                    </h4>
-                    <p>
-                      {s.monthly_cents ? money(s.monthly_cents) + " / month" : "No rate"}{" "}
-                      · {policy(s.cancellation_policy)}
-                    </p>
-                    <StudioConfig
-                      studio={s}
-                      busy={busy}
-                      save={(body) =>
-                        action(async () => {
-                          await api(`/studio-management/studios/${s.id}`, {
-                            method: "PATCH",
-                            body,
-                          });
-                          setMessage(
-                            `${s.name} saved. Existing rentals keep the terms they booked with.`,
-                          );
-                        })
-                      }
-                    />
-                  </article>
-                ))}
-              </div>
-            </>
-          )}
-        </section>
-      )}
     </section>
   );
 }

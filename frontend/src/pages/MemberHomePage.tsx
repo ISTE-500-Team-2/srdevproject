@@ -1,4 +1,4 @@
-import { dateTime } from "../lib/display";
+import { dateTime, shortDate, timeOnly } from "../lib/display";
 import {
   ArrowUpRight,
   CalendarDays,
@@ -6,42 +6,74 @@ import {
   FileCheck2,
   LogIn,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api, errorMessage } from '../lib/api';
 import { useApi } from '../lib/useApi';
-import type { LiveEquipment, Overview } from '../lib/contracts';
+import type { Overview, Reservation, Waiver } from '../lib/contracts';
 import { Toast } from '../components/Toast';
+import { MemberBadge } from '../components/MemberBadge';
+import { SiteSlideCommit } from '../components/SiteSlideCommit';
+// GSAP is only needed for the greeting, so it loads with it.
+const SplitText = lazy(() => import('../components/reactbits/SplitText'));
+import StatusMark from '../components/reactbits/StatusMark';
+
+/** The greeting animates once per browser session, then stays still. */
+function useFirstVisit(key: string) {
+  const first = useRef(!sessionStorage.getItem(key));
+  useEffect(() => sessionStorage.setItem(key, '1'), [key]);
+  return first.current;
+}
 
 export function MemberHomePage() {
   const { user, notification, clearNotification } = useAuth();
   const overview = useApi<Overview>('/me/overview');
-  const catalog = useApi<LiveEquipment[]>('/equipment');
-  const [busy, setBusy] = useState(false);
+  const waivers = useApi<Waiver[]>('/me/waivers');
+  const bookings = useApi<Reservation[]>('/reservations');
   const [error, setError] = useState('');
+  const greet = useFirstVisit('collaboratory:greeted');
   const [toast, setToast] = useState<string | null>(null);
   const summary = overview.data;
+  const pending = waivers.data?.filter((w) => !w.signed) ?? [];
+  const [now] = useState(() => Date.now());
+  const upcoming = (bookings.data ?? [])
+    .filter((r) => r.status !== 'cancelled' && new Date(r.endTime).getTime() > now)
+    .sort((a, b) => a.startTime.localeCompare(b.startTime));
+  const last = summary?.recentCheckIns[0];
+  // The server's reasons are fixed sentences; link the first one that has a fix.
+  const fix = summary?.reasons
+    .map((reason) =>
+      /waiver|polic(y|ies) .*signature/i.test(reason)
+        ? { to: '/certifications', label: 'Review and sign' }
+        : /membership or day pass/i.test(reason)
+          ? { to: '/membership', label: 'Get a membership or pass' }
+          : /reservation/i.test(reason)
+            ? { to: '/equipment', label: 'Book equipment' }
+            : null,
+    )
+    .find(Boolean);
   const accessLabel = summary?.entitlement.membership
     ? 'Active membership'
     : summary?.entitlement.dayPass
       ? 'Day pass active'
       : 'No active access';
+  // Returns the request so the slider can show its own pending, done and
+  // failed states; a rejection shakes it back and the reason shows below.
   const checkIn = async () => {
-    setBusy(true);
     setError('');
     try {
       await api('/me/check-ins', {
         method: 'POST',
         body: {},
       });
-      overview.reload();
-      setToast('Check-in saved. Welcome to the Collaboratory!');
     } catch (err) {
       setError(errorMessage(err));
-    } finally {
-      setBusy(false);
+      throw err;
     }
+    overview.reload();
+    bookings.reload();
+    setToast('Check-in saved. Welcome to the Collaboratory!');
   };
   useEffect(() => {
     if (!notification) return;
@@ -53,7 +85,20 @@ export function MemberHomePage() {
       <section className="dashboard-intro">
         <div>
           <p className="eyebrow">Member dashboard</p>
-          <h1>Welcome back, {user?.firstName}</h1>
+          {greet && user ? (
+            <Suspense fallback={<h1>Welcome back, {user.firstName}</h1>}>
+              <SplitText
+                tag="h1"
+                text={`Welcome back, ${user.firstName}`}
+                textAlign="left"
+                trigger="load"
+                delay={30}
+                duration={0.9}
+              />
+            </Suspense>
+          ) : (
+            <h1>Welcome back, {user?.firstName}</h1>
+          )}
         </div>
         {summary ? (
           <span className="membership-pill">{accessLabel}</span>
@@ -73,117 +118,159 @@ export function MemberHomePage() {
       {summary ? (
         <section className="member-summary" aria-label="Account summary">
           <div className="member-summary__cards">
-            {[
-              {
-                title: 'Pending waivers',
-                count: summary.pendingWaivers,
-                to: '/certifications',
-                prompt: 'Review your policies',
-                Icon: FileCheck2,
-              },
-              {
-                title: 'Active reservations',
-                count: summary.activeReservations,
-                to: '/equipment',
-                prompt: 'Manage your bookings',
-                Icon: CalendarDays,
-              },
-            ].map(({ title, count, to, prompt, Icon }) => (
-              <article className="summary-card" key={title}>
-                <div className="summary-card__heading">
-                  <span className="summary-card__icon">
-                    <Icon aria-hidden="true" />
-                  </span>
-                  <h2>{title}</h2>
-                  <strong>{count}</strong>
-                </div>
-                <Link to={to} className="summary-card__action">
-                  <span>{prompt}</span>
+            <article className="summary-card">
+              <div className="summary-card__heading">
+                <span className="summary-card__icon">
+                  <FileCheck2 aria-hidden="true" />
+                </span>
+                <h2>Waivers</h2>
+                <strong>{summary.pendingWaivers || ''}</strong>
+              </div>
+              {pending.length ? (
+                <ul className="summary-card__list">
+                  {pending.slice(0, 3).map((w) => (
+                    <li key={w.id}>
+                      <b>{w.name}</b>
+                      <span>
+                        {w.expiredSignature
+                          ? 'Signature expired'
+                          : w.outdatedSignature
+                            ? 'New version to sign'
+                            : 'Not signed yet'}
+                      </span>
+                    </li>
+                  ))}
+                  {pending.length > 3 ? <li>+{pending.length - 3} more</li> : null}
+                </ul>
+              ) : (
+                <p className="summary-card__note">
+                  {summary.pendingWaivers
+                    ? `${summary.pendingWaivers} waiting for your signature.`
+                    : 'Everything is signed.'}
+                </p>
+              )}
+              <Link to="/certifications" className="summary-card__action">
+                <span>{summary.pendingWaivers ? 'Review and sign' : 'View your waivers'}</span>
+                <ChevronRight aria-hidden="true" />
+              </Link>
+            </article>
+
+            <article className="summary-card">
+              <div className="summary-card__heading">
+                <span className="summary-card__icon">
+                  <CalendarDays aria-hidden="true" />
+                </span>
+                <h2>Reservations</h2>
+                <strong>{summary.activeReservations || ''}</strong>
+              </div>
+              {upcoming.length ? (
+                <ul className="summary-card__list">
+                  {upcoming.slice(0, 2).map((r) => (
+                    <li key={r.id}>
+                      <b>{r.equipmentName}</b>
+                      <span>
+                        {shortDate(r.startTime)} · {timeOnly(r.startTime)}–{timeOnly(r.endTime)}
+                      </span>
+                    </li>
+                  ))}
+                  {upcoming.length > 2 ? <li>+{upcoming.length - 2} more</li> : null}
+                </ul>
+              ) : (
+                <p className="summary-card__note">Nothing booked yet.</p>
+              )}
+              <Link to="/equipment" className="summary-card__action">
+                <span>{upcoming.length ? 'Book or manage equipment' : 'Book equipment'}</span>
+                <ChevronRight aria-hidden="true" />
+              </Link>
+            </article>
+
+            <article className="summary-card">
+              <div className="summary-card__heading">
+                <span className="summary-card__icon">
+                  <LogIn aria-hidden="true" />
+                </span>
+                <h2>Check-in</h2>
+              </div>
+              <p className="check-in__status">
+                <StatusMark
+                  status={summary.canCheckIn ? 'done' : 'failed'}
+                  strike={false}
+                  size={20}
+                  color="#a86008"
+                  doneColor="#1f6b32"
+                  errorColor="#b73a2e"
+                  label={
+                    summary.canCheckIn
+                      ? 'You can check in.'
+                      : summary.reasons.map((r) => r.replace(/\.$/, '')).join('. ') + '.'
+                  }
+                />
+              </p>
+              {last ? (
+                <p className="check-in__last">
+                  <span>Last check-in</span>
+                  <b>
+                    {dateTime(last.checkedInAt)} · {last.location}
+                  </b>
+                  <small>{last.method === 'nfc' ? 'With your NFC tag' : 'From this site'}</small>
+                </p>
+              ) : summary.canCheckIn ? (
+                <p className="summary-card__note">No check-ins yet. Tap your NFC tag at the door.</p>
+              ) : null}
+              {summary.recentCheckIns.length > 1 ? (
+                <details className="check-in__history">
+                  <summary>Earlier check-ins</summary>
+                  <ul>
+                    {summary.recentCheckIns.slice(1).map((item) => (
+                      <li key={item.id}>
+                        {dateTime(item.checkedInAt)} · {item.location}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
+              {summary.canCheckIn ? (
+                <>
+                  <p className="check-in__fallback">Forgot your tag?</p>
+                  <SiteSlideCommit
+                    label="Slide to check in"
+                    doneLabel="Checked in"
+                    errorLabel="Couldn't check in"
+                    onConfirm={checkIn}
+                  />
+                </>
+              ) : fix ? (
+                // A disabled slider is a dead end; point at what unblocks it.
+                <Link to={fix.to} className="summary-card__action">
+                  <span>{fix.label}</span>
                   <ChevronRight aria-hidden="true" />
                 </Link>
-              </article>
-            ))}
-            <article className="summary-card">
-              <h2>Visit check-in</h2>
-              <p>
-                {summary.canCheckIn
-                  ? 'Your access and required waivers are current.'
-                  : summary.reasons.join('. ') + '.'}
-              </p>
-              <button
-                className="button button--primary"
-                onClick={() => void checkIn()}
-                disabled={busy || !summary.canCheckIn}
-              >
-                <LogIn aria-hidden="true" />
-                {busy ? 'Checking…' : 'Check in'}
-              </button>
+              ) : null}
             </article>
           </div>
-          <aside className="membership-card">
-            <div className="membership-card__heading">Your access</div>
-            <span className="membership-card__tier">{accessLabel}</span>
-            <hr />
-            <p>
-              To use equipment you need a membership or day pass, signed waivers, and any required training.
-            </p>
-            <Link to="/membership">
-              Membership & payment records <ArrowUpRight aria-hidden="true" />
-            </Link>
+          <aside className="membership-card access-band">
+            <div className="access-band__info">
+              <div className="membership-card__heading">Your access</div>
+              <span className="membership-card__tier">{accessLabel}</span>
+              {user ? (
+                <p>
+                  {user.firstName} {user.lastName} · Member ID {String(user.id).padStart(6, '0')}
+                </p>
+              ) : null}
+              <Link to="/membership">
+                Membership & payment records <ArrowUpRight aria-hidden="true" />
+              </Link>
+            </div>
+            {user ? (
+              <MemberBadge
+                name={`${user.firstName} ${user.lastName}`}
+                access={accessLabel}
+                memberId={user.id}
+              />
+            ) : null}
           </aside>
         </section>
       ) : null}
-      <div className="dashboard-divider" />
-      <section>
-        <div className="discovery-heading">
-          <h2>Equipment</h2>
-          <Link to="/equipment">
-            View all equipment <ArrowUpRight aria-hidden="true" />
-          </Link>
-        </div>
-        {catalog.loading ? <p role="status">Loading equipment…</p> : null}
-        {catalog.error ? (
-          <p role="alert">
-            {catalog.error} <button onClick={catalog.reload}>Retry</button>
-          </p>
-        ) : null}
-        <div className="equipment-preview-grid">
-          {catalog.data?.slice(0, 3).map((item) => (
-            <article className="equipment-preview" key={item.id}>
-              <div className="equipment-preview__image">
-                <img src={item.image} alt={item.name} />
-              </div>
-              <div className="equipment-preview__body">
-                <div>
-                  <p className="eyebrow">{item.type}</p>
-                  <h3>{item.name}</h3>
-                </div>
-                <small>{item.availability}</small>
-              </div>
-              <Link to="/equipment">
-                Choose a time <ChevronRight aria-hidden="true" />
-              </Link>
-            </article>
-          ))}
-        </div>
-        {!catalog.loading && !catalog.error && !catalog.data?.length ? (
-          <p className="empty-state">No equipment is listed yet.</p>
-        ) : null}
-      </section>
-      <section className="panel feature-notice">
-        <h2>Recent check-ins</h2>
-        {summary?.recentCheckIns.length ? (
-          <ul>
-            {summary.recentCheckIns.map((item) => (
-              <li key={item.id}>
-                {dateTime(item.checkedInAt)} · {item.location}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p>No recent check-ins.</p>
-        )}
-      </section>
       <Toast message={toast} onClose={() => setToast(null)} />
     </div>
   );
