@@ -40,7 +40,7 @@ export class WaiverRecordsService {
       throw new AppError(409,'SIGNED_COPY_UNAVAILABLE','This legacy signature has no preserved signed-text copy. Ask staff for its original record.');
     return {fileName:`signed-waiver-${signatureId}.txt`,contentType:'text/plain;charset=utf-8',content:[
       'SIGNED WAIVER COPY',`Waiver: ${p.waiverName}`,`Version: ${p.waiverVersion}`,`Signed by: ${p.signature}`,
-      `Signed at: ${p.signedAt}`,'','Accepted policy text:',p.waiverText,'',
+      `Signed at: ${p.signedAt}`,'','Accepted policy text:',typeof p.completedWaiverText==='string' ? p.completedWaiverText : p.waiverText,'',
       'This copy reproduces the text and electronic agreement recorded when signed. It does not certify current access eligibility.'
     ].join('\n')};
   }

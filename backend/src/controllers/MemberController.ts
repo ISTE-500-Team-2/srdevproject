@@ -11,6 +11,7 @@ import { MemberModel } from "../models/MemberModel.js";
 import { StaffModel } from "../models/StaffModel.js";
 import { page } from "./StaffController.js";
 import { pageOffset } from "../staffDomain.js";
+import { completedWaiverText, validateWaiverFields, waiverFormFields } from "../waiverForms.js";
 
 export class MemberController {
   constructor(
@@ -140,6 +141,8 @@ export class MemberController {
           [id],
         )
       ).rows[0];
+      const form = validateWaiverFields(waiver.description ?? '', req.body.formValues, req.body.guardianConsent);
+      const signatureField = waiverFormFields(waiver.description ?? '').find(field => field.section === 'participant' && /signature/i.test(field.label));
       const signature = await new MemberModel(db).signWaiver(userId, id);
       if (signature)
         await new StaffModel(db, this.timeZone).audit(
@@ -166,8 +169,15 @@ export class MemberController {
             waiverName: waiver.name,
             waiverVersion: waiver.version,
             waiverText: waiver.description,
-            signature: `${authState(res).user.firstName} ${authState(res).user.lastName} (electronic agreement)`,
+            signature: form && signatureField ? `${form.values[signatureField.key]} (electronic agreement)` : `${authState(res).user.firstName} ${authState(res).user.lastName} (electronic agreement)`,
             signedAt: new Date(signature.signedAt).toISOString(),
+            ...(form ? {
+              formValues: form.values,
+              guardianConsent: form.guardianConsent,
+              completedWaiverText: completedWaiverText(waiver.description, form.values, form.guardianConsent),
+              memberId: userId,
+              methodOfAcceptance: 'Electronic',
+            } : {}),
           },
         });
     });
