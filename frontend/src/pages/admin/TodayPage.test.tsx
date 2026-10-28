@@ -26,7 +26,8 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.resetAllMocks(); });
 const mount = () => render(<MemoryRouter><TodayPage /></MemoryRouter>);
 test("renders header counts from reports and times in the configured zone", async () => {
   mount();
-  expect(await screen.findByText("Wednesday, October 28. 7 people checked in today, 1 machine running.")).toBeTruthy();
+  expect(await screen.findByText("Wednesday, October 28")).toBeTruthy();
+  expect(await screen.findByText("7 people checked in today, 1 machine running.")).toBeTruthy();
   expect(await screen.findByText("4:00 PM")).toBeTruthy();
   expect(screen.getAllByText("1:00 PM")).toHaveLength(6);
   expect(api.mock.calls.some(([p]) => p === "/admin/reports?period=daily&from=2026-10-28&to=2026-10-28")).toBe(true);

@@ -16,7 +16,8 @@
   letter-spacing: 0.015em;
   line-height: 1;
 }
-.today-summary { margin-top: 9px; color: var(--ink-soft); font-size: 15px; }
+.today-date { margin-top: 10px; color: var(--ink); font-size: 16px; font-weight: 500; }
+.today-summary { margin-top: 2px; color: var(--ink-soft); font-size: 15px; }
 
 .today-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
 .today-col { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
