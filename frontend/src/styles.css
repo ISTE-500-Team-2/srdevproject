@@ -625,9 +625,11 @@ p {
 }
 
 .check-control {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 9px;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -637,16 +639,34 @@ p {
 }
 
 .check-control > span {
+  flex-shrink: 0;
   width: 18px;
   height: 18px;
+  display: grid;
+  place-items: center;
   border: 2px solid var(--ink);
   border-radius: 4px;
   background: white;
 }
 
 .check-control input:checked + span {
+  border-color: var(--espresso);
   background: var(--espresso);
-  box-shadow: inset 0 0 0 3px white;
+}
+
+.check-control input:checked + span::after {
+  content: '';
+  width: 4px;
+  height: 8px;
+  margin-top: -2px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.check-control input:focus-visible + span {
+  outline: 2px solid var(--bronze);
+  outline-offset: 2px;
 }
 
 .form-error {
@@ -848,6 +868,7 @@ p {
 .login-card__heading > p:last-child {
   margin-bottom: 0;
   color: var(--ink-soft);
+  text-wrap: balance;
 }
 
 .login-card form {
@@ -857,9 +878,15 @@ p {
 
 .login-card__options {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
-  gap: 20px;
+  gap: 12px 20px;
   font-size: 0.9rem;
+}
+
+.login-card__options .text-button {
+  white-space: nowrap;
 }
 
 .login-card__signup {
@@ -877,6 +904,37 @@ p {
   border-top: 1px dashed var(--border);
   color: var(--ink-soft);
   font-size: 0.8rem;
+}
+
+@media (max-width: 560px) {
+  .login-page {
+    padding: 28px 14px;
+  }
+
+  .login-page__logo {
+    width: min(360px, 88vw);
+    margin-bottom: 20px;
+  }
+
+  .login-card {
+    padding: 28px 22px 24px;
+  }
+
+  .login-card__heading {
+    margin-bottom: 24px;
+  }
+
+  .login-card form {
+    gap: 20px;
+  }
+
+  .prototype-access {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .prototype-access > span {
+    grid-column: 1 / -1;
+  }
 }
 
 .prototype-access button {
