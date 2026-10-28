@@ -39,6 +39,8 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   const rateLimit = authRateLimit();
   // Cookie rotations have their own bounded throttle, not the sign-in budget.
   // CSRF, origin and rotating-cookie validation are unchanged.
+  // Failed sign-ins (and other members on a shared network) must not lock people out of recovery.
+  const resetLimit = authRateLimit({ message: "Too many password reset attempts. Please wait a few minutes and try again." });
   const refreshLimit = authRateLimit({ limit: 120, windowMs: 60000,
     message: "Too many session refreshes. Please retry shortly." });
   routes.get("/health", async (_req, res) => {
@@ -54,9 +56,9 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.post("/auth/register", rateLimit, auth.register);
   routes.post("/auth/confirm", rateLimit, auth.confirm);
   routes.post("/auth/confirmation", rateLimit, auth.confirmation);
-  routes.post("/auth/password-reset", rateLimit, auth.passwordReset);
-  routes.post("/auth/password-reset/check", rateLimit, auth.checkPasswordReset);
-  routes.post("/auth/password-reset/confirm", rateLimit, auth.confirmPasswordReset);
+  routes.post("/auth/password-reset", resetLimit, auth.passwordReset);
+  routes.post("/auth/password-reset/check", resetLimit, auth.checkPasswordReset);
+  routes.post("/auth/password-reset/confirm", resetLimit, auth.confirmPasswordReset);
   if (config.demoLogin) routes.post("/auth/demo", rateLimit, auth.demo);
   routes.get("/auth/csrf", auth.csrf);
   routes.post("/auth/refresh", refreshLimit, auth.refresh);

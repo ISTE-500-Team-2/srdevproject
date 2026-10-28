@@ -106,6 +106,15 @@ test('malformed and rejected links show expiry and offer a fresh request', async
   cleanup(); call.mockRejectedValueOnce(new ApiError(400, 'RESET_INVALID', 'Invalid link')); mount(`#${token}`);
   expect(await screen.findByRole('heading', { name: 'Link expired' })).toBeTruthy();
 });
+test('a throttled or failed link check keeps the reset form and explains instead of claiming expiry', async () => {
+  call.mockRejectedValueOnce(new ApiError(429, 'RATE_LIMITED', 'Too many password reset attempts.')); mount(`#${token}`);
+  expect((await screen.findByRole('alert')).textContent).toBe('Too many password reset attempts.');
+  expect(screen.getByRole('heading', { name: 'New password' })).toBeTruthy();
+  expect(screen.queryByRole('heading', { name: 'Link expired' })).toBeNull();
+  call.mockResolvedValueOnce(undefined); validPasswords(); click('Save password');
+  expect(await screen.findByRole('heading', { name: 'You’re all set' })).toBeTruthy();
+  expect(call).toHaveBeenLastCalledWith('/auth/password-reset/confirm', { method: 'POST', body: { token, password: 'Workshop!' } });
+});
 test('rules tick live and one eye button reveals and hides both passwords', async () => {
   await resetForm(); type('Create a password…', 'Workshop!');
   const rules = screen.getByText('Passwords match').closest('ul')!;

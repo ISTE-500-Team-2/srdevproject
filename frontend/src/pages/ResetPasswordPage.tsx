@@ -69,7 +69,12 @@ export function ResetPasswordPage() {
     if (!TOKEN.test(token)) return;
     const controller = new AbortController();
     void api('/auth/password-reset/check', { method: 'POST', body: { token }, signal: controller.signal })
-      .catch(() => { if (!controller.signal.aborted) setView('expired'); })
+      .catch(err => {
+        if (controller.signal.aborted) return;
+        // Only a rejected token is expired; throttling or outages keep the form and say why.
+        if (err instanceof ApiError && err.code === 'RESET_INVALID') setView('expired');
+        else setError(errorMessage(err));
+      })
       .finally(() => { if (!controller.signal.aborted) setChecking(false); });
     return () => controller.abort();
   }, [token, linkVersion]);
