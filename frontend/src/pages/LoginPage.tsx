@@ -57,6 +57,8 @@ export function LoginPage() {
   const [signup, setSignup] = useState(EMPTY_SIGNUP);
   const [signupStep, setSignupStep] = useState(1);
   const signupForm = useRef<HTMLFormElement>(null);
+  // Set synchronously so a second Enter or click can't start another registration.
+  const registering = useRef(false);
 
   const signupField = (name: SignupField) => ({
     name,
@@ -97,6 +99,8 @@ export function LoginPage() {
   };
 
   const createAccount = async () => {
+    if (registering.current) return;
+    registering.current = true;
     setError('');
     setBusy(true);
     try {
@@ -107,12 +111,17 @@ export function LoginPage() {
       setError(message);
       setSignupStep((current) => stepForError(message) ?? current);
     } finally {
+      registering.current = false;
       setBusy(false);
     }
   };
 
+  // Only creating the account waits on the session check; moving between steps never does.
+  const creatingBlocked = signupStep === SIGNUP_STEPS && (busy || loading);
+
   // Only the visible step's fields are mounted, so validate those before moving on.
   const advanceSignup = () => {
+    if (creatingBlocked) return;
     const pane = signupForm.current?.querySelector(
       '.stepper__pane:not(.stepper__pane--leaving)',
     );
@@ -334,7 +343,7 @@ export function LoginPage() {
             style={STEPPER_THEME}
             completeButtonText={busy ? 'Creating…' : 'Create account'}
             nextButtonProps={{
-              disabled: busy || loading,
+              disabled: creatingBlocked,
               onClick: (event) => {
                 event.preventDefault();
                 advanceSignup();

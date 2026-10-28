@@ -146,7 +146,9 @@ test('duplicate username error stays in signup dialog and user can correct it wi
   await next();
   await user.type(await within(dialog).findByLabelText('Username'),taken);
   await user.type(within(dialog).getByLabelText('Password',{exact:false}),'ValidPassword!');
-  await user.click(within(dialog).getByRole('button',{name:'Create account'}));
+  const create=within(dialog).getByRole('button',{name:'Create account'});
+  await waitFor(()=>expect((create as HTMLButtonElement).disabled).toBe(false));
+  await user.click(create);
   expect((await within(dialog).findByRole('alert')).textContent).toContain('That username is unavailable');
   // Earlier steps keep their values when the user goes back.
   await user.click(within(dialog).getByRole('button',{name:'Back'}));
