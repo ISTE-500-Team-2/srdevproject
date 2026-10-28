@@ -107,7 +107,7 @@ export function renderNotification(kind: NotificationKind, payload: Notification
   }
   if (kind === 'waiver_signed') {
     // FR-063 requires the actual immutable signed snapshot, never just current waiver text.
-    const fullText = text(payload.waiverText);
+    const fullText = text(payload.completedWaiverText) || text(payload.waiverText);
     const signature = text(payload.signature);
     const signedAt = text(payload.signedAt);
     const version = text(payload.waiverVersion);
@@ -166,7 +166,7 @@ ${isWaiver ? `<table role="presentation" width="100%" cellpadding="0" cellspacin
 <p style="margin:0"><strong>Signed at:</strong> ${escapeHtml(displayDate(text(payload.signedAt), timeZone))}</p>
 </td></tr></table>
 <h2 style="margin:0 0 12px;font-size:20px;color:#292018">Signed waiver document</h2>
-<div style="margin:0 0 28px;padding:20px;border:1px solid #e7dfd4;border-radius:8px;font-size:14px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere">${escapeHtml(text(payload.waiverText))}</div>` : ''}
+<div style="margin:0 0 28px;padding:20px;border:1px solid #e7dfd4;border-radius:8px;font-size:14px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere">${escapeHtml(text(payload.completedWaiverText) || text(payload.waiverText))}</div>` : ''}
 ${link ? `<table role="presentation" cellpadding="0" cellspacing="0"><tr><td bgcolor="#a85d00" style="border-radius:6px"><a href="${link}" style="display:inline-block;padding:16px 24px;border:1px solid #a85d00;border-radius:6px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:bold">${buttonLabel}</a></td></tr></table>` : ''}
 ${isConfirmation ? `<p style="margin:24px 0 8px;font-size:14px;line-height:1.6;color:#63584e">This link works once and expires ${expiryLabel}.</p>
 <p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#63584e">Didn’t create this account? You can ignore this email.</p>` : ''}

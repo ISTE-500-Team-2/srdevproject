@@ -1,3 +1,4 @@
+import { waiverAcceptance } from '../../../backend/test/helpers/waiver';
 import { confirmationToken } from '../../../backend/test/helpers/confirmation';
 // @vitest-environment jsdom
 import { randomBytes, randomUUID } from "node:crypto";
@@ -67,7 +68,7 @@ test("staff React flow creates a plan, issues access/payment, survives reload, s
       (
         await direct(
           `/me/waivers/${waiver.id}/sign`,
-          { accepted: true },
+          waiverAcceptance(waiver),
           session.csrfToken,
         )
       ).status,

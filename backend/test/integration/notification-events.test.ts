@@ -1,3 +1,4 @@
+import { waiverAcceptance } from '../helpers/waiver.js';
 import { confirmationToken } from '../helpers/confirmation.js';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
@@ -37,7 +38,7 @@ test('registration queues one event; preference ownership, CSRF, validation and 
   assert.equal((await pool.query("SELECT status FROM app_notification_outbox WHERE userid=$1 AND kind='account_created'",[user.id])).rows[0].status,'suppressed');
   const waivers=(await agent.get('/api/me/waivers')).body.data;
   assert.ok(waivers.length);
-  for(let i=0;i<2;i++) assert.equal((await agent.post(`/api/me/waivers/${waivers[0].id}/sign`).set('X-CSRF-Token',csrfToken).send({accepted:true})).status,200);
+  for(let i=0;i<2;i++) assert.equal((await agent.post(`/api/me/waivers/${waivers[0].id}/sign`).set('X-CSRF-Token',csrfToken).send(waiverAcceptance(waivers[0]))).status,200);
   const rows=(await pool.query("SELECT status,payload FROM app_notification_outbox WHERE userid=$1 AND kind='waiver_signed'",[user.id])).rows;
   assert.equal(rows.length,1);
   assert.equal(rows[0].status,'suppressed');

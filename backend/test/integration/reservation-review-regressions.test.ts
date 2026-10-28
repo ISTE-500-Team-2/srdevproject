@@ -1,3 +1,4 @@
+import { waiverAcceptance } from '../helpers/waiver.js';
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
@@ -224,7 +225,7 @@ test('room discovery grants, explicit denies, instructor restriction and full-le
     assert.equal((await agent.get('/api/rooms')).status, 403);
     await pool.query("UPDATE role_permission SET isallowed=true WHERE resourcename='room' AND roleid=(SELECT roleid FROM role WHERE role='member')");
     for (const waiver of (await agent.get('/api/me/waivers')).body.data)
-      assert.equal((await agent.post(`/api/me/waivers/${waiver.id}/sign`).set('X-CSRF-Token', csrf).send({ accepted: true })).status, 200);
+      assert.equal((await agent.post(`/api/me/waivers/${waiver.id}/sign`).set('X-CSRF-Token', csrf).send(waiverAcceptance(waiver))).status, 200);
     const name = '陶'.repeat(100), location = '東'.repeat(100);
     const longRoom = (await pool.query("INSERT INTO room(name,location,status) VALUES($1,$2,'available') RETURNING roomid", [name, location])).rows[0].roomid;
     const now = Date.now();

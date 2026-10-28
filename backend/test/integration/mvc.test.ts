@@ -1,3 +1,4 @@
+import { waiverAcceptance } from '../helpers/waiver.js';
 import { confirmationToken } from '../helpers/confirmation.js';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
@@ -134,9 +135,7 @@ async function signRequiredPolicies(user: ReturnType<typeof client>) {
   for (const policy of policies)
     assert.equal(
       (
-        await user.post('/me/waivers/' + policy.id + '/sign', {
-          accepted: true,
-        })
+        await user.post('/me/waivers/' + policy.id + '/sign', waiverAcceptance(policy))
       ).status,
       200,
     );
@@ -146,9 +145,7 @@ async function signRequiredWaivers(user: ReturnType<typeof client>) {
   for (const policy of policies)
     assert.equal(
       (
-        await user.post('/me/waivers/' + policy.id + '/sign', {
-          accepted: true,
-        })
+        await user.post('/me/waivers/' + policy.id + '/sign', waiverAcceptance(policy))
       ).status,
       200,
     );
@@ -482,9 +479,7 @@ test('membership, certification and waiver eligibility are enforced; check-in is
   for (const policy of policies)
     assert.equal(
       (
-        await user.post('/me/waivers/' + policy.id + '/sign', {
-          accepted: true,
-        })
+        await user.post('/me/waivers/' + policy.id + '/sign', waiverAcceptance(policy))
       ).status,
       200,
     );
@@ -784,7 +779,7 @@ test('FR-052/049: staff compliance report filters waivers, certifications and ex
  await pool.query(`UPDATE "user" SET firstname='=1+1' WHERE userid=$1`,[member.id]);
  const waiver=(await member.agent.get('/api/me/waivers')).body.data[0];
  assert.ok(waiver?.id);
- assert.equal((await member.post('/me/waivers/'+waiver.id+'/sign',{accepted:true})).status,200);
+ assert.equal((await member.post('/me/waivers/'+waiver.id+'/sign',waiverAcceptance(waiver))).status,200);
  await pool.query("UPDATE user_waiver SET expires_at=NOW()+INTERVAL '15 days' WHERE userid=$1 AND waiverid=$2 AND approval=true",[member.id,waiver.id]);
  const all=await staff.agent.get(`/api/admin/compliance?waiverId=${waiver.id}&certificationId=${certId}&userStatus=active`);
  assert.equal(all.status,200,JSON.stringify(all.body));

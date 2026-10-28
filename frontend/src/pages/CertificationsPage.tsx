@@ -12,6 +12,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Modal } from '../components/Modal';
 import { Toast } from '../components/Toast';
+import { WaiverDocumentForm } from '../components/WaiverDocumentForm';
 import { useAuth } from '../context/AuthContext';
 import { api, errorMessage } from '../lib/api';
 import type { Certification, LiveEquipment, Waiver } from '../lib/contracts';
@@ -49,14 +50,14 @@ export function CertificationsPage() {
       [group]: !current[group],
     }));
   };
-  const sign = async () => {
+  const sign = async (formValues?: Record<string, string>, guardianConsent = false) => {
     if (!selected || !accepted) return;
     setBusy(true);
     setError('');
     try {
       await api('/me/waivers/' + selected.id + '/sign', {
         method: 'POST',
-        body: { accepted: true },
+        body: { accepted: true, ...(formValues ? { formValues, guardianConsent } : {}) },
       });
       waivers.reload();
       const completedTerms = selected.name === 'Terms of Service';
@@ -68,6 +69,25 @@ export function CertificationsPage() {
       setBusy(false);
     }
   };
+  const agreementControls = selected && !selected.signed ? (
+    <>
+      <label className="check-control">
+        <input type="checkbox" checked={accepted} disabled={busy}
+          onChange={event => setAccepted(event.target.checked)} />
+        <span aria-hidden="true" />
+        {selected.name === 'Terms of Service'
+          ? 'I have read and accept the Terms of Service.'
+          : 'I have read and agree to this version of the policy.'}
+      </label>
+      {error ? <p role="alert" className="form-error">{error}</p> : null}
+      <button className="button button--primary"
+        type={selected.formFields?.length ? 'submit' : 'button'}
+        disabled={!accepted || busy || !selected.description}
+        onClick={selected.formFields?.length ? undefined : () => void sign()}>
+        {busy ? 'Saving…' : selected.name === 'Terms of Service' ? 'Submit acceptance' : 'Record agreement'}
+      </button>
+    </>
+  ) : null;
   return (
     <div
       className={`credentials-page page-enter${isMemberDemo ? ' credentials-page--member-demo' : ''}`}
@@ -430,49 +450,25 @@ export function CertificationsPage() {
           if (!busy) setSelected(null);
         }}
       >
-        {selected ? (
+        {selected?.formFields?.length && !selected.signed ? (
+          <WaiverDocumentForm key={selected.id} waiver={selected} user={user} busy={busy}
+            onSubmit={(values, guardianConsent) => void sign(values, guardianConsent)}>
+            {agreementControls}
+          </WaiverDocumentForm>
+        ) : selected ? (
           <div className="stack-form">
             <p>Version {selected.version}</p>
             <p className="policy-text">
               {selected.description || 'Policy content has not been provided.'}
             </p>
-            {!selected.signed ? (
-              <>
-                <label className="check-control">
-                  <input
-                    type="checkbox"
-                    checked={accepted}
-                    onChange={(event) => setAccepted(event.target.checked)}
-                  />
-                  <span aria-hidden="true" />
-                  {selected.name === 'Terms of Service'
-                    ? 'I have read and accept the Terms of Service.'
-                    : 'I have read and agree to this version of the policy.'}
-                </label>
-                {error ? (
-                  <p role="alert" className="form-error">
-                    {error}
-                  </p>
-                ) : null}
-                <button
-                  className="button button--primary"
-                  disabled={!accepted || busy || !selected.description}
-                  onClick={() => void sign()}
-                >
-                  {busy
-                    ? 'Saving…'
-                    : selected.name === 'Terms of Service'
-                      ? 'Submit acceptance'
-                      : 'Record agreement'}
-                </button>
-              </>
-            ) : (
+            {!selected.signed ? agreementControls : (
               <p>
                 {selected.name === 'Terms of Service'
                   ? 'Terms of Service completed.'
                   : 'This version is already signed.'}
               </p>
             )}
+            {selected.signed && selected.formFields?.length ? <p><Link to="/profile">Download your completed form from Signed waiver copies in your profile.</Link></p> : null}
           </div>
         ) : null}
       </Modal>

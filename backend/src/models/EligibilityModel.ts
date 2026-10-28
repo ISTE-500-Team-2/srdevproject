@@ -1,4 +1,5 @@
 import type { Database } from "../db.js";
+import { waiverFormFields } from "../waiverForms.js";
 
 export class EligibilityModel {
   constructor(
@@ -62,7 +63,7 @@ export class EligibilityModel {
       ) previous_sig ON true ORDER BY w.name`,
       [userId],
     );
-    return rows;
+    return rows.map(row => ({ ...row, formFields: waiverFormFields(row.description) }));
   }
 
   async certification(

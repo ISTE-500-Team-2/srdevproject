@@ -68,12 +68,26 @@ export interface Waiver {
   name: string;
   version: string;
   description: string;
+  formFields?: WaiverFormField[];
+  /** The account holder's name; a form signature has to match it. */
+  signerName?: string;
   signed: boolean;
   signedAt: string | null;
   signedVersion: string | null;
   signedVersionId: number | null;
   outdatedSignature: boolean;
   expiredSignature: boolean;
+}
+export interface WaiverFormField {
+  key: string;
+  label: string;
+  line: number;
+  type: 'text' | 'date' | 'datetime-local' | 'email' | 'tel';
+  section: 'participant' | 'guardian' | 'administrative';
+  /** 'server' fields (identity, version, signing time) are filled in when the waiver is signed. */
+  source: 'member' | 'server';
+  required: boolean;
+  maxLength: number;
 }
 export interface Certification {
   trainedAt?: string|null;
