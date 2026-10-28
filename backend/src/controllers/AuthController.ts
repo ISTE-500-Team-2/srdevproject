@@ -23,6 +23,7 @@ import {
   needsPasswordUpgrade,
 } from '../passwords.js';
 import { UserModel } from '../models/UserModel.js';
+import { accountModeView } from "../accountMode.js";
 import { SessionModel } from '../models/SessionModel.js';
 import { authState, cookieName, refreshToken } from '../middleware/auth.js';
 import { renderNotificationTemplate, type NotificationTemplate } from '../notifications.js';
@@ -199,8 +200,8 @@ export class AuthController {
   };
   current = async (_req: Request, res: Response) => {
     res.set("Cache-Control","no-store");
-    const { user, csrfToken } = authState(res);
-    res.json({ data: { user: publicUser(user), csrfToken } });
+    const { user, actor, csrfToken } = authState(res);
+    res.json({ data: { ...accountModeView(user, actor), csrfToken } });
   };
   logout = async (_req: Request, res: Response) => {
     await new SessionModel(this.pool, this.config.jwtKey,this.config.accessTokenSeconds,this.config.refreshTokenSeconds).remove(authState(res).token);

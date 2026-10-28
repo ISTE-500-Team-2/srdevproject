@@ -1,7 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Pool } from 'pg';
 
-export const auditContext = new AsyncLocalStorage<{ actorId?: number }>();
+/** actorId is the person at the keyboard; actingForId is the member whose account staff opened. */
+export const auditContext = new AsyncLocalStorage<{ actorId?: number; actingForId?: number }>();
 
 // Standalone queries get the same transaction-local identity as service transactions.
 export function auditedPool(pool: Pool): Pool {

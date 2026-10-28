@@ -1,4 +1,5 @@
 import {reportRoutes} from './reports.js';
+import {accountModeRoutes} from './accountMode.js';
 import {trainingClassRoutes} from './trainingClasses.js';
 import {cardManagement} from './deviceAccess.js';
 import { certificationRoutes } from './certifications.js';
@@ -89,6 +90,7 @@ export function apiRoutes(pool: Pool, config: AppConfig) {
   routes.get("/me/memberships", permit("entitlement", "read", "own"), member.memberships);
   routes.get("/me/payments", permit("payment", "read", "own"), member.payments);
   routes.use("/admin", requireStaff);
+  routes.use(accountModeRoutes(pool, config));
   routes.use(reportRoutes(pool,config.timeZone));
   routes.use(cardManagement(pool,config.timeZone,config.devices));
   routes.get("/admin/plans", permit("plan","read","global"), staff.plans);

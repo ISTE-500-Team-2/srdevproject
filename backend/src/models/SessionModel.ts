@@ -65,11 +65,15 @@ export class SessionModel {
     if (!claims) return null;
     // The JWT must be valid AND still issued/not revoked. Binding sub to userid
     // prevents a row/identity mismatch; deleting the row invalidates it at once.
-    const { rows } = await this.db.query<{ userId: number; csrfToken: string }>(
-      'SELECT userid AS "userId",csrf_token AS "csrfToken" FROM app_session WHERE token_hash=$1 AND userid=$2 AND expires_at>NOW() AND family_id IN (SELECT id FROM app_refresh_family WHERE NOT revoked AND expires_at>NOW())',
+    const { rows } = await this.db.query<{ userId: number; csrfToken: string; actingAsUserId: number | null }>(
+      'SELECT s.userid AS "userId",s.csrf_token AS "csrfToken",f.acting_as_userid AS "actingAsUserId" FROM app_session s JOIN app_refresh_family f ON f.id=s.family_id WHERE s.token_hash=$1 AND s.userid=$2 AND s.expires_at>NOW() AND NOT f.revoked AND f.expires_at>NOW()',
       [tokenHash(token), claims.userId],
     );
     return rows[0] ?? null;
+  }
+  /** Open (or with null, close) a member's account for this sign-in. */
+  async setActingAs(token: string, userId: number | null) {
+    await this.db.query('UPDATE app_refresh_family SET acting_as_userid=$2 WHERE id=(SELECT family_id FROM app_session WHERE token_hash=$1)', [tokenHash(token), userId]);
   }
   async remove(token: string) {
     await this.db.query('UPDATE app_refresh_family SET revoked=true WHERE id=(SELECT family_id FROM app_session WHERE token_hash=$1)', [
