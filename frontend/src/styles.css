@@ -3003,6 +3003,15 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 .nfc-section > p, .nfc-section h2, .nfc-section h3 { margin: 0; }
 .nfc-section h2 { font-size: var(--text-2xl); }
 .nfc-section h3 { font-size: var(--text-lg); }
+.nfc-setup-wizard { display: grid; gap: 1rem; }
+.nfc-setup-wizard > p, .nfc-setup-wizard h3 { margin: 0; }
+.nfc-setup-wizard .nfc-card-list:empty { display: none; }
+.nfc-setup-wizard .management-form { margin: 0; }
+.nfc-setup-wizard section[aria-label="Reader setup progress"] { display: grid; gap: 1rem; }
+.nfc-setup-wizard section[aria-label="Reader setup progress"] p { margin: 0; }
+.nfc-setup-checks { list-style: none; padding: 0; margin: 0; border: 1px solid var(--border); border-radius: var(--radius-small); }
+.nfc-setup-checks li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .85rem; }
+.nfc-setup-checks li + li { border-top: 1px solid var(--border); }
 .nfc-section__heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .7rem; }
 .nfc-section__heading h2, .nfc-section__heading h3 { margin: 0; }
 .nfc-card-list { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,20rem),1fr)); gap: .9rem; }

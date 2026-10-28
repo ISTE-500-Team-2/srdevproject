@@ -9,6 +9,7 @@ import {
 } from "../../lib/nfc";
 import { LoadState } from "../Management";
 import { Modal } from "../Modal";
+import {ReaderSetupWizard} from './ReaderSetupWizard';
 
 export function ReaderManager({
   setup,
@@ -20,6 +21,7 @@ export function ReaderManager({
   refreshing?: boolean;
 }) {
   const resources = useApi<AccessResource[]>("/admin/access/resources");
+  const [adding,setAdding]=useState(false);
   const [editing, setEditing] = useState<AccessReader | "new" | null>(null),
     [busy, setBusy] = useState(false);
   const [secret, setSecret] = useState<{ id: string; secret: string } | null>(
@@ -94,7 +96,7 @@ export function ReaderManager({
             className="button button--primary"
             disabled={!setup.configured}
             onClick={() => {
-              setEditing("new");
+              setAdding(true);
               setError("");
               setNotice("");
             }}
@@ -155,8 +157,7 @@ export function ReaderManager({
       ) : null}
       {!setup.readers.length ? (
         <p className="empty-state">
-          No readers yet. Add the first reader with its name and location, then
-          connect it using the generated credentials.
+          No readers yet. Connect a reader to the Pi, then choose Add reader.
         </p>
       ) : null}
       <div className="nfc-card-list">
@@ -192,6 +193,8 @@ export function ReaderManager({
           </article>
         ))}
       </div>
+      <ReaderSetupWizard open={adding} onClose={()=>setAdding(false)} onDone={reload}
+        onManual={()=>{setAdding(false);setEditing('new');setError('');setNotice('');}}/>
       <Modal
         open={!!editing}
         title={

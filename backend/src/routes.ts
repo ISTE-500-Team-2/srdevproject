@@ -1,5 +1,6 @@
 import { equipmentManagement } from "./equipmentManagement.js";
 import { ReaderRegistry } from './readerRegistry.js';
+import {readerSetupRoutes} from './readerSetup.js';
 import {reportRoutes} from './reports.js';
 import {accountModeRoutes,paymentDetailsAreMemberOnly,settingsAreMemberOnly,signatureIsMemberOnly,waiverCopiesAreAdminOnly} from './accountMode.js';
 import {trainingClassRoutes} from './trainingClasses.js';
@@ -101,6 +102,7 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   routes.use(accountModeRoutes(pool, config));
   routes.use(reportRoutes(pool,config.timeZone));
   routes.use(cardManagement(pool,config.timeZone,config.devices,readers));
+  routes.use(readerSetupRoutes(pool,config.timeZone,readers));
   routes.get("/admin/plans", permit("plan","read","global"), staff.plans);
   routes.post("/admin/plans", permit("plan","create","global"), requireCsrf, staff.createPlan);
   routes.patch("/admin/plans/:id", permit("plan","update","global"), requireCsrf, staff.updatePlan);

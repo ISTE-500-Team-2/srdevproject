@@ -17,6 +17,7 @@ export interface Reader {
 export interface DeviceConfig {
   cardHashKey: string;
   readers: Reader[];
+  setupGateways?: {id: string; name: string; secret: string}[];
 }
 export interface StoredReader extends Omit<Reader, "secret"> {
   name: string;
