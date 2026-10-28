@@ -71,10 +71,10 @@ export class StudioService {
       currency: "USD",
       method: r.payment_method,
       reference: r.payment_reference ?? r.payment_intent ?? "",
-      instructions:
-        kind === "studio_reservation_cancelled"
-          ? `Refund ${r.refund_cents / 100} USD; status ${r.payment_status}. Refunds return to the original payment method.`
-          : "Your studio rental is confirmed.",
+      paymentStatus: r.payment_status,
+      ...(kind === "studio_reservation_cancelled" && {
+        refundAmount: ((r.refund_cents ?? 0) / 100).toFixed(2),
+      }),
     };
     await enqueueNotification(db, {
       userId: r.userid,

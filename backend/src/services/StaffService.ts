@@ -402,7 +402,7 @@ export class StaffService {
       );
       await model.saveRequest(input.requestId, actorId, fingerprint, result);
       await enqueueNotification(db,{userId,kind:plan.kind === 'membership' ? 'membership_issued' : 'day_pass_issued',dedupeKey:`entitlement-issued:${plan.kind}:${id}`,payload:{membershipName:plan.name,startsAt:input.startsAt ?? input.validDate}});
-      await enqueueNotification(db,{userId,kind:input.paymentStatus === 'paid' ? 'payment_recorded' : 'payment_status_changed',dedupeKey:`payment-recorded:${paymentId}`,payload:{paymentId,amount:input.paymentStatus === 'waived' ? '0.00' : plan.price,currency:'USD',method:input.method,reference:input.reference,instructions:`Payment status: ${input.paymentStatus}`} });
+      await enqueueNotification(db,{userId,kind:input.paymentStatus === 'paid' ? 'payment_recorded' : 'payment_status_changed',dedupeKey:`payment-recorded:${paymentId}`,payload:{paymentId,amount:input.paymentStatus === 'waived' ? '0.00' : plan.price,currency:'USD',method:input.method,reference:input.reference,paymentStatus:input.paymentStatus} });
       return result;
     });
   }
@@ -496,7 +496,7 @@ export class StaffService {
         before,
         after,
       );
-      await enqueueNotification(db,{userId:before.userId,kind:status === 'refunded' ? 'payment_refunded' : status === 'paid' ? 'payment_recorded' : 'payment_status_changed',dedupeKey:`payment-status:${id}:${after.revision}`,payload:{paymentId:id,amount:after.amount,currency:'USD',method,reference,instructions:`Payment status: ${status}`}});
+      await enqueueNotification(db,{userId:before.userId,kind:status === 'refunded' ? 'payment_refunded' : status === 'paid' ? 'payment_recorded' : 'payment_status_changed',dedupeKey:`payment-status:${id}:${after.revision}`,payload:{paymentId:id,amount:after.amount,currency:'USD',method,reference,paymentStatus:status}});
       return after;
     });
   }
