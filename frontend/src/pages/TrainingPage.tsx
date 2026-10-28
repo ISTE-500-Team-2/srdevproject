@@ -81,17 +81,21 @@ function TrainingWorkspace({
   const [revoking, setRevoking] = useState<Record | null>(null);
   const [revokeReason, setRevokeReason] = useState("");
   const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   async function run(work: () => Promise<unknown>) {
     setBusy(true);
     setMessage("");
+    setError("");
     try {
       await work();
       catalog.reload();
       if (selectedMember) records.reload();
       setMessage("Training records saved.");
+      return true;
     } catch (e) {
-      setMessage(errorMessage(e));
+      setError(errorMessage(e));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -159,7 +163,7 @@ function TrainingWorkspace({
       <div className="cw-row">
         <p className="cw-muted">Training members must complete before they can use linked equipment.</p>
         {canConfigure ? (
-          <button type="button" className="button button--primary cw-small" onClick={() => setEditing({ id: 0 } as Course)}>
+          <button type="button" className="button button--primary cw-small" onClick={() => { setError(""); setEditing({ id: 0 } as Course); }}>
             <Plus aria-hidden="true" /> New certification
           </button>
         ) : null}
@@ -207,7 +211,7 @@ function TrainingWorkspace({
                   {n ? (n.expiring ? `${n.expiring} expiring soon` : n.compliant ? "All current" : "No one trained yet") : ""}
                 </small>
                 {canConfigure ? (
-                  <button type="button" className="button button--quiet cw-small" onClick={() => setEditing(c)} aria-label={`Configure ${c.name}`}>
+                  <button type="button" className="button button--quiet cw-small" onClick={() => { setError(""); setEditing(c); }} aria-label={`Configure ${c.name}`}>
                     <Pencil aria-hidden="true" /> Edit
                   </button>
                 ) : null}
@@ -228,6 +232,7 @@ function TrainingWorkspace({
             setSelectedMember(id);
             setRenewing(null);
             setRevoking(null);
+            setError("");
           }}
         />
         {selectedMember ? (
@@ -254,12 +259,12 @@ function TrainingWorkspace({
                   </div>
                   <div className="cw-recs__actions">
                     {canApprove ? (
-                      <button type="button" className="button button--quiet cw-small" onClick={() => setRenewing(r)}>
+                      <button type="button" className="button button--quiet cw-small" onClick={() => { setError(""); setRenewing(r); }}>
                         {r.valid ? "Renew" : "Record new training"}
                       </button>
                     ) : null}
                     {canConfigure && r.status === "active" ? (
-                      <button type="button" className="button cw-danger cw-small" onClick={() => setRevoking(r)}>
+                      <button type="button" className="button cw-danger cw-small" onClick={() => { setError(""); setRevokeReason(""); setRevoking(r); }}>
                         Revoke
                       </button>
                     ) : null}
@@ -279,7 +284,7 @@ function TrainingWorkspace({
                           <button
                             type="button"
                             className="button button--primary cw-small"
-                            onClick={() => setRenewing({ certificationId: c.id, name: c.name } as Record)}
+                            onClick={() => { setError(""); setRenewing({ certificationId: c.id, name: c.name } as Record); }}
                           >
                             <Check aria-hidden="true" /> Record training
                           </button>
@@ -299,6 +304,7 @@ function TrainingWorkspace({
       {editing ? (
         <Modal open width="panel" title={editing.id ? `Edit ${editing.name}` : "New certification"} onClose={() => setEditing(null)}>
           <form className="cw-form" key={editing.id} onSubmit={saveCourse}>
+            {error ? <p className="form-error" role="alert">{error}</p> : null}
             <label className="cw-field">
               <span>Name</span>
               <input name="name" required maxLength={100} defaultValue={editing.name} />
@@ -361,6 +367,7 @@ function TrainingWorkspace({
       {renewing ? (
         <Modal open width="panel" title={`Record training: ${renewing.name}`} onClose={() => setRenewing(null)}>
           <form className="cw-form" key={renewing.certificationId} onSubmit={approve}>
+            {error ? <p className="form-error" role="alert">{error}</p> : null}
             <input type="hidden" name="certId" value={renewing.certificationId} />
             <label className="cw-field">
               <span>Actual training date/time</span>
@@ -400,6 +407,7 @@ function TrainingWorkspace({
       {revoking ? (
         <Modal open width="compact" title={`Revoke ${revoking.name}?`} onClose={() => setRevoking(null)}>
           <div className="cw-form">
+            {error ? <p className="form-error" role="alert">{error}</p> : null}
             <p>The member loses access to linked equipment until new in-person training is recorded.</p>
             <label className="cw-field">
               <span>Revocation/retraining reason</span>
@@ -426,7 +434,8 @@ function TrainingWorkspace({
                       method: "POST",
                       body: { expectedRevision: r.revision, reason: revokeReason },
                     }),
-                  ).then(() => {
+                  ).then((saved) => {
+                    if (!saved) return;
                     setRevoking(null);
                     setRevokeReason("");
                   });

@@ -130,16 +130,20 @@ export function reportRoutes(pool: Pool, tz: string) {
         ).rows;
         // There is no check-out record, so this is who checked in today (each
         // person's latest check-in), not a live headcount.
-        const checkedInToday = (
+        const recentCheckIns = (
           await db.query(
-            `SELECT DISTINCT ON (i.userid) i.userid AS "userId",u.firstname || ' ' || u.lastname AS name,i.location,
+            `SELECT latest.*,COUNT(*) OVER()::int AS total FROM (
+ SELECT DISTINCT ON (i.userid) i.userid AS "userId",u.firstname || ' ' || u.lastname AS name,i.location,
  i.checkintime AT TIME ZONE 'UTC' AS at,CASE WHEN i.statusdesc ILIKE '%NFC%' THEN 'nfc' ELSE 'portal' END AS method
  FROM check_in i JOIN "user" u USING(userid)
  WHERE i.status='approved' AND i.checkintime AT TIME ZONE 'UTC'>=date_trunc('day',NOW() AT TIME ZONE $1) AT TIME ZONE $1
- ORDER BY i.userid,i.checkintime DESC LIMIT 50`,
+ ORDER BY i.userid,i.checkintime DESC,i.checkinid DESC
+ ) latest ORDER BY at DESC,"userId" LIMIT 50`,
             [tz],
           )
-        ).rows.sort((a, b) => +new Date(b.at) - +new Date(a.at));
+        ).rows;
+        const checkedInTodayCount = recentCheckIns[0]?.total ?? 0;
+        const checkedInToday = recentCheckIns.map(({ total, ...person }) => person);
         const compliance = (
           await db.query(
             `SELECT COUNT(*) FILTER(WHERE status='active')::int AS "activeAccounts",COUNT(*) FILTER(WHERE accessstatus<>'active')::int AS "restrictedAccounts",(SELECT COUNT(*)::int FROM user_certifications WHERE status='active' AND renewaldate<NOW() AT TIME ZONE 'UTC') AS "expiredTraining" FROM "user"`,
@@ -174,6 +178,7 @@ export function reportRoutes(pool: Pool, tz: string) {
           usage,
           visitsByDay,
           checkedInToday,
+          checkedInTodayCount,
           memberships,
           notifications,
           notes: [

@@ -53,6 +53,7 @@ export type Report = {
   active: { activeUsers: number; approvedCheckIns: number };
   visitsByDay: { day: string; visits: number; people: number }[];
   checkedInToday: { userId: number; name: string; location: string; at: string; method: "nfc" | "portal" }[];
+  checkedInTodayCount: number;
   compliance: {
     activeAccounts: number;
     restrictedAccounts: number;

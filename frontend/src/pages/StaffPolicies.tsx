@@ -344,7 +344,8 @@ export function StaffPolicies() {
       {waivers.map((w) => {
         const shown = w.current ?? w.upcoming ?? w.versions[0]!;
         const stats = w.current ? signed.get(w.current.id) : undefined;
-        const earlier = w.versions.filter((p) => p !== shown && p !== w.upcoming);
+        const scheduled = w.versions.filter((p) => p !== shown && p.active && Date.parse(p.effectiveAt) > Date.now());
+        const earlier = w.versions.filter((p) => p !== shown && !scheduled.includes(p));
         return (
           <article className="cw-waiver" key={w.name}>
             <div>
@@ -419,11 +420,31 @@ export function StaffPolicies() {
                 </details>
               ) : null}
               {isAdmin && shown.active ? (
-                <button type="button" className="button cw-danger cw-small cw-push" onClick={() => setRetiring(shown)}>
+                <button type="button" className="button cw-danger cw-small cw-push" aria-label={`Retire ${w.name} ${shown.version}`} onClick={() => setRetiring(shown)}>
                   <Archive aria-hidden="true" /> Retire
                 </button>
               ) : null}
             </div>
+            {scheduled.length ? (
+              <div className="cw-waiver__scheduled">
+                <h4>Scheduled versions</h4>
+                {scheduled.map((p) => (
+                  <div className="cw-row" key={p.id}>
+                    <span>Version {p.version} · starts {dateTime(p.effectiveAt)}</span>
+                    <div className="cw-waiver__actions">
+                      <button type="button" className="button button--quiet cw-small" aria-label={`View ${w.name} ${p.version}`} onClick={() => setReading(p)}>
+                        <Eye aria-hidden="true" /> View text
+                      </button>
+                      {isAdmin ? (
+                        <button type="button" className="button cw-danger cw-small" aria-label={`Retire ${w.name} ${p.version}`} onClick={() => setRetiring(p)}>
+                          <Archive aria-hidden="true" /> Retire
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </article>
         );
       })}

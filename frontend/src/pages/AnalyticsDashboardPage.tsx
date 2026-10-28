@@ -160,6 +160,7 @@ export function AnalyticsDashboardPage() {
   const today = zonedDay(ZONE);
   const [preset, setPreset] = useState<Preset>("30");
   const [range, setRange] = useState<Range>({ ...presetRange("30", today), period: "weekly" });
+  const [draft, setDraft] = useState(range);
   const [validation, setValidation] = useState("");
   const report = useApi<Report>("/admin/reports?" + new URLSearchParams(range), {
     retainOnReload: true,
@@ -170,6 +171,8 @@ export function AnalyticsDashboardPage() {
   });
 
   const apply = (next: Range) => {
+    // Permit intermediate edits while keeping requests on the last valid range.
+    setDraft(next);
     try {
       revenuePoints(next.from, next.to, next.period, []);
       setRange(next);
@@ -189,6 +192,7 @@ export function AnalyticsDashboardPage() {
   const visits = data?.visitsByDay ?? [];
   const busiest = Math.max(1, ...visits.map((v) => v.visits));
   const checkedIn = data?.checkedInToday ?? [];
+  const checkedInCount = data?.checkedInTodayCount ?? checkedIn.length;
 
   return (
     <section className="analytics-dashboard management-page">
@@ -204,7 +208,7 @@ export function AnalyticsDashboardPage() {
               onChange={(e) => {
                 const value = e.target.value as Preset;
                 setPreset(value);
-                if (value !== "custom") apply({ ...range, ...presetRange(value, today) });
+                if (value !== "custom") apply({ ...draft, ...presetRange(value, today) });
               }}
             >
               {PRESETS.map((p) => (
@@ -220,8 +224,8 @@ export function AnalyticsDashboardPage() {
                 key={p}
                 type="button"
                 role="radio"
-                aria-checked={range.period === p}
-                onClick={() => apply({ ...range, period: p })}
+                aria-checked={draft.period === p}
+                onClick={() => apply({ ...draft, period: p })}
               >
                 {statusLabel(p)}
               </button>
@@ -233,11 +237,11 @@ export function AnalyticsDashboardPage() {
         <div className="analytics-custom">
           <label>
             From
-            <input type="date" value={range.from} max={range.to} onChange={(e) => apply({ ...range, from: e.target.value })} />
+            <input type="date" value={draft.from} max={today} onChange={(e) => apply({ ...draft, from: e.target.value })} />
           </label>
           <label>
             Through
-            <input type="date" value={range.to} min={range.from} max={today} onChange={(e) => apply({ ...range, to: e.target.value })} />
+            <input type="date" value={draft.to} max={today} onChange={(e) => apply({ ...draft, to: e.target.value })} />
           </label>
           <small>Up to 93 days.</small>
         </div>
@@ -328,7 +332,7 @@ export function AnalyticsDashboardPage() {
             <aside className="panel analytics-activity">
               <div className="analytics-panel-head">
                 <h3>Checked in today</h3>
-                {checkedIn.length ? <span className="analytics-live">{checkedIn.length} {checkedIn.length === 1 ? "person" : "people"}</span> : null}
+                {checkedInCount ? <span className="analytics-live">{checkedInCount} {checkedInCount === 1 ? "person" : "people"}</span> : null}
               </div>
               {checkedIn.length ? (
                 <ul className="analytics-people">
@@ -344,7 +348,7 @@ export function AnalyticsDashboardPage() {
                       <span className="analytics-people__method">{person.method === "nfc" ? "NFC" : "Site"}</span>
                     </li>
                   ))}
-                  {checkedIn.length > 6 ? <li className="analytics-people__more">+{checkedIn.length - 6} more</li> : null}
+                  {checkedInCount > 6 ? <li className="analytics-people__more">+{checkedInCount - 6} more</li> : null}
                 </ul>
               ) : (
                 <p className="analytics-empty">Nobody has checked in yet today.</p>

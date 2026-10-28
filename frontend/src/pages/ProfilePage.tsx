@@ -15,7 +15,7 @@ import {
   UserRound,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Toast } from "../components/Toast";
 import { useAuth } from "../context/AuthContext";
@@ -190,11 +190,16 @@ function Choice({
   value: string;
 }) {
   const [picked, setPicked] = useState(value);
+  // Older profiles allowed free text. Keep that saved choice until the member
+  // deliberately selects one of the newer options.
+  const choices: typeof options = value && !options.some((option) => option.value === value)
+    ? [{ value }, ...options]
+    : options;
   return (
     <fieldset className="account-choice">
       <legend>{label}</legend>
       <div className="account-choice__options">
-        {options.map(({ value: option, Icon }) => (
+        {choices.map(({ value: option, Icon }) => (
           <label key={option} className={picked === option ? "is-on" : ""}>
             <input
               type="radio"
@@ -626,36 +631,56 @@ function useCurrentSection() {
 export function ProfilePage() {
   const { user, refresh } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const latestProfile = useRef<UserProfile | null>(null);
+  const saveQueue = useRef(Promise.resolve());
+  const active = useRef(false);
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState("");
   const current = useCurrentSection();
   useEffect(() => {
+    active.current = true;
     const controller = new AbortController();
     api<UserProfile>("/me/profile", { signal: controller.signal })
-      .then(setProfile)
+      .then((loaded) => {
+        if (controller.signal.aborted) return;
+        latestProfile.current = loaded;
+        setProfile(loaded);
+      })
       .catch((err) => {
         if (!controller.signal.aborted) setError(errorMessage(err));
       });
-    return () => controller.abort();
+    return () => {
+      active.current = false;
+      controller.abort();
+    };
   }, []);
-  // The profile API replaces every field at once, so each section sends the
-  // stored values with its own changes on top.
-  const save: Save = async (change) => {
-    if (!user || !profile) return;
-    setToast(null);
-    const saved = await api<UserProfile>("/me/profile", {
-      method: "PATCH",
-      body: {
-        firstName: change.firstName ?? user.firstName,
-        lastName: change.lastName ?? user.lastName,
-        phone: change.phone ?? user.phone,
-        address: change.address ?? profile.address,
-        contactPreferences: change.contactPreferences ?? profile.contactPreferences,
-      },
+  // Sections can save together, but the API replaces all identity fields.
+  // Build each request from the preceding response, never a render's snapshot.
+  const save: Save = (change) => {
+    const request = saveQueue.current.then(async () => {
+      if (!active.current) return;
+      const stored = latestProfile.current;
+      if (!stored) throw new Error("Your profile is still loading. Try again.");
+      setToast(null);
+      const saved = await api<UserProfile>("/me/profile", {
+        method: "PATCH",
+        body: {
+          firstName: change.firstName ?? stored.user.firstName,
+          lastName: change.lastName ?? stored.user.lastName,
+          phone: change.phone ?? stored.user.phone,
+          address: change.address ?? stored.address,
+          contactPreferences: change.contactPreferences ?? stored.contactPreferences,
+        },
+      });
+      if (!active.current) return;
+      latestProfile.current = saved;
+      setProfile(saved);
+      setToast("Changes saved.");
+      await refresh();
     });
-    setProfile(saved);
-    setToast("Changes saved.");
-    await refresh();
+    // One failed section must not prevent another queued section from saving.
+    saveQueue.current = request.catch(() => {});
+    return request;
   };
   if (!user) return null;
   return (

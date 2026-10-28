@@ -357,6 +357,20 @@
   border-top: 1px solid #ebe3dc;
   padding-top: 12px;
 }
+.cw-waiver__scheduled {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid #ebe3dc;
+  padding-top: 12px;
+}
+.cw-waiver__scheduled h4 {
+  margin: 0;
+}
+.cw-waiver__scheduled .cw-waiver__actions {
+  border: 0;
+  padding: 0;
+}
 .cw-older summary {
   display: inline-flex;
   align-items: center;

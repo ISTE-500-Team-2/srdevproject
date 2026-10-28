@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { formatPhone, ProfilePage } from './ProfilePage';
 import { ApiError } from '../lib/api';
@@ -18,6 +18,7 @@ afterEach(() => {
 });
 
 const profile = {
+  user: { ...auth.user },
   address: { 'Street address': '1 Mill Rd', City: 'White Hall', State: 'Maryland', 'Postal code': '21161', 'Custom gate code': 'Blue 7' },
   contactPreferences: { 'Preferred contact method': 'Email', 'Best time to contact': 'Afternoon', 'SMS allowed': false },
   studioContact: { name: 'Test studio', email: 'studio@example.test', phone: '4105550100' },
@@ -110,4 +111,85 @@ test('phone numbers format only when they are ten US digits', () => {
   expect(formatPhone('4105550182')).toBe('(410) 555-0182');
   expect(formatPhone('1-410-555-0182')).toBe('(410) 555-0182');
   expect(formatPhone('+44 20 7946 0958')).toBe('+44 20 7946 0958');
+});
+
+test.each(['Profile', 'Contact'])('overlapping saves preserve both sections when %s saves first', async (first) => {
+  let stored = structuredClone(profile);
+  let release!: () => void;
+  let pending = true;
+  mount({ '/me/profile': (init) => {
+    if (init?.method !== 'PATCH') return stored;
+    const body = init.body as typeof stored.user & Pick<typeof stored, 'address' | 'contactPreferences'>;
+    const persist = () => {
+      stored = { ...stored, user: { ...stored.user, firstName: body.firstName, lastName: body.lastName, phone: body.phone }, address: body.address, contactPreferences: body.contactPreferences };
+      return stored;
+    };
+    if (pending) {
+      pending = false;
+      return new Promise((resolve) => { release = () => resolve(persist()); });
+    }
+    return persist();
+  } });
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit profile' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Edit contact' }));
+  fireEvent.change(within(section('Profile')).getByLabelText('First name'), { target: { value: 'Changed' } });
+  fireEvent.change(within(section('Contact')).getByLabelText('Phone'), { target: { value: '4435550199' } });
+  const save = (name: string) => fireEvent.click(within(section(name)).getByRole('button', { name: `Save ${name.toLowerCase()}` }));
+  save(first);
+  save(first === 'Profile' ? 'Contact' : 'Profile');
+  await waitFor(() => expect(patches()).toHaveLength(1));
+  await act(async () => release());
+  await waitFor(() => expect(patches()).toHaveLength(2));
+  await waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
+  expect(stored.user).toMatchObject({ firstName: 'Changed', phone: '4435550199' });
+  expect(stored.address['Custom gate code']).toBe('Blue 7');
+});
+
+test('a failed section does not block a queued save or discard its own draft', async () => {
+  let reject!: (error: Error) => void;
+  let first = true;
+  mount({ '/me/profile': (init) => {
+    if (init?.method !== 'PATCH') return profile;
+    if (first) { first = false; return new Promise((_, fail) => { reject = fail; }); }
+    return profile;
+  } });
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit profile' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Edit contact' }));
+  fireEvent.change(within(section('Profile')).getByLabelText('First name'), { target: { value: 'Keep my draft' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save contact' }));
+  await waitFor(() => expect(patches()).toHaveLength(1));
+  await act(async () => reject(new ApiError(500, 'FAILED', 'Try saving the name again.')));
+  expect(await within(section('Profile')).findByRole('alert')).toHaveProperty('textContent', 'Try saving the name again.');
+  await waitFor(() => expect(patches()).toHaveLength(2));
+  expect((within(section('Profile')).getByLabelText('First name') as HTMLInputElement).value).toBe('Keep my draft');
+  expect(patches()[1]![1]!.body.firstName).toBe('Test');
+  await waitFor(() => expect(within(section('Contact')).queryByRole('button', { name: 'Save contact' })).toBeNull());
+});
+
+test('leaving the account page cancels a queued section save', async () => {
+  let release!: () => void;
+  const view = mount({ '/me/profile': (init) => init?.method === 'PATCH' ? new Promise(resolve => { release = () => resolve(profile); }) : profile });
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit profile' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Edit contact' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save contact' }));
+  await waitFor(() => expect(patches()).toHaveLength(1));
+  view.unmount();
+  await act(async () => release());
+  expect(patches()).toHaveLength(1);
+  expect(refresh).not.toHaveBeenCalled();
+});
+
+test.each([false, true])('legacy contact choices survive a phone edit (replace method: %s)', async (replace) => {
+  const legacy = { ...profile, contactPreferences: { ...profile.contactPreferences, 'Preferred contact method': 'SMS', 'Best time to contact': 'After 5 pm' } };
+  mount({ '/me/profile': () => legacy });
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit contact' }));
+  expect(screen.getByRole('radio', { name: 'SMS' })).toHaveProperty('checked', true);
+  expect(screen.getByRole('radio', { name: 'After 5 pm' })).toHaveProperty('checked', true);
+  fireEvent.change(screen.getByLabelText('Phone'), { target: { value: '4435550199' } });
+  if (replace) fireEvent.click(screen.getByRole('radio', { name: 'Call' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save contact' }));
+  await waitFor(() => expect(patches()).toHaveLength(1));
+  expect(patches()[0]![1]!.body.contactPreferences).toEqual({ ...legacy.contactPreferences, 'Preferred contact method': replace ? 'Call' : 'SMS' });
 });
