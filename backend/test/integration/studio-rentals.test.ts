@@ -381,8 +381,9 @@ test('studio notices wait for payment, target member and staff once, and respect
   await service.cancel(member,rental.id);
   rows=await notices('studio_reservation_cancelled');
   assert.deepEqual(rows.map(r=>[r.userid,r.status]),[[member,'pending'],[admin,'suppressed']].sort((a,b)=>Number(a[0])-Number(b[0])));
-  assert.match(rows.find(r=>r.userid===member).payload.instructions,/refund_pending/);
-  assert.match(rows.find(r=>r.userid===member).payload.instructions,/original payment method/);
+  const cancelled=rows.find(r=>r.userid===member).payload;
+  assert.equal(cancelled.paymentStatus,'refund_pending');
+  assert.equal(cancelled.refundAmount,cancelled.amount,'full refund before the start date');
  } finally {await pool.query('UPDATE app_notification_preferences SET enabled=true WHERE userid=$1',[admin]);}
 });
 
