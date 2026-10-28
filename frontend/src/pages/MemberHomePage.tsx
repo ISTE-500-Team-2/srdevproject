@@ -100,9 +100,6 @@ export function MemberHomePage() {
             <h1>Welcome back, {user?.firstName}</h1>
           )}
         </div>
-        {summary ? (
-          <span className="membership-pill">{accessLabel}</span>
-        ) : null}
       </section>
       {overview.loading ? <p role="status">Loading account activity…</p> : null}
       {overview.error ? (

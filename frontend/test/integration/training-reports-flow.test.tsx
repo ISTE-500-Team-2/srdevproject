@@ -52,8 +52,8 @@ test("staff training UI configures approved expiry, records actual instructor tr
   await user.click(await screen.findByRole("button", { name: "New certification" }));
   await user.type(await screen.findByLabelText("Name"), "UI printer safety");
   await user.type(screen.getByLabelText("Approved validity in days"), "90");
-  await user.type(screen.getByLabelText('Find equipment'), 'Laser');
-  await user.click(await screen.findByRole('checkbox',{name:/Laser/}));
+  await user.type(screen.getByLabelText('Find equipment'), 'Darth');
+  await user.click(await screen.findByRole('checkbox',{name:/Darth Vader/}));
   await user.type(
     screen.getByLabelText("Policy approval/reference"),
     "Sponsor-approved training policy",
@@ -74,7 +74,7 @@ test("staff training UI configures approved expiry, records actual instructor tr
       "SELECT certid FROM certifications WHERE name='UI printer safety'",
     )
   ).rows[0].certid;
-  expect((await bridge.pool.query("SELECT certid FROM equipment WHERE name='Laser'")).rows[0].certid).toBe(cert);
+  expect((await bridge.pool.query("SELECT certid FROM equipment WHERE name='Darth Vader'")).rows[0].certid).toBe(cert);
   expect((document.querySelector('input[name="certId"]') as HTMLInputElement).value).toBe(String(cert));
   const t = new Date(Date.now() - 86400000),
     local = new Date(t.getTime() - t.getTimezoneOffset() * 60000)

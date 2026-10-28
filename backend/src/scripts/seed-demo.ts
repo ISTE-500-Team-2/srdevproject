@@ -68,12 +68,17 @@ export async function seedDemo(pool: Pool) {
         [id],
       );
     }
+    // Matches the named machines from migration 024.
     const entries = [
-      ["3D Printer", "3D printing", "/assets/3d-printer.webp", 7, false],
-      ["Laser", "Laser cutting", "/assets/laser-engraver.webp", 20, false],
-      ["CNC Machine", "CNC machining", "/assets/cnc-machine.webp", 28, true],
-      ["Wood Lathe", "Wood turning", "/assets/wood-lathe.webp", 12, true],
-      ["Metal Lathe", "Metal turning", "/assets/wood-lathe.webp", 20, true],
+      ["Rachel", "3D printer", "/assets/3d-printer.webp", 7, false],
+      ["Phoebe", "3D printer", "/assets/3d-printer.webp", 7, false],
+      ["Monica", "3D printer", "/assets/3d-printer.webp", 7, false],
+      ["Darth Vader", "Laser engraver", "/assets/laser-engraver.webp", 20, false],
+      ["Kirk", "Metal lathe", "/assets/wood-lathe.webp", 20, true],
+      ["Spock", "Wood lathe", "/assets/wood-lathe.webp", 12, true],
+      ["Joey", "Large CNC", "/assets/cnc-machine.webp", 28, true],
+      ["Ross", "Small CNC", "/assets/cnc-machine.webp", 28, true],
+      ["Chandler", "Small CNC", "/assets/cnc-machine.webp", 28, true],
     ];
     for (const [name, category, image, rate, waiver] of entries) {
       await db.query(
