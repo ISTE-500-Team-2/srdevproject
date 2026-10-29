@@ -99,7 +99,7 @@ class PollProtocol:
                     self.health_at = 0
                     reason = 'authorization_failed'
             reply['reason'] = reason
-            write_status(self.status_file, True, reply['ready'], reason, v, self.last_result)
+            write_status(self.status_file, True, reply['ready'], reason, v, self.last_result, proof=getattr(self,'profile_generation',None))
             return body_json(reply)
 
     def offline_watchdog(self, stop):
@@ -175,7 +175,11 @@ class Handler(BaseHTTPRequestHandler):
             raw = self.rfile.read(length)
             if len(raw) != length:
                 raise ValueError('incomplete')
-            body = self.server.protocol.poll(raw, self.headers.get('X-Arbor-Signature', ''))
+            if hasattr(self.server.protocol, 'signed_poll'):
+                body, reply_signature = self.server.protocol.signed_poll(raw, self.headers.get('X-Arbor-Signature', ''))
+            else:
+                body = self.server.protocol.poll(raw, self.headers.get('X-Arbor-Signature', ''))
+                reply_signature = self.server.protocol.mac(b'gateway-reply', body)
         except (ValueError, TypeError, KeyError):
             self.send_error(401)
             return
@@ -183,7 +187,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Type', 'application/json')
         self.send_header('Cache-Control', 'no-store')
         self.send_header('Content-Length', str(len(body)))
-        self.send_header('X-Arbor-Signature', self.server.protocol.mac(b'gateway-reply', body))
+        self.send_header('X-Arbor-Signature', reply_signature)
         self.end_headers()
         self.wfile.write(body)
 

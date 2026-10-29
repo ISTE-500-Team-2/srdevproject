@@ -9,7 +9,7 @@ import {
 } from "../../lib/nfc";
 import { LoadState } from "../Management";
 import { Modal } from "../Modal";
-import {ReaderSetupWizard} from './ReaderSetupWizard';
+import {ReaderSetupWizard,type ReaderDiscovery} from './ReaderSetupWizard';
 
 export function ReaderManager({
   setup,
@@ -22,6 +22,8 @@ export function ReaderManager({
 }) {
   const resources = useApi<AccessResource[]>("/admin/access/resources");
   const [adding,setAdding]=useState(false);
+  const discovery=useApi<ReaderDiscovery>(setup.configured?'/admin/access/reader-setup':null,{retainOnReload:true,refreshInterval:5000});
+  const detected=discovery.data?.devices.filter(d=>d.connected&&!discovery.data?.jobs.some(j=>j.gatewayId===d.gatewayId&&j.deviceId===d.id&&!['failed','cancelled','expired'].includes(j.status))).length??0;
   const [editing, setEditing] = useState<AccessReader | "new" | null>(null),
     [busy, setBusy] = useState(false);
   const [secret, setSecret] = useState<{ id: string; secret: string } | null>(
@@ -105,6 +107,7 @@ export function ReaderManager({
           </button>
         </div>
       </div>
+      {detected?<p className="form-notice" role="status">{detected===1?'A new reader is connected':'New readers are connected'}. Choose Add reader to finish setup.</p>:null}
       <p className="nfc-help">
         Online means an authenticated tap or heartbeat arrived in the last 45
         seconds. Idle readers should send a heartbeat every 15 seconds.

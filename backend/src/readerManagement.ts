@@ -101,6 +101,21 @@ export function readerManagement(
             "STALE_RECORD",
             "This reader changed. Refresh and try again.",
           );
+        if (
+          req.body.enabled &&
+          registry.config?.setupGateways?.length &&
+          (
+            await db.query(
+              "SELECT 1 FROM app_reader_setup_job WHERE reader_id=$1 AND status<>'complete'",
+              [before.id],
+            )
+          ).rowCount
+        )
+          throw new AppError(
+            409,
+            "SETUP_INCOMPLETE",
+            "Finish guided setup before enabling this reader.",
+          );
         const after = (
           await db.query(
             `UPDATE app_access_reader SET name=$2,enabled=$3,revision=revision+1 WHERE id=$1 RETURNING id,name,enabled,revision`,

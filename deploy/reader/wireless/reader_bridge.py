@@ -189,7 +189,7 @@ def decision_message(state, result, now=None):
     return message
 
 
-def write_status(path, reader_ok, backend_ok, reason, state=None, result=None):
+def write_status(path, reader_ok, backend_ok, reason, state=None, result=None, proof=None):
     def item(label, detail, status):return {'label': label, 'detail': detail, 'state': status}
     doc = {'updated_at': int(time.time()), 'readerHandlingEnabled': True, 'accessDecisionsEnabled': backend_ok and reader_ok and bool(state and state.get('reader_ready')),
            'esp32': item('Connected' if reader_ok else 'Unavailable', 'Authenticated Wi-Fi channel', 'ready' if reader_ok else 'error'),
@@ -197,6 +197,7 @@ def write_status(path, reader_ok, backend_ok, reason, state=None, result=None):
            'cloud': item('Authorization ready' if backend_ok else 'Authorization unavailable', reason, 'ready' if backend_ok else 'error'),
            'backendReachable': backend_ok, 'reason': reason}
     if result:doc['last_decision'] = {key: result[key] for key in ('allowed','reason','eventId','decisionId','uidFingerprint','readerSession','scanId') if key in result}
+    if proof:doc['pairingProof'] = proof
     target = Path(path);target.parent.mkdir(parents=True, exist_ok=True)
     temp = target.with_suffix('.tmp');temp.write_text(json.dumps(doc) + '\n');temp.replace(target)
 
