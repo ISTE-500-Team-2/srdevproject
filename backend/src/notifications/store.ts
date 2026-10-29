@@ -38,10 +38,11 @@ export async function enqueueNotification(db: Database, input: NotificationInput
   // Event notices have a measurable five-minute dispatch target, not a promised delivery SLA.
   const deadlineAt = input.deadlineAt ?? new Date(dueAt.getTime()+5*60_000);
   if (!Number.isFinite(dueAt.getTime()) || !Number.isFinite(deadlineAt.getTime())) throw new Error('Invalid notification date');
+  // Legacy unverified accounts may still receive their confirmation link while held in pending status.
   await db.query(`INSERT INTO app_notification_outbox(userid,kind,dedupe_key,payload,due_at,deadline_at,status,counts_for_sla)
     SELECT u.userid,$2,$3,$4::jsonb,$5,$6,
-      CASE WHEN (COALESCE(p.enabled,true) OR $2 IN ('password_reset','password_changed')) AND u.status='active' THEN 'pending' ELSE 'suppressed' END,
-      (COALESCE(p.enabled,true) OR $2 IN ('password_reset','password_changed')) AND u.status='active'
+      CASE WHEN (COALESCE(p.enabled,true) OR $2 IN ('password_reset','password_changed')) AND (u.status='active' OR ($2='account_confirmation' AND u.status='pending')) THEN 'pending' ELSE 'suppressed' END,
+      (COALESCE(p.enabled,true) OR $2 IN ('password_reset','password_changed')) AND (u.status='active' OR ($2='account_confirmation' AND u.status='pending'))
     FROM "user" u LEFT JOIN app_notification_preferences p USING(userid) WHERE u.userid=$1
     ON CONFLICT(dedupe_key) DO UPDATE SET due_at=EXCLUDED.due_at,deadline_at=EXCLUDED.deadline_at,updated_at=NOW()
     WHERE app_notification_outbox.status='pending' AND app_notification_outbox.attempts=0

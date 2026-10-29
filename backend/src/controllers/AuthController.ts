@@ -1,7 +1,8 @@
+import { consumeRegistration, pruneRegistrations, resendRegistration, stageRegistration } from '../confirmation/pendingRegistration.js';
 import { issueEmailConfirmation, consumeEmailConfirmation } from '../confirmation/emailConfirmation.js';
 import { issuePasswordReset, checkPasswordReset, consumePasswordReset } from '../confirmation/passwordReset.js';
 import { auditContext } from '../auditContext.js';
-import { updateNotificationPreferences, validTimeZone } from '../notifications/store.js';
+import { validTimeZone } from '../notifications/store.js';
 import { randomBytes } from 'node:crypto';
 import type { Request, Response } from 'express';
 import type { Pool } from 'pg';
@@ -11,7 +12,7 @@ import {
   AppError,
   dateOfBirthField,
   emailField,
-  usernameField,
+  registrationEmailField,
   loginIdentifier,
   newPasswordField,
   passwordField,
@@ -101,6 +102,12 @@ export class AuthController {
     const identifier = loginIdentifier(req.body.identifier ?? req.body.email);
     const password = passwordField(req.body.password);
     const account = await new UserModel(this.pool).credentials(identifier);
+    // Temporary sign-ups can be recovered by email, but they cannot authenticate as members.
+    if (!account && identifier.includes('@')) {
+      const pending = (await this.pool.query('SELECT password_hash FROM app_pending_registration WHERE email=$1 AND expires_at>NOW()', [identifier])).rows[0];
+      if (pending && await verifyPassword(password,pending.password_hash))
+        throw new AppError(403,'EMAIL_CONFIRMATION_REQUIRED','Confirm your email before signing in.');
+    }
     const valid = await verifyPassword(
       password,
       account?.password ?? (await this.dummyHash),
@@ -111,6 +118,12 @@ export class AuthController {
         'INVALID_CREDENTIALS',
         'Email, username or password is incorrect.',
       );
+    // Legacy unverified accounts retain their recovery flow after migration removes active status.
+    if (!account.emailConfirmed) {
+      const row = (await this.pool.query('SELECT status FROM "user" WHERE userid=$1',[account.id])).rows[0];
+      if (row && ['active','pending'].includes(row.status))
+        throw new AppError(403,'EMAIL_CONFIRMATION_REQUIRED','Confirm your email before signing in.');
+    }
     if (needsPasswordUpgrade(account.password) && Buffer.byteLength(password,'utf8') <= 72) {
       const upgraded = await hashPassword(password);
       const update = await this.pool.query('UPDATE "user" SET password=$1 WHERE userid=$2 AND password=$3',[upgraded,account.id,account.password]);
@@ -132,22 +145,17 @@ export class AuthController {
     const input = {
       firstName: textField(req.body.firstName, 'First name', 50),
       lastName: textField(req.body.lastName, 'Last name', 50),
-      username: usernameField(req.body.username),
       phone: textField(req.body.phone, 'Phone', 15),
-      email: emailField(req.body.email),
+      email: registrationEmailField(req.body.email),
       dob: dateOfBirthField(req.body.dob),
       password: await hashPassword(newPasswordField(req.body.password)),
     };
-    let id: number;
+    // Public registrations remain temporary requests until an inbox token is consumed.
+    await pruneRegistrations(this.pool);
 
     try {
-      id = await transaction(this.pool, async (db) => {
-        const userId = await new UserModel(db).create(input);
-        await updateNotificationPreferences(db,userId,{enabled:true,timeZone});
-        await db.query('UPDATE "user" SET email_confirmed=false WHERE userid=$1',[userId]);
-        await issueEmailConfirmation(db,userId,this.config.notifications?.appOrigin ?? this.config.allowedOrigins[0]!);
-        return userId;
-      });
+      await transaction(this.pool, db => stageRegistration(db, { ...input, timeZone },
+        this.config.notifications?.appOrigin ?? this.config.allowedOrigins[0]!));
     } catch (error) {
       if (
         typeof error === 'object' &&
@@ -155,8 +163,6 @@ export class AuthController {
         'code' in error &&
         error.code === '23505'
       ) {
-        if ('constraint' in error && error.constraint === 'user_username_unique')
-          throw new AppError(409, 'USERNAME_UNAVAILABLE', 'That username is unavailable. Choose another.');
         throw new AppError(
           409,
           'EMAIL_ALREADY_REGISTERED',
@@ -175,7 +181,8 @@ export class AuthController {
   };
   confirm = async (req: Request,res: Response) => {
     const { session, notification } = await transaction(this.pool,async db => {
-      const userId=await consumeEmailConfirmation(db,req.body.token);
+      // Existing confirmation links remain usable; new sign-ups allocate their account here.
+      const userId=await consumeRegistration(db,req.body.token) ?? await consumeEmailConfirmation(db,req.body.token);
       const session = await new SessionModel(db,this.config.jwtKey,this.config.accessTokenSeconds,this.config.refreshTokenSeconds).create(userId,false);
       const user = await new UserModel(db).findById(userId);
       const notification = renderNotificationTemplate('accountCreation', {
@@ -189,14 +196,21 @@ export class AuthController {
   confirmation = async (req: Request,res: Response) => {
     const email=emailField(req.body.email);
     const password=passwordField(req.body.password);
-    const newEmail=req.body.newEmail == null ? undefined : emailField(req.body.newEmail);
+    // Corrected addresses receive the same strict format validation as initial sign-ups.
+    const newEmail=req.body.newEmail == null ? undefined : registrationEmailField(req.body.newEmail);
+    // A pending registration has no user ID; authenticate and resend its staged request first.
+    const pending = await transaction(this.pool, db => resendRegistration(db,email,password,newEmail,
+      this.config.notifications?.appOrigin ?? this.config.allowedOrigins[0]!)).catch(error => {
+        if (error?.code === '23505') return true;
+        throw error;
+      });
     const account=await new UserModel(this.pool).credentials(email);
     const valid=await verifyPassword(password,account?.password ?? await this.dummyHash);
-    if(account && valid && !account.emailConfirmed) {
+    if(!pending && account && valid && !account.emailConfirmed) {
       try {
         await transaction(this.pool,async db => {
           const current=(await db.query('SELECT email_confirmed,status FROM "user" WHERE userid=$1 FOR UPDATE',[account.id])).rows[0];
-          if(!current || current.email_confirmed || current.status!=='active')return;
+          if(!current || current.email_confirmed || !['active','pending'].includes(current.status))return;
           const previous=(await db.query('SELECT created_at FROM app_email_confirmation WHERE userid=$1',[account.id])).rows[0];
           if(previous && Date.now()-new Date(previous.created_at).getTime()<60000)
             throw new AppError(429,'CONFIRMATION_RATE_LIMITED','Wait one minute before requesting another confirmation.');

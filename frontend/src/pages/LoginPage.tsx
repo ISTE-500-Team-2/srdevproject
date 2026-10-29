@@ -23,20 +23,20 @@ const STEPPER_THEME = {
   '--stepper-solid-ink': '#fff',
 } as CSSProperties;
 const SIGNUP_STEPS = 3;
+// New accounts use verified email; usernames remain supported only for existing logins.
 const EMPTY_SIGNUP = {
   firstName: '',
   lastName: '',
   dob: '',
   email: '',
   phone: '',
-  username: '',
   password: '',
 };
 type SignupField = keyof typeof EMPTY_SIGNUP;
 
 // Sends a server error back to the step that holds the field it names.
 const stepForError = (message: string) =>
-  /username|password/i.test(message)
+  /password/i.test(message)
     ? 3
     : /email|phone/i.test(message)
       ? 2
@@ -65,6 +65,11 @@ export function LoginPage() {
     value: signup[name],
     onChange: (event: ChangeEvent<HTMLInputElement>) =>
       setSignup((current) => ({ ...current, [name]: event.target.value })),
+    // Native date pickers can emit input before change; retain the date when the next step unmounts the control.
+    ...(name === 'dob' ? { onInput: (event: FormEvent<HTMLInputElement>) => {
+      const value = event.currentTarget.value;
+      setSignup((current) => ({ ...current, dob: value }));
+    } } : {}),
   });
 
   const continueAs = async (role: UserRole) => {
@@ -382,11 +387,14 @@ export function LoginPage() {
                   <span>Email</span>
                   <input
                     {...signupField('email')}
+                    aria-label="Email"
                     type="email"
                     required
                     maxLength={100}
                     autoComplete="email"
+                    aria-describedby="signup-email-help"
                   />
+                  <small id="signup-email-help">Use an inbox you can open. Your member account is created only after you confirm the link; unconfirmed requests expire after 24 hours.</small>
                 </label>
                 <label className="form-field">
                   <span>Phone</span>
@@ -402,22 +410,6 @@ export function LoginPage() {
             </Step>
             <Step title="Sign-in">
               <div className="signup-step">
-                <label className="form-field">
-                  <span>Username</span>
-                  <input
-                    {...signupField('username')}
-                    aria-label="Username"
-                    required
-                    minLength={3}
-                    maxLength={30}
-                    pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{2,29}"
-                    autoComplete="username"
-                    autoCapitalize="none"
-                    spellCheck={false}
-                    aria-describedby="signup-username-help"
-                  />
-                  <small id="signup-username-help">3–30 letters, numbers, periods, underscores or hyphens. Start with a letter or number. You can also sign in with your email.</small>
-                </label>
                 <label className="form-field">
                   <span>Password</span>
                   <input

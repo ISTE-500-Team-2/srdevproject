@@ -34,9 +34,9 @@ export function brevoWebhook(pool: Pool, secret?: string) {
         await db.query(`INSERT INTO app_brevo_delivery_event(event_key,provider_message_id,event_type,occurred_at)
           VALUES($1,$2,$3,$4) ON CONFLICT(event_key) DO NOTHING`,[event.eventKey,event.messageId,event.type,event.occurredAt]);
         if (event.type==='unsubscribed') {
-          // Only known outbox ownership, never trust callback recipient input.
+          // Only confirmed account ownership can change preferences; staged registrations have no user ID.
           await db.query(`INSERT INTO app_notification_preferences(userid,enabled)
-            SELECT DISTINCT userid,false FROM app_notification_outbox WHERE trim(both '<>' from provider_message_id)=$1
+            SELECT DISTINCT userid,false FROM app_notification_outbox WHERE userid IS NOT NULL AND trim(both '<>' from provider_message_id)=$1
             ON CONFLICT(userid) DO UPDATE SET enabled=false,updated_at=NOW()`,[event.messageId]);
         }
       }

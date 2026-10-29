@@ -5,6 +5,7 @@ import {
   AppError,
   dateOfBirthField,
   emailField,
+  registrationEmailField,
   usernameField,
   loginIdentifier,
   newPasswordField,
@@ -15,6 +16,13 @@ import {
 } from '../src/domain.js';
 import { hashPassword, verifyPassword } from '../src/passwords.js';
 import { readConfig } from '../src/config.js';
+
+// Registration format checks reject malformed mailbox/domain syntax without pretending to prove inbox ownership.
+test('registration email syntax accepts normalized addresses and rejects garbage domains and dot placement', () => {
+  assert.equal(registrationEmailField(' Member+studio@Example.COM '),'member+studio@example.com');
+  for (const value of ['a..b@example.com','.a@example.com','a.@example.com','a@host_.com','a@-host.com','a@host..com','a@host.123'])
+    assert.throws(()=>registrationEmailField(value),AppError);
+});
 
 test('usernames normalize consistently and cannot collide with email identifiers', () => {
   assert.equal(usernameField(' New.Member-2_ '),'new.member-2_');

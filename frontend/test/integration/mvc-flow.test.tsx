@@ -67,8 +67,9 @@ test('signup form creates an account with DOB and the new password policy', asyn
   await user.type(within(dialog).getByLabelText('Phone'), '0000000000');
   await user.click(within(dialog).getByRole('button', { name: 'Continue' }));
 
-  const username = 'signup_' + email.slice(0, 16);
-  await user.type(await within(dialog).findByLabelText('Username'), username);
+  // The public flow has no username and does not allocate a member before inbox confirmation.
+  expect(within(dialog).queryByLabelText('Username')).toBeNull();
+  await within(dialog).findByLabelText('Password',{exact:false});
   expect(
     within(dialog).getByText(
       /8–128 characters with at least one uppercase letter and one special character/i,
@@ -88,6 +89,7 @@ test('signup form creates an account with DOB and the new password policy', asyn
     { name: 'Email unavailable' },
     { timeout: 20000 },
   );
+  expect((await bridge.pool.query('SELECT 1 FROM \"user\" WHERE email=$1',[email])).rowCount).toBe(0);
   const token = await confirmationToken(bridge.pool, email);
   cleanup();
   mount('/confirm-email#' + token);
@@ -114,11 +116,11 @@ test('signup form creates an account with DOB and the new password policy', asyn
 
   expect(account.rowCount).toBe(1);
   expect(account.rows[0].email).toBe(email);
-  expect(account.rows[0].username).toBe(username);
+  expect(account.rows[0].username).toBeNull();
   expect(account.rows[0].dob).toBe('2000-01-01');
 
   cleanup();
-  for(const identifier of [username.toUpperCase(),email]) {
+  for(const identifier of [email]) {
     await api('/auth/logout',{method:'POST'});
     setAccessToken(null);setCsrfToken(null);
     mount();
@@ -129,39 +131,6 @@ test('signup form creates an account with DOB and the new password policy', asyn
     cleanup();
   }
 }, 120000);
-
-test('duplicate username error stays in signup dialog and user can correct it without retyping other fields',async()=>{
-  vi.stubGlobal('fetch',bridge.fetch);
-  const email=randomUUID()+'@example.invalid',taken='taken_'+email.slice(0,16);
-  const response=await bridge.fetch('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({firstName:'Existing',lastName:'Test',username:taken,email,password:'ValidPassword!',phone:'0000000000',dob:'2000-01-01'})});
-  expect(response.status).toBe(202);
-  mount();const user=userEvent.setup();await user.click(await screen.findByRole('button',{name:'Sign up'}));
-  const dialog=screen.getByRole('dialog',{name:'Create your account'});
-  const next=()=>user.click(within(dialog).getByRole('button',{name:'Continue'}));
-  await user.type(within(dialog).getByLabelText('First name'),'Retry');
-  await user.type(within(dialog).getByLabelText('Last name'),'Test');
-  fireEvent.change(within(dialog).getByLabelText('Date of birth'),{target:{value:'2000-01-01'}});
-  await next();
-  await user.type(await within(dialog).findByLabelText('Email'),'retry_'+email);
-  await user.type(within(dialog).getByLabelText('Phone'),'0000000000');
-  await next();
-  await user.type(await within(dialog).findByLabelText('Username'),taken);
-  await user.type(within(dialog).getByLabelText('Password',{exact:false}),'ValidPassword!');
-  const create=within(dialog).getByRole('button',{name:'Create account'});
-  await waitFor(()=>expect((create as HTMLButtonElement).disabled).toBe(false));
-  await user.click(create);
-  expect((await within(dialog).findByRole('alert')).textContent).toContain('That username is unavailable');
-  // Earlier steps keep their values when the user goes back.
-  await user.click(within(dialog).getByRole('button',{name:'Back'}));
-  await user.click(await within(dialog).findByRole('button',{name:'Back'}));
-  expect((await within(dialog).findByLabelText('First name') as HTMLInputElement).value).toBe('Retry');
-  await next();
-  await next();
-  await user.clear(await within(dialog).findByLabelText('Username'));
-  await user.type(within(dialog).getByLabelText('Username'),'new_'+email.slice(0,16));
-  await user.click(within(dialog).getByRole('button',{name:'Create account'}));
-  expect(await screen.findByRole('heading',{name:'Email unavailable'})).toBeTruthy();
-});
 
 test('React → Express controllers/models → PostgreSQL: login, save, refresh, cancel, waive and check in', async () => {
   vi.stubGlobal('fetch', bridge.fetch);

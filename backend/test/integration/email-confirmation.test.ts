@@ -13,13 +13,14 @@ let created=false;
 before(async()=>{if(!process.env.PGHOST||process.env.DATABASE_URL)throw Error('Isolated PG required');await admin.query(`CREATE DATABASE "${database}"`);created=true;await initializeDemo(pool);});
 after(async()=>{await pool.end();if(created)await admin.query(`DROP DATABASE "${database}"`);await admin.end();});
 const person=(email:string)=>({email,username:email.split('@')[0],password:'GoodPassword123!',firstName:'Confirm',lastName:'Test',dob:'2000-01-01',phone:'0000000000'});
+// Staged sign-ups must stay outside the user table until the confirmation transaction commits.
 test('pending signup cannot log in; safe GET, single-use POST confirm creates session; legacy demo unaffected',async()=>{
  const input=person('confirm@example.invalid');
  const created=await request(app).post('/api/auth/register').send(input);
  assert.equal(created.status,202);assert.equal(created.body.data.accessToken,undefined);assert.equal(created.body.data.emailSendingEnabled,false);
  assert.equal((await request(app).post('/api/auth/login').send(input)).body.error.code,'EMAIL_CONFIRMATION_REQUIRED');
  const token=await confirmationToken(pool,input.email);
- assert.notEqual((await pool.query('SELECT token_hash FROM app_email_confirmation')).rows[0].token_hash,token);
+ assert.notEqual((await pool.query('SELECT token_hash FROM app_pending_registration')).rows[0].token_hash,token);
  assert.notEqual((await request(app).get('/api/auth/confirm').query({token})).status,200);
  const results=await Promise.all([1,2].map(()=>request(app).post('/api/auth/confirm').send({token})));
  assert.deepEqual(results.map(x=>x.status).sort(),[200,400]);
@@ -27,20 +28,20 @@ test('pending signup cannot log in; safe GET, single-use POST confirm creates se
  assert.equal((await request(app).post('/api/auth/login').send(input)).status,200);
  assert.equal((await request(app).post('/api/auth/demo').send({role:'member'})).status,200);
 });
-test('resend/change requires pending credentials, invalidates old link, enforces expiry and respects optout',async()=>{
+test('resend/change requires pending credentials, invalidates old link, enforces expiry and does not allocate preferences',async()=>{
  const input=person('pending@example.invalid');await request(app).post('/api/auth/register').send(input);
  const old=await confirmationToken(pool,input.email);
  assert.equal((await request(app).post('/api/auth/confirmation').send({...input,newEmail:'new@example.invalid'})).status,429);
- await pool.query("UPDATE app_email_confirmation SET created_at=NOW()-INTERVAL '2 minutes'");
+ await pool.query("UPDATE app_pending_registration SET sent_at=NOW()-INTERVAL '2 minutes'");
  const bad=await request(app).post('/api/auth/confirmation').send({...input,password:'WrongPassword123!',newEmail:'new@example.invalid'});
  assert.equal(bad.status,202);assert.equal(bad.body.data.emailSendingEnabled,false);assert.match(bad.body.data.message,/No confirmation email will be sent/);assert.equal(await confirmationToken(pool,input.email),old);
  const res=await request(app).post('/api/auth/confirmation').send({...input,newEmail:'new@example.invalid'});
  assert.equal(res.status,202);
  assert.equal((await request(app).post('/api/auth/confirm').send({token:old})).status,400);
  const current=await confirmationToken(pool,'new@example.invalid');
- await pool.query("UPDATE app_email_confirmation SET expires_at=NOW()-INTERVAL '1 second',created_at=NOW()-INTERVAL '2 minutes'");
+ await pool.query("UPDATE app_pending_registration SET expires_at=NOW()-INTERVAL '1 second',sent_at=NOW()-INTERVAL '2 minutes'");
  assert.equal((await request(app).post('/api/auth/confirm').send({token:current})).status,400);
- await pool.query('UPDATE app_notification_preferences SET enabled=false WHERE userid=(SELECT userid FROM "user" WHERE email=$1)',['new@example.invalid']);
+ // Pending requests have no preference or membership rows to opt out of.
  await request(app).post('/api/auth/confirmation').send({...input,email:'new@example.invalid'});
- assert.equal((await pool.query("SELECT status FROM app_notification_outbox WHERE kind='account_confirmation' ORDER BY id DESC LIMIT 1")).rows[0].status,'suppressed');
+ assert.equal((await pool.query("SELECT status FROM app_notification_outbox WHERE kind='account_confirmation' ORDER BY id DESC LIMIT 1")).rows[0].status,'pending');
 });

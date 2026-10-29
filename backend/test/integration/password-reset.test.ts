@@ -1,3 +1,5 @@
+import { confirmationToken } from '../helpers/confirmation.js';
+import { issueEmailConfirmation } from '../../src/confirmation/emailConfirmation.js';
 import assert from 'node:assert/strict';
 import { createHash, randomBytes, scryptSync } from 'node:crypto';
 import { after, before, beforeEach, test } from 'node:test';
@@ -29,6 +31,8 @@ async function person(name: string) {
     firstName: 'Reset', lastName: 'Test', dob: '2000-01-01', phone: '0000000000' };
   const response = await request(app).post('/api/auth/register').send(input);
   assert.equal(response.status, 202);
+  // Password recovery fixtures are verified members; pending requests cannot reset into an account.
+  assert.equal((await request(app).post('/api/auth/confirm').send({token:await confirmationToken(pool,input.email)})).status,200);
   const id = (await pool.query('SELECT userid FROM "user" WHERE email=$1', [input.email])).rows[0].userid;
   return { ...input, id };
 }
@@ -153,7 +157,11 @@ test('a failed outbox insert rolls back password, session revocation and token c
 });
 
 test('changing an unconfirmed email invalidates reset links sent to the previous inbox', async () => {
-  const user = await person('changeemail'); await ask(user.email); const token = await tokenFor(user.id);
+  // Exercise the legacy unverified-account path separately from staged public registration.
+  const user = await person('changeemail');
+  await pool.query('UPDATE "user" SET email_confirmed=false WHERE userid=$1',[user.id]);
+  await issueEmailConfirmation(pool,user.id,'http://localhost:8080');
+  await ask(user.email); const token = await tokenFor(user.id);
   await pool.query("UPDATE app_email_confirmation SET created_at=NOW()-INTERVAL '61 seconds' WHERE userid=$1", [user.id]);
   const result = await request(app).post('/api/auth/confirmation').send({ ...user, newEmail: 'changed@example.invalid' });
   assert.equal(result.status, 202); assert.equal((await check(token)).status, 400);

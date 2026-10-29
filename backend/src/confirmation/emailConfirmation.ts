@@ -21,10 +21,11 @@ export async function consumeEmailConfirmation(db:Database,token:unknown):Promis
   // Consistent account-first locking serializes resend/change/confirmation races.
   const row=(await db.query(`SELECT u.userid,u.email_confirmed,u.status FROM "user" u JOIN app_email_confirmation c USING(userid)
     WHERE c.token_hash=$1 FOR UPDATE OF u`,[hash(token)])).rows[0];
-  if(!row || row.email_confirmed || row.status!=='active') throw invalid();
+  if(!row || row.email_confirmed || !['active','pending'].includes(row.status)) throw invalid();
   const consumed=await db.query(`DELETE FROM app_email_confirmation WHERE userid=$1 AND token_hash=$2 AND expires_at>NOW() RETURNING userid`,[row.userid,hash(token)]);
   if(!consumed.rows.length)throw invalid();
-  await db.query('UPDATE "user" SET email_confirmed=true WHERE userid=$1',[row.userid]);
+  // Legacy unverified accounts become active only when their existing inbox link is consumed.
+  await db.query("UPDATE \"user\" SET email_confirmed=true,status='active' WHERE userid=$1",[row.userid]);
   await db.query(`UPDATE app_notification_outbox SET status='obsolete',counts_for_sla=false,updated_at=NOW() WHERE userid=$1 AND kind='account_confirmation' AND status='pending'`,[row.userid]);
   await enqueueNotification(db,{userId:row.userid,kind:'account_created',dedupeKey:`account-created:${row.userid}`,payload:{}});
   return row.userid;

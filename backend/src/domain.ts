@@ -115,6 +115,19 @@ export function emailField(value: unknown): string {
   return email;
 }
 
+/** Sign-up addresses must have a valid unquoted mailbox and DNS-style domain; inbox confirmation proves ownership. */
+export function registrationEmailField(value: unknown): string {
+  const email = emailField(value);
+  const [mailbox, domain] = email.split('@') as [string, string];
+  const labels = domain.split('.');
+  if (mailbox.length > 64 || mailbox.startsWith('.') || mailbox.endsWith('.') || mailbox.includes('..') ||
+      !/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+$/i.test(mailbox) ||
+      labels.some(label => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(label)) ||
+      !/^[a-z]{2,63}$/i.test(labels.at(-1)!))
+    throw new AppError(400, 'INVALID_INPUT', 'Enter a valid email address, such as name@example.com.');
+  return email;
+}
+
 export function usernameField(value: unknown): string {
   const username = textField(value, "Username", 30, 3).toLowerCase();
   if (!/^[a-z0-9][a-z0-9_.-]{2,29}$/.test(username))

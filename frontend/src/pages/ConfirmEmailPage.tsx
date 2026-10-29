@@ -82,6 +82,7 @@ export function ConfirmEmailPage() {
         </section>
       </main>
     );
+  // A successful sign-up response represents a temporary request, never an active membership.
   const deliveryDisabled = location.state?.emailSendingEnabled === false;
   return (
     <main className="email-confirm-screen">
@@ -103,8 +104,8 @@ export function ConfirmEmailPage() {
           </h1>
           <p role="status">
             {deliveryDisabled
-              ? "Your account is saved. Please contact the studio to finish confirming your email."
-              : "Open your email and select Confirm my email to continue."}
+              ? "Your sign-up is pending; no member account has been created. Email delivery is unavailable here. Contact the studio or try again when email is available. Unconfirmed requests expire after 24 hours."
+              : "Open your email and select Confirm my email to create your account. Unconfirmed requests expire after 24 hours."}
           </p>
           <details className="email-confirm-help">
             <summary>Didn’t get the email?</summary>
