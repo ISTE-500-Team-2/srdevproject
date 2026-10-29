@@ -12,7 +12,6 @@ import {
   AppError,
   dateOfBirthField,
   emailField,
-  registrationEmailField,
   loginIdentifier,
   newPasswordField,
   passwordField,
@@ -146,7 +145,8 @@ export class AuthController {
       firstName: textField(req.body.firstName, 'First name', 50),
       lastName: textField(req.body.lastName, 'Last name', 50),
       phone: textField(req.body.phone, 'Phone', 15),
-      email: registrationEmailField(req.body.email),
+      // The shared validator uses the same address identity rules as login and recovery.
+      email: emailField(req.body.email),
       dob: dateOfBirthField(req.body.dob),
       password: await hashPassword(newPasswordField(req.body.password)),
     };
@@ -196,8 +196,8 @@ export class AuthController {
   confirmation = async (req: Request,res: Response) => {
     const email=emailField(req.body.email);
     const password=passwordField(req.body.password);
-    // Corrected addresses receive the same strict format validation as initial sign-ups.
-    const newEmail=req.body.newEmail == null ? undefined : registrationEmailField(req.body.newEmail);
+    // Corrected addresses use the same validation and identity rules as every other email flow.
+    const newEmail=req.body.newEmail == null ? undefined : emailField(req.body.newEmail);
     // A pending registration has no user ID; authenticate and resend its staged request first.
     const pending = await transaction(this.pool, db => resendRegistration(db,email,password,newEmail,
       this.config.notifications?.appOrigin ?? this.config.allowedOrigins[0]!)).catch(error => {

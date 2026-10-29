@@ -86,6 +86,58 @@ test('public signup has an independent ten-attempt IP limit',async()=>{
   assert.equal(response.status,429);assert.ok(response.headers['retry-after']);
 });
 
+// Real API/database flows must agree on address identity without removing meaningful dots or plus tags.
+test('signup, duplicates, correction, delivery, login and password recovery share email identity rules',async()=>{
+  const flow=createApp(pool,config);
+  const initial='first.last+studio@example.com', corrected='first.last+workshop@example.com';
+  const input=person(' First.Last+Studio@Example.COM ');
+  assert.equal((await request(flow).post('/api/auth/register').send(input)).status,202);
+  const old=await confirmationToken(pool,initial);
+  assert.equal((await request(flow).post('/api/auth/register').send({...input,email:initial.toUpperCase()})).status,202);
+  assert.equal(await confirmationToken(pool,initial),old);
+  await pool.query("UPDATE app_pending_registration SET sent_at=NOW()-INTERVAL '61 seconds' WHERE email=$1",[initial]);
+  assert.equal((await request(flow).post('/api/auth/confirmation').send({...input,newEmail:' First.Last+Workshop@Example.COM '})).status,202);
+  assert.equal((await request(flow).post('/api/auth/confirm').send({token:old})).status,400);
+  const recipients:string[]=[];
+  await runNotificationBatch(pool,async job=>{recipients.push(job.email);return{messageId:'identity-'+randomBytes(6).toString('hex')};});
+  assert.ok(recipients.includes(corrected));
+  const confirmed=await request(flow).post('/api/auth/confirm').send({token:await confirmationToken(pool,corrected)});
+  assert.equal(confirmed.status,200);assert.equal(confirmed.body.data.user.email,corrected);
+  const id=confirmed.body.data.user.id;
+  const login=await request(flow).post('/api/auth/login').send({identifier:' First.Last+Workshop@Example.COM ',password:input.password});
+  assert.equal(login.status,200);assert.equal(login.body.data.user.id,id);
+  assert.equal((await request(flow).post('/api/auth/password-reset').send({email:' FIRST.LAST+WORKSHOP@EXAMPLE.COM '})).status,202);
+  assert.equal((await pool.query('SELECT 1 FROM app_password_reset WHERE userid=$1',[id])).rowCount,1);
+  const reset=(await pool.query("SELECT payload FROM app_notification_outbox WHERE userid=$1 AND kind='password_reset' ORDER BY id DESC LIMIT 1",[id])).rows[0];
+  assert.equal((await request(flow).post('/api/auth/password-reset/check').send({token:new URL(reset.payload.resetUrl).hash.slice(1)})).status,204);
+  assert.equal((await pool.query('SELECT 1 FROM "user" WHERE email=ANY($1::text[])',[[initial,'firstlast@example.com','first.last@example.com']])).rowCount,0);
+});
+
+// Malformed input must be rejected consistently at every entry point before records or notification jobs change.
+test('all email account endpoints reject injection, invisible characters and malformed addresses without side effects',async()=>{
+  const count=async()=> (await pool.query(`SELECT (SELECT COUNT(*)::int FROM "user") AS users,
+    (SELECT COUNT(*)::int FROM app_pending_registration) AS pending,
+    (SELECT COUNT(*)::int FROM app_notification_outbox) AS mail,
+    (SELECT COUNT(*)::int FROM app_password_reset) AS resets`)).rows[0];
+  const before=await count();
+  for(const email of ['a@example.com\r\nBcc: victim@example.com','\na@example.com','a@example.com\t',
+    'a\u200b@example.com','a..b@example.com','a@-host.com','Name <a@example.com>','a@example.com,b@example.com']) {
+    const guarded=createApp(pool,config), input=person(email);
+    for(const [path,body] of [
+      ['/api/auth/register',input],
+      ['/api/auth/login',{identifier:email,password:input.password}],
+      ['/api/auth/confirmation',input],
+      ['/api/auth/confirmation',{...input,email:'valid@example.com',newEmail:email}],
+      ['/api/auth/password-reset',{email}],
+    ] as const) {
+      const response=await request(guarded).post(path).send(body);
+      assert.equal(response.status,400,`${path}: ${JSON.stringify(email)}`);
+      assert.equal(response.body.error.code,'INVALID_INPUT');
+    }
+  }
+  assert.deepEqual(await count(),before);
+});
+
 // Applying the real upgrade must preserve existing records while removing their active-member status.
 test('migration quarantines a legacy unconfirmed account and preserves its confirmation link',async()=>{
   const name='arbor_legacy_registration_'+randomBytes(6).toString('hex')+'_mvc_test';

@@ -28,7 +28,7 @@
 - Native date-picker input is retained between signup steps, including when the
   control emits input before change.
 
-## Validation
+## Initial registration validation
 
 - Backend unit tests: 58 passed. Backend integration tests: 242 passed, including
   malformed email, account-free staging, confirmation races, repeated requests,
@@ -53,3 +53,74 @@ into the verification image; its Docker target does not copy that directory.
 Local demo email delivery is disabled by its existing configuration. Test sign-ups
 there remain pending until confirmed; database-backed tests use an isolated test
 inbox and fake delivery, never a production mailbox.
+
+## Email validation follow-up
+
+Replaces the custom email regex with pinned `validator` 13.15.35 and
+`@types/validator` 13.15.10. One commented `emailField` helper now handles signup,
+login, confirmation resend/address correction, password recovery and waiver email
+fields. The existing whole-address lowercase comparison policy and 100-character
+storage limit are retained; no stored addresses or database schema are changed.
+
+- Leading/trailing whitespace is trimmed only after rejecting control characters
+  and invisible formatting characters. CR/LF, tabs, NUL and zero-width input fail
+  validation rather than being silently stripped. Login passes the original
+  email to this helper so its earlier identifier parsing cannot hide controls.
+- Meaningful mailbox punctuation is retained: ` First.Last+Studio@Example.COM `
+  becomes `first.last+studio@example.com`. Dots and plus tags remain intact;
+  provider-specific rewriting and domain-specific mailbox restrictions are off.
+- The library validates a single mailbox, including mailbox/domain length and
+  dot placement. Display names, lists, IP literals and malformed domains are
+  rejected. SMTPUTF8 local parts are unsupported; ASCII punycode domains are
+  covered by the unit tests. No DNS lookup or provider-specific alias merging is
+  performed, and format validation never creates a verified member.
+- Single-use inbox confirmation, duplicate-request protection, rate limits and
+  expiry remain the ownership and abuse controls. Dependencies are locked in
+  `backend/package-lock.json`; installation reported zero known vulnerabilities.
+
+The implementation follows the separation between normalization, format checks
+and ownership verification in [OWASP's email guidance](https://cheatsheetseries.owasp.org/cheatsheets/Email_Validation_and_Verification_Cheat_Sheet.html),
+using [validator's documented options](https://github.com/validatorjs/validator.js#validators).
+
+### Follow-up verification
+
+New regression coverage exercises retained dots/plus tags/apostrophes, case and whitespace,
+punycode, unsafe characters, storage limits and malformed mailbox/domain input.
+The isolated PostgreSQL/API scenario follows signup → duplicate submission →
+authenticated address correction → fake delivery → confirmation → login →
+password-reset lookup. A second scenario checks every email account endpoint
+rejects malformed input without changing users, pending requests, mail or reset
+records.
+
+- Backend TypeScript build and all 59 unit tests passed.
+- All 244 backend integration tests passed with four workers, including the two
+  new end-to-end email scenarios and the existing registration, confirmation,
+  password reset, waiver, audit and account-security regression coverage.
+- All 35 frontend integration tests passed across 14 files with two workers.
+  Frontend source and dependencies did not change in this follow-up; its unit
+  tests were not repeated. The earlier 254-test result is recorded separately
+  above.
+- The existing Compose app was rebuilt successfully and both containers are
+  healthy. Five direct localhost requests exercised malformed dot placement,
+  CR/LF header injection, a leading newline on login, zero-width address
+  correction and display-name reset input; all returned `400 INVALID_INPUT`.
+  User, pending-request and mail counts were unchanged at 4, 2 and 13 respectively.
+- `git diff --check` passed. Test databases were isolated; existing demo volumes
+  were retained. No real email was sent and no production migration, merge or
+  deployment was performed.
+
+Reproduction commands, run from the repository root with the existing Compose
+database available (each integration suite creates and drops its own test databases):
+
+```sh
+docker build --target verify -t arbor-registration-verify .
+docker run --rm --entrypoint npm arbor-registration-verify run check --prefix backend
+docker run --rm --network arbor-mvc_mvc \
+  -e PGHOST=db -e PGUSER=arbor_mvc -e PGDATABASE=postgres \
+  -v "$PWD/deploy:/app/deploy:ro" --entrypoint sh arbor-registration-verify \
+  -c 'cd backend && node --import tsx --test --test-concurrency=4 test/integration/*.test.ts'
+docker run --rm --network arbor-mvc_mvc \
+  -e PGHOST=db -e PGUSER=arbor_mvc -e PGDATABASE=postgres \
+  --entrypoint npm arbor-registration-verify \
+  run test:integration --prefix frontend -- --maxWorkers=2
+```
