@@ -121,7 +121,7 @@ export class StudioService {
       await this.actor(db, id, true);
       return (
         await db.query(
-          'SELECT r.*,s.name,u.email FROM app_studio_rental r JOIN app_studio s ON s.id=r.studio_id JOIN "user" u ON u.userid=r.userid ORDER BY r.created_at DESC LIMIT 200',
+          `SELECT r.*,s.name,u.email,u.firstname||' '||u.lastname AS member_name FROM app_studio_rental r JOIN app_studio s ON s.id=r.studio_id JOIN "user" u ON u.userid=r.userid ORDER BY r.created_at DESC LIMIT 200`,
         )
       ).rows.map((r) => this.dates(r));
     });

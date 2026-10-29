@@ -31,7 +31,7 @@ export function StaffReservations() {
   const [filters, setFilters] = useState(() => ({
     date: "",
     userId: Number(params.get("member")) > 0 ? String(Number(params.get("member"))) : "",
-    equipmentId: "",
+    equipmentId: Number(params.get("equipmentId")) > 0 ? String(Number(params.get("equipmentId"))) : "",
   }));
   const [editing, setEditing] = useState<Reservation | null>(null);
   const editorTitle = useRef<HTMLHeadingElement>(null);
@@ -68,6 +68,8 @@ export function StaffReservations() {
     setMessage("");
     try {
       const start = new Date(form.startTime);
+      if (start.getMinutes() % 30 !== 0 || start.getSeconds() !== 0 || start.getMilliseconds() !== 0)
+        throw new RangeError("Choose a start time on the hour or half-hour.");
       const end = new Date(
         start.getTime() + Number(form.duration) * 60 * 60 * 1000,
       );
@@ -93,7 +95,7 @@ export function StaffReservations() {
       setForm(emptyForm);
       reservations.reload();
     } catch (error) {
-      setMessage(errorMessage(error));
+      setMessage(error instanceof RangeError ? error.message : errorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -282,11 +284,13 @@ export function StaffReservations() {
             <input
               required
               type="datetime-local"
+              step={1800}
               value={form.startTime}
               onChange={(event) =>
                 setForm({ ...form, startTime: event.target.value })
               }
             />
+            <small>Reservations start on the hour or half-hour.</small>
           </label>
           <label className="form-field">
             Duration

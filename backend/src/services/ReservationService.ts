@@ -217,6 +217,7 @@ export class ReservationService {
       userId?: unknown;
       expectedRevision?: unknown;
     },
+    maintenance?: { sourceEquipmentId: number; preview?: boolean; expectedRate?: unknown },
   ) {
     return transaction(this.pool, async (db) => {
       const access = new AccessService(db, this.timeZone);
@@ -266,6 +267,9 @@ export class ReservationService {
           "STALE_RECORD",
           "This reservation changed. Refresh it before saving.",
         );
+
+      if (maintenance && (before.equipmentId !== maintenance.sourceEquipmentId || before.equipmentId === input.equipmentId))
+        throw new AppError(409, "STALE_RECORD", "Choose a different machine for this equipment's reservation.");
 
       const targetId =
         input.userId == null
@@ -394,6 +398,19 @@ export class ReservationService {
           );
       }
 
+      if (maintenance) {
+        const target = await new EquipmentModel(db).findForUpdate(equipmentId!);
+        const rate = target!.rate === null ? null : Number(target!.rate);
+        const source = (await db.query('SELECT hourlyrate FROM equipment WHERE equipmentid=$1', [maintenance.sourceEquipmentId])).rows[0];
+        if (maintenance.preview) return {
+          reservationId, expectedRevision, equipmentId, equipmentName: resourceName,
+          startTime: start.toISOString(), endTime: end.toISOString(),
+          oldRate: source.hourlyrate === null ? null : Number(source.hourlyrate), rate,
+        };
+        if (maintenance.expectedRate !== rate)
+          throw new AppError(409, "RATE_CHANGED", "The hourly rate changed. Review this move again before confirming.");
+      }
+
       const reservation = await model.update(reservationId, {
         userId: targetId,
         equipmentId: equipmentId ?? undefined,
@@ -430,7 +447,7 @@ export class ReservationService {
     });
   }
 
-  async cancelAny(actorId: number, reservationId: number) {
+  async cancelAny(actorId: number, reservationId: number, maintenance?: { sourceEquipmentId: number; expectedRevision: unknown }) {
     return transaction(this.pool, async (db) => {
       const access = new AccessService(db, this.timeZone);
       await access.assertActiveUser(actorId);
@@ -478,6 +495,8 @@ export class ReservationService {
           "CLASS_WORKFLOW_REQUIRED",
           "Cancel this training through Classes to preserve enrollment records.",
         );
+      if (maintenance && (before.equipmentId !== maintenance.sourceEquipmentId || before.revision !== positiveId(maintenance.expectedRevision, "Revision")))
+        throw new AppError(409, "STALE_RECORD", "This reservation changed. Refresh it before cancelling.");
       const result = await model.cancelAny(reservationId);
       if (!result)
         throw new AppError(

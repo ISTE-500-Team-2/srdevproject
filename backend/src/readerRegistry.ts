@@ -17,6 +17,7 @@ export interface Reader {
 export interface DeviceConfig {
   cardHashKey: string;
   readers: Reader[];
+  setupGateways?: { id: string; name: string; secret: string }[];
 }
 export interface StoredReader extends Omit<Reader, "secret"> {
   name: string;
@@ -114,7 +115,9 @@ export class ReaderRegistry {
       FROM app_access_reader r
       LEFT JOIN building b ON r.kind='building' AND b.buildingid=r.resource_id
       LEFT JOIN room rm ON r.kind='room' AND rm.roomid=r.resource_id
-      LEFT JOIN equipment e ON r.kind='equipment' AND e.equipmentid=r.resource_id ORDER BY r.name,r.id`)
+      LEFT JOIN equipment e ON r.kind='equipment' AND e.equipmentid=r.resource_id
+      ${this.config?.setupGateways?.length ? "WHERE NOT EXISTS (SELECT 1 FROM app_reader_setup_job j WHERE j.reader_id=r.id AND j.status<>'complete')" : ""}
+      ORDER BY r.name,r.id`)
     ).rows;
   }
 }

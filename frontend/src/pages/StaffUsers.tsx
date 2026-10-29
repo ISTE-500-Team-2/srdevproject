@@ -88,15 +88,15 @@ export function StaffUsers() {
       <LoadState {...users} loading={users.loading && !users.data} />
       {users.data ? (
         users.data.items.length ? (
-          <div className="staff-directory__table">
+          <div className="staff-directory__table table-scroll" role="region" aria-label="Members and staff" tabIndex={0}>
             <table>
               <thead>
                 <tr>
-                  <th>Name</th>
-                  <th>Email</th>
-                  <th>Role</th>
-                  <th>Account</th>
-                  <th>Access</th>
+                  <th scope="col">Name</th>
+                  <th scope="col">Email</th>
+                  <th scope="col">Role</th>
+                  <th scope="col">Account</th>
+                  <th scope="col">Access</th>
                 </tr>
               </thead>
               <tbody>

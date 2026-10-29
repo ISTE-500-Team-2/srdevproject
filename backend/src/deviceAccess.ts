@@ -49,7 +49,14 @@ export function readDeviceConfig(): DeviceConfig | undefined {
       throw Error("Invalid reader configuration");
     ids.add(r.id);
   }
-  return { readers, cardHashKey };
+  const setupGateways = JSON.parse(process.env.ACCESS_SETUP_GATEWAYS_JSON ?? "[]");
+  if (!Array.isArray(setupGateways) || setupGateways.length > 20
+      || setupGateways.some((g: any) => !g || typeof g.id !== "string"
+        || !/^[a-zA-Z0-9_-]{1,64}$/.test(g.id) || typeof g.name !== "string"
+        || !g.name.trim() || g.name.length > 100 || typeof g.secret !== "string"
+        || g.secret.length < 32) || new Set(setupGateways.map((g: any) => g.id)).size !== setupGateways.length)
+    throw Error("Invalid reader setup gateway configuration");
+  return { readers, cardHashKey, setupGateways };
 }
 export function deviceDecision(
   pool: Pool,
@@ -76,7 +83,6 @@ export function deviceDecision(
       !/^[a-f0-9]{64}$/.test(signature)
     )
       throw authError();
-    await registry.ready();
     const decision = await accessTransaction(pool, async (db) => {
       // This lock also orders disable/enrollment commands against physical taps.
       const reader = (
@@ -228,7 +234,7 @@ export function deviceDecision(
         mode,
         ...verdict,
       };
-    }).catch((error) => {
+    }, 1800, () => registry.ready()).catch((error) => {
       if (
         error instanceof AccessDeadlineError ||
         error?.code === "57014" ||

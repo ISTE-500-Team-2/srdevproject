@@ -4,7 +4,7 @@ export class AccessDeadlineError extends Error {}
 
 // Includes pool queue time. Destroying a timed-out connection rolls back any
 // uncommitted check-in and prevents queued work from later granting access.
-export async function accessTransaction<T>(pool: Pool, work: (db: PoolClient) => Promise<T>, budgetMs = 1800): Promise<T> {
+export async function accessTransaction<T>(pool: Pool, work: (db: PoolClient) => Promise<T>, budgetMs = 1800, prepare?: () => Promise<void>): Promise<T> {
   let client: PoolClient | undefined;
   let expired = false;
   let released = false;
@@ -20,6 +20,10 @@ export async function accessTransaction<T>(pool: Pool, work: (db: PoolClient) =>
     }, budgetMs);
   });
   const operation = async () => {
+    // Initialization may itself need a pool connection. Include it in the same
+    // deadline without occupying the pool, and never start late decision work.
+    await prepare?.();
+    if (expired) throw new AccessDeadlineError();
     client = await pool.connect();
     if (expired) { release(); throw new AccessDeadlineError(); }
     try {

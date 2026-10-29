@@ -1,4 +1,5 @@
 import { ReaderRegistry } from './readerRegistry.js';
+import {readerSetupPoll} from './readerSetup.js';
 import {deviceDecision} from './deviceAccess.js';
 import {studioWebhook} from './studios/routes.js';
 import { auditContext, auditedPool } from './auditContext.js';
@@ -32,6 +33,7 @@ export function createApp(
     next();
   });
   app.post('/api/devices/decision',express.raw({type:'application/json',limit:'2kb'}),deviceDecision(pool,config.timeZone,config.devices,readers));
+  app.post('/api/devices/setup/poll',express.raw({type:'application/json',limit:'16kb'}),readerSetupPoll(pool,readers));
   app.post('/api/webhooks/stripe-studios',express.raw({type:'application/json',limit:'96kb'}),studioWebhook(pool,config.timeZone,config.studioStripe));
   app.use(
     '/api/webhooks/brevo',

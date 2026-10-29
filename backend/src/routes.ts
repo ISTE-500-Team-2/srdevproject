@@ -1,4 +1,6 @@
+import { equipmentManagement } from "./equipmentManagement.js";
 import { ReaderRegistry } from './readerRegistry.js';
+import {readerSetupRoutes} from './readerSetup.js';
 import {reportRoutes} from './reports.js';
 import {accountModeRoutes,paymentDetailsAreMemberOnly,settingsAreMemberOnly,signatureIsMemberOnly,waiverCopiesAreAdminOnly} from './accountMode.js';
 import {trainingClassRoutes} from './trainingClasses.js';
@@ -40,6 +42,8 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   const rateLimit = authRateLimit();
   // Cookie rotations have their own bounded throttle, not the sign-in budget.
   // CSRF, origin and rotating-cookie validation are unchanged.
+  // Failed sign-ins (and other members on a shared network) must not lock people out of recovery.
+  const resetLimit = authRateLimit({ message: "Too many password reset attempts. Please wait a few minutes and try again." });
   const refreshLimit = authRateLimit({ limit: 120, windowMs: 60000,
     message: "Too many session refreshes. Please retry shortly." });
   routes.get("/health", async (_req, res) => {
@@ -55,6 +59,9 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   routes.post("/auth/register", rateLimit, auth.register);
   routes.post("/auth/confirm", rateLimit, auth.confirm);
   routes.post("/auth/confirmation", rateLimit, auth.confirmation);
+  routes.post("/auth/password-reset", resetLimit, auth.passwordReset);
+  routes.post("/auth/password-reset/check", resetLimit, auth.checkPasswordReset);
+  routes.post("/auth/password-reset/confirm", resetLimit, auth.confirmPasswordReset);
   if (config.demoLogin) routes.post("/auth/demo", rateLimit, auth.demo);
   routes.get("/auth/csrf", auth.csrf);
   routes.post("/auth/refresh", refreshLimit, auth.refresh);
@@ -91,9 +98,11 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   routes.get("/me/memberships", permit("entitlement", "read", "own"), member.memberships);
   routes.get("/me/payments", permit("payment", "read", "own"), member.payments);
   routes.use("/admin", requireStaff);
+  routes.use(equipmentManagement(pool, config.timeZone));
   routes.use(accountModeRoutes(pool, config));
   routes.use(reportRoutes(pool,config.timeZone));
   routes.use(cardManagement(pool,config.timeZone,config.devices,readers));
+  routes.use(readerSetupRoutes(pool,config.timeZone,readers));
   routes.get("/admin/plans", permit("plan","read","global"), staff.plans);
   routes.post("/admin/plans", permit("plan","create","global"), requireCsrf, staff.createPlan);
   routes.patch("/admin/plans/:id", permit("plan","update","global"), requireCsrf, staff.updatePlan);

@@ -12,7 +12,7 @@
 }
 
 .account-hero h1 {
-  font-size: clamp(2rem, 3vw, 3rem);
+  font-size: var(--text-page-title);
 }
 
 .account-hero__facts {
@@ -22,7 +22,7 @@
   gap: 6px 18px;
   margin-top: 10px;
   color: var(--ink-soft);
-  font-size: 0.92rem;
+  font-size: var(--text-base);
 }
 
 .account-hero__facts .membership-pill {
@@ -109,14 +109,14 @@
 
 .account-section__head h2 {
   margin: 0;
-  font-size: 1.15rem;
+  font-size: var(--text-lg);
   font-weight: 600;
 }
 
 .account-section__head p {
   margin: 0;
   color: var(--ink-soft);
-  font-size: 0.86rem;
+  font-size: var(--text-base-sm);
 }
 
 .account-section__icon {
@@ -160,7 +160,7 @@
 .account-detail dt {
   margin-bottom: 2px;
   color: var(--ink-soft);
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -209,7 +209,7 @@
 .account-hint {
   margin: 0;
   color: var(--ink-soft);
-  font-size: 0.88rem;
+  font-size: var(--text-base-sm);
 }
 
 .account-choice {
@@ -240,7 +240,7 @@
   gap: 6px;
   padding: 9px 14px;
   color: var(--ink-soft);
-  font-size: 0.9rem;
+  font-size: var(--text-base-sm);
   font-weight: 600;
   cursor: pointer;
 }
@@ -285,7 +285,7 @@
 
 .account-plan__name {
   font-family: 'Black Ops One', sans-serif;
-  font-size: 1.45rem;
+  font-size: var(--text-2xl);
   font-weight: 400;
 }
 
@@ -295,7 +295,7 @@
   gap: 5px;
   margin-left: auto;
   color: #1f6b32;
-  font-size: 0.88rem;
+  font-size: var(--text-base-sm);
   font-weight: 600;
 }
 
@@ -321,7 +321,7 @@
 .account-toggle p {
   margin: 2px 0 0;
   color: var(--ink-soft);
-  font-size: 0.86rem;
+  font-size: var(--text-base-sm);
 }
 
 .account-toggle select {
@@ -399,7 +399,7 @@
 .account-docs p {
   margin: 0;
   color: var(--ink-soft);
-  font-size: 0.86rem;
+  font-size: var(--text-base-sm);
 }
 
 .account-docs__icon {
@@ -420,7 +420,7 @@
 
 .account-docs__none {
   color: var(--ink-soft);
-  font-size: 0.82rem;
+  font-size: var(--text-sm);
 }
 
 .account-help {
@@ -441,14 +441,14 @@
 
 .account-help h2 {
   margin: 0;
-  font-size: 1.15rem;
+  font-size: var(--text-lg);
   font-weight: 600;
 }
 
 .account-help p {
   margin: 2px 0 0;
   color: #e0d1c9;
-  font-size: 0.9rem;
+  font-size: var(--text-base-sm);
 }
 
 .account-help__icon {
@@ -503,7 +503,7 @@
     border-radius: 99px;
     padding: 7px 14px;
     background: #fff;
-    font-size: 0.9rem;
+    font-size: var(--text-base-sm);
   }
 
   .account-nav a svg {
@@ -526,7 +526,7 @@
   .account-hero .profile-hero__avatar {
     width: 64px;
     height: 64px;
-    font-size: 1.15rem;
+    font-size: var(--text-lg);
   }
 
   .account-details,

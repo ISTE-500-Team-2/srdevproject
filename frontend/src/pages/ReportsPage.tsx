@@ -1,3 +1,4 @@
+import { TableScroll } from "../components/TableScroll";
 import { useState, type FormEvent } from "react";
 import { api, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
@@ -200,32 +201,34 @@ export function ReportsPage() {
                   )}
                 </strong>
               </p>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Period</th>
-                    <th>Membership / category</th>
-                    <th>Method</th>
-                    <th>Receipts</th>
-                    <th>Gross</th>
-                    <th>Refunded</th>
-                    <th>Net</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {d.revenue.map((r, i) => (
-                    <tr key={i}>
-                      <td>{r.period}</td>
-                      <td>{r.category}</td>
-                      <td>{r.method}</td>
-                      <td>{r.receipts}</td>
-                      <td>{dollars(r.gross)}</td>
-                      <td>{dollars(r.refunds)}</td>
-                      <td>{dollars(r.net)}</td>
+              <TableScroll label="Recorded revenue">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Period</th>
+                      <th scope="col">Membership / category</th>
+                      <th scope="col">Method</th>
+                      <th scope="col" className="table-number">Receipts</th>
+                      <th scope="col" className="table-number">Gross</th>
+                      <th scope="col" className="table-number">Refunded</th>
+                      <th scope="col" className="table-number">Net</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {d.revenue.map((r, i) => (
+                      <tr key={i}>
+                        <td>{r.period}</td>
+                        <td>{r.category}</td>
+                        <td>{r.method}</td>
+                        <td className="table-number">{r.receipts}</td>
+                        <td className="table-number">{dollars(r.gross)}</td>
+                        <td className="table-number">{dollars(r.refunds)}</td>
+                        <td className="table-number">{dollars(r.net)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </TableScroll>
               {!d.revenue.length ? (
                 <p>No settled receipts in this period.</p>
               ) : null}
@@ -258,28 +261,30 @@ export function ReportsPage() {
           <p>
             Distinct people per period. Renewals don't count as new members.
           </p>
-          <table>
-            <thead>
-              <tr>
-                <th>Period</th>
-                <th>New members</th>
-                <th>Active coverage</th>
-                <th>Expiring without continuation</th>
-                <th>Confirmed cancellation requests</th>
-              </tr>
-            </thead>
-            <tbody>
-              {d.memberships?.map((row) => (
-                <tr key={row.period}>
-                  <td>{row.period}</td>
-                  <td>{row.newMembers}</td>
-                  <td>{row.activeMembers}</td>
-                  <td>{row.expiringMembers}</td>
-                  <td>{row.cancelledMembers}</td>
+          <TableScroll label="Membership trends">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Period</th>
+                  <th scope="col" className="table-number">New members</th>
+                  <th scope="col" className="table-number">Active coverage</th>
+                  <th scope="col" className="table-number">Expiring without continuation</th>
+                  <th scope="col" className="table-number">Confirmed cancellation requests</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {d.memberships?.map((row) => (
+                  <tr key={row.period}>
+                    <td>{row.period}</td>
+                    <td className="table-number">{row.newMembers}</td>
+                    <td className="table-number">{row.activeMembers}</td>
+                    <td className="table-number">{row.expiringMembers}</td>
+                    <td className="table-number">{row.cancelledMembers}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableScroll>
           <p>
             Based on current membership records.
           </p>
@@ -287,140 +292,148 @@ export function ReportsPage() {
           <p>
             Reminder emails due in the selected range, and whether they went out on time.
           </p>
-          <table>
-            <thead>
-              <tr>
-                <th>Cohort</th>
-                <th>Eligible deadlines</th>
-                <th>Accepted on time</th>
-                <th>Acceptance rate</th>
-                <th>Delivered on time</th>
-                <th>Delivery rate</th>
-                <th>All delivered callbacks</th>
-                <th>Failed sends / delivery failures / uncertain / pending</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Object.entries(d.notifications?.cohorts ?? {}).map(
-                ([key, row]) => (
-                  <tr key={key}>
-                    <th scope="row">
-                      {(
-                        {
-                          expirationCompliance:
-                            "Waiver & training expiration",
-                          membershipExpiration: "Membership expiration",
-                          other: "Account, billing & other notices",
-                        } as Record<string, string>
-                      )[key] ?? key}
-                    </th>
-                    <td>{row.eligible}</td>
-                    <td>{row.on_time}</td>
-                    <td>
-                      {row.onTimePercent === null
-                        ? "Not measured"
-                        : row.onTimePercent.toFixed(1) + "%"}
-                    </td>
-                    <td>{row.delivery_on_time}</td>
-                    <td>
-                      {row.deliveryOnTimePercent === null
-                        ? "Not measured"
-                        : row.deliveryOnTimePercent.toFixed(1) + "%"}
-                    </td>
-                    <td>{row.delivered}</td>
-                    <td>
-                      {row.failed} / {row.delivery_failed} / {row.uncertain} /{" "}
-                      {row.pending}
-                    </td>
-                  </tr>
-                ),
-              )}
-            </tbody>
-          </table>
-          <h2>Equipment booking utilization</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Machine</th>
-                <th>Bookings</th>
-                <th>Booked hours</th>
-                <th>Calendar-window utilization</th>
-                <th>Reader-authorized hours</th>
-              </tr>
-            </thead>
-            <tbody>
-              {d.equipment.map((e) => (
-                <tr key={e.id}>
-                  <td>{e.name}</td>
-                  <td>{e.reservations}</td>
-                  <td>{e.bookedHours.toFixed(2)}</td>
-                  <td>{e.bookedUtilizationPercent.toFixed(1)}%</td>
-                  <td>
-                    {Number(
-                      d.usage.find((u) => u.equipmentId === e.id)
-                        ?.authorizedHours ?? 0,
-                    ).toFixed(3)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <details>
-            <summary>Usage by weekday and hour</summary>
-            <table>
+          <TableScroll label="Notification delivery evidence">
+            <table className="data-table">
               <thead>
                 <tr>
-                  <th>Machine</th>
-                  <th>Weekday</th>
-                  <th>Local hour</th>
-                  <th>Booked hours</th>
+                  <th scope="col">Cohort</th>
+                  <th scope="col" className="table-number">Eligible deadlines</th>
+                  <th scope="col" className="table-number">Accepted on time</th>
+                  <th scope="col" className="table-number">Acceptance rate</th>
+                  <th scope="col" className="table-number">Delivered on time</th>
+                  <th scope="col" className="table-number">Delivery rate</th>
+                  <th scope="col" className="table-number">All delivered callbacks</th>
+                  <th scope="col" className="table-number">Failed sends / delivery failures / uncertain / pending</th>
                 </tr>
               </thead>
               <tbody>
-                {d.patterns.map((r, i) => (
-                  <tr key={i}>
-                    <td>{r.name}</td>
-                    <td>
-                      {
-                        ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][
-                          r.weekday - 1
-                        ]
-                      }
+                {Object.entries(d.notifications?.cohorts ?? {}).map(
+                  ([key, row]) => (
+                    <tr key={key}>
+                      <th scope="row">
+                        {(
+                          {
+                            expirationCompliance:
+                              "Waiver & training expiration",
+                            membershipExpiration: "Membership expiration",
+                            other: "Account, billing & other notices",
+                          } as Record<string, string>
+                        )[key] ?? key}
+                      </th>
+                      <td className="table-number">{row.eligible}</td>
+                      <td className="table-number">{row.on_time}</td>
+                      <td className="table-number">
+                        {row.onTimePercent === null
+                          ? "Not measured"
+                          : row.onTimePercent.toFixed(1) + "%"}
+                      </td>
+                      <td className="table-number">{row.delivery_on_time}</td>
+                      <td className="table-number">
+                        {row.deliveryOnTimePercent === null
+                          ? "Not measured"
+                          : row.deliveryOnTimePercent.toFixed(1) + "%"}
+                      </td>
+                      <td className="table-number">{row.delivered}</td>
+                      <td className="table-number">
+                        {row.failed} / {row.delivery_failed} / {row.uncertain} /{" "}
+                        {row.pending}
+                      </td>
+                    </tr>
+                  ),
+                )}
+              </tbody>
+            </table>
+          </TableScroll>
+          <h2>Equipment booking utilization</h2>
+          <TableScroll label="Equipment booking utilization">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Machine</th>
+                  <th scope="col" className="table-number">Bookings</th>
+                  <th scope="col" className="table-number">Booked hours</th>
+                  <th scope="col" className="table-number">Calendar-window utilization</th>
+                  <th scope="col" className="table-number">Reader-authorized hours</th>
+                </tr>
+              </thead>
+              <tbody>
+                {d.equipment.map((e) => (
+                  <tr key={e.id}>
+                    <td>{e.name}</td>
+                    <td className="table-number">{e.reservations}</td>
+                    <td className="table-number">{e.bookedHours.toFixed(2)}</td>
+                    <td className="table-number">{e.bookedUtilizationPercent.toFixed(1)}%</td>
+                    <td className="table-number">
+                      {Number(
+                        d.usage.find((u) => u.equipmentId === e.id)
+                          ?.authorizedHours ?? 0,
+                      ).toFixed(3)}
                     </td>
-                    <td>{r.hour}:00</td>
-                    <td>{Number(r.bookedHours).toFixed(2)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </TableScroll>
+          <details>
+            <summary>Usage by weekday and hour</summary>
+            <TableScroll label="Usage by weekday and hour">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Machine</th>
+                    <th scope="col">Weekday</th>
+                    <th scope="col" className="table-number">Local hour</th>
+                    <th scope="col" className="table-number">Booked hours</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {d.patterns.map((r, i) => (
+                    <tr key={i}>
+                      <td>{r.name}</td>
+                      <td>
+                        {
+                          ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][
+                            r.weekday - 1
+                          ]
+                        }
+                      </td>
+                      <td className="table-number">{r.hour}:00</td>
+                      <td className="table-number">{Number(r.bookedHours).toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableScroll>
           </details>
           <h2>Class occupancy & attendance</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Class</th>
-                <th>Starts</th>
-                <th>Status</th>
-                <th>Registered / capacity</th>
-                <th>Filled</th>
-                <th>Verified attendance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {d.classes.map((c) => (
-                <tr key={c.id}>
-                  <td>{c.title}</td>
-                  <td>{dateTime(c.startsAt)}</td>
-                  <td>{c.status}</td>
-                  <td>
-                    {c.enrolled} / {c.capacity}
-                  </td>
-                  <td>{Number(c.filledPercent).toFixed(1)}%</td>
-                  <td>{c.attended}</td>
+          <TableScroll label="Class occupancy and attendance">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Class</th>
+                  <th scope="col">Starts</th>
+                  <th scope="col">Status</th>
+                  <th scope="col" className="table-number">Registered / capacity</th>
+                  <th scope="col" className="table-number">Filled</th>
+                  <th scope="col" className="table-number">Verified attendance</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {d.classes.map((c) => (
+                  <tr key={c.id}>
+                    <td>{c.title}</td>
+                    <td>{dateTime(c.startsAt)}</td>
+                    <td>{c.status}</td>
+                    <td className="table-number">
+                      {c.enrolled} / {c.capacity}
+                    </td>
+                    <td className="table-number">{Number(c.filledPercent).toFixed(1)}%</td>
+                    <td className="table-number">{c.attended}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableScroll>
           <h2>Room visits</h2>
           {d.rooms.map((r) => (
             <p key={r.id}>

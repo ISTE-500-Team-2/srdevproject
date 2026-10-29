@@ -30,7 +30,7 @@
   padding: 1px 7px;
   background: #fdecea;
   color: var(--red);
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   font-style: normal;
   font-weight: 700;
 }
@@ -56,7 +56,7 @@
 .button.cw-small {
   min-height: 36px;
   padding: 5px 12px;
-  font-size: 0.88rem;
+  font-size: var(--text-base-sm);
 }
 .cw-small svg {
   width: 15px;
@@ -86,7 +86,7 @@
   gap: 5px;
   border-radius: 99px;
   padding: 2px 10px;
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   font-weight: 700;
   white-space: nowrap;
 }
@@ -176,7 +176,7 @@
   background: #fff;
   color: var(--ink);
   font: inherit;
-  font-size: 0.88rem;
+  font-size: var(--text-base-sm);
   font-weight: 600;
   cursor: pointer;
 }
@@ -195,7 +195,7 @@
   background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23685d57' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 12px center;
   color: var(--ink);
   font: inherit;
-  font-size: 0.88rem;
+  font-size: var(--text-base-sm);
   font-weight: 600;
   cursor: pointer;
 }
@@ -241,7 +241,7 @@
   padding: 11px 18px;
   background: rgba(239, 233, 228, 0.6);
   color: var(--ink-soft);
-  font-size: 0.72rem;
+  font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -287,7 +287,7 @@
   background: none;
   color: var(--bronze);
   font: inherit;
-  font-size: 0.9rem;
+  font-size: var(--text-base-sm);
   font-weight: 600;
   text-align: left;
   cursor: pointer;
@@ -322,7 +322,7 @@
   gap: 6px 14px;
   margin-top: 6px;
   color: var(--ink-soft);
-  font-size: 0.9rem;
+  font-size: var(--text-base-sm);
 }
 .cw-waiver__meta > span:not(.cw-tag) {
   display: inline-flex;
@@ -373,7 +373,7 @@
   align-items: center;
   gap: 6px;
   color: var(--ink-soft);
-  font-size: 0.88rem;
+  font-size: var(--text-base-sm);
   font-weight: 600;
   cursor: pointer;
 }
@@ -384,7 +384,7 @@
   margin: 6px 0 0;
   padding-left: 18px;
   color: var(--ink-soft);
-  font-size: 0.88rem;
+  font-size: var(--text-base-sm);
 }
 
 /* Side-panel forms */
@@ -465,7 +465,7 @@
   background: #fff;
   color: var(--ink-soft);
   font: inherit;
-  font-size: 0.82rem;
+  font-size: var(--text-sm);
   font-weight: 600;
   cursor: pointer;
 }
@@ -572,7 +572,7 @@
 }
 .cw-cert__top h3 {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: var(--text-base);
 }
 .cw-cert__equipment {
   display: flex;

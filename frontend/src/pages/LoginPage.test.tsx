@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeAll, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { LoginPage } from './LoginPage';
 
 const auth = vi.hoisted(() => ({ register: vi.fn(), loading: false }));
@@ -88,4 +88,18 @@ test('Enter while a registration is pending does not register again', async () =
   );
   fireEvent.keyDown(password, { key: 'Enter' });
   expect(auth.register).toHaveBeenCalledTimes(1);
+});
+
+function ResetLocation() {
+  const location = useLocation();
+  return <output data-testid="reset-location">{JSON.stringify({ path: location.pathname, email: location.state?.email })}</output>;
+}
+test.each([' member@example.invalid ', 'member_username'])('Forgot password routes publicly and only carries emails: %s', identifier => {
+  render(<MemoryRouter><LoginPage /><ResetLocation /></MemoryRouter>);
+  type(screen.getByLabelText('Email or username'), identifier);
+  fireEvent.click(screen.getByRole('button', { name: 'Forgot password?' }));
+  expect(JSON.parse(screen.getByTestId('reset-location').textContent!)).toEqual({
+    path: '/reset-password', ...(identifier.includes('@') ? { email: identifier.trim() } : {}),
+  });
+  expect(screen.queryByRole('dialog', { name: 'Reset your password' })).toBeNull();
 });

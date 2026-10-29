@@ -22,6 +22,8 @@ export function reservationInput(
     start.getMinutes() !== minute
   )
     throw new RangeError('Choose a valid local date and time.');
+  if (minute! % 30 !== 0)
+    throw new RangeError('Choose a start time on the hour or half-hour.');
   if (start.getTime() <= now)
     throw new RangeError('Choose a start time in the future.');
   return {

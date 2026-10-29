@@ -47,3 +47,16 @@ test('deadline destroys in-flight transaction and blocks later queries and commi
   assert.ok(!f.queries.includes('INSERT check_in'));
   assert.ok(!f.queries.includes('COMMIT'));
 });
+
+test('deadline includes reader preparation and never acquires a connection after late readiness', async () => {
+  const f = fixture();
+  let resume!: () => void;
+  let connections = 0;
+  const pool = { connect: async () => { connections++; return f.client; } } as unknown as Pool;
+  await assert.rejects(accessTransaction(pool, async () => assert.fail('late work must not run'), 20,
+    () => new Promise<void>(resolve => { resume = resolve; })), AccessDeadlineError);
+  resume();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(connections, 0);
+  assert.deepEqual(f.queries, []);
+});

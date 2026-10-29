@@ -6,16 +6,18 @@ const context = {recipientEmail:'member@example.com', recipientName:'<script>ale
   senderName:'The Crafty Studio', senderEmail:'studio@example.com',
   postalAddress:'1449 Wiseburg Road, White Hall, Maryland 21161', preferencesUrl:'https://studio.example/profile'};
 
-test('every template includes sender/recipient, postal address and opt-out; dynamic HTML is escaped', () => {
+test('every template includes sender/recipient, postal address and preference policy; dynamic HTML is escaped', () => {
   for (const kind of notificationKinds) {
     const result = renderNotification(kind, {resourceName:'<img src=x onerror=alert(1)>',
       waiverText:'Line one\n<script>bad</script>', signature:'Test Member', signedAt:'2030-01-01T00:00:00Z', waiverVersion:'v1',
+      resetUrl:'https://studio.example/reset-password#'+'a'.repeat(43),
       confirmationUrl:'https://studio.example/confirm-email#'+'a'.repeat(43), password:'DO_NOT_RENDER', apiKey:'DO_NOT_RENDER'}, context);
     assert.ok(result.subject.length > 0);
     assert.ok(result.textContent.includes(context.postalAddress));
     assert.ok(result.textContent.includes(context.recipientEmail));
     assert.ok(result.textContent.includes(context.senderEmail));
-    assert.ok(result.textContent.includes('opt out of all'));
+    assert.ok(result.textContent.includes(kind === 'password_reset' || kind === 'password_changed'
+      ? 'regardless of your notification preferences' : 'opt out of all'));
     assert.ok(!result.htmlContent.includes('<script>'));
     assert.ok(!result.htmlContent.includes('<img src=x'));
     assert.ok(!result.textContent.includes('DO_NOT_RENDER'));
@@ -84,4 +86,15 @@ test('same-day equipment bookings collapse to one readable time range', () => {
     startsAt:'2030-01-15T22:00:00Z', endsAt:'2030-01-16T00:00:00Z', timeZone:'America/New_York'}, context);
   assert.ok(result.textContent.includes('When: Tue, Jan 15, 2030, 5:00 PM – 7:00 PM EST'));
   assert.ok(result.textContent.includes('Your Laser Engraver session is booked'));
+});
+
+test('reset security mail uses a fragment link and never offers to suppress security notices', () => {
+  const resetUrl = 'https://studio.example/reset-password#' + 'a'.repeat(43);
+  const result = renderNotification('password_reset', { resetUrl }, context);
+  assert.ok(result.textContent.includes('Set a new password: ' + resetUrl));
+  assert.ok(result.textContent.includes('30 minutes'));
+  assert.ok(result.textContent.includes('If you didn’t ask for this, you can ignore this email.'));
+  assert.ok(!result.htmlContent.includes('opt out of all'));
+  assert.throws(() => renderNotification('password_reset', { resetUrl: 'https://studio.example/reset-password?token=bad' }, context), /Invalid reset link/);
+  assert.throws(() => renderNotification('password_reset', { resetUrl: 'javascript:bad' }, context), /Invalid reset link/);
 });

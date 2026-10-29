@@ -1,3 +1,4 @@
+import { TableScroll } from "../TableScroll";
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import type { Entitlement, Page, Payment } from "../../lib/staffContracts";
@@ -93,26 +94,28 @@ function Records({
   if (!rows.length)
     return <p className="membership-muted">You haven't had a membership or day pass yet.</p>;
   return (
-    <table className="membership-table">
-      <thead>
-        <tr>
-          <th>Plan</th>
-          <th>Dates</th>
-          <th>Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((r) => (
-          <tr key={r.key}>
-            <td>{r.name}</td>
-            <td>{r.when}</td>
-            <td>
-              <StatusPill tone={statusTone(r.status)}>{statusLabel(r.status)}</StatusPill>
-            </td>
+    <TableScroll label="Memberships and passes history">
+      <table className="membership-table">
+        <thead>
+          <tr>
+            <th scope="col">Plan</th>
+            <th scope="col">Dates</th>
+            <th scope="col">Status</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.key}>
+              <td>{r.name}</td>
+              <td>{r.when}</td>
+              <td>
+                <StatusPill tone={statusTone(r.status)}>{statusLabel(r.status)}</StatusPill>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </TableScroll>
   );
 }
 
@@ -127,35 +130,37 @@ function Payments() {
         <p className="membership-muted">No payments yet.</p>
       ) : null}
       {page?.items.length ? (
-        <table className="membership-table">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>For</th>
-              <th>Status</th>
-              <th className="membership-table__amount">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {page.items.map((p) => (
-              <tr key={p.id}>
-                <td>{shortDate(p.recordedAt)}</td>
-                <td>
-                  {p.planName}
-                  {p.method === "manual" ? (
-                    <small className="membership-muted"> · Paid at front desk</small>
-                  ) : null}
-                </td>
-                <td>
-                  <StatusPill tone={statusTone(p.status)}>
-                    {p.status === "pending" ? "Pending" : statusLabel(p.status)}
-                  </StatusPill>
-                </td>
-                <td className="membership-table__amount">{dollars(p.amount)}</td>
+        <TableScroll label="Payment history">
+          <table className="membership-table">
+            <thead>
+              <tr>
+                <th scope="col">Date</th>
+                <th scope="col">For</th>
+                <th scope="col">Status</th>
+                <th scope="col" className="membership-table__amount">Amount</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {page.items.map((p) => (
+                <tr key={p.id}>
+                  <td>{shortDate(p.recordedAt)}</td>
+                  <td>
+                    {p.planName}
+                    {p.method === "manual" ? (
+                      <small className="membership-muted"> · Paid at front desk</small>
+                    ) : null}
+                  </td>
+                  <td>
+                    <StatusPill tone={statusTone(p.status)}>
+                      {p.status === "pending" ? "Pending" : statusLabel(p.status)}
+                    </StatusPill>
+                  </td>
+                  <td className="membership-table__amount">{dollars(p.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </TableScroll>
       ) : null}
       {page && (offset > 0 || page.nextOffset !== null) ? (
         <div className="membership-pager">

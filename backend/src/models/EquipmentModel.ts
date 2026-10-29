@@ -7,6 +7,7 @@ export interface EquipmentRecord {
   rate: string | null;
   image: string;
   status: string;
+  availabilityRevision: number;
   waiverRequired: boolean;
   certId: number | null;
   certification: string | null;
@@ -15,7 +16,7 @@ export interface EquipmentRecord {
 const columns = `e.equipmentid AS id,e.name,COALESCE(e.category,e.name) AS type,e.hourlyrate AS rate,
   COALESCE(e.imagepath,'/assets/3d-printer.webp') AS image,COALESCE(e.status,'unavailable') AS status,
   COALESCE(e.waiverrequired,false) AS "waiverRequired",e.certid AS "certId",c.name AS certification,
-  e.location`;
+  e.location,e.availability_revision AS "availabilityRevision"`;
 
 export class EquipmentModel {
   constructor(private db: Database) {}

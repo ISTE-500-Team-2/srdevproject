@@ -1,3 +1,4 @@
+import { EquipmentManagementPage } from "./EquipmentManagementPage";
 import type { ComponentType } from "react";
 import {
   CalendarRange,
@@ -5,6 +6,7 @@ import {
   DoorOpen,
   FileChartColumn,
   History,
+  Wrench,
   Layers,
   Nfc,
   Receipt,
@@ -50,6 +52,7 @@ export const adminGroups: { label: string; sections: AdminSection[] }[] = [
   {
     label: "Operations",
     sections: [
+      { path: "equipment", label: "Equipment", icon: Wrench, component: EquipmentManagementPage, legacyTab: "equipment" },
       { path: "reservations", label: "Reservations", icon: CalendarRange, component: StaffReservations, legacyTab: "reservations" },
       { path: "studios", label: "Studios", icon: DoorOpen, component: StaffStudios, legacyTab: "studios" },
       { path: "access", label: "Reader access", icon: Nfc, component: AccessManagementPage, legacyTab: "access" },

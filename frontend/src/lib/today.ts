@@ -1,6 +1,7 @@
 import type { LiveEquipment, Reservation } from "./contracts";
 import type { ComplianceReport } from "./staffContracts";
 import type { Rental, Studio } from "./studioContracts";
+import { needsStaff } from "./studioDesk";
 
 const HOUR = 3_600_000;
 export function dayKey(now: number, timeZone: string) {
@@ -88,9 +89,9 @@ export function studioOccupancy(studios: Studio[], day: string) {
     return { id: studio.id, name: studio.name, size: studio.size, state };
   });
 }
-/** Same rule as the Studios page's "Payments to record" list. */
+/** Same rule as the Studios page's Needs you list. */
 export function studioPaymentsToRecord(rentals: Rental[]) {
-  return rentals.filter(r => (r.status === "pending" && r.payment_method === "manual") || ["refund_pending", "refund_failed"].includes(r.payment_status)).length;
+  return rentals.filter(needsStaff).length;
 }
 export type NeedsYouItem = { id: string; icon: "waiver" | "payment" | "machine" | "training"; alert: boolean; title: string; detail: string; action: string; to: string };
 export function needsYou(compliance: ComplianceReport, machines: LiveEquipment[], bookings: Reservation[], now: number, studioPayments = 0) {
@@ -101,7 +102,7 @@ export function needsYou(compliance: ComplianceReport, machines: LiveEquipment[]
   if (studioPayments) items.push({ id: "studio-payments", icon: "payment", alert: false, title: `${studioPayments} studio ${studioPayments === 1 ? "payment" : "payments"} to record`, detail: "Manual payments and refunds waiting for staff.", action: "Record payments", to: "/admin/studios" });
   for (const m of machines.filter(m => m.status !== "available")) {
     const count = equipmentBookings(bookings).filter(b => b.equipmentId === m.id && Date.parse(b.endTime) > now).length;
-    items.push({ id: `machine-${m.id}`, icon: "machine", alert: true, title: `${m.name} is out of service`, detail: count ? `${count} ${count === 1 ? "booking" : "bookings"} today ${count === 1 ? "is" : "are"} affected.` : "No bookings affected today.", action: "See bookings", to: "/admin/reservations" });
+    items.push({ id: `machine-${m.id}`, icon: "machine", alert: true, title: `${m.name} is out of service`, detail: count ? `${count} ${count === 1 ? "booking" : "bookings"} today ${count === 1 ? "is" : "are"} affected.` : "No bookings affected today.", action: "Review equipment", to: `/admin/equipment/${m.id}` });
   }
   if (training) items.push({ id: "training", icon: "training", alert: false, title: `${training} ${training === 1 ? "member needs" : "members need"} training renewed`, detail: "They're locked out of the machines that need it.", action: "Open certifications", to: "/admin/certifications?section=certifications" });
   return items;

@@ -1,0 +1,89 @@
+/* Shared record tables. Occupancy calendars keep their own compact geometry. */
+.management-page > * {
+  min-width: 0;
+}
+.table-scroll {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+.table-scroll:focus-visible {
+  outline: 2px solid var(--bronze);
+  outline-offset: 3px;
+}
+.data-table,
+.membership-table,
+.certifications-table,
+.staff-directory table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-base);
+  line-height: 1.5;
+}
+:is(.data-table, .membership-table, .certifications-table, .staff-directory table) :is(th, td) {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: middle;
+}
+:is(.data-table, .membership-table, .certifications-table, .staff-directory table) thead th {
+  background: rgba(239, 233, 228, 0.6);
+  color: var(--ink-soft);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  vertical-align: bottom;
+}
+.data-table {
+  margin: 1rem 0;
+}
+.data-table thead th {
+  min-width: 7rem;
+  max-width: 16rem;
+  white-space: normal;
+}
+.data-table tbody th {
+  font-weight: 500;
+}
+.data-table caption {
+  padding: 8px 16px;
+  color: var(--ink-soft);
+  font-size: var(--text-base-sm);
+  text-align: left;
+}
+.data-table .table-number,
+.membership-table .membership-table__amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.data-table td.table-number {
+  white-space: nowrap;
+}
+.membership-table {
+  min-width: 32rem;
+}
+.membership-table td:last-child,
+.certifications-table td:not(:first-child) {
+  white-space: nowrap;
+}
+.certifications-table {
+  min-width: 30rem;
+}
+.certifications-table thead th {
+  white-space: nowrap;
+}
+.certifications-table td:first-child {
+  overflow-wrap: anywhere;
+}
+.waiver-name-cell {
+  min-width: 12rem;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 8px;
+}
+.waiver-name-cell .button {
+  white-space: normal;
+  text-align: left;
+}

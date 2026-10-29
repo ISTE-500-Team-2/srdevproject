@@ -5,39 +5,47 @@ import { StartTimePicker } from "./StartTimePicker";
 
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 const value = () => (document.querySelector('input[name="start"]') as HTMLInputElement).value;
+const picker = () => screen.getByLabelText("Start time") as HTMLSelectElement;
 
-test("starts in the future with minute precision", () => {
-  render(<StartTimePicker name="start" hours={1} now={new Date(2026, 9, 27, 14, 10)} />);
-  expect(value()).toBe("2026-10-27T14:11");
-  expect((screen.getByLabelText("Start time") as HTMLInputElement).min).toBe("14:11");
+test.each([
+  [19, 16, "2026-10-27T19:30"],
+  [19, 30, "2026-10-27T20:00"],
+  [19, 59, "2026-10-27T20:00"],
+  [23, 45, "2026-10-28T00:00"],
+])("rounds %i:%i up to the next future half-hour", (hour, minute, expected) => {
+  render(<StartTimePicker name="start" hours={1} now={new Date(2026, 9, 27, Number(hour), Number(minute))} />);
+  expect(value()).toBe(expected);
+  expect(picker().value).toBe(String(expected).slice(11));
+  expect([...picker().options].every(option => /:(00|30)$/.test(option.value))).toBe(true);
 });
 
-test("supports dates beyond two weeks and times between half-hour slots", () => {
+test("supports distant dates and preserves a selected half-hour across day changes", () => {
   render(<StartTimePicker name="start" hours={2} now={new Date(2026, 9, 27, 14, 10)} />);
   fireEvent.change(screen.getByLabelText("Booking date"), { target: { value: "2027-02-18" } });
-  fireEvent.change(screen.getByLabelText("Start time"), { target: { value: "18:17" } });
-  expect(value()).toBe("2027-02-18T18:17");
-  expect(screen.getByText(/Thu, Feb 18/).textContent).toMatch(/6:17.*8:17/);
-});
-
-test("quick day buttons keep an exact chosen time", () => {
-  render(<StartTimePicker name="start" hours={2} now={new Date(2026, 9, 27, 14, 10)} />);
-  fireEvent.change(screen.getByLabelText("Start time"), { target: { value: "18:17" } });
+  fireEvent.change(picker(), { target: { value: "18:30" } });
+  expect(value()).toBe("2027-02-18T18:30");
+  expect(picker().options).toHaveLength(48);
+  expect(screen.getByText(/Thu, Feb 18/).textContent).toMatch(/6:30.*8:30/);
   fireEvent.click(screen.getByRole("radio", { name: /Thursday, October 29/ }));
-  expect(value()).toBe("2026-10-29T18:17");
+  expect(value()).toBe("2026-10-29T18:30");
 });
 
-test("after the last available minute defaults to tomorrow", () => {
-  render(<StartTimePicker name="start" hours={1} now={new Date(2026, 9, 27, 23, 59, 30)} />);
-  expect(value()).toBe("2026-10-28T00:00");
+test("returning to today advances an earlier selected time", () => {
+  render(<StartTimePicker name="start" hours={1} now={new Date(2026, 9, 27, 19, 16)} />);
+  fireEvent.click(screen.getAllByRole("radio")[1]!);
+  fireEvent.change(picker(), { target: { value: "09:00" } });
+  fireEvent.click(screen.getAllByRole("radio")[0]!);
+  expect(value()).toBe("2026-10-27T19:30");
+  expect(picker().options[0]!.value).toBe("19:30");
 });
 
-test("an open picker refreshes its minimum instead of claiming stale times are valid", () => {
-  vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 9, 27, 14, 10));
+test("an open picker advances stale selections when the clock passes a slot", () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 9, 27, 19, 29));
   render(<StartTimePicker name="start" hours={1} />);
+  expect(value()).toBe("2026-10-27T19:30");
   act(() => vi.advanceTimersByTime(90000));
-  expect((screen.getByLabelText("Start time") as HTMLInputElement).min).toBe("14:12");
-  expect((screen.getByLabelText("Start time") as HTMLInputElement).checkValidity()).toBe(false);
+  expect(value()).toBe("2026-10-27T20:00");
+  expect(picker().options[0]!.value).toBe("20:00");
 });
 
 test("a booking that runs past midnight says so", () => {

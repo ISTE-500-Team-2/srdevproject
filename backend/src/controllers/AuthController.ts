@@ -1,4 +1,5 @@
 import { issueEmailConfirmation, consumeEmailConfirmation } from '../confirmation/emailConfirmation.js';
+import { issuePasswordReset, checkPasswordReset, consumePasswordReset } from '../confirmation/passwordReset.js';
 import { auditContext } from '../auditContext.js';
 import { updateNotificationPreferences, validTimeZone } from '../notifications/store.js';
 import { randomBytes } from 'node:crypto';
@@ -40,6 +41,7 @@ export class AuthController {
     userId: number,
     remember: boolean,
     notification?: NotificationTemplate,
+    verifiedPasswordHash?: string,
   ) {
     const user = await new UserModel(this.pool).findById(userId);
     if (!user || user.status !== 'active' || user.accessStatus !== 'active')
@@ -53,7 +55,11 @@ export class AuthController {
     if (context) context.actorId = userId;
     if (!confirmation.rows[0]?.email_confirmed) throw new AppError(403,'EMAIL_CONFIRMATION_REQUIRED','Confirm your email before signing in.');
     const session = await transaction(this.pool, async db => {
-      await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR SHARE', [userId]);
+      const locked = (await db.query('SELECT password FROM "user" WHERE userid=$1 FOR SHARE', [userId])).rows[0];
+      // A reset may finish after password verification but before session creation.
+      // Recheck under the same account lock used by reset and keep it until commit.
+      if (verifiedPasswordHash && locked?.password !== verifiedPasswordHash)
+        throw new AppError(401, 'INVALID_CREDENTIALS', 'Email, username or password is incorrect.');
       const sessions = new SessionModel(db,this.config.jwtKey,this.config.accessTokenSeconds,this.config.refreshTokenSeconds);
       const previous = refreshToken(req);
       if (previous) await sessions.revokeRefresh(previous);
@@ -107,9 +113,18 @@ export class AuthController {
       );
     if (needsPasswordUpgrade(account.password) && Buffer.byteLength(password,'utf8') <= 72) {
       const upgraded = await hashPassword(password);
-      await this.pool.query('UPDATE "user" SET password=$1 WHERE userid=$2 AND password=$3',[upgraded,account.id,account.password]);
+      const update = await this.pool.query('UPDATE "user" SET password=$1 WHERE userid=$2 AND password=$3',[upgraded,account.id,account.password]);
+      if (update.rowCount) account.password = upgraded;
+      else {
+        // Another login may have upgraded the same legacy hash. Accept its hash
+        // only after verifying it; a concurrent reset to a different password fails.
+        const current = await new UserModel(this.pool).credentials(identifier);
+        if (!current || current.id !== account.id || !await verifyPassword(password, current.password))
+          throw new AppError(401, 'INVALID_CREDENTIALS', 'Email, username or password is incorrect.');
+        account.password = current.password;
+      }
     }
-    await this.establish(req, res, account.id, req.body.remember === true);
+    await this.establish(req, res, account.id, req.body.remember === true, undefined, account.password);
   };
   register = async (req: Request, res: Response) => {
     const timeZone = req.body.timeZone ?? this.config.timeZone;
@@ -185,7 +200,13 @@ export class AuthController {
           const previous=(await db.query('SELECT created_at FROM app_email_confirmation WHERE userid=$1',[account.id])).rows[0];
           if(previous && Date.now()-new Date(previous.created_at).getTime()<60000)
             throw new AppError(429,'CONFIRMATION_RATE_LIMITED','Wait one minute before requesting another confirmation.');
-          if(newEmail)await db.query('UPDATE "user" SET email=$2,revision=revision+1 WHERE userid=$1',[account.id,newEmail]);
+          if(newEmail) {
+            await db.query('UPDATE "user" SET email=$2,revision=revision+1 WHERE userid=$1',[account.id,newEmail]);
+            // A link sent to the old inbox must not confirm ownership of the new one.
+            await db.query('DELETE FROM app_password_reset WHERE userid=$1',[account.id]);
+            await db.query(`UPDATE app_notification_outbox SET status='obsolete',counts_for_sla=false,updated_at=NOW()
+              WHERE userid=$1 AND kind='password_reset' AND status='pending'`,[account.id]);
+          }
           await issueEmailConfirmation(db,account.id,this.config.notifications?.appOrigin ?? this.config.allowedOrigins[0]!);
         });
       } catch(error) {
@@ -197,6 +218,34 @@ export class AuthController {
     res.status(202).json({data:{emailSendingEnabled:!!this.config.notifications,message:this.config.notifications
       ? 'If the supplied credentials match an unconfirmed account and notifications are enabled, a confirmation email has been queued for sending. Check your inbox and spam folder.'
       : 'Email delivery is disabled in this environment. No confirmation email will be sent. Use a development demo account or run the email-enabled setup.'}});
+  };
+  passwordReset = async (req: Request, res: Response) => {
+    const email = emailField(req.body.email);
+    // Every valid email performs the same bcrypt work, including unknown, inactive,
+    // and throttled accounts. Run it alongside the short database operation so the
+    // response does not have a fast account-existence branch.
+    const dummy = await this.dummyHash;
+    await Promise.all([
+      verifyPassword('password-reset-request', dummy),
+      transaction(this.pool, async db => {
+        const account = (await db.query('SELECT userid,status FROM "user" WHERE lower(email)=$1 FOR UPDATE', [email])).rows[0];
+        if (!account || account.status !== 'active') return;
+        const recent = await db.query(`SELECT 1 FROM app_password_reset
+          WHERE userid=$1 AND created_at>NOW()-INTERVAL '1 minute'`, [account.userid]);
+        if (recent.rows.length) return;
+        await issuePasswordReset(db, account.userid, this.config.notifications?.appOrigin ?? this.config.allowedOrigins[0]!);
+      }),
+    ]);
+    res.status(202).json({ data: { message: 'If an account uses this email, a reset link is on its way. It expires in 30 minutes.' } });
+  };
+  checkPasswordReset = async (req: Request, res: Response) => {
+    await checkPasswordReset(this.pool, req.body.token);
+    res.status(204).end();
+  };
+  confirmPasswordReset = async (req: Request, res: Response) => {
+    const password = newPasswordField(req.body.password);
+    await transaction(this.pool, db => consumePasswordReset(db, req.body.token, password));
+    res.status(204).end();
   };
   current = async (_req: Request, res: Response) => {
     res.set("Cache-Control","no-store");

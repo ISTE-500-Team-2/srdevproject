@@ -1,0 +1,11 @@
+{
+  "backend_url": "https://collaboratory.webdev.gccis.rit.edu",
+  "gateway_id": "orange-pi-01",
+  "gateway_secret_file": "/home/orangepi/arbor-reader-setup/gateway.key",
+  "state_dir": "/home/orangepi/arbor-reader-setup/state",
+  "profiles": "/home/orangepi/arbor-reader-setup/profiles",
+  "tls_cert": "/home/orangepi/arbor-reader-ingest/direct-tls/server.crt",
+  "tls_key": "/home/orangepi/arbor-reader-ingest/direct-tls/server.key",
+  "port": 18443,
+  "legacy_config": "/home/orangepi/arbor-reader-ingest/direct-controller.json"
+}

@@ -45,6 +45,7 @@ export interface Registration {
 export interface LiveEquipment extends Omit<Equipment, 'rate'> {
   rate: number | null;
   status: string;
+  outages?: { reason: string; expectedBack: string | null; startedAt: string; endedAt: string | null }[];
   waiverRequired: boolean;
   certification: string | null;
   location: string;

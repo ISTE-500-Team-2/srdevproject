@@ -60,7 +60,7 @@ test('member finds equipment, books once, recovers from conflicts and cooldown, 
  await choose(end);
  await user.click(screen.getByRole('button',{name:'Confirm reservation'}));
  expect((await screen.findByRole('alert')).textContent).toContain('15 minutes');
- await choose(new Date(end.getTime()+15*60000));
+ await choose(new Date(end.getTime()+30*60000));
  await user.click(screen.getByRole('button',{name:'Confirm reservation'}));
  await finishBooking();
  expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('3d print');

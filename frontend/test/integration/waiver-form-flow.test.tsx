@@ -45,7 +45,7 @@ test('newly registered unsigned member can fill every blank, correct errors, sig
   const inputs = Array.from(form.querySelectorAll<HTMLInputElement>('input[name]'));
   expect(inputs).toHaveLength(memberFields.length);
   expect(inputs.every(input => !input.readOnly)).toBe(true);
-  expect(form.querySelectorAll('input[aria-readonly="true"]').length).toBeGreaterThanOrEqual(serverFields.length);
+  expect(form.querySelectorAll('output').length).toBeGreaterThanOrEqual(serverFields.length);
   expect(waiver.signerName).toBe('New Member');
   expect((submit as HTMLButtonElement).disabled).toBe(true);
   await user.click(within(dialog).getByRole('checkbox', { name: /I have read/ }));

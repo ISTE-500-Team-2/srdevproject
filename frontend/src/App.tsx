@@ -6,6 +6,7 @@ import { AdminIndex, AdminSectionPage } from './pages/admin/AdminSectionPage';
 import { adminSections } from './pages/admin/sections';
 import { AccountHomePage } from './pages/AccountHomePage';
 import { useAuth } from './context/AuthContext';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { ConfirmEmailPage } from './pages/ConfirmEmailPage';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
@@ -42,6 +43,7 @@ export default function App() {
   return (
     <AuthProvider>
       <Routes>
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/confirm-email" element={<ConfirmEmailPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/loading" element={<LoadingPage />} />
@@ -50,7 +52,7 @@ export default function App() {
             <Route path="admin" element={<AdminShell />}>
               <Route index element={<AdminIndex />} />
               {adminSections.map((section) => (
-                <Route key={section.path} path={section.path} element={<AdminSectionPage section={section} />} />
+                <Route key={section.path} path={section.path === 'equipment' ? 'equipment/:equipmentId?' : section.path} element={<AdminSectionPage section={section} />} />
               ))}
               <Route path="*" element={<Navigate replace to="/admin" />} />
             </Route>

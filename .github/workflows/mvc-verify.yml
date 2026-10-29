@@ -40,7 +40,11 @@ jobs:
       - run: npm run check --prefix frontend
       - run: npm run test:integration --prefix backend
       - run: npm run test:integration --prefix frontend
-      - run: python3 -m unittest discover -s deploy/reader -v
+      - name: Verify reader onboarding and fail-closed access
+        run: |
+          python3 -m venv "$RUNNER_TEMP/arbor-reader-tests"
+          "$RUNNER_TEMP/arbor-reader-tests/bin/pip" install -r deploy/reader/setup-requirements.txt
+          "$RUNNER_TEMP/arbor-reader-tests/bin/python" -m unittest discover -s deploy/reader -v
       - run: node --test deploy/rles-edge.test.mjs
       - run: bash -n deploy/deploy-arbor.sh
       - run: python3 deploy/test_deploy.py

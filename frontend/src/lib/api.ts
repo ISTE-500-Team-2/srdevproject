@@ -18,7 +18,7 @@ export async function api<T>(
   path: string,
   options: { method?: string; body?: unknown; signal?: AbortSignal } = {},
 ): Promise<T> {
-  const authEntry = ['/auth/login','/auth/register','/auth/confirm','/auth/confirmation','/auth/demo','/auth/csrf','/auth/refresh','/config'].includes(path);
+  const authEntry = ['/auth/login','/auth/register','/auth/confirm','/auth/confirmation','/auth/password-reset','/auth/password-reset/check','/auth/password-reset/confirm','/auth/demo','/auth/csrf','/auth/refresh','/config'].includes(path);
   if (!accessToken && !authEntry) await renew();
   const method = options.method ?? 'GET';
   const mutation = !['GET', 'HEAD'].includes(method);
