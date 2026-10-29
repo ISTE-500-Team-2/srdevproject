@@ -1,0 +1,154 @@
+
+> team-arbor-collaboratory-frontend@0.1.0 check
+> npm run test && npm run build
+
+
+> team-arbor-collaboratory-frontend@0.1.0 test
+> vitest run src
+
+
+ RUN  v5.0.0 /app/frontend
+
+ ✓ src/pages/CertificationsPage.test.tsx (10 tests) 931ms
+ ✓ src/pages/MembershipPage.test.tsx (10 tests) 907ms
+   ✓ membership checkout needs consent in the confirm step and sends only the server quote 397ms
+ ✓ src/lib/today.test.ts (13 tests) 44ms
+ ✓ src/pages/StaffPlans.test.tsx (8 tests) 2164ms
+   ✓ lists plans by type, with discounts and off-sale plans tucked away 459ms
+   ✓ one save updates the plan and its discounts with a single reason 315ms
+   ✓ failed discounts retain their draft and retry only pricing with its refreshed revision 317ms
+ ✓ src/pages/ProfilePage.test.tsx (13 tests) 2551ms
+   ✓ details read as text first, with a formatted phone and no empty username 419ms
+   ✓ overlapping saves preserve both sections when Profile saves first 420ms
+ ✓ src/pages/AccessManagementPage.test.tsx (9 tests) 2813ms
+   ✓ member link displays the selected person and automatically loads cards 339ms
+   ✓ changing members removes old controls and typed values; the next assignment targets the selected person 1257ms
+   ✓ revocation requires confirmation, stale errors reload cards and the retry uses the latest revision 327ms
+ ✓ src/components/admin/AccountMode.test.tsx (10 tests) 2096ms
+   ✓ staff land in the workspace; members get their home; an open account gets the action screen 507ms
+   ✓ the picker opens your own account or a member's, and refuses staff accounts 376ms
+   ✓ mobile navigation contains focus, locks the background, and restores the menu trigger 565ms
+ ✓ src/components/Modal.test.tsx (10 tests) 810ms
+   ✓ Tab and Shift+Tab stay in dialog; closing restores trigger and background state 414ms
+ ✓ src/components/RouteGuards.test.tsx (18 tests) 335ms
+ ✓ src/pages/ClassesPage.test.tsx (12 tests) 3925ms
+   ✓ member sees soonest classes first and registers with one click 341ms
+   ✓ a failed save keeps that person's choice and the note, and reports what saved 473ms
+   ✓ cancelling sends the record revision and the staff reason 1963ms
+ ✓ src/pages/TrainingPage.test.tsx (4 tests) 1376ms
+   ✓ catalog errors stay inside the editor with its draft and allow retry 352ms
+   ✓ training approval errors stay inside the dialog without clearing entered evidence 467ms
+   ✓ failed revocation keeps the dialog and reason until a successful retry 388ms
+ ✓ src/pages/StudiosPage.test.tsx (9 tests) 2636ms
+   ✓ a changed booking gets a new request key; an identical retry reuses it 386ms
+   ✓ a studio taken while the pop-up is open can't be submitted 346ms
+   ✓ cancelling a rental explains the refund in a dialog, not a browser pop-up 1423ms
+ ✓ src/pages/StaffPolicies.test.tsx (5 tests) 807ms
+   ✓ each scheduled version can be read and retired independently (current version: true) 403ms
+ ✓ src/pages/admin/TodayPage.test.tsx (6 tests) 822ms
+ ✓ src/components/studios/StudioForms.test.tsx (4 tests) 522ms
+ ✓ src/pages/EquipmentPage.test.tsx (5 tests) 1117ms
+   ✓ same-tick repeated form submits send one booking request and release the lock after failure 347ms
+   ✓ opening another booking clears the old success toast so it cannot cover the form 372ms
+stderr | src/lib/documentText.test.ts > explains files it can't read instead of failing silently
+Warning: Indexing all PDF objects
+
+stderr | src/lib/documentText.test.ts > extracts all pages of a real PDF in order
+Warning: UnknownErrorException: Ensure that the `standardFontDataUrl` API parameter is provided.
+
+stderr | src/lib/documentText.test.ts > explains a scanned/image-only PDF without silently importing an empty waiver
+Warning: UnknownErrorException: Ensure that the `standardFontDataUrl` API parameter is provided.
+
+ ✓ src/lib/documentText.test.ts (6 tests) 235ms
+ ✓ src/lib/useApi.test.tsx (6 tests) 59ms
+ ✓ src/components/staff/IssueAccess.test.tsx (4 tests) 440ms
+   ✓ failed identical access submissions retain their request id across rerenders; changed payload gets a fresh id 346ms
+ ✓ src/pages/AnalyticsDashboardPage.test.tsx (4 tests) 455ms
+ ✓ src/components/staff/UserDetail.test.tsx (3 tests) 466ms
+ ✓ src/components/staff/AccessReadiness.test.tsx (5 tests) 285ms
+ ✓ src/lib/analytics.test.ts (5 tests) 4ms
+ ✓ src/pages/StaffReservations.test.tsx (3 tests) 849ms
+   ✓ Modify reveals and focuses the updated editor every time it is selected 432ms
+ ✓ src/components/StartTimePicker.test.tsx (6 tests) 509ms
+ ✓ src/pages/LoginPage.test.tsx (2 tests) 800ms
+   ✓ steps advance while the session check is still loading; only creating waits 570ms
+ ✓ src/components/Charts.test.tsx (3 tests) 9ms
+ ✓ src/components/studios/BookingReference.test.tsx (3 tests) 135ms
+ ✓ src/components/staff/AccessReadinessPolling.test.tsx (2 tests) 180ms
+ ✓ src/lib/reservationInput.test.ts (2 tests) 3ms
+ ✓ src/pages/ConfirmEmailPage.test.tsx (3 tests) 291ms
+ ✓ src/data/mockData.test.ts (2 tests) 2ms
+ ✓ src/pages/StaffStudios.test.tsx (2 tests) 135ms
+ ✓ src/components/MemberSelect.test.tsx (3 tests) 1284ms
+   ✓ type a name, pick a match, and the form submits that person's id 647ms
+   ✓ typed text that wasn't picked can't pass as a choice 314ms
+   ✓ instructor-only searches keep their scope; errors and capped results are visible 322ms
+ ✓ src/pages/admin/sections.test.ts (2 tests) 2ms
+ ✓ src/components/Management.test.tsx (1 test) 128ms
+
+ Test Files  36 passed (36)
+      Tests  213 passed (213)
+   Start at  23:04:17
+   Duration  9.04s (tests 52%, environment 31%, import 9%, transform 7%)
+
+    Isolate  36 workers spawned · ~597ms startup each (spawn + environment, per file)
+             at least ~2.47s faster with isolate: false — reuses workers across files instead of one per file
+
+
+> team-arbor-collaboratory-frontend@0.1.0 build
+> tsc -b && vite build
+
+vite v8.2.2 building client environment for production...
+transforming...
+✓ 2614 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                                     0.74 kB │ gzip:   0.40 kB
+dist/assets/barlow-vietnamese-400-normal-BFeobeCK.woff              6.09 kB
+dist/assets/barlow-vietnamese-500-normal-GNfB7rCE.woff              6.14 kB
+dist/assets/barlow-vietnamese-700-normal-4Jt4k04K.woff              6.22 kB
+dist/assets/barlow-vietnamese-600-normal-CA_GiK2e.woff              6.22 kB
+dist/assets/black-ops-one-vietnamese-400-normal-zxIl8_id.woff       6.85 kB
+dist/assets/barlow-vietnamese-400-normal-Dpl4UHAZ.woff2             7.58 kB
+dist/assets/barlow-vietnamese-500-normal-zTViEIzf.woff2             7.66 kB
+dist/assets/barlow-vietnamese-700-normal-D6euyNzi.woff2             7.84 kB
+dist/assets/barlow-vietnamese-600-normal-DcjprdFV.woff2             7.89 kB
+dist/assets/black-ops-one-vietnamese-400-normal-C73XRxqP.woff2      8.34 kB
+dist/assets/barlow-latin-ext-400-normal-CvBsJvxq.woff              12.31 kB
+dist/assets/barlow-latin-ext-500-normal-CJPcKP2Q.woff              12.41 kB
+dist/assets/barlow-latin-ext-700-normal-CctuGmmz.woff              12.59 kB
+dist/assets/barlow-latin-ext-600-normal-DMVRjfRT.woff              12.60 kB
+dist/assets/barlow-latin-ext-400-normal-HxX4XjxC.woff2             14.26 kB
+dist/assets/barlow-latin-ext-500-normal-DOaysfXq.woff2             14.41 kB
+dist/assets/barlow-latin-ext-700-normal-BLuWmldJ.woff2             14.83 kB
+dist/assets/barlow-latin-ext-600-normal-B8NK_A3D.woff2             14.96 kB
+dist/assets/barlow-latin-500-normal-C1h8hMer.woff                  19.51 kB
+dist/assets/barlow-latin-400-normal-fsAxiSwU.woff                  19.58 kB
+dist/assets/barlow-latin-700-normal-__SGTsZ1.woff                  19.76 kB
+dist/assets/barlow-latin-600-normal-CNwfPWQD.woff                  19.88 kB
+dist/assets/barlow-latin-500-normal-BPAOfeC8.woff2                 22.00 kB
+dist/assets/barlow-latin-400-normal-qiz4-Cze.woff2                 22.19 kB
+dist/assets/black-ops-one-latin-ext-400-normal-qz3wlKjE.woff       22.49 kB
+dist/assets/barlow-latin-600-normal-DILqtrty.woff2                 22.77 kB
+dist/assets/barlow-latin-700-normal-A9pxMQ4z.woff2                 22.78 kB
+dist/assets/black-ops-one-latin-ext-400-normal-CMPv-r5W.woff2      24.08 kB
+dist/assets/black-ops-one-latin-400-normal-DmcO2QRk.woff           30.15 kB
+dist/assets/black-ops-one-latin-400-normal-CYRH0z_U.woff2          31.40 kB
+dist/assets/pdf.worker.min-Dkey6ZUl.mjs                         1,321.30 kB
+dist/assets/Lanyard-DcFm3DyE.css                                    0.12 kB │ gzip:   0.10 kB
+dist/assets/index-CnH3N85J.css                                    186.02 kB │ gzip:  40.17 kB
+dist/assets/pdf.worker.min-WWY7VKxM.js                              0.06 kB │ gzip:   0.08 kB
+dist/assets/rolldown-runtime-C0FnF6B9.js                            1.29 kB │ gzip:   0.71 kB
+dist/assets/pdfText-CUmxD1A5.js                                     1.60 kB │ gzip:   0.90 kB
+dist/assets/SplitText-kSpY1uVk.js                                 126.88 kB │ gzip:  50.04 kB
+dist/assets/lib-CE-Ivkxm.js                                       308.10 kB │ gzip:  95.10 kB
+dist/assets/pdf-CmcLsEe9.js                                       488.17 kB │ gzip: 148.19 kB
+dist/assets/Lanyard-C4sCCMXn.js                                   540.83 kB │ gzip: 139.98 kB
+dist/assets/index-Bfg6ZTU5.js                                     763.10 kB │ gzip: 226.59 kB
+
+✓ built in 459ms
+[plugin builtin:vite-reporter]
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.

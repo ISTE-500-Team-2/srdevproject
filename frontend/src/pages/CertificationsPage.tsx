@@ -116,7 +116,7 @@ export function CertificationsPage() {
           <p>No certifications have been recorded for your account.</p>
         ) : null}
         {isMemberDemo ? (
-          <div className="certifications-table-wrap">
+          <div className="certifications-table-wrap table-scroll" role="region" aria-label="Equipment certifications" tabIndex={0}>
             {equipment.loading ? (
               <p role="status">Loading equipment…</p>
             ) : null}
@@ -226,7 +226,7 @@ export function CertificationsPage() {
           <p>Required policies have not been configured yet.</p>
         ) : null}
         {isMemberDemo ? (
-          <div className="certifications-table-wrap">
+          <div className="certifications-table-wrap table-scroll" role="region" aria-label="Required policies and waivers" tabIndex={0}>
             <table className="certifications-table">
               <thead>
                 <tr>

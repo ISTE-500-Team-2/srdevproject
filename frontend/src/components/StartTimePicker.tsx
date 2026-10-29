@@ -1,17 +1,22 @@
-import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 const QUICK_DAYS = 14;
 const pad = (n: number) => String(n).padStart(2, "0");
 const dayKey = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const clockKey = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-const nextMinute = (d: Date) => new Date(Math.floor(d.getTime() / 60000) * 60000 + 60000);
+const nextHalfHour = (d: Date) => {
+  const next = new Date(d);
+  // Always choose a future slot, including when the clock is exactly on a boundary.
+  next.setMinutes(Math.floor(d.getMinutes() / 30) * 30 + 30, 0, 0);
+  return next;
+};
 const timeLabel = (minutes: number) =>
   new Date(2000, 0, 1, Math.floor(minutes / 60), minutes % 60).toLocaleTimeString([], {
     hour: "numeric",
     minute: "2-digit",
   });
 
-/** Quick day buttons, plus unrestricted local date and minute-precision time inputs. */
+/** Quick day buttons with future start times on half-hour boundaries. */
 export function StartTimePicker({ name, hours, onPick, children, now: nowProp }: {
   name: string;
   hours: number;
@@ -25,9 +30,9 @@ export function StartTimePicker({ name, hours, onPick, children, now: nowProp }:
     const timer = window.setInterval(() => setNow(new Date()), 30000);
     return () => window.clearInterval(timer);
   }, [nowProp]);
-  const [day, setDay] = useState(() => dayKey(nextMinute(now)));
-  const [time, setTime] = useState(() => clockKey(nextMinute(now)));
-  const minimum = nextMinute(now);
+  const [day, setDay] = useState(() => dayKey(nextHalfHour(now)));
+  const [time, setTime] = useState(() => clockKey(nextHalfHour(now)));
+  const minimum = nextHalfHour(now);
   const days = useMemo(() => Array.from({ length: QUICK_DAYS }, (_, offset) => {
     const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset);
     return { key: dayKey(date), date, offset };
@@ -37,7 +42,19 @@ export function StartTimePicker({ name, hours, onPick, children, now: nowProp }:
     if (value === dayKey(now) && time < clockKey(minimum)) setTime(clockKey(minimum));
     onPick?.();
   };
-  const listId = useId();
+  // A dialog can remain open across a slot boundary or midnight.
+  useEffect(() => {
+    const next = nextHalfHour(now);
+    const nextDay = dayKey(next);
+    if (day && day < nextDay) {
+      setDay(nextDay);
+      setTime(clockKey(next));
+    } else if (day === nextDay && time < clockKey(next)) {
+      setTime(clockKey(next));
+    }
+  }, [now, day, time]);
+  const times = Array.from({ length: 48 }, (_, i) => `${pad(Math.floor(i / 2))}:${i % 2 ? "30" : "00"}`)
+    .filter(value => day !== dayKey(minimum) || value >= clockKey(minimum));
   const [year, month, date] = day.split("-").map(Number);
   const chosen = new Date(year!, month! - 1, date!);
   const [hour, minute] = time.split(":").map(Number);
@@ -65,14 +82,13 @@ export function StartTimePicker({ name, hours, onPick, children, now: nowProp }:
       </label>
       <label className="form-field">
         <span>Start time</span>
-        <input aria-label="Start time" type="time" step={60} value={time} min={day === dayKey(minimum) ? clockKey(minimum) : undefined}
-          required list={listId} onChange={(e) => { setTime(e.target.value); onPick?.(); }} />
-        <datalist id={listId}>
-          {Array.from({ length: 48 }, (_, i) => `${pad(Math.floor(i / 2))}:${i % 2 ? "30" : "00"}`)
-            .filter((value) => day !== dayKey(minimum) || value >= clockKey(minimum))
-            .map((value) => <option key={value} value={value} />)}
-        </datalist>
-        <small>{Intl.DateTimeFormat().resolvedOptions().timeZone} · choose any minute.</small>
+        <select aria-label="Start time" value={time} required
+          onChange={(e) => { setTime(e.target.value); onPick?.(); }}>
+          {times.map(value => <option key={value} value={value}>
+            {timeLabel(Number(value.slice(0, 2)) * 60 + Number(value.slice(3)))}
+          </option>)}
+        </select>
+        <small>{Intl.DateTimeFormat().resolvedOptions().timeZone} · bookings start on the hour or half-hour.</small>
       </label>
       {children}
       <p className="start-picker__summary" aria-live="polite">

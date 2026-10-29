@@ -1,3 +1,4 @@
+import { TableScroll } from "../components/TableScroll";
 import {
   CalendarDays,
   ChevronDown,
@@ -309,29 +310,31 @@ export function AnalyticsDashboardPage() {
               )}
               <details className="analytics-table">
                 <summary>Show as table</summary>
-                <table>
-                  <caption>Revenue by period (period starting date)</caption>
-                  <thead>
-                    <tr>
-                      <th>Period</th>
-                      <th>Receipts</th>
-                      <th>Gross</th>
-                      <th>Refunds</th>
-                      <th>Net</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {points.map((point) => (
-                      <tr key={point.period}>
-                        <th scope="row">{point.period}</th>
-                        <td>{point.receipts}</td>
-                        <td>{dollars(String(point.gross))}</td>
-                        <td>{dollars(String(point.refunds))}</td>
-                        <td>{dollars(String(point.net))}</td>
+                <TableScroll label="Revenue by period">
+                  <table className="data-table">
+                    <caption>Revenue by period (period starting date)</caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Period</th>
+                        <th scope="col" className="table-number">Receipts</th>
+                        <th scope="col" className="table-number">Gross</th>
+                        <th scope="col" className="table-number">Refunds</th>
+                        <th scope="col" className="table-number">Net</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {points.map((point) => (
+                        <tr key={point.period}>
+                          <th scope="row">{point.period}</th>
+                          <td className="table-number">{point.receipts}</td>
+                          <td className="table-number">{dollars(String(point.gross))}</td>
+                          <td className="table-number">{dollars(String(point.refunds))}</td>
+                          <td className="table-number">{dollars(String(point.net))}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </TableScroll>
               </details>
             </article>
 
@@ -380,13 +383,15 @@ export function AnalyticsDashboardPage() {
               </div>
               <details className="analytics-table">
                 <summary>Show daily visit counts</summary>
-                <table>
-                  <caption>Visits per day</caption>
-                  <thead><tr><th scope="col">Date</th><th scope="col">Visits</th></tr></thead>
-                  <tbody>
-                    {visits.map((v) => <tr key={v.day}><th scope="row">{v.day}</th><td>{v.visits}</td></tr>)}
-                  </tbody>
-                </table>
+                <TableScroll label="Visits by day">
+                  <table className="data-table">
+                    <caption>Visits per day</caption>
+                    <thead><tr><th scope="col">Date</th><th scope="col" className="table-number">Visits</th></tr></thead>
+                    <tbody>
+                      {visits.map((v) => <tr key={v.day}><th scope="row">{v.day}</th><td className="table-number">{v.visits}</td></tr>)}
+                    </tbody>
+                  </table>
+                </TableScroll>
               </details>
             </aside>
           </div>

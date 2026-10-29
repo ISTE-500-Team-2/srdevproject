@@ -69,3 +69,14 @@ test("failed cancellation stays in the confirmation dialog and can be retried", 
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(api).toHaveBeenCalledTimes(2);
 });
+
+test("staff cannot submit an off-grid reservation start", async () => {
+  mount();
+  fireEvent.click(screen.getByRole("button", { name: "Modify" }));
+  const input = screen.getByLabelText(/Start date and time/) as HTMLInputElement;
+  expect(input.step).toBe("1800");
+  fireEvent.change(input, { target: { value: "2026-11-03T19:16" } });
+  fireEvent.submit(input.closest("form")!);
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Choose a start time on the hour or half-hour.");
+  expect(api).not.toHaveBeenCalled();
+});

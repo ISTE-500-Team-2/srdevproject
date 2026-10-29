@@ -1,0 +1,212 @@
+
+> team-arbor-collaboratory-frontend@0.1.0 test:integration
+> vitest run --config vitest.integration.config.ts test/integration/member-reservations.test.tsx test/integration/waiver-form-flow.test.tsx
+
+
+ RUN  v5.0.0 /app/frontend
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 001_mvc.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 001_mvc.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 002_primary_mvp.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 003_rbac_permissions.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 002_primary_mvp.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 003_rbac_permissions.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 004_refresh_tokens.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 005_user_dob.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 004_refresh_tokens.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 005_user_dob.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 006_notifications.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 006_notifications.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 007_email_confirmation.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 007_email_confirmation.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 009_brevo_delivery_events.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 010_role_assignments.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 009_brevo_delivery_events.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 010_role_assignments.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 010_room_reservation_compatibility.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 010_room_reservation_compatibility.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 010_room_reservation_conflicts.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 010_user_profile_fields.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 010_room_reservation_conflicts.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 010_user_profile_fields.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 011_studio_rentals.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 011_studio_rentals.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 012_membership_billing.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 012_membership_billing.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 013_payment_requirements.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 014_reservation_revisions.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 013_payment_requirements.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 014_reservation_revisions.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 015_audit_log_hardening.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 015_audit_log_hardening.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 015_certification_management.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 015_certification_management.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 016_access_audit.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 016_access_audit.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 016_comprehensive_audit.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 016_comprehensive_audit.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 017_training_classes.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 017_training_classes.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 018_audit_merge_coverage.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 018_audit_merge_coverage.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 019_resource_access.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 020_membership_purchase_options.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 020_recertification_after_revocation.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 021_studio_machine_rates.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 019_resource_access.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 022_terms_of_service.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 020_membership_purchase_options.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 020_recertification_after_revocation.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 023_usernames.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 021_studio_machine_rates.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 022_terms_of_service.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 024_named_equipment_and_studios.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 026_staff_account_mode.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 023_usernames.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 024_named_equipment_and_studios.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 026_staff_account_mode.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Applied 027_reader_enrollment.sql
+
+stdout | test/integration/member-reservations.test.tsx
+Applied 027_reader_enrollment.sql
+
+stdout | test/integration/waiver-form-flow.test.tsx
+Isolated sample accounts, equipment and rooms are ready; existing records were preserved.
+
+stdout | test/integration/member-reservations.test.tsx
+Isolated sample accounts, equipment and rooms are ready; existing records were preserved.
+
+ ✓ test/integration/waiver-form-flow.test.tsx (1 test) 3388ms
+   ✓ newly registered unsigned member can fill every blank, correct errors, sign and retrieve the completed document 1869ms
+ ✓ test/integration/member-reservations.test.tsx (1 test) 3673ms
+   ✓ member finds equipment, books once, recovers from conflicts and cooldown, and cancels under existing rules 2196ms
+
+ Test Files  2 passed (2)
+      Tests  2 passed (2)
+   Start at  23:40:11
+   Duration  7.29s (tests 50%, transform 33%, import 9%, environment 7%, setup 1%)
+
+  Transform  transforming modules took 4.65s · 33% of tracked time, re-done on every run
+             persist transforms across runs with fsModuleCache: true
+             learn more: https://vitest.dev/guide/improving-performance#caching-between-reruns
