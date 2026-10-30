@@ -11,8 +11,6 @@ import {
   AppError,
   dateOfBirthField,
   emailField,
-  usernameField,
-  loginIdentifier,
   newPasswordField,
   passwordField,
   publicUser,
@@ -59,7 +57,7 @@ export class AuthController {
       // A reset may finish after password verification but before session creation.
       // Recheck under the same account lock used by reset and keep it until commit.
       if (verifiedPasswordHash && locked?.password !== verifiedPasswordHash)
-        throw new AppError(401, 'INVALID_CREDENTIALS', 'Email, username or password is incorrect.');
+        throw new AppError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect.');
       const sessions = new SessionModel(db,this.config.jwtKey,this.config.accessTokenSeconds,this.config.refreshTokenSeconds);
       const previous = refreshToken(req);
       if (previous) await sessions.revokeRefresh(previous);
@@ -98,9 +96,9 @@ export class AuthController {
   };
 
   login = async (req: Request, res: Response) => {
-    const identifier = loginIdentifier(req.body.identifier ?? req.body.email);
+    const email = emailField(req.body.email);
     const password = passwordField(req.body.password);
-    const account = await new UserModel(this.pool).credentials(identifier);
+    const account = await new UserModel(this.pool).credentials(email);
     const valid = await verifyPassword(
       password,
       account?.password ?? (await this.dummyHash),
@@ -109,7 +107,7 @@ export class AuthController {
       throw new AppError(
         401,
         'INVALID_CREDENTIALS',
-        'Email, username or password is incorrect.',
+        'Email or password is incorrect.',
       );
     if (needsPasswordUpgrade(account.password) && Buffer.byteLength(password,'utf8') <= 72) {
       const upgraded = await hashPassword(password);
@@ -118,9 +116,9 @@ export class AuthController {
       else {
         // Another login may have upgraded the same legacy hash. Accept its hash
         // only after verifying it; a concurrent reset to a different password fails.
-        const current = await new UserModel(this.pool).credentials(identifier);
+        const current = await new UserModel(this.pool).credentials(email);
         if (!current || current.id !== account.id || !await verifyPassword(password, current.password))
-          throw new AppError(401, 'INVALID_CREDENTIALS', 'Email, username or password is incorrect.');
+          throw new AppError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect.');
         account.password = current.password;
       }
     }
@@ -132,7 +130,6 @@ export class AuthController {
     const input = {
       firstName: textField(req.body.firstName, 'First name', 50),
       lastName: textField(req.body.lastName, 'Last name', 50),
-      username: usernameField(req.body.username),
       phone: textField(req.body.phone, 'Phone', 15),
       email: emailField(req.body.email),
       dob: dateOfBirthField(req.body.dob),
@@ -155,8 +152,6 @@ export class AuthController {
         'code' in error &&
         error.code === '23505'
       ) {
-        if ('constraint' in error && error.constraint === 'user_username_unique')
-          throw new AppError(409, 'USERNAME_UNAVAILABLE', 'That username is unavailable. Choose another.');
         throw new AppError(
           409,
           'EMAIL_ALREADY_REGISTERED',
