@@ -9,11 +9,14 @@ export interface Database {
 }
 
 export function createPool(): Pool {
+  const configuredMax = process.env.ARBOR_DB_POOL_MAX ?? '10';
+  if (!/^[1-9]\d?$/.test(configuredMax) || Number(configuredMax) > 30)
+    throw new Error('ARBOR_DB_POOL_MAX must be an integer from 1 to 30');
   return new Pool({
     ...(process.env.DATABASE_URL
       ? { connectionString: process.env.DATABASE_URL }
       : {}),
-    max: 10,
+    max: Number(configuredMax),
     connectionTimeoutMillis: 5000,
     idleTimeoutMillis: 30000,
     statement_timeout: 10000,

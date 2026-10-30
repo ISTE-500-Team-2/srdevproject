@@ -65,13 +65,14 @@ def main():
             'readerSecret':Path(prior['backend_reader_secret_file']).read_text().strip(),
             'linkKey':Path(prior['reader_link_key_file']).read_text().strip(),'backendUrl':prior['backend_url'],'activated':True})
     units=Path.home()/'.config/systemd/user';units.mkdir(parents=True,exist_ok=True)
+    working_directory=str(source).replace(chr(92), chr(92)+'x5c').replace(' ', chr(92)+'x20').replace(chr(34), chr(92)+'x22')
     definitions={}
     for name,script in [('arbor-reader-network.service','setup_gateway.py'),('arbor-reader-setup.service','setup_agent.py')]:
         definition=f'''[Unit]
 Description=ARBOR {'authenticated multi-reader TLS gateway' if script=='setup_gateway.py' else 'automatic reader discovery and setup'}
 After=network-online.target
 [Service]
-WorkingDirectory={json.dumps(str(source))}
+WorkingDirectory={working_directory}
 ExecStart={json.dumps(str(environment/'bin/python'))} {json.dumps(str(source/script))} --config {json.dumps(str(config_path))}
 Restart=on-failure
 RestartSec=3
@@ -85,8 +86,16 @@ ReadWritePaths={json.dumps(str(root))}
 WantedBy=default.target
 '''
         path=units/name
-        if path.exists() and path.read_text()!=definition:raise SystemExit('Existing setup service differs; review the update before replacing its unit.')
+        if path.exists() and path.read_text()!=definition:
+            previous=path.read_text().replace('WorkingDirectory='+json.dumps(str(source)),
+                'WorkingDirectory='+working_directory)
+            if previous!=definition:raise SystemExit('Existing setup service differs; review the update before replacing its unit.')
         definitions[name]=definition
+    # Validate the actual systemd syntax BEFORE stopping a working gateway.
+    validation=root/'unit-validation';validation.mkdir(exist_ok=True,mode=0o700)
+    for name,definition in definitions.items():(validation/name).write_text(definition)
+    subprocess.run(['systemd-analyze','--user','verify',*[str(validation/name) for name in definitions]],
+        capture_output=True,text=True,check=True)
     old_enabled=systemctl('is-enabled','arbor-c3-direct.service',check=False).stdout.strip()
     private_json(root/'installation-before.json',{'legacy_active':existing,'legacy_enabled':old_enabled})
     try:

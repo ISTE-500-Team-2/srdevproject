@@ -187,7 +187,10 @@ test('outage blocks new member reservations and signed reader decisions', async 
     VALUES($1,$2,'Test',(NOW()-INTERVAL '1 minute') AT TIME ZONE 'UTC',(NOW()+INTERVAL '1 hour') AT TIME ZONE 'UTC','confirmed')`, [member.user.id, readerMachine]);
   assert.equal((await post(`/admin/equipment/${readerMachine}/outage`, outage)).status, 200);
   const denied = await scan(); assert.equal(denied.body.data.reason, 'RESOURCE_UNAVAILABLE');
-  assert.equal((await post('/reservations', { equipmentId: readerMachine, startTime: new Date(Date.now() + 86400000).toISOString(), endTime: new Date(Date.now() + 90000000).toISOString() }, member)).body.error.code, 'EQUIPMENT_UNAVAILABLE');
+  // Derive both boundaries from one clock read: two Date.now calls can make
+  // this fixture one hour plus a millisecond and fail duration validation first.
+  const startsAt = Date.now() + 86400000;
+  assert.equal((await post('/reservations', { equipmentId: readerMachine, startTime: new Date(startsAt).toISOString(), endTime: new Date(startsAt + 3600000).toISOString() }, member)).body.error.code, 'EQUIPMENT_UNAVAILABLE');
 });
 test('reader initialization shares the deadline and cannot produce a late check-in', async () => {
   await post(`/admin/equipment/${readerMachine}/restore`, { expectedRevision: 2 });
