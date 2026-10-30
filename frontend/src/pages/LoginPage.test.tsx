@@ -57,13 +57,15 @@ const type = (input: HTMLElement, value: string) => fireEvent.change(input, { ta
 async function fillToLastStep(dialog: HTMLElement) {
   type(within(dialog).getByLabelText('First name'), 'Casey');
   type(within(dialog).getByLabelText('Last name'), 'Demo');
-  type(within(dialog).getByLabelText('Date of birth'), '2000-01-01');
+  // Native date-picker input must survive the step transition before the browser commits a change event.
+  fireEvent.input(within(dialog).getByLabelText('Date of birth'), { target: { value: '2000-01-01' } });
   fireEvent.click(within(dialog).getByRole('button', { name: 'Continue' }));
   type(await within(dialog).findByLabelText('Email'), 'casey@example.invalid');
   type(within(dialog).getByLabelText('Phone'), '0000000000');
   fireEvent.click(within(dialog).getByRole('button', { name: 'Continue' }));
-  type(await within(dialog).findByLabelText('Username'), 'casey_demo');
-  type(within(dialog).getByLabelText('Password', { exact: false }), 'ValidPassword!');
+  // New sign-ups require only a password at the final step, with no username field.
+  expect(within(dialog).queryByLabelText('Username')).toBeNull();
+  type(await within(dialog).findByLabelText('Password', { exact: false }), 'ValidPassword!');
 }
 
 test('steps advance while the session check is still loading; only creating waits', async () => {
@@ -88,6 +90,9 @@ test('Enter while a registration is pending does not register again', async () =
   );
   fireEvent.keyDown(password, { key: 'Enter' });
   expect(auth.register).toHaveBeenCalledTimes(1);
+  // Public requests must not carry a username even though legacy login still accepts one.
+  expect(auth.register.mock.calls[0]![0]).not.toHaveProperty('username');
+  expect(auth.register.mock.calls[0]![0].dob).toBe('2000-01-01');
 });
 
 function ResetLocation() {

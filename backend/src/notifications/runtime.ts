@@ -1,3 +1,4 @@
+import { pruneRegistrations } from '../confirmation/pendingRegistration.js';
 import type { Pool } from 'pg';
 import type { NotificationConfig } from './config.js';
 import { BrevoTransport, NotificationTransportError } from './transport.js';
@@ -7,14 +8,16 @@ import { scheduleExpirationNotifications } from './scheduler.js';
 
 /** A single local tick at a time; database leases coordinate multiple processes. */
 export function startNotificationRuntime(pool: Pool, config?: NotificationConfig) {
-  if (!config) return { stop: async () => {} };
-  const transport = new BrevoTransport(config);
+  // Pending registration data expires even in local environments with email delivery disabled.
+  const transport = config ? new BrevoTransport(config) : undefined;
   let stopped = false;
   let pending: Promise<void> | undefined;
   let lastScan = 0;
   const tick = () => {
     if (stopped || pending) return;
     pending = (async () => {
+      await pruneRegistrations(pool);
+      if (!config || !transport) return;
       // Initial scan plus daily scan. Dispatch still runs once per configured interval.
       if (Date.now() - lastScan >= 24 * 60 * 60 * 1000) {
         await scheduleExpirationNotifications(pool);
@@ -46,7 +49,7 @@ export function startNotificationRuntime(pool: Pool, config?: NotificationConfig
       console.error('Notification worker tick failed; retrying on the next interval');
     }).finally(() => { pending = undefined; });
   };
-  const timer = setInterval(tick, config.intervalMs);
+  const timer = setInterval(tick, config?.intervalMs ?? 60_000);
   timer.unref();
   tick();
   return { stop: async () => { stopped = true; clearInterval(timer); await pending; } };

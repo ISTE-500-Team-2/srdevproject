@@ -40,6 +40,8 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   const permit = (resource: string, action: string, scope: "own" | "global" = "global") => requirePermission(pool,resource,action,scope);
   const protectedRoute = requireUser(pool, config);
   const rateLimit = authRateLimit();
+  // Sign-up has its own smaller IP budget so garbage registrations do not exhaust login attempts.
+  const signupLimit = authRateLimit({ limit:10, message:"Too many sign-up attempts. Please wait 15 minutes before trying again." });
   // Cookie rotations have their own bounded throttle, not the sign-in budget.
   // CSRF, origin and rotating-cookie validation are unchanged.
   // Failed sign-ins (and other members on a shared network) must not lock people out of recovery.
@@ -56,7 +58,7 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
     }),
   );
   routes.post("/auth/login", rateLimit, auth.login);
-  routes.post("/auth/register", rateLimit, auth.register);
+  routes.post("/auth/register", signupLimit, auth.register);
   routes.post("/auth/confirm", rateLimit, auth.confirm);
   routes.post("/auth/confirmation", rateLimit, auth.confirmation);
   routes.post("/auth/password-reset", resetLimit, auth.passwordReset);

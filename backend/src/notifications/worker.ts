@@ -3,7 +3,7 @@ import { transaction } from '../db.js';
 import { expirationSourceCurrent } from './scheduler.js';
 
 export interface PendingNotification {
-  id:number;userId:number;kind:string;dedupeKey:string;payload:Record<string,unknown>;
+  id:number;userId:number | null;registrationId?:number | null;kind:string;dedupeKey:string;payload:Record<string,unknown>;
   email:string;firstName:string;timeZone:string;attempts:number;dueAt:Date;deadlineAt:Date;
 }
 /** Only explicit provider rejection known not to have accepted mail may retry. */
@@ -21,10 +21,11 @@ export async function runNotificationBatch(pool:Pool,send:(notification:PendingN
     WHERE status='sending' AND lease_until<$1`,[clock()]);
   for(let i=0;i<batchSize;i++) {
     const row=await transaction(pool,async db=>{
-      const selected=await db.query<PendingNotification>(`SELECT o.id,o.userid AS "userId",o.kind,o.dedupe_key AS "dedupeKey",o.payload,
-        o.attempts,o.due_at AS "dueAt",o.deadline_at AS "deadlineAt",u.email,u.firstname AS "firstName",
-        COALESCE(p.time_zone,'America/New_York') AS "timeZone"
-        FROM app_notification_outbox o JOIN "user" u ON u.userid=o.userid
+      const selected=await db.query<PendingNotification>(`SELECT o.id,o.userid AS "userId",o.registration_id AS "registrationId",o.kind,o.dedupe_key AS "dedupeKey",o.payload,
+        o.attempts,o.due_at AS "dueAt",o.deadline_at AS "deadlineAt",COALESCE(u.email,r.email) AS email,COALESCE(u.firstname,r.first_name) AS "firstName",
+        COALESCE(p.time_zone,r.time_zone,'America/New_York') AS "timeZone"
+        FROM app_notification_outbox o LEFT JOIN "user" u ON u.userid=o.userid
+        LEFT JOIN app_pending_registration r ON r.id=o.registration_id
         LEFT JOIN app_notification_preferences p ON p.userid=o.userid
         WHERE o.status='pending' AND o.due_at<=$1 ORDER BY o.due_at,o.id
         LIMIT 1 FOR UPDATE OF o SKIP LOCKED`,[clock()]);
@@ -39,21 +40,29 @@ export async function runNotificationBatch(pool:Pool,send:(notification:PendingN
       await pool.query(`UPDATE app_notification_outbox SET status=$2,lease_until=NULL,last_error=$3,counts_for_sla=CASE WHEN $2 IN ('suppressed','obsolete') AND deadline_at>=$4 THEN false ELSE counts_for_sla END,updated_at=NOW() WHERE id=$1 AND status='sending'`,[row.id,status,error??null,clock()]);
     };
     try {
-      const allowed=await pool.query(`SELECT 1 FROM "user" u LEFT JOIN app_notification_preferences p USING(userid)
-        WHERE u.userid=$1 AND u.status='active' AND (COALESCE(p.enabled,true) OR $2 IN ('password_reset','password_changed'))`,[row.userId,row.kind]);
-      if(!allowed.rows.length) {await finish('suppressed');result.suppressed++;continue;}
-      if (row.kind === 'account_confirmation') {
-        const current = await pool.query(`SELECT 1 FROM app_email_confirmation c JOIN "user" u USING(userid)
-          WHERE c.userid=$1 AND c.token_hash=$2 AND c.expires_at>$3 AND u.email_confirmed=false`,
-          [row.userId,row.payload.confirmationHash,clock()]);
+      // Confirmation jobs can belong to a temporary request instead of an active member.
+      if (row.registrationId) {
+        const current = await pool.query(`SELECT 1 FROM app_pending_registration
+          WHERE id=$1 AND token_hash=$2 AND expires_at>$3`, [row.registrationId,row.payload.confirmationHash,clock()]);
         if (!current.rows.length) {await finish('obsolete');result.obsolete++;continue;}
+      } else {
+        const allowed=await pool.query(`SELECT 1 FROM "user" u LEFT JOIN app_notification_preferences p USING(userid)
+          WHERE u.userid=$1 AND (u.status='active' OR ($2='account_confirmation' AND u.status='pending'))
+          AND (COALESCE(p.enabled,true) OR $2 IN ('password_reset','password_changed'))`,[row.userId,row.kind]);
+        if(!allowed.rows.length) {await finish('suppressed');result.suppressed++;continue;}
+        if (row.kind === 'account_confirmation') {
+          const current = await pool.query(`SELECT 1 FROM app_email_confirmation c JOIN "user" u USING(userid)
+            WHERE c.userid=$1 AND c.token_hash=$2 AND c.expires_at>$3 AND u.email_confirmed=false`,
+            [row.userId,row.payload.confirmationHash,clock()]);
+          if (!current.rows.length) {await finish('obsolete');result.obsolete++;continue;}
+        }
       }
       if (row.kind === 'password_reset') {
         const current = await pool.query(`SELECT 1 FROM app_password_reset
           WHERE userid=$1 AND token_hash=$2 AND expires_at>$3`, [row.userId,row.payload.resetHash,clock()]);
         if (!current.rows.length) {await finish('obsolete');result.obsolete++;continue;}
       }
-      if(!await expirationSourceCurrent(pool,row.userId,row.payload,clock())) {await finish('obsolete');result.obsolete++;continue;}
+      if(row.userId !== null && !await expirationSourceCurrent(pool,row.userId,row.payload,clock())) {await finish('obsolete');result.obsolete++;continue;}
       if(typeof row.payload.expiresAt==='string' && new Date(row.payload.expiresAt)<=clock()) {
         await finish('failed','expired_before_dispatch');result.failed++;continue;
       }
@@ -63,7 +72,8 @@ export async function runNotificationBatch(pool:Pool,send:(notification:PendingN
       result.accepted++;
       // A callback can arrive before the HTTP send response. Apply unsubscribe
       // ownership only after the provider message ID is known locally.
-      await pool.query(`INSERT INTO app_notification_preferences(userid,enabled)
+      // Pending requests have no member preferences or unsubscribe ownership to mutate.
+      if (row.userId !== null) await pool.query(`INSERT INTO app_notification_preferences(userid,enabled)
         SELECT $1,false WHERE EXISTS(SELECT 1 FROM app_brevo_delivery_event
           WHERE provider_message_id=trim(both '<>' from $2::text) AND event_type='unsubscribed')
         ON CONFLICT(userid) DO UPDATE SET enabled=false,updated_at=NOW()`,[row.userId,response.messageId]);

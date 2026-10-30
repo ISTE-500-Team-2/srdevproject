@@ -1,3 +1,5 @@
+import validator from 'validator';
+
 export interface UserView {
   id: number;
   firstName: string;
@@ -108,9 +110,21 @@ export function textField(
   return value.trim();
 }
 
+/** All email flows share validation and the existing case-insensitive identity policy; dots and plus tags remain meaningful. */
 export function emailField(value: unknown): string {
+  // Reject control and invisible formatting characters before trimming so malformed input cannot become another address.
+  if (typeof value === 'string' && /[\p{Cc}\p{Cf}]/u.test(value))
+    throw new AppError(400, 'INVALID_INPUT', 'Enter a valid email address.');
   const email = textField(value, "Email", 100).toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+  // Validate a single mailbox without display names, IP literals or SMTPUTF8 local parts; never use provider-specific rewriting.
+  if (!validator.isEmail(email, {
+    allow_display_name: false,
+    allow_utf8_local_part: false,
+    allow_ip_domain: false,
+    allow_underscores: false,
+    require_tld: true,
+    domain_specific_validation: false,
+  }))
     throw new AppError(400, "INVALID_INPUT", "Enter a valid email address.");
   return email;
 }
@@ -124,7 +138,8 @@ export function usernameField(value: unknown): string {
 
 export function loginIdentifier(value: unknown): string {
   const identifier = textField(value, "Email or username", 100);
-  return identifier.includes("@") ? emailField(identifier) : usernameField(identifier);
+  // Preserve the raw email until validation so trimming cannot hide control characters on login alone.
+  return identifier.includes("@") ? emailField(value) : usernameField(identifier);
 }
 
 export function dateOfBirthField(value: unknown): string {

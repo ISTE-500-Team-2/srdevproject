@@ -23,30 +23,16 @@ before(async()=>{
 });
 after(async()=>{await pool.end();if(created)await owner.query(`DROP DATABASE "${database}"`);await owner.end();});
 
-test('new username is normalized and email/username login share confirmation and password controls',async()=>{
+// New public accounts never acquire a username, even when an older client still sends that field.
+test('public signup uses confirmed email while existing username logins remain supported',async()=>{
   assert.equal((await request(app).post('/api/auth/register').send(input)).status,202);
-  const pending=await request(app).post('/api/auth/login').send({identifier:'NEW.MEMBER',password:input.password});
-  assert.equal(pending.status,403);assert.equal(pending.body.error.code,'EMAIL_CONFIRMATION_REQUIRED');
+  assert.equal((await request(app).post('/api/auth/login').send({identifier:input.email,password:input.password})).body.error.code,'EMAIL_CONFIRMATION_REQUIRED');
   member=(await request(app).post('/api/auth/confirm').send({token:await confirmationToken(pool,input.email)})).body.data;
-  assert.equal(member.user.username,'new.member');
-  for(const body of [{email:input.email.toUpperCase(),password:input.password},{email:'New.Member',password:input.password},{identifier:'NEW.MEMBER',password:input.password}]){
-    const login=await request(app).post('/api/auth/login').send(body);
-    assert.equal(login.status,200);assert.equal(login.body.data.user.id,member.user.id);
-  }
-  assert.equal((await get('/me/profile')).body.data.user.username,'new.member');
-  const bad=await request(app).post('/api/auth/login').send({identifier:'new.member',password:'WrongPassword!'});
-  assert.equal(bad.status,401);assert.equal(bad.body.error.code,'INVALID_CREDENTIALS');
-});
-
-test('missing/invalid usernames and case-only duplicate names are rejected without creating accounts',async()=>{
-  for(const username of [undefined,'ab','bad name','bad@example.invalid','-bad','x'.repeat(31)]){
-    const response=await request(app).post('/api/auth/register').send({...input,email:'invalid@example.invalid',username});
-    assert.equal(response.status,400,JSON.stringify(response.body));
-  }
-  const race=await Promise.all(['one','two'].map(n=>request(app).post('/api/auth/register').send({...input,email:n+'@example.invalid',username:n==='one'?'Race.Name':'RACE.NAME'})));
-  assert.deepEqual(race.map(r=>r.status).sort(),[202,409]);
-  assert.equal(race.find(r=>r.status===409)!.body.error.code,'USERNAME_UNAVAILABLE');
-  assert.equal((await pool.query(`SELECT COUNT(*)::int AS n FROM "user" WHERE username='race.name'`)).rows[0].n,1);
+  assert.equal(member.user.username,null);
+  assert.equal((await request(app).post('/api/auth/login').send({identifier:input.email.toUpperCase(),password:input.password})).status,200);
+  assert.equal((await request(app).post('/api/auth/login').send({identifier:input.username,password:input.password})).status,401);
+  await pool.query(`UPDATE "user" SET username='legacy.admin',password=$1 WHERE email='demo.admin@collaboratory.invalid'`,[await hashPassword('LegacyUsername!')]);
+  assert.equal((await request(app).post('/api/auth/login').send({identifier:'LEGACY.ADMIN',password:'LegacyUsername!'})).status,200);
 });
 
 test('additive migration keeps a legacy email account, password, membership and session intact',async()=>{

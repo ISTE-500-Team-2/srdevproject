@@ -33,10 +33,10 @@ export interface NotificationMessage {
   subject: string;
   body: string;
 }
+// Public sign-up collects email only; a member identity is allocated after inbox confirmation.
 export interface Registration {
   firstName: string;
   lastName: string;
-  username: string;
   email: string;
   phone: string;
   dob: string;

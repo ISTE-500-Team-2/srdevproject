@@ -26,7 +26,8 @@ test('failure offers recovery without showing forms on the token landing', async
 test('disabled local email is explicit without restoring the old recovery form', () => {
   render(<MemoryRouter initialEntries={[{ pathname: '/confirm-email', state: { email: 'test@example.test', emailSendingEnabled: false } }]}><ConfirmEmailPage /></MemoryRouter>);
   expect(screen.getByRole('heading', { name: 'Email unavailable' })).toBeTruthy();
-  expect(screen.getByRole('status').textContent).toContain('Your account is saved');
+  // Disabled email delivery leaves only a temporary request, never an active member account.
+  expect(screen.getByRole('status').textContent).toContain('no member account has been created');
   expect(screen.queryByRole('heading', { name: 'Confirmation sent' })).toBeNull();
   expect(screen.getByText('Didn’t get the email?').closest('details')?.open).toBe(false);
 });
