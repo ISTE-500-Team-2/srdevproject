@@ -4,7 +4,6 @@ export interface UserView {
   id: number;
   firstName: string;
   lastName: string;
-  username?: string | null;
   email: string;
   phone: string;
   role: "member" | "staff" | "admin";
@@ -127,19 +126,6 @@ export function emailField(value: unknown): string {
   }))
     throw new AppError(400, "INVALID_INPUT", "Enter a valid email address.");
   return email;
-}
-
-export function usernameField(value: unknown): string {
-  const username = textField(value, "Username", 30, 3).toLowerCase();
-  if (!/^[a-z0-9][a-z0-9_.-]{2,29}$/.test(username))
-    throw new AppError(400, "INVALID_USERNAME", "Use 3–30 letters, numbers, periods, underscores or hyphens, starting with a letter or number.");
-  return username;
-}
-
-export function loginIdentifier(value: unknown): string {
-  const identifier = textField(value, "Email or username", 100);
-  // Preserve the raw email until validation so trimming cannot hide control characters on login alone.
-  return identifier.includes("@") ? emailField(value) : usernameField(identifier);
 }
 
 export function dateOfBirthField(value: unknown): string {

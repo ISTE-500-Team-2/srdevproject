@@ -258,7 +258,6 @@ function ProfileSection({ user, profile, save }: { user: User; profile: UserProf
             {user.firstName} {user.lastName}
           </Detail>
           <Detail label="Email">{user.email}</Detail>
-          {user.username ? <Detail label="Username">{user.username}</Detail> : null}
         </dl>
       )}
     </Section>

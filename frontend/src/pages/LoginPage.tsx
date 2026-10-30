@@ -23,7 +23,7 @@ const STEPPER_THEME = {
   '--stepper-solid-ink': '#fff',
 } as CSSProperties;
 const SIGNUP_STEPS = 3;
-// New accounts use verified email; usernames remain supported only for existing logins.
+// Accounts use verified email for both registration and sign-in.
 const EMPTY_SIGNUP = {
   firstName: '',
   lastName: '',
@@ -47,7 +47,7 @@ const stepForError = (message: string) =>
 export function LoginPage() {
   const { login, loginAs, register, demoLogin, loading } = useAuth();
   const navigate = useNavigate();
-  const [identifier, setIdentifier] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
@@ -87,14 +87,14 @@ export function LoginPage() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!identifier.trim() || !password.trim()) {
-      setError('Enter your email or username and password to continue.');
+    if (!email.trim() || !password.trim()) {
+      setError('Enter your email and password to continue.');
       return;
     }
     setError('');
     setBusy(true);
     try {
-      await login(identifier, password, remember);
+      await login(email, password, remember);
       navigate('/');
     } catch (err) {
       setError(errorMessage(err));
@@ -183,17 +183,17 @@ export function LoginPage() {
           </div>
           <form onSubmit={handleSubmit} noValidate>
             <label className="form-field">
-              <span>Email or username</span>
+              <span>Email</span>
               <span className="form-field__control">
                 <Mail aria-hidden="true" />
                 <input
-                  value={identifier}
-                  onChange={(event) => setIdentifier(event.target.value)}
-                  autoComplete="username"
-                  type="text"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  autoComplete="email"
+                  type="email"
                   autoCapitalize="none"
                   spellCheck={false}
-                  placeholder="Enter your email or username…"
+                  placeholder="Enter your email…"
                 />
               </span>
             </label>
@@ -244,7 +244,7 @@ export function LoginPage() {
                 type="button"
                 onClick={() =>
                   navigate('/reset-password', {
-                    state: identifier.includes('@') ? { email: identifier.trim() } : undefined,
+                    state: email.includes('@') ? { email: email.trim() } : undefined,
                   })
                 }
               >

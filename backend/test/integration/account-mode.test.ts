@@ -22,7 +22,7 @@ const as=(who:Session)=>({
 });
 async function register(name:string):Promise<Session>{
   const email=`${name}@example.invalid`;
-  const input={firstName:name,lastName:'Tester',username:name,email,phone:'1112223333',dob:'1990-01-01',password:'GoodPassword123!'};
+  const input={firstName:name,lastName:'Tester',email,phone:'1112223333',dob:'1990-01-01',password:'GoodPassword123!'};
   assert.equal((await request(app).post('/api/auth/register').send(input)).status,202);
   return (await request(app).post('/api/auth/confirm').send({token:await confirmationToken(pool,email)})).body.data;
 }

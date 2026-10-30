@@ -45,7 +45,7 @@ test('signup stages an expiring request with no member, role, preference or sess
   const results=await Promise.all([1,2].map(()=>request(app).post('/api/auth/confirm').send({token})));
   assert.deepEqual(results.map(r=>r.status).sort(),[200,400]);
   const member=results.find(r=>r.status===200)!.body.data;
-  assert.equal(member.user.username,null);
+  assert(!Object.hasOwn(member.user,'username'));
   assert.ok(member.user.roles.includes('member'));
   assert.equal((await pool.query('SELECT 1 FROM app_pending_registration WHERE email=$1',[input.email])).rowCount,0);
   assert.equal((await pool.query('SELECT COUNT(*)::int AS n FROM "user" WHERE email=$1',[input.email])).rows[0].n,1);
@@ -104,7 +104,7 @@ test('signup, duplicates, correction, delivery, login and password recovery shar
   const confirmed=await request(flow).post('/api/auth/confirm').send({token:await confirmationToken(pool,corrected)});
   assert.equal(confirmed.status,200);assert.equal(confirmed.body.data.user.email,corrected);
   const id=confirmed.body.data.user.id;
-  const login=await request(flow).post('/api/auth/login').send({identifier:' First.Last+Workshop@Example.COM ',password:input.password});
+  const login=await request(flow).post('/api/auth/login').send({email:' First.Last+Workshop@Example.COM ',password:input.password});
   assert.equal(login.status,200);assert.equal(login.body.data.user.id,id);
   assert.equal((await request(flow).post('/api/auth/password-reset').send({email:' FIRST.LAST+WORKSHOP@EXAMPLE.COM '})).status,202);
   assert.equal((await pool.query('SELECT 1 FROM app_password_reset WHERE userid=$1',[id])).rowCount,1);
@@ -125,7 +125,7 @@ test('all email account endpoints reject injection, invisible characters and mal
     const guarded=createApp(pool,config), input=person(email);
     for(const [path,body] of [
       ['/api/auth/register',input],
-      ['/api/auth/login',{identifier:email,password:input.password}],
+      ['/api/auth/login',{email,password:input.password}],
       ['/api/auth/confirmation',input],
       ['/api/auth/confirmation',{...input,email:'valid@example.com',newEmail:email}],
       ['/api/auth/password-reset',{email}],

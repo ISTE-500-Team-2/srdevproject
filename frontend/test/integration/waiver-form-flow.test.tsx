@@ -19,7 +19,7 @@ const mount = () => render(<MemoryRouter initialEntries={['/certifications']}><A
 test('newly registered unsigned member can fill every blank, correct errors, sign and retrieve the completed document', async () => {
   vi.stubGlobal('fetch', bridge.fetch);
   const email = 'new-waiver-member@example.invalid';
-  await api('/auth/register', { method: 'POST', body: { firstName: 'New', lastName: 'Member', username: 'new-waiver-member', email,
+  await api('/auth/register', { method: 'POST', body: { firstName: 'New', lastName: 'Member', email,
     phone: '5550101234', dob: '2000-01-01', password: 'StrongPassword123!', timeZone: 'America/New_York' } });
   await api('/auth/confirm', { method: 'POST', body: { token: await confirmationToken(bridge.pool, email) } });
   const waivers = await api<any[]>('/me/waivers');

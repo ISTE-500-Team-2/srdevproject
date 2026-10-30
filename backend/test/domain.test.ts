@@ -5,8 +5,6 @@ import {
   AppError,
   dateOfBirthField,
   emailField,
-  usernameField,
-  loginIdentifier,
   newPasswordField,
   passwordField,
   positiveId,
@@ -33,17 +31,9 @@ test('email validation rejects unsafe input, unsupported mailbox formats and sto
     assert.throws(() => emailField(value), AppError, String(value));
 });
 
-test('usernames normalize consistently and cannot collide with email identifiers', () => {
-  assert.equal(usernameField(' New.Member-2_ '),'new.member-2_');
-  for(const value of [null,{},'', 'ab','-name','has space','user@example.invalid','x'.repeat(31),'üser'])
-    assert.throws(()=>usernameField(value),AppError);
-});
-
-test('email and username login identifiers preserve case-insensitive email compatibility', () => {
-  assert.equal(loginIdentifier(' Existing@Example.Invalid '),'existing@example.invalid');
-  assert.equal(loginIdentifier(' New.Member '),'new.member');
-  assert.throws(()=>loginIdentifier('bad@'),AppError);
-  assert.throws(()=>loginIdentifier('\nexisting@example.invalid'),AppError);
+test('email login requires a valid address', () => {
+  assert.equal(emailField(' Existing@Example.Invalid '),'existing@example.invalid');
+  for (const value of [undefined,null,{},'', 'new.member','bad@']) assert.throws(()=>emailField(value),AppError);
 });
 
 test('reservation times are explicit, valid, future intervals of at most 24 hours', () => {

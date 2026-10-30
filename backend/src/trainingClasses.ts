@@ -228,7 +228,7 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
     requirePermission(pool, "user", "read", "own"),
     async (req, res) => {
       // Separate from the instructor roster: never select contact details,
-      // account IDs, usernames or attendance history for the member response.
+      // account IDs or attendance history for the member response.
       const { rows } = await pool.query(
         `SELECT c.capacity,COUNT(e.user_id)::int AS enrolled,
           c.capacity-COUNT(e.user_id)::int AS "seatsAvailable",
