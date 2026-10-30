@@ -1,5 +1,7 @@
--- Email is the sole account login. Dropping the column also removes its format
--- constraint and unique index; account IDs and all related records stay intact.
--- app_user_email_case_insensitive (001_mvc.sql) continues enforcing one account
--- per email, including addresses that differ only by capitalization.
-ALTER TABLE "user" DROP COLUMN username;
+-- Email is the sole account login in the new application. Keep the legacy
+-- nullable column/index during blue-green coexistence: the previous application
+-- still selects it and must remain a working rollback target. No names are
+-- accepted, populated or exposed by the new application. Contract/drop requires
+-- a separate rollout after legacy readers of this column have been retired.
+COMMENT ON COLUMN "user".username IS
+  'Deprecated compatibility data; current accounts authenticate by email only.';
