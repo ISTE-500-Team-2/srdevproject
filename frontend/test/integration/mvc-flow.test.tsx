@@ -131,6 +131,42 @@ test('signup form creates an account with DOB and the new password policy', asyn
   }
 }, 120000);
 
+test('duplicate email returns to the contact step and can be corrected without retyping other fields',async()=>{
+  vi.stubGlobal('fetch',bridge.fetch);
+  const email=randomUUID()+'@example.invalid';
+  const response=await bridge.fetch('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({firstName:'Existing',lastName:'Test',email,password:'ValidPassword!',phone:'0000000000',dob:'2000-01-01'})});
+  expect(response.status).toBe(202);
+  const confirmed=await bridge.fetch('/api/auth/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:await confirmationToken(bridge.pool,email)})});
+  expect(confirmed.status).toBe(200);
+  mount();const user=userEvent.setup();await user.click(await screen.findByRole('button',{name:'Sign up'}));
+  const dialog=screen.getByRole('dialog',{name:'Create your account'});
+  const next=()=>user.click(within(dialog).getByRole('button',{name:'Continue'}));
+  await user.type(within(dialog).getByLabelText('First name'),'Retry');
+  await user.type(within(dialog).getByLabelText('Last name'),'Test');
+  fireEvent.change(within(dialog).getByLabelText('Date of birth'),{target:{value:'2000-01-01'}});
+  await next();
+  await user.type(await within(dialog).findByLabelText('Email'),email.toUpperCase());
+  await user.type(within(dialog).getByLabelText('Phone'),'0000000000');
+  await next();
+  await user.type(await within(dialog).findByLabelText('Password',{exact:false}),'ValidPassword!');
+  const create=within(dialog).getByRole('button',{name:'Create account'});
+  await waitFor(()=>expect((create as HTMLButtonElement).disabled).toBe(false));
+  await user.click(create);
+  expect((await within(dialog).findByRole('alert')).textContent).toContain('An account with that email address already exists');
+  expect((await within(dialog).findByLabelText('Email') as HTMLInputElement).value).toBe(email.toUpperCase());
+  expect((within(dialog).getByLabelText('Phone') as HTMLInputElement).value).toBe('0000000000');
+  // The error selects Contact; earlier fields and the password survive correction.
+  await user.click(within(dialog).getByRole('button',{name:'Back'}));
+  expect((await within(dialog).findByLabelText('First name') as HTMLInputElement).value).toBe('Retry');
+  await next();
+  await user.clear(await within(dialog).findByLabelText('Email'));
+  await user.type(within(dialog).getByLabelText('Email'),'retry_'+email);
+  await next();
+  expect((await within(dialog).findByLabelText('Password',{exact:false}) as HTMLInputElement).value).toBe('ValidPassword!');
+  await user.click(within(dialog).getByRole('button',{name:'Create account'}));
+  expect(await screen.findByRole('heading',{name:'Email unavailable'})).toBeTruthy();
+});
+
 test('React → Express controllers/models → PostgreSQL: login, save, refresh, cancel, waive and check in', async () => {
   vi.stubGlobal('fetch', bridge.fetch);
   const config = await fetch('/api/config');

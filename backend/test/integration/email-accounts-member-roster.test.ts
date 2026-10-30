@@ -66,7 +66,7 @@ test('duplicate emails, including concurrent case-only duplicates, cannot create
     VALUES('Duplicate','Email',$1,'0000000000','unused','active')`,[input.email.toUpperCase()]),{code:'23505',constraint:'app_user_email_case_insensitive'});
 });
 
-test('removal migration drops stored names and constraints while preserving legacy accounts and sessions',async()=>{
+test('email-only rollout retains legacy column compatibility, accounts and sessions for rollback',async()=>{
   const legacyName='arbor_legacy_'+randomBytes(6).toString('hex')+'_mvc_test',legacy=new Pool({database:legacyName});
   await owner.query(`CREATE DATABASE "${legacyName}"`);
   try{
@@ -80,16 +80,16 @@ test('removal migration drops stored names and constraints while preserving lega
     const legacyApp=createApp(legacy,config);
     const login=await request(legacyApp).post('/api/auth/login').send({email:'demo.member@collaboratory.invalid',password:'LegacyPassword!'});
     assert.equal(login.status,200);
-    const before=(await legacy.query(`SELECT to_jsonb(u)-'username' AS account FROM "user" u WHERE email='demo.member@collaboratory.invalid'`)).rows[0].account;
+    const before=(await legacy.query(`SELECT to_jsonb(u) AS account FROM "user" u WHERE email='demo.member@collaboratory.invalid'`)).rows[0].account;
     const memberships=(await legacy.query('SELECT * FROM user_membership WHERE userid=$1',[before.userid])).rows;
     const roles=(await legacy.query('SELECT * FROM user_role WHERE userid=$1',[before.userid])).rows;
     const ledger=(await legacy.query('SELECT name,checksum FROM app_migration ORDER BY name')).rows;
     await migrate(legacy);await migrate(legacy);
     const after=(await legacy.query('SELECT to_jsonb(u) AS account FROM "user" u WHERE userid=$1',[before.userid])).rows[0].account;
     assert.deepEqual(after,before);
-    assert.equal((await legacy.query("SELECT COUNT(*)::int AS n FROM information_schema.columns WHERE table_schema='public' AND table_name='user' AND column_name='username'")).rows[0].n,0);
-    assert.equal((await legacy.query("SELECT to_regclass('user_username_unique') AS index")).rows[0].index,null);
-    assert.equal((await legacy.query("SELECT COUNT(*)::int AS n FROM pg_constraint WHERE conrelid='public.\"user\"'::regclass AND conname='user_username_format'")).rows[0].n,0);
+    assert.equal((await legacy.query("SELECT COUNT(*)::int AS n FROM information_schema.columns WHERE table_schema='public' AND table_name='user' AND column_name='username'")).rows[0].n,1);
+    assert.notEqual((await legacy.query("SELECT to_regclass('user_username_unique') AS index")).rows[0].index,null);
+    assert.equal((await legacy.query("SELECT COUNT(*)::int AS n FROM pg_constraint WHERE conrelid='public.\"user\"'::regclass AND conname='user_username_format'")).rows[0].n,1);
     assert.deepEqual((await legacy.query("SELECT name,checksum FROM app_migration WHERE name<>'030_email_only_accounts.sql' ORDER BY name")).rows,ledger);
     assert.deepEqual((await legacy.query('SELECT * FROM user_membership WHERE userid=$1',[before.userid])).rows,memberships);
     assert.deepEqual((await legacy.query('SELECT * FROM user_role WHERE userid=$1',[before.userid])).rows,roles);
