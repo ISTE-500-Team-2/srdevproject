@@ -4,6 +4,10 @@ Implements the authentication contract in the team's [System Architecture](https
 
 ## Request flow
 
+Accounts use a unique, case-insensitive email address for sign-in. Registration
+and profiles have no username field. See [email-only accounts](email-only-accounts.md)
+for the API contract and migration procedure.
+
 1. Password registration uses bcrypt with cost 12 through [bcryptjs](https://github.com/dcodeIO/bcrypt.js). Reject new passwords longer than 72 UTF-8 bytes rather than silently truncating them. Previously stored scrypt credentials remain verifiable and upgrade on successful login when within that limit; longer legacy passwords remain scrypt until a password-reset workflow is available. Plaintext fixtures never authenticate through password login.
 2. Login/register/demo return `user`, `csrfToken`, `accessToken`, and `expiresIn`. HS256 access JWTs contain `sub`, `role`, `roles`, `jti`, `iss`, `aud`, `iat`, `nbf`, and `exp`. Default lifetime is 15 minutes. React holds the access token in module memory only and sends `Authorization: Bearer ...`; no localStorage, sessionStorage or access-token cookie.
 3. The independent random refresh token is stored in an HttpOnly, SameSite=Lax `arbor_refresh` cookie scoped to `/api`, Secure in production. Refresh family lifetime is 30 days, absolute from sign-in. Remember me makes the cookie persistent; otherwise it is browser-session scoped, with the same server-side maximum.
