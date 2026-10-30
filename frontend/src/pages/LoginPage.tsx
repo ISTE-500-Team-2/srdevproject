@@ -29,14 +29,13 @@ const EMPTY_SIGNUP = {
   dob: '',
   email: '',
   phone: '',
-  username: '',
   password: '',
 };
 type SignupField = keyof typeof EMPTY_SIGNUP;
 
 // Sends a server error back to the step that holds the field it names.
 const stepForError = (message: string) =>
-  /username|password/i.test(message)
+  /password/i.test(message)
     ? 3
     : /email|phone/i.test(message)
       ? 2
@@ -47,7 +46,7 @@ const stepForError = (message: string) =>
 export function LoginPage() {
   const { login, loginAs, register, demoLogin, loading } = useAuth();
   const navigate = useNavigate();
-  const [identifier, setIdentifier] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
@@ -82,14 +81,14 @@ export function LoginPage() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!identifier.trim() || !password.trim()) {
-      setError('Enter your email or username and password to continue.');
+    if (!email.trim() || !password.trim()) {
+      setError('Enter your email and password to continue.');
       return;
     }
     setError('');
     setBusy(true);
     try {
-      await login(identifier, password, remember);
+      await login(email, password, remember);
       navigate('/');
     } catch (err) {
       setError(errorMessage(err));
@@ -178,17 +177,17 @@ export function LoginPage() {
           </div>
           <form onSubmit={handleSubmit} noValidate>
             <label className="form-field">
-              <span>Email or username</span>
+              <span>Email</span>
               <span className="form-field__control">
                 <Mail aria-hidden="true" />
                 <input
-                  value={identifier}
-                  onChange={(event) => setIdentifier(event.target.value)}
-                  autoComplete="username"
-                  type="text"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  autoComplete="email"
+                  type="email"
                   autoCapitalize="none"
                   spellCheck={false}
-                  placeholder="Enter your email or username…"
+                  placeholder="Enter your email…"
                 />
               </span>
             </label>
@@ -239,7 +238,7 @@ export function LoginPage() {
                 type="button"
                 onClick={() =>
                   navigate('/reset-password', {
-                    state: identifier.includes('@') ? { email: identifier.trim() } : undefined,
+                    state: email.includes('@') ? { email: email.trim() } : undefined,
                   })
                 }
               >
@@ -402,22 +401,6 @@ export function LoginPage() {
             </Step>
             <Step title="Sign-in">
               <div className="signup-step">
-                <label className="form-field">
-                  <span>Username</span>
-                  <input
-                    {...signupField('username')}
-                    aria-label="Username"
-                    required
-                    minLength={3}
-                    maxLength={30}
-                    pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{2,29}"
-                    autoComplete="username"
-                    autoCapitalize="none"
-                    spellCheck={false}
-                    aria-describedby="signup-username-help"
-                  />
-                  <small id="signup-username-help">3–30 letters, numbers, periods, underscores or hyphens. Start with a letter or number. You can also sign in with your email.</small>
-                </label>
                 <label className="form-field">
                   <span>Password</span>
                   <input

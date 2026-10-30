@@ -3,7 +3,6 @@ export interface User {
   id: number;
   firstName: string;
   lastName: string;
-  username?: string | null;
   email: string;
   phone: string;
   role: UserRole;
@@ -36,7 +35,6 @@ export interface NotificationMessage {
 export interface Registration {
   firstName: string;
   lastName: string;
-  username: string;
   email: string;
   phone: string;
   dob: string;
