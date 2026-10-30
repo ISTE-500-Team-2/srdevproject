@@ -16,6 +16,23 @@ import {
 import { hashPassword, verifyPassword } from '../src/passwords.js';
 import { readConfig } from '../src/config.js';
 
+// Shared email rules preserve meaningful mailbox punctuation and reject malformed input without repairing it.
+test('email validation preserves dots and plus tags with the existing case-insensitive identity policy', () => {
+  for (const value of [' First.Last+Studio@Example.COM ', " O'Connor@Example.COM ", 'a@xn--bcher-kva.example'])
+    assert.equal(emailField(value), value.trim().toLowerCase());
+  assert.notEqual(emailField('first.last+studio@gmail.com'), emailField('firstlast@gmail.com'));
+});
+
+// Header injection, invisible characters and malformed mailbox/domain syntax must fail before any persistence or delivery.
+test('email validation rejects unsafe input, unsupported mailbox formats and storage overflows', () => {
+  for (const value of [null, {}, 12, '', 'a..b@example.com', '.a@example.com', 'a.@example.com',
+    'a@host_.com', 'a@-host.com', 'a@host..com', 'a@host.123', 'a@localhost', 'a@[127.0.0.1]',
+    'Name <a@example.com>', 'a@example.com,b@example.com', 'a@exa mple.com', 'üser@example.com',
+    'a@example.com\r\nBcc: victim@example.com', '\na@example.com', 'a@example.com\t',
+    'a\u0000@example.com', 'a\u200b@example.com', 'a'.repeat(65)+'@example.com', 'a@'+'b'.repeat(90)+'.example'])
+    assert.throws(() => emailField(value), AppError, String(value));
+});
+
 test('usernames normalize consistently and cannot collide with email identifiers', () => {
   assert.equal(usernameField(' New.Member-2_ '),'new.member-2_');
   for(const value of [null,{},'', 'ab','-name','has space','user@example.invalid','x'.repeat(31),'üser'])
@@ -26,6 +43,7 @@ test('email and username login identifiers preserve case-insensitive email compa
   assert.equal(loginIdentifier(' Existing@Example.Invalid '),'existing@example.invalid');
   assert.equal(loginIdentifier(' New.Member '),'new.member');
   assert.throws(()=>loginIdentifier('bad@'),AppError);
+  assert.throws(()=>loginIdentifier('\nexisting@example.invalid'),AppError);
 });
 
 test('reservation times are explicit, valid, future intervals of at most 24 hours', () => {

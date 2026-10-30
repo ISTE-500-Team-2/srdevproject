@@ -53,7 +53,8 @@ export class UserModel {
   async create(input: {
     firstName: string;
     lastName: string;
-    username: string;
+    // Public registration omits usernames; internal callers can retain legacy identifiers.
+    username?: string;
     email: string;
     phone: string;
     password: string;
@@ -70,7 +71,7 @@ export class UserModel {
         input.password,
         input.phone,
         input.dob,
-        input.username,
+        input.username ?? null,
       ],
     );
     const id = rows[0]!.id;

@@ -87,10 +87,11 @@ export class StaffModel {
       )
     ).rows[0];
   }
+  // Unverified legacy requests stay recoverable but never appear in the member directory.
   async users(search: string, offset: number) {
     return (
       await this.db.query(
-        `SELECT ${personColumns} FROM "user" u WHERE
+        `SELECT ${personColumns} FROM "user" u WHERE u.email_confirmed=true AND
       (u.firstname || ' ' || u.lastname || ' ' || u.email) ILIKE $1 ORDER BY u.lastname,u.firstname,u.userid LIMIT 51 OFFSET $2`,
         ["%" + search + "%", offset],
       )
