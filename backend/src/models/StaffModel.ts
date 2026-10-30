@@ -555,24 +555,44 @@ export class StaffModel {
           ORDER BY renewaldate DESC NULLS LAST,usercertid DESC LIMIT 1
         ) uc ON true
       ),
+      -- Aggregate each user's waiver/training state once. Correlated scans of
+      -- these materialized sets made the old rollup quadratic in member count.
+      waiver_rollup AS (
+        SELECT userid,
+          bool_and(compliant) AS compliant,
+          array_agg(name || ' ' || version ORDER BY name) FILTER (WHERE NOT compliant) AS missing,
+          array_agg(name || ' ' || version ORDER BY name) FILTER (WHERE expiring) AS expiring,
+          jsonb_agg(jsonb_build_object('kind','waiver','name',name,
+            'state',CASE WHEN NOT compliant AND expired THEN 'expired' WHEN NOT compliant THEN 'missing' ELSE 'expiring' END,
+            'expiresAt',expires_at) ORDER BY name)
+            FILTER (WHERE NOT compliant OR (expires_at IS NOT NULL
+              AND expires_at<=NOW()+make_interval(days=>COALESCE($3::int,30)))) AS issues
+        FROM waiver_status GROUP BY userid
+      ),
+      certification_rollup AS (
+        SELECT userid,
+          bool_and(compliant) AS compliant,
+          array_agg(name ORDER BY name) FILTER (WHERE NOT compliant) AS missing,
+          array_agg(name ORDER BY name) FILTER (WHERE expiring) AS expiring,
+          jsonb_agg(jsonb_build_object('kind','certification','name',name,
+            'state',CASE WHEN NOT compliant AND expired THEN 'expired' WHEN NOT compliant THEN 'missing' ELSE 'expiring' END,
+            'expiresAt',effective_expires_at AT TIME ZONE 'UTC') ORDER BY name)
+            FILTER (WHERE NOT compliant OR (effective_expires_at IS NOT NULL
+              AND effective_expires_at<=NOW() AT TIME ZONE 'UTC'+make_interval(days=>COALESCE($3::int,30)))) AS issues
+        FROM certification_status GROUP BY userid
+      ),
       user_rollup AS (
         SELECT ru.userid AS id,ru.firstname AS "firstName",ru.lastname AS "lastName",ru.email,ru.status,ru.accessstatus AS "accessStatus",
-          COALESCE((SELECT bool_and(compliant) FROM waiver_status ws WHERE ws.userid=ru.userid),true) AS "waiverCompliant",
-          COALESCE((SELECT bool_and(compliant) FROM certification_status cs WHERE cs.userid=ru.userid),true) AS "certificationCompliant",
-          COALESCE((SELECT array_agg(name || ' ' || version ORDER BY name) FROM waiver_status ws WHERE ws.userid=ru.userid AND NOT compliant),'{}') AS "missingWaivers",
-          COALESCE((SELECT array_agg(name || ' ' || version ORDER BY name) FROM waiver_status ws WHERE ws.userid=ru.userid AND expiring),'{}') AS "expiringWaivers",
-          COALESCE((SELECT array_agg(name ORDER BY name) FROM certification_status cs WHERE cs.userid=ru.userid AND NOT compliant),'{}') AS "missingCertifications",
-          COALESCE((SELECT array_agg(name ORDER BY name) FROM certification_status cs WHERE cs.userid=ru.userid AND expiring),'{}') AS "expiringCertifications",
-          -- Per-item detail for the staff screen: never signed/trained vs
-          -- expired, and when something expires.
-          -- "Expiring" here means within the chosen window, or 30 days by default.
-          COALESCE((SELECT json_agg(json_build_object('kind','waiver','name',name,'state',CASE WHEN NOT compliant AND expired THEN 'expired' WHEN NOT compliant THEN 'missing' ELSE 'expiring' END,'expiresAt',expires_at) ORDER BY name)
-            FROM waiver_status ws WHERE ws.userid=ru.userid AND (NOT compliant
-              OR (expires_at IS NOT NULL AND expires_at<=NOW()+make_interval(days=>COALESCE($3::int,30))))),'[]'::json)::jsonb
-          || COALESCE((SELECT json_agg(json_build_object('kind','certification','name',name,'state',CASE WHEN NOT compliant AND expired THEN 'expired' WHEN NOT compliant THEN 'missing' ELSE 'expiring' END,'expiresAt',effective_expires_at AT TIME ZONE 'UTC') ORDER BY name)
-            FROM certification_status cs WHERE cs.userid=ru.userid AND (NOT compliant
-              OR (effective_expires_at IS NOT NULL AND effective_expires_at<=NOW() AT TIME ZONE 'UTC'+make_interval(days=>COALESCE($3::int,30))))),'[]'::json)::jsonb AS issues
+          COALESCE(wr.compliant,true) AS "waiverCompliant",
+          COALESCE(cr.compliant,true) AS "certificationCompliant",
+          COALESCE(wr.missing,'{}') AS "missingWaivers",
+          COALESCE(wr.expiring,'{}') AS "expiringWaivers",
+          COALESCE(cr.missing,'{}') AS "missingCertifications",
+          COALESCE(cr.expiring,'{}') AS "expiringCertifications",
+          COALESCE(wr.issues,'[]'::jsonb) || COALESCE(cr.issues,'[]'::jsonb) AS issues
         FROM report_users ru
+        LEFT JOIN waiver_rollup wr USING(userid)
+        LEFT JOIN certification_rollup cr USING(userid)
       ),
       window_users AS (
         SELECT * FROM user_rollup
