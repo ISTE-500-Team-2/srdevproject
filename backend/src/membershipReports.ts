@@ -18,6 +18,12 @@ export async function membershipTrends(
     -- Convert each stored UTC boundary once, not once per member per bucket.
     SELECT userid,status,startdate AT TIME ZONE 'UTC' AS starts,end_date AT TIME ZONE 'UTC' AS ends
     FROM user_membership
+  ), cancellations AS MATERIALIZED (
+    -- Resolve durable cancellation evidence once, not once per estimated bucket.
+    -- Repeating this correlated scan can trigger expensive JIT on sparse databases.
+    SELECT b.userid,b.cancellation_requested_at FROM app_membership_billing b WHERE
+      b.cancellation_confirmed=true OR EXISTS(SELECT 1 FROM app_notification_outbox n
+        WHERE n.kind='membership_cancelled' AND n.dedupe_key='membership-cancel:'||b.id::text)
   ), first_memberships AS (
     SELECT userid,MIN(starts) AS starts FROM membership_windows GROUP BY userid
   ) SELECT to_char(p.d,'YYYY-MM-DD') AS period,
@@ -28,10 +34,8 @@ export async function membershipTrends(
       AND m.ends>=p.a AND m.ends<p.b
       AND NOT EXISTS(SELECT 1 FROM membership_windows n WHERE n.userid=m.userid AND n.status='active'
         AND n.starts<=m.ends AND n.ends>m.ends)) AS "expiringMembers",
-    (SELECT COUNT(DISTINCT b.userid)::int FROM app_membership_billing b WHERE
-      (b.cancellation_confirmed=true OR EXISTS(SELECT 1 FROM app_notification_outbox n
-        WHERE n.kind='membership_cancelled' AND n.dedupe_key='membership-cancel:'||b.id::text))
-      AND b.cancellation_requested_at>=p.a AND b.cancellation_requested_at<p.b) AS "cancelledMembers"
+    (SELECT COUNT(DISTINCT b.userid)::int FROM cancellations b WHERE
+      b.cancellation_requested_at>=p.a AND b.cancellation_requested_at<p.b) AS "cancelledMembers"
     FROM periods p ORDER BY p.d`,
     [from, to, timeZone],
   );

@@ -54,3 +54,23 @@ acceptance steps, not simulated successes.
 These are controlled local timings, not a production network latency or unlimited
 concurrency guarantee. Keep the standard CI, migration checks, blue-green health
 verification and retained rollback process for rollout.
+
+## Sparse production planning follow-up
+
+The first live verification caught a separate issue absent from the populated
+load fixture: reports took about 550 ms with only three stored memberships.
+Read-only query profiling showed an estimated cost of 1,764,216 and approximately
+515 ms spent in PostgreSQL JIT compilation, rather than executing the report.
+
+Materializing cancellation evidence once avoids the per-estimated-bucket
+correlated outbox scan. With JIT still enabled, the candidate membership query
+took 1.57 ms versus 643.94 ms for the original on the same live database. Full
+report output hashes matched after excluding only the generated-at timestamp.
+No global JIT, planner or database settings were changed. A sparse-database
+integration test guards the default JIT planning threshold; existing tests cover
+confirmed and durable cancellation evidence, distinct people and export results.
+All 27 timezone/bucket/DST differential cases still matched exactly.
+
+This read-only operator comparison is not itself a deployed-release claim or a
+physical-reader acceptance test. The follow-up must pass the same exact-main CI
+and blue-green verification before release.
