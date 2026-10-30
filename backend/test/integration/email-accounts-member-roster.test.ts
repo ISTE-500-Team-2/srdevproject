@@ -1,13 +1,11 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
 import { before, after, test } from 'node:test';
 import { Pool } from 'pg';
 import request from 'supertest';
 import { createApp } from '../../src/app.js';
 import { initializeDemo } from '../../src/scripts/init-demo.js';
-import { migrate, repositoryRoot } from '../../src/scripts/migrate.js';
+import { migrate } from '../../src/scripts/migrate.js';
 import { hashPassword } from '../../src/passwords.js';
 import { confirmationToken } from '../helpers/confirmation.js';
 
@@ -71,8 +69,7 @@ test('email-only rollout retains legacy column compatibility, accounts and sessi
   await owner.query(`CREATE DATABASE "${legacyName}"`);
   try{
     await initializeDemo(legacy);
-    // Restore the pre-removal schema using the original deployed migration.
-    await legacy.query(await readFile(path.join(repositoryRoot,'database/migrations/023_usernames.sql'),'utf8'));
+    // Compatibility storage already exists: replay only the new metadata migration.
     await legacy.query("DELETE FROM app_migration WHERE name='030_email_only_accounts.sql'");
     await legacy.query(`UPDATE "user" SET username='legacy.member' WHERE email='demo.member@collaboratory.invalid'`);
     const password=await hashPassword('LegacyPassword!');
