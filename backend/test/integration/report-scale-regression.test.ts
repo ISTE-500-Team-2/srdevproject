@@ -13,6 +13,21 @@ before(async()=>{
 });
 after(async()=>{await pool.end();if(created)await owner.query(`DROP DATABASE "${database}"`);await owner.end();});
 
+test('sparse membership reports avoid repeated cancellation scans that trigger JIT',async()=>{
+  let statement='',parameters:unknown[]=[];
+  await membershipTrends({query:async(text,values)=>{statement=text;parameters=values??[];return {rows:[],rowCount:0};}},
+    new Date('2026-10-01T04:00:00Z'),new Date('2026-10-31T04:00:00Z'),'America/New_York','day');
+  const client=await pool.connect();
+  try{
+    await client.query('BEGIN');
+    await client.query('SET LOCAL jit=on');
+    await client.query('SET LOCAL jit_above_cost=100000');
+    const plan=(await client.query('EXPLAIN (FORMAT JSON) '+statement,parameters)).rows[0]['QUERY PLAN'][0];
+    assert.ok(plan.Plan['Total Cost']<100000,'Sparse report plan must remain below the standard JIT threshold');
+    await client.query('ROLLBACK');
+  }finally{client.release();}
+});
+
 test('500 members and overlapping renewals remain distinct across the 25-hour DST day',async()=>{
   const from=new Date('2026-10-31T04:00:00Z'),to=new Date('2026-11-02T05:00:00Z');
   const baseline=await membershipTrends(pool,from,to,'America/New_York','day');
