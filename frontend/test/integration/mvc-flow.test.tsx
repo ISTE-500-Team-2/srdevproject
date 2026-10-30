@@ -110,21 +110,20 @@ test('signup form creates an account with DOB and the new password policy', asyn
   );
 
   const account = await bridge.pool.query(
-    `SELECT email, username, dob::text AS dob FROM "user" WHERE email=$1`,
+    `SELECT email, dob::text AS dob FROM "user" WHERE email=$1`,
     [email],
   );
 
   expect(account.rowCount).toBe(1);
   expect(account.rows[0].email).toBe(email);
-  expect(account.rows[0].username).toBeNull();
   expect(account.rows[0].dob).toBe('2000-01-01');
 
   cleanup();
-  for(const identifier of [email]) {
+  for(const address of [email.toUpperCase(),email]) {
     await api('/auth/logout',{method:'POST'});
     setAccessToken(null);setCsrfToken(null);
     mount();
-    await user.type(await screen.findByLabelText('Email or username'),identifier);
+    await user.type(await screen.findByLabelText('Email'),address);
     await user.type(screen.getByPlaceholderText('Enter your password…'),'ValidPassword!');
     await user.click(screen.getByRole('button',{name:'Login',exact:true}));
     await screen.findByRole('heading',{name:/Welcome back, Signup/});

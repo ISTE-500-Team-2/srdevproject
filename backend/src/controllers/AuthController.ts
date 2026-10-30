@@ -12,7 +12,6 @@ import {
   AppError,
   dateOfBirthField,
   emailField,
-  loginIdentifier,
   newPasswordField,
   passwordField,
   publicUser,
@@ -59,7 +58,7 @@ export class AuthController {
       // A reset may finish after password verification but before session creation.
       // Recheck under the same account lock used by reset and keep it until commit.
       if (verifiedPasswordHash && locked?.password !== verifiedPasswordHash)
-        throw new AppError(401, 'INVALID_CREDENTIALS', 'Email, username or password is incorrect.');
+        throw new AppError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect.');
       const sessions = new SessionModel(db,this.config.jwtKey,this.config.accessTokenSeconds,this.config.refreshTokenSeconds);
       const previous = refreshToken(req);
       if (previous) await sessions.revokeRefresh(previous);
@@ -98,12 +97,12 @@ export class AuthController {
   };
 
   login = async (req: Request, res: Response) => {
-    const identifier = loginIdentifier(req.body.identifier ?? req.body.email);
+    const email = emailField(req.body.email);
     const password = passwordField(req.body.password);
-    const account = await new UserModel(this.pool).credentials(identifier);
-    // Temporary sign-ups can be recovered by email, but they cannot authenticate as members.
-    if (!account && identifier.includes('@')) {
-      const pending = (await this.pool.query('SELECT password_hash FROM app_pending_registration WHERE email=$1 AND expires_at>NOW()', [identifier])).rows[0];
+    const account = await new UserModel(this.pool).credentials(email);
+    // Temporary requests never become members until inbox confirmation.
+    if (!account) {
+      const pending = (await this.pool.query('SELECT password_hash FROM app_pending_registration WHERE email=$1 AND expires_at>NOW()', [email])).rows[0];
       if (pending && await verifyPassword(password,pending.password_hash))
         throw new AppError(403,'EMAIL_CONFIRMATION_REQUIRED','Confirm your email before signing in.');
     }
@@ -115,7 +114,7 @@ export class AuthController {
       throw new AppError(
         401,
         'INVALID_CREDENTIALS',
-        'Email, username or password is incorrect.',
+        'Email or password is incorrect.',
       );
     // Legacy unverified accounts retain their recovery flow after migration removes active status.
     if (!account.emailConfirmed) {
@@ -130,9 +129,9 @@ export class AuthController {
       else {
         // Another login may have upgraded the same legacy hash. Accept its hash
         // only after verifying it; a concurrent reset to a different password fails.
-        const current = await new UserModel(this.pool).credentials(identifier);
+        const current = await new UserModel(this.pool).credentials(email);
         if (!current || current.id !== account.id || !await verifyPassword(password, current.password))
-          throw new AppError(401, 'INVALID_CREDENTIALS', 'Email, username or password is incorrect.');
+          throw new AppError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect.');
         account.password = current.password;
       }
     }

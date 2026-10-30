@@ -1,5 +1,9 @@
 # Username and member roster acceptance
 
+> Historical acceptance record. The account behavior below is superseded by
+> [email-only accounts](email-only-accounts.md); usernames have been removed from
+> the final product. The participant roster behavior remains applicable.
+
 Requirements: FR-018, FR-021 and FR-079. Branch starts at main `69dd7a09700087c60f4ef48cb5aac7598c2b3e35`.
 
 ## Account creation and login

@@ -99,12 +99,12 @@ function ResetLocation() {
   const location = useLocation();
   return <output data-testid="reset-location">{JSON.stringify({ path: location.pathname, email: location.state?.email })}</output>;
 }
-test.each([' member@example.invalid ', 'member_username'])('Forgot password routes publicly and only carries emails: %s', identifier => {
+test.each([' member@example.invalid ', 'invalid-email'])('Forgot password routes publicly and only carries emails: %s', email => {
   render(<MemoryRouter><LoginPage /><ResetLocation /></MemoryRouter>);
-  type(screen.getByLabelText('Email or username'), identifier);
+  type(screen.getByLabelText('Email'), email);
   fireEvent.click(screen.getByRole('button', { name: 'Forgot password?' }));
   expect(JSON.parse(screen.getByTestId('reset-location').textContent!)).toEqual({
-    path: '/reset-password', ...(identifier.includes('@') ? { email: identifier.trim() } : {}),
+    path: '/reset-password', ...(email.includes('@') ? { email: email.trim() } : {}),
   });
   expect(screen.queryByRole('dialog', { name: 'Reset your password' })).toBeNull();
 });

@@ -21,7 +21,7 @@ before(async () => {
 after(async () => {await pool.end();if(created) await admin.query(`DROP DATABASE "${database}"`);await admin.end();});
 
 test('registration queues one event; preference ownership, CSRF, validation and global opt-out work', async () => {
-  const registration={username:'notice_tester',firstName:'Notice',lastName:'Tester',email:'notice@example.invalid',phone:'0000000000',dob:'2000-01-01',password:'StrongPassword123!',timeZone:'Pacific/Auckland'};
+  const registration={firstName:'Notice',lastName:'Tester',email:'notice@example.invalid',phone:'0000000000',dob:'2000-01-01',password:'StrongPassword123!',timeZone:'Pacific/Auckland'};
   let response=await request(app).post('/api/auth/register').send(registration);
   assert.equal(response.status,202);
   response=await request(app).post("/api/auth/confirm").send({token:await confirmationToken(pool,registration.email)});
