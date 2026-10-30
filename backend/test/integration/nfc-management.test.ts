@@ -61,7 +61,6 @@ before(async () => {
   otherId = await new UserModel(pool).create({
     firstName: "Alex",
     lastName: "NFC",
-    username: "alex-nfc",
     email: "alex-nfc@example.invalid",
     phone: "555-0100",
     password: "unused-test-credential",

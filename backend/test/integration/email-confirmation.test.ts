@@ -12,7 +12,7 @@ const app=createApp(pool,{jwtKey:randomBytes(32),port:8080,host:'127.0.0.1',secu
 let created=false;
 before(async()=>{if(!process.env.PGHOST||process.env.DATABASE_URL)throw Error('Isolated PG required');await admin.query(`CREATE DATABASE "${database}"`);created=true;await initializeDemo(pool);});
 after(async()=>{await pool.end();if(created)await admin.query(`DROP DATABASE "${database}"`);await admin.end();});
-const person=(email:string)=>({email,username:email.split('@')[0],password:'GoodPassword123!',firstName:'Confirm',lastName:'Test',dob:'2000-01-01',phone:'0000000000'});
+const person=(email:string)=>({email,password:'GoodPassword123!',firstName:'Confirm',lastName:'Test',dob:'2000-01-01',phone:'0000000000'});
 test('pending signup cannot log in; safe GET, single-use POST confirm creates session; legacy demo unaffected',async()=>{
  const input=person('confirm@example.invalid');
  const created=await request(app).post('/api/auth/register').send(input);

@@ -7,14 +7,13 @@ import { ApiError } from '../lib/api';
 const { api, refresh, auth } = vi.hoisted(() => ({
   api: vi.fn(),
   refresh: vi.fn(),
-  auth: { user: { id: 42, firstName: 'Test', lastName: 'Member', email: 'test@example.com', phone: '4105550182', role: 'member', membership: 'Monthly', username: null as string | null } },
+  auth: { user: { id: 42, firstName: 'Test', lastName: 'Member', email: 'test@example.com', phone: '4105550182', role: 'member', membership: 'Monthly' } },
 }));
 vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: auth.user, refresh }) }));
 vi.mock('../lib/api', async (original) => ({ ...(await original<typeof import('../lib/api')>()), api }));
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
-  auth.user.username = null;
 });
 
 const profile = {
@@ -40,14 +39,14 @@ function mount(overrides: Record<string, (init?: { method?: string; body?: unkno
 const section = (name: string) => screen.getByRole('region', { name });
 const patches = () => api.mock.calls.filter(([p, o]) => p === '/me/profile' && o?.method === 'PATCH');
 
-test('details read as text first, with a formatted phone and no empty username', async () => {
+test('details read as text first, with a formatted phone and email', async () => {
   mount();
   const contact = section('Contact');
   expect(await within(contact).findByText('1 Mill Rd, White Hall, Maryland 21161')).toBeTruthy();
   expect(within(contact).getByText('(410) 555-0182')).toBeTruthy();
   expect(within(contact).getByText('Email · afternoon')).toBeTruthy();
   expect(within(contact).queryByRole('textbox')).toBeNull();
-  expect(screen.queryByText('Username')).toBeNull();
+  expect(within(section('Profile')).getByText('test@example.com')).toBeTruthy();
   expect(screen.getByText('Member ID 000042')).toBeTruthy();
 });
 

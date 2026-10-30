@@ -25,7 +25,7 @@ before(async () => {
 beforeEach(async () => { app = createApp(pool, config); await pool.query('DELETE FROM app_notification_outbox'); });
 after(async () => { await pool.end(); if (created) await admin.query(`DROP DATABASE "${database}"`); await admin.end(); });
 async function person(name: string) {
-  const input = { email: `${name}@example.invalid`, username: name, password: 'OldPassword!',
+  const input = { email: `${name}@example.invalid`, password: 'OldPassword!',
     firstName: 'Reset', lastName: 'Test', dob: '2000-01-01', phone: '0000000000' };
   const response = await request(app).post('/api/auth/register').send(input);
   assert.equal(response.status, 202);

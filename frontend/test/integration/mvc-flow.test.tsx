@@ -67,8 +67,8 @@ test('signup form creates an account with DOB and the new password policy', asyn
   await user.type(within(dialog).getByLabelText('Phone'), '0000000000');
   await user.click(within(dialog).getByRole('button', { name: 'Continue' }));
 
-  const username = 'signup_' + email.slice(0, 16);
-  await user.type(await within(dialog).findByLabelText('Username'), username);
+  await within(dialog).findByLabelText('Password', { exact: false });
+  expect(within(dialog).queryByLabelText('Username')).toBeNull();
   expect(
     within(dialog).getByText(
       /8–128 characters with at least one uppercase letter and one special character/i,
@@ -108,21 +108,20 @@ test('signup form creates an account with DOB and the new password policy', asyn
   );
 
   const account = await bridge.pool.query(
-    `SELECT email, username, dob::text AS dob FROM "user" WHERE email=$1`,
+    `SELECT email, dob::text AS dob FROM "user" WHERE email=$1`,
     [email],
   );
 
   expect(account.rowCount).toBe(1);
   expect(account.rows[0].email).toBe(email);
-  expect(account.rows[0].username).toBe(username);
   expect(account.rows[0].dob).toBe('2000-01-01');
 
   cleanup();
-  for(const identifier of [username.toUpperCase(),email]) {
+  for(const address of [email.toUpperCase(),email]) {
     await api('/auth/logout',{method:'POST'});
     setAccessToken(null);setCsrfToken(null);
     mount();
-    await user.type(await screen.findByLabelText('Email or username'),identifier);
+    await user.type(await screen.findByLabelText('Email'),address);
     await user.type(screen.getByPlaceholderText('Enter your password…'),'ValidPassword!');
     await user.click(screen.getByRole('button',{name:'Login',exact:true}));
     await screen.findByRole('heading',{name:/Welcome back, Signup/});
@@ -130,10 +129,10 @@ test('signup form creates an account with DOB and the new password policy', asyn
   }
 }, 120000);
 
-test('duplicate username error stays in signup dialog and user can correct it without retyping other fields',async()=>{
+test('duplicate email returns to the contact step and can be corrected without retyping other fields',async()=>{
   vi.stubGlobal('fetch',bridge.fetch);
-  const email=randomUUID()+'@example.invalid',taken='taken_'+email.slice(0,16);
-  const response=await bridge.fetch('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({firstName:'Existing',lastName:'Test',username:taken,email,password:'ValidPassword!',phone:'0000000000',dob:'2000-01-01'})});
+  const email=randomUUID()+'@example.invalid';
+  const response=await bridge.fetch('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({firstName:'Existing',lastName:'Test',email,password:'ValidPassword!',phone:'0000000000',dob:'2000-01-01'})});
   expect(response.status).toBe(202);
   mount();const user=userEvent.setup();await user.click(await screen.findByRole('button',{name:'Sign up'}));
   const dialog=screen.getByRole('dialog',{name:'Create your account'});
@@ -142,23 +141,24 @@ test('duplicate username error stays in signup dialog and user can correct it wi
   await user.type(within(dialog).getByLabelText('Last name'),'Test');
   fireEvent.change(within(dialog).getByLabelText('Date of birth'),{target:{value:'2000-01-01'}});
   await next();
-  await user.type(await within(dialog).findByLabelText('Email'),'retry_'+email);
+  await user.type(await within(dialog).findByLabelText('Email'),email.toUpperCase());
   await user.type(within(dialog).getByLabelText('Phone'),'0000000000');
   await next();
-  await user.type(await within(dialog).findByLabelText('Username'),taken);
-  await user.type(within(dialog).getByLabelText('Password',{exact:false}),'ValidPassword!');
+  await user.type(await within(dialog).findByLabelText('Password',{exact:false}),'ValidPassword!');
   const create=within(dialog).getByRole('button',{name:'Create account'});
   await waitFor(()=>expect((create as HTMLButtonElement).disabled).toBe(false));
   await user.click(create);
-  expect((await within(dialog).findByRole('alert')).textContent).toContain('That username is unavailable');
-  // Earlier steps keep their values when the user goes back.
+  expect((await within(dialog).findByRole('alert')).textContent).toContain('An account with that email address already exists');
+  expect((await within(dialog).findByLabelText('Email') as HTMLInputElement).value).toBe(email.toUpperCase());
+  expect((within(dialog).getByLabelText('Phone') as HTMLInputElement).value).toBe('0000000000');
+  // The error selects Contact; earlier fields and the password survive correction.
   await user.click(within(dialog).getByRole('button',{name:'Back'}));
-  await user.click(await within(dialog).findByRole('button',{name:'Back'}));
   expect((await within(dialog).findByLabelText('First name') as HTMLInputElement).value).toBe('Retry');
   await next();
+  await user.clear(await within(dialog).findByLabelText('Email'));
+  await user.type(within(dialog).getByLabelText('Email'),'retry_'+email);
   await next();
-  await user.clear(await within(dialog).findByLabelText('Username'));
-  await user.type(within(dialog).getByLabelText('Username'),'new_'+email.slice(0,16));
+  expect((await within(dialog).findByLabelText('Password',{exact:false}) as HTMLInputElement).value).toBe('ValidPassword!');
   await user.click(within(dialog).getByRole('button',{name:'Create account'}));
   expect(await screen.findByRole('heading',{name:'Email unavailable'})).toBeTruthy();
 });
