@@ -6,8 +6,49 @@ on:
     branches: [main, feat/mvc-integration]
 permissions:
   contents: read
+# Superseded PR attempts must not occupy the runners needed by the new head.
+# Main-push validation is never cancelled by this optimization.
+concurrency:
+  group: mvc-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+# Each lane has its own runner/database. The required verify check succeeds
+# ONLY when all lanes succeeded, including on cancellation or an upstream failure.
 jobs:
-  verify:
+  backend:
+    name: Backend regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16.14-bookworm@sha256:64154d0babcb1741988719e703419af0382b19953706149f9872fbd0f438efa8
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGDATABASE: postgres
+      DEBUG_PRINT_LIMIT: 1200
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - run: npm ci --prefix backend
+      - run: npm run check --prefix backend
+      - run: npm run test:integration --prefix backend
+      # These backup-helper checks execute the compiled backend script.
+      - run: python3 deploy/test_deploy.py
+  frontend:
+    name: Frontend regression
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
@@ -36,10 +77,21 @@ jobs:
             frontend/package-lock.json
       - run: npm ci --prefix backend
       - run: npm ci --prefix frontend
-      - run: npm run check --prefix backend
       - run: npm run check --prefix frontend
-      - run: npm run test:integration --prefix backend
       - run: npm run test:integration --prefix frontend
+  deployment:
+    name: Deployment and reader regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
       - name: Verify reader onboarding and fail-closed access
         run: |
           python3 -m venv "$RUNNER_TEMP/arbor-reader-tests"
@@ -47,9 +99,10 @@ jobs:
           "$RUNNER_TEMP/arbor-reader-tests/bin/python" -m unittest discover -s deploy/reader -v
       - run: node --test deploy/rles-edge.test.mjs
       - run: bash -n deploy/deploy-arbor.sh
-      - run: python3 deploy/test_deploy.py
       - run: python3 deploy/test_auto_release.py
       - run: python3 deploy/test_blue_green_release.py
+      - run: python3 deploy/test_workflow_gate.py
+      - run: python3 deploy/test_arbor_site.py
       - run: docker build -t collaboratory-mvc:verification .
       - name: Start isolated Docker JWT demo
         run: |
@@ -60,3 +113,19 @@ jobs:
       - name: Clean up disposable CI demo
         if: always()
         run: docker compose -p arbor-jwt-ci -f compose.mvc.yml down --volumes
+  verify:
+    name: verify
+    if: ${{ always() }}
+    needs: [backend, frontend, deployment]
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Require every regression lane
+        env:
+          BACKEND_RESULT: ${{ needs.backend.result }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          DEPLOYMENT_RESULT: ${{ needs.deployment.result }}
+        run: |
+          test "$BACKEND_RESULT" = success
+          test "$FRONTEND_RESULT" = success
+          test "$DEPLOYMENT_RESULT" = success
