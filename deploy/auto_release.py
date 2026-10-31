@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import shutil
 import subprocess
 import time
 import urllib.error
@@ -74,10 +75,40 @@ def green_checks(sha, checks, workflows):
     return True
 
 
-def ready(sha):
+def ready(sha, details=None):
     checks = api('commits/' + sha + '/check-runs?per_page=100')['check_runs']
     runs = api('actions/runs?head_sha=' + sha + '&event=push&branch=main&per_page=100')['workflow_runs']
+    if details is not None:
+        latest = {}
+        for check in checks:
+            if check.get('head_sha') == sha and check.get('app', {}).get('slug') == 'github-actions':
+                name = check['name']
+                if name in REQUIRED and (name not in latest or check['id'] > latest[name]['id']):
+                    latest[name] = check
+        details.update(revision=sha, checks=[{
+            'name': name, 'status': latest.get(name, {}).get('status', 'missing'),
+            'conclusion': latest.get(name, {}).get('conclusion'),
+        } for name in sorted(REQUIRED)])
+        details['passed'] = sum(c['status'] == 'completed' and c['conclusion'] == 'success'
+                                for c in details['checks'])
+        details['required'] = len(REQUIRED)
     return green_checks(sha, checks, runs)
+
+
+def report_progress(root, sha, stage):
+    """Operator-only stage names, never command output, credentials or member data."""
+    path = root / 'auto-deploy/status.json'
+    if not path.exists():
+        return
+    state = json.loads(path.read_text())
+    if state.get('candidateSha') != sha:
+        return
+    if state.get('stage') != stage:
+        stamp = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+        state.update(stage=stage, stageStartedAt=stamp)
+        state['stages'] = (state.get('stages', []) + [{'stage': stage, 'at': stamp}])[-16:]
+        write_json(path, state)
+        print('Release stage:', stage, flush=True)
 
 
 def compose(file, *args):
@@ -176,7 +207,37 @@ def prepare_source_permissions(source):
                 break  # Release parent, .git and untracked secrets stay private.
 
 
+def cached_artifact(root, sha):
+    """Reuse only an unchanged exact-SHA checkout and immutable labelled image ID."""
+    if not re.fullmatch('[a-f0-9]{40}', sha):
+        raise ValueError('Invalid release revision')
+    release = root / 'auto-deploy/releases' / sha
+    source = release / 'source'
+    manifest = release / 'prepared-image.json'
+    if not manifest.exists():
+        return None
+    try:
+        saved = json.loads(manifest.read_text())
+        if saved.get('version') != 1 or saved.get('revision') != sha or not re.fullmatch('sha256:[a-f0-9]{64}', saved.get('image', '')):
+            return None
+        if output('git', '-C', str(source), 'rev-parse', 'HEAD') != sha:
+            return None
+        if output('git', '-C', str(source), 'status', '--porcelain', '--untracked-files=all'):
+            return None
+        inspected = json.loads(output('docker', 'image', 'inspect', saved['image']))[0]
+        if (inspected['Id'] != saved['image'] or
+                (inspected['Config'].get('Labels') or {}).get('org.opencontainers.image.revision') != sha):
+            return None
+        return release, source, saved['image']
+    except (OSError, ValueError, TypeError, KeyError, IndexError, subprocess.SubprocessError):
+        return None  # Missing/changed artifacts are rebuilt, never trusted by tag.
+
+
 def prepare_artifact(root, sha):
+    cached = cached_artifact(root, sha)
+    if cached:
+        print('Reusing verified exact-commit image:', sha, flush=True)
+        return cached
     release = root / 'auto-deploy/releases' / sha
     release.mkdir(parents=True, exist_ok=True, mode=0o700)
     source = release / 'source'
@@ -185,11 +246,19 @@ def prepare_artifact(root, sha):
     run('git', '-C', str(source), 'fetch', '--depth=1', 'https://github.com/' + REPO + '.git', sha)
     assert output('git', '-C', str(source), 'rev-parse', 'FETCH_HEAD') == sha
     run('git', '-C', str(source), 'checkout', '--detach', sha)
+    if (output('git', '-C', str(source), 'rev-parse', 'HEAD') != sha or
+            output('git', '-C', str(source), 'status', '--porcelain', '--untracked-files=all')):
+        raise RuntimeError('Release checkout is not pristine; refusing to build modified source')
     prepare_source_permissions(source)
     tag = 'arbor:auto-' + sha
     run('docker', 'build', '--pull', '--label', 'org.opencontainers.image.revision=' + sha,
         '-t', tag, str(source), timeout=1200)
-    image = json.loads(output('docker', 'image', 'inspect', tag))[0]['Id']
+    inspected = json.loads(output('docker', 'image', 'inspect', tag))[0]
+    image = inspected['Id']
+    if (not re.fullmatch('sha256:[a-f0-9]{64}', image) or
+            (inspected['Config'].get('Labels') or {}).get('org.opencontainers.image.revision') != sha):
+        raise RuntimeError('Built image identity mismatch')
+    write_json(release / 'prepared-image.json', {'version': 1, 'revision': sha, 'image': image})
     return release, source, image
 
 
@@ -216,6 +285,7 @@ def deploy(root, sha):
         import sys
         from blue_green_release import deploy_blue_green
         return deploy_blue_green(root, sha, sys.modules[__name__])
+    report_progress(root, sha, 'preparing-image')
     release, source, image = prepare_artifact(root, sha)
     original = json.loads((root / 'compose.json').read_text())
     write_json(release / 'previous-compose.json', original)
@@ -225,9 +295,11 @@ def deploy(root, sha):
     write_json(canary_file, canary)
     compose(candidate_file, 'config', '--quiet')
     # Backups must succeed and be readable before any running app is replaced.
+    report_progress(root, sha, 'checking-schema-and-backing-up')
     backup_databases(release, source)
     switched = False
     try:
+        report_progress(root, sha, 'verifying-canaries')
         compose(canary_file, 'up', '-d', '--no-deps', '--wait', '--wait-timeout', '90')
         verify(root, 'http://127.0.0.1:18082')
         verify(root, 'http://127.0.0.1:18081', demo=True)
@@ -273,20 +345,57 @@ def tick(root, retry=False):
         write_json(state_file, state)
         return
     sha = main_sha()
+    if state.get('candidateSha') != sha:
+        for name in ('stage', 'stageStartedAt', 'stages', 'ci', 'preparedSha', 'preparationFailedSha'):
+            state.pop(name, None)
     state['candidateSha'] = sha
     if sha == state.get('deployedSha'):
         state['phase'] = 'deployed'
     elif sha == state.get('failedSha') and not retry:
         state['phase'] = 'blocked'
-    elif not ready(sha):
-        state['phase'] = 'waiting-for-ci'
     else:
+        detail = {}
+        try:
+            ci_ready = ready(sha, detail)
+        except Exception:
+            state.update(phase='waiting-for-ci', stage='ci-status-unavailable',
+                         reason='Cannot verify current CI; the running site is unchanged')
+            write_json(state_file, state)
+            return
+        state['ci'] = detail
+        if not ci_ready:
+            state.update(phase='waiting-for-ci', stage='waiting-for-ci', reason=None)
+            write_json(state_file, state)
+            failed_check = any(c.get('conclusion') not in (None, 'success') for c in detail.get('checks', []))
+            if ((directory / 'prebuild.enabled').exists() and not failed_check and
+                    (state.get('preparationFailedSha') != sha or retry)):
+                if shutil.disk_usage(root).free < 2 * 1024**3:
+                    state['reason'] = 'Image preparation held: less than 2 GiB free; no automatic deletion'
+                    write_json(state_file, state)
+                    return
+                report_progress(root, sha, 'preparing-image-while-ci-runs')
+                prepared = {}
+                try:
+                    prepare_artifact(root, sha)
+                    prepared['preparedSha'] = sha
+                except Exception:
+                    # Do not mark a revision as a failed rollout for a speculative build.
+                    prepared['preparationFailedSha'] = sha
+                    prepared['reason'] = 'Image preparation failed; the running site is unchanged'
+                state.update(json.loads(state_file.read_text()))
+                state.update(prepared)
+                write_json(state_file, state)
+                report_progress(root, sha, 'waiting-for-ci')
+            return
         state.update(phase='deploying', reason=None)
         write_json(state_file, state)
         try:
-            state.update(deploy(root, sha))
+            result = deploy(root, sha)
+            state.update(json.loads(state_file.read_text()))
+            state.update(result, stage='complete')
         except Exception as error:
             # Do not serialize exception output: a failed command may include secret-bearing context.
+            state.update(json.loads(state_file.read_text()))
             state.update(phase='blocked', failedSha=sha, reason=type(error).__name__ + ': see protected release log')
             write_json(state_file, state)
             raise

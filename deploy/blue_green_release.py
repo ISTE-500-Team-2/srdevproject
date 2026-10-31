@@ -14,6 +14,12 @@ SLOTS = {18082: ('green', 'arbor-email-app-green'),
 PUBLIC_PORTS = {8082, *SLOTS}
 
 
+def progress(ops, root, sha, stage):
+    callback = getattr(ops, 'report_progress', None)
+    if callback is not None:
+        callback(root, sha, stage)
+
+
 def read_route(path):
     route = json.loads(path.read_text())
     if (route.get('version') != 1 or
@@ -149,6 +155,7 @@ def deploy_blue_green(root, sha, ops):
     started = time.monotonic()
     old_route = read_route(root / 'routing/active.json')
     port = 28082 if old_route['publicPort'] == 18082 else 18082
+    progress(ops, root, sha, 'preparing-image')
     release, source, image = ops.prepare_artifact(root, sha)
     original = json.loads((root / 'compose.json').read_text())
     ops.write_json(release / 'previous-compose.json', original)
@@ -159,6 +166,7 @@ def deploy_blue_green(root, sha, ops):
     ops.write_json(file, slot_config(original, image, port))
     ops.write_json(release / 'candidate.json', candidate)
     # Complete schema checks and fresh readable backups before any replacement.
+    progress(ops, root, sha, 'checking-schema-and-backing-up')
     ops.backup_databases(release, source)
     new_route = {'version': 1, 'release': sha, 'publicPort': port,
                  'previousPublicPort': old_route['publicPort']}
@@ -168,7 +176,9 @@ def deploy_blue_green(root, sha, ops):
     journal_path = root / 'auto-deploy/activation.json'
     pending = False
     try:
+        progress(ops, root, sha, 'starting-standby')
         slot_compose(ops, file, port, 'up', '-d', '--no-deps', '--no-build', '--wait', '--wait-timeout', '90')
+        progress(ops, root, sha, 'verifying-standby')
         ops.verify(root, f'http://127.0.0.1:{port}')
         if json.loads((root / 'compose.json').read_text()) != original:
             raise RuntimeError('Live configuration changed while preparing public release')
@@ -177,17 +187,21 @@ def deploy_blue_green(root, sha, ops):
         ops.write_json(root / 'compose.json', candidate)
         # Demo startup does not extend public traffic cutover. It remains fully
         # separate, with its own DB/key and its original loopback endpoint.
+        progress(ops, root, sha, 'updating-and-verifying-demo')
         ops.compose(root / 'compose.json', 'up', '-d', '--no-deps', '--no-build',
                     '--wait', '--wait-timeout', '90', 'arbor-mvc-current')
         ops.verify(root, 'http://127.0.0.1:8081', demo=True)
         if (json.loads((root / 'compose.json').read_text()) != candidate or
                 read_route(root / 'routing/active.json') != old_route):
             raise RuntimeError('Live configuration or public route changed during preparation')
+        progress(ops, root, sha, 'rechecking-promotion-gates')
         if (root / 'auto-deploy/PAUSED').exists() or ops.main_sha() != sha or not ops.ready(sha):
             raise RuntimeError('Main/CI/pause gate changed; refusing public promotion')
         prepared_seconds = time.monotonic() - started
         switch_started = time.monotonic()
+        progress(ops, root, sha, 'promoting-public-route')
         ops.write_json(root / 'routing/active.json', new_route)
+        progress(ops, root, sha, 'verifying-live-website')
         verify_route(ops, root, sha)
         cutover_seconds = time.monotonic() - switch_started
         retirement_scheduled = schedule_retirement(root, old_route, ops)

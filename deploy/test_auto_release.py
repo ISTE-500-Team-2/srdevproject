@@ -37,6 +37,45 @@ def config():
 
 
 class GateTests(unittest.TestCase):
+    def test_ci_details_never_turn_partial_success_into_release_permission(self):
+        candidate = checks(); candidate[-1]['status'] = 'in_progress'; candidate[-1]['conclusion'] = None
+        detail = {}
+        with patch.object(release, 'api', side_effect=[{'check_runs': candidate}, {'workflow_runs': workflows()}]):
+            self.assertFalse(release.ready(SHA, detail))
+        self.assertEqual(detail['passed'], len(release.REQUIRED)-1)
+        self.assertEqual(detail['revision'], SHA)
+
+    def test_cached_image_is_immutable_and_requires_pristine_exact_revision(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary); directory=root/'auto-deploy/releases'/SHA; directory.mkdir(parents=True)
+            release.write_json(directory/'prepared-image.json', {'version':1,'revision':SHA,'image':IMAGE})
+            def output(*args):
+                if 'rev-parse' in args:return SHA
+                if 'status' in args:return ''
+                return json.dumps([{'Id':IMAGE,'Config':{'Labels':{'org.opencontainers.image.revision':SHA}}}])
+            with patch.object(release,'output',output),patch.object(release,'run') as build:
+                self.assertEqual(release.prepare_artifact(root,SHA),(directory,directory/'source',IMAGE))
+                build.assert_not_called()
+            for bad in ('dirty','wrong-head','wrong-label','missing-image'):
+                def changed(*args):
+                    if bad=='dirty' and 'status' in args:return ' M Dockerfile'
+                    if bad=='wrong-head' and 'rev-parse' in args:return 'c'*40
+                    if 'inspect' in args:
+                        if bad=='missing-image':raise subprocess.CalledProcessError(1,args)
+                        if bad=='wrong-label':return json.dumps([{'Id':IMAGE,'Config':{'Labels':{'org.opencontainers.image.revision':'c'*40}}}])
+                    return output(*args)
+                with patch.object(release,'output',changed):self.assertIsNone(release.cached_artifact(root,SHA),bad)
+            release.write_json(directory/'prepared-image.json',{'version':1,'revision':'c'*40,'image':IMAGE})
+            self.assertIsNone(release.cached_artifact(root,SHA))
+
+    def test_modified_source_is_not_rebuilt_and_mislabelled_as_reviewed_commit(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            def output(*args):return ' M Dockerfile' if 'status' in args else SHA
+            with patch.object(release,'output',output),patch.object(release,'run') as run:
+                with self.assertRaisesRegex(RuntimeError,'not pristine'):
+                    release.prepare_artifact(Path(temporary),SHA)
+                self.assertFalse(any('docker' in call.args for call in run.call_args_list))
+
     def test_restrictive_checkout_remains_runnable_without_exposing_private_files(self):
         with tempfile.TemporaryDirectory() as temporary:
             private = Path(temporary)
@@ -150,7 +189,9 @@ class RolloutTests(unittest.TestCase):
                 raise RuntimeError('Live smoke failed')
 
         def output(*args):
-            return SHA if 'rev-parse' in args else json.dumps([{'Id': IMAGE}])
+            if 'rev-parse' in args:return SHA
+            if 'status' in args:return ''
+            return json.dumps([{'Id': IMAGE,'Config':{'Labels':{'org.opencontainers.image.revision':SHA}}}])
 
         def migration_gate(_source, _rows):
             if failure == 'migration':
@@ -209,6 +250,50 @@ class RolloutTests(unittest.TestCase):
             with patch.object(release, 'main_sha') as remote:
                 release.tick(root)
                 remote.assert_not_called()
+
+    def test_opt_in_prebuild_never_deploys_before_ci_and_reuses_exact_image(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary); directory=root/'auto-deploy'; directory.mkdir()
+            release.write_json(directory/'status.json',{'deployedSha':'c'*40})
+            with patch.object(release,'main_sha',return_value=SHA),patch.object(release,'ready',return_value=False),patch.object(release,'prepare_artifact') as build,patch.object(release,'deploy') as deploy:
+                release.tick(root);build.assert_not_called();deploy.assert_not_called()
+                (directory/'prebuild.enabled').touch()
+                release.tick(root);build.assert_called_once_with(root,SHA);deploy.assert_not_called()
+                state=json.loads((directory/'status.json').read_text())
+                self.assertEqual(state['preparedSha'],SHA)
+                self.assertEqual(state['deployedSha'],'c'*40)
+                self.assertEqual(state['phase'],'waiting-for-ci')
+
+    def test_prebuild_failure_or_unavailable_ci_cannot_block_or_replace_current_site(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary); directory=root/'auto-deploy'; directory.mkdir()
+            release.write_json(directory/'status.json',{'deployedSha':'c'*40})
+            (directory/'prebuild.enabled').touch()
+            with patch.object(release,'main_sha',return_value=SHA),patch.object(release,'ready',return_value=False),patch.object(release,'prepare_artifact',side_effect=RuntimeError('PRIVATE must not enter status')) as build,patch.object(release,'deploy') as deploy:
+                release.tick(root);release.tick(root)
+                build.assert_called_once();deploy.assert_not_called()
+                state=json.loads((directory/'status.json').read_text())
+                self.assertNotIn('failedSha',state)
+                self.assertEqual(state['deployedSha'],'c'*40)
+                self.assertNotIn('PRIVATE',json.dumps(state))
+            with patch.object(release,'main_sha',return_value=SHA),patch.object(release,'ready',side_effect=RuntimeError('API unavailable')),patch.object(release,'deploy') as deploy:
+                release.tick(root);deploy.assert_not_called()
+                self.assertEqual(json.loads((directory/'status.json').read_text())['stage'],'ci-status-unavailable')
+
+    def test_failed_ci_never_starts_speculative_image_build(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary); directory=root/'auto-deploy';directory.mkdir();(directory/'prebuild.enabled').touch()
+            def failed(sha,detail):detail['checks']=[{'name':'verify','conclusion':'failure'}];return False
+            with patch.object(release,'main_sha',return_value=SHA),patch.object(release,'ready',failed),patch.object(release,'prepare_artifact') as build,patch.object(release,'deploy') as deploy:
+                release.tick(root);build.assert_not_called();deploy.assert_not_called()
+
+    def test_low_disk_holds_prebuild_without_deleting_retained_releases(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);directory=root/'auto-deploy';directory.mkdir();(directory/'prebuild.enabled').touch()
+            with patch.object(release,'main_sha',return_value=SHA),patch.object(release,'ready',return_value=False),patch.object(release.shutil,'disk_usage',return_value=type('Disk',(),{'free':0})()),patch.object(release,'prepare_artifact') as build:
+                release.tick(root);build.assert_not_called()
+                state=json.loads((directory/'status.json').read_text())
+                self.assertIn('no automatic deletion',state['reason'])
 
 
 if __name__ == '__main__':
