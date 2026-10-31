@@ -6,6 +6,11 @@ on:
     branches: [main, feat/mvc-integration]
 permissions:
   contents: read
+# Superseded PR attempts must not occupy the runners needed by the new head.
+# Main-push validation is never cancelled by this optimization.
+concurrency:
+  group: mvc-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 # Each lane has its own runner/database. The required verify check succeeds
 # ONLY when all lanes succeeded, including on cancellation or an upstream failure.
 jobs:

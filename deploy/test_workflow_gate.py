@@ -11,6 +11,7 @@ import unittest
 class WorkflowGateTests(unittest.TestCase):
     def test_aggregate_cannot_skip_or_hide_a_failed_lane(self):
         source=(Path(__file__).resolve().parents[1]/'.github/workflows/mvc-verify.yml').read_text()
+        self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}",source)
         gate=source.split('\n  verify:\n',1)[1]
         self.assertIn('if: ${{ always() }}',gate)
         self.assertIn('needs: [backend, frontend, deployment]',gate)
