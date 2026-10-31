@@ -23,11 +23,13 @@ class SiteCommandTests(unittest.TestCase):
             self.assertNotIn('password',json.dumps(state))
 
     def test_wait_requires_route_and_success_not_merely_a_started_process(self):
-        waiting={'liveSha':'b'*40,'candidateSha':SHA,'phase':'deploying','stage':'verifying-live-website'}
-        success={**waiting,'liveSha':SHA,'phase':'deployed'}
+        waiting={'liveSha':'b'*40,'deployedSha':'b'*40,'candidateSha':SHA,'phase':'deploying','stage':'verifying-live-website'}
+        success={**waiting,'liveSha':SHA,'deployedSha':SHA,'phase':'deployed'}
         with patch.object(cli,'read_status',side_effect=[waiting,success]),patch.object(cli.time,'sleep') as sleep,contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(cli.wait_for(SHA,10),0);sleep.assert_called_once()
-        for state in [waiting|{'phase':'blocked'},waiting|{'phase':'paused'},waiting|{'candidateSha':'c'*40}]:
+        for state in [waiting|{'phase':'blocked'},waiting|{'phase':'paused'},waiting|{'candidateSha':'c'*40},
+                      waiting|{'phase':'waiting-for-ci','ci':{'checks':[{'conclusion':'failure'}]}},
+                      waiting|{'phase':'deployed','liveSha':SHA,'candidateSha':'c'*40}]:
             with patch.object(cli,'read_status',return_value=state),contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(cli.wait_for(SHA,10),2)
 

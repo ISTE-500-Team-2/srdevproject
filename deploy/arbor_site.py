@@ -14,7 +14,7 @@ ROOT = Path('/srv/arbor-full')
 def read_status():
     state = json.loads((ROOT/'auto-deploy/status.json').read_text())
     route = json.loads((ROOT/'routing/active.json').read_text())
-    return {**{key: state.get(key) for key in ('phase','candidateSha','stage','stageStartedAt','reason','ci')},
+    return {**{key: state.get(key) for key in ('phase','candidateSha','deployedSha','stage','stageStartedAt','reason','ci')},
             'liveSha': route['release']}
 
 
@@ -39,12 +39,16 @@ def wait_for(target, timeout):
         state=read_status()
         snapshot=json.dumps(state,sort_keys=True)
         if snapshot!=last:show_status(state);last=snapshot
-        if state['liveSha']==target and state.get('phase')=='deployed':
+        if (state['liveSha']==target and state.get('deployedSha')==target and
+                state.get('candidateSha')==target and state.get('phase')=='deployed'):
             print('Verified deployed target:',target);return 0
         if state.get('candidateSha') not in (None,target):
             print('A different main candidate is now being evaluated; not claiming this target deployed.');return 2
         if state.get('phase') in ('paused','blocked'):
             print('Operator action is required; no release gate was bypassed.');return 2
+        if (state.get('phase')=='waiting-for-ci' and
+                any(c.get('conclusion') not in (None,'success') for c in (state.get('ci') or {}).get('checks',[]))):
+            print('Required CI failed or did not succeed; no release gate was bypassed.');return 2
         if time.monotonic()>=deadline:
             print('Timed out waiting; the deployment service keeps its existing state.');return 2
         time.sleep(2)
