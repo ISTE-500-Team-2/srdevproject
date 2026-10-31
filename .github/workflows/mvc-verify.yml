@@ -40,6 +40,8 @@ jobs:
       - run: npm ci --prefix backend
       - run: npm run check --prefix backend
       - run: npm run test:integration --prefix backend
+      # These backup-helper checks execute the compiled backend script.
+      - run: python3 deploy/test_deploy.py
   frontend:
     name: Frontend regression
     runs-on: ubuntu-latest
@@ -92,7 +94,6 @@ jobs:
           "$RUNNER_TEMP/arbor-reader-tests/bin/python" -m unittest discover -s deploy/reader -v
       - run: node --test deploy/rles-edge.test.mjs
       - run: bash -n deploy/deploy-arbor.sh
-      - run: python3 deploy/test_deploy.py
       - run: python3 deploy/test_auto_release.py
       - run: python3 deploy/test_blue_green_release.py
       - run: python3 deploy/test_workflow_gate.py
