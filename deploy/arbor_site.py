@@ -28,7 +28,7 @@ def show_status(state):
         print('Required CI checks:', str(ci.get('passed',0))+'/'+str(ci.get('required',0)))
         for item in ci.get('checks',[]):
             if item.get('status')!='completed' or item.get('conclusion')!='success':
-                print('  Waiting/blocking:',item['name'],item.get('conclusion') or item['status'])
+                print('  Waiting/blocking:',item.get('name','unknown check'),item.get('conclusion') or item.get('status','unknown'))
     if state.get('reason'):print('Note:',state['reason'])
 
 

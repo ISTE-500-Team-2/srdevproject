@@ -28,7 +28,7 @@ class SiteCommandTests(unittest.TestCase):
         with patch.object(cli,'read_status',side_effect=[waiting,success]),patch.object(cli.time,'sleep') as sleep,contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(cli.wait_for(SHA,10),0);sleep.assert_called_once()
         for state in [waiting|{'phase':'blocked'},waiting|{'phase':'paused'},waiting|{'candidateSha':'c'*40},
-                      waiting|{'phase':'waiting-for-ci','ci':{'checks':[{'conclusion':'failure'}]}},
+                      waiting|{'phase':'waiting-for-ci','ci':{'checks':[{'name':'verify','status':'completed','conclusion':'failure'}]}},
                       waiting|{'phase':'deployed','liveSha':SHA,'candidateSha':'c'*40}]:
             with patch.object(cli,'read_status',return_value=state),contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(cli.wait_for(SHA,10),2)
