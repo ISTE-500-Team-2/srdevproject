@@ -36,7 +36,7 @@ export class PassBilling {
    return {cancelled:true,manualRefundRequired:r.paymentstatus==='paid'};
   });
  }
- async checkout(userid:number,body:any){
+ async checkout(userid:number,body:any,returnPath = '/membership'){
   const date=calendarDate(body.validDate),id=positiveId(body.planId);
   const row=await transaction(this.pool,async db=>{
    await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,userid]);
@@ -59,7 +59,7 @@ export class PassBilling {
   if(row.status!=='pending')throw new AppError(409,'PASS_EXISTS','This pass is already issued or cancelled. Refresh its status.');
   if(!row.checkout_id&&Date.now()-new Date(row.created_at).getTime()>23*3600000)throw new AppError(409,'RECONCILE_REQUIRED','Staff must reconcile this checkout.');
   const p=this.provider(),s=row.checkout_id?await p.sdk.checkout.sessions.retrieve(row.checkout_id):await p.sdk.checkout.sessions.create({mode:'payment',payment_method_types:['card'],client_reference_id:row.id,customer_email:row.email,
-   metadata:{dayPassCheckoutId:row.id},success_url:p.config.origin+'/membership?pass=returned',cancel_url:p.config.origin+'/membership?pass=cancelled',
+   metadata:{dayPassCheckoutId:row.id},success_url:p.config.origin+returnPath+(returnPath.includes('?')?'&':'?')+'pass=returned',cancel_url:p.config.origin+returnPath+(returnPath.includes('?')?'&':'?')+'pass=cancelled',
    payment_intent_data:{metadata:{dayPassCheckoutId:row.id}},line_items:[{quantity:1,price_data:{currency:'usd',unit_amount:row.amount_cents,product_data:{name:row.plan_snapshot.name}}}]},{idempotencyKey:'daypass-checkout:'+row.id});
   if(s.livemode)throw new AppError(400,'LIVE_PAYMENT_FORBIDDEN','Test payments only.');
   await this.pool.query('UPDATE app_pass_checkout SET checkout_id=$2 WHERE id=$1 AND checkout_id IS NULL',[row.id,s.id]);

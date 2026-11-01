@@ -245,3 +245,20 @@ test("your own account shows member actions only", () => {
   expect(screen.queryByRole("region", { name: "Admin tools" })).toBeNull();
   expect(screen.queryByRole("region", { name: /Needs an instructor/ })).toBeNull();
 });
+
+ test("only admins can queue a member password reset and see delivery errors", async () => {
+  auth.user = dana;
+  auth.actor = admin;
+  api.mockResolvedValueOnce({ message: "Password reset email queued. The link expires in 30 minutes." });
+  at(<AccountHomePage />);
+  fireEvent.click(screen.getByRole("button", { name: /Send password reset email/ }));
+  await waitFor(() => expect(api).toHaveBeenCalledWith("/admin/users/7/password-reset", { method: "POST", body: {} }));
+  expect(await screen.findByText(/Password reset email queued/)).toBeTruthy();
+  api.mockRejectedValueOnce(new Error("Email delivery is disabled in this environment."));
+  fireEvent.click(screen.getByRole("button", { name: /Send password reset email/ }));
+  expect((await screen.findByRole("alert")).textContent).toContain("Email delivery is disabled");
+  cleanup();
+  auth.actor = staff;
+  at(<AccountHomePage />);
+  expect(screen.queryByRole("button", { name: /Send password reset email/ })).toBeNull();
+});

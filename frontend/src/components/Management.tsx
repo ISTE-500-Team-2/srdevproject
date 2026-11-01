@@ -52,19 +52,21 @@ export function ActionForm({
   onSubmit,
   children,
   disabled = false,
+  submitDisabled = false,
 }: {
   title: string;
   submitLabel: string;
   onSubmit: (form: FormData) => Promise<void>;
   children: ReactNode;
   disabled?: boolean;
+  submitDisabled?: boolean;
 }) {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [success, setSuccess] = useState(false);
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (busy) return;
+    if (busy || disabled || submitDisabled) return;
     const form = new FormData(event.currentTarget);
     setBusy(true);
     setError("");
@@ -83,7 +85,7 @@ export function ActionForm({
       <h3>{title}</h3>
       <fieldset disabled={busy || disabled}>
         {children}
-        <button className="button button--primary" type="submit">
+        <button className="button button--primary" type="submit" disabled={submitDisabled}>
           {busy ? "Saving…" : submitLabel}
         </button>
       </fieldset>
