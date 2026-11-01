@@ -1,0 +1,56 @@
+.studio-cal {
+  padding: 10px;
+  border: 1px solid #e7ded7;
+  border-radius: 12px;
+  background: #fff;
+}
+.studio-cal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.studio-cal__head .icon-button {
+  width: 32px;
+  height: 32px;
+}
+.studio-cal__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  text-align: center;
+}
+.studio-cal__dow {
+  padding: 4px 0;
+  color: var(--ink-soft);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+}
+.studio-cal__day {
+  height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-base-sm);
+  cursor: pointer;
+}
+.studio-cal__day:hover:not(:disabled) {
+  background: #fff2e6;
+}
+.studio-cal__day:disabled {
+  color: #c9bdb4;
+  text-decoration: line-through;
+  cursor: default;
+}
+.studio-cal__day[aria-pressed="true"],
+.studio-cal__day[aria-pressed="true"]:hover {
+  background: var(--ink);
+  color: #fff;
+  font-weight: 700;
+}
+
+.studio-cal__day--unavailable { position: relative; }
+.studio-cal__day--unavailable:disabled { text-decoration: none; }
+.studio-cal__unavailable-mark { position: absolute; inset: 0; display: grid; place-items: center; color: #b42318; font-size: 1.9rem; font-weight: 600; line-height: 1; }

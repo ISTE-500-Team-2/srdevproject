@@ -1,15 +1,15 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { MonthCalendar } from "../MonthCalendar";
 import { Modal } from "../Modal";
 import type { Studio } from "../../lib/studioContracts";
 import {
   addDays,
+  nextMonth,
   calendarDate,
   conflictFor,
   freeFor,
   money,
-  nextMonth,
   nextOpening,
   rentalRange,
   sizeLabel,
@@ -20,86 +20,6 @@ export type BookingRequest = {
   startDate: string;
   paymentMethod: "manual" | "stripe_test";
 };
-
-const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
-
-function MonthCalendar({
-  month,
-  setMonth,
-  today,
-  selected,
-  isValid,
-  onSelect,
-}: {
-  month: string;
-  setMonth: (month: string) => void;
-  today: string;
-  selected: string;
-  isValid: (date: string) => boolean;
-  onSelect: (date: string) => void;
-}) {
-  const first = month + "-01";
-  const lead = new Date(first + "T00:00:00Z").getUTCDay();
-  const count = Number(addDays(nextMonth(first), -1).slice(8, 10));
-  const shift = (by: number) => {
-    const d = new Date(first + "T00:00:00Z");
-    d.setUTCMonth(d.getUTCMonth() + by);
-    setMonth(d.toISOString().slice(0, 7));
-  };
-  return (
-    <div className="studio-cal">
-      <div className="studio-cal__head">
-        <strong>{calendarDate(first, { month: "long", year: "numeric" })}</strong>
-        <span>
-          <button
-            type="button"
-            className="icon-button"
-            aria-label="Previous month"
-            disabled={month <= today.slice(0, 7)}
-            onClick={() => shift(-1)}
-          >
-            <ChevronLeft aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            className="icon-button"
-            aria-label="Next month"
-            onClick={() => shift(1)}
-          >
-            <ChevronRight aria-hidden="true" />
-          </button>
-        </span>
-      </div>
-      <div className="studio-cal__grid" role="group" aria-label="Start date">
-        {WEEKDAYS.map((d) => (
-          <span key={d} className="studio-cal__dow" aria-hidden="true">
-            {d}
-          </span>
-        ))}
-        {Array.from({ length: lead }, (_, i) => (
-          <span key={"lead" + i} />
-        ))}
-        {Array.from({ length: count }, (_, i) => {
-          const date = `${month}-${String(i + 1).padStart(2, "0")}`;
-          const valid = date >= today && isValid(date);
-          return (
-            <button
-              key={date}
-              type="button"
-              className="studio-cal__day"
-              aria-label={calendarDate(date)}
-              aria-pressed={date === selected}
-              disabled={!valid}
-              onClick={() => onSelect(date)}
-            >
-              {i + 1}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 export function StudioBooking({
   size,
@@ -175,7 +95,7 @@ export function StudioBooking({
           className="studio-booking"
           onSubmit={(e) => {
             e.preventDefault();
-            if (choice && start && !stale)
+            if (choice && start && !stale && canBook && !busy && (method !== "stripe_test" || cardEnabled))
               onBook({ studio: choice, startDate: start, paymentMethod: method });
           }}
         >
@@ -201,7 +121,7 @@ export function StudioBooking({
               <p className="studio-booking__hint">
                 {start
                   ? `Yours through ${calendarDate(addDays(end, -1))}.`
-                  : "Rentals run one calendar month. Crossed-out days have no studio free for a full month."}
+                  : "Choose a start date to continue. Rentals run one calendar month. Crossed-out days have no studio free for a full month."}
               </p>
             </fieldset>
             <div>
@@ -221,7 +141,7 @@ export function StudioBooking({
                           type="radio"
                           name="studio"
                           checked={studioId === s.id}
-                          disabled={!start || !!blocked}
+                          disabled={busy || !!blocked}
                           onChange={() => setStudioId(s.id)}
                         />
                         <span>
@@ -254,17 +174,18 @@ export function StudioBooking({
                       <small>We hold the studio for 30 minutes.</small>
                     </span>
                   </label>
-                  {cardEnabled && (
+                  {(
                     <label className="studio-option">
                       <input
                         type="radio"
                         name="payment"
+                        disabled={!cardEnabled || busy}
                         checked={method === "stripe_test"}
                         onChange={() => setMethod("stripe_test")}
                       />
                       <span>
                         <strong>Pay now by card</strong>
-                        <small>Test mode — no real charge.</small>
+                        <small>{cardEnabled ? "Test mode — no real charge." : "Unavailable: Stripe test checkout is not configured."}</small>
                       </span>
                     </label>
                   )}
@@ -298,7 +219,7 @@ export function StudioBooking({
             </span>
             <button
               className="button button--primary"
-              disabled={busy || !canBook || !choice || !start || !!stale}
+              disabled={busy || !canBook || !choice || !start || !!stale || (method === "stripe_test" && !cardEnabled)}
             >
               {busy
                 ? "Saving…"

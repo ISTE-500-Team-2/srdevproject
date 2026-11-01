@@ -1,0 +1,23 @@
+services:
+  app:
+    env_file:
+      - path: ./stripe.local.env
+        required: false
+    environment:
+      APP_ORIGIN: http://localhost:5173
+  frontend:
+    image: arbor-equipment-dependencies
+    working_dir: /app/frontend
+    command: ["npm", "run", "dev"]
+    environment:
+      DEV_API_TARGET: http://app:8080
+      CHOKIDAR_USEPOLLING: "true"
+    ports: ["127.0.0.1:5173:5173"]
+    volumes:
+      - ./frontend:/app/frontend
+      - preview-node-modules:/app/frontend/node_modules
+    networks: [mvc]
+    depends_on:
+      app: {condition: service_healthy}
+volumes:
+  preview-node-modules:

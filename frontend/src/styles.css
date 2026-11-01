@@ -3048,3 +3048,43 @@ button:disabled { cursor: not-allowed; opacity: .6; }
   .nfc-nav a { flex: 1 1 40%; text-align: center; }
   .nfc-section__heading > .management-actions { width: 100%; }
 }
+
+/* The catalog mirrors studio cards; details live in the group booking dialog. */
+.equipment-card__names { margin: 16px 0 0; font-size: .85rem; font-weight: 600; color: var(--bronze); }
+.equipment-booking-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+.equipment-booking-step { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font: 600 .8rem var(--font-body, 'Barlow', sans-serif); text-transform: uppercase; letter-spacing: .08em; }
+.equipment-booking-step > span { display: grid; place-items: center; width: 21px; height: 21px; border-radius: 50%; background: var(--ink); color: white; }
+.equipment-machine-picker { border: 0; padding: 0; margin: 0; min-width: 0; }
+.equipment-machine-choice { display: flex; align-items: flex-start; gap: 12px; border: 1px solid #dfd4cc; border-radius: 10px; padding: 12px 14px; margin-bottom: 7px; cursor: pointer; background: white; }
+.equipment-machine-choice:has(input:checked) { border-color: var(--orange); background: #fff8ef; box-shadow: inset 3px 0 var(--orange); }
+.equipment-machine-choice input { margin-top: 5px; accent-color: var(--bronze); }
+.equipment-machine-choice > span { display: grid; gap: 3px; min-width: 0; font-size: .9rem; }
+.equipment-machine-choice small { color: var(--bronze); font-size: .8rem; }
+.equipment-machine-training { display: flex; align-items: center; gap: 4px; }
+.equipment-machine-training svg { width: 14px; height: 14px; }
+@media (max-width: 600px) { .equipment-booking-layout { grid-template-columns: 1fr; } }
+@media (min-width: 1100px) {
+  .equipment-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+.start-picker__controls { display: grid; gap: 16px; }
+.equipment-booking-layout { row-gap: 12px; }
+.equipment-booking-layout > section, .equipment-booking-layout .start-picker--calendar { display: contents; }
+.equipment-booking-layout #equipment-time-heading { grid-column: 1; grid-row: 1; margin: 0; }
+.equipment-booking-layout .studio-cal { grid-column: 1; grid-row: 2 / span 2; align-self: start; }
+.equipment-booking-layout .equipment-machine-picker { grid-column: 2; grid-row: 1 / span 2; }
+.equipment-booking-layout .start-picker__controls { grid-column: 2; grid-row: 3; gap: 12px; }
+.equipment-booking-layout .start-picker__controls .form-field small { font-weight: 400; }
+.equipment-booking-layout .start-picker__summary { margin: 0; }
+.equipment-booking-submit { justify-self: end; }
+.equipment-reservation-form > .form-caption { border-top: 1px solid #dfd4cc; padding-top: 16px; text-align: left; margin: 0; }
+@media (max-width: 600px) {
+  .equipment-booking-layout > section { display: block; }
+  .equipment-booking-layout .start-picker--calendar { display: grid; }
+  .equipment-booking-layout .studio-cal, .equipment-booking-layout .start-picker__controls, .equipment-booking-layout .equipment-machine-picker { grid-column: auto; grid-row: auto; }
+}
+
+.equipment-booking-layout .start-picker__controls { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.equipment-booking-layout .start-picker__controls .start-picker__summary { grid-column: 1 / -1; }
+.equipment-booking-layout .start-picker__controls .form-field { align-content: start; }
+.equipment-booking-layout .start-picker__controls .form-field small { font-size: .75rem; }

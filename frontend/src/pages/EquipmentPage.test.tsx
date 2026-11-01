@@ -23,8 +23,8 @@ async function mount(){await act(async()=>{render(<MemoryRouter><EquipmentPage/>
 const tomorrow=()=>{const d=new Date();d.setDate(d.getDate()+1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
 const startValue=()=>(document.querySelector('input[name="start"]') as HTMLInputElement).value;
 const pickTime=(minutes:number)=>fireEvent.change(screen.getByLabelText('Start time'),{target:{value:`${String(Math.floor(minutes/60)).padStart(2,"0")}:${String(minutes%60).padStart(2,"0")}`}});
-async function open(){await act(async()=>{fireEvent.click(screen.getByRole('button',{name:/^3D Printer 3D printing/}));});
- fireEvent.click(screen.getAllByRole('radio')[1]!);
+async function open(){await act(async()=>{fireEvent.click(screen.getByRole('button',{name:/^3D Printer/}));});
+ fireEvent.click(screen.getByRole('button',{name:new Date(tomorrow()+'T12:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric',timeZone:'UTC'})}));
  pickTime(14*60);
 }
 const submits=()=>vi.mocked(api).mock.calls.filter(([p,o])=>p==='/reservations'&&o?.method==='POST');
@@ -89,4 +89,40 @@ test('the picked day and time are what gets booked',async()=>{
  const body=submits()[0]![1]!.body as {startTime:string;endTime:string};
  expect(body.startTime).toBe(new Date(tomorrow()+'T14:00').toISOString());
  expect(body.endTime).toBe(new Date(new Date(tomorrow()+'T14:00').getTime()+3600000).toISOString());
+});
+
+
+test('groups named printers while preserving per-machine prices, access and booking identity', async()=>{
+ vi.mocked(api).mockImplementation(async(path,options)=>{
+  if(options?.method) return {id:8,userId:1} as never;
+  if(path==='/equipment') return [
+   {...machine,id:11,name:'Rachel',type:'3D printer'},
+   {...machine,id:12,name:'Phoebe',type:'3D printer',rate:9,trainingRequired:true,canReserve:false,availability:'Training and waiver required'},
+   {...machine,id:13,name:'Monica',type:'3D printer'},
+   {...machine,id:14,name:'Kirk',type:'Metal lathe'},
+   {...machine,id:15,name:'Spock',type:'Wood lathe'},
+  ] as never;
+  return [] as never;
+ });
+ await mount();
+ expect(document.querySelectorAll('.equipment-card')).toHaveLength(2);
+ const printers=screen.getByRole('button',{name:/^3D Printer/});
+ expect(printers.textContent).toContain('Rachel \u00b7 Phoebe \u00b7 Monica');
+ expect(printers.textContent).not.toContain('/hour');
+ expect(within(printers).queryByRole('link')).toBeNull();
+ await act(async()=>{fireEvent.click(printers);});
+ const phoebe=screen.getByRole('radio',{name:/Phoebe/});
+ expect(phoebe.closest('label')!.textContent).toContain('$9.00/hour');
+ expect(phoebe.closest('label')!.textContent).toContain('Training and waiver required');
+ fireEvent.click(phoebe);
+ expect((phoebe as HTMLInputElement).checked).toBe(true);
+ fireEvent.click(screen.getByRole('button',{name:new Date(tomorrow()+'T12:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric',timeZone:'UTC'})}));
+ pickTime(14*60);
+ await act(async()=>{fireEvent.submit(screen.getByRole('button',{name:'Confirm reservation'}).closest('form')!);});
+ expect((submits()[0]![1]!.body as {equipmentId:number}).equipmentId).toBe(12);
+ fireEvent.change(screen.getByRole('combobox',{name:'Equipment filter'}),{target:{value:'ready'}});
+ expect(screen.getByRole('button',{name:/^3D Printer/}).textContent).not.toContain('Phoebe');
+ fireEvent.change(screen.getByRole('searchbox'),{target:{value:'Monica'}});
+ expect(screen.getByRole('button',{name:/^3D Printer/}).textContent).toContain('Monica');
+ expect(screen.getByRole('button',{name:/^3D Printer/}).textContent).not.toContain('Rachel');
 });

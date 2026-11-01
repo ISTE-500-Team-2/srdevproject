@@ -21,7 +21,17 @@ export function EquipmentPage() {
   const [search, setSearch] = useState('');
   const mutationInFlight = useRef(false);
   const errorRef = useRef<HTMLParagraphElement>(null);
+  const [selectedGroup, setSelectedGroup] = useState<{type: string; machines: LiveEquipment[]} | null>(null);
   const [selected, setSelected] = useState<LiveEquipment | null>(null);
+  useEffect(() => {
+    if (!selected) return;
+    const reload = () => catalog.reload();
+    const timer = window.setInterval(reload, 15000);
+    window.addEventListener('focus', reload);
+    reload();
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', reload); };
+  }, [selected?.id]);
+  const liveSelected = catalog.data?.find(item => item.id === selected?.id) ?? selected;
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState('');
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
@@ -37,6 +47,7 @@ export function EquipmentPage() {
   const reserve = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selected || mutationInFlight.current) return;
+    if (!new FormData(event.currentTarget).get('start')) { setError('Choose an available date and time.'); return; }
     mutationInFlight.current = true;
     const form = new FormData(event.currentTarget);
     setBusy(true);
@@ -55,6 +66,7 @@ export function EquipmentPage() {
       bookings.reload();
       catalog.reload();
     } catch (err) {
+      catalog.reload();
       setError(err instanceof RangeError ? err.message :
         err instanceof ApiError && err.code === 'RESERVATION_CONFLICT'
           ? 'This equipment is already reserved during your selected time. Choose another start time or shorten the duration, then try again.'
@@ -120,33 +132,18 @@ export function EquipmentPage() {
           </p>
         ) : null}
         <div className="equipment-grid">
-          {equipment.map((item) => (
-            <button
-              className="reservation-card equipment-card"
-              key={item.id}
+          {groupEquipment(equipment).map(([type, machines]) => (
+            <button className="reservation-card equipment-card" key={type}
               onClick={() => {
-                setSelected(item);
+                setSelectedGroup({type, machines});
+                setSelected(machines[0]!);
                 setToast(null);
                 setError('');
-              }}
-            >
-              <div className="reservation-card__image">
-                <img src={item.image} alt="" />
-              </div>
+              }}>
+              <div className="reservation-card__image"><img src={machines[0]!.image} alt="" /></div>
               <div className="reservation-card__rule" />
-              <div className="reservation-card__title">
-                <h2>{item.name}</h2>
-                {item.trainingRequired ? (
-                  <span>
-                    <ShieldAlert aria-hidden="true" /> Training required
-                  </span>
-                ) : null}
-              </div>
-              <div className="reservation-card__meta">
-                <span>{item.type}</span>
-                <strong>{rateLabel(item.rate)}</strong>
-              </div>
-              <small>{item.availability}</small>
+              <div className="reservation-card__title"><h2>{type}</h2></div>
+              <p className="equipment-card__names">{machines.map(item => item.name).join(' \u00b7 ')}</p>
             </button>
           ))}
         </div>
@@ -215,26 +212,21 @@ export function EquipmentPage() {
       </section>
       <Modal
         open={!!selected}
-        title={selected ? 'Reserve ' + selected.name : 'Reserve equipment'}
+        title={selectedGroup ? 'Reserve ' + selectedGroup.type : 'Reserve equipment'}
         onClose={() => {
           if (!busy) setSelected(null);
         }}
       >
         {selected ? (
           <form className="reservation-form equipment-reservation-form" onSubmit={reserve} onChange={() => setError('')}>
-            <div className="reservation-form__summary">
-              <img src={selected.image} alt="" />
-              <div>
-                <p className="eyebrow">{selected.type}</p>
-                <h3>{selected.name}</h3>
-                <span>{rateLabel(selected.rate)}</span>
-              </div>
-            </div>
             {canBookForOthers&&<div className="form-field">
               <MemberSelect name="memberId" label="Book for a member (optional)" required={false} />
               <small>Leave empty to book for yourself. Their membership, training and waivers are checked, and the booking appears in their account.</small>
             </div>}
-            <StartTimePicker name="start" hours={duration} onPick={() => setError('')}>
+            <div className="equipment-booking-layout">
+            <section aria-labelledby="equipment-time-heading">
+              <h3 className="equipment-booking-step" id="equipment-time-heading"><span>1</span> Start date</h3>
+            <StartTimePicker calendar occupied={liveSelected?.occupied} unavailable={liveSelected?.status !== 'available'} name="start" hours={duration} onPick={() => setError('')}>
               <label className="form-field">
                 <span>Duration</span>
                 <select name="duration" value={duration} onChange={e=>setDuration(Number(e.target.value))}>
@@ -242,6 +234,22 @@ export function EquipmentPage() {
                 </select>
               </label>
             </StartTimePicker>
+            </section>
+            <fieldset className="equipment-machine-picker" disabled={busy}>
+              <legend className="equipment-booking-step"><span>2</span> Machine</legend>
+              {selectedGroup?.machines.map(item => (
+                <label className="equipment-machine-choice" key={item.id}>
+                  <input type="radio" name="equipmentId" value={item.id} checked={selected.id === item.id}
+                    onChange={() => { setSelected(item); setError(''); }} />
+                  <span><strong>{item.name}</strong><span>{rateLabel(item.rate)}</span>
+                    {item.type.toLowerCase() !== selectedGroup.type.toLowerCase() && <span>{item.type}</span>}
+                    {item.trainingRequired && <span className="equipment-machine-training"><ShieldAlert aria-hidden="true" />Training required</span>}
+                    {item.availability !== 'Choose a time to check availability' && <small>{item.availability}</small>}
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+            </div>
             {!selected.canReserve && !canBookForOthers ? (
               <p className="form-notice">
                 {selected.availability}.{' '}
@@ -262,9 +270,9 @@ export function EquipmentPage() {
               </p>
             ) : null}
             <button
-              className="button button--primary button--wide"
+              className="button button--primary equipment-booking-submit"
               type="submit"
-              disabled={busy || selected.status !== 'available'}
+              disabled={busy || liveSelected?.status !== 'available'}
             >
               <CalendarDays aria-hidden="true" />{' '}
               {busy ? 'Saving…' : 'Confirm reservation'}
@@ -278,4 +286,23 @@ export function EquipmentPage() {
 }
 function rateLabel(rate: number | null) {
   return rate === null ? 'Rate not set' : '$' + rate.toFixed(2) + '/hour';
+}
+
+// Group presentation only; booking always retains the original machine record.
+function groupEquipment(equipment: LiveEquipment[]): [string, LiveEquipment[]][] {
+  const groups = new Map<string, LiveEquipment[]>();
+  for (const item of equipment) {
+    const category = item.type.trim();
+    const type = /^3d[ -]*(print|printing|printer)$/i.test(category) ? '3D Printer'
+      : /\bcnc\b/i.test(category) ? 'CNC Machine'
+      : /\blathe\b/i.test(category) ? 'Lathe'
+      : /^laser( engraver)?$/i.test(category) ? 'Laser Engraver'
+      : category || 'Other equipment';
+    groups.set(type, [...(groups.get(type) ?? []), item]);
+  }
+  const order = ['3D Printer', 'Laser Engraver', 'Lathe', 'CNC Machine'];
+  return [...groups].sort(([a], [b]) => {
+    const rank = (type: string) => order.includes(type) ? order.indexOf(type) : order.length;
+    return rank(a) - rank(b);
+  });
 }
