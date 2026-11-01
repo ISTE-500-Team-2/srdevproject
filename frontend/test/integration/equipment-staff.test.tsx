@@ -8,8 +8,10 @@ let bridge:Awaited<ReturnType<typeof createBrowserBridge>>;
 beforeAll(async()=>{bridge=await createBrowserBridge();},120000);
 afterAll(async()=>{cleanup();vi.unstubAllGlobals();await bridge?.close();},30000);
 // Picks a start in the day-and-time picker: the day button, then the time.
-const pickStart=(scope:{getByRole:typeof screen.getByRole;getByLabelText:typeof screen.getByLabelText},d:Date)=>{
-  fireEvent.click(scope.getByRole('radio',{name:d.toLocaleDateString([],{weekday:'long',month:'long',day:'numeric'})}));
+const pickStart=(scope:{queryByRole:typeof screen.queryByRole;getByRole:typeof screen.getByRole;getByLabelText:typeof screen.getByLabelText},d:Date)=>{
+  const name=d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'});
+  for(let i=0;i<12 && !scope.queryByRole('button',{name,exact:true});i++) fireEvent.click(scope.getByRole('button',{name:'Next month'}));
+  fireEvent.click(scope.getByRole('button',{name,exact:true}));
   fireEvent.change(scope.getByLabelText('Start time'),{target:{value:`${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`}});
 };
 

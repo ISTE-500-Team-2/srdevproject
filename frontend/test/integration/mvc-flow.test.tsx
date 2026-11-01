@@ -212,10 +212,11 @@ test('React → Express controllers/models → PostgreSQL: login, save, refresh,
       String(start.getDate()).padStart(2, '0'),
     ].join('-') + 'T14:00';
   void local;
-  // Day button, then start time, in the reservation picker.
+  // Calendar date, then start time. Advance when the requested date crosses a month boundary.
+  if (!within(dialog).queryByRole('button',{name:start.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'})})) fireEvent.click(within(dialog).getByRole('button',{name:'Next month'}));
   fireEvent.click(
-    within(dialog).getByRole('radio', {
-      name: start.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }),
+    within(dialog).getByRole('button', {
+      name: start.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }),
     }),
   );
   fireEvent.change(within(dialog).getByLabelText('Start time'), {
