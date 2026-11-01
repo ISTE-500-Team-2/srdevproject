@@ -42,6 +42,7 @@ export interface Registration {
   password: string;
 }
 export interface LiveEquipment extends Omit<Equipment, 'rate'> {
+  occupied?: {startTime: string; endTime: string}[];
   rate: number | null;
   status: string;
   outages?: { reason: string; expectedBack: string | null; startedAt: string; endedAt: string | null }[];

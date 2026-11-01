@@ -52,3 +52,26 @@ test("a booking that runs past midnight says so", () => {
   render(<StartTimePicker name="start" hours={3} now={new Date(2026, 9, 27, 21, 50)} />);
   expect(screen.getByText(/the next day/)).toBeTruthy();
 });
+
+
+test("hides other members' occupied times, the cooldown and starts that cannot fit the duration", () => {
+ const occupied=[{startTime:new Date(2026,9,27,17).toISOString(),endTime:new Date(2026,9,27,18).toISOString()}];
+ const {rerender}=render(<StartTimePicker calendar name="start" hours={1} now={new Date(2026,9,27,12)} occupied={occupied}/>);
+ let options=[...picker().options].map(o=>o.value);
+ expect(options).not.toContain('17:00'); expect(options).not.toContain('16:00');
+ expect(options).not.toContain('18:00'); expect(options).toContain('15:30'); expect(options).toContain('18:30');
+ fireEvent.change(picker(),{target:{value:'15:30'}});
+ rerender(<StartTimePicker calendar name="start" hours={2} now={new Date(2026,9,27,12)} occupied={occupied}/>);
+ expect([...picker().options].map(o=>o.value)).not.toContain('15:30');
+ expect(value()).not.toBe('2026-10-27T15:30');
+});
+
+test("fully occupied days have an unavailable marker and no submittable time; cancellation restores times", () => {
+ const now=new Date(2026,9,27,12);
+ const {rerender}=render(<StartTimePicker calendar name="start" hours={1} now={now} occupied={[{startTime:new Date(2026,9,27).toISOString(),endTime:new Date(2026,9,28).toISOString()}]}/>);
+ const day=screen.getByRole('button',{name:'Tue, Oct 27, 2026: unavailable'}) as HTMLButtonElement;
+ expect(day.disabled).toBe(true); expect(day.querySelector('.studio-cal__unavailable-mark')).toBeTruthy();
+ expect(value()).toBe(''); expect(picker().options[0]!.text).toBe('No available times');
+ rerender(<StartTimePicker calendar name="start" hours={1} now={now} occupied={[]}/>);
+ expect(value()).not.toBe(''); expect((screen.getByRole('button',{name:'Tue, Oct 27, 2026'}) as HTMLButtonElement).disabled).toBe(false);
+});

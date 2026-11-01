@@ -208,3 +208,18 @@ test('reader initialization shares the deadline and cannot produce a late check-
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM check_in')).rows[0].n, before);
   assert.equal((await scan()).body.data.allowed, true, 'fixture is eligible once initialization is ready');
 });
+
+
+test('member catalog shares occupied times across users without personal reservation details', async () => {
+ const id=await machine('Availability privacy');
+ const b=await booking(id);
+ const response=await get('/equipment',administrator);
+ assert.equal(response.status,200);
+ const item=response.body.data.find((e: any)=>e.id===id);
+ assert.equal(item.occupied.length,1);
+ assert.deepEqual(Object.keys(item.occupied[0]).sort(),['endTime','startTime']);
+ assert.ok(new Date(item.occupied[0].endTime)>new Date(item.occupied[0].startTime));
+ await pool.query("UPDATE reservation SET status='cancelled' WHERE reservationid=$1",[b.id]);
+ const after=await get('/equipment',administrator);
+ assert.deepEqual(after.body.data.find((e:any)=>e.id===id).occupied,[]);
+});

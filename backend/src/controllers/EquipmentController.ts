@@ -21,6 +21,11 @@ export class EquipmentController {
     const outages = (await this.pool.query(`SELECT equipment_id AS "equipmentId",reason,
       expected_back::text AS "expectedBack",started_at AS "startedAt",ended_at AS "endedAt"
       FROM app_equipment_outage WHERE ended_at IS NULL OR ended_at >= date_trunc('day', NOW() AT TIME ZONE $1) AT TIME ZONE $1`, [this.timeZone])).rows;
+    // Share occupied intervals only, never another member's identity or booking details.
+    const occupied = (await this.pool.query(`SELECT equipmentid AS "equipmentId",
+      starttime AT TIME ZONE 'UTC' AS "startTime", endtime AT TIME ZONE 'UTC' AS "endTime"
+      FROM reservation WHERE equipmentid IS NOT NULL AND status IN ('pending','confirmed')
+      AND endtime + interval '15 minutes' > clock_timestamp() AT TIME ZONE 'UTC'`)).rows;
     const data = await Promise.all(
       items.map(async (item) => {
         const trainingRequired =
@@ -51,6 +56,7 @@ export class EquipmentController {
           rate: item.rate === null ? null : Number(item.rate),
           image: item.image,
           status: item.status,
+          occupied: occupied.filter(slot => slot.equipmentId === item.id).map(({startTime, endTime}) => ({startTime, endTime})),
           outages: outages.filter(o => o.equipmentId === item.id),
           trainingRequired,
           waiverRequired: item.waiverRequired,

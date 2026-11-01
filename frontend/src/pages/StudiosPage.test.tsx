@@ -218,3 +218,41 @@ test("legacy or mismatched checkout returns never claim a new payment", async ()
   await screen.findByText(/couldn’t match this checkout return/);
   expect(screen.queryByText("Payment received.")).toBeNull();
 });
+
+
+test("studio can be selected before a date, and the date preserves that choice", async () => {
+ mount();
+ const dialog = within(await openSmall());
+ const atreides = dialog.getByRole('radio', {name: /Atreides/}) as HTMLInputElement;
+ expect(atreides.disabled).toBe(false);
+ fireEvent.click(atreides);
+ expect(atreides.checked).toBe(true);
+ expect((dialog.getByRole('button', {name: 'Hold studio'}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.click(dialog.getByRole('button', {name: 'Sun, Jan 20, 2030'}));
+ expect(atreides.checked).toBe(true);
+ expect((dialog.getByRole('button', {name: 'Hold studio'}) as HTMLButtonElement).disabled).toBe(false);
+});
+
+test("unconfigured card checkout is visible with a reason and cannot be selected", async () => {
+ mount();
+ const dialog = within(await openSmall());
+ expect((dialog.getByRole('radio', {name: /Pay now by card/}) as HTMLInputElement).disabled).toBe(true);
+ expect(dialog.getByText('Unavailable: Stripe test checkout is not configured.')).toBeTruthy();
+});
+
+test("configured card checkout submits the selected studio and Stripe payment method", async () => {
+ api.mockImplementation((path: string, init?: {body?: unknown}) => {
+  if(path === '/studios') return Promise.resolve({studios,cardTestEnabled:true,timeZone:'UTC'});
+  if(init?.body) return Promise.reject(new Error('Checkout request captured'));
+  return Promise.resolve([]);
+ });
+ mount();
+ const dialog = within(await openSmall());
+ fireEvent.click(dialog.getByRole('radio',{name:/Atreides/}));
+ fireEvent.click(dialog.getByRole('button',{name:'Sun, Jan 20, 2030'}));
+ fireEvent.click(dialog.getByRole('radio',{name:/Pay now by card/}));
+ fireEvent.click(dialog.getByRole('button',{name:'Continue to card payment'}));
+ await dialog.findByText('Checkout request captured');
+ const request=api.mock.calls.find(([path,init])=>path==='/studio-rentals' && init?.body);
+ expect(request?.[1].body).toMatchObject({studioId:2,startDate:'2030-01-20',paymentMethod:'stripe_test'});
+});

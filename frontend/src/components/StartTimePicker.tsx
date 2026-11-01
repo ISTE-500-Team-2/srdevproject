@@ -1,3 +1,4 @@
+import { MonthCalendar } from "./MonthCalendar";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 const QUICK_DAYS = 14;
@@ -17,7 +18,10 @@ const timeLabel = (minutes: number) =>
   });
 
 /** Quick day buttons with future start times on half-hour boundaries. */
-export function StartTimePicker({ name, hours, onPick, children, now: nowProp }: {
+export function StartTimePicker({ name, hours, onPick, children, now: nowProp, calendar = false, occupied = [], unavailable = false }: {
+  occupied?: {startTime: string; endTime: string}[];
+  unavailable?: boolean;
+  calendar?: boolean;
   name: string;
   hours: number;
   onPick?: () => void;
@@ -31,6 +35,7 @@ export function StartTimePicker({ name, hours, onPick, children, now: nowProp }:
     return () => window.clearInterval(timer);
   }, [nowProp]);
   const [day, setDay] = useState(() => dayKey(nextHalfHour(now)));
+  const [calendarMonth, setCalendarMonth] = useState(() => dayKey(nextHalfHour(now)).slice(0, 7));
   const [time, setTime] = useState(() => clockKey(nextHalfHour(now)));
   const minimum = nextHalfHour(now);
   const days = useMemo(() => Array.from({ length: QUICK_DAYS }, (_, offset) => {
@@ -53,17 +58,26 @@ export function StartTimePicker({ name, hours, onPick, children, now: nowProp }:
       setTime(clockKey(next));
     }
   }, [now, day, time]);
-  const times = Array.from({ length: 48 }, (_, i) => `${pad(Math.floor(i / 2))}:${i % 2 ? "30" : "00"}`)
-    .filter(value => day !== dayKey(minimum) || value >= clockKey(minimum));
+  const availableTimes = (date: string) => Array.from({ length: 48 }, (_, i) => `${pad(Math.floor(i / 2))}:${i % 2 ? "30" : "00"}`)
+    .filter(value => {
+      if (unavailable || date < dayKey(minimum) || (date === dayKey(minimum) && value < clockKey(minimum))) return false;
+      const start = new Date(`${date}T${value}`).getTime();
+      const end = start + hours * 3600000;
+      const cooldown = 15 * 60000;
+      return !occupied.some(slot => start < new Date(slot.endTime).getTime() + cooldown && end > new Date(slot.startTime).getTime() - cooldown);
+    });
+  const times = availableTimes(day);
+  const effectiveTime = times.includes(time) ? time : times[0] ?? '';
   const [year, month, date] = day.split("-").map(Number);
   const chosen = new Date(year!, month! - 1, date!);
-  const [hour, minute] = time.split(":").map(Number);
+  const [hour, minute] = effectiveTime.split(":").map(Number);
   const start = hour! * 60 + minute!;
   const end = start + hours * 60;
-  const valid = !!day && !!time && Number.isFinite(chosen.getTime()) && Number.isFinite(start);
+  const valid = !!day && !!effectiveTime && Number.isFinite(chosen.getTime()) && Number.isFinite(start);
   return (
-    <fieldset className="start-picker">
-      <legend>Day</legend>
+    <fieldset className={calendar ? "start-picker start-picker--calendar" : "start-picker"}>
+      <legend className={calendar ? "sr-only" : undefined}>Day</legend>
+      {calendar ? <MonthCalendar month={calendarMonth} setMonth={setCalendarMonth} today={dayKey(now)} selected={day} isValid={value => availableTimes(value).length > 0} onSelect={chooseDay} /> : <>
       <div className="start-picker__days" role="radiogroup" aria-label="Day">
         {days.map((d) => (
           <button key={d.key} type="button" role="radio" aria-checked={d.key === day}
@@ -80,10 +94,13 @@ export function StartTimePicker({ name, hours, onPick, children, now: nowProp }:
         <input aria-label="Booking date" type="date" value={day} min={dayKey(minimum)} required onChange={(e) => chooseDay(e.target.value)} />
         <small>Choose any future date, including dates beyond the quick choices above.</small>
       </label>
+      </>}
+      <div className="start-picker__controls">
       <label className="form-field">
         <span>Start time</span>
-        <select aria-label="Start time" value={time} required
+        <select aria-label="Start time" value={effectiveTime} required
           onChange={(e) => { setTime(e.target.value); onPick?.(); }}>
+          {!times.length && <option value="">No available times</option>}
           {times.map(value => <option key={value} value={value}>
             {timeLabel(Number(value.slice(0, 2)) * 60 + Number(value.slice(3)))}
           </option>)}
@@ -94,7 +111,8 @@ export function StartTimePicker({ name, hours, onPick, children, now: nowProp }:
       <p className="start-picker__summary" aria-live="polite">
         {valid ? <>{chosen.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })} · {timeLabel(start)} – {timeLabel(end % (24 * 60))}{end >= 24 * 60 ? " the next day" : ""}</> : "Choose a date and start time."}
       </p>
-      <input type="hidden" name={name} value={valid ? `${day}T${time}` : ""} />
+      </div>
+      <input type="hidden" name={name} value={valid ? `${day}T${effectiveTime}` : ""} />
     </fieldset>
   );
 }
