@@ -75,3 +75,22 @@ test("fully occupied days have an unavailable marker and no submittable time; ca
  rerender(<StartTimePicker calendar name="start" hours={1} now={now} occupied={[]}/>);
  expect(value()).not.toBe(''); expect((screen.getByRole('button',{name:'Tue, Oct 27, 2026'}) as HTMLButtonElement).disabled).toBe(false);
 });
+
+test("a large future schedule keeps the same cooldown boundaries after an availability refresh", () => {
+ const now = new Date(2026, 9, 27, 12);
+ const future = Array.from({length: 500}, (_, i) => ({
+  startTime: new Date(2027, 0, 1 + i, 14).toISOString(),
+  endTime: new Date(2027, 0, 1 + i, 15).toISOString(),
+ }));
+ const {rerender} = render(<StartTimePicker calendar name="start" hours={1} now={now} occupied={future}/>);
+ const options = () => [...picker().options].map(option => option.value);
+ expect(options()).toContain('16:00');
+ rerender(<StartTimePicker calendar name="start" hours={1} now={now} occupied={[...future, {
+  startTime: new Date(2026, 9, 27, 17).toISOString(),
+  endTime: new Date(2026, 9, 27, 18).toISOString(),
+ }]}/>);
+ expect(options()).not.toContain('16:00');
+ expect(options()).not.toContain('18:00');
+ expect(options()).toContain('15:30');
+ expect(options()).toContain('18:30');
+});

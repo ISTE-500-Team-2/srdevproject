@@ -58,13 +58,18 @@ export function StartTimePicker({ name, hours, onPick, children, now: nowProp, c
       setTime(clockKey(next));
     }
   }, [now, day, time]);
+  // A calendar checks every half-hour on every visible day. Parse each booking
+  // once per availability refresh, not again for every candidate start time.
+  const occupiedIntervals = useMemo(() => occupied.map(slot => ({
+    start: new Date(slot.startTime).getTime() - 15 * 60000,
+    end: new Date(slot.endTime).getTime() + 15 * 60000,
+  })), [occupied]);
   const availableTimes = (date: string) => Array.from({ length: 48 }, (_, i) => `${pad(Math.floor(i / 2))}:${i % 2 ? "30" : "00"}`)
     .filter(value => {
       if (unavailable || date < dayKey(minimum) || (date === dayKey(minimum) && value < clockKey(minimum))) return false;
       const start = new Date(`${date}T${value}`).getTime();
       const end = start + hours * 3600000;
-      const cooldown = 15 * 60000;
-      return !occupied.some(slot => start < new Date(slot.endTime).getTime() + cooldown && end > new Date(slot.startTime).getTime() - cooldown);
+      return !occupiedIntervals.some(slot => start < slot.end && end > slot.start);
     });
   const times = availableTimes(day);
   const effectiveTime = times.includes(time) ? time : times[0] ?? '';
