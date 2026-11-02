@@ -1,3 +1,4 @@
+import { MinorSupervision } from "../minorSupervision.js";
 import { StaffModel } from "../models/StaffModel.js";
 import { UserModel } from "../models/UserModel.js";
 import { PermissionModel } from "../models/PermissionModel.js";
@@ -90,6 +91,8 @@ export class ReservationService {
 
       if (targetId !== userId) await access.assertActiveUser(targetId);
       await access.assertEntitlement(targetId, start, end);
+      const familyBuilding=(await db.query(`SELECT buildingid FROM ${equipmentId ? 'equipment' : 'room'} WHERE ${equipmentId ? 'equipmentid' : 'roomid'}=$1 FOR SHARE`,[equipmentId ?? roomId])).rows[0];
+      await new MinorSupervision(db,this.timeZone).requireSponsor(targetId,familyBuilding?.buildingid);
 
       const model = new ReservationModel(db);
       let waiverId: number | null = null;
@@ -179,6 +182,7 @@ export class ReservationService {
         end,
       });
 
+      await new MinorSupervision(db,this.timeZone).recordBooking(targetId,reservation.id);
       await new StaffModel(db).audit(
         userId,
         targetId,
@@ -321,6 +325,8 @@ export class ReservationService {
 
       await access.assertActiveUser(targetId);
       await access.assertEntitlement(targetId, start, end);
+      const familyBuilding=(await db.query(`SELECT buildingid FROM ${equipmentId ? 'equipment' : 'room'} WHERE ${equipmentId ? 'equipmentid' : 'roomid'}=$1 FOR SHARE`,[equipmentId ?? roomId])).rows[0];
+      await new MinorSupervision(db,this.timeZone).requireSponsor(targetId,familyBuilding?.buildingid);
 
       let waiverId: number | null = null;
       let location: string;
@@ -422,6 +428,7 @@ export class ReservationService {
       });
       if (!reservation)
         throw new AppError(404, "NOT_FOUND", "Reservation not found.");
+      await new MinorSupervision(db,this.timeZone).recordBooking(targetId,reservation.id);
       await new StaffModel(db).audit(
         actorId,
         targetId,

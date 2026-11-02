@@ -37,6 +37,7 @@ export function ScheduleClassDialog({
   const rooms = useApi<Room[]>("/rooms");
   const [form, setForm] = useState({
     title: seed.title ?? "",
+    description: seed.description ?? "",
     certificationId: seed.certificationId ? String(seed.certificationId) : "",
     instructorId: seed.instructorId ? String(seed.instructorId) : "",
     roomId: seed.roomId ? String(seed.roomId) : "",
@@ -68,7 +69,7 @@ export function ScheduleClassDialog({
       if (key === "roomId") {
         // Seats default to the room's size and can't exceed it.
         const cap = rooms.data?.find((r) => String(r.id) === value)?.capacity;
-        if (cap && (!current.capacity || Number(current.capacity) > cap)) next.capacity = String(cap);
+        if (cap && (!current.capacity || Number(current.capacity) > cap)) next.capacity = String(Math.min(cap,15));
       }
       return next;
     });
@@ -87,7 +88,8 @@ export function ScheduleClassDialog({
         method: "POST",
         body: {
           title: form.title.trim(),
-          certificationId: Number(form.certificationId),
+          certificationId: form.certificationId ? Number(form.certificationId) : null,
+          catalogId: seed.catalogId, description: form.description,
           instructorId: Number(form.instructorId),
           roomId: Number(form.roomId),
           capacity: Number(form.capacity),
@@ -146,8 +148,8 @@ export function ScheduleClassDialog({
           </label>
           <label className="class-field">
             <span>Counts toward</span>
-            <select value={form.certificationId} required onChange={(e) => set("certificationId", e.target.value)}>
-              <option value="">Choose certification</option>
+            <select value={form.certificationId} required={!seed.catalogId} onChange={(e) => set("certificationId", e.target.value)}>
+              <option value="">{seed.catalogId ? "Creative workshop (no equipment certification)" : "Choose certification"}</option>
               {courses.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
@@ -158,6 +160,7 @@ export function ScheduleClassDialog({
               Only certifications with a validity period are listed. Set that up in <Link to="/training">Training</Link>.
             </small>
           </label>
+          <label className="class-field"><span>Description</span><textarea maxLength={4000} value={form.description} onChange={e=>set('description',e.target.value)}/></label>
         </fieldset>
         <fieldset disabled={busy}>
           <legend>
@@ -208,12 +211,12 @@ export function ScheduleClassDialog({
               <input
                 type="number"
                 min={1}
-                max={room?.capacity ?? 500}
+                max={Math.min(room?.capacity ?? 15,15)}
                 required
                 value={form.capacity}
                 onChange={(e) => set("capacity", e.target.value)}
               />
-              {room?.capacity ? <small>Can't exceed the room's {room.capacity} seats</small> : null}
+              {room?.capacity ? <small>Up to {Math.min(room.capacity,15)} participants (maximum 15 per class).</small> : null}
             </label>
           </div>
         </fieldset>

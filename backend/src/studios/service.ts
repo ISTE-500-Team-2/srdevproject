@@ -1,3 +1,4 @@
+import { MinorSupervision } from "../minorSupervision.js";
 import type { Pool } from "pg";
 import type Stripe from "stripe";
 import { transaction, type Database } from "../db.js";
@@ -187,6 +188,7 @@ export class StudioService {
     try {
       rental = await transaction(this.pool, async (db) => {
         const user = await this.actor(db, userid);
+        await new MinorSupervision(db,this.zone).requireSponsor(userid,1);
         if (!(await new PermissionModel(db).allows(user,"reservation","create",userid))) throw new AppError(403,"PERMISSION_DENIED","Reservation permission is required.");
         if (user.roles.some((r) => r.toLowerCase() === "instructor"))
           throw new AppError(
@@ -260,6 +262,7 @@ export class StudioService {
             ],
           )
         ).rows[0];
+        await new MinorSupervision(db,this.zone).recordBooking(userid,row.id,true);
         await this.event(db, row, userid, "rental_held");
         return row;
       });

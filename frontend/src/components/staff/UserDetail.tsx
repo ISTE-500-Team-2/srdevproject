@@ -1,4 +1,5 @@
 import { MemberCards } from '../access/MemberCards';
+import { FamilyAccess } from "./FamilyAccess";
 import { SupervisedAccess } from '../access/SupervisedAccess';
 import { useState } from "react";
 import { useAuth } from "../../context/AuthContext";
@@ -253,6 +254,7 @@ export function UserDetail({
               </details>
             ) : null}
           </section>
+          <FamilyAccess key={`family-${id}`} userId={id} disabled={!canManage}/>
           <MemberCards key={`cards-${id}`} userId={id} memberName={`${u.firstName} ${u.lastName}`} onChanged={()=>setCardRevision(n=>n+1)}/>
           <SupervisedAccess key={`supervision-${id}`} userId={id} memberName={`${u.firstName} ${u.lastName}`} timeZone={timeZone}/>
           <section className="panel management-panel">

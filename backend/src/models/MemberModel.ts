@@ -1,3 +1,4 @@
+import { MinorSupervision } from "../minorSupervision.js";
 import type { Database } from '../db.js';
 
 export class MemberModel {
@@ -58,6 +59,7 @@ export class MemberModel {
       RETURNING checkinid AS id,location,checkintime AT TIME ZONE 'UTC' AS "checkedInAt"`,
       [userId, roomId, location,buildingId,equipmentId,reservationId],
     );
+    await new MinorSupervision(this.db).startVisit(userId,buildingId ?? 1);
     return rows[0]!;
   }
 }

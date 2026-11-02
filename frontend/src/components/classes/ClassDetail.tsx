@@ -44,7 +44,8 @@ export function ClassDetail({
             <img src={image.src} alt="" />
           </div>
         ) : null}
-        <p className="eyebrow">Counts toward {c.certificationName}</p>
+        <p className="eyebrow">{c.certificationId ? `Counts toward ${c.certificationName}` : "Creative workshop"}</p>
+        {c.description && <p>{c.description}</p>}
         <dl className="class-facts">
           <div>
             <CalendarDays aria-hidden="true" />

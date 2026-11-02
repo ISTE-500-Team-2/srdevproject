@@ -1,3 +1,4 @@
+import { minorSupervisionRoutes } from './minorSupervision.js';
 import { staffPurchaseRoutes } from './billing/staff.js';
 import { equipmentManagement } from "./equipmentManagement.js";
 import { ReaderRegistry } from './readerRegistry.js';
@@ -72,6 +73,7 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   routes.post("/auth/logout", protectedRoute, requireCsrf, auth.logout);
   routes.use(protectedRoute);
   routes.use(trainingClassRoutes(pool,config.timeZone));
+  routes.use(minorSupervisionRoutes(pool,config.timeZone));
   routes.use(certificationRoutes(pool,config.timeZone));
   routes.use(studioRoutes(pool,config.timeZone,config.studioStripe));
   routes.use(billingRoutes(pool,config.studioStripe,config.timeZone));

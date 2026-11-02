@@ -9,6 +9,8 @@ import { StaffModel } from "./models/StaffModel.js";
 import { scheduleExpirationNotifications } from "./notifications/scheduler.js";
 
 const definition = `c.certid AS id,c.name,c.description,c.validity_days AS "validityDays",c.revision,
+ (SELECT duration_minutes FROM app_training_requirement tr WHERE tr.certification_id=c.certid) AS "trainingMinutes",
+ (SELECT fee_cents FROM app_training_requirement tr WHERE tr.certification_id=c.certid) AS "trainingFeeCents",
  c.effectivedate AT TIME ZONE 'UTC' AS "effectiveAt",c.enddate AT TIME ZONE 'UTC' AS "endsAt",
  COALESCE((SELECT json_agg(e.equipmentid ORDER BY e.equipmentid) FROM equipment e WHERE e.certid=c.certid),'[]') AS "equipmentIds"`;
 const record = `uc.usercertid AS id,uc.userid AS "userId",uc.certid AS "certificationId",c.name,uc.status,uc.revision,

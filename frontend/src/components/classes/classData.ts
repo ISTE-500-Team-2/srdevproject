@@ -3,8 +3,10 @@ import { timeOnly } from "../../lib/display";
 export type ClassRecord = {
   id: number;
   title: string;
-  certificationId: number;
+  certificationId: number | null;
   certificationName: string;
+  description?: string;
+  catalogId?: number | null;
   instructorId: number;
   instructor: string;
   capacity: number;
@@ -26,6 +28,8 @@ export type AttendanceDraft = { statuses: Record<number, "attended" | "no_show">
 /** Values used to open the schedule form, e.g. when scheduling a class again. */
 export type ScheduleSeed = Partial<{
   title: string;
+  catalogId: number;
+  description: string;
   certificationId: number;
   instructorId: number;
   roomId: number;

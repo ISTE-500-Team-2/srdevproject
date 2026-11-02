@@ -23,7 +23,7 @@ export class EquipmentModel {
   async list(): Promise<EquipmentRecord[]> {
     return (
       await this.db.query<EquipmentRecord>(
-        `SELECT ${columns} FROM equipment e LEFT JOIN certifications c USING (certid) ORDER BY e.equipmentid`,
+        `SELECT ${columns} FROM equipment e LEFT JOIN certifications c USING (certid) WHERE NOT EXISTS(SELECT 1 FROM app_equipment_retirement r WHERE r.equipment_id=e.equipmentid) ORDER BY e.equipmentid`,
       )
     ).rows;
   }

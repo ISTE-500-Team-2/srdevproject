@@ -62,8 +62,8 @@ export function ClassCatalog(props: Props) {
           <p className="eyebrow">Learn by making</p>
           <h1 className="display-heading">Classes</h1>
           <p className="classes-head__lead">
-            Hands-on sessions with a shop instructor. Each class prepares you for one certification. Approval is a
-            separate step after class.
+            Hands-on creative workshops and equipment training with a shop instructor. Equipment certification
+            requires a separate approval after training.
           </p>
         </div>
         {upcoming.length ? (
@@ -282,7 +282,7 @@ function ClassRow({
   const cancelled = isCancelled(c);
   const registered = c.myStatus === "enrolled";
   const full = seatsLeft(c) === 0;
-  const holds = certified.has(c.certificationId);
+  const holds = c.certificationId !== null && certified.has(c.certificationId);
   const busy = busyId === c.id;
   return (
     <li className={`class-row${registered && !cancelled ? " class-row--mine" : ""}${cancelled ? " class-row--cancelled" : ""}`}>

@@ -212,7 +212,7 @@ test('a room conflict on publish is shown on the room field and keeps the form',
   fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Evening laser' } });
   fireEvent.change(screen.getByLabelText(/^Counts toward/), { target: { value: '7' } });
   fireEvent.change(screen.getByLabelText(/^Room/), { target: { value: '2' } });
-  expect((screen.getByRole('spinbutton') as HTMLInputElement).value).toBe('18');
+  expect((screen.getByRole('spinbutton') as HTMLInputElement).value).toBe('15');
   fireEvent.change(screen.getByLabelText(/^Reason/), { target: { value: 'Demand' } });
   await act(async () => { fireEvent.submit(screen.getByRole('button', { name: 'Publish class' }).closest('form')!); });
   expect(screen.getByText(/Training Room is already booked for part of this time/)).toBeTruthy();

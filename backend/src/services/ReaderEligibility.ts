@@ -10,7 +10,7 @@ export interface ReaderTarget {
   resourceId?: number;
 }
 
-export async function evaluateReaderAccess(db: Database, tz: string, r: ReaderTarget, userId?: number) {
+export async function evaluateReaderAccess(db: Database, tz: string, r: ReaderTarget, userId?: number, renewal = false) {
   const deny = (reason: string) => ({
     allowed: false,
     reason,
@@ -34,11 +34,19 @@ export async function evaluateReaderAccess(db: Database, tz: string, r: ReaderTa
       : error.code === 'NOT_FOUND' ? 'RESOURCE_UNAVAILABLE' : error.code;
     return deny(reason);
   }
+  if (renewal && grant.sponsorId && !(await db.query(`SELECT id FROM app_facility_visit WHERE user_id=$1
+    AND sponsor_id=$2 AND building_id=$3 AND checked_out_at IS NULL
+    AND (checked_in_at AT TIME ZONE $4)::date=(now() AT TIME ZONE $4)::date`,[userId,grant.sponsorId,grant.buildingId,tz])).rowCount)
+    return deny('MINOR_CHECK_IN_REQUIRED');
   const user = await new UserModel(db).findById(userId);
   if (!user) return deny('ACCOUNT_BLOCKED');
   const entitlement = grant.entitlement;
-  const expires = await accessDeadline(db,tz,userId,grant.endsAt,
+  let expires = await accessDeadline(db,tz,userId,grant.endsAt,
     r.kind === 'equipment' ? r.resourceId : undefined,now);
+  if (grant.sponsorId) {
+    const sponsorEnd=await accessDeadline(db,tz,grant.sponsorId,grant.endsAt,undefined,now);
+    expires=new Date(Math.min(expires.getTime(),sponsorEnd.getTime()));
+  }
   if (expires.getTime() <= Date.now()) return deny("ELIGIBILITY_EXPIRED");
   return {
     allowed: true,
@@ -49,6 +57,7 @@ export async function evaluateReaderAccess(db: Database, tz: string, r: ReaderTa
     leaseSeconds: Math.max(0, (expires.getTime() - Date.now()) / 1000),
     member: {
       id: user.id,
+      isMinor:user.isMinor ?? false, sponsorName:user.sponsorName ?? null,
       name: user.firstName + " " + user.lastName,
       email: user.email,
       membership: entitlement.membership,

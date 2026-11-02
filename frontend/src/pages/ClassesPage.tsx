@@ -7,6 +7,7 @@ import { LoadState } from "../components/Management";
 import { Toast } from "../components/Toast";
 import { shortDate, timeOnly } from "../lib/display";
 import type { Certification } from "../lib/contracts";
+import { WorkshopTemplates } from "../components/classes/WorkshopTemplates";
 import { ClassCatalog, type Eligibility } from "../components/classes/ClassCatalog";
 import { ClassDetail } from "../components/classes/ClassDetail";
 import { ClassSchedule } from "../components/classes/ClassSchedule";
@@ -181,6 +182,7 @@ export function ClassesPage() {
 
   return (
     <section className="classes-page page-enter">
+      <WorkshopTemplates manager={manager} onSchedule={setScheduleSeed}/>
       {classes.loading || classes.error ? <LoadState {...classes} /> : null}
       {classes.data ? (
         manager ? (
@@ -192,10 +194,12 @@ export function ClassesPage() {
             onScheduleAgain={(c) =>
               setScheduleSeed({
                 title: c.title,
-                certificationId: c.certificationId,
+                certificationId: c.certificationId ?? undefined,
+                catalogId: c.catalogId ?? undefined,
+                description: c.description,
                 instructorId: c.instructorId,
                 roomId: c.roomId,
-                capacity: c.capacity,
+                capacity: Math.min(c.capacity,15),
                 start: hhmm(c.startsAt),
                 end: hhmm(c.endsAt),
               })

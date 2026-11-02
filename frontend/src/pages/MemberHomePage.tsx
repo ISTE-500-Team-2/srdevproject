@@ -9,12 +9,12 @@ import {
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { api, errorMessage } from '../lib/api';
 import { useApi } from '../lib/useApi';
 import type { Overview, Reservation, Waiver } from '../lib/contracts';
 import { Toast } from '../components/Toast';
+import { VisitStatus } from "../components/access/VisitStatus";
 import { MemberBadge } from '../components/MemberBadge';
-import { SiteSlideCommit } from '../components/SiteSlideCommit';
+
 // GSAP is only needed for the greeting, so it loads with it.
 const SplitText = lazy(() => import('../components/reactbits/SplitText'));
 import StatusMark from '../components/reactbits/StatusMark';
@@ -31,7 +31,6 @@ export function MemberHomePage() {
   const overview = useApi<Overview>('/me/overview');
   const waivers = useApi<Waiver[]>('/me/waivers');
   const bookings = useApi<Reservation[]>('/reservations');
-  const [error, setError] = useState('');
   const greet = useFirstVisit('collaboratory:greeted');
   const [toast, setToast] = useState<string | null>(null);
   const summary = overview.data;
@@ -58,23 +57,6 @@ export function MemberHomePage() {
     : summary?.entitlement.dayPass
       ? 'Day pass active'
       : 'No active access';
-  // Returns the request so the slider can show its own pending, done and
-  // failed states; a rejection shakes it back and the reason shows below.
-  const checkIn = async () => {
-    setError('');
-    try {
-      await api('/me/check-ins', {
-        method: 'POST',
-        body: {},
-      });
-    } catch (err) {
-      setError(errorMessage(err));
-      throw err;
-    }
-    overview.reload();
-    bookings.reload();
-    setToast('Check-in saved. Welcome to the Collaboratory!');
-  };
   useEffect(() => {
     if (!notification) return;
     setToast(notification.subject);
@@ -82,6 +64,7 @@ export function MemberHomePage() {
   }, [clearNotification, notification]);
   return (
     <div className="member-home page-enter">
+      <VisitStatus/>
       <section className="dashboard-intro">
         <div>
           <p className="eyebrow">Member dashboard</p>
@@ -107,11 +90,7 @@ export function MemberHomePage() {
           {overview.error} <button onClick={overview.reload}>Retry</button>
         </p>
       ) : null}
-      {error ? (
-        <p role="alert" className="form-error">
-          {error}
-        </p>
-      ) : null}
+
       {summary ? (
         <section className="member-summary" aria-label="Account summary">
           <div className="member-summary__cards">
@@ -226,23 +205,8 @@ export function MemberHomePage() {
                   </ul>
                 </details>
               ) : null}
-              {summary.canCheckIn ? (
-                <>
-                  <p className="check-in__fallback">Forgot your tag?</p>
-                  <SiteSlideCommit
-                    label="Slide to check in"
-                    doneLabel="Checked in"
-                    errorLabel="Couldn't check in"
-                    onConfirm={checkIn}
-                  />
-                </>
-              ) : fix ? (
-                // A disabled slider is a dead end; point at what unblocks it.
-                <Link to={fix.to} className="summary-card__action">
-                  <span>{fix.label}</span>
-                  <ChevronRight aria-hidden="true" />
-                </Link>
-              ) : null}
+              <p className="check-in__fallback">Tap your NFC card at the reader to check in. Forgot your card? Ask staff for help.</p>
+              {fix ? <Link to={fix.to} className="summary-card__action"><span>{fix.label}</span><ChevronRight aria-hidden="true"/></Link> : null}
             </article>
           </div>
           <aside className="membership-card access-band">
@@ -259,7 +223,7 @@ export function MemberHomePage() {
               </Link>
             </div>
             {user ? (
-              <MemberBadge
+              <MemberBadge isMinor={user?.isMinor} sponsorName={user?.sponsorName}
                 name={`${user.firstName} ${user.lastName}`}
                 access={accessLabel}
                 memberId={user.id}

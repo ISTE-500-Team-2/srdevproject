@@ -22,7 +22,7 @@ function fit(ctx: CanvasRenderingContext2D, text: string, max: number, size: num
 }
 
 /** Paints the badge face in the site's paper, espresso and bronze. */
-async function paintFace(name: string, access: string, memberId: number) {
+async function paintFace(name: string, access: string, memberId: number, isMinor = false, sponsorName?: string | null) {
   await document.fonts?.ready;
   const canvas = document.createElement("canvas");
   canvas.width = W;
@@ -52,6 +52,11 @@ async function paintFace(name: string, access: string, memberId: number) {
   ctx.fillStyle = "#685d57";
   ctx.font = "600 56px Barlow";
   ctx.fillText(access, W / 2, 990);
+  if (isMinor) {
+    ctx.fillStyle = '#a86008'; ctx.font = '700 52px Barlow'; ctx.fillText('UNDER 18', W / 2, 1060);
+    ctx.fillStyle = '#24150e'; fit(ctx, `Adult: ${sponsorName || 'Ask staff to link sponsor'}`, W-100, 42, 'Barlow');
+    ctx.fillText(`Adult: ${sponsorName || 'Ask staff to link sponsor'}`, W / 2, 1120);
+  }
   ctx.fillStyle = "#241006";
   ctx.fillRect(0, H - 250, W, 250);
   ctx.fillStyle = "#e0d1c9";
@@ -82,23 +87,25 @@ export function MemberBadge({
   name,
   access,
   memberId,
+  isMinor = false, sponsorName,
 }: {
   name: string;
   access: string;
   memberId: number;
+  isMinor?: boolean; sponsorName?: string | null;
 }) {
   const [face, setFace] = useState<string>();
   const [strap, setStrap] = useState<string>();
   useEffect(() => {
     let live = true;
-    void paintFace(name, access, memberId).then((url) => live && setFace(url));
+    void paintFace(name, access, memberId, isMinor, sponsorName).then((url) => live && setFace(url));
     void Promise.resolve(document.fonts?.ready).then(() => live && setStrap(paintStrap()));
     return () => {
       live = false;
     };
-  }, [name, access, memberId]);
+  }, [name, access, memberId, isMinor, sponsorName]);
   return (
-    <div className="member-badge" role="img" aria-label={`Member badge for ${name}: ${access}`}>
+    <div className="member-badge" role="img" aria-label={`Member badge for ${name}: ${access}${isMinor ? `; Under 18; sponsoring adult: ${sponsorName || "not linked"}` : ""}`}>
       {face ? (
         <Suspense fallback={null}>
           <Lanyard

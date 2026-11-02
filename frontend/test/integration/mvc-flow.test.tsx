@@ -323,20 +323,12 @@ test('React → Express controllers/models → PostgreSQL: login, save, refresh,
       screen.getByRole('navigation', { name: 'Primary navigation' }),
     ).getByRole('link', { name: 'Home', exact: true }),
   );
-  // The slider only appears once check-in is allowed; End completes it.
-  const checkin = await screen.findByRole(
-    'slider',
-    { name: 'Slide to check in' },
-    { timeout: 20000 },
-  );
-  fireEvent.keyDown(checkin, { key: 'End' });
-  await screen.findByText(
-    'Check-in saved. Welcome to the Collaboratory!',
-    {},
-    { timeout: 20000 },
-  );
+  // Being eligible is not evidence of physical presence. The member website
+  // directs them to the reader/staff and must not create a check-in itself.
+  await screen.findByText(/Tap your NFC card at the reader/);
+  expect(screen.queryByRole('slider', { name: 'Slide to check in' })).toBeNull();
   expect(
     (await bridge.pool.query('SELECT COUNT(*)::int AS count FROM check_in'))
       .rows[0].count,
-  ).toBe(1);
+  ).toBe(0);
 }, 120000);

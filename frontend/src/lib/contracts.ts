@@ -9,6 +9,8 @@ export interface User {
   roles: string[];
   primaryRole?: string;
   isStudent?: boolean;
+  isMinor?: boolean;
+  sponsorName?: string | null;
   membership: 'Monthly' | 'Day Pass' | 'Staff' | 'None';
 }
 export type ProfileFields = Record<string, string | boolean>;
