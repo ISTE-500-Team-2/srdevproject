@@ -10,6 +10,7 @@ import type { AppConfig } from '../config.js';
 import { transaction } from '../db.js';
 import {
   AppError,
+  positiveId,
   dateOfBirthField,
   emailField,
   newPasswordField,
@@ -250,6 +251,28 @@ export class AuthController {
       }),
     ]);
     res.status(202).json({ data: { message: 'If an account uses this email, a reset link is on its way. It expires in 30 minutes.' } });
+  };
+  adminPasswordReset = async (req: Request, res: Response) => {
+    const actor = authState(res).user;
+    if (!actor.roles.includes('admin'))
+      throw new AppError(403, 'ADMIN_REQUIRED', 'Only administrators can send password reset emails.');
+    const id = positiveId(req.params.id);
+    await transaction(this.pool, async db => {
+      const account = (await db.query('SELECT userid,status FROM "user" WHERE userid=$1 FOR UPDATE', [id])).rows[0];
+      if (!account) throw new AppError(404, 'NOT_FOUND', 'That account no longer exists.');
+      if (account.status !== 'active')
+        throw new AppError(409, 'ACCOUNT_INACTIVE', 'Password resets are only available for active accounts.');
+      if (!this.config.notifications)
+        throw new AppError(503, 'EMAIL_DISABLED', 'Email delivery is disabled in this environment. No reset email was sent.');
+      const recent = await db.query(`SELECT 1 FROM app_password_reset
+        WHERE userid=$1 AND created_at>NOW()-INTERVAL '1 minute'`, [id]);
+      if (recent.rows.length)
+        throw new AppError(429, 'RESET_RECENT', 'A reset email was requested recently. Wait one minute before sending another.');
+      await issuePasswordReset(db, id, this.config.notifications.appOrigin);
+      await db.query(`INSERT INTO app_staff_audit(actor_id,subject_id,action,entity_type,entity_id,reason)
+        VALUES($1,$2,'user.password_reset_requested','user',$2,'Administrator requested a password reset email')`, [actor.id, id]);
+    });
+    res.status(202).json({ data: { message: 'Password reset email queued. The link expires in 30 minutes.' } });
   };
   checkPasswordReset = async (req: Request, res: Response) => {
     await checkPasswordReset(this.pool, req.body.token);

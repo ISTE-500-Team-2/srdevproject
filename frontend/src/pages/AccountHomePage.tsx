@@ -6,6 +6,7 @@ import {
   GraduationCap,
   IdCard,
   Lock,
+  Mail,
   Nfc,
   ScanLine,
   Ticket,
@@ -89,6 +90,7 @@ export function AccountHomePage() {
     message: "",
     failed: false,
   });
+  const [reset, setReset] = useState({ busy: false, message: "", failed: false });
   const overview = useApi<Overview>("/me/overview");
   const certifications = useApi<Certification[]>("/me/certifications");
   const bookings = useApi<Reservation[]>("/reservations");
@@ -108,6 +110,16 @@ export function AccountHomePage() {
       overview.reload();
     } catch (err) {
       setCheckIn({ busy: false, message: errorMessage(err), failed: true });
+    }
+  };
+
+  const sendReset = async () => {
+    setReset({ busy: true, message: "", failed: false });
+    try {
+      const result = await api<{ message: string }>(`/admin/users/${user.id}/password-reset`, { method: "POST", body: {} });
+      setReset({ busy: false, message: result.message, failed: false });
+    } catch (err) {
+      setReset({ busy: false, message: errorMessage(err), failed: true });
     }
   };
 
@@ -165,11 +177,14 @@ export function AccountHomePage() {
     : [
         { icon: ScanLine, title: "Assign an NFC card", detail: `Choose a reader and scan a card for ${user.firstName}`, to: `/admin/access?member=${user.id}` },
         { icon: Lock, title: "Pause access", detail: "Lock every reader until restored", to: memberRecord },
-        { icon: Ticket, title: "Issue a pass or membership", detail: "Records the payment too", to: memberRecord },
+        { icon: Ticket, title: "Purchase a pass or membership", detail: "Help them pay by card or record an external payment", to: memberRecord },
         { icon: CalendarSync, title: "Move a booking", detail: "Move or cancel one of their bookings", to: `/admin/reservations?member=${user.id}` },
         { icon: UserPen, title: "Edit profile", detail: "Fix their name or phone number", to: memberRecord },
         ...(isAdmin
-          ? [{ icon: UserCog, title: "Change role", detail: "Make them staff or an instructor", to: memberRecord, tag: "Admin" }]
+          ? [
+              { icon: UserCog, title: "Change role", detail: "Make them staff or an instructor", to: memberRecord, tag: "Admin" },
+              { icon: Mail, title: "Send password reset email", detail: reset.busy ? "Queuing email…" : `Send a 30-minute reset link to ${user.email}`, onClick: () => void sendReset(), disabled: reset.busy, tag: "Admin" },
+            ]
           : []),
       ];
   const locked: Action[] = own
@@ -280,6 +295,11 @@ export function AccountHomePage() {
         {checkIn.message ? (
           <p className={checkIn.failed ? "form-error" : "form-notice"} role={checkIn.failed ? "alert" : "status"}>
             {checkIn.message}
+          </p>
+        ) : null}
+        {reset.message ? (
+          <p className={reset.failed ? "form-error" : "form-notice"} role={reset.failed ? "alert" : "status"}>
+            {reset.message}
           </p>
         ) : null}
         {problems.map((problem) => (

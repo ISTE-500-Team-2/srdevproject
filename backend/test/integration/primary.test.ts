@@ -123,8 +123,8 @@ function issueBody(
     requestId: randomUUID(),
     planId,
     startsAt,
-    paymentStatus: "pending",
-    method: "unspecified",
+    paymentStatus: "paid",
+    method: "cash",
     reference: "",
     reason: "Integration test issuance",
   };
@@ -419,7 +419,7 @@ test("membership issuance is atomic/idempotent, stores immutable plan details, a
   const records = (await user.get("/me/payments")).body.data.items;
   assert.equal(records.length, 1);
   assert.equal(records[0].amount, "125.50");
-  assert.equal(records[0].status, "pending");
+  assert.equal(records[0].status, "paid");
   assert.equal(
     (
       await admin.patch(`/admin/plans/${p.id}`, {
@@ -626,6 +626,8 @@ test("day passes enforce local calendar dates, duplicate prevention, entitlement
 test("manual card receipt and refund retain staff identity, reference, and timestamps",async()=>{
  const admin=client(),user=client();await admin.admin();await user.register();
  const p=await plan(admin),issued=await issue(admin,user,p.id);
+ await pool.query("UPDATE payment SET paymentstatus='pending' WHERE paymentid=$1", [issued.paymentId]);
+ await pool.query("DELETE FROM app_notification_outbox WHERE dedupe_key=$1", [`payment-recorded:${issued.paymentId}`]);
  const route=`/admin/payments/${issued.paymentId}/status`;
  assert.equal((await admin.post(route,{status:'paid',method:'external_card',reference:'TERMINAL-TEST-42',revision:1,reason:'Card charged on staff terminal'})).status,200);
  let payment=(await pool.query('SELECT * FROM payment WHERE paymentid=$1',[issued.paymentId])).rows[0];
@@ -646,6 +648,8 @@ test("payment records are owner-scoped, transition-controlled, audited, and do n
   await other.register();
   const p = await plan(admin);
   const issued = await issue(admin, user, p.id);
+  // Existing unpaid records still support reconciliation. New issuance cannot create them.
+  await pool.query("UPDATE payment SET paymentstatus='pending' WHERE paymentid=$1", [issued.paymentId]);
   const route = `/admin/payments/${issued.paymentId}/status`;
   const payment = {
     status: "paid",
@@ -851,6 +855,7 @@ test("waived/void payment records and legacy-invalid plans cannot create incorre
   const other = client();
   await other.register();
   const next = await issue(admin, other, p.id);
+  await pool.query("UPDATE payment SET paymentstatus='pending' WHERE paymentid=$1", [next.paymentId]);
   const route = `/admin/payments/${next.paymentId}/status`;
   assert.equal(
     (

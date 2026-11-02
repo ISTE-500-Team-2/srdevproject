@@ -10,6 +10,7 @@ import { LoadState } from "../components/Management";
 import { AccessSummary, openBilling } from "../components/membership/AccessSummary";
 import { PlanCards } from "../components/membership/PlanCards";
 import { History } from "../components/membership/History";
+import { forgetAssistedReturn } from "../lib/checkoutReturn";
 import "./membership.css";
 
 /** How long to keep checking for a payment after returning from checkout. */
@@ -75,6 +76,7 @@ export function MembershipPage() {
         const result = await api<Result>(path, { method: "POST", body });
         const url = (result.checkoutUrl ?? result.url) as string | undefined;
         if (url) {
+          forgetAssistedReturn();
           window.location.assign(url);
           return result;
         }

@@ -1,3 +1,4 @@
+import { staffPurchaseRoutes } from './billing/staff.js';
 import { equipmentManagement } from "./equipmentManagement.js";
 import { ReaderRegistry } from './readerRegistry.js';
 import {readerSetupRoutes} from './readerSetup.js';
@@ -102,6 +103,7 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   routes.use("/admin", requireStaff);
   routes.use(equipmentManagement(pool, config.timeZone));
   routes.use(accountModeRoutes(pool, config));
+  routes.use(staffPurchaseRoutes(pool, config.studioStripe, config.timeZone));
   routes.use(reportRoutes(pool,config.timeZone));
   routes.use(cardManagement(pool,config.timeZone,config.devices,readers));
   routes.use(readerSetupRoutes(pool,config.timeZone,readers));
@@ -109,6 +111,7 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   routes.post("/admin/plans", permit("plan","create","global"), requireCsrf, staff.createPlan);
   routes.patch("/admin/plans/:id", permit("plan","update","global"), requireCsrf, staff.updatePlan);
   routes.get("/admin/users", permit("user","read","global"), staff.users);
+  routes.post("/admin/users/:id/password-reset", requireCsrf, resetLimit, auth.adminPasswordReset);
   routes.get("/admin/users/:id", permit("user","read","global"), staff.user);
   routes.get("/admin/users/:id/signed-waivers", permit("waiver","read","global"), waiverRecords.member);
   routes.get("/admin/users/:id/signed-waivers/:waiverId/copy", permit("waiver","read","global"), waiverRecords.memberCopy);

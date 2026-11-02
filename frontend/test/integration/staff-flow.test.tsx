@@ -125,9 +125,10 @@ test("staff React flow creates a plan, issues access/payment, survives reload, s
       { timeout: 20000 },
     ),
   );
+  await user.selectOptions(await screen.findByLabelText("How will the member pay?"), "external");
   const issue = await screen.findByRole(
     "form",
-    { name: "Issue membership or day pass" },
+    { name: "Record external payment or waive payment" },
     { timeout: 20000 },
   );
   await user.selectOptions(
@@ -135,7 +136,7 @@ test("staff React flow creates a plan, issues access/payment, survives reload, s
     String(plan.id),
   );
   await user.selectOptions(
-    within(issue).getByLabelText("Initial payment record"),
+    within(issue).getByLabelText("Payment received or waived"),
     "paid",
   );
   await user.selectOptions(
@@ -150,7 +151,7 @@ test("staff React flow creates a plan, issues access/payment, survives reload, s
     within(issue).getByLabelText("Reason for change"),
     "Cash received in UI test",
   );
-  await user.click(within(issue).getByRole("button", { name: "Issue access" }));
+  await user.click(within(issue).getByRole("button", { name: "Record payment and issue access" }));
   await screen.findByText(
     "Access issued and payment record saved.",
     {},
@@ -189,6 +190,7 @@ test("staff React flow creates a plan, issues access/payment, survives reload, s
     { timeout: 20000 },
   );
   expect(screen.getAllByText(/UI-RECEIPT/).length).toBeGreaterThan(0);
+  await user.click(screen.getByText("Change facility access"));
   const access = screen.getByRole("form", { name: "Facility access control" });
   await user.selectOptions(
     within(access).getByLabelText("Facility access"),
@@ -219,6 +221,7 @@ test("staff React flow creates a plan, issues access/payment, survives reload, s
   expect((await direct('/auth/demo',{role:'admin'})).status).toBe(200);
   mount('/admin/members');
   await user.click(await screen.findByRole('button',{name:/Taylor UI Member/},{timeout:20000}));
+  await user.click(await screen.findByText('Change account status'));
   for (const status of ['suspended','inactive','active']) {
     const account = await screen.findByRole('form',{name:'Account status control'});
     await user.selectOptions(within(account).getByLabelText('Account status'),status);
@@ -229,7 +232,7 @@ test("staff React flow creates a plan, issues access/payment, survives reload, s
       const row = (await bridge.pool.query('SELECT status FROM "user" WHERE userid=$1',[id])).rows[0];
       expect(row.status).toBe(status);
     });
-    const saved = await screen.findByText('Account note: Private account review');
+    const saved = await screen.findByText((_, element) => element?.tagName === 'P' && element.textContent === 'Account note: Private account review');
     expect(saved).toBeTruthy();
   }
   const retained = (await bridge.pool.query('SELECT accessstatus FROM "user" WHERE userid=$1',[id])).rows[0];

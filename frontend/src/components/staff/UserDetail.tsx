@@ -3,7 +3,7 @@ import { SupervisedAccess } from '../access/SupervisedAccess';
 import { useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { api, ApiError } from "../../lib/api";
-import { dateTime } from "../../lib/display";
+import { dateTime, statusLabel } from "../../lib/display";
 import type { Entitlement, MemberDetail, Person, Plan } from "../../lib/staffContracts";
 import { useApi } from "../../lib/useApi";
 import {
@@ -18,7 +18,7 @@ import {
 import { PaymentEditor } from "./PaymentControls";
 
 import { AccessReadiness } from "./AccessReadiness";
-import { IssueAccess } from "./IssueAccess";
+import { AssistedPurchase } from "./AssistedPurchase";
 
 export function UserDetail({
   id,
@@ -72,26 +72,24 @@ export function UserDetail({
       {d && u ? (
         <>
           <section className="panel management-panel">
-            <h2>
-              {u.firstName} {u.lastName} · Member #{u.id}
-            </h2>
-            <p>
-              {u.email} · {u.roles.join(", ")} · Primary:{" "}
-              {u.primaryRole ?? "member"}
-              {u.isStudent ? " · Student" : ""} · Staff restriction:{" "}
-              <strong>{u.accessStatus === "active" ? "None" : u.accessStatus}</strong>
-            </p>
-            <p>
-              Account status: <strong>{u.status}</strong> · Conduct flag:{" "}
-              <strong>{u.conductFlag ? "Yes" : "No"}</strong>
-            </p>
-            <AccessReadiness userId={id} revision={u.revision+cardRevision} headingLevel={3} />
-            {u.accessReason ? <p>Access note: {u.accessReason}</p> : null}
-            {u.accountReason ? <p>Account note: {u.accountReason}</p> : null}
+            <div className="member-record__heading">
+              <div><p className="member-record__eyebrow">Member #{u.id}</p><h2>{u.firstName} {u.lastName}</h2></div>
+              <span className={`status-pill status-pill--${u.status === "active" ? "ok" : "warn"}`}>{statusLabel(u.status)}</span>
+            </div>
+            <dl className="member-record__facts">
+              <div><dt>Email</dt><dd>{u.email}</dd></div>
+              <div><dt>Phone</dt><dd>{u.phone || "Not provided"}</dd></div>
+              <div><dt>Roles</dt><dd>{u.roles.map(statusLabel).join(", ")}</dd></div>
+              <div><dt>Primary role</dt><dd>{statusLabel(u.primaryRole ?? "member")}{u.isStudent ? " · Student" : ""}</dd></div>
+              <div><dt>Staff restriction</dt><dd>{u.accessStatus === "active" ? "None" : statusLabel(u.accessStatus)}</dd></div>
+              <div><dt>Conduct flag</dt><dd>{u.conductFlag ? "Yes" : "No"}</dd></div>
+            </dl>
+            {u.accessReason ? <p className="member-record__note"><strong>Access note:</strong> {u.accessReason}</p> : null}
+            {u.accountReason ? <p className="member-record__note"><strong>Account note:</strong> {u.accountReason}</p> : null}
             {!canManage ? (
               <p>Only an administrator can change this staff account.</p>
             ) : null}
-            <details>
+            <details className="member-record__section" open>
               <summary>Edit member details</summary>
               <ActionForm
                 key={u.revision}
@@ -133,6 +131,12 @@ export function UserDetail({
                 <ReasonField />
               </ActionForm>
             </details>
+          </section>
+          <section className="panel management-panel member-record__controls">
+            <h2>Account & access</h2>
+            <AccessReadiness userId={id} revision={u.revision+cardRevision} headingLevel={3} />
+            <details className="member-record__section">
+              <summary>Change account status</summary>
             <ActionForm
               key={`account-${u.revision}`}
               title="Account status control"
@@ -152,6 +156,9 @@ export function UserDetail({
               </Field>
               <ReasonField />
             </ActionForm>
+            </details>
+            <details className="member-record__section">
+              <summary>Change facility access</summary>
             <ActionForm
               key={`access-${u.revision}`}
               title="Facility access control"
@@ -176,8 +183,9 @@ export function UserDetail({
               </Field>
               <ReasonField />
             </ActionForm>
+            </details>
             {isAdmin ? (
-              <details>
+              <details className="member-record__section">
                 <summary>Change account role</summary>
                 <ActionForm
                   key={`role-${u.revision}`}
@@ -248,7 +256,7 @@ export function UserDetail({
           <MemberCards key={`cards-${id}`} userId={id} memberName={`${u.firstName} ${u.lastName}`} onChanged={()=>setCardRevision(n=>n+1)}/>
           <SupervisedAccess key={`supervision-${id}`} userId={id} memberName={`${u.firstName} ${u.lastName}`} timeZone={timeZone}/>
           <section className="panel management-panel">
-            <IssueAccess
+            <AssistedPurchase
               key={renewal ? `${renewal.id}-${renewal.endsAt}` : "new"}
               id={id}
               plans={plans.filter((p) => p.active)}
@@ -278,7 +286,7 @@ export function UserDetail({
                       onClick={() => {
                         setRenewal(item);
                         setNotice(
-                          "Renewal start set to the existing end time. Review the Issue access form above.",
+                          "Renewal start set to the existing end time. Review the purchase form above.",
                         );
                       }}
                     >

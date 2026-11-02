@@ -25,6 +25,7 @@ export class MembershipBilling {
       cancellation_effective_at AS "cancellationEffectiveAt",cancellation_confirmed AS "cancellationConfirmed",amount_cents AS "amountCents" FROM app_membership_billing WHERE userid=$1 ORDER BY created_at DESC LIMIT 100`,[userid])).rows;
   }
   async checkout(userid:number, body:any) {
+    const returnPath = `/checkout-return?member=${userid}`;
     const provider=this.provider(), planId=positiveId(body.planId);
     if(body.autoRenewConsent !== true) throw new AppError(400,'CONSENT_REQUIRED','Agree to monthly automatic renewal before continuing.');
     const row=await transaction(this.pool,async db=>{
@@ -60,8 +61,8 @@ export class MembershipBilling {
         mode:'subscription', payment_method_types:['card'], integration_identifier:'arbor-memberships-vqkntpaz',
         client_reference_id:row.id,customer_email:row.email,
         metadata:{membershipBillingId:row.id},subscription_data:{metadata:{membershipBillingId:row.id}},
-        success_url:provider.config.origin+'/membership?billing=returned',
-        cancel_url:provider.config.origin+'/membership?billing=cancelled',
+        success_url:provider.config.origin+returnPath+(returnPath.includes('?')?'&':'?')+'billing=returned',
+        cancel_url:provider.config.origin+returnPath+(returnPath.includes('?')?'&':'?')+'billing=cancelled',
         line_items:[{quantity:1,price_data:{currency:'usd',unit_amount:row.amount_cents,
           recurring:{interval:'month'},product_data:{name:row.plan_snapshot.name}}}],
       },{idempotencyKey:'membership-checkout:'+row.id});
