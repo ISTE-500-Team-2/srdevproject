@@ -91,8 +91,8 @@ export function ClassDetail({
         <p className="class-note">
           <Info aria-hidden="true" />
           <span>
-            Registering saves your seat. Attending doesn't certify you on its own. <b>{c.certificationName}</b> is
-            approved separately, after an instructor verifies your training.
+            {c.certificationId ? <>Registering saves your seat. Attending doesn't certify you on its own. <b>{c.certificationName}</b> is
+            approved separately, after an instructor verifies your training.</> : 'Registering saves your workshop seat. This creative workshop does not grant equipment certification.'}
           </span>
         </p>
         {error ? (

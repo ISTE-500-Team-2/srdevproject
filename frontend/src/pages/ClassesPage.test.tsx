@@ -236,3 +236,13 @@ test('cancelling sends the record revision and the staff reason', async () => {
   await act(async () => { await new Promise((r) => setTimeout(r, 1500)); });
   expect(calls('/classes/5/cancel', 'POST')[0][1]?.body).toEqual({ expectedRevision: 4, reason: 'Instructor out sick' });
 });
+
+test('creative workshop details show the description without promising certification approval',async()=>{
+ auth.user={id:30,roles:['member']};
+ classes=[course(5,48,{certificationId:null,certificationName:'Creative workshop',catalogId:1,description:'Build a resin platter with an instructor.'})];
+ await mount();await click('Details for Safety 5');
+ const detail=screen.getByRole('region',{name:'Safety 5 details'});
+ expect(within(detail).getByText('Build a resin platter with an instructor.')).toBeTruthy();
+ expect(within(detail).getByText(/This creative workshop does not grant equipment certification/)).toBeTruthy();
+ expect(detail.textContent).not.toContain('approved separately');
+});
