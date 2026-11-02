@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { before, after, test } from 'node:test';
 import { Pool } from 'pg';
+import { setTimeout as delay } from 'node:timers/promises';
 import request from 'supertest';
 import { createApp } from '../../src/app.js';
 import { initializeDemo } from '../../src/scripts/init-demo.js';
@@ -842,4 +843,28 @@ test('additive RBAC migration upgrades existing MVC data without resetting users
   await pool.query("UPDATE role_permission SET isallowed=false WHERE resourcename='payment'");
   await migrate(pool);
   assert.equal((await pool.query("SELECT count(*)::int AS n FROM role_permission WHERE resourcename='payment' AND isallowed")).rows[0].n,0);
+});
+
+
+test('queued resource lock waiters serialize bookings without SHARE-to-UPDATE deadlocks',async()=>{
+  const one=client(),two=client();await one.demo();await two.demo('admin');
+  const equipmentId=(await pool.query("INSERT INTO equipment(name,status,waiverrequired) VALUES('Lock order fixture','available',false) RETURNING equipmentid")).rows[0].equipmentid;
+  const input=interval(equipmentId,8),blocker=await pool.connect();
+  let responses: Promise<any[]>|undefined,queued=0;
+  try {
+    await blocker.query('BEGIN');
+    await blocker.query('SELECT equipmentid FROM equipment WHERE equipmentid=$1 FOR UPDATE',[equipmentId]);
+    responses=Promise.all([one.post('/reservations',input),two.post('/reservations',input)]);
+    const deadline=Date.now()+5000;
+    while(Date.now()<deadline){
+      queued=(await pool.query(`SELECT count(*)::int n FROM pg_stat_activity WHERE datname=current_database()
+        AND wait_event_type='Lock' AND query LIKE 'SELECT buildingid FROM equipment%'`)).rows[0].n;
+      if(queued>=2)break;
+      await delay(10);
+    }
+  }finally{await blocker.query('ROLLBACK');blocker.release();}
+  const result=await responses!;
+  assert.equal(queued,2,'Both booking requests were blocked concurrently before release');
+  assert.deepEqual(result.map(r=>r.status).sort(),[201,409]);
+  assert.equal((await pool.query("SELECT count(*)::int n FROM reservation WHERE equipmentid=$1 AND status='confirmed'",[equipmentId])).rows[0].n,1);
 });

@@ -91,7 +91,9 @@ export class ReservationService {
 
       if (targetId !== userId) await access.assertActiveUser(targetId);
       await access.assertEntitlement(targetId, start, end);
-      const familyBuilding=(await db.query(`SELECT buildingid FROM ${equipmentId ? 'equipment' : 'room'} WHERE ${equipmentId ? 'equipmentid' : 'roomid'}=$1 FOR SHARE`,[equipmentId ?? roomId])).rows[0];
+      // Take the final exclusive resource lock directly; upgrading SHARE later
+      // can deadlock simultaneous reservations before conflict detection.
+      const familyBuilding=(await db.query(`SELECT buildingid FROM ${equipmentId ? 'equipment' : 'room'} WHERE ${equipmentId ? 'equipmentid' : 'roomid'}=$1 FOR UPDATE`,[equipmentId ?? roomId])).rows[0];
       await new MinorSupervision(db,this.timeZone).requireSponsor(targetId,familyBuilding?.buildingid);
 
       const model = new ReservationModel(db);
@@ -325,7 +327,9 @@ export class ReservationService {
 
       await access.assertActiveUser(targetId);
       await access.assertEntitlement(targetId, start, end);
-      const familyBuilding=(await db.query(`SELECT buildingid FROM ${equipmentId ? 'equipment' : 'room'} WHERE ${equipmentId ? 'equipmentid' : 'roomid'}=$1 FOR SHARE`,[equipmentId ?? roomId])).rows[0];
+      // Take the final exclusive resource lock directly; upgrading SHARE later
+      // can deadlock simultaneous reservations before conflict detection.
+      const familyBuilding=(await db.query(`SELECT buildingid FROM ${equipmentId ? 'equipment' : 'room'} WHERE ${equipmentId ? 'equipmentid' : 'roomid'}=$1 FOR UPDATE`,[equipmentId ?? roomId])).rows[0];
       await new MinorSupervision(db,this.timeZone).requireSponsor(targetId,familyBuilding?.buildingid);
 
       let waiverId: number | null = null;
