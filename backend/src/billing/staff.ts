@@ -36,12 +36,11 @@ export function staffPurchaseRoutes(pool: Pool, config?: StudioStripeConfig, zon
     // Record the staff initiator without storing the checkout URL or card details.
     await transaction(pool, db => new StaffModel(db).audit(actor.id, id, 'billing.assisted_checkout_requested', 'plan', plan.id,
       'Staff-assisted purchase', null, { autoRenewConsent: req.body.autoRenewConsent === true }));
-    const returnPath = `/admin/members?member=${id}`;
     const result = plan.kind === 'day_pass'
-      ? await passes.checkout(id, req.body, returnPath)
+      ? await passes.checkout(id, req.body)
       : req.body.freeMembership === true
         ? await passes.freeMembership(id, req.body)
-        : await memberships.checkout(id, req.body, returnPath);
+        : await memberships.checkout(id, req.body);
     res.json({ data: result });
   });
   return routes;

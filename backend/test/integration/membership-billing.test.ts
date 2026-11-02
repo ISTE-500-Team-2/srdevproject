@@ -32,9 +32,9 @@ test('explicit renewal consent and current server price required; checkout retri
  const input={planId:plan.id,expectedRevision:plan.revision,autoRenewConsent:true};
  await assert.rejects(service.checkout(userid,{...input,autoRenewConsent:false}),{code:'CONSENT_REQUIRED'});
  await assert.rejects(service.checkout(userid,{...input,expectedRevision:999}),{code:'PRICE_CHANGED'});
- await service.checkout(userid,input,`/admin/members?member=${userid}`);await service.checkout(userid,input);
- assert.equal(checkoutParams.success_url,`http://localhost/admin/members?member=${userid}&billing=returned`);
- assert.equal(checkoutParams.cancel_url,`http://localhost/admin/members?member=${userid}&billing=cancelled`);
+ await service.checkout(userid,input);await service.checkout(userid,input);
+ assert.equal(checkoutParams.success_url,`http://localhost/checkout-return?member=${userid}&billing=returned`);
+ assert.equal(checkoutParams.cancel_url,`http://localhost/checkout-return?member=${userid}&billing=cancelled`);
  assert.equal(checkoutCalls,1);assert.equal(checkoutParams.mode,'subscription');
  assert.equal(checkoutParams.line_items[0].price_data.recurring.interval,'month');
  assert.equal(checkoutParams.line_items[0].price_data.unit_amount,5000);

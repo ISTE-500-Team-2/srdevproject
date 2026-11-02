@@ -36,7 +36,8 @@ export class PassBilling {
    return {cancelled:true,manualRefundRequired:r.paymentstatus==='paid'};
   });
  }
- async checkout(userid:number,body:any,returnPath = '/membership'){
+ async checkout(userid:number,body:any){
+  const returnPath = `/checkout-return?member=${userid}`;
   const date=calendarDate(body.validDate),id=positiveId(body.planId);
   const row=await transaction(this.pool,async db=>{
    await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,userid]);

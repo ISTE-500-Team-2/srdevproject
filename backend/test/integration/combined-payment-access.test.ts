@@ -61,6 +61,10 @@ test('combined pricing, TOS, paid passes, bounded NFC decisions and policy repla
   await pool.query("INSERT INTO reservation(userid,roomid,location,starttime,endtime,status) VALUES($1,$2,'Combined fixture room',(now()-interval '1 minute') AT TIME ZONE 'UTC',(now()+interval '30 minutes') AT TIME ZONE 'UTC','confirmed')",[member.user.id,room]);
   assert.equal((await scan()).body.data.allowed,false,'A checkout is not a paid entitlement');
   await billing.checkout(member.user.id,input);
+  assert.equal(session.success_url,`http://localhost/checkout-return?member=${member.user.id}&pass=returned`);
+  assert.equal(session.cancel_url,`http://localhost/checkout-return?member=${member.user.id}&pass=cancelled`);
+  await billing.checkout(member.user.id,input);
+  assert.equal(providerCalls,1,'A resumed checkout preserves its member-safe callback and session');
   session={...session,status:'complete',payment_status:'paid',payment_intent:'pi_combined'};
   const event={id:'evt_combined',livemode:false,type:'checkout.session.completed',data:{object:session}} as any;
   await billing.webhook(event);await billing.webhook(event);

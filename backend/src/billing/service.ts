@@ -24,7 +24,8 @@ export class MembershipBilling {
       cancel_at_period_end AS "cancelAtPeriodEnd",current_period_end AS "currentPeriodEnd",
       cancellation_effective_at AS "cancellationEffectiveAt",cancellation_confirmed AS "cancellationConfirmed",amount_cents AS "amountCents" FROM app_membership_billing WHERE userid=$1 ORDER BY created_at DESC LIMIT 100`,[userid])).rows;
   }
-  async checkout(userid:number, body:any, returnPath = '/membership') {
+  async checkout(userid:number, body:any) {
+    const returnPath = `/checkout-return?member=${userid}`;
     const provider=this.provider(), planId=positiveId(body.planId);
     if(body.autoRenewConsent !== true) throw new AppError(400,'CONSENT_REQUIRED','Agree to monthly automatic renewal before continuing.');
     const row=await transaction(this.pool,async db=>{

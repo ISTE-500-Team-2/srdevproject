@@ -184,10 +184,10 @@ test('staff-assisted checkout scopes prices and purchases to the selected member
   const response=await as(admin).post(path,input);
   assert.equal(response.status,200,JSON.stringify(response.body));
   assert.equal(response.body.data.checkoutUrl,'https://checkout.stripe.com/test');
-  assert.deepEqual(calls[0],[member.user.id,input,`/admin/members?member=${member.user.id}`]);
+  assert.deepEqual(calls[0],[member.user.id,input]);
   assert.equal((await as(staff).post(path,{planId:pass.id,validDate:'2030-01-02'})).status,200);
   assert.equal(calls[1][0],member.user.id);
-  assert.equal(calls[1][2],`/admin/members?member=${member.user.id}`);
+  assert.equal(calls[1].length,2);
   const audit=await audits('billing.assisted_checkout_requested');
   assert.deepEqual(audit.slice(-2),[{actorId:admin.user.id,subjectId:member.user.id},{actorId:staff.user.id,subjectId:member.user.id}]);
  } finally {checkout.mock.restore();passCheckout.mock.restore();}

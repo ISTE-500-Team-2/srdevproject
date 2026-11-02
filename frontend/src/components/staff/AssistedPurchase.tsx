@@ -1,4 +1,6 @@
 import { useState, type ComponentProps } from 'react';
+import { useAuth } from '../../context/AuthContext';
+import { rememberAssistedReturn } from '../../lib/checkoutReturn';
 import { api, ApiError } from '../../lib/api';
 import { cents, zonedDay } from '../../lib/display';
 import type { Offer } from '../../lib/billingContracts';
@@ -7,6 +9,7 @@ import { ActionForm, Field, LoadState } from '../Management';
 import { IssueAccess } from './IssueAccess';
 
 export function AssistedPurchase(props: ComponentProps<typeof IssueAccess>) {
+  const { user, actor } = useAuth();
   const [method, setMethod] = useState(props.renewal ? 'external' : 'stripe');
   const [date, setDate] = useState(zonedDay(props.timeZone));
   const [planId, setPlanId] = useState('');
@@ -36,7 +39,10 @@ export function AssistedPurchase(props: ComponentProps<typeof IssueAccess>) {
               amountCents: offer.amountCents, validDate: offer.kind === 'day_pass' ? date : undefined,
               autoRenewConsent: form.get('autoRenewConsent') === 'on', freeMembership: offer.kind === 'membership' && offer.amountCents === 0 },
           });
-          if (result.checkoutUrl) { window.location.assign(result.checkoutUrl); return; }
+          if (result.checkoutUrl) {
+            rememberAssistedReturn((actor ?? user)?.id, props.id);
+            window.location.assign(result.checkoutUrl); return;
+          }
           if (!result.issued) throw new Error('Checkout did not complete. Refresh and review the member’s records.');
           props.onSaved();
         }}>

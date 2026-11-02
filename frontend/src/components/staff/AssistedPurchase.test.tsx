@@ -6,6 +6,7 @@ import { ApiError } from '../../lib/api';
 import { AssistedPurchase } from './AssistedPurchase';
 const { api, state } = vi.hoisted(() => ({ api: vi.fn(), state: { enabled: true } }));
 vi.mock('../../lib/api', async importOriginal => ({ ...await importOriginal<typeof import('../../lib/api')>(), api }));
+vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ user: { id: 1 }, actor: null }) }));
 vi.mock('../../lib/useApi', () => ({ useApi: () => ({ data: { enabled: state.enabled, offers: [
  { id: 7, name: 'Monthly', kind: 'membership', months: 1, revision: 4, pricingRevision: 2, amountCents: 4000, price: '50.00', active: true },
  { id: 8, name: 'Day pass', kind: 'day_pass', revision: 3, pricingRevision: 1, amountCents: 1500, price: '15.00', active: true },

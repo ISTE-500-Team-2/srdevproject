@@ -1,3 +1,4 @@
+import { CheckoutReturn } from './components/CheckoutReturn';
 import { TrainingPage } from './pages/TrainingPage';
 import { StudiosPage } from './pages/StudiosPage';
 import { RequireUser, RequireStaff, isWorkspaceUser } from './components/RouteGuards';
@@ -48,6 +49,7 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/loading" element={<LoadingPage />} />
         <Route element={<RequireUser />}>
+          <Route path="checkout-return" element={<CheckoutReturn />} />
           <Route element={<RequireStaff />}>
             <Route path="admin" element={<AdminShell />}>
               <Route index element={<AdminIndex />} />
@@ -66,7 +68,7 @@ export default function App() {
             <Route path="classes" element={<ClassesPage />} />
             <Route path="training" element={<TrainingPage />} />
             <Route path="profile" element={<ProfilePage />} />
-            <Route path="membership" element={<MembershipPage />} />
+            <Route path="membership" element={<CheckoutReturn><MembershipPage /></CheckoutReturn>} />
           </Route>
         </Route>
         <Route path="*" element={<NotFoundPage />} />
