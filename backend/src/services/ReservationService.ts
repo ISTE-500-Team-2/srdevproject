@@ -124,7 +124,7 @@ export class ReservationService {
         }
 
         const waivers = equipment.waiverRequired
-          ? await access.assertWaivers(targetId)
+          ? await access.assertEquipmentWaivers(targetId)
           : [];
         waiverId = waivers[0]?.id ?? null;
         location = equipment.location;
@@ -352,7 +352,7 @@ export class ReservationService {
             `A current ${equipment.certification ?? "equipment"} certification is required.`,
           );
         const waivers = equipment.waiverRequired
-          ? await access.assertWaivers(targetId)
+          ? await access.assertEquipmentWaivers(targetId)
           : [];
         waiverId = waivers[0]?.id ?? null;
         location = equipment.location;

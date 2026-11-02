@@ -1,6 +1,7 @@
 import type { Database } from "../db.js";
 import { AppError } from "../domain.js";
 import { EligibilityModel } from "../models/EligibilityModel.js";
+import type { PolicyScope } from "../staffDomain.js";
 
 export interface AccessTarget {
   buildingId?: number;
@@ -30,13 +31,22 @@ export class AccessService {
     return value;
   }
 
-  async assertWaivers(userId: number) {
-    const waivers = await this.eligibility.waivers(userId);
+  async assertWaivers(userId: number, scope: PolicyScope = 'facility') {
+    const waivers = await this.eligibility.waivers(userId, scope);
     if (!waivers.length)
-      throw new AppError(409,'WAIVERS_NOT_CONFIGURED','Staff need to configure the required policies before access can be granted.');
+      throw new AppError(409,'WAIVERS_NOT_CONFIGURED',scope === 'equipment'
+        ? 'Staff need to configure the required equipment waivers before this equipment can be used.'
+        : 'Staff need to configure the required facility policies before access can be granted.');
     if (waivers.some(w => !w.signed))
-      throw new AppError(403,'WAIVER_REQUIRED','Sign all current required policies and waivers first.');
+      throw new AppError(403,'WAIVER_REQUIRED',scope === 'equipment'
+        ? 'Sign the current required equipment waivers first.'
+        : 'Sign the current required facility policies first.');
     return waivers;
+  }
+
+  async assertEquipmentWaivers(userId: number) {
+    await this.assertWaivers(userId);
+    return this.assertWaivers(userId, 'equipment');
   }
 
   // The caller keeps the decision and check-in in one transaction.
@@ -50,8 +60,8 @@ export class AccessService {
       const table = target.roomId ? 'room' : 'equipment';
       const key = target.roomId ? 'roomid' : 'equipmentid';
       const resource = (await this.db.query<{
-        buildingid: number; name: string; location: string; status: string; certid: number | null;
-      }>(`SELECT buildingid,name,location,status,${table === 'equipment' ? 'certid' : 'NULL::int AS certid'}
+        buildingid: number; name: string; location: string; status: string; certid: number | null; waiverrequired: boolean;
+      }>(`SELECT buildingid,name,location,status,${table === 'equipment' ? 'certid,COALESCE(waiverrequired,false) AS waiverrequired' : 'NULL::int AS certid,false AS waiverrequired'}
           FROM ${table} WHERE ${key}=$1 FOR SHARE`,[target.roomId ?? target.equipmentId])).rows[0];
       if (!resource) throw new AppError(404,'NOT_FOUND','Access resource not found.');
       if (resource.status !== 'available') throw new AppError(409,'RESOURCE_UNAVAILABLE','This resource is unavailable.');
@@ -59,6 +69,7 @@ export class AccessService {
       location = target.roomId ? `${resource.name} - ${resource.location}` : resource.name;
       if (resource.certid && !await this.eligibility.certification(userId,resource.certid,at))
         throw new AppError(403,'CERTIFICATION_REQUIRED','A current certification for this equipment is required.');
+      if (resource.waiverrequired) await this.assertWaivers(userId, 'equipment');
     }
     if (buildingId !== undefined) {
       const building = (await this.db.query<{name: string; status: string}>(

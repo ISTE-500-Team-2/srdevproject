@@ -1,6 +1,7 @@
 import { auditContext } from "../auditContext.js";
 import type { Database } from "../db.js";
 import type { PlanInput } from "../staffDomain.js";
+import type { PolicyScope } from "../staffDomain.js";
 
 export interface Plan extends PlanInput {
   id: number;
@@ -15,6 +16,7 @@ export interface PolicyRecord {
   active: boolean;
   required: boolean;
   approvalReference: string | null;
+  scope: PolicyScope;
 }
 export interface ComplianceFilters {
   waiverId: number | null;
@@ -443,7 +445,7 @@ export class StaffModel {
   async policies() {
     return (
       await this.db.query<PolicyRecord>(
-        `SELECT waiverid AS id,name,version,description,effectivedate AT TIME ZONE 'UTC' AS "effectiveAt",isactive AS active,required,approval_reference AS "approvalReference" FROM waiver ORDER BY effectivedate DESC NULLS LAST,waiverid DESC`,
+        `SELECT waiverid AS id,name,version,description,effectivedate AT TIME ZONE 'UTC' AS "effectiveAt",isactive AS active,required,approval_reference AS "approvalReference",policy_scope AS scope FROM waiver ORDER BY effectivedate DESC NULLS LAST,waiverid DESC`,
       )
     ).rows;
   }
@@ -454,12 +456,13 @@ export class StaffModel {
     effectiveAt: string,
     approvalReference: string,
     actorId: number,
+    scope: PolicyScope = 'facility',
   ) {
     return (
       await this.db.query<PolicyRecord>(
-        `INSERT INTO waiver(name,version,description,effectivedate,approval_reference,created_by) VALUES($1,$2,$3,$4::timestamptz AT TIME ZONE 'UTC',$5,$6)
-      RETURNING waiverid AS id,name,version,description,effectivedate AT TIME ZONE 'UTC' AS "effectiveAt",isactive AS active,required,approval_reference AS "approvalReference"`,
-        [name, version, description, effectiveAt, approvalReference, actorId],
+        `INSERT INTO waiver(name,version,description,effectivedate,approval_reference,created_by,policy_scope) VALUES($1,$2,$3,$4::timestamptz AT TIME ZONE 'UTC',$5,$6,$7)
+      RETURNING waiverid AS id,name,version,description,effectivedate AT TIME ZONE 'UTC' AS "effectiveAt",isactive AS active,required,approval_reference AS "approvalReference",policy_scope AS scope`,
+        [name, version, description, effectiveAt, approvalReference, actorId, scope],
       )
     ).rows[0]!;
   }

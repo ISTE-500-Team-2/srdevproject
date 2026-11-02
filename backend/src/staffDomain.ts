@@ -1,5 +1,7 @@
 import { AppError, positiveId, textField } from "./domain.js";
 
+export type PolicyScope = 'facility' | 'equipment';
+
 export function oneOf<T extends string>(
   value: unknown,
   choices: readonly T[],

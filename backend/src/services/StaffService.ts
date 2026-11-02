@@ -9,6 +9,8 @@ import type { IssueInput, PlanInput } from "../staffDomain.js";
 import { PermissionModel } from "../models/PermissionModel.js";
 import { planInput } from "../staffDomain.js";
 import { retireSupersededPolicies } from "../policyLifecycle.js";
+import { AccessService } from "./AccessService.js";
+import type { PolicyScope } from "../staffDomain.js";
 
 const missing = () =>
   new AppError(404, "NOT_FOUND", "The selected record was not found.");
@@ -353,6 +355,7 @@ export class StaffService {
             "PASS_EXISTS",
             "An active or suspended pass already exists for that date.",
           );
+        await new AccessService(db, this.timeZone).assertWaivers(userId);
         id = await model.createPass(
           userId,
           plan,
@@ -509,9 +512,13 @@ export class StaffService {
       effectiveAt: string;
       approvalReference: string;
       reason: string;
+      scope?: PolicyScope;
     },
   ) {
     return this.write(actorId, true, "waiver", "create", async (model, _actor, db) => {
+      // Omitted scope on older clients must not turn an equipment waiver's
+      // replacement into a facility-wide prerequisite.
+      const previous = (await model.policies()).find(policy => policy.name === input.name);
       const after = await model.createPolicy(
         input.name,
         input.version,
@@ -519,6 +526,7 @@ export class StaffService {
         input.effectiveAt,
         input.approvalReference,
         actorId,
+        input.scope ?? previous?.scope ?? 'facility',
       );
       await model.audit(
         actorId,
