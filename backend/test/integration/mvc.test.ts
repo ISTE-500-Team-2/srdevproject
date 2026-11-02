@@ -5,6 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { before, after, test } from 'node:test';
 import { Pool } from 'pg';
 import { setTimeout as delay } from 'node:timers/promises';
+import type { Server } from 'node:http';
 import request from 'supertest';
 import { createApp } from '../../src/app.js';
 import { initializeDemo } from '../../src/scripts/init-demo.js';
@@ -25,7 +26,12 @@ const config: AppConfig = {
   timeZone: 'America/New_York',
 };
 let created = false;
-let app: ReturnType<typeof createApp>;
+let app: ReturnType<typeof createApp>,server:Server;
+const servers:Server[]=[];
+async function serve(application:ReturnType<typeof createApp>){
+ const listener=application.listen(0,'127.0.0.1');servers.push(listener);
+ await new Promise<void>(resolve=>listener.once('listening',resolve));return listener;
+}
 before(async () => {
   if (!process.env.PGHOST || process.env.DATABASE_URL)
     throw new Error(
@@ -35,14 +41,16 @@ before(async () => {
   created = true;
   await initializeDemo(pool);
   app = createApp(pool, config);
+  server = await serve(app);
 });
 after(async () => {
+  await Promise.all(servers.map(listener=>new Promise<void>(resolve=>{listener.close(()=>resolve());listener.closeAllConnections();})));
   await pool.end();
   if (created) await adminPool.query(`DROP DATABASE "${database}"`);
   await adminPool.end();
 });
 function client() {
-  const agent = request.agent(app);
+  const agent = request.agent(server);
   let csrf = '';
   let id = 0;
   let cookie = '';
@@ -197,7 +205,7 @@ test('registration, DB session recovery, profile persistence and logout', async 
   assert.equal((await user.agent.get('/api/auth/session')).status, 401);
   const signedIn = await user.login(email, password);
   assert.equal(signedIn.body.data.user.firstName, 'Updated');
-  const duplicate = await request(app)
+  const duplicate = await request(server)
     .post('/api/auth/register')
     .send({
       email: email.toUpperCase(),
@@ -212,7 +220,7 @@ test('registration, DB session recovery, profile persistence and logout', async 
 });
 
 test('unauthenticated, missing CSRF, cross-origin and malformed writes are rejected', async () => {
-  assert.equal((await request(app).get('/api/equipment')).status, 401);
+  assert.equal((await request(server).get('/api/equipment')).status, 401);
   const user = client();
   await user.demo();
   assert.equal(
@@ -260,7 +268,7 @@ test('reservation saves to PostgreSQL, survives a new app instance, and only its
   assert.equal(row.rows[0].userid, owner.id);
   assert.equal(row.rows[0].status, 'confirmed');
   const restarted = createApp(pool, config);
-  const restored = request.agent(restarted);
+  const restored = request.agent(await serve(restarted));
   const cookie = owner.cookie;
   // Recover the same browser session against a fresh controller/router instance.
   const recovered = await restored
@@ -287,6 +295,29 @@ test('reservation saves to PostgreSQL, survives a new app instance, and only its
     ).rows[0].status,
     'cancelled',
   );
+});
+
+test('queued resource lock waiters serialize bookings without SHARE-to-UPDATE deadlocks',async()=>{
+  const one=client(),two=client();await one.demo();await two.demo('admin');
+  const equipmentId=(await pool.query("INSERT INTO equipment(name,status,waiverrequired) VALUES('Lock order fixture','available',false) RETURNING equipmentid")).rows[0].equipmentid;
+  const input=interval(equipmentId,8),blocker=await pool.connect();
+  let responses: Promise<any[]>|undefined,queued=0;
+  try {
+    await blocker.query('BEGIN');
+    await blocker.query('SELECT equipmentid FROM equipment WHERE equipmentid=$1 FOR UPDATE',[equipmentId]);
+    responses=Promise.all([one.post('/reservations',input),two.post('/reservations',input)]);
+    const deadline=Date.now()+5000;
+    while(Date.now()<deadline){
+      queued=(await pool.query(`SELECT count(*)::int n FROM pg_stat_activity WHERE datname=current_database()
+        AND wait_event_type='Lock' AND query LIKE 'SELECT buildingid FROM equipment%'`)).rows[0].n;
+      if(queued>=2)break;
+      await delay(10);
+    }
+  }finally{await blocker.query('ROLLBACK');blocker.release();}
+  const result=await responses!;
+  assert.equal(queued,2,'Both booking requests were blocked concurrently before release');
+  assert.deepEqual(result.map(r=>r.status).sort(),[201,409]);
+  assert.equal((await pool.query("SELECT count(*)::int n FROM reservation WHERE equipmentid=$1 AND status='confirmed'",[equipmentId])).rows[0].n,1);
 });
 
 test('concurrent overlapping requests produce one reservation; equipment cooldown applies across members', async () => {
@@ -558,6 +589,7 @@ test('a day pass grants access only on its valid local calendar day', async () =
 
 test('profile patches preserve omitted/custom fields and clear only explicitly named fields', async () => {
   app = createApp(pool, config);
+  server = await serve(app);
   const user = client();
   await user.register();
   const names = { firstName: 'Profile', lastName: 'Member', phone: '1111111111' };
@@ -843,28 +875,4 @@ test('additive RBAC migration upgrades existing MVC data without resetting users
   await pool.query("UPDATE role_permission SET isallowed=false WHERE resourcename='payment'");
   await migrate(pool);
   assert.equal((await pool.query("SELECT count(*)::int AS n FROM role_permission WHERE resourcename='payment' AND isallowed")).rows[0].n,0);
-});
-
-
-test('queued resource lock waiters serialize bookings without SHARE-to-UPDATE deadlocks',async()=>{
-  const one=client(),two=client();await one.demo();await two.demo('admin');
-  const equipmentId=(await pool.query("INSERT INTO equipment(name,status,waiverrequired) VALUES('Lock order fixture','available',false) RETURNING equipmentid")).rows[0].equipmentid;
-  const input=interval(equipmentId,8),blocker=await pool.connect();
-  let responses: Promise<any[]>|undefined,queued=0;
-  try {
-    await blocker.query('BEGIN');
-    await blocker.query('SELECT equipmentid FROM equipment WHERE equipmentid=$1 FOR UPDATE',[equipmentId]);
-    responses=Promise.all([one.post('/reservations',input),two.post('/reservations',input)]);
-    const deadline=Date.now()+5000;
-    while(Date.now()<deadline){
-      queued=(await pool.query(`SELECT count(*)::int n FROM pg_stat_activity WHERE datname=current_database()
-        AND wait_event_type='Lock' AND query LIKE 'SELECT buildingid FROM equipment%'`)).rows[0].n;
-      if(queued>=2)break;
-      await delay(10);
-    }
-  }finally{await blocker.query('ROLLBACK');blocker.release();}
-  const result=await responses!;
-  assert.equal(queued,2,'Both booking requests were blocked concurrently before release');
-  assert.deepEqual(result.map(r=>r.status).sort(),[201,409]);
-  assert.equal((await pool.query("SELECT count(*)::int n FROM reservation WHERE equipmentid=$1 AND status='confirmed'",[equipmentId])).rows[0].n,1);
 });

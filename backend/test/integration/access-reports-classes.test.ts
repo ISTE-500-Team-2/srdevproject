@@ -1,3 +1,4 @@
+import type { Server } from 'node:http';
 import { waiverAcceptance } from '../helpers/waiver.js';
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID, createHmac } from "node:crypto";
@@ -25,6 +26,7 @@ let app: ReturnType<typeof createApp>,
   certId: number,
   cardId: number,
   classId: number;
+let server:Server;
 before(async () => {
   if (!process.env.PGHOST || process.env.DATABASE_URL)
     throw Error("Isolated PostgreSQL required");
@@ -53,8 +55,10 @@ before(async () => {
       ],
     },
   });
-  staff = request.agent(app);
-  member = request.agent(app);
+  server=app.listen(0,'127.0.0.1');
+  await new Promise<void>(resolve=>server.once('listening',resolve));
+  staff = request.agent(server);
+  member = request.agent(server);
   let r = await staff.post("/api/auth/demo").send({ role: "admin" });
   assert.equal(r.status, 200);
   csrf = r.body.data.csrfToken;
@@ -82,6 +86,7 @@ before(async () => {
   cardId = r.body.data.id;
 });
 after(async () => {
+  if(server)await new Promise<void>(resolve=>{server.close(()=>resolve());server.closeAllConnections();});
   await pool.end();
   await admin.query(`DROP DATABASE "${database}"`);
   await admin.end();
@@ -115,7 +120,7 @@ function scan(
     signature = createHmac("sha256", opts.secret ?? secret)
       .update(stamp + "\n" + body)
       .digest("hex");
-  return request(app)
+  return request(server)
     .post("/api/devices/decision")
     .set("Content-Type", "application/json")
     .set("X-Reader-ID", opts.reader ?? "printer")
