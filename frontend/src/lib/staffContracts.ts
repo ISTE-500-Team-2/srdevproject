@@ -83,6 +83,7 @@ export interface Policy {
   active: boolean;
   required: boolean;
   approvalReference: string;
+  scope: 'facility' | 'equipment';
 }
 export interface MemberDetail {
   user: Person;

@@ -25,6 +25,8 @@ interface Data {
   passes?: unknown[];
   offers?: unknown[];
   accessStatus?: string;
+  policies?: { id: number; name: string; signed: boolean; scope: 'facility' | 'equipment' }[];
+  policyError?: string;
 }
 function mount(d: Data = {}, url = "/membership") {
   // The real hook keeps the same data object between renders; mirror that.
@@ -34,12 +36,13 @@ function mount(d: Data = {}, url = "/membership") {
     const data =
       path === null ? null
       : path.startsWith("/me/billing/offers") ? (d.offers ?? [offer(monthly, 5000), offer(dayPass, 1500)])
+      : path === '/me/waivers?scope=facility' ? (d.policies ?? [{ id: 1, name: 'Terms of Service', signed: true, scope: 'facility' }])
       : path === "/me/billing/passes" ? (d.passes ?? [])
       : path === "/me/billing" ? { enabled: d.enabled ?? true, records: d.records ?? [] }
       : path === "/me/memberships" ? { memberships: d.memberships ?? [], passes: d.historyPasses ?? [], timeZone: "America/New_York", accessStatus: d.accessStatus ?? "active" }
       : path === "/plans" ? [monthly, dayPass]
       : { items: [], nextOffset: null };
-    const result = { data, loading: false, refreshing: false, error: "", reload };
+    const result = { data, loading: false, refreshing: false, error: path === '/me/waivers?scope=facility' ? d.policyError ?? '' : '', reload };
     cache.set(path, result);
     return result;
   });
@@ -123,6 +126,21 @@ test("a free month says it doesn't renew and never opens card checkout", async (
   api.mockResolvedValue({ issued: true });
   fireEvent.click(within(dialog).getByRole("button", { name: "Claim free month" }));
   await waitFor(() => expect(api).toHaveBeenCalledWith("/me/billing/free-membership", { method: "POST", body: { planId: 1, expectedRevision: 2, pricingRevision: 4 } }));
+});
+
+test('unsigned facility policies block day-pass purchases and link to the agreements', () => {
+  mount({ policies: [{ id: 1, name: 'Terms of Service', signed: false, scope: 'facility' }] });
+  fireEvent.change(screen.getByLabelText('Visit date'), { target: { value: future(10) } });
+  expect((screen.getByRole('button', { name: /Buy day pass/ }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByRole('link', { name: /review and sign the required facility policies/ }).getAttribute('href')).toBe('/certifications');
+  expect(screen.getByText(/Before buying a day pass/).textContent).toContain('Terms of Service');
+  expect(api).not.toHaveBeenCalled();
+});
+
+test.each([[], undefined])('missing or unavailable facility policies cannot enable checkout (%s)', policies => {
+  mount({ policies, policyError: policies === undefined ? 'Policy service unavailable' : '' });
+  fireEvent.change(screen.getByLabelText('Visit date'), { target: { value: future(10) } });
+  expect((screen.getByRole('button', { name: /Buy day pass/ }) as HTMLButtonElement).disabled).toBe(true);
 });
 
 test("upcoming passes show the cancel window and hide Cancel once it has passed", () => {

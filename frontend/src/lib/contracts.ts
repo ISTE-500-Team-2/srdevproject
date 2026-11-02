@@ -72,6 +72,7 @@ export interface Waiver {
   name: string;
   version: string;
   description: string;
+  scope: 'facility' | 'equipment';
   formFields?: WaiverFormField[];
   /** The account holder's name; a form signature has to match it. */
   signerName?: string;

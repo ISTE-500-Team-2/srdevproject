@@ -309,7 +309,7 @@ export function CertificationsPage() {
                       {item.signedVersion ?? 'earlier version'}.
                     </p>
                   ) : (
-                    <p>Signature required</p>
+                    <p>{item.scope === 'equipment' ? 'Required before booking or using equipment that requires a waiver' : 'Required for facility access and day passes'}</p>
                   )}
                 </div>
                 <button
