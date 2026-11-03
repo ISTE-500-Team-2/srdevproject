@@ -2809,6 +2809,42 @@ button:disabled { cursor: not-allowed; opacity: .6; }
   position: static;
 }
 
+/* Tier, Under 18 and sponsor-request actions sit side by side and wrap. */
+.access-band__pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.access-band__info p b {
+  color: #fff;
+  font-weight: 600;
+}
+
+.access-band__request {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+  padding-top: 12px;
+}
+
+/* Same light-on-espresso buttons as the profile help band. */
+.access-band .button {
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.access-band .form-error {
+  margin: 0;
+  color: var(--orange-soft);
+}
+
+.member-summary .summary-card .button {
+  width: 100%;
+}
+
 .member-badge {
   height: 280px;
 }

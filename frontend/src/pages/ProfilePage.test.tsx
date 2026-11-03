@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { afterEach, expect, test, vi } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import type { ReactNode } from 'react';
 import { formatPhone, ProfilePage } from './ProfilePage';
 import { ApiError } from '../lib/api';
 const { api, refresh, auth } = vi.hoisted(() => ({
@@ -11,6 +12,11 @@ const { api, refresh, auth } = vi.hoisted(() => ({
 }));
 vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: auth.user, refresh }) }));
 vi.mock('../lib/api', async (original) => ({ ...(await original<typeof import('../lib/api')>()), api }));
+vi.mock('../components/reactbits/HoldButton', () => ({
+  default: ({ children, onHold, disabled }: { children: ReactNode; onHold: () => void; disabled: boolean }) => (
+    <button type="button" disabled={disabled} onClick={onHold}>{children}</button>
+  ),
+}));
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
@@ -191,4 +197,84 @@ test.each([false, true])('legacy contact choices survive a phone edit (replace m
   fireEvent.click(screen.getByRole('button', { name: 'Save contact' }));
   await waitFor(() => expect(patches()).toHaveLength(1));
   expect(patches()[0]![1]!.body.contactPreferences).toEqual({ ...legacy.contactPreferences, 'Preferred contact method': replace ? 'Call' : 'SMS' });
+});
+
+describe('minors you supervise', () => {
+  const asAdult = (isMinor: boolean | undefined) => Object.assign(auth.user, { isMinor });
+  afterEach(() => {
+    delete (auth.user as { isMinor?: boolean }).isMinor;
+  });
+  const minors = {
+    minors: [{ id: 142, name: 'Emma Lin', visit: null }],
+    requests: [{ id: 3, minorName: 'Noah Lin', createdAt: '2026-11-02T12:00:00Z' }],
+  };
+
+  test('only adults see the section and its menu entry', async () => {
+    asAdult(true);
+    mount();
+    await screen.findByText('1 Mill Rd, White Hall, Maryland 21161');
+    expect(screen.queryByRole('region', { name: 'Minors you supervise' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Minors' })).toBeNull();
+    expect(api.mock.calls.some(([p]) => p === '/me/minors')).toBe(false);
+  });
+
+  test('lists linked minors and pending requests; a request can be cancelled', async () => {
+    asAdult(false);
+    mount({ '/me/minors': () => minors, '/me/minors/requests/3/cancel': () => ({ minors: minors.minors, requests: [] }) });
+    const box = section('Minors you supervise');
+    expect(screen.getByRole('link', { name: 'Minors' })).toBeTruthy();
+    expect(await within(box).findByText('Emma Lin')).toBeTruthy();
+    expect(within(box).getByText('Not in the building')).toBeTruthy();
+    expect(within(box).getByText('Pending').className).toContain('status-pill--neutral');
+    fireEvent.click(within(box).getByRole('button', { name: 'Cancel request to Noah Lin' }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith('/me/minors/requests/3/cancel', { method: 'POST', body: {} }));
+    expect(await screen.findByText('Request to Noah Lin cancelled.')).toBeTruthy();
+  });
+
+  test('linking sends email and date of birth, then confirms', async () => {
+    asAdult(false);
+    mount({
+      '/me/minors': () => ({ minors: [], requests: [] }),
+      '/me/minors/requests': () => ({ id: 4, minorName: 'Emma Lin', createdAt: '2026-11-02T12:00:00Z' }),
+    });
+    const box = section('Minors you supervise');
+    expect(await within(box).findByText(/No minors linked yet/)).toBeTruthy();
+    fireEvent.click(within(box).getByRole('button', { name: 'Link a minor' }));
+    fireEvent.change(within(box).getByLabelText('Their account email'), { target: { value: ' emma@example.com ' } });
+    fireEvent.change(within(box).getByLabelText('Their date of birth'), { target: { value: '2012-05-04' } });
+    fireEvent.click(within(box).getByRole('button', { name: 'Send request' }));
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith('/me/minors/requests', { method: 'POST', body: { email: 'emma@example.com', dob: '2012-05-04' } }),
+    );
+    expect(await screen.findByText('Request sent to Emma Lin.')).toBeTruthy();
+    expect(within(box).queryByLabelText('Their account email')).toBeNull();
+  });
+
+  test('a mismatch keeps the form open with the server message', async () => {
+    asAdult(false);
+    mount({
+      '/me/minors': () => ({ minors: [], requests: [] }),
+      '/me/minors/requests': () =>
+        Promise.reject(new ApiError(404, 'NOT_FOUND', 'No under-18 account matches that email and date of birth.')),
+    });
+    const box = section('Minors you supervise');
+    fireEvent.click(await within(box).findByRole('button', { name: 'Link a minor' }));
+    fireEvent.change(within(box).getByLabelText('Their account email'), { target: { value: 'kid@example.com' } });
+    fireEvent.change(within(box).getByLabelText('Their date of birth'), { target: { value: '2012-05-04' } });
+    fireEvent.click(within(box).getByRole('button', { name: 'Send request' }));
+    expect((await within(box).findByRole('alert')).textContent).toBe('No under-18 account matches that email and date of birth.');
+    expect(within(box).getByLabelText('Their account email')).toBeTruthy();
+  });
+
+  test('unlinking a checked-in minor explains to check out first', async () => {
+    asAdult(false);
+    mount({
+      '/me/minors': () => minors,
+      '/me/minors/142/unlink': () =>
+        Promise.reject(new ApiError(409, 'CHECK_OUT_FIRST', 'Check out the minor before removing your sponsorship.')),
+    });
+    const box = section('Minors you supervise');
+    fireEvent.click(await within(box).findByRole('button', { name: 'Hold to unlink' }));
+    expect((await within(box).findByRole('alert')).textContent).toBe('Check out the minor before removing your sponsorship.');
+  });
 });

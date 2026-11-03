@@ -325,7 +325,7 @@ test('React → Express controllers/models → PostgreSQL: login, save, refresh,
   );
   // Being eligible is not evidence of physical presence. The member website
   // directs them to the reader/staff and must not create a check-in itself.
-  await screen.findByText(/Tap your NFC card at the reader/);
+  await screen.findByText(/Tap your NFC tag at the door/);
   expect(screen.queryByRole('slider', { name: 'Slide to check in' })).toBeNull();
   expect(
     (await bridge.pool.query('SELECT COUNT(*)::int AS count FROM check_in'))

@@ -254,7 +254,7 @@ export function UserDetail({
               </details>
             ) : null}
           </section>
-          <FamilyAccess key={`family-${id}`} userId={id} disabled={!canManage}/>
+          <FamilyAccess key={`family-${id}`} userId={id} memberName={`${u.firstName} ${u.lastName}`} disabled={!canManage}/>
           <MemberCards key={`cards-${id}`} userId={id} memberName={`${u.firstName} ${u.lastName}`} onChanged={()=>setCardRevision(n=>n+1)}/>
           <SupervisedAccess key={`supervision-${id}`} userId={id} memberName={`${u.firstName} ${u.lastName}`} timeZone={timeZone}/>
           <section className="panel management-panel">
