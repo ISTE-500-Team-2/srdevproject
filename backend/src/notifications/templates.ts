@@ -383,27 +383,12 @@ ${lines.length ? `<tr><td style="${rule};padding:6px 20px">${table('', lines.map
 ${meta.length ? `<tr><td style="${rule};padding:12px 20px;font-size:13px;line-height:1.5;color:#685d57;overflow-wrap:anywhere;word-break:break-word">${meta.map(([label, value]) => `${e(label)} ${e(value)}`).join(' &nbsp;·&nbsp; ')}</td></tr>` : ''}`);
 
   const htmlContent = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark"><title>${e(headline)}</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light"><title>${e(headline)}</title>
 <style>
-:root{color-scheme:light dark;supported-color-schemes:light dark}
+:root{color-scheme:light;supported-color-schemes:light}
 @media(max-width:480px){.email-pad{padding:24px 18px!important}.email-outer-pad{padding:16px 8px!important}h1{font-size:23px!important}table{max-width:100%!important}}
-@media(prefers-color-scheme:dark){
-body,.email-outer,[style*="background-color:#f7f4f0"]{background-color:#18120e!important;color:#f7f4f0!important}
-.email-pad{background-color:#251c16!important;border-color:#675243!important}
-[style*="background-color:#faf7f3"]{background-color:#30251d!important;border-color:#675243!important}
-[style*="color:#24150e"]{color:#f7f4f0!important}
-[style*="color:#3d2f27"]{color:#eadfd5!important}
-[style*="color:#685d57"]{color:#ccbdb0!important}
-a[style*="color:#8a4f06"]{color:#ffbf70!important}
-}
-[data-ogsc].email-outer,[data-ogsc] .email-outer,[data-ogsc] [style*="background-color:#f7f4f0"]{background-color:#18120e!important}
-[data-ogsc] .email-pad{background-color:#251c16!important;border-color:#675243!important}
-[data-ogsc] [style*="background-color:#faf7f3"]{background-color:#30251d!important;border-color:#675243!important}
-[data-ogsc] [style*="color:#24150e"]{color:#f7f4f0!important}
-[data-ogsc] [style*="color:#3d2f27"]{color:#eadfd5!important}
-[data-ogsc] [style*="color:#685d57"]{color:#ccbdb0!important}
 </style></head>
-<body class="email-outer" style="margin:0;padding:0;background-color:#f7f4f0;color:#24150e;font-family:${font};-webkit-text-size-adjust:100%">
+<body style="margin:0;padding:0;background-color:#f7f4f0;color:#24150e;font-family:${font};-webkit-text-size-adjust:100%">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all">${e(lead)}${'&#8199;&#847;'.repeat(60)}</div>
 ${table('background-color:#f7f4f0', `<tr><td class="email-outer-pad" align="center" style="padding:32px 12px">
 ${table('max-width:600px', `

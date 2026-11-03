@@ -99,15 +99,14 @@ test('reset security mail uses a fragment link and never offers to suppress secu
   assert.throws(() => renderNotification('password_reset', { resetUrl: 'javascript:bad' }, context), /Invalid reset link/);
 });
 
-test('mobile dark mode retains readable branded surfaces and visible security actions',()=>{
+test('mail stays light-only (no brittle dark overrides) and keeps mobile padding and security actions',()=>{
  const html=renderNotification('password_reset',{resetUrl:'https://studio.example/reset-password#'+'a'.repeat(43)},context).htmlContent;
- assert.match(html,/color-scheme" content="light dark"/);
- assert.match(html,/@media\(prefers-color-scheme:dark\)/);
- assert.match(html,/@media\(max-width:480px\)/);
- assert.match(html,/\[data-ogsc\] \.email-pad/);
- assert.match(html,/background-color:#251c16!important/);
- assert.match(html,/color:#f7f4f0!important/);
+ assert.match(html,/color-scheme" content="light"/);
+ assert.match(html,/supported-color-schemes" content="light"/);
+ assert.match(html,/color-scheme:light;supported-color-schemes:light/);
+ assert.doesNotMatch(html,/light dark|prefers-color-scheme|data-ogsc|\[style\*=/);
+ assert.match(html,/@media\(max-width:480px\)\{\.email-pad\{padding:24px 18px!important\}\.email-outer-pad\{padding:16px 8px!important\}/);
+ assert.match(html,/class="email-outer-pad"/);
  assert.match(html,/Set a new password/);
- // Security token remains the original fragment; dark-mode styling never rewrites the action.
  assert.ok(html.includes('https://studio.example/reset-password#'+'a'.repeat(43)));
 });
