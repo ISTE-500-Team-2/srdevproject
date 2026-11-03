@@ -97,7 +97,7 @@ export class MinorSupervision {
       LEFT JOIN building b ON b.buildingid=v.building_id
       WHERE s.adult_id=$1 ORDER BY u.firstname,u.lastname,s.minor_id`,[adultId,this.zone])).rows
       .map(({buildingName,checkedInAt,...m})=>({...m,visit:checkedInAt?{buildingName,checkedInAt}:null}));
-    const requests=(await this.db.query(`SELECT r.id::int AS id,u.firstname||' '||u.lastname AS "minorName",r.created_at AS "createdAt"
+    const requests=(await this.db.query(`SELECT r.id::int AS id,u.firstname AS "minorName",r.created_at AS "createdAt"
       FROM app_minor_sponsor_request r JOIN "user" u ON u.userid=r.minor_id
       WHERE r.adult_id=$1 AND r.status='pending' ORDER BY r.created_at,r.id`,[adultId])).rows;
     return {minors,requests};
@@ -112,22 +112,34 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
   // minor user row, adult user row, sponsor row, then the minor's open visit.
   const lockUser=(db:Database,id:number)=>db.query('SELECT userid FROM "user" WHERE userid=$1 FOR UPDATE',[id]);
   const openVisit=async(db:Database,id:number)=>!!(await db.query('SELECT id FROM app_facility_visit WHERE user_id=$1 AND checked_out_at IS NULL FOR UPDATE',[id])).rowCount;
-  // Bounds date-of-birth guessing against a known email (per client address, like sign-in).
+  // Bounds date-of-birth guessing against a known email: per client address (like sign-in),
+  // per signed-in adult, and misses per target email. In-memory, like the sign-in limiter.
+  const day=24*60*60000,limitMessage='Too many sponsor requests. Please try again tomorrow or ask staff to link the account.';
   const requestLimit=authRateLimit({limit:20,message:'Too many sponsor requests. Please wait 15 minutes and try again.'});
+  const userLimit=authRateLimit({limit:10,windowMs:day,message:limitMessage,key:(_req,res)=>'user:'+authState(res).user.id});
+  const misses=new Map<string,{count:number;until:number}>();
+  const missesFor=(email:string)=>{const now=Date.now();for(const [k,v] of misses) if(v.until<=now) misses.delete(k);return misses.get(email);};
   r.get('/me/minors',async(_req,res)=>res.json({data:await new MinorSupervision(pool,zone).minors(authState(res).user.id)}));
-  r.post('/me/minors/requests',requireCsrf,requestLimit,async(req,res)=>{
+  r.post('/me/minors/requests',requireCsrf,requestLimit,userLimit,async(req,res)=>{
     const me=authState(res).user.id,email=emailField(req.body.email),dob=dateOfBirthField(req.body.dob);
+    if ((missesFor(email)?.count ?? 0)>=5) throw new AppError(429,'RATE_LIMITED',limitMessage);
     const data=await transaction(pool,async db=>{
       const service=new MinorSupervision(db,zone),adultRequired=()=>new AppError(403,'ADULT_REQUIRED','Only active accounts aged 18 or older can sponsor a minor.');
       if (!await service.isAdult(me)) throw adultRequired();
       // One answer for every mismatch so the form cannot reveal which accounts exist.
-      const minor=(await db.query(`SELECT userid AS id,firstname||' '||lastname AS name FROM "user"
+      const minor=(await db.query(`SELECT userid AS id,firstname AS name FROM "user"
         WHERE lower(email)=$1 AND dob IS NOT NULL AND dob::date=$2::date AND status='active' AND accessstatus='active'
         AND dob::date>((now() AT TIME ZONE $3)::date-INTERVAL '18 years')::date FOR UPDATE`,[email,dob,zone])).rows[0];
-      if (!minor) throw new AppError(404,'NOT_FOUND','No under-18 account matches that email and date of birth.');
+      if (!minor) {
+        if (misses.size<4096) {const m=missesFor(email) ?? {count:0,until:Date.now()+day};m.count++;misses.set(email,m);}
+        throw new AppError(404,'NOT_FOUND','No under-18 account matches that email and date of birth.');
+      }
       if (!(await db.query(`SELECT userid FROM "user" WHERE userid=$1 AND ${adultSql(2)} FOR SHARE`,[me,zone])).rowCount) throw adultRequired();
       if ((await db.query('SELECT 1 FROM app_minor_sponsor WHERE minor_id=$1 AND adult_id=$2',[minor.id,me])).rowCount)
         throw new AppError(409,'ALREADY_LINKED','You already sponsor this account.');
+      // Self-service only fills an empty sponsor slot; replacing a sponsor stays a staff decision.
+      if ((await db.query('SELECT 1 FROM app_minor_sponsor WHERE minor_id=$1',[minor.id])).rowCount)
+        throw new AppError(409,'SPONSOR_EXISTS','This account already has a sponsoring adult. Staff at the front desk can change it.');
       if ((await db.query("SELECT 1 FROM app_minor_sponsor_request WHERE minor_id=$1 AND adult_id=$2 AND status='pending'",[minor.id,me])).rowCount)
         throw new AppError(409,'REQUEST_PENDING','You already have a pending request for this account.');
       const row=(await db.query(`INSERT INTO app_minor_sponsor_request(minor_id,adult_id) VALUES($1,$2)
@@ -173,6 +185,8 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
       if (!(await db.query(`SELECT userid FROM "user" WHERE userid=$1 AND userid<>$3 AND ${adultSql(2)} FOR SHARE`,[request.adult_id,zone,me])).rowCount)
         throw new AppError(409,'ADULT_REQUIRED','This adult can no longer sponsor you. Ask them to check their account.');
       const existing=(await db.query('SELECT * FROM app_minor_sponsor WHERE minor_id=$1 FOR UPDATE',[me])).rows[0];
+      if (existing && existing.adult_id!==request.adult_id)
+        throw new AppError(409,'SPONSOR_EXISTS','You already have a sponsoring adult. Ask staff at the front desk to change it.');
       if (await openVisit(db,me)) throw new AppError(409,'CHECK_OUT_FIRST','Check out before changing your sponsoring adult.');
       await db.query(`INSERT INTO app_minor_sponsor(minor_id,adult_id) VALUES($1,$2) ON CONFLICT(minor_id)
         DO UPDATE SET adult_id=EXCLUDED.adult_id,revision=app_minor_sponsor.revision+1,updated_at=now()`,[me,request.adult_id]);

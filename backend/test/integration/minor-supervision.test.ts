@@ -152,9 +152,9 @@ test('adults request a link, the minor confirms it, and either side can undo it 
   const r=await ask(parent,body);assert.equal(r.status,404);assert.equal(r.body.error.code,'NOT_FOUND');assert.equal(r.body.error.message,noMatch);
  }
  const created=await ask(parent);assert.equal(created.status,201,JSON.stringify(created.body));
- const id=created.body.data.id;assert.equal(created.body.data.minorName,'Link kid');assert.ok(created.body.data.createdAt);
+ const id=created.body.data.id;assert.equal(created.body.data.minorName,'Link');assert.ok(created.body.data.createdAt);
  assert.equal((await ask(parent)).body.error.code,'REQUEST_PENDING');
- assert.deepEqual((await get(parent,'/me/minors')).body.data.requests.map((r:any)=>[r.id,r.minorName]),[[id,'Link kid']]);
+ assert.deepEqual((await get(parent,'/me/minors')).body.data.requests.map((r:any)=>[r.id,r.minorName]),[[id,'Link']]);
  assert.deepEqual((await get(kid,'/me/supervision')).body.data.pendingRequests.map((r:any)=>[r.id,r.adultName]),[[id,'Link parent']]);
  for(const who of [other,parent])assert.equal((await post(who,`/me/sponsor-requests/${id}/accept`)).status,404,'only the request minor can accept');
  assert.equal((await post(kid,`/me/sponsor-requests/${id}/accept`,{},false)).status,403,'CSRF required');
@@ -169,6 +169,12 @@ test('adults request a link, the minor confirms it, and either side can undo it 
  assert.equal((await pool.query("SELECT count(*)::int n FROM app_staff_audit WHERE actor_id=$1 AND subject_id=$1 AND action='minor.sponsor_linked'",[kid.user.id])).rows[0].n,1);
  assert.equal((await post(kid,`/me/sponsor-requests/${id}/accept`)).status,404,'resolved requests cannot be replayed');
  assert.equal((await ask(parent)).body.error.code,'ALREADY_LINKED');
+ // Self-service never replaces an existing sponsor: neither a new request nor a stale one accepted later.
+ const taken=await ask(other);assert.equal(taken.status,409);assert.equal(taken.body.error.code,'SPONSOR_EXISTS');
+ const stale=(await pool.query('INSERT INTO app_minor_sponsor_request(minor_id,adult_id) VALUES($1,$2) RETURNING id::int',[kid.user.id,other.user.id])).rows[0].id;
+ const swap=await post(kid,`/me/sponsor-requests/${stale}/accept`);assert.equal(swap.status,409);assert.equal(swap.body.error.code,'SPONSOR_EXISTS');
+ assert.equal((await get(kid,'/me/supervision')).body.data.sponsor.id,parent.user.id);
+ await pool.query("UPDATE app_minor_sponsor_request SET status='cancelled',resolved_at=now() WHERE id=$1",[stale]);
  assert.deepEqual((await get(parent,'/me/minors')).body.data,{minors:[{id:kid.user.id,name:'Link kid',visit:null}],requests:[]});
  await pool.query('INSERT INTO app_facility_visit(user_id,building_id,sponsor_id) VALUES($1,1,$2)',[kid.user.id,parent.user.id]);
  const visiting=(await get(parent,'/me/minors')).body.data.minors[0].visit;
@@ -194,4 +200,24 @@ test('adults request a link, the minor confirms it, and either side can undo it 
  const declined=await post(kid,`/me/sponsor-requests/${declinable.body.data.id}/decline`);assert.equal(declined.status,200);
  assert.deepEqual(declined.body.data.pendingRequests,[]);assert.equal(declined.body.data.sponsor,null);
  assert.equal((await pool.query('SELECT status FROM app_minor_sponsor_request WHERE id=$1',[declinable.body.data.id])).rows[0].status,'declined');
+});
+test('sponsor requests limit date-of-birth guessing per target email and per adult',async()=>{
+ // A fresh app instance gets fresh in-memory limiters, independent of the other tests' traffic.
+ const app2=createApp(pool,{jwtKey:randomBytes(32),port:8080,host:'127.0.0.1',secureCookies:false,demoLogin:true,allowedOrigins:['http://localhost:8080'],timeZone:'America/New_York'});
+ const server2=app2.listen(0,'127.0.0.1');await new Promise<void>(resolve=>server2.once('listening',resolve));
+ try {
+  const password='GoodPassword123!';
+  for (const [email,dob] of [['guesser@example.invalid','1975-02-02'],['target@example.invalid','2011-06-06']]) {
+   const id=(await pool.query(`INSERT INTO "user"(firstname,lastname,email,password,phone,dob,status,email_confirmed)
+    VALUES('Rate','Limit',$1,$2,'1112223333',$3,'active',true) RETURNING userid`,[email,await hashPassword(password),dob])).rows[0].userid;
+   await pool.query("INSERT INTO user_role(userid,roleid) SELECT $1,roleid FROM role WHERE role='member'",[id]);
+  }
+  const who=(await request(server2).post('/api/auth/login').send({email:'guesser@example.invalid',password})).body.data;
+  const ask=(email:string,dob:string)=>request(server2).post('/api/me/minors/requests').set('Authorization','Bearer '+who.accessToken)
+   .set('X-CSRF-Token',who.csrfToken).send({email,dob});
+  for (let day=1;day<=5;day++) assert.equal((await ask('target@example.invalid',`2011-01-0${day}`)).status,404);
+  const locked=await ask('target@example.invalid','2011-06-06');assert.equal(locked.status,429,'five misses lock the target email even for the right date');
+  for (let n=0;n<4;n++) assert.equal((await ask(`nobody${n}@example.invalid`,'2011-01-01')).status,404);
+  const capped=await ask('elsewhere@example.invalid','2011-01-01');assert.equal(capped.status,429,'ten attempts per adult per day');
+ } finally {await new Promise<void>(r=>{server2.close(r);server2.closeAllConnections();});}
 });
