@@ -1,4 +1,4 @@
-import type { Reservation } from './contracts';
+import type { EquipmentPrice, Reservation } from './contracts';
 export const maintenanceReasons: Record<string, string> = {
   repair: 'Repair', maintenance: 'Routine maintenance', safety: 'Safety concern', other: 'Other',
 };
@@ -17,6 +17,7 @@ export interface EquipmentDetail extends ManagedEquipment {
 }
 export interface EquipmentBooking extends Reservation { isClass: boolean }
 export interface MoveReview {
+  priceSnapshot?: EquipmentPrice | null;
   reservationId: number; expectedRevision: number; equipmentId: number; equipmentName: string;
   startTime: string; endTime: string; oldRate: number | null; rate: number | null;
 }

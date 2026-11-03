@@ -5,7 +5,7 @@ import { Modal } from "../Modal";
 import { MemberSelect } from "../MemberSelect";
 import { api, ApiError, errorMessage } from "../../lib/api";
 import { useApi } from "../../lib/useApi";
-import { localInput } from "../../lib/display";
+import { cents, localInput } from "../../lib/display";
 import type { Course, Room, ScheduleSeed } from "./classData";
 
 const tomorrow = () => localInput(new Date(Date.now() + 86400000)).slice(0, 10);
@@ -40,7 +40,7 @@ export function ScheduleClassDialog({
     certificationId: seed.certificationId ? String(seed.certificationId) : "",
     instructorId: seed.instructorId ? String(seed.instructorId) : "",
     roomId: seed.roomId ? String(seed.roomId) : "",
-    capacity: seed.capacity ? String(seed.capacity) : "",
+    capacity: seed.capacity ? String(Math.min(seed.capacity, 15)) : "",
     date: tomorrow(),
     start: seed.start ?? "18:00",
     end: seed.end ?? "20:00",
@@ -50,12 +50,15 @@ export function ScheduleClassDialog({
   const [error, setError] = useState("");
   const [roomError, setRoomError] = useState("");
   const room = rooms.data?.find((r) => String(r.id) === form.roomId);
+  const course = catalog.data?.find(c => String(c.id) === form.certificationId);
   const minutes = duration(form.date, form.start, form.end);
   const timeProblem =
     minutes === null
       ? ""
       : minutes <= 0
         ? "End time must be after the start time."
+        : course?.trainingMinutes && minutes < course.trainingMinutes
+          ? `This certification requires at least ${course.trainingMinutes} minutes of training.`
         : minutes > 480
           ? "Classes can run up to 8 hours."
           : new Date(`${form.date}T${form.start}`).getTime() <= Date.now()
@@ -66,8 +69,9 @@ export function ScheduleClassDialog({
     setForm((current) => {
       const next = { ...current, [key]: value };
       if (key === "roomId") {
-        // Seats default to the room's size and can't exceed it.
-        const cap = rooms.data?.find((r) => String(r.id) === value)?.capacity;
+        // Classes have a 15-person ceiling, including in larger rooms.
+        const roomCapacity = rooms.data?.find((r) => String(r.id) === value)?.capacity;
+        const cap = Math.min(roomCapacity ?? 15, 15);
         if (cap && (!current.capacity || Number(current.capacity) > cap)) next.capacity = String(cap);
       }
       return next;
@@ -110,7 +114,7 @@ export function ScheduleClassDialog({
     }
   }
 
-  const courses = catalog.data?.filter((c) => c.validityDays) ?? [];
+  const courses = catalog.data ?? [];
   const available = rooms.data?.filter((r) => r.status === "available") ?? [];
   return (
     <Modal open title="Schedule a class" onClose={onClose}>
@@ -155,10 +159,11 @@ export function ScheduleClassDialog({
               ))}
             </select>
             <small>
-              Only certifications with a validity period are listed. Set that up in <Link to="/training">Training</Link>.
+              Configure training duration and booking fees in <Link to="/training">Training</Link>.
             </small>
           </label>
         </fieldset>
+        {course && <p>{course.trainingMinutes ?? 60} minutes of training required. {course.trainingFeeCents == null ? 'Equipment booking fee not configured.' : `${cents(course.trainingFeeCents)} is added to every linked equipment booking after certification.`}</p>}
         <fieldset disabled={busy}>
           <legend>
             <i>2</i>When &amp; where
@@ -208,12 +213,12 @@ export function ScheduleClassDialog({
               <input
                 type="number"
                 min={1}
-                max={room?.capacity ?? 500}
+                max={Math.min(room?.capacity ?? 15, 15)}
                 required
                 value={form.capacity}
                 onChange={(e) => set("capacity", e.target.value)}
               />
-              {room?.capacity ? <small>Can't exceed the room's {room.capacity} seats</small> : null}
+              <small>Up to {Math.min(room?.capacity ?? 15, 15)} people; maximum 15 per class.</small>
             </label>
           </div>
         </fieldset>

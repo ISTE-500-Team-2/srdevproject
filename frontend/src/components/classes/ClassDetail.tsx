@@ -5,6 +5,7 @@ import { Modal } from "../Modal";
 import { SeatMeter } from "./ClassBits";
 import { classImage, hasStarted, isCancelled, longDate, seatsLeft, timeRange, type ClassRecord, type MemberRoster } from "./classData";
 import { useApi } from "../../lib/useApi";
+import { cents } from '../../lib/display';
 import type { Eligibility } from "./ClassCatalog";
 
 export function ClassDetail({
@@ -45,6 +46,7 @@ export function ClassDetail({
           </div>
         ) : null}
         <p className="eyebrow">Counts toward {c.certificationName}</p>
+        {c.trainingMinutes && <p>{c.trainingMinutes} minutes of training required. {c.trainingFeeCents != null ? `${cents(c.trainingFeeCents)} is added to each equipment booking, including when certified.` : 'Equipment booking fee not configured.'}</p>}
         <dl className="class-facts">
           <div>
             <CalendarDays aria-hidden="true" />

@@ -7,10 +7,11 @@ import { MemberSelect } from '../components/MemberSelect';
 import { StartTimePicker } from '../components/StartTimePicker';
 import { Toast } from '../components/Toast';
 import { api, ApiError, errorMessage } from '../lib/api';
-import type { LiveEquipment, Reservation } from '../lib/contracts';
+import type { EquipmentPrice, LiveEquipment, Reservation } from '../lib/contracts';
+import { EquipmentPriceBreakdown } from '../components/EquipmentPriceBreakdown';
 import { useApi } from '../lib/useApi';
 import { reservationInput } from '../lib/reservationInput';
-import { dateTime } from "../lib/display";
+import { cents, dateTime } from "../lib/display";
 
 export function EquipmentPage() {
   const {user}=useAuth();
@@ -37,6 +38,7 @@ export function EquipmentPage() {
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   const [busy, setBusy] = useState(false);
   const [duration, setDuration] = useState(1);
+  const quote = useApi<EquipmentPrice | null>(liveSelected ? `/equipment/${liveSelected.id}/quote?hours=${duration}` : null);
   const equipment = (catalog.data ?? []).filter(
     (item) =>
       (filter === 'all' ||
@@ -60,13 +62,14 @@ export function EquipmentPage() {
         Number(form.get('duration')),
       );
       const target=String(form.get('memberId')??'').trim();
-      const result=await api<Reservation>('/reservations', { method: 'POST', body: {...input,...(canBookForOthers&&target?{userId:Number(target)}:{})} });
+      const result=await api<Reservation>('/reservations', { method: 'POST', body: {...input,...(quote.data ? {expectedPrice:quote.data} : {}),...(canBookForOthers&&target?{userId:Number(target)}:{})} });
       setToast('Reservation saved for ' + selected.name + (result.userId!==user?.id?' for member #'+result.userId:'') + '.');
       setSelected(null);
       bookings.reload();
       catalog.reload();
     } catch (err) {
       catalog.reload();
+      if (err instanceof ApiError && err.code === 'PRICE_CHANGED') quote.reload();
       setError(err instanceof RangeError ? err.message :
         err instanceof ApiError && err.code === 'RESERVATION_CONFLICT'
           ? 'This equipment is already reserved during your selected time. Choose another start time or shorten the duration, then try again.'
@@ -166,7 +169,7 @@ export function EquipmentPage() {
           </button>
         </div>
         <p>
-          No payment is taken when you book. Cancel at least 24 hours ahead; bookings on the same machine need 15 minutes between them.
+          Booking totals are saved for payment at the front desk. No card is charged here. Cancel at least 24 hours ahead; bookings on the same machine need 15 minutes between them.
         </p>
         {bookings.loading ? <p role="status">Loading reservations…</p> : null}
         {bookings.error ? (
@@ -191,6 +194,7 @@ export function EquipmentPage() {
                 <span>
                   {item.location} · {item.status}
                 </span>
+                {item.priceSnapshot && <p>{cents(item.priceSnapshot.equipmentCents)} equipment + {cents(item.priceSnapshot.trainingFeeCents)} fee = <strong>{cents(item.priceSnapshot.totalCents)}</strong> · Payment: {item.paymentStatus ?? 'not recorded'}</p>}
               </div>
               {['pending', 'confirmed'].includes(item.status) &&
               new Date(item.startTime).getTime() >= Date.now()+24*60*60*1000 ? (
@@ -244,6 +248,7 @@ export function EquipmentPage() {
                   <span><strong>{item.name}</strong><span>{rateLabel(item.rate)}</span>
                     {item.type.toLowerCase() !== selectedGroup.type.toLowerCase() && <span>{item.type}</span>}
                     {item.trainingRequired && <span className="equipment-machine-training"><ShieldAlert aria-hidden="true" />Training required</span>}
+                    {!!item.trainingFeeCents && <span>{cents(item.trainingFeeCents)} fee on every booking · {item.trainingMinutes ?? 60}-minute training required</span>}
                     {item.availability !== 'Choose a time to check availability' && <small>{item.availability}</small>}
                   </span>
                 </label>
@@ -259,10 +264,11 @@ export function EquipmentPage() {
                 .
               </p>
             ) : null}
+            <EquipmentPriceBreakdown price={quote.data} />
+            {quote.error && <p role="alert" className="form-error">{quote.error} <button type="button" onClick={quote.reload}>Refresh price</button></p>}
             <p className="form-caption">
               Cancel at least 24 hours before the start time. Leave 15 minutes between bookings for the same machine.
-              {' '}The booking member’s access and this time slot are checked when you book. No
-              payment will be collected.
+              {' '}The booking member’s access and this time slot are checked when you book. The saved total is due at the front desk; no card is charged here.
             </p>
             {error ? (
               <p ref={errorRef} tabIndex={-1} role="alert" className="form-error">
@@ -272,7 +278,7 @@ export function EquipmentPage() {
             <button
               className="button button--primary equipment-booking-submit"
               type="submit"
-              disabled={busy || liveSelected?.status !== 'available'}
+              disabled={busy || liveSelected?.status !== 'available' || (!!liveSelected.trainingFeeCents && (quote.loading || !!quote.error || !quote.data))}
             >
               <CalendarDays aria-hidden="true" />{' '}
               {busy ? 'Saving…' : 'Confirm reservation'}

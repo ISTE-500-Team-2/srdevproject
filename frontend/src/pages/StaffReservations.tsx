@@ -2,7 +2,8 @@ import { CalendarDays, Pencil, Plus, RefreshCw, XCircle } from "lucide-react";
 import { type FormEvent, useRef, useState } from "react";
 import { Toast } from "../components/Toast";
 import { api, errorMessage } from "../lib/api";
-import type { LiveEquipment, Reservation } from "../lib/contracts";
+import type { EquipmentPrice, LiveEquipment, Reservation } from "../lib/contracts";
+import { EquipmentPriceBreakdown } from '../components/EquipmentPriceBreakdown';
 import type { Page } from "../lib/staffContracts";
 import { useApi } from "../lib/useApi";
 import { useSearchParams } from "react-router-dom";
@@ -50,6 +51,7 @@ export function StaffReservations() {
     `/admin/reservations?${query.toString()}`,
   );
   const equipment = useApi<LiveEquipment[]>("/equipment");
+  const quote = useApi<EquipmentPrice | null>(form.equipmentId ? `/equipment/${form.equipmentId}/quote?hours=${form.duration}` : null);
 
   const submitFilters = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -74,6 +76,7 @@ export function StaffReservations() {
         start.getTime() + Number(form.duration) * 60 * 60 * 1000,
       );
       const body = {
+        ...(quote.data ? {expectedPrice:quote.data} : {}),
         userId: Number(form.userId),
         equipmentId: Number(form.equipmentId),
         roomId: null,
@@ -95,6 +98,7 @@ export function StaffReservations() {
       setForm(emptyForm);
       reservations.reload();
     } catch (error) {
+      quote.reload();
       setMessage(error instanceof RangeError ? error.message : errorMessage(error));
     } finally {
       setBusy(false);
@@ -307,8 +311,10 @@ export function StaffReservations() {
               ))}
             </select>
           </label>
+          <EquipmentPriceBreakdown price={quote.data} />
+          {quote.error && <p role="alert" className="form-error">{quote.error} <button type="button" onClick={quote.reload}>Refresh price</button></p>}
           <div className="management-actions">
-            <button className="button button--primary" disabled={busy}>
+            <button className="button button--primary" disabled={busy || (!!equipment.data?.find(e => e.id===Number(form.equipmentId))?.trainingFeeCents && (quote.loading || !!quote.error || !quote.data))}>
               {editing ? (
                 <Pencil aria-hidden="true" />
               ) : (
