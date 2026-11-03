@@ -257,7 +257,7 @@ test('React → Express controllers/models → PostgreSQL: login, save, refresh,
       screen.getByRole('navigation', { name: 'Primary navigation' }),
     ).getByRole('link', { name: 'Certifications & Waivers', exact: true }),
   );
-  // Check-in requires every policy; select each table row by its policy name because
+  // Check-in requires every policy; select each policy row by its name because
   // unsigned policies share the same review button label.
   for (const policy of [
     {
@@ -277,7 +277,7 @@ test('React → Express controllers/models → PostgreSQL: login, save, refresh,
     },
   ]) {
     const name = await screen.findByText(policy.name, {exact:true});
-    const card = name.closest('tr')!;
+    const card = name.closest('li')!;
     await user.click(
       within(card).getByRole('button', { name: 'Review and agree' }),
     );
@@ -298,7 +298,7 @@ test('React → Express controllers/models → PostgreSQL: login, save, refresh,
     // persisted signed row before retaining/clicking another row; otherwise
     // user-event can target an element removed during that refresh.
     await waitFor(() => {
-      const signedRow=screen.getByText(policy.name,{exact:true}).closest('tr')!;
+      const signedRow=screen.getByText(policy.name,{exact:true}).closest('li')!;
       expect(within(signedRow).getByRole('button',{name:'View policy'})).toBeTruthy();
     },{timeout:20000});
   }

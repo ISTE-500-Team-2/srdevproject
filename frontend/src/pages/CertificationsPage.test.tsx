@@ -6,126 +6,77 @@ import { CertificationsPage } from './CertificationsPage';
 const { api, reload, state } = vi.hoisted(() => ({
  api:vi.fn(),reload:vi.fn(),
  state: {
-  waivers: [] as any[],
-  certifications: [] as any[],
-  equipment: [] as any[],
+  data: {} as Record<string, any[]>,
+  errors: {} as Record<string, string>,
   auth: { demoLogin: false, user: null as any },
  },
 }));
 vi.mock('../lib/api',()=>({api,errorMessage:(error:Error)=>error.message}));
-vi.mock('../lib/useApi', () => ({ useApi: (path:string) => ({data:path === '/me/waivers' ? state.waivers : path === '/equipment' ? state.equipment : state.certifications,loading:false,error:null,reload}) }));
+vi.mock('../lib/useApi', () => ({ useApi: (path:string) => ({data:state.errors[path] ? null : state.data[path] ?? [],loading:false,error:state.errors[path] ?? '',reload}) }));
 vi.mock('../context/AuthContext', () => ({ useAuth: () => state.auth }));
-afterEach(()=>{cleanup();vi.clearAllMocks();});
-function mount(
- overrides:object,
- auth = state.auth,
- certifications:object[] = [],
- equipment:object[] = [],
- waivers?:object[],
-) {
- state.waivers=waivers ?? [{id:2,versionId:2,name:'Shop policy',version:'v2',signed:false,signedAt:null,signedVersion:'v2',signedVersionId:2,outdatedSignature:false,expiredSignature:true,...overrides}];
- state.certifications=certifications;
- state.equipment=equipment;
- state.auth=auth;
+afterEach(()=>{cleanup();vi.clearAllMocks();state.errors={};});
+
+const member = {role:'member',roles:['member'],email:'member@example.com'};
+const inDays = (days:number) => new Date(Date.now()+days*86400000).toISOString();
+const waiver = (overrides:object = {}) => ({id:2,versionId:2,name:'Shop policy',version:'v2',description:'Policy text',signed:false,signedAt:null,signedVersion:'v2',signedVersionId:2,outdatedSignature:false,expiredSignature:true,...overrides});
+const cnc = {id:7,name:'Joey',type:'Large CNC',status:'available',certification:'CNC Training',canReserve:false,trainingRequired:true};
+const lathe = {id:8,name:'Kirk',type:'Metal lathe',status:'available',certification:'Metal Lathe Training',canReserve:false,trainingRequired:true};
+const printer = {id:1,name:'Rachel',type:'3D printer',status:'available',certification:null,canReserve:true,trainingRequired:false};
+const klass = (overrides:object = {}) => ({id:30,title:'CNC Basics',certificationId:2,certificationName:'CNC Training',instructorId:5,instructor:'Sam Lee',capacity:8,enrolled:5,status:'scheduled',revision:1,roomId:1,roomName:'Maker room',startsAt:inDays(5),endsAt:inDays(5.05),myStatus:null,...overrides});
+
+function mount({
+ waivers = [waiver()],
+ certifications = [] as object[],
+ equipment = [] as object[],
+ classes = [] as object[],
+ user = member as any,
+}: {waivers?:object[];certifications?:object[];equipment?:object[];classes?:object[];user?:any} = {}) {
+ state.data={'/me/waivers':waivers,'/me/certifications':certifications,'/equipment':equipment,'/classes':classes};
+ state.auth={demoLogin:false,user};
  render(<MemoryRouter><CertificationsPage /></MemoryRouter>);
 }
+const row = (name:string) => screen.getByRole('heading',{name}).closest('li')!;
+
 test('expired current signature shows expiration and correct history, not a new version',()=>{
- mount({});
+ mount();
  expect(screen.getByText(/Your signature has expired/).textContent).toContain('Last signed: v2');
  expect(screen.queryByText(/New version needs/)).toBeNull();
+ expect(screen.getByText('Signature expired')).toBeTruthy();
  expect(screen.getByRole('button',{name:'Review and agree'})).toBeTruthy();
 });
+
 test('superseded signature shows the latest historical version even when expired',()=>{
- mount({version:'v3',outdatedSignature:true,expiredSignature:false});
+ mount({waivers:[waiver({version:'v3',outdatedSignature:true,expiredSignature:false})]});
  expect(screen.getByText(/New version needs/).textContent).toContain('Last signed: v2');
  expect(screen.queryByText(/Your signature has expired/)).toBeNull();
  expect(screen.getByRole('button',{name:'Review new version'})).toBeTruthy();
 });
-test('member demo gets the reservations equipment heading styling',()=>{
- mount({}, {demoLogin:true,user:{role:'member',roles:['member'],email:'demo.member@collaboratory.invalid'}});
- expect(document.querySelectorAll('.credentials-page--member-demo .certifications-heading')).toHaveLength(3);
+
+test('waivers that need a signature come first with a count, signed ones show their date',()=>{
+ mount({waivers:[
+  waiver({id:1,name:'Shop waiver',signed:true,signedAt:'2026-02-03T12:00:00Z',expiredSignature:false}),
+  waiver({id:3,name:'Safety policy',signedVersion:null,expiredSignature:false}),
+ ]});
+ const panel = screen.getByRole('region',{name:'Waivers & policies'});
+ expect(within(panel).getByText('1 to sign')).toBeTruthy();
+ expect(Array.from(panel.querySelectorAll('.waiver-row h3')).map(h=>h.textContent)).toEqual(['Safety policy','Shop waiver']);
+ const signed = row('Shop waiver');
+ expect(within(signed).getByText('Signed')).toBeTruthy();
+ expect(within(signed).getByText(/Feb 3, 2026/)).toBeTruthy();
+ expect(within(signed).getByRole('button',{name:'View policy'})).toBeTruthy();
+ const todo = row('Safety policy');
+ expect(within(todo).getByText('Needs signature')).toBeTruthy();
+ expect(within(todo).getByRole('button',{name:'Review and agree'}).className).toContain('button--primary');
 });
-test('member demo certifications are divided into the requested columns',()=>{
- mount(
-  {},
-  {demoLogin:true,user:{role:'member',roles:['member'],email:'demo.member@collaboratory.invalid'}},
-  [{id:1,name:'Laser Engraver',valid:true,status:'active',renewalDate:'2027-01-01'}],
-  [
-   {id:1,name:'Laser Engraver',status:'available',certification:'Laser Engraver'},
-   {id:2,name:'3D Printer',status:'available',certification:null},
-   {id:3,name:'Wood Lathe',status:'available',certification:'Wood Lathe'},
-  ],
- );
- expect(screen.getByRole('columnheader',{name:'Equipment name'})).toBeTruthy();
- expect(screen.getByRole('columnheader',{name:'Completion status'})).toBeTruthy();
- expect(screen.getByRole('columnheader',{name:'Date completed'})).toBeTruthy();
- const certificationsTable = screen.getAllByRole('table')[0];
- expect(within(certificationsTable).getByText('Laser Engraver')).toBeTruthy();
- expect(screen.getByText('complete')).toBeTruthy();
- expect(screen.getByText('incomplete')).toBeTruthy();
- expect(screen.getByText('No completion needed')).toBeTruthy();
- expect(within(certificationsTable).getAllByText('MM/DD/YYYY')).toHaveLength(3);
- expect(certificationsTable.querySelectorAll('.certification-date-placeholder--muted')).toHaveLength(3);
+
+test('all signed waivers say so and link to signed form copies',()=>{
+ mount({waivers:[waiver({signed:true,signedAt:'2026-02-03T12:00:00Z',expiredSignature:false,formFields:[{key:'name'}]})]});
+ expect(screen.getByText('All signed')).toBeTruthy();
+ expect(screen.getByRole('link',{name:/Download signed copies/}).getAttribute('href')).toBe('/profile');
 });
-test('member demo policies are listed with signed status and signature date',()=>{
- mount(
-  {},
-  {demoLogin:true,user:{role:'member',roles:['member'],email:'demo.member@collaboratory.invalid'}},
-  [],
-  [],
-  [
-   {id:1,versionId:1,name:'Shop waiver',version:'v1',signed:true,signedAt:'2026-02-03T12:00:00Z',signedVersion:'v1',signedVersionId:1,outdatedSignature:false,expiredSignature:false},
-   {id:2,versionId:2,name:'Safety policy',version:'v2',signed:false,signedAt:null,signedVersion:null,signedVersionId:null,outdatedSignature:false,expiredSignature:false},
-  ],
- );
- expect(screen.getByRole('columnheader',{name:'Waiver Name'})).toBeTruthy();
- expect(screen.getByRole('columnheader',{name:'Signed Status'})).toBeTruthy();
- expect(screen.getByRole('columnheader',{name:'Date Signed'})).toBeTruthy();
- expect(screen.getByText('Shop waiver')).toBeTruthy();
- expect(screen.getByText('Safety policy')).toBeTruthy();
- expect(screen.getByText('signed')).toBeTruthy();
- expect(screen.getByText('not signed')).toBeTruthy();
- expect(document.querySelector('tbody tr:first-child td:last-child')?.textContent).not.toBe('');
- expect(screen.getByText('MM/DD/YYYY')).toBeTruthy();
- expect(screen.getByRole('button',{name:'View policy'})).toBeTruthy();
- expect(screen.getByRole('button',{name:'Review and agree'})).toBeTruthy();
-});
-test('member demo shows available equipment under upcoming',()=>{
- mount(
-  {},
-  {demoLogin:true,user:{role:'member',roles:['member'],email:'demo.member@collaboratory.invalid'}},
-  [],
-  [
-   {id:1,name:'Laser Engraver',status:'available',trainingRequired:true,certification:'Laser Engraver'},
-   {id:2,name:'3D Printer',status:'available',trainingRequired:false,certification:null},
-   {id:3,name:'Wood Lathe',status:'maintenance',trainingRequired:true,certification:'Wood Lathe'},
-  ],
- );
- expect(screen.getByRole('heading',{name:'Schedule Training'})).toBeTruthy();
- expect(screen.getByRole('button',{name:'Available'}).getAttribute('aria-expanded')).toBe('false');
- expect(screen.getByRole('button',{name:'Upcoming'}).getAttribute('aria-expanded')).toBe('true');
- expect(screen.getByRole('button',{name:'Completed'}).getAttribute('aria-expanded')).toBe('false');
- expect(
-  Array.from(document.querySelectorAll('.training-schedule .training-card h3')).map((heading)=>heading.textContent),
- ).toEqual(['Laser Engraver','3D Printer']);
- expect(screen.getAllByText('1 hour session')).toHaveLength(2);
- expect(screen.getAllByText('$20.00')).toHaveLength(2);
- expect(document.querySelectorAll('.training-card__duration svg')).toHaveLength(2);
- const filter = screen.getByRole('combobox', {name:'Filter training by status'});
- fireEvent.change(filter, {target:{value:'upcoming'}});
- expect(screen.getByRole('button',{name:'Upcoming'})).toBeTruthy();
- expect(screen.queryByRole('button',{name:'Available'})).toBeNull();
- expect(screen.queryByRole('button',{name:'Completed'})).toBeNull();
- fireEvent.change(filter, {target:{value:'completed'}});
- expect(screen.getByRole('button',{name:'Completed'})).toBeTruthy();
- expect(screen.queryByRole('button',{name:'Upcoming'})).toBeNull();
-});
-test('heading styling is not applied to other accounts',()=>{
- mount({}, {demoLogin:true,user:{role:'admin',roles:['admin'],email:'demo.admin@collaboratory.invalid'}});
- expect(document.querySelector('.credentials-page--member-demo')).toBeNull();
-});
+
 test('terms require acceptance before submission and record the completed agreement',async()=>{
- mount({name:'Terms of Service',version:'2026-09-28',description:'Terms text',expiredSignature:false});
+ mount({waivers:[waiver({name:'Terms of Service',version:'2026-09-28',description:'Terms text',expiredSignature:false})]});
  fireEvent.click(screen.getByRole('button',{name:'Review and agree'}));
  const submit=screen.getByRole('button',{name:'Submit acceptance'}) as HTMLButtonElement;
  expect(submit.disabled).toBe(true);
@@ -135,22 +86,132 @@ test('terms require acceptance before submission and record the completed agreem
  fireEvent.click(submit);
  await waitFor(()=>expect(api).toHaveBeenCalledWith('/me/waivers/2/sign',{method:'POST',body:{accepted:true}}));
  expect(reload).toHaveBeenCalled();
+ expect(await screen.findByText('Terms of Service completed.')).toBeTruthy();
+});
+
+test('accepted terms are marked completed and can be reviewed',()=>{
+ mount({waivers:[waiver({name:'Terms of Service',signed:true,signedAt:'2026-10-22T12:00:00Z',expiredSignature:false})]});
+ expect(screen.getByText('Completed')).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'View policy'}));
  expect(screen.getByText('Terms of Service completed.')).toBeTruthy();
 });
-test('accepted terms are marked completed',()=>{
- mount({name:'Terms of Service',signed:true,signedAt:'2026-10-22T12:00:00Z',expiredSignature:false});
- expect(screen.getByText(/Completed/)).toBeTruthy();
+
+test('a failed signature keeps the policy open and shows the error',async()=>{
+ mount({waivers:[waiver({expiredSignature:false})]});
+ fireEvent.click(screen.getByRole('button',{name:'Review and agree'}));
+ fireEvent.click(screen.getByRole('checkbox',{name:'I have read and agree to this version of the policy.'}));
+ api.mockRejectedValue(new Error('Policy changed'));
+ fireEvent.click(screen.getByRole('button',{name:'Record agreement'}));
+ expect(await screen.findByText('Policy changed')).toBeTruthy();
+ expect(screen.getByRole('dialog')).toBeTruthy();
 });
-test('demo waiver table preserves Terms acceptance and completed status after the UI merge',async()=>{
- mount({name:'Terms of Service',description:'Terms fixture',expiredSignature:false},
-  {demoLogin:true,user:{role:'member',roles:['member'],email:'demo.member@collaboratory.invalid'}});
- const row=screen.getByText('Terms of Service').closest('tr')!;
- fireEvent.click(within(row).getByRole('button',{name:'Review and agree'}));
- const submit=screen.getByRole('button',{name:'Submit acceptance'}) as HTMLButtonElement;
- expect(submit.disabled).toBe(true);
- fireEvent.click(screen.getByRole('checkbox',{name:'I have read and accept the Terms of Service.'}));
- api.mockResolvedValue({});fireEvent.click(submit);
- await waitFor(()=>expect(api).toHaveBeenCalledWith('/me/waivers/2/sign',{method:'POST',body:{accepted:true}}));
+
+test('a current certification lists what it unlocks, who approved it and when it renews',()=>{
+ mount({
+  certifications:[{id:2,name:'CNC Training',status:'active',valid:true,renewalDate:inDays(200),trainedAt:'2026-10-01T15:00:00Z',instructorName:'Sam Lee',equipmentIds:[7,9]}],
+  equipment:[cnc,{...cnc,id:9,name:'Ross'}],
+ });
+ const cert = row('CNC Training');
+ expect(within(cert).getByText('Current')).toBeTruthy();
+ expect(within(cert).getByText('Joey · Ross')).toBeTruthy();
+ expect(within(cert).getByText(/Approved by Sam Lee · Trained .*Oct 1, 2026 · Renews/)).toBeTruthy();
+ expect(within(cert).getByRole('link',{name:'Book equipment'}).getAttribute('href')).toBe('/equipment');
+ expect(within(cert).queryByText(/Next class/)).toBeNull();
+ expect(screen.getByText('1 of 1 current')).toBeTruthy();
+});
+
+test('an expiring certification points to a refresher class',()=>{
+ mount({
+  certifications:[{id:2,name:'CNC Training',status:'active',valid:true,renewalDate:inDays(10),equipmentIds:[7]}],
+  equipment:[cnc],classes:[klass()],
+ });
+ const cert = row('CNC Training');
+ expect(within(cert).getByText('Expires soon')).toBeTruthy();
+ expect(within(cert).getByText('Refresher class')).toBeTruthy();
+});
+
+test('an expired certification comes first and links to the next matching class',()=>{
+ mount({
+  certifications:[
+   {id:1,name:'Wood Lathe Training',status:'active',valid:true,renewalDate:null,equipmentIds:[]},
+   {id:2,name:'CNC Training',status:'active',valid:false,renewalDate:inDays(-3),equipmentIds:[7]},
+  ],
+  equipment:[cnc],
+  classes:[klass({id:31,startsAt:inDays(20),endsAt:inDays(20.05),title:'CNC Later'}),klass(),klass({id:32,certificationId:9,certificationName:'Laser Training',title:'Laser'})],
+ });
+ const rows = Array.from(screen.getByRole('region',{name:'Your certifications'}).querySelectorAll('.cert-row h3')).map(h=>h.textContent);
+ expect(rows).toEqual(['CNC Training','Wood Lathe Training']);
+ const cert = row('CNC Training');
+ expect(within(cert).getByText('Expired')).toBeTruthy();
+ expect(within(cert).getByText(/^Expired /)).toBeTruthy();
+ expect(within(cert).getByText('CNC Basics')).toBeTruthy();
+ expect(within(cert).getByText('3 seats left')).toBeTruthy();
+ const link = within(cert).getByRole('link',{name:'Register for CNC Basics on Classes'});
+ expect(link.getAttribute('href')).toBe('/classes');
+ expect(within(row('Wood Lathe Training')).getByText(/No renewal needed/)).toBeTruthy();
+ expect(screen.getByText('1 of 2 current')).toBeTruthy();
+});
+
+test('revoked certifications are flagged for retraining',()=>{
+ mount({certifications:[{id:2,name:'CNC Training',status:'revoked',valid:false,renewalDate:inDays(100),equipmentIds:[]}]});
+ const cert = row('CNC Training');
+ expect(within(cert).getByText('Revoked')).toBeTruthy();
+ expect(within(cert).getByText(/Retraining needed/)).toBeTruthy();
+ expect(within(cert).getByText('No class scheduled yet')).toBeTruthy();
+});
+
+test('certifications you do not hold yet come from equipment and show their next class',()=>{
+ mount({equipment:[cnc,lathe,printer],classes:[klass({enrolled:8})]});
+ expect(screen.getByText('No certifications yet')).toBeTruthy();
+ const earn = screen.getByRole('region',{name:'Earn a certification'});
+ expect(Array.from(earn.querySelectorAll('.cert-row h3')).map(h=>h.textContent)).toEqual(['CNC Training','Metal Lathe Training']);
+ const cert = row('CNC Training');
+ expect(within(cert).getByText('Not yet')).toBeTruthy();
+ expect(within(cert).getByText('Joey')).toBeTruthy();
+ expect(within(cert).getByText('Full')).toBeTruthy();
+ expect(within(cert).getByRole('link',{name:'See other classes for CNC Basics on Classes'})).toBeTruthy();
+ expect(within(row('Metal Lathe Training')).getByText('No class scheduled yet')).toBeTruthy();
+ expect(screen.getByText('Rachel')).toBeTruthy();
+ expect(screen.getByText('No certification needed:')).toBeTruthy();
+});
+
+test('registration and completed training show progress instead of a register button',()=>{
+ mount({
+  equipment:[cnc,lathe],
+  classes:[
+   klass({myStatus:'enrolled'}),
+   klass({id:40,certificationId:3,certificationName:'Metal Lathe Training',title:'Lathe Safety',startsAt:inDays(-2),endsAt:inDays(-1.95),myStatus:'attended'}),
+  ],
+ });
+ const registered = row('CNC Training');
+ expect(within(registered).getByText('Registered')).toBeTruthy();
+ expect(within(registered).getByText("You're registered")).toBeTruthy();
+ expect(within(registered).getByRole('link',{name:'View CNC Basics on Classes'})).toBeTruthy();
+ const awaiting = row('Metal Lathe Training');
+ expect(within(awaiting).getByText('Awaiting approval')).toBeTruthy();
+ expect(within(awaiting).getByText(/approves your certification in person/)).toBeTruthy();
+ expect(within(awaiting).queryByRole('link')).toBeNull();
+});
+
+test('a class load failure still shows certifications and offers a retry',()=>{
+ state.errors={'/classes':'Classes unavailable'};
+ mount({certifications:[{id:2,name:'CNC Training',status:'active',valid:true,renewalDate:null,equipmentIds:[]}]});
+ expect(screen.getByRole('alert').textContent).toContain('Classes unavailable');
+ fireEvent.click(within(screen.getByRole('alert')).getByRole('button',{name:'Retry'}));
  expect(reload).toHaveBeenCalled();
- expect(await screen.findByText('Terms of Service completed.')).toBeTruthy();
+ expect(row('CNC Training')).toBeTruthy();
+});
+
+test('with nothing to certify the page shows a designed empty state',()=>{
+ mount({waivers:[]});
+ expect(screen.getByRole('heading',{name:'No certifications needed yet'})).toBeTruthy();
+ expect(screen.getByText('Nothing to sign right now.')).toBeTruthy();
+});
+
+test('only staff and instructors get the training records link',()=>{
+ mount();
+ expect(screen.queryByRole('link',{name:'Manage training records'})).toBeNull();
+ cleanup();
+ mount({user:{role:'instructor',roles:['instructor'],email:'i@example.com'}});
+ expect(screen.getByRole('link',{name:'Manage training records'}).getAttribute('href')).toBe('/training');
 });

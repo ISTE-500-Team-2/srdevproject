@@ -28,7 +28,7 @@ test('newly registered unsigned member can fill every blank, correct errors, sig
   expect((await api<any[]>('/me/signed-waivers')).length).toBe(0);
   const user = userEvent.setup();
   mount();
-  const row = (await screen.findByRole('heading', { name: equipmentWaiverName })).closest('article')!;
+  const row = (await screen.findByRole('heading', { name: equipmentWaiverName })).closest('li')!;
   await user.click(within(row).getByRole('button', { name: 'Review and agree' }));
   const dialog = await screen.findByRole('dialog', { name: equipmentWaiverName });
   const form = dialog.querySelector('form')!;
@@ -76,7 +76,7 @@ test('newly registered unsigned member can fill every blank, correct errors, sig
   change(phone.key, '+1 (555) 010-1234');
   await user.click(submit);
   await screen.findByText('Your agreement has been recorded.');
-  await waitFor(() => expect(within(screen.getByRole('heading', { name: equipmentWaiverName }).closest('article')!).getByRole('button', { name: 'View policy' })).toBeTruthy());
+  await waitFor(() => expect(within(screen.getByRole('heading', { name: equipmentWaiverName }).closest('li')!).getByRole('button', { name: 'View policy' })).toBeTruthy());
   const record = (await api<any[]>('/me/signed-waivers')).find(w => w.name === equipmentWaiverName)!;
   const copy = await api<{ content: string }>(`/me/signed-waivers/${record.id}/copy`);
   // The record carries server facts, not anything typed into the form.
@@ -90,7 +90,7 @@ test('newly registered unsigned member can fill every blank, correct errors, sig
   expect(copy.content).toContain('Method of Acceptance: ☑ Electronic ☐ In Person ☐ Other');
   expect(copy.content).not.toMatch(/_{3,}/);
   cleanup(); mount();
-  const savedRow = (await screen.findByRole('heading', { name: equipmentWaiverName })).closest('article')!;
+  const savedRow = (await screen.findByRole('heading', { name: equipmentWaiverName })).closest('li')!;
   await user.click(within(savedRow).getByRole('button', { name: 'View policy' }));
   expect(await screen.findByText('This version is already signed.')).toBeTruthy();
   expect(screen.getByRole('link', { name: /Download your completed form/ }).getAttribute('href')).toBe('/profile');
