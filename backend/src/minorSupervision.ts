@@ -7,6 +7,7 @@ import { authRateLimit, authState, requireCsrf, requireStaff } from './middlewar
 import { requirePermission } from './middleware/permissions.js';
 import { StaffModel } from './models/StaffModel.js';
 import { EligibilityModel } from './models/EligibilityModel.js';
+import { enqueueNotification } from './notifications/store.js';
 
 /** Active account aged 18+; `$${zone}` is the time-zone parameter. */
 const adultSql=(zone:number)=>`dob IS NOT NULL AND dob::date<=((now() AT TIME ZONE $${zone})::date-INTERVAL '18 years')::date
@@ -113,6 +114,12 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
   // minor user row, adult user row, sponsor row, then the minor's open visit.
   const lockUser=(db:Database,id:number)=>db.query('SELECT userid FROM "user" WHERE userid=$1 FOR UPDATE',[id]);
   const openVisit=async(db:Database,id:number)=>!!(await db.query('SELECT id FROM app_facility_visit WHERE user_id=$1 AND checked_out_at IS NULL FOR UPDATE',[id])).rowCount;
+  // Payloads carry first names only, never either account's email.
+  const notify=(db:Database,userId:number,id:number,kind:'received'|'accepted'|'declined',payload:Record<string,string>)=>
+    enqueueNotification(db,{userId,kind:`sponsor_request_${kind}`,dedupeKey:`sponsor-request:${id}:${kind}`,payload});
+  // A request resolved before its email went out no longer needs one.
+  const withdrawNotices=(db:Database,ids:number[])=>db.query(`UPDATE app_notification_outbox SET status='obsolete',counts_for_sla=false,updated_at=now()
+    WHERE dedupe_key=ANY($1::text[]) AND status='pending'`,[ids.map(id=>`sponsor-request:${id}:received`)]);
   // Bounds date-of-birth guessing against a known email. The per-address limiter matches sign-in;
   // the per-adult and per-email budgets live in the database so they survive restarts and races.
   const limitMessage='Too many sponsor requests. Please try again tomorrow or ask staff to link the account.';
@@ -147,7 +154,8 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
       if (!minor) throw new AppError(404,'NOT_FOUND','No under-18 account matches that email and date of birth.');
       // Outside this transaction so a later 409 still records that the details matched.
       await pool.query('UPDATE app_minor_sponsor_attempt SET matched=true WHERE id=$1',[attempt]);
-      if (!(await db.query(`SELECT userid FROM "user" WHERE userid=$1 AND ${adultSql(2)} FOR SHARE`,[me,zone])).rowCount) throw adultRequired();
+      const adult=(await db.query(`SELECT firstname FROM "user" WHERE userid=$1 AND ${adultSql(2)} FOR SHARE`,[me,zone])).rows[0];
+      if (!adult) throw adultRequired();
       if ((await db.query('SELECT 1 FROM app_minor_sponsor WHERE minor_id=$1 AND adult_id=$2',[minor.id,me])).rowCount)
         throw new AppError(409,'ALREADY_LINKED','You already sponsor this account.');
       // Self-service only fills an empty sponsor slot; replacing a sponsor stays a staff decision.
@@ -157,6 +165,7 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
         throw new AppError(409,'REQUEST_PENDING','You already have a pending request for this account.');
       const row=(await db.query(`INSERT INTO app_minor_sponsor_request(minor_id,adult_id) VALUES($1,$2)
         RETURNING id::int AS id,created_at AS "createdAt"`,[minor.id,me])).rows[0];
+      await notify(db,minor.id,row.id,'received',{adultName:adult.firstname});
       return {id:row.id,minorName:minor.name,createdAt:row.createdAt};
     });res.status(201).json({data});
   });
@@ -167,6 +176,7 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
       if (found) await lockUser(db,found.minor_id);
       if (!found || !(await db.query(`UPDATE app_minor_sponsor_request SET status='cancelled',resolved_at=now()
         WHERE id=$1 AND status='pending'`,[id])).rowCount) throw new AppError(404,'NOT_FOUND','No pending request found.');
+      await withdrawNotices(db,[id]);
       return new MinorSupervision(db,zone).minors(me);
     });res.json({data});
   });
@@ -187,10 +197,13 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
     const data=await transaction(pool,async db=>{
       const service=new MinorSupervision(db,zone);
       await lockUser(db,me);
-      const request=(await db.query(`SELECT adult_id FROM app_minor_sponsor_request WHERE id=$1 AND minor_id=$2 AND status='pending' FOR UPDATE`,[id,me])).rows[0];
+      const request=(await db.query(`SELECT adult_id,(SELECT firstname FROM "user" WHERE userid=minor_id) AS "minorName"
+        FROM app_minor_sponsor_request WHERE id=$1 AND minor_id=$2 AND status='pending' FOR UPDATE`,[id,me])).rows[0];
       if (!request) throw new AppError(404,'NOT_FOUND','No pending sponsor request found.');
       if (action==='decline') {
         await db.query("UPDATE app_minor_sponsor_request SET status='declined',resolved_at=now() WHERE id=$1",[id]);
+        await withdrawNotices(db,[id]);
+        await notify(db,request.adult_id,id,'declined',{minorName:request.minorName});
         return service.summary(me);
       }
       // Re-validate everything the staff link route checks; the request may be stale.
@@ -204,8 +217,10 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
       await db.query(`INSERT INTO app_minor_sponsor(minor_id,adult_id) VALUES($1,$2) ON CONFLICT(minor_id)
         DO UPDATE SET adult_id=EXCLUDED.adult_id,revision=app_minor_sponsor.revision+1,updated_at=now()`,[me,request.adult_id]);
       // The accepted request resolves; every other pending request for this minor is withdrawn.
-      await db.query(`UPDATE app_minor_sponsor_request SET status=CASE WHEN id=$2 THEN 'accepted' ELSE 'cancelled' END,resolved_at=now()
-        WHERE minor_id=$1 AND status='pending'`,[me,id]);
+      const resolved=(await db.query(`UPDATE app_minor_sponsor_request SET status=CASE WHEN id=$2 THEN 'accepted' ELSE 'cancelled' END,resolved_at=now()
+        WHERE minor_id=$1 AND status='pending' RETURNING id::int`,[me,id])).rows.map(r=>r.id as number);
+      await withdrawNotices(db,resolved);
+      await notify(db,request.adult_id,id,'accepted',{minorName:request.minorName});
       await new StaffModel(db,zone).audit(me,me,'minor.sponsor_linked','user',me,'Minor accepted sponsor request',existing ?? null,{adultId:request.adult_id,requestId:id});
       return service.summary(me);
     });res.json({data});

@@ -142,6 +142,8 @@ async function account(email:string,dob:string){
  return login.body.data;
 }
 const get=(who:any,path:string)=>request(server).get('/api'+path).set('Authorization','Bearer '+who.accessToken);
+const outbox=async(id:number)=>(await pool.query(`SELECT userid,kind,status,payload FROM app_notification_outbox
+ WHERE dedupe_key LIKE $1 ORDER BY id`,[`sponsor-request:${id}:%`])).rows;
 test('adults request a link, the minor confirms it, and either side can undo it without staff',async()=>{
  const parent=await account('parent@example.invalid','1985-05-05'),kid=await account('kid@example.invalid','2012-03-04'),other=await account('other@example.invalid','1980-01-01');
  const ask=(who:any,body:any={email:'KID@Example.invalid',dob:'2012-03-04'},csrf=true)=>post(who,'/me/minors/requests',body,csrf);
@@ -153,12 +155,15 @@ test('adults request a link, the minor confirms it, and either side can undo it 
  }
  const created=await ask(parent);assert.equal(created.status,201,JSON.stringify(created.body));
  const id=created.body.data.id;assert.equal(created.body.data.minorName,'Link');assert.ok(created.body.data.createdAt);
+ // The minor hears about it by email, by the adult's first name only.
+ assert.deepEqual(await outbox(id),[{userid:kid.user.id,kind:'sponsor_request_received',status:'pending',payload:{adultName:'Link'}}]);
  assert.equal((await ask(parent)).body.error.code,'REQUEST_PENDING');
  assert.deepEqual((await get(parent,'/me/minors')).body.data.requests.map((r:any)=>[r.id,r.minorName]),[[id,'Link']]);
  assert.deepEqual((await get(kid,'/me/supervision')).body.data.pendingRequests.map((r:any)=>[r.id,r.adultName]),[[id,'Link parent']]);
  for(const who of [other,parent])assert.equal((await post(who,`/me/sponsor-requests/${id}/accept`)).status,404,'only the request minor can accept');
  assert.equal((await post(kid,`/me/sponsor-requests/${id}/accept`,{},false)).status,403,'CSRF required');
  const competing=await ask(other);assert.equal(competing.status,201);
+ assert.equal((await outbox(competing.body.data.id)).length,1);
  await pool.query('INSERT INTO app_facility_visit(user_id,building_id) VALUES($1,1)',[kid.user.id]);
  const busy=await post(kid,`/me/sponsor-requests/${id}/accept`);assert.equal(busy.status,409);assert.equal(busy.body.error.code,'CHECK_OUT_FIRST');
  await pool.query('UPDATE app_facility_visit SET checked_out_at=now() WHERE user_id=$1 AND checked_out_at IS NULL',[kid.user.id]);
@@ -166,6 +171,10 @@ test('adults request a link, the minor confirms it, and either side can undo it 
  assert.equal(accepted.body.data.sponsor.id,parent.user.id);assert.deepEqual(accepted.body.data.pendingRequests,[]);
  assert.deepEqual((await pool.query('SELECT id::int,status FROM app_minor_sponsor_request WHERE minor_id=$1 ORDER BY id',[kid.user.id])).rows,
   [{id,status:'accepted'},{id:competing.body.data.id,status:'cancelled'}]);
+ // The adult is told; unsent invitations for every resolved request are withdrawn, and the withdrawn adult gets nothing.
+ assert.deepEqual(await outbox(id),[{userid:kid.user.id,kind:'sponsor_request_received',status:'obsolete',payload:{adultName:'Link'}},
+  {userid:parent.user.id,kind:'sponsor_request_accepted',status:'pending',payload:{minorName:'Link'}}]);
+ assert.deepEqual((await outbox(competing.body.data.id)).map(n=>[n.kind,n.status]),[['sponsor_request_received','obsolete']]);
  assert.equal((await pool.query("SELECT count(*)::int n FROM app_staff_audit WHERE actor_id=$1 AND subject_id=$1 AND action='minor.sponsor_linked'",[kid.user.id])).rows[0].n,1);
  assert.equal((await post(kid,`/me/sponsor-requests/${id}/accept`)).status,404,'resolved requests cannot be replayed');
  assert.equal((await ask(parent)).body.error.code,'ALREADY_LINKED');
@@ -173,6 +182,7 @@ test('adults request a link, the minor confirms it, and either side can undo it 
  const taken=await ask(other);assert.equal(taken.status,409);assert.equal(taken.body.error.code,'SPONSOR_EXISTS');
  const stale=(await pool.query('INSERT INTO app_minor_sponsor_request(minor_id,adult_id) VALUES($1,$2) RETURNING id::int',[kid.user.id,other.user.id])).rows[0].id;
  const swap=await post(kid,`/me/sponsor-requests/${stale}/accept`);assert.equal(swap.status,409);assert.equal(swap.body.error.code,'SPONSOR_EXISTS');
+ assert.deepEqual(await outbox(stale),[],'a rejected answer sends nothing');
  assert.equal((await get(kid,'/me/supervision')).body.data.sponsor.id,parent.user.id);
  await pool.query("UPDATE app_minor_sponsor_request SET status='cancelled',resolved_at=now() WHERE id=$1",[stale]);
  assert.deepEqual((await get(parent,'/me/minors')).body.data,{minors:[{id:kid.user.id,name:'Link kid',visit:null}],requests:[]});
@@ -195,9 +205,19 @@ test('adults request a link, the minor confirms it, and either side can undo it 
  const cancelled=await post(parent,`/me/minors/requests/${again.body.data.id}/cancel`);assert.equal(cancelled.status,200);
  assert.deepEqual(cancelled.body.data.requests,[]);
  assert.equal((await post(parent,`/me/minors/requests/${again.body.data.id}/cancel`)).status,404);
+ assert.deepEqual((await outbox(again.body.data.id)).map(n=>[n.userid,n.kind,n.status]),[[kid.user.id,'sponsor_request_received','obsolete']],'cancel notifies no one');
  assert.equal((await post(kid,`/me/sponsor-requests/${again.body.data.id}/accept`)).status,404,'cancelled requests cannot be accepted');
  const declinable=await ask(other);assert.equal(declinable.status,201);
+ // An adult who opted out of email keeps that choice for this notice too.
+ await pool.query('INSERT INTO app_notification_preferences(userid,enabled) VALUES($1,false)',[other.user.id]);
  const declined=await post(kid,`/me/sponsor-requests/${declinable.body.data.id}/decline`);assert.equal(declined.status,200);
+ assert.deepEqual(await outbox(declinable.body.data.id),[{userid:kid.user.id,kind:'sponsor_request_received',status:'obsolete',payload:{adultName:'Link'}},
+  {userid:other.user.id,kind:'sponsor_request_declined',status:'suppressed',payload:{minorName:'Link'}}]);
+ await pool.query('UPDATE app_notification_preferences SET enabled=true WHERE userid=$1',[other.user.id]);
+ const declinedAgain=await ask(other);assert.equal(declinedAgain.status,201);
+ assert.equal((await post(kid,`/me/sponsor-requests/${declinedAgain.body.data.id}/decline`)).status,200);
+ assert.deepEqual((await outbox(declinedAgain.body.data.id)).map(n=>[n.userid,n.kind,n.status]),
+  [[kid.user.id,'sponsor_request_received','obsolete'],[other.user.id,'sponsor_request_declined','pending']]);
  assert.deepEqual(declined.body.data.pendingRequests,[]);assert.equal(declined.body.data.sponsor,null);
  assert.equal((await pool.query('SELECT status FROM app_minor_sponsor_request WHERE id=$1',[declinable.body.data.id])).rows[0].status,'declined');
 });

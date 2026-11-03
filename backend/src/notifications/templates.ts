@@ -34,6 +34,9 @@ const headings = {
   system_issue: 'A studio service issue needs your attention',
   service_restored: 'Studio service has been restored',
   role_granted: 'Your studio role has been updated',
+  sponsor_request_received: 'You have a sponsoring adult request',
+  sponsor_request_accepted: 'Your sponsor request was accepted',
+  sponsor_request_declined: 'Your sponsor request was declined',
   admin_certification_revoked: 'Certification revocation recorded',
 } as const;
 
@@ -60,7 +63,8 @@ function text(value: unknown): string {
 }
 
 type Tone = 'success' | 'info' | 'warning' | 'danger';
-interface Facts { item: string; money: string; role: string; refund: string; certificationName: string; memberName: string }
+interface Facts { item: string; money: string; role: string; refund: string; certificationName: string; memberName: string;
+  adultName: string; minorName: string }
 interface Copy {
   category: string;
   status: string;
@@ -155,6 +159,18 @@ const copy: Record<NotificationKind, Copy> = {
     intro: () => 'Everything is working normally again.' },
   role_granted: { category: 'Account', status: 'Updated', tone: 'info',
     intro: f => f.role ? `Your studio role is now ${f.role}.` : 'Here are the details.' },
+  // First names only: the minor never learns the adult's email from this notice.
+  sponsor_request_received: { category: 'Supervision', status: 'Action needed', tone: 'warning',
+    title: f => f.adultName ? `${f.adultName} asked to be your sponsoring adult` : '',
+    intro: () => 'If you accept, you’ll visit together and they check out for you both. You can accept or decline from your member home. If you don’t know them, decline.',
+    cta: ['Review request', '/'] },
+  sponsor_request_accepted: { category: 'Supervision', status: 'Linked', tone: 'success',
+    title: f => f.minorName ? `${f.minorName} accepted your sponsor request` : '',
+    intro: () => 'You’re now their sponsoring adult. They visit with you and check out when you do.',
+    cta: ['View minors', '/profile#minors'] },
+  sponsor_request_declined: { category: 'Supervision', status: 'Declined', tone: 'info',
+    title: f => f.minorName ? `Your sponsor request for ${f.minorName} was declined` : '',
+    intro: () => 'You won’t be linked as their sponsoring adult. There’s nothing else you need to do.' },
   // Sent to staff, not the member: say what was recorded and where to review it.
   admin_certification_revoked: { category: 'Staff notice', status: 'Recorded', tone: 'info',
     title: f => f.certificationName ? `${f.certificationName} certification revoked` : '',
@@ -291,6 +307,7 @@ export function renderNotification(kind: NotificationKind, payload: Notification
   const paid = field('paymentStatus');
   const facts: Facts = {
     item, money: amount, role: field('role'), certificationName: field('certificationName'), memberName: field('memberName'),
+    adultName: field('adultName'), minorName: field('minorName'),
     refund: !refundAmount ? ''
       : Number(refundAmount) <= 0
         ? paid === 'paid' ? 'Under this studio’s cancellation policy, this booking isn’t eligible for a refund.'

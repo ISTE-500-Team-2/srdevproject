@@ -786,6 +786,14 @@ export function ProfilePage() {
   const sponsors = user?.isMinor === false;
   const sections = sponsors ? SECTIONS : SECTIONS.filter((s) => s.id !== "minors");
   const current = useCurrentSection(sections);
+  // Email links land on a section (e.g. #minors); scroll once the profile has laid out.
+  const landed = useRef(false);
+  useEffect(() => {
+    if (!profile || landed.current) return;
+    landed.current = true;
+    const id = window.location.hash.slice(1);
+    if (id) document.getElementById(id)?.scrollIntoView({ block: "start" });
+  }, [profile]);
   useEffect(() => {
     active.current = true;
     const controller = new AbortController();

@@ -231,6 +231,22 @@ describe('minors you supervise', () => {
     expect(await screen.findByText('Request to Noah Lin cancelled.')).toBeTruthy();
   });
 
+  test('an email link to #minors scrolls there once the profile loads', async () => {
+    asAdult(false);
+    window.history.replaceState(null, '', '#minors');
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    try {
+      mount({ '/me/minors': () => minors });
+      await screen.findByText('1 Mill Rd, White Hall, Maryland 21161');
+      await waitFor(() => expect(scroll).toHaveBeenCalledOnce());
+      expect(scroll.mock.contexts[0]).toBe(section('Minors you supervise'));
+    } finally {
+      window.history.replaceState(null, '', '/');
+      delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
+  });
+
   test('linking sends email and date of birth, then confirms', async () => {
     asAdult(false);
     mount({
