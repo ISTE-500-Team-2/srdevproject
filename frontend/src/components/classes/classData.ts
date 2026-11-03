@@ -5,6 +5,8 @@ export type ClassRecord = {
   title: string;
   certificationId: number;
   certificationName: string;
+  trainingMinutes?: number;
+  trainingFeeCents?: number | null;
   instructorId: number;
   instructor: string;
   capacity: number;
@@ -20,7 +22,7 @@ export type ClassRecord = {
 export type RosterPerson = { userId: number; name: string; email: string; status: string };
 export type MemberRoster = { items: { name: string }[]; capacity: number; enrolled: number; seatsAvailable: number };
 export type Room = { id: number; name: string; location: string; capacity: number | null; status: string };
-export type Course = { id: number; name: string; validityDays: number | null };
+export type Course = { id: number; name: string; validityDays: number | null; trainingMinutes?: number; trainingFeeCents?: number | null };
 /** Attendance choices a manager has made but not saved yet, per class. */
 export type AttendanceDraft = { statuses: Record<number, "attended" | "no_show">; note: string };
 /** Values used to open the schedule form, e.g. when scheduling a class again. */

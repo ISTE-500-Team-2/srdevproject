@@ -52,7 +52,8 @@ test("staff training UI configures approved expiry, records actual instructor tr
   const user = userEvent.setup();
   await user.click(await screen.findByRole("button", { name: "New certification" }));
   await user.type(await screen.findByLabelText("Name"), "UI printer safety");
-  await user.type(screen.getByLabelText("Approved validity in days"), "90");
+  await user.type(screen.getByLabelText("Validity in days (optional)"), "90");
+  await user.type(screen.getByLabelText('Fee per equipment booking ($)'), '0');
   await user.type(screen.getByLabelText('Find equipment'), 'Darth');
   await user.click(await screen.findByRole('checkbox',{name:/Darth Vader/}));
   await user.type(
@@ -69,7 +70,7 @@ test("staff training UI configures approved expiry, records actual instructor tr
   void member;
   // Picking a member loads their records; untrained certifications offer
   // "Record training", which opens the approval form.
-  await user.click(await screen.findByRole("button", { name: "Record training" }));
+  await user.click(await screen.findByRole("button", { name: "Record UI printer safety training" }));
   const cert = (
     await bridge.pool.query(
       "SELECT certid FROM certifications WHERE name='UI printer safety'",

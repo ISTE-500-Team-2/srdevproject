@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import {act,cleanup,fireEvent,render,screen,within} from '@testing-library/react';
+import {act,cleanup,fireEvent,render,screen,within,waitFor} from '@testing-library/react';
 import {MemoryRouter} from 'react-router-dom';
 import {afterEach,beforeEach,expect,test,vi} from 'vitest';
 import {EquipmentPage} from './EquipmentPage';
@@ -15,6 +15,7 @@ beforeEach(()=>{
   if(options?.method) return {id:8,userId:1} as never;
   if(path==='/equipment')return [machine,{...machine,id:5,name:'Wood Lathe',type:'Wood turning'}] as never;
   if(path==='/reservations')return records as never;
+  if(path.includes('/quote?'))return null as never;
   return {studios:[],timeZone:'America/New_York'} as never;
  });
 });
@@ -28,6 +29,23 @@ async function open(){await act(async()=>{fireEvent.click(screen.getByRole('butt
  pickTime(14*60);
 }
 const submits=()=>vi.mocked(api).mock.calls.filter(([p,o])=>p==='/reservations'&&o?.method==='POST');
+
+test('reviews a server quote with a flat fee and submits that exact price for the selected duration',async()=>{
+ vi.mocked(api).mockImplementation(async(path,options)=>{
+  if(options?.method)return {id:8,userId:1} as never;
+  if(path==='/equipment')return [{...machine,trainingFeeCents:2000,trainingMinutes:60}] as never;
+  if(path==='/reservations')return [] as never;
+  if(path.includes('/quote?')){const hours=Number(path.split('hours=')[1]);return {currency:'USD',hours,hourlyRateCents:700,equipmentCents:hours*700,trainingFeeCents:2000,totalCents:hours*700+2000,certificationId:9,certificationRevision:1} as never;}
+  return null as never;
+ });
+ await mount();await open();
+ fireEvent.change(screen.getByLabelText('Duration'),{target:{value:'2'}});
+ const breakdown=await screen.findByRole('region',{name:'Booking price breakdown'});
+ await waitFor(()=>expect(within(breakdown).getByText('$34.00')).toBeTruthy());
+ expect(within(breakdown).getByText('$20.00')).toBeTruthy();
+ await act(async()=>{fireEvent.submit(screen.getByRole('button',{name:'Confirm reservation'}).closest('form')!);});
+ expect(submits()[0]![1]!.body).toMatchObject({expectedPrice:{hours:2,equipmentCents:1400,trainingFeeCents:2000,totalCents:3400}});
+});
 test('equipment search matches name or type and links straight to saved bookings',async()=>{
  await mount();
  expect(screen.getByRole('heading',{name:/^Equipment$/})).toBeTruthy();
