@@ -244,7 +244,7 @@ export class StudioService {
           throw new AppError(
             409,
             "PRICE_CHANGED",
-            "The studio rate or policy changed. Refresh and review it before booking.",
+            "The studio rate or terms just changed. Review the current price, then book again.",
           );
         const row = (
           await db.query(
@@ -391,6 +391,14 @@ export class StudioService {
       ).rows[0];
       r = this.dates(r);
       if (r.status === "cancelled" || r.status === "expired") return r;
+      // End dates are exclusive: from ends_on the month is over, so there is
+      // nothing left to free up or refund.
+      if (this.today() >= r.ends_on)
+        throw new AppError(
+          409,
+          "RENTAL_ENDED",
+          "This rental has already ended, so it can't be cancelled.",
+        );
       const refund =
         r.payment_status === "paid" ? refundDue(r, this.today()) : 0;
       const result = (

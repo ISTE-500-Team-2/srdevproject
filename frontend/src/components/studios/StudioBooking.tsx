@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { CalendarCheck, CircleAlert, CreditCard } from "lucide-react";
 import { MonthCalendar } from "../MonthCalendar";
 import { Modal } from "../Modal";
-import type { Studio } from "../../lib/studioContracts";
+import { BookingReference } from "./BookingReference";
+import type { Rental, Studio } from "../../lib/studioContracts";
 import {
   addDays,
   nextMonth,
@@ -42,7 +44,7 @@ export function StudioBooking({
   blockedReason: string;
   busy: boolean;
   error: string;
-  held: { name: string; holdUntil: string } | null;
+  held: Rental | null;
   onClose: () => void;
   onBook: (request: BookingRequest) => void;
 }) {
@@ -75,20 +77,34 @@ export function StudioBooking({
     <Modal open={!!size} title={`Reserve a ${label} studio`} onClose={onClose}>
       {held ? (
         <div className="studio-held" role="status">
-          <h3>{held.name} is held for you</h3>
-          <p>
-            Pay at the front desk by{" "}
-            <strong>
-              {new Date(held.holdUntil).toLocaleTimeString([], {
-                hour: "numeric",
-                minute: "2-digit",
-              })}
-            </strong>{" "}
-            to confirm it. After that the hold is released.
+          <div className="studio-held__head">
+            <div>
+              <h3>{held.name} is held for you</h3>
+              <p>
+                {rentalRange(held.starts_on, held.ends_on)} · {money(held.amount_cents)}
+              </p>
+            </div>
+            <BookingReference id={held.id} />
+          </div>
+          <p className="form-notice">
+            <CircleAlert aria-hidden="true" />
+            <span>
+              Pay at the front desk by{" "}
+              <strong>
+                {new Date(held.hold_until).toLocaleTimeString([], {
+                  hour: "numeric",
+                  minute: "2-digit",
+                })}
+              </strong>{" "}
+              and give them your booking reference. After that the hold is released.
+            </span>
           </p>
-          <button type="button" className="button button--primary" onClick={onClose}>
-            Done
-          </button>
+          <div className="studio-booking__foot">
+            <span>It’s listed under Your rentals until it’s paid.</span>
+            <button type="button" className="button button--primary" onClick={onClose}>
+              Done
+            </button>
+          </div>
         </div>
       ) : (
         <form
@@ -100,14 +116,17 @@ export function StudioBooking({
           }}
         >
           {!canBook && (
-            <p className="studio-booking__gate">
-              {blockedReason}{" "}
-              <Link to="/membership">See membership options</Link>
+            <p className="form-notice studio-booking__gate">
+              <CircleAlert aria-hidden="true" />
+              <span>
+                {blockedReason}{" "}
+                <Link to="/membership">See membership options</Link>
+              </span>
             </p>
           )}
           <div className="studio-booking__cols">
             <fieldset>
-              <legend>
+              <legend className="equipment-booking-step">
                 <span>1</span>Start date
               </legend>
               <MonthCalendar
@@ -126,16 +145,16 @@ export function StudioBooking({
             </fieldset>
             <div>
               <fieldset>
-                <legend>
+                <legend className="equipment-booking-step">
                   <span>2</span>Studio
                 </legend>
-                <div className="studio-options">
+                <div>
                   {studios.map((s) => {
                     const blocked = start ? conflictFor(s, start, end) : undefined;
                     return (
                       <label
                         key={s.id}
-                        className={"studio-option" + (blocked ? " is-unavailable" : "")}
+                        className="choice-card"
                       >
                         <input
                           type="radio"
@@ -158,11 +177,11 @@ export function StudioBooking({
                 </div>
               </fieldset>
               <fieldset>
-                <legend>
+                <legend className="equipment-booking-step">
                   <span>3</span>Payment
                 </legend>
-                <div className="studio-options">
-                  <label className="studio-option">
+                <div>
+                  <label className="choice-card">
                     <input
                       type="radio"
                       name="payment"
@@ -175,7 +194,7 @@ export function StudioBooking({
                     </span>
                   </label>
                   {(
-                    <label className="studio-option">
+                    <label className="choice-card">
                       <input
                         type="radio"
                         name="payment"
@@ -185,7 +204,7 @@ export function StudioBooking({
                       />
                       <span>
                         <strong>Pay now by card</strong>
-                        <small>{cardEnabled ? "Test mode — no real charge." : "Unavailable: Stripe test checkout is not configured."}</small>
+                        <small>{cardEnabled ? "Test mode — no real charge." : "Not available right now. Pay at the front desk instead."}</small>
                       </span>
                     </label>
                   )}
@@ -221,6 +240,7 @@ export function StudioBooking({
               className="button button--primary"
               disabled={busy || !canBook || !choice || !start || !!stale || (method === "stripe_test" && !cardEnabled)}
             >
+              {method === "manual" ? <CalendarCheck aria-hidden="true" /> : <CreditCard aria-hidden="true" />}
               {busy
                 ? "Saving…"
                 : method === "manual"

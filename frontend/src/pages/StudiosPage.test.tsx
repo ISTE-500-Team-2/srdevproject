@@ -237,7 +237,7 @@ test("unconfigured card checkout is visible with a reason and cannot be selected
  mount();
  const dialog = within(await openSmall());
  expect((dialog.getByRole('radio', {name: /Pay now by card/}) as HTMLInputElement).disabled).toBe(true);
- expect(dialog.getByText('Unavailable: Stripe test checkout is not configured.')).toBeTruthy();
+ expect(dialog.getByText('Not available right now. Pay at the front desk instead.')).toBeTruthy();
 });
 
 test("configured card checkout submits the selected studio and Stripe payment method", async () => {
@@ -255,4 +255,96 @@ test("configured card checkout submits the selected studio and Stripe payment me
  await dialog.findByText('Checkout request captured');
  const request=api.mock.calls.find(([path,init])=>path==='/studio-rentals' && init?.body);
  expect(request?.[1].body).toMatchObject({studioId:2,startDate:'2030-01-20',paymentMethod:'stripe_test'});
+});
+
+test("a finished month moves to past rentals and can't be cancelled", async () => {
+  withRentals([
+    rental({ id: 3, name: "Atreides", studio_id: 2, starts_on: "2029-11-01", ends_on: "2029-12-01", payment_method: "stripe_test" }),
+    rental({ status: "pending", payment_status: "unpaid", hold_until: "2030-01-10T15:30:00Z" }),
+  ]);
+  mount();
+  const current = await screen.findByRole("region", { name: "Your rentals" });
+  expect(within(current).getByText("Harkonnen")).toBeTruthy();
+  expect(within(current).queryByText("Atreides")).toBeNull();
+  expect(screen.getAllByRole("button", { name: "Cancel rental" })).toHaveLength(1);
+  const past = screen.getByText("Past rentals (1)").closest("details")!;
+  expect(within(past).getByText("Ended")).toBeTruthy();
+  expect(within(past).getByText("Paid by card.")).toBeTruthy();
+});
+
+test("a failed first load says so and retries on its own, without a refresh button", async () => {
+  let fail = true;
+  api.mockImplementation((path: string) => {
+    if (path === "/studios")
+      return fail
+        ? Promise.reject(new Error("Server unavailable."))
+        : Promise.resolve({ studios, cardTestEnabled: false, timeZone: "UTC" });
+    return Promise.resolve([]);
+  });
+  mount();
+  expect(screen.getByRole("status").textContent).toBe("Loading studios…");
+  await screen.findByText(/Couldn’t load studios: Server unavailable\./);
+  expect(screen.queryByRole("button", { name: /refresh|retry/i })).toBeNull();
+  fail = false;
+  act(() => {
+    window.dispatchEvent(new Event("focus"));
+  });
+  await screen.findByRole("button", { name: /^Small studios/ });
+  expect(screen.queryByText(/Couldn’t load studios/)).toBeNull();
+});
+
+test("size cards announce availability, not just price", async () => {
+  mount();
+  expect(
+    await screen.findByRole("button", { name: "Small studios, $350.00 a month. 2 of 2 free today" }),
+  ).toBeTruthy();
+});
+
+test("a front-desk hold confirms the dates, price and booking reference", async () => {
+  api.mockImplementation((path: string, init?: { body?: unknown }) => {
+    if (path === "/studios")
+      return Promise.resolve({ studios, cardTestEnabled: false, timeZone: "UTC" });
+    if (path === "/studio-rentals" && init?.body)
+      return Promise.resolve(rental({ id: 52, status: "pending", payment_status: "unpaid", hold_until: "2030-01-10T15:30:00Z" }));
+    return Promise.resolve([]);
+  });
+  mount();
+  const dialog = within(await openSmall());
+  fireEvent.click(dialog.getByRole("button", { name: "Sun, Jan 20, 2030" }));
+  fireEvent.click(dialog.getByRole("button", { name: "Hold studio" }));
+  await dialog.findByText("Harkonnen is held for you");
+  expect(dialog.getByText("Jan 20 – Feb 19, 2030 · $350.00")).toBeTruthy();
+  expect(dialog.getByRole("group", { name: "Booking reference 000052" })).toBeTruthy();
+});
+
+test("a booking conflict reloads availability straight away", async () => {
+  api.mockImplementation((path: string, init?: { body?: unknown }) => {
+    if (path === "/studios")
+      return Promise.resolve({ studios, cardTestEnabled: false, timeZone: "UTC" });
+    if (path === "/studio-rentals" && init?.body)
+      return Promise.reject(new Error("Someone has already booked this studio."));
+    return Promise.resolve([]);
+  });
+  mount();
+  const dialog = within(await openSmall());
+  const before = calls("/studios");
+  fireEvent.click(dialog.getByRole("button", { name: "Sun, Jan 20, 2030" }));
+  fireEvent.click(dialog.getByRole("button", { name: "Hold studio" }));
+  await dialog.findByText("Someone has already booked this studio.");
+  await waitFor(() => expect(calls("/studios")).toBeGreaterThan(before));
+});
+
+test("coming back from a still-pending card checkout asks the server to check it once", async () => {
+  withRentals([rental({ checkout_id: "cs_test_matching", payment_method: "stripe_test", status: "pending", payment_status: "unpaid" })]);
+  mount(returned);
+  await screen.findByText(/Checking your card payment/);
+  await waitFor(() =>
+    expect(api.mock.calls.filter(([p, o]) => p === "/studio-rentals/7/payment-status" && o?.method === "POST")).toHaveLength(1),
+  );
+});
+
+test("leaving card checkout explains the hold is kept", async () => {
+  withRentals([rental({ payment_method: "stripe_test", status: "pending", payment_status: "unpaid", hold_until: "2030-01-10T15:30:00Z" })]);
+  mount("/studios?payment=cancelled");
+  expect(await screen.findByText(/You left card checkout before paying\. Harkonnen stays held until/)).toBeTruthy();
 });
