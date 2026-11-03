@@ -224,6 +224,12 @@ test('sponsor requests limit date-of-birth guessing per target email and per adu
   // Another adult is not locked out by someone else's misses (per-email cap across adults is 15).
   assert.equal((await askAs(real,'target@example.invalid','2011-06-06')).status,201);
   assert.equal((await pool.query("SELECT count(*)::int n FROM app_minor_sponsor_attempt WHERE email_hash LIKE '%@%'")).rows[0].n,0,'emails are stored hashed');
+  // Misses older than a day still count toward the 30-day per-email cap.
+  await pool.query(`INSERT INTO app_minor_sponsor_attempt(adult_id,email_hash,created_at)
+   SELECT $1,email_hash,now()-interval '10 days' FROM app_minor_sponsor_attempt WHERE adult_id=$1 LIMIT 1`,[who.user.id]);
+  const hash=(await pool.query('SELECT email_hash FROM app_minor_sponsor_attempt WHERE adult_id=$1 LIMIT 1',[who.user.id])).rows[0].email_hash;
+  await pool.query(`INSERT INTO app_minor_sponsor_attempt(adult_id,email_hash,created_at) SELECT $1,$2,now()-interval '10 days' FROM generate_series(1,9)`,[who.user.id,hash]);
+  const monthly=await askAs(real,'target@example.invalid','2011-06-07');assert.equal(monthly.status,429,'15 misses in 30 days lock the email for every adult');
   for (let n=0;n<5;n++) assert.equal((await ask(`nobody${n}@example.invalid`,'2011-01-01')).status,404);
   const capped=await ask('elsewhere@example.invalid','2011-01-01');assert.equal(capped.status,429,'ten attempts per adult per day');
  } finally {await new Promise<void>(r=>{server2.close(r);server2.closeAllConnections();});}

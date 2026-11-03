@@ -122,11 +122,13 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
     await db.query("SELECT pg_advisory_xact_lock(hashtext('arbor-sponsor-attempt-adult'),$1)",[adultId]);
     await db.query("SELECT pg_advisory_xact_lock(hashtext('arbor-sponsor-attempt-email'),hashtext($1))",[emailHash]);
     const counts=(await db.query(`SELECT
-        count(*) FILTER (WHERE adult_id=$1)::int AS adult,
-        count(*) FILTER (WHERE adult_id=$1 AND email_hash=$2 AND NOT matched)::int AS pair,
+        count(*) FILTER (WHERE adult_id=$1 AND created_at>now()-interval '1 day')::int AS adult,
+        count(*) FILTER (WHERE adult_id=$1 AND email_hash=$2 AND NOT matched AND created_at>now()-interval '1 day')::int AS pair,
         count(*) FILTER (WHERE email_hash=$2 AND NOT matched)::int AS email
-      FROM app_minor_sponsor_attempt WHERE created_at>now()-interval '1 day' AND (adult_id=$1 OR email_hash=$2)`,[adultId,emailHash])).rows[0];
-    // 10 attempts per adult; 5 misses per adult+email; 15 misses per email across all adults.
+      FROM app_minor_sponsor_attempt WHERE created_at>now()-interval '30 days' AND (adult_id=$1 OR email_hash=$2)`,[adultId,emailHash])).rows[0];
+    // Per day: 10 attempts per adult, 5 misses per adult+email. Per target email: 15 misses in
+    // 30 days across all adults, so the guess budget does not grow with extra accounts or time;
+    // a locked-out parent can still be linked by staff at the front desk.
     if (counts.adult>=10 || counts.pair>=5 || counts.email>=15) throw new AppError(429,'RATE_LIMITED',limitMessage);
     return (await db.query('INSERT INTO app_minor_sponsor_attempt(adult_id,email_hash) VALUES($1,$2) RETURNING id',[adultId,emailHash])).rows[0].id as string;
   });
