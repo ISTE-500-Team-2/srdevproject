@@ -13,6 +13,8 @@ export interface EquipmentRecord {
   certification: string | null;
   location: string;
 }
+// Retired catalog entries keep their history but are never listed or bookable.
+const active = 'NOT EXISTS(SELECT 1 FROM app_equipment_retirement r WHERE r.equipment_id=e.equipmentid)';
 const columns = `e.equipmentid AS id,e.name,COALESCE(e.category,e.name) AS type,e.hourlyrate AS rate,
   COALESCE(e.imagepath,'/assets/3d-printer.webp') AS image,COALESCE(e.status,'unavailable') AS status,
   COALESCE(e.waiverrequired,false) AS "waiverRequired",e.certid AS "certId",c.name AS certification,
@@ -23,7 +25,7 @@ export class EquipmentModel {
   async list(): Promise<EquipmentRecord[]> {
     return (
       await this.db.query<EquipmentRecord>(
-        `SELECT ${columns} FROM equipment e LEFT JOIN certifications c USING (certid) WHERE NOT EXISTS(SELECT 1 FROM app_equipment_retirement r WHERE r.equipment_id=e.equipmentid) ORDER BY e.equipmentid`,
+        `SELECT ${columns} FROM equipment e LEFT JOIN certifications c USING (certid) WHERE ${active} ORDER BY e.equipmentid`,
       )
     ).rows;
   }
@@ -31,7 +33,7 @@ export class EquipmentModel {
     return (
       (
         await this.db.query<EquipmentRecord>(
-          `SELECT ${columns} FROM equipment e LEFT JOIN certifications c USING (certid) WHERE e.equipmentid=$1 FOR UPDATE OF e`,
+          `SELECT ${columns} FROM equipment e LEFT JOIN certifications c USING (certid) WHERE e.equipmentid=$1 AND ${active} FOR UPDATE OF e`,
           [id],
         )
       ).rows[0] ?? null

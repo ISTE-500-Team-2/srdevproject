@@ -47,12 +47,27 @@ test('workshops do not falsely grant equipment certification; 16 concurrent enro
  assert.equal((await pool.query('SELECT count(*)::int n FROM app_training_enrollment WHERE class_id=$1',[c.body.data.id])).rows[0].n,15);
  assert.equal((await pool.query('SELECT count(*)::int n FROM user_certifications')).rows[0].n,0);
 });
+test('migrations alone retire the generic CNC once the named CNCs exist, hiding it from members',async()=>{
+ const generic=(await pool.query("SELECT equipmentid AS id,status FROM equipment WHERE name='CNC Machine'")).rows;
+ assert.equal(generic.length,1,'migration 021 added the generic CNC');
+ assert.equal(generic[0].status,'unavailable');
+ assert.equal((await pool.query("SELECT count(*)::int n FROM equipment WHERE name IN ('Joey','Ross','Chandler')")).rows[0].n,3);
+ assert.match((await pool.query('SELECT reason FROM app_equipment_retirement WHERE equipment_id=$1',[generic[0].id])).rows[0].reason,/MVP catalog cleanup/);
+ const member=(await request(server).post('/api/auth/demo').send({role:'member'})).body.data;
+ const list=await request(server).get('/api/equipment').set('Authorization','Bearer '+member.accessToken);
+ assert.equal(list.status,200);
+ assert.ok(list.body.data.every((r:any)=>r.id!==generic[0].id&&r.name!=='CNC Machine'));
+ assert.deepEqual(list.body.data.filter((r:any)=>['Joey','Ross','Chandler'].includes(r.name)).length,3);
+ const start=new Date(Math.ceil(Date.now()/3600000)*3600000+86400000);
+ const booked=await post('/reservations',{equipmentId:generic[0].id,startTime:start.toISOString(),endTime:new Date(start.getTime()+3600000).toISOString()},member);
+ assert.equal(booked.status,404,JSON.stringify(booked.body));assert.equal(booked.body.error.message,'Equipment not found.');
+});
 test('catalog cleanup is preview-first, idempotent, hides only obsolete entries and preserves records',async()=>{
  const welded=(await pool.query("INSERT INTO equipment(name,status,location) VALUES('Welding Station','available','Fixture') RETURNING equipmentid")).rows[0].equipmentid;
  const cnc=(await pool.query("INSERT INTO equipment(name,status,location) VALUES('CNC Machine','available','Fixture') RETURNING equipmentid")).rows[0].equipmentid;
  const total=(await pool.query('SELECT count(*)::int n FROM equipment')).rows[0].n;
  const before=await configureMvpCatalog(pool);assert.equal(before.applied,false);
- assert.equal((await pool.query('SELECT count(*)::int n FROM app_equipment_retirement')).rows[0].n,0);
+ assert.equal((await pool.query('SELECT count(*)::int n FROM app_equipment_retirement WHERE equipment_id=ANY($1::int[])',[[welded,cnc]])).rows[0].n,0);
  await assert.rejects(configureMvpCatalog(pool,true,999999),{code:'ADMIN_REQUIRED'});
  await configureMvpCatalog(pool,true,admin.user.id);await configureMvpCatalog(pool,true,admin.user.id);
  assert.equal((await pool.query('SELECT count(*)::int n FROM equipment')).rows[0].n,total);
