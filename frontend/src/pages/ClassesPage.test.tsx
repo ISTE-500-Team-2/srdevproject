@@ -20,6 +20,7 @@ const HOUR = 3600000;
 type Person = { userId: number; name: string; email: string; status: string };
 let people: Person[];
 let denyRoster = false, failFor: number | null = null, entitled = true, scheduleError: ApiError | null = null;
+let certified = false;
 const course = (id: number, offsetHours: number, extra: Record<string, unknown> = {}) => ({
   id, title: `Safety ${id}`, certificationId: 7, certificationName: 'Laser cutting', instructorId: 1, instructor: 'Morgan Reyes',
   capacity: 3, enrolled: 2, status: 'scheduled', revision: 4, roomId: 2, roomName: 'Training Room',
@@ -35,6 +36,7 @@ beforeEach(() => {
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
   auth.user = { id: 1, roles: ['admin'] };
   denyRoster = false; failFor = null; entitled = true; scheduleError = null;
+  certified = false;
   people = [
     { userId: 11, name: 'First Member', email: 'first@example.invalid', status: 'enrolled' },
     { userId: 12, name: 'Second Member', email: 'second@example.invalid', status: 'enrolled' },
@@ -59,7 +61,7 @@ beforeEach(() => {
     }
     if (path.endsWith('/member-roster')) return { items: [{ name: 'First M.' }], capacity: 3, enrolled: 2, seatsAvailable: 1 } as never;
     if (path === '/me/overview') return { entitlement: { membership: entitled ? { id: 1 } : null, dayPass: null } } as never;
-    if (path === '/me/certifications') return [] as never;
+    if (path === '/me/certifications') return (certified ? [{ id: 7, valid: true }] : []) as never;
     if (path === '/training/catalog') return [{ id: 7, name: 'Laser cutting', validityDays: 365 }] as never;
     if (path === '/rooms') return [{ id: 2, name: 'Training Room', location: 'Main floor', capacity: 18, status: 'available' }] as never;
     return undefined as never;
@@ -104,6 +106,25 @@ test('member without membership or day pass is sent to membership instead of a f
   await mount();
   expect(screen.queryByRole('button', { name: 'Register for Safety 5' })).toBeNull();
   expect(screen.getByRole('link', { name: 'Membership or day pass needed' }).getAttribute('href')).toBe('/membership');
+});
+
+test('registering for required training shows and submits the one-time $20 fee', async () => {
+  auth.user = { id: 30, roles: ['member'] };
+  classes = [course(5, 48, { trainingFeeCents: 2000 })];
+  await mount();
+  expect(screen.getByText('$20.00 one-time training fee')).toBeTruthy();
+  await click('Register for Safety 5');
+  expect(calls('/classes/5/enroll', 'POST')[0][1]?.body).toEqual({ expectedTrainingFeeCents: 2000 });
+});
+
+test('a certified member registering again is not charged another training fee', async () => {
+  auth.user = { id: 30, roles: ['member'] };
+  certified = true;
+  classes = [course(5, 48, { trainingFeeCents: 2000 })];
+  await mount();
+  expect(screen.getByText('No training fee while certified')).toBeTruthy();
+  await click('Register for Safety 5');
+  expect(calls('/classes/5/enroll', 'POST')[0][1]?.body).toEqual({ expectedTrainingFeeCents: 0 });
 });
 
 test('member detail shows first-name participants and no contact details', async () => {

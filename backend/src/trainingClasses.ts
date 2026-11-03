@@ -6,6 +6,7 @@ import { authState, requireCsrf, requireStaff } from "./middleware/auth.js";
 import { requirePermission } from "./middleware/permissions.js";
 import { StaffModel } from "./models/StaffModel.js";
 import { EligibilityModel } from "./models/EligibilityModel.js";
+import { cancelTrainingPayments, enrollTrainingPayment } from './trainingPricing.js';
 export function trainingClassRoutes(pool: Pool, tz: string) {
   const r = Router();
   r.get("/classes", async (_req, res) => {
@@ -16,8 +17,10 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
           `SELECT c.id,c.title,c.certification_id AS "certificationId",cert.name AS "certificationName",c.instructor_id AS "instructorId",u.firstname||' '||u.lastname AS instructor,LEAST(c.capacity,15) AS capacity,CASE WHEN v.status='confirmed' THEN c.status ELSE 'cancelled' END AS status,c.revision,
  cert.training_minutes AS "trainingMinutes",cert.training_fee_cents AS "trainingFeeCents",
  v.roomid AS "roomId",room.name AS "roomName",v.starttime AT TIME ZONE 'UTC' AS "startsAt",v.endtime AT TIME ZONE 'UTC' AS "endsAt",(SELECT COUNT(*)::int FROM app_training_enrollment e WHERE e.class_id=c.id AND e.status IN ('enrolled','attended')) AS enrolled,
- (SELECT status FROM app_training_enrollment WHERE class_id=c.id AND user_id=$1) AS "myStatus"
- FROM app_training_class c JOIN certifications cert ON cert.certid=c.certification_id JOIN reservation v ON v.reservationid=c.reservation_id JOIN room USING(roomid) JOIN "user" u ON u.userid=c.instructor_id ORDER BY v.starttime DESC LIMIT 200`,
+ mine.status AS "myStatus",mine.training_fee_cents AS "myTrainingFeeCents",p.paymentstatus AS "myPaymentStatus"
+ FROM app_training_class c JOIN certifications cert ON cert.certid=c.certification_id JOIN reservation v ON v.reservationid=c.reservation_id JOIN room USING(roomid) JOIN "user" u ON u.userid=c.instructor_id
+ LEFT JOIN app_training_enrollment mine ON mine.class_id=c.id AND mine.user_id=$1
+ LEFT JOIN payment p ON p.paymentid=mine.payment_id ORDER BY v.starttime DESC LIMIT 200`,
           [user.id],
         )
       ).rows,
@@ -147,7 +150,7 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
         );
       const before = (
         await db.query(
-          "SELECT status FROM app_training_enrollment WHERE class_id=$1 AND user_id=$2",
+          "SELECT * FROM app_training_enrollment WHERE class_id=$1 AND user_id=$2",
           [id, user.id],
         )
       ).rows[0];
@@ -163,10 +166,12 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
       );
       if (count >= Math.min(c.capacity, 15))
         throw new AppError(409, "CLASS_FULL", "This class is full.");
+      const { fee, paymentId } = await enrollTrainingPayment(db, tz, user.id, c, before, req.body.expectedTrainingFeeCents);
       const after = (
         await db.query(
-          "INSERT INTO app_training_enrollment(class_id,user_id) VALUES($1,$2) ON CONFLICT(class_id,user_id) DO UPDATE SET status='enrolled' RETURNING *",
-          [id, user.id],
+          `INSERT INTO app_training_enrollment(class_id,user_id,training_fee_cents,payment_id) VALUES($1,$2,$3,$4)
+           ON CONFLICT(class_id,user_id) DO UPDATE SET status='enrolled',training_fee_cents=EXCLUDED.training_fee_cents,payment_id=EXCLUDED.payment_id RETURNING *`,
+          [id, user.id, fee, paymentId],
         )
       ).rows[0];
       await new StaffModel(db, tz).audit(
@@ -203,6 +208,7 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
           "NOT_ENROLLED",
           "Only pending enrollment can be withdrawn.",
         );
+      await cancelTrainingPayments(db, id, user.id);
       const after = (
         await db.query(
           "UPDATE app_training_enrollment SET status='cancelled' WHERE class_id=$1 AND user_id=$2 RETURNING *",
@@ -367,6 +373,7 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
             "Refresh class before cancelling.",
           );
         const reason = textField(req.body.reason, "Reason", 500);
+        await cancelTrainingPayments(db, id);
         await db.query(
           "UPDATE reservation SET status='cancelled',revision=revision+1,statusdesc=$2 WHERE reservationid=$1",
           [before.reservation_id, reason],

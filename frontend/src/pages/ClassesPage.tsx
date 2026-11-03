@@ -122,6 +122,7 @@ export function ClassesPage() {
 
   const refreshAll = () => {
     classes.reload();
+    certifications.reload();
     setRefreshToken((t) => t + 1);
   };
   useEffect(() => {
@@ -145,7 +146,8 @@ export function ClassesPage() {
     setBusyId(c.id);
     setRowErrors(({ [c.id]: _, ...rest }) => rest);
     try {
-      await api(`/classes/${c.id}/${action}`, { method: "POST", body: {} });
+      await api(`/classes/${c.id}/${action}`, { method: "POST", body: action === 'enroll'
+        ? { expectedTrainingFeeCents: certified.has(c.certificationId) ? 0 : c.trainingFeeCents ?? 0 } : {} });
       setToast(
         action === "enroll"
           ? `You're registered for ${c.title} on ${shortDate(c.startsAt)} at ${timeOnly(c.startsAt)}.`
@@ -223,6 +225,7 @@ export function ClassesPage() {
         <ClassDetail
           c={detail}
           eligibility={eligibility}
+          certified={certified.has(detail.certificationId)}
           busy={busyId === detail.id}
           error={rowErrors[detail.id]}
           refreshToken={refreshToken}

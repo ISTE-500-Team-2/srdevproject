@@ -194,7 +194,7 @@ export function EquipmentPage() {
                 <span>
                   {item.location} · {item.status}
                 </span>
-                {item.priceSnapshot && <p>{cents(item.priceSnapshot.equipmentCents)} equipment + {cents(item.priceSnapshot.trainingFeeCents)} fee = <strong>{cents(item.priceSnapshot.totalCents)}</strong> · Payment: {item.paymentStatus ?? 'not recorded'}</p>}
+                {item.priceSnapshot && <p>{cents(item.priceSnapshot.equipmentCents)} equipment{!!item.priceSnapshot.trainingFeeCents && <> + {cents(item.priceSnapshot.trainingFeeCents)} training fee</>} = <strong>{cents(item.priceSnapshot.totalCents)}</strong> · Payment: {item.paymentStatus ?? 'not recorded'}</p>}
               </div>
               {['pending', 'confirmed'].includes(item.status) &&
               new Date(item.startTime).getTime() >= Date.now()+24*60*60*1000 ? (
@@ -248,7 +248,7 @@ export function EquipmentPage() {
                   <span><strong>{item.name}</strong><span>{rateLabel(item.rate)}</span>
                     {item.type.toLowerCase() !== selectedGroup.type.toLowerCase() && <span>{item.type}</span>}
                     {item.trainingRequired && <span className="equipment-machine-training"><ShieldAlert aria-hidden="true" />Training required</span>}
-                    {!!item.trainingFeeCents && <span>{cents(item.trainingFeeCents)} fee on every booking · {item.trainingMinutes ?? 60}-minute training required</span>}
+                    {item.trainingRequired && item.trainingMinutes && <span>{item.trainingMinutes}-minute training required · <Link to="/classes">Find a training class</Link></span>}
                     {item.availability !== 'Choose a time to check availability' && <small>{item.availability}</small>}
                   </span>
                 </label>
@@ -278,7 +278,7 @@ export function EquipmentPage() {
             <button
               className="button button--primary equipment-booking-submit"
               type="submit"
-              disabled={busy || liveSelected?.status !== 'available' || (!!liveSelected.trainingFeeCents && (quote.loading || !!quote.error || !quote.data))}
+              disabled={busy || liveSelected?.status !== 'available' || quote.loading || !!quote.error}
             >
               <CalendarDays aria-hidden="true" />{' '}
               {busy ? 'Saving…' : 'Confirm reservation'}

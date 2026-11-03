@@ -429,7 +429,7 @@ function trainingPricing(body: Record<string, unknown>, before?: Record<string, 
   const fee = body.trainingFeeCents === undefined ? (before ? before.trainingFeeCents : 0) : body.trainingFeeCents;
   const minutes = body.trainingMinutes === undefined ? before?.trainingMinutes ?? 60 : body.trainingMinutes;
   if (fee !== null && (!Number.isSafeInteger(fee) || (fee as number) < 0 || (fee as number) > 10000000))
-    throw new AppError(400, 'INVALID_INPUT', 'The booking fee must be a whole number of cents from 0 to 10000000.');
+    throw new AppError(400, 'INVALID_INPUT', 'The training fee must be a whole number of cents from 0 to 10000000.');
   if (!Number.isSafeInteger(minutes) || (minutes as number) < 1 || (minutes as number) > 480)
     throw new AppError(400, 'INVALID_INPUT', 'Training duration must be 1–480 whole minutes.');
   return { fee: fee as number | null, minutes: minutes as number };

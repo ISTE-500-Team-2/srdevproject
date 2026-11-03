@@ -30,21 +30,22 @@ async function open(){await act(async()=>{fireEvent.click(screen.getByRole('butt
 }
 const submits=()=>vi.mocked(api).mock.calls.filter(([p,o])=>p==='/reservations'&&o?.method==='POST');
 
-test('reviews a server quote with a flat fee and submits that exact price for the selected duration',async()=>{
+test('reviews hourly equipment charges without adding the configured training fee',async()=>{
  vi.mocked(api).mockImplementation(async(path,options)=>{
   if(options?.method)return {id:8,userId:1} as never;
   if(path==='/equipment')return [{...machine,trainingFeeCents:2000,trainingMinutes:60}] as never;
   if(path==='/reservations')return [] as never;
-  if(path.includes('/quote?')){const hours=Number(path.split('hours=')[1]);return {currency:'USD',hours,hourlyRateCents:700,equipmentCents:hours*700,trainingFeeCents:2000,totalCents:hours*700+2000,certificationId:9,certificationRevision:1} as never;}
+  if(path.includes('/quote?')){const hours=Number(path.split('hours=')[1]);return {currency:'USD',hours,hourlyRateCents:700,equipmentCents:hours*700,trainingFeeCents:0,totalCents:hours*700,certificationId:9,certificationRevision:1} as never;}
   return null as never;
  });
  await mount();await open();
  fireEvent.change(screen.getByLabelText('Duration'),{target:{value:'2'}});
  const breakdown=await screen.findByRole('region',{name:'Booking price breakdown'});
- await waitFor(()=>expect(within(breakdown).getByText('$34.00')).toBeTruthy());
- expect(within(breakdown).getByText('$20.00')).toBeTruthy();
+ await waitFor(()=>expect(within(breakdown).getAllByText('$14.00')).toHaveLength(2));
+ expect(within(breakdown).queryByText('$20.00')).toBeNull();
+ expect(screen.queryByText(/fee on every booking/)).toBeNull();
  await act(async()=>{fireEvent.submit(screen.getByRole('button',{name:'Confirm reservation'}).closest('form')!);});
- expect(submits()[0]![1]!.body).toMatchObject({expectedPrice:{hours:2,equipmentCents:1400,trainingFeeCents:2000,totalCents:3400}});
+ expect(submits()[0]![1]!.body).toMatchObject({expectedPrice:{hours:2,equipmentCents:1400,trainingFeeCents:0,totalCents:1400}});
 });
 test('equipment search matches name or type and links straight to saved bookings',async()=>{
  await mount();

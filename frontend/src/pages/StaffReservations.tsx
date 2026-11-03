@@ -314,7 +314,7 @@ export function StaffReservations() {
           <EquipmentPriceBreakdown price={quote.data} />
           {quote.error && <p role="alert" className="form-error">{quote.error} <button type="button" onClick={quote.reload}>Refresh price</button></p>}
           <div className="management-actions">
-            <button className="button button--primary" disabled={busy || (!!equipment.data?.find(e => e.id===Number(form.equipmentId))?.trainingFeeCents && (quote.loading || !!quote.error || !quote.data))}>
+            <button className="button button--primary" disabled={busy || (!!form.equipmentId && (quote.loading || !!quote.error))}>
               {editing ? (
                 <Pencil aria-hidden="true" />
               ) : (

@@ -202,7 +202,7 @@ function TrainingWorkspace({
               ) : (
                 <small className="cw-muted">Valid until revoked{c.endsAt ? ' or the certification ends' : ''}</small>
               )}
-              <p>{c.trainingMinutes ?? 60} minutes of training · {c.trainingFeeCents == null ? 'Booking fee not configured' : `${cents(c.trainingFeeCents)} fee on every equipment booking`}</p>
+              <p>{c.trainingMinutes ?? 60} minutes of training · {c.trainingFeeCents == null ? 'Training fee not configured' : `${cents(c.trainingFeeCents)} one-time fee when registering for training`}</p>
               <div className="cw-cert__equipment">
                 {c.equipmentIds.length ? (
                   c.equipmentIds.map((id) => (
@@ -332,9 +332,9 @@ function TrainingWorkspace({
             </div>
             <div className="cw-two">
               <label className="cw-field"><span>Training duration (minutes)</span><input name="minutes" type="number" min={1} max={480} required defaultValue={editing.trainingMinutes ?? 60} /></label>
-              <label className="cw-field"><span>Fee per equipment booking ($)</span><input name="fee" type="number" min={0} max={100000} step="0.01" defaultValue={editing.trainingFeeCents == null ? '' : (editing.trainingFeeCents/100).toFixed(2)} /></label>
+              <label className="cw-field"><span>One-time training fee ($)</span><input name="fee" type="number" min={0} max={100000} step="0.01" defaultValue={editing.trainingFeeCents == null ? '' : (editing.trainingFeeCents/100).toFixed(2)} /></label>
             </div>
-            <p className="cw-muted">The flat fee is added on every booking of linked equipment, including for certified users. Enter 0 for no extra fee. A blank fee keeps booking unavailable until priced.</p>
+            <p className="cw-muted">Members who need this training pay the fee once when registering for a class. Equipment bookings only charge the hourly rate. Enter 0 for no training fee; leave blank to pause training registration until priced.</p>
             <fieldset className="cw-field cw-equipment">
               <legend>Equipment covered by this certification</legend>
               <label className="cw-field">

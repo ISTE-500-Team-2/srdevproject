@@ -349,10 +349,15 @@ export class StaffModel {
       COALESCE(m.plan_snapshot->>'name',d.plan_snapshot->>'name',t.tiername,
         CASE WHEN booking.reservationid IS NOT NULL THEN 'Equipment: '||machine.name||
           CASE WHEN booking.status='cancelled' AND p.paymentstatus='paid' THEN ' (cancelled; refund due)' ELSE '' END END,
-        CASE WHEN p.note LIKE 'Equipment booking:%' THEN p.note END,'Legacy record') AS "planName"
+        CASE WHEN training.class_id IS NOT NULL THEN 'Training class: '||class.title||
+          CASE WHEN (training.status='cancelled' OR class.status='cancelled') AND p.paymentstatus='paid'
+            THEN ' (cancelled; refund due)' ELSE '' END END,
+        CASE WHEN p.note LIKE 'Equipment booking:%' OR p.note LIKE 'Training class:%' THEN p.note END,'Legacy record') AS "planName"
       FROM payment p LEFT JOIN "user" u USING(userid) LEFT JOIN user_membership m USING(membershipid)
       LEFT JOIN membership_tiers t ON m.tierid=t.tierid LEFT JOIN LATERAL(SELECT * FROM day_pass WHERE paymentid=p.paymentid ORDER BY dayid LIMIT 1) d ON true
       LEFT JOIN reservation booking ON booking.payment_id=p.paymentid LEFT JOIN equipment machine ON machine.equipmentid=booking.equipmentid
+      LEFT JOIN app_training_enrollment training ON training.payment_id=p.paymentid
+      LEFT JOIN app_training_class class ON class.id=training.class_id
       WHERE ($1::int IS NULL OR p.userid=$1) ORDER BY p.paymentid DESC LIMIT 51 OFFSET $2`,
         [userId, offset],
       )

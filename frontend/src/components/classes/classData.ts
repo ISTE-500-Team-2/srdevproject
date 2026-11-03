@@ -7,6 +7,8 @@ export type ClassRecord = {
   certificationName: string;
   trainingMinutes?: number;
   trainingFeeCents?: number | null;
+  myTrainingFeeCents?: number | null;
+  myPaymentStatus?: string | null;
   instructorId: number;
   instructor: string;
   capacity: number;

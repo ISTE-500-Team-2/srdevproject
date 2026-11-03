@@ -11,6 +11,7 @@ import type { Eligibility } from "./ClassCatalog";
 export function ClassDetail({
   c,
   eligibility,
+  certified,
   busy,
   error,
   refreshToken,
@@ -20,6 +21,7 @@ export function ClassDetail({
 }: {
   c: ClassRecord;
   eligibility: Eligibility;
+  certified: boolean;
   busy: boolean;
   error?: string;
   refreshToken: number;
@@ -46,7 +48,12 @@ export function ClassDetail({
           </div>
         ) : null}
         <p className="eyebrow">Counts toward {c.certificationName}</p>
-        {c.trainingMinutes && <p>{c.trainingMinutes} minutes of training required. {c.trainingFeeCents != null ? `${cents(c.trainingFeeCents)} is added to each equipment booking, including when certified.` : 'Equipment booking fee not configured.'}</p>}
+        {c.trainingMinutes && <p>{c.trainingMinutes} minutes of training required.</p>}
+        <p>{registered && c.myTrainingFeeCents != null
+          ? `${cents(c.myTrainingFeeCents)} training fee · Payment: ${c.myPaymentStatus ?? 'not required'}`
+          : certified ? 'You are already certified; no training fee is due.'
+          : c.trainingFeeCents == null ? 'Training fee not configured.'
+          : `${cents(c.trainingFeeCents)} one-time training fee when you register. Equipment bookings only charge the hourly rate.`}</p>
         <dl className="class-facts">
           <div>
             <CalendarDays aria-hidden="true" />

@@ -12,22 +12,19 @@ export interface EquipmentPrice {
 export async function equipmentPrice(db: Database, equipmentId: number, hours: number): Promise<EquipmentPrice | null> {
   if (!Number.isInteger(hours) || hours < 1 || hours > 24)
     throw new AppError(400, 'INVALID_INPUT', 'Choose 1–24 whole hours.');
-  const row = (await db.query(`SELECT round(e.hourlyrate*100)::int AS rate,e.certid,c.revision,
-    c.training_fee_cents AS fee FROM equipment e LEFT JOIN certifications c USING(certid)
+  const row = (await db.query(`SELECT round(e.hourlyrate*100)::int AS rate,e.certid,c.revision
+    FROM equipment e LEFT JOIN certifications c USING(certid)
     WHERE e.equipmentid=$1`, [equipmentId])).rows[0];
   if (!row) throw new AppError(404, 'NOT_FOUND', 'Equipment not found.');
-  if (row.certid && row.fee === null)
-    throw new AppError(409, 'PRICE_NOT_CONFIGURED', 'Staff must configure the equipment training fee first.');
-  const fee = row.fee ?? 0;
   if (row.rate === null) {
-    if (fee) throw new AppError(409, 'PRICE_NOT_CONFIGURED', 'Staff must configure the equipment hourly rate first.');
     return null; // Preserve existing unpriced legacy bookings; never invent a zero rate.
   }
-  const total = row.rate * hours + fee;
+  const total = row.rate * hours;
   if (!Number.isSafeInteger(total) || total < 0 || total > 10000000)
     throw new AppError(409, 'INVALID_PRICE', 'The booking amount is outside the supported range.');
   return { currency: 'USD', hours, hourlyRateCents: row.rate, equipmentCents: row.rate * hours,
-    trainingFeeCents: fee, totalCents: total, certificationId: row.certid, certificationRevision: row.revision };
+    // Retain this field for historical reservation snapshots and older clients.
+    trainingFeeCents: 0, totalCents: total, certificationId: row.certid, certificationRevision: row.revision };
 }
 
 export function reviewEquipmentPrice(current: EquipmentPrice | null, expected: unknown) {
@@ -55,7 +52,7 @@ export async function saveReservationPrice(db: Database, reservationId: number, 
   if (price && (!payment || ['void', 'refunded'].includes(payment.status) ||
       payment.status === 'waived' && (payment.userId !== userId || before.price_snapshot?.totalCents !== price.totalCents))) {
     paymentId = await new StaffModel(db).createPayment(userId, null, amount!, price.totalCents ? 'pending' : 'waived',
-      'unspecified', '', `Equipment booking: ${name}; equipment ${(price.equipmentCents/100).toFixed(2)} + fee ${(price.trainingFeeCents/100).toFixed(2)} USD`, auditContext.getStore()?.actorId ?? actorId);
+      'unspecified', '', `Equipment booking: ${name}; equipment ${(price.equipmentCents/100).toFixed(2)} USD`, auditContext.getStore()?.actorId ?? actorId);
   }
   await db.query('UPDATE reservation SET price_snapshot=$2,payment_id=$3 WHERE reservationid=$1',
     [reservationId, price ? JSON.stringify(price) : null, paymentId]);

@@ -12,7 +12,7 @@ import {
   timeRange,
   type ClassRecord,
 } from "./classData";
-import { shortDate } from "../../lib/display";
+import { cents, shortDate } from "../../lib/display";
 
 export type Eligibility = "eligible" | "ineligible" | "unknown";
 
@@ -328,6 +328,7 @@ function ClassRow({
             </span>
           )}
         </p>
+        {!registered && <small>{holds ? 'No training fee while certified' : c.trainingFeeCents == null ? 'Training fee not configured' : `${cents(c.trainingFeeCents)} one-time training fee`}</small>}
       </div>
       {cancelled ? (
         <p className="class-row__cancelled">The shop cancelled this class.</p>

@@ -159,11 +159,11 @@ export function ScheduleClassDialog({
               ))}
             </select>
             <small>
-              Configure training duration and booking fees in <Link to="/training">Training</Link>.
+              Configure training duration and the one-time training fee in <Link to="/training">Training</Link>.
             </small>
           </label>
         </fieldset>
-        {course && <p>{course.trainingMinutes ?? 60} minutes of training required. {course.trainingFeeCents == null ? 'Equipment booking fee not configured.' : `${cents(course.trainingFeeCents)} is added to every linked equipment booking after certification.`}</p>}
+        {course && <p>{course.trainingMinutes ?? 60} minutes of training required. {course.trainingFeeCents == null ? 'Training fee not configured.' : `${cents(course.trainingFeeCents)} is charged once when a member registers for required training.`}</p>}
         <fieldset disabled={busy}>
           <legend>
             <i>2</i>When &amp; where
