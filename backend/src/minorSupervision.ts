@@ -154,6 +154,9 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
     const me=authState(res).user.id,email=emailField(req.body.email),dob=dateOfBirthField(req.body.dob);
     if (!await new MinorSupervision(pool,zone).isAdult(me)) throw new AppError(403,'ADULT_REQUIRED','Only active accounts aged 18 or older can sponsor a minor.');
     const attempt=await reserveAttempt(me,createHash('sha256').update(email.toLowerCase()).digest('hex'));
+    // Recorded after the transaction releases its client, so a later 409 still counts the
+    // details as matched without the request holding two pool connections at once.
+    let matched=false;
     const data=await transaction(pool,async db=>{
       const service=new MinorSupervision(db,zone),adultRequired=()=>new AppError(403,'ADULT_REQUIRED','Only active accounts aged 18 or older can sponsor a minor.');
       if (!await service.isAdult(me)) throw adultRequired();
@@ -162,8 +165,7 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
         WHERE lower(email)=$1 AND dob IS NOT NULL AND dob::date=$2::date AND status='active' AND accessstatus='active'
         AND dob::date>((now() AT TIME ZONE $3)::date-INTERVAL '18 years')::date FOR UPDATE`,[email,dob,zone])).rows[0];
       if (!minor) throw new AppError(404,'NOT_FOUND','No under-18 account matches that email and date of birth.');
-      // Outside this transaction so a later 409 still records that the details matched.
-      await pool.query('UPDATE app_minor_sponsor_attempt SET matched=true WHERE id=$1',[attempt]);
+      matched=true;
       const adult=(await db.query(`SELECT firstname FROM "user" WHERE userid=$1 AND ${adultSql(2)} FOR SHARE`,[me,zone])).rows[0];
       if (!adult) throw adultRequired();
       if ((await db.query('SELECT 1 FROM app_minor_sponsor WHERE minor_id=$1 AND adult_id=$2',[minor.id,me])).rowCount)
@@ -177,6 +179,8 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
         RETURNING id::int AS id,created_at AS "createdAt"`,[minor.id,me])).rows[0];
       await notify(db,minor.id,row.id,'received',{adultName:adult.firstname});
       return {id:row.id,minorName:minor.name,createdAt:row.createdAt};
+    }).finally(async()=>{
+      if (matched) await pool.query('UPDATE app_minor_sponsor_attempt SET matched=true WHERE id=$1',[attempt]);
     });res.status(201).json({data});
   });
   r.post('/me/minors/requests/:id/cancel',requireCsrf,async(req,res)=>{

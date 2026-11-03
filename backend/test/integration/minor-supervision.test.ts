@@ -258,6 +258,28 @@ test('sponsor requests limit date-of-birth guessing per target email and per adu
  } finally {await new Promise<void>(r=>{server2.close(r);server2.closeAllConnections();});}
 });
 
+test('sponsor requests run on a single-connection pool and still record matched details after a 409',async()=>{
+ // One connection: a request that asks the pool for a second client mid-transaction stalls and fails.
+ const single=new Pool({database,max:1,connectionTimeoutMillis:2000});
+ const app3=createApp(single,{jwtKey:randomBytes(32),port:8080,host:'127.0.0.1',secureCookies:false,demoLogin:true,allowedOrigins:['http://localhost:8080'],timeZone:'America/New_York'});
+ const server3=app3.listen(0,'127.0.0.1');await new Promise<void>(resolve=>server3.once('listening',resolve));
+ try {
+  const password='GoodPassword123!',ids:Record<string,number>={};
+  for (const [email,dob] of [['single.parent@example.invalid','1979-04-04'],['single.kid@example.invalid','2013-05-05']]) {
+   ids[email]=(await pool.query(`INSERT INTO "user"(firstname,lastname,email,password,phone,dob,status,email_confirmed)
+    VALUES('Single','Pool',$1,$2,'1112223333',$3,'active',true) RETURNING userid`,[email,await hashPassword(password),dob])).rows[0].userid;
+   await pool.query("INSERT INTO user_role(userid,roleid) SELECT $1,roleid FROM role WHERE role='member'",[ids[email]]);
+  }
+  const parent=(await request(server3).post('/api/auth/login').send({email:'single.parent@example.invalid',password})).body.data;
+  const ask=()=>request(server3).post('/api/me/minors/requests').set('Authorization','Bearer '+parent.accessToken)
+   .set('X-CSRF-Token',parent.csrfToken).send({email:'single.kid@example.invalid',dob:'2013-05-05'});
+  const created=await ask();assert.equal(created.status,201,JSON.stringify(created.body));
+  const pending=await ask();assert.equal(pending.status,409,JSON.stringify(pending.body));assert.equal(pending.body.error.code,'REQUEST_PENDING');
+  assert.deepEqual((await pool.query('SELECT matched FROM app_minor_sponsor_attempt WHERE adult_id=$1 ORDER BY id',[ids['single.parent@example.invalid']])).rows.map(r=>r.matched),
+   [true,true],'a rolled-back 409 still counts as a match, not a miss');
+ } finally {await new Promise<void>(r=>{server3.close(r);server3.closeAllConnections();});await single.end();}
+});
+
 // Review regressions share one linked, entitled adult/minor pair; each starts with the adult checked in.
 let pair:{parent:any,kid:any}|undefined;
 async function family(){
