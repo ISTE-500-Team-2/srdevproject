@@ -38,7 +38,7 @@ export async function evaluateReaderAccess(db: Database, tz: string, r: ReaderTa
     AND sponsor_id=$2 AND building_id=$3 AND checked_out_at IS NULL
     AND (checked_in_at AT TIME ZONE $4)::date=(now() AT TIME ZONE $4)::date`,[userId,grant.sponsorId,grant.buildingId,tz])).rowCount)
     return deny('MINOR_CHECK_IN_REQUIRED');
-  const user = await new UserModel(db).findById(userId);
+  const user = await new UserModel(db, tz).findById(userId);
   if (!user) return deny('ACCOUNT_BLOCKED');
   const entitlement = grant.entitlement;
   let expires = await accessDeadline(db,tz,userId,grant.endsAt,

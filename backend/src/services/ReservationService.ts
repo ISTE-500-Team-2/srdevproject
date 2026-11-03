@@ -59,7 +59,7 @@ export class ReservationService {
       const access = new AccessService(db, this.timeZone);
       await access.assertActiveUser(userId);
 
-      const actor = await new UserModel(db).findById(userId);
+      const actor = await new UserModel(db, this.timeZone).findById(userId);
       if (!actor || actor.roles.includes("instructor"))
         throw new AppError(
           403,
@@ -229,7 +229,7 @@ export class ReservationService {
       const access = new AccessService(db, this.timeZone);
       await access.assertActiveUser(actorId);
 
-      const actor = await new UserModel(db).findById(actorId);
+      const actor = await new UserModel(db, this.timeZone).findById(actorId);
       if (!actor || actor.roles.includes("instructor"))
         throw new AppError(
           403,
@@ -330,7 +330,10 @@ export class ReservationService {
       // Take the final exclusive resource lock directly; upgrading SHARE later
       // can deadlock simultaneous reservations before conflict detection.
       const familyBuilding=(await db.query(`SELECT buildingid FROM ${equipmentId ? 'equipment' : 'room'} WHERE ${equipmentId ? 'equipmentid' : 'roomid'}=$1 FOR UPDATE`,[equipmentId ?? roomId])).rows[0];
-      await new MinorSupervision(db,this.timeZone).requireSponsor(targetId,familyBuilding?.buildingid);
+      // Staff moving someone else's booking (including maintenance reassignment) keeps its
+      // existing sponsor link; the sponsor need not be in the building at edit time.
+      const keepSponsorLink = targetId !== actorId && targetId === before.userId;
+      if (!keepSponsorLink) await new MinorSupervision(db,this.timeZone).requireSponsor(targetId,familyBuilding?.buildingid);
 
       let waiverId: number | null = null;
       let location: string;
@@ -432,7 +435,7 @@ export class ReservationService {
       });
       if (!reservation)
         throw new AppError(404, "NOT_FOUND", "Reservation not found.");
-      await new MinorSupervision(db,this.timeZone).recordBooking(targetId,reservation.id);
+      if (!keepSponsorLink) await new MinorSupervision(db,this.timeZone).recordBooking(targetId,reservation.id);
       await new StaffModel(db).audit(
         actorId,
         targetId,
@@ -462,7 +465,7 @@ export class ReservationService {
     return transaction(this.pool, async (db) => {
       const access = new AccessService(db, this.timeZone);
       await access.assertActiveUser(actorId);
-      const actor = await new UserModel(db).findById(actorId);
+      const actor = await new UserModel(db, this.timeZone).findById(actorId);
       if (!actor || actor.roles.includes("instructor"))
         throw new AppError(
           403,

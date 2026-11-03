@@ -448,6 +448,8 @@ export function cardManagement(
               [userId, id, resource.name.slice(0, 100), ends],
             )
           ).rows[0]!;
+        // Reader access for a minor requires the booking linked to their present sponsor.
+        if (!current) await new MinorSupervision(db, tz).recordBooking(userId, reservation.id);
         if (!current)
           await new StaffModel(db, tz).audit(
             authState(res).user.id,

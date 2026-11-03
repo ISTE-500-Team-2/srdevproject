@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import {randomBytes} from 'node:crypto';
+import {randomBytes,randomUUID} from 'node:crypto';
 import {before,after,test} from 'node:test';
+import {setTimeout as delay} from 'node:timers/promises';
 import {Pool} from 'pg';
 import request from 'supertest';
 import {createApp} from '../../src/app.js';
@@ -11,6 +12,8 @@ import {evaluateReaderAccess} from '../../src/services/ReaderEligibility.js';
 import {MinorSupervision} from '../../src/minorSupervision.js';
 import {transaction} from '../../src/db.js';
 import {hashPassword} from '../../src/passwords.js';
+import {StudioService} from '../../src/studios/service.js';
+import {MemberModel} from '../../src/models/MemberModel.js';
 const database='arbor_family_'+randomBytes(5).toString('hex')+'_mvc_test';
 const owner=new Pool(),pool=new Pool({database});
 let app:any,server:any,admin:any,adult:any,minor:any,room:number,booking:number;
@@ -253,4 +256,135 @@ test('sponsor requests limit date-of-birth guessing per target email and per adu
   for (let n=0;n<5;n++) assert.equal((await ask(`nobody${n}@example.invalid`,'2011-01-01')).status,404);
   const capped=await ask('elsewhere@example.invalid','2011-01-01');assert.equal(capped.status,429,'ten attempts per adult per day');
  } finally {await new Promise<void>(r=>{server2.close(r);server2.closeAllConnections();});}
+});
+
+// Review regressions share one linked, entitled adult/minor pair; each starts with the adult checked in.
+let pair:{parent:any,kid:any}|undefined;
+async function family(){
+ if(!pair){
+  const parent=await account('review.parent@example.invalid','1980-01-01'),kid=await account('review.kid@example.invalid','2012-01-01');
+  for(const who of [parent,kid]){
+   await pool.query(`INSERT INTO user_membership(userid,tierid,startdate,end_date,status)
+    VALUES($1,1,(now()-interval '1 day') AT TIME ZONE 'UTC',(now()+interval '30 days') AT TIME ZONE 'UTC','active')`,[who.user.id]);
+   await sign(who);
+  }
+  await pool.query('INSERT INTO app_minor_sponsor(minor_id,adult_id) VALUES($1,$2)',[kid.user.id,parent.user.id]);
+  pair={parent,kid};
+ }
+ await transaction(pool,db=>new MinorSupervision(db).startVisit(pair!.parent.user.id,1));
+ return {parent:pair.parent.user.id as number,kid:pair.kid.user.id as number,kidSession:pair.kid,parentSession:pair.parent};
+}
+const fixtureRoom=async(name:string)=>(await pool.query("INSERT INTO room(name,location,status,capacity) VALUES($1,'Fixture','available',15) RETURNING roomid",[name])).rows[0].roomid as number;
+test('class enrollment locks the member before sponsor rows, so sponsor changes queue instead of deadlocking',async()=>{
+ const {kid,kidSession}=await family();
+ await pool.query("INSERT INTO user_role(userid,roleid) SELECT $1,roleid FROM role WHERE role='instructor' ON CONFLICT DO NOTHING",[admin.user.id]);
+ const catalog=(await pool.query('SELECT id FROM app_class_catalog ORDER BY id LIMIT 1')).rows[0].id,start=Date.now()+2*86400000;
+ const created=await post(admin,'/classes',{title:'Lock order class',catalogId:catalog,instructorId:admin.user.id,roomId:await fixtureRoom('Lock order classroom'),capacity:15,
+  startsAt:new Date(start).toISOString(),endsAt:new Date(start+3600000).toISOString(),reason:'Lock order regression'});
+ assert.equal(created.status,201,JSON.stringify(created.body));
+ // Instructor accounts cannot book; later tests have the admin edit reservations.
+ await pool.query("DELETE FROM user_role WHERE userid=$1 AND roleid=(SELECT roleid FROM role WHERE role='instructor')",[admin.user.id]);
+ const blocker=await pool.connect();let enrolling:Promise<any>|undefined,queued=false;
+ try {
+  // Stand in for sponsor unlink/accept/staff relink: minor user row FOR UPDATE, then the sponsor row.
+  await blocker.query('BEGIN');
+  await blocker.query('SELECT userid FROM "user" WHERE userid=$1 FOR UPDATE',[kid]);
+  enrolling=post(kidSession,`/classes/${created.body.data.id}/enroll`).then(r=>r);
+  const deadline=Date.now()+5000;
+  while(Date.now()<deadline&&!queued){
+   queued=!!(await pool.query("SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock'")).rowCount;
+   if(!queued)await delay(10);
+  }
+  // Enrollment used to take the sponsor row FOR SHARE first and then wait on the user row
+  // for its foreign key, so this second lock deadlocked (40P01). Now it must be free.
+  await blocker.query('SELECT minor_id FROM app_minor_sponsor WHERE minor_id=$1 FOR UPDATE NOWAIT',[kid]);
+ } finally {await blocker.query('ROLLBACK');blocker.release();}
+ assert.ok(queued,'enrollment waited behind the user row lock');
+ const enrolled=await enrolling!;assert.equal(enrolled.status,200,JSON.stringify(enrolled.body));
+});
+test('visit check-outs never end before a check-in committed after the transaction began',async()=>{
+ const {parent,kid}=await family();
+ const db=await pool.connect();
+ try {
+  await db.query('BEGIN');await db.query('SELECT now()');await delay(20);
+  // Stands in for a visit committed just after local midnight by a transaction that began before it:
+  // startVisit treats it as a previous-day visit and must still end it no earlier than it began.
+  await pool.query("INSERT INTO app_facility_visit(user_id,building_id,sponsor_id,checked_in_at) VALUES($1,1,$2,clock_timestamp()+interval '1 day')",[kid,parent]);
+  await new MinorSupervision(db).startVisit(kid,1);
+  await db.query('COMMIT');
+  await db.query('BEGIN');await db.query('SELECT now()');await delay(20);
+  // A minor check-in commits after the adult's checkout transaction began (it waited on the adult visit).
+  await pool.query('UPDATE app_facility_visit SET checked_in_at=clock_timestamp() WHERE user_id=$1 AND checked_out_at IS NULL',[kid]);
+  const out=await new MinorSupervision(db).checkout(parent);
+  await db.query('COMMIT');
+  assert.deepEqual(out.checkedOut.map((r:any)=>r.userId).sort((a:number,b:number)=>a-b),[parent,kid].sort((a,b)=>a-b));
+ } catch(error) {await db.query('ROLLBACK');throw error;} finally {db.release();}
+ assert.equal((await pool.query('SELECT count(*)::int n FROM app_facility_visit WHERE user_id=ANY($1::int[]) AND checked_out_at IS NULL',[[parent,kid]])).rows[0].n,0);
+});
+test('staff supervised access for a minor links the new booking to the present sponsor',async()=>{
+ const {parent,kid}=await family();
+ const space=await fixtureRoom('Supervised override room');
+ const r=await post(admin,'/admin/access/overrides',{userId:kid,kind:'room',resourceId:space,durationMinutes:10,reason:'Supervised minor access'});
+ assert.equal(r.status,201,JSON.stringify(r.body));
+ assert.equal((await pool.query('SELECT adult_id FROM app_minor_booking WHERE reservation_id=$1',[r.body.data.reservationid])).rows[0]?.adult_id,parent);
+ const verdict=await transaction(pool,db=>evaluateReaderAccess(db,'America/New_York',{kind:'room',resourceId:space},kid));
+ assert.equal(verdict.allowed,true,JSON.stringify(verdict));
+});
+test('a minor can replay a created studio rental after the sponsor leaves; new rentals still need them',async()=>{
+ const {parent,kid}=await family();
+ const studios=new StudioService(pool),studio=(await pool.query('SELECT id,revision FROM app_studio ORDER BY id LIMIT 1')).rows[0];
+ await studios.configure(admin.user.id,studio.id,{monthlyCents:20000,cancellationPolicy:'full_before_start',policyConfirmed:true,revision:studio.revision});
+ const body={studioId:studio.id,startDate:'2030-01-31',paymentMethod:'manual',requestKey:randomUUID(),
+  expectedRevision:(await pool.query('SELECT revision FROM app_studio WHERE id=$1',[studio.id])).rows[0].revision};
+ const rental=await studios.create(kid,body);
+ assert.equal((await pool.query('SELECT adult_id FROM app_minor_studio_booking WHERE rental_id=$1',[rental.id])).rows[0].adult_id,parent);
+ await transaction(pool,db=>new MinorSupervision(db).checkout(parent));
+ assert.equal((await studios.create(kid,body)).id,rental.id,'the same request key replays the created rental');
+ await assert.rejects(studios.create(kid,{...body,startDate:'2030-03-31',requestKey:randomUUID()}),{code:'SPONSOR_REQUIRED'});
+});
+test("staff can move a minor's booking while the sponsor is away; the sponsor link is kept",async()=>{
+ const {parent,kid,kidSession}=await family();
+ const space=await fixtureRoom('Staff move room'),start=Date.now()+86400000,at=(ms:number)=>new Date(ms).toISOString();
+ const booked=await post(kidSession,'/reservations',{roomId:space,startTime:at(start),endTime:at(start+3600000)});
+ assert.equal(booked.status,201,JSON.stringify(booked.body));
+ const id=booked.body.data.id,revision=(await pool.query('SELECT revision FROM reservation WHERE reservationid=$1',[id])).rows[0].revision;
+ await transaction(pool,db=>new MinorSupervision(db).checkout(parent));
+ const moved=await request(server).patch(`/api/admin/reservations/${id}`).set('Authorization','Bearer '+admin.accessToken).set('X-CSRF-Token',admin.csrfToken)
+  .send({startTime:at(start+7200000),endTime:at(start+10800000),expectedRevision:revision});
+ assert.equal(moved.status,200,JSON.stringify(moved.body));
+ assert.equal((await pool.query('SELECT adult_id FROM app_minor_booking WHERE reservation_id=$1',[id])).rows[0]?.adult_id,parent);
+});
+test('a previous-day open visit does not block sponsor changes the summary allows',async()=>{
+ const {parent,kid,kidSession,parentSession}=await family();
+ const stale=()=>pool.query("INSERT INTO app_facility_visit(user_id,building_id,sponsor_id,checked_in_at) VALUES($1,1,$2,now()-interval '1 day')",[kid,parent]);
+ await stale();
+ assert.equal((await get(kidSession,'/me/supervision')).body.data.visit,null,'the summary hides previous-day visits');
+ const revision=(await pool.query('SELECT revision FROM app_minor_sponsor WHERE minor_id=$1',[kid])).rows[0].revision;
+ const relinked=await post(admin,`/admin/users/${kid}/supervision`,{adultId:parent,revision,consent:true,reason:'Confirmed sponsor at desk'});
+ assert.equal(relinked.status,200,JSON.stringify(relinked.body));
+ await stale();
+ const unlinked=await post(parentSession,`/me/minors/${kid}/unlink`);assert.equal(unlinked.status,200,JSON.stringify(unlinked.body));
+ await stale();
+ const requestId=(await pool.query('INSERT INTO app_minor_sponsor_request(minor_id,adult_id) VALUES($1,$2) RETURNING id::int',[kid,parent])).rows[0].id;
+ const accepted=await post(kidSession,`/me/sponsor-requests/${requestId}/accept`);assert.equal(accepted.status,200,JSON.stringify(accepted.body));
+ assert.equal((await pool.query('SELECT count(*)::int n FROM app_facility_visit WHERE user_id=$1 AND checked_out_at IS NULL',[kid])).rows[0].n,0);
+ assert.equal((await pool.query('SELECT count(*)::int n FROM app_facility_visit WHERE user_id=$1 AND checked_out_at<checked_in_at',[kid])).rows[0].n,0);
+});
+test('minor status and supervision use the configured time zone, not New York',async()=>{
+ // Kiritimati (UTC+14) is always at least a day ahead of Pago Pago (UTC-11): this account turns 18 today there only.
+ const password='GoodPassword123!',email='zone.birthday@example.invalid';
+ const id=(await pool.query(`INSERT INTO "user"(firstname,lastname,email,password,phone,dob,status,email_confirmed)
+  VALUES('Zone','Birthday',$1,$2,'1112223333',((now() AT TIME ZONE 'Pacific/Kiritimati')::date-INTERVAL '18 years')::date,'active',true) RETURNING userid`,[email,await hashPassword(password)])).rows[0].userid;
+ await pool.query("INSERT INTO user_role(userid,roleid) SELECT $1,roleid FROM role WHERE role='member'",[id]);
+ for(const [timeZone,isMinor] of [['Pacific/Kiritimati',false],['Pacific/Pago_Pago',true]] as const){
+  const zoned=createApp(pool,{jwtKey:randomBytes(32),port:8080,host:'127.0.0.1',secureCookies:false,demoLogin:true,allowedOrigins:['http://localhost:8080'],timeZone});
+  const login=await request(zoned).post('/api/auth/login').send({email,password});assert.equal(login.status,200,JSON.stringify(login.body));
+  assert.equal(login.body.data.user.isMinor,isMinor,timeZone);
+  const session=await request(zoned).get('/api/auth/session').set('Authorization','Bearer '+login.body.data.accessToken);
+  assert.equal(session.body.data.user.isMinor,isMinor,timeZone);
+ }
+ // Portal check-ins start the visit with the same zone: an adult there needs no sponsor.
+ await assert.rejects(transaction(pool,db=>new MemberModel(db,'Pacific/Pago_Pago').createCheckIn(id,'Fixture',null,1)),{code:'SPONSOR_REQUIRED'});
+ await transaction(pool,db=>new MemberModel(db,'Pacific/Kiritimati').createCheckIn(id,'Fixture',null,1));
+ assert.equal((await pool.query('SELECT count(*)::int n FROM app_facility_visit WHERE user_id=$1 AND checked_out_at IS NULL',[id])).rows[0].n,1);
 });

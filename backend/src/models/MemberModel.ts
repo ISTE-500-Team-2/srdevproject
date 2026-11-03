@@ -2,7 +2,7 @@ import { MinorSupervision } from "../minorSupervision.js";
 import type { Database } from '../db.js';
 
 export class MemberModel {
-  constructor(private db: Database) {}
+  constructor(private db: Database, private timeZone = "America/New_York") {}
   async certifications(userId: number) {
     return (
       await this.db.query(
@@ -60,7 +60,7 @@ export class MemberModel {
       RETURNING checkinid AS id,location,checkintime AT TIME ZONE 'UTC' AS "checkedInAt"`,
       [userId, roomId, location,buildingId,equipmentId,reservationId],
     );
-    await new MinorSupervision(this.db).startVisit(userId,buildingId ?? 1);
+    await new MinorSupervision(this.db,this.timeZone).startVisit(userId,buildingId ?? 1);
     return rows[0]!;
   }
 }

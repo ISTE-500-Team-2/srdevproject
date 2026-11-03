@@ -25,7 +25,7 @@ export class StudioService {
   }
   async actor(db: Database, id: number, staff = false, admin = false) {
     await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR SHARE', [id]);
-    const user = await new UserModel(db).findById(id);
+    const user = await new UserModel(db, this.zone).findById(id);
     if (!user || user.status !== "active" || user.accessStatus !== "active")
       throw new AppError(
         403,
@@ -188,7 +188,6 @@ export class StudioService {
     try {
       rental = await transaction(this.pool, async (db) => {
         const user = await this.actor(db, userid);
-        await new MinorSupervision(db,this.zone).requireSponsor(userid,1);
         if (!(await new PermissionModel(db).allows(user,"reservation","create",userid))) throw new AppError(403,"PERMISSION_DENIED","Reservation permission is required.");
         if (user.roles.some((r) => r.toLowerCase() === "instructor"))
           throw new AppError(
@@ -225,6 +224,9 @@ export class StudioService {
             );
           return old;
         }
+        // After the replay lookup: retrying a created rental must not need the adult still present.
+        // Studios are all in the main building (1) until studios carry their own building.
+        await new MinorSupervision(db,this.zone).requireSponsor(userid,1);
         const studio = (
           await db.query("SELECT * FROM app_studio WHERE id=$1 FOR UPDATE", [
             studioId,

@@ -81,7 +81,7 @@ export class MemberController {
       await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR UPDATE', [
         userId,
       ]);
-      const model = new UserModel(db),
+      const model = new UserModel(db, this.timeZone),
         before = await model.profile(userId);
       const updated = await model.updateProfile(
         authState(res).user.id,
@@ -241,7 +241,7 @@ export class MemberController {
     const record = await transaction(this.pool, async (db) => {
       const access = new AccessService(db, this.timeZone);
       const grant = await access.reservationForAccess(userId,target);
-      const checkIn = await new MemberModel(db).createCheckIn(userId,grant.location,target.roomId ?? null,
+      const checkIn = await new MemberModel(db, this.timeZone).createCheckIn(userId,grant.location,target.roomId ?? null,
         grant.buildingId,target.equipmentId ?? null,grant.reservationId);
       await new StaffModel(db, this.timeZone).audit(
         userId,

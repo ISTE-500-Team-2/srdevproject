@@ -43,7 +43,7 @@ export class AuthController {
     notification?: NotificationTemplate,
     verifiedPasswordHash?: string,
   ) {
-    const user = await new UserModel(this.pool).findById(userId);
+    const user = await new UserModel(this.pool,this.config.timeZone).findById(userId);
     if (!user || user.status !== 'active' || user.accessStatus !== 'active')
       throw new AppError(
         403,
@@ -60,7 +60,7 @@ export class AuthController {
       // Recheck under the same account lock used by reset and keep it until commit.
       if (verifiedPasswordHash && locked?.password !== verifiedPasswordHash)
         throw new AppError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect.');
-      const sessions = new SessionModel(db,this.config.jwtKey,this.config.accessTokenSeconds,this.config.refreshTokenSeconds);
+      const sessions = new SessionModel(db,this.config.jwtKey,this.config.accessTokenSeconds,this.config.refreshTokenSeconds,this.config.timeZone);
       const previous = refreshToken(req);
       if (previous) await sessions.revokeRefresh(previous);
       return sessions.create(userId, remember);
@@ -92,7 +92,7 @@ export class AuthController {
     res.json({data:{csrfToken}});
   };
   refresh = async (req: Request,res: Response) => {
-    const session = await transaction(this.pool,db => new SessionModel(db,this.config.jwtKey,this.config.accessTokenSeconds,this.config.refreshTokenSeconds).rotate(refreshToken(req),req.get('X-CSRF-Token') ?? ''));
+    const session = await transaction(this.pool,db => new SessionModel(db,this.config.jwtKey,this.config.accessTokenSeconds,this.config.refreshTokenSeconds,this.config.timeZone).rotate(refreshToken(req),req.get('X-CSRF-Token') ?? ''));
     if (!session) throw new AppError(401,'UNAUTHENTICATED','Sign in to continue.');
     this.respond(res,session);
   };
@@ -183,8 +183,8 @@ export class AuthController {
     const { session, notification } = await transaction(this.pool,async db => {
       // Existing confirmation links remain usable; new sign-ups allocate their account here.
       const userId=await consumeRegistration(db,req.body.token) ?? await consumeEmailConfirmation(db,req.body.token);
-      const session = await new SessionModel(db,this.config.jwtKey,this.config.accessTokenSeconds,this.config.refreshTokenSeconds).create(userId,false);
-      const user = await new UserModel(db).findById(userId);
+      const session = await new SessionModel(db,this.config.jwtKey,this.config.accessTokenSeconds,this.config.refreshTokenSeconds,this.config.timeZone).create(userId,false);
+      const user = await new UserModel(db,this.config.timeZone).findById(userId);
       const notification = renderNotificationTemplate('accountCreation', {
         firstName: user?.firstName ?? '',
         email: user?.email ?? '',
@@ -289,7 +289,7 @@ export class AuthController {
     res.json({ data: { ...accountModeView(user, actor), csrfToken } });
   };
   logout = async (_req: Request, res: Response) => {
-    await new SessionModel(this.pool, this.config.jwtKey,this.config.accessTokenSeconds,this.config.refreshTokenSeconds).remove(authState(res).token);
+    await new SessionModel(this.pool, this.config.jwtKey,this.config.accessTokenSeconds,this.config.refreshTokenSeconds,this.config.timeZone).remove(authState(res).token);
     res.clearCookie(cookieName, {
       httpOnly: true,
       secure: this.config.secureCookies,

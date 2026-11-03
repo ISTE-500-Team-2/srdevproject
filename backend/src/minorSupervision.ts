@@ -51,8 +51,7 @@ export class MinorSupervision {
     const sponsor = await this.requireSponsor(id,buildingId);
     // One open visit, with stale previous-day visits explicitly ended before starting anew.
     await this.db.query('SELECT pg_advisory_xact_lock(hashtext(\'arbor-visit\'),$1)',[id]);
-    await this.db.query(`UPDATE app_facility_visit SET checked_out_at=now() WHERE user_id=$1 AND checked_out_at IS NULL
-      AND (checked_in_at AT TIME ZONE $2)::date<>(now() AT TIME ZONE $2)::date`,[id,this.zone]);
+    await this.closeStale(id);
     const existing=(await this.db.query('SELECT id,building_id,sponsor_id FROM app_facility_visit WHERE user_id=$1 AND checked_out_at IS NULL FOR UPDATE',[id])).rows[0];
     if (existing) {
       if (!sponsor && existing.building_id!==buildingId) {
@@ -65,11 +64,18 @@ export class MinorSupervision {
     }
     return (await this.db.query(`INSERT INTO app_facility_visit(user_id,building_id,sponsor_id) VALUES($1,$2,$3) RETURNING id`,[id,buildingId,sponsor?.id ?? null])).rows[0];
   }
+  /** Ends open visits from previous days; summary and sponsor checks only see today's. */
+  async closeStale(id:number) {
+    // now() is transaction start; a visit inserted after it commits must not end before it began.
+    await this.db.query(`UPDATE app_facility_visit SET checked_out_at=GREATEST(clock_timestamp(),checked_in_at) WHERE user_id=$1 AND checked_out_at IS NULL
+      AND (checked_in_at AT TIME ZONE $2)::date<>(now() AT TIME ZONE $2)::date`,[id,this.zone]);
+  }
   async checkout(id:number) {
     await this.db.query("SELECT pg_advisory_xact_lock(hashtext('arbor-visit'),$1)",[id]);
     // Lock the adult visit first: concurrent minor access/booking holds the same row shared.
     const parent = await this.db.query('SELECT id FROM app_facility_visit WHERE user_id=$1 AND checked_out_at IS NULL FOR UPDATE',[id]);
-    const result=await this.db.query(`UPDATE app_facility_visit SET checked_out_at=now()
+    // Minor visits may have been inserted after this transaction began (see closeStale).
+    const result=await this.db.query(`UPDATE app_facility_visit SET checked_out_at=GREATEST(clock_timestamp(),checked_in_at)
       WHERE checked_out_at IS NULL AND (user_id=$1 OR sponsor_id=$1) RETURNING user_id AS "userId"`,[id]);
     return { checkedOut: result.rows, hadVisit: !!parent.rowCount };
   }
@@ -113,7 +119,11 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
   // Adult-initiated, minor-confirmed links. Lock order matches the staff route:
   // minor user row, adult user row, sponsor row, then the minor's open visit.
   const lockUser=(db:Database,id:number)=>db.query('SELECT userid FROM "user" WHERE userid=$1 FOR UPDATE',[id]);
-  const openVisit=async(db:Database,id:number)=>!!(await db.query('SELECT id FROM app_facility_visit WHERE user_id=$1 AND checked_out_at IS NULL FOR UPDATE',[id])).rowCount;
+  // Stale previous-day visits are ended first, as startVisit does, so they cannot block changes the summary hides.
+  const openVisit=async(db:Database,id:number)=>{
+    await new MinorSupervision(db,zone).closeStale(id);
+    return !!(await db.query('SELECT id FROM app_facility_visit WHERE user_id=$1 AND checked_out_at IS NULL FOR UPDATE',[id])).rowCount;
+  };
   // Payloads carry first names only, never either account's email.
   const notify=(db:Database,userId:number,id:number,kind:'received'|'accepted'|'declined',payload:Record<string,string>)=>
     enqueueNotification(db,{userId,kind:`sponsor_request_${kind}`,dedupeKey:`sponsor-request:${id}:${kind}`,payload});
@@ -250,7 +260,7 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
       if (!eligible) throw new AppError(400,'ADULT_REQUIRED','Choose an active adult account aged 18 or older.');
       const existing=(await db.query('SELECT * FROM app_minor_sponsor WHERE minor_id=$1 FOR UPDATE',[id])).rows[0];
       if ((existing?.revision ?? 0)!==revision) throw new AppError(409,'STALE_RECORD','Refresh the sponsor record before saving.');
-      if ((await db.query('SELECT id FROM app_facility_visit WHERE user_id=$1 AND checked_out_at IS NULL FOR UPDATE',[id])).rowCount)
+      if (await openVisit(db,id))
         throw new AppError(409,'CHECK_OUT_FIRST','Check out the minor before changing their sponsoring adult.');
       await db.query(`INSERT INTO app_minor_sponsor(minor_id,adult_id) VALUES($1,$2) ON CONFLICT(minor_id)
         DO UPDATE SET adult_id=EXCLUDED.adult_id,revision=app_minor_sponsor.revision+1,updated_at=now()`,[id,adult]);
