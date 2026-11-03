@@ -99,14 +99,20 @@ test('reset security mail uses a fragment link and never offers to suppress secu
   assert.throws(() => renderNotification('password_reset', { resetUrl: 'javascript:bad' }, context), /Invalid reset link/);
 });
 
-test('mail stays light-only (no brittle dark overrides) and keeps mobile padding and security actions',()=>{
- const html=renderNotification('password_reset',{resetUrl:'https://studio.example/reset-password#'+'a'.repeat(43)},context).htmlContent;
- assert.match(html,/color-scheme" content="light"/);
- assert.match(html,/supported-color-schemes" content="light"/);
- assert.match(html,/color-scheme:light;supported-color-schemes:light/);
- assert.doesNotMatch(html,/light dark|prefers-color-scheme|data-ogsc|\[style\*=/);
- assert.match(html,/@media\(max-width:480px\)\{\.email-pad\{padding:24px 18px!important\}\.email-outer-pad\{padding:16px 8px!important\}/);
- assert.match(html,/class="email-outer-pad"/);
+test('mail supports dark mode with class-based overrides and a plated logo, keeping mobile padding and security actions',()=>{
+ const html=renderNotification('password_reset',{resetUrl:'https://studio.example/reset-password#'+'a'.repeat(43)},{...context,preferencesUrl:'https://studio.example/profile'}).htmlContent;
+ assert.match(html,/color-scheme" content="light dark"/);
+ assert.match(html,/@media\(prefers-color-scheme:dark\)\{\.em-bg\{/);
+ assert.match(html,/\[data-ogsb\] \.em-card\{background-color/);
+ assert.match(html,/\[data-ogsc\] \.em-ink\{color/);
+ assert.doesNotMatch(html,/\[style\*=/,'no attribute-substring selectors');
+ assert.match(html,/class="email-pad em-card em-line"/);
+ assert.match(html,/<td bgcolor="#2b1306" class="em-btn"/);
+ assert.match(html,/collaboratory-logo-email-plate\.png/);
+ assert.match(html,/\.email-outer-pad\{padding:16px 8px!important\}/);
  assert.match(html,/Set a new password/);
- assert.ok(html.includes('https://studio.example/reset-password#'+'a'.repeat(43)));
+});
+test('turning off auto-renew sends an auto-renew confirmation',()=>{
+ const r=renderNotification('membership_cancelled',{membershipName:'Monthly',endsAt:'2026-12-02T05:00:00Z'},context);
+ assert.match(r.subject,/Auto-renew is off/);assert.match(r.textContent,/turned off automatic payments/);
 });
