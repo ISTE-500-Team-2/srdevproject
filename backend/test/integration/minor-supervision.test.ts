@@ -10,6 +10,7 @@ import {waiverAcceptance} from '../helpers/waiver.js';
 import {evaluateReaderAccess} from '../../src/services/ReaderEligibility.js';
 import {MinorSupervision} from '../../src/minorSupervision.js';
 import {transaction} from '../../src/db.js';
+import {hashPassword} from '../../src/passwords.js';
 const database='arbor_family_'+randomBytes(5).toString('hex')+'_mvc_test';
 const owner=new Pool(),pool=new Pool({database});
 let app:any,server:any,admin:any,adult:any,minor:any,room:number,booking:number;
@@ -131,4 +132,66 @@ test('a revoked sponsor or previous-day visit cannot authorize a minor',async()=
  await pool.query('UPDATE app_facility_visit SET checked_in_at=now() WHERE user_id=$1 AND checked_out_at IS NULL',[adult.user.id]);
  await pool.query("UPDATE \"user\" SET accessstatus='suspended' WHERE userid=$1",[adult.user.id]);
  await assert.rejects(transaction(pool,db=>new MinorSupervision(db).requireSponsor(minor.user.id)),{code:'SPONSOR_REQUIRED'});
+});
+async function account(email:string,dob:string){
+ const password='GoodPassword123!';
+ const id=(await pool.query(`INSERT INTO "user"(firstname,lastname,email,password,phone,dob,status,email_confirmed)
+  VALUES('Link',$1,$2,$3,'1112223333',$4,'active',true) RETURNING userid`,[email.split('@')[0],email,await hashPassword(password),dob])).rows[0].userid;
+ await pool.query("INSERT INTO user_role(userid,roleid) SELECT $1,roleid FROM role WHERE role='member'",[id]);
+ const login=await request(server).post('/api/auth/login').send({email,password});assert.equal(login.status,200,JSON.stringify(login.body));
+ return login.body.data;
+}
+const get=(who:any,path:string)=>request(server).get('/api'+path).set('Authorization','Bearer '+who.accessToken);
+test('adults request a link, the minor confirms it, and either side can undo it without staff',async()=>{
+ const parent=await account('parent@example.invalid','1985-05-05'),kid=await account('kid@example.invalid','2012-03-04'),other=await account('other@example.invalid','1980-01-01');
+ const ask=(who:any,body:any={email:'KID@Example.invalid',dob:'2012-03-04'},csrf=true)=>post(who,'/me/minors/requests',body,csrf);
+ const noMatch='No under-18 account matches that email and date of birth.';
+ assert.equal((await ask(parent,undefined,false)).status,403,'CSRF required');
+ for(const who of [kid,minor]){const r=await ask(who);assert.equal(r.status,403);assert.equal(r.body.error.code,'ADULT_REQUIRED');}
+ for(const body of [{email:'kid@example.invalid',dob:'2012-03-05'},{email:'nobody@example.invalid',dob:'2012-03-04'},{email:'other@example.invalid',dob:'1980-01-01'}]){
+  const r=await ask(parent,body);assert.equal(r.status,404);assert.equal(r.body.error.code,'NOT_FOUND');assert.equal(r.body.error.message,noMatch);
+ }
+ const created=await ask(parent);assert.equal(created.status,201,JSON.stringify(created.body));
+ const id=created.body.data.id;assert.equal(created.body.data.minorName,'Link kid');assert.ok(created.body.data.createdAt);
+ assert.equal((await ask(parent)).body.error.code,'REQUEST_PENDING');
+ assert.deepEqual((await get(parent,'/me/minors')).body.data.requests.map((r:any)=>[r.id,r.minorName]),[[id,'Link kid']]);
+ assert.deepEqual((await get(kid,'/me/supervision')).body.data.pendingRequests.map((r:any)=>[r.id,r.adultName]),[[id,'Link parent']]);
+ for(const who of [other,parent])assert.equal((await post(who,`/me/sponsor-requests/${id}/accept`)).status,404,'only the request minor can accept');
+ assert.equal((await post(kid,`/me/sponsor-requests/${id}/accept`,{},false)).status,403,'CSRF required');
+ const competing=await ask(other);assert.equal(competing.status,201);
+ await pool.query('INSERT INTO app_facility_visit(user_id,building_id) VALUES($1,1)',[kid.user.id]);
+ const busy=await post(kid,`/me/sponsor-requests/${id}/accept`);assert.equal(busy.status,409);assert.equal(busy.body.error.code,'CHECK_OUT_FIRST');
+ await pool.query('UPDATE app_facility_visit SET checked_out_at=now() WHERE user_id=$1 AND checked_out_at IS NULL',[kid.user.id]);
+ const accepted=await post(kid,`/me/sponsor-requests/${id}/accept`);assert.equal(accepted.status,200,JSON.stringify(accepted.body));
+ assert.equal(accepted.body.data.sponsor.id,parent.user.id);assert.deepEqual(accepted.body.data.pendingRequests,[]);
+ assert.deepEqual((await pool.query('SELECT id::int,status FROM app_minor_sponsor_request WHERE minor_id=$1 ORDER BY id',[kid.user.id])).rows,
+  [{id,status:'accepted'},{id:competing.body.data.id,status:'cancelled'}]);
+ assert.equal((await pool.query("SELECT count(*)::int n FROM app_staff_audit WHERE actor_id=$1 AND subject_id=$1 AND action='minor.sponsor_linked'",[kid.user.id])).rows[0].n,1);
+ assert.equal((await post(kid,`/me/sponsor-requests/${id}/accept`)).status,404,'resolved requests cannot be replayed');
+ assert.equal((await ask(parent)).body.error.code,'ALREADY_LINKED');
+ assert.deepEqual((await get(parent,'/me/minors')).body.data,{minors:[{id:kid.user.id,name:'Link kid',visit:null}],requests:[]});
+ await pool.query('INSERT INTO app_facility_visit(user_id,building_id,sponsor_id) VALUES($1,1,$2)',[kid.user.id,parent.user.id]);
+ const visiting=(await get(parent,'/me/minors')).body.data.minors[0].visit;
+ assert.equal(visiting.buildingName,'Collaboratory');assert.ok(visiting.checkedInAt);
+ const own=(await get(kid,'/me/supervision')).body.data.visit;assert.equal(own.buildingName,'Collaboratory');assert.ok(own.checkedInAt);
+ const unlinkBusy=await post(parent,`/me/minors/${kid.user.id}/unlink`);assert.equal(unlinkBusy.status,409);assert.equal(unlinkBusy.body.error.code,'CHECK_OUT_FIRST');
+ await pool.query('UPDATE app_facility_visit SET checked_out_at=now() WHERE user_id=$1 AND checked_out_at IS NULL',[kid.user.id]);
+ assert.equal((await post(other,`/me/minors/${kid.user.id}/unlink`)).status,404,'only the sponsor can unlink');
+ assert.equal((await post(parent,`/me/minors/${kid.user.id}/unlink`,{},false)).status,403,'CSRF required');
+ const unlinked=await post(parent,`/me/minors/${kid.user.id}/unlink`);assert.equal(unlinked.status,200,JSON.stringify(unlinked.body));
+ assert.deepEqual(unlinked.body.data.minors,[]);
+ assert.equal((await pool.query('SELECT count(*)::int n FROM app_minor_sponsor WHERE minor_id=$1',[kid.user.id])).rows[0].n,0);
+ assert.equal((await pool.query("SELECT count(*)::int n FROM app_staff_audit WHERE actor_id=$1 AND subject_id=$2 AND action='minor.sponsor_unlinked'",[parent.user.id,kid.user.id])).rows[0].n,1);
+ assert.equal((await post(parent,`/me/minors/${kid.user.id}/unlink`)).status,404);
+ const again=await ask(parent);assert.equal(again.status,201);
+ assert.equal((await post(other,`/me/minors/requests/${again.body.data.id}/cancel`)).status,404,'only the requesting adult can cancel');
+ assert.equal((await post(parent,`/me/minors/requests/${again.body.data.id}/cancel`,{},false)).status,403,'CSRF required');
+ const cancelled=await post(parent,`/me/minors/requests/${again.body.data.id}/cancel`);assert.equal(cancelled.status,200);
+ assert.deepEqual(cancelled.body.data.requests,[]);
+ assert.equal((await post(parent,`/me/minors/requests/${again.body.data.id}/cancel`)).status,404);
+ assert.equal((await post(kid,`/me/sponsor-requests/${again.body.data.id}/accept`)).status,404,'cancelled requests cannot be accepted');
+ const declinable=await ask(other);assert.equal(declinable.status,201);
+ const declined=await post(kid,`/me/sponsor-requests/${declinable.body.data.id}/decline`);assert.equal(declined.status,200);
+ assert.deepEqual(declined.body.data.pendingRequests,[]);assert.equal(declined.body.data.sponsor,null);
+ assert.equal((await pool.query('SELECT status FROM app_minor_sponsor_request WHERE id=$1',[declinable.body.data.id])).rows[0].status,'declined');
 });
