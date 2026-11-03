@@ -12,6 +12,7 @@ import {
 } from "../models/ReservationModel.js";
 import { RoomModel } from "../models/RoomModel.js";
 import { AccessService } from "./AccessService.js";
+import { equipmentPrice, reviewEquipmentPrice, saveReservationPrice, cancelReservationPayment } from '../equipmentPricing.js';
 
 export class ReservationService {
   constructor(
@@ -27,6 +28,7 @@ export class ReservationService {
       startTime?: unknown;
       endTime?: unknown;
       userId?: unknown;
+      expectedPrice?: unknown;
     },
   ) {
     const hasEquipment =
@@ -169,7 +171,9 @@ export class ReservationService {
           );
       }
 
-      const reservation = await model.create({
+      const price = equipmentId ? await equipmentPrice(db, equipmentId, (end.getTime()-start.getTime())/3600000) : null;
+      if (equipmentId) reviewEquipmentPrice(price, input.expectedPrice);
+      let reservation = await model.create({
         userId: targetId,
         equipmentId: equipmentId ?? undefined,
         roomId: roomId ?? undefined,
@@ -178,6 +182,10 @@ export class ReservationService {
         start,
         end,
       });
+      if (equipmentId) {
+        await saveReservationPrice(db, reservation.id, targetId, userId, price, resourceName);
+        reservation = (await model.find(reservation.id))!;
+      }
 
       await new StaffModel(db).audit(
         userId,
@@ -216,6 +224,7 @@ export class ReservationService {
       endTime?: unknown;
       userId?: unknown;
       expectedRevision?: unknown;
+      expectedPrice?: unknown;
     },
     maintenance?: { sourceEquipmentId: number; preview?: boolean; expectedRate?: unknown },
   ) {
@@ -398,6 +407,8 @@ export class ReservationService {
           );
       }
 
+      const price = equipmentId ? await equipmentPrice(db, equipmentId, (end.getTime()-start.getTime())/3600000) : null;
+      if (!maintenance?.preview && equipmentId) reviewEquipmentPrice(price, input.expectedPrice);
       if (maintenance) {
         const target = await new EquipmentModel(db).findForUpdate(equipmentId!);
         const rate = target!.rate === null ? null : Number(target!.rate);
@@ -405,13 +416,13 @@ export class ReservationService {
         if (maintenance.preview) return {
           reservationId, expectedRevision, equipmentId, equipmentName: resourceName,
           startTime: start.toISOString(), endTime: end.toISOString(),
-          oldRate: source.hourlyrate === null ? null : Number(source.hourlyrate), rate,
+          oldRate: source.hourlyrate === null ? null : Number(source.hourlyrate), rate, priceSnapshot: price,
         };
         if (maintenance.expectedRate !== rate)
           throw new AppError(409, "RATE_CHANGED", "The hourly rate changed. Review this move again before confirming.");
       }
 
-      const reservation = await model.update(reservationId, {
+      let reservation = await model.update(reservationId, {
         userId: targetId,
         equipmentId: equipmentId ?? undefined,
         roomId: roomId ?? undefined,
@@ -422,6 +433,10 @@ export class ReservationService {
       });
       if (!reservation)
         throw new AppError(404, "NOT_FOUND", "Reservation not found.");
+      if (equipmentId || before.paymentId) {
+        await saveReservationPrice(db, reservationId, targetId, actorId, price, resourceName);
+        reservation = (await model.find(reservationId))!;
+      }
       await new StaffModel(db).audit(
         actorId,
         targetId,
@@ -504,6 +519,7 @@ export class ReservationService {
           "INVALID_STATUS",
           "Only active reservations can be cancelled.",
         );
+      await cancelReservationPayment(db, reservationId);
       await new StaffModel(db).audit(
         actorId,
         before.userId,

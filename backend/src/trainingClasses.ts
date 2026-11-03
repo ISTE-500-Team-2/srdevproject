@@ -13,7 +13,8 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
     res.json({
       data: (
         await pool.query(
-          `SELECT c.id,c.title,c.certification_id AS "certificationId",cert.name AS "certificationName",c.instructor_id AS "instructorId",u.firstname||' '||u.lastname AS instructor,c.capacity,CASE WHEN v.status='confirmed' THEN c.status ELSE 'cancelled' END AS status,c.revision,
+          `SELECT c.id,c.title,c.certification_id AS "certificationId",cert.name AS "certificationName",c.instructor_id AS "instructorId",u.firstname||' '||u.lastname AS instructor,LEAST(c.capacity,15) AS capacity,CASE WHEN v.status='confirmed' THEN c.status ELSE 'cancelled' END AS status,c.revision,
+ cert.training_minutes AS "trainingMinutes",cert.training_fee_cents AS "trainingFeeCents",
  v.roomid AS "roomId",room.name AS "roomName",v.starttime AT TIME ZONE 'UTC' AS "startsAt",v.endtime AT TIME ZONE 'UTC' AS "endsAt",(SELECT COUNT(*)::int FROM app_training_enrollment e WHERE e.class_id=c.id AND e.status IN ('enrolled','attended')) AS enrolled,
  (SELECT status FROM app_training_enrollment WHERE class_id=c.id AND user_id=$1) AS "myStatus"
  FROM app_training_class c JOIN certifications cert ON cert.certid=c.certification_id JOIN reservation v ON v.reservationid=c.reservation_id JOIN room USING(roomid) JOIN "user" u ON u.userid=c.instructor_id ORDER BY v.starttime DESC LIMIT 200`,
@@ -56,11 +57,11 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
             [roomId],
           )
         ).rows[0];
-        if (!room || room.status !== "available" || capacity > room.capacity)
+        if (!room || room.status !== "available" || capacity > 15 || capacity > room.capacity)
           throw new AppError(
             400,
             "CAPACITY_LIMIT",
-            "Choose an available room within its capacity.",
+            "Classes allow at most 15 people and cannot exceed the room's capacity.",
           );
         if (
           !(
@@ -75,19 +76,17 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
             "INSTRUCTOR_REQUIRED",
             "Assign an active instructor.",
           );
-        if (
-          !(
-            await db.query(
-              "SELECT certid FROM certifications WHERE certid=$1 AND validity_days IS NOT NULL",
-              [certId],
-            )
-          ).rowCount
-        )
+        const course = (await db.query(`SELECT certid,training_minutes FROM certifications WHERE certid=$1
+          AND (effectivedate IS NULL OR effectivedate<=now() AT TIME ZONE 'UTC')
+          AND (enddate IS NULL OR enddate>=now() AT TIME ZONE 'UTC')`, [certId])).rows[0];
+        if (!course)
           throw new AppError(
             400,
             "CERTIFICATION_REQUIRED",
-            "Configure the course validity first.",
+            "Choose a current certification.",
           );
+        if ((ends.getTime()-starts.getTime())/60000 < course.training_minutes)
+          throw new AppError(400, 'TRAINING_DURATION', `This certification requires at least ${course.training_minutes} minutes of training.`);
         const slot = (
           await db.query(
             `INSERT INTO reservation(userid,roomid,location,starttime,endtime,status,statusdesc) VALUES($1,$2,'Instructor-led training',$3::timestamptz AT TIME ZONE 'UTC',$4::timestamptz AT TIME ZONE 'UTC','confirmed',$5) RETURNING reservationid`,
@@ -162,7 +161,7 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
           )
         ).rows[0].count,
       );
-      if (count >= c.capacity)
+      if (count >= Math.min(c.capacity, 15))
         throw new AppError(409, "CLASS_FULL", "This class is full.");
       const after = (
         await db.query(
@@ -230,8 +229,8 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
       // Separate from the instructor roster: never select contact details,
       // account IDs or attendance history for the member response.
       const { rows } = await pool.query(
-        `SELECT c.capacity,COUNT(e.user_id)::int AS enrolled,
-          c.capacity-COUNT(e.user_id)::int AS "seatsAvailable",
+        `SELECT LEAST(c.capacity,15) AS capacity,COUNT(e.user_id)::int AS enrolled,
+          GREATEST(LEAST(c.capacity,15)-COUNT(e.user_id),0)::int AS "seatsAvailable",
           COALESCE(json_agg(json_build_object('name',u.firstname||' '||left(u.lastname,1)||'.')
             ORDER BY u.firstname,u.lastname,e.user_id) FILTER(WHERE e.user_id IS NOT NULL),'[]') AS items
          FROM app_training_class c JOIN reservation v ON v.reservationid=c.reservation_id

@@ -11,11 +11,14 @@ export interface EquipmentRecord {
   waiverRequired: boolean;
   certId: number | null;
   certification: string | null;
+  trainingFeeCents: number | null;
+  trainingMinutes: number | null;
   location: string;
 }
 const columns = `e.equipmentid AS id,e.name,COALESCE(e.category,e.name) AS type,e.hourlyrate AS rate,
   COALESCE(e.imagepath,'/assets/3d-printer.webp') AS image,COALESCE(e.status,'unavailable') AS status,
   COALESCE(e.waiverrequired,false) AS "waiverRequired",e.certid AS "certId",c.name AS certification,
+  c.training_fee_cents AS "trainingFeeCents",c.training_minutes AS "trainingMinutes",
   e.location,e.availability_revision AS "availabilityRevision"`;
 
 export class EquipmentModel {

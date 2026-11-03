@@ -9,6 +9,7 @@ import {
   AccessDeadlineError,
 } from "./services/AccessTransaction.js";
 import { AccessService } from "./services/AccessService.js";
+import { equipmentPrice } from './equipmentPricing.js';
 import { StaffModel } from "./models/StaffModel.js";
 import { authState, requireCsrf } from "./middleware/auth.js";
 import { requirePermission } from "./middleware/permissions.js";
@@ -435,6 +436,8 @@ export function cardManagement(
             [userId, id],
           )
         ).rows[0];
+        if (!current && kind === 'equipment' && (await equipmentPrice(db, id, 1))?.trainingFeeCents)
+          throw new AppError(409, 'PRICED_BOOKING_REQUIRED', 'Create and review a priced equipment reservation before granting supervised access to this machine.');
         const reservation =
           current ??
           (

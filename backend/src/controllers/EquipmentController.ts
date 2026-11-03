@@ -3,8 +3,14 @@ import type { Pool } from "pg";
 import { EquipmentModel } from "../models/EquipmentModel.js";
 import { EligibilityModel } from "../models/EligibilityModel.js";
 import { authState } from "../middleware/auth.js";
+import { positiveId } from '../domain.js';
+import { equipmentPrice } from '../equipmentPricing.js';
 
 export class EquipmentController {
+  quote = async (req: Request, res: Response) => {
+    const hours = typeof req.query.hours === 'string' && /^\d+$/.test(req.query.hours) ? Number(req.query.hours) : NaN;
+    res.json({ data: await equipmentPrice(this.pool, positiveId(req.params.id), hours) });
+  };
   constructor(
     private pool: Pool,
     private timeZone: string,
@@ -56,6 +62,8 @@ export class EquipmentController {
           name: item.name,
           type: item.type,
           rate: item.rate === null ? null : Number(item.rate),
+          trainingFeeCents: item.trainingFeeCents,
+          trainingMinutes: item.trainingMinutes,
           image: item.image,
           status: item.status,
           occupied: occupied.filter(slot => slot.equipmentId === item.id).map(({startTime, endTime}) => ({startTime, endTime})),
