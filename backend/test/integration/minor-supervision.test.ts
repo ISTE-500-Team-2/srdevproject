@@ -207,17 +207,24 @@ test('sponsor requests limit date-of-birth guessing per target email and per adu
  const server2=app2.listen(0,'127.0.0.1');await new Promise<void>(resolve=>server2.once('listening',resolve));
  try {
   const password='GoodPassword123!';
-  for (const [email,dob] of [['guesser@example.invalid','1975-02-02'],['target@example.invalid','2011-06-06']]) {
+  for (const [email,dob] of [['guesser@example.invalid','1975-02-02'],['realparent@example.invalid','1976-03-03'],['target@example.invalid','2011-06-06']]) {
    const id=(await pool.query(`INSERT INTO "user"(firstname,lastname,email,password,phone,dob,status,email_confirmed)
     VALUES('Rate','Limit',$1,$2,'1112223333',$3,'active',true) RETURNING userid`,[email,await hashPassword(password),dob])).rows[0].userid;
    await pool.query("INSERT INTO user_role(userid,roleid) SELECT $1,roleid FROM role WHERE role='member'",[id]);
   }
-  const who=(await request(server2).post('/api/auth/login').send({email:'guesser@example.invalid',password})).body.data;
-  const ask=(email:string,dob:string)=>request(server2).post('/api/me/minors/requests').set('Authorization','Bearer '+who.accessToken)
-   .set('X-CSRF-Token',who.csrfToken).send({email,dob});
-  for (let day=1;day<=5;day++) assert.equal((await ask('target@example.invalid',`2011-01-0${day}`)).status,404);
-  const locked=await ask('target@example.invalid','2011-06-06');assert.equal(locked.status,429,'five misses lock the target email even for the right date');
-  for (let n=0;n<4;n++) assert.equal((await ask(`nobody${n}@example.invalid`,'2011-01-01')).status,404);
+  const login=async(email:string)=>(await request(server2).post('/api/auth/login').send({email,password})).body.data;
+  const who=await login('guesser@example.invalid'),real=await login('realparent@example.invalid');
+  const askAs=(user:any,email:string,dob:string)=>request(server2).post('/api/me/minors/requests').set('Authorization','Bearer '+user.accessToken)
+   .set('X-CSRF-Token',user.csrfToken).send({email,dob});
+  const ask=(email:string,dob:string)=>askAs(who,email,dob);
+  // Concurrent guesses are serialized: exactly five misses are allowed for this adult and email.
+  const burst=await Promise.all([1,2,3,4,5,6,7].map(day=>ask('TARGET@example.invalid',`2011-01-0${day}`)));
+  assert.deepEqual(burst.map(r=>r.status).sort(),[404,404,404,404,404,429,429]);
+  const locked=await ask('target@example.invalid','2011-06-06');assert.equal(locked.status,429,'five misses lock the email for this adult even for the right date');
+  // Another adult is not locked out by someone else's misses (per-email cap across adults is 15).
+  assert.equal((await askAs(real,'target@example.invalid','2011-06-06')).status,201);
+  assert.equal((await pool.query("SELECT count(*)::int n FROM app_minor_sponsor_attempt WHERE email_hash LIKE '%@%'")).rows[0].n,0,'emails are stored hashed');
+  for (let n=0;n<5;n++) assert.equal((await ask(`nobody${n}@example.invalid`,'2011-01-01')).status,404);
   const capped=await ask('elsewhere@example.invalid','2011-01-01');assert.equal(capped.status,429,'ten attempts per adult per day');
  } finally {await new Promise<void>(r=>{server2.close(r);server2.closeAllConnections();});}
 });

@@ -125,7 +125,7 @@ export function checkOrigin(config: AppConfig) {
 }
 
 export function authRateLimit(
-  options: { limit?: number; windowMs?: number; message?: string; key?: (req: Request, res: Response) => string } = {},
+  options: { limit?: number; windowMs?: number; message?: string } = {},
 ) {
   const limit = options.limit ?? 30;
   const windowMs = options.windowMs ?? 15 * 60000;
@@ -134,7 +134,7 @@ export function authRateLimit(
     const now = Date.now();
     for (const [key, value] of attempts)
       if (value.until <= now) attempts.delete(key);
-    const key = options.key ? options.key(req, res) : (req.ip ?? "unknown");
+    const key = req.ip ?? "unknown";
     const record = attempts.get(key) ?? { count: 0, until: now + windowMs };
     if (attempts.size >= 2048 && !attempts.has(key))
       throw new AppError(429, "RATE_LIMITED", "Please try again later.");

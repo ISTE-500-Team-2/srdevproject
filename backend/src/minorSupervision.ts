@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Router } from 'express';
 import type { Pool } from 'pg';
 import { transaction, type Database } from './db.js';
@@ -112,17 +113,28 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
   // minor user row, adult user row, sponsor row, then the minor's open visit.
   const lockUser=(db:Database,id:number)=>db.query('SELECT userid FROM "user" WHERE userid=$1 FOR UPDATE',[id]);
   const openVisit=async(db:Database,id:number)=>!!(await db.query('SELECT id FROM app_facility_visit WHERE user_id=$1 AND checked_out_at IS NULL FOR UPDATE',[id])).rowCount;
-  // Bounds date-of-birth guessing against a known email: per client address (like sign-in),
-  // per signed-in adult, and misses per target email. In-memory, like the sign-in limiter.
-  const day=24*60*60000,limitMessage='Too many sponsor requests. Please try again tomorrow or ask staff to link the account.';
+  // Bounds date-of-birth guessing against a known email. The per-address limiter matches sign-in;
+  // the per-adult and per-email budgets live in the database so they survive restarts and races.
+  const limitMessage='Too many sponsor requests. Please try again tomorrow or ask staff to link the account.';
   const requestLimit=authRateLimit({limit:20,message:'Too many sponsor requests. Please wait 15 minutes and try again.'});
-  const userLimit=authRateLimit({limit:10,windowMs:day,message:limitMessage,key:(_req,res)=>'user:'+authState(res).user.id});
-  const misses=new Map<string,{count:number;until:number}>();
-  const missesFor=(email:string)=>{const now=Date.now();for(const [k,v] of misses) if(v.until<=now) misses.delete(k);return misses.get(email);};
+  const reserveAttempt=(adultId:number,emailHash:string)=>transaction(pool,async db=>{
+    // Serialize per adult and per target so concurrent requests cannot both pass the check.
+    await db.query("SELECT pg_advisory_xact_lock(hashtext('arbor-sponsor-attempt-adult'),$1)",[adultId]);
+    await db.query("SELECT pg_advisory_xact_lock(hashtext('arbor-sponsor-attempt-email'),hashtext($1))",[emailHash]);
+    const counts=(await db.query(`SELECT
+        count(*) FILTER (WHERE adult_id=$1)::int AS adult,
+        count(*) FILTER (WHERE adult_id=$1 AND email_hash=$2 AND NOT matched)::int AS pair,
+        count(*) FILTER (WHERE email_hash=$2 AND NOT matched)::int AS email
+      FROM app_minor_sponsor_attempt WHERE created_at>now()-interval '1 day' AND (adult_id=$1 OR email_hash=$2)`,[adultId,emailHash])).rows[0];
+    // 10 attempts per adult; 5 misses per adult+email; 15 misses per email across all adults.
+    if (counts.adult>=10 || counts.pair>=5 || counts.email>=15) throw new AppError(429,'RATE_LIMITED',limitMessage);
+    return (await db.query('INSERT INTO app_minor_sponsor_attempt(adult_id,email_hash) VALUES($1,$2) RETURNING id',[adultId,emailHash])).rows[0].id as string;
+  });
   r.get('/me/minors',async(_req,res)=>res.json({data:await new MinorSupervision(pool,zone).minors(authState(res).user.id)}));
-  r.post('/me/minors/requests',requireCsrf,requestLimit,userLimit,async(req,res)=>{
+  r.post('/me/minors/requests',requireCsrf,requestLimit,async(req,res)=>{
     const me=authState(res).user.id,email=emailField(req.body.email),dob=dateOfBirthField(req.body.dob);
-    if ((missesFor(email)?.count ?? 0)>=5) throw new AppError(429,'RATE_LIMITED',limitMessage);
+    if (!await new MinorSupervision(pool,zone).isAdult(me)) throw new AppError(403,'ADULT_REQUIRED','Only active accounts aged 18 or older can sponsor a minor.');
+    const attempt=await reserveAttempt(me,createHash('sha256').update(email.toLowerCase()).digest('hex'));
     const data=await transaction(pool,async db=>{
       const service=new MinorSupervision(db,zone),adultRequired=()=>new AppError(403,'ADULT_REQUIRED','Only active accounts aged 18 or older can sponsor a minor.');
       if (!await service.isAdult(me)) throw adultRequired();
@@ -130,10 +142,9 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
       const minor=(await db.query(`SELECT userid AS id,firstname AS name FROM "user"
         WHERE lower(email)=$1 AND dob IS NOT NULL AND dob::date=$2::date AND status='active' AND accessstatus='active'
         AND dob::date>((now() AT TIME ZONE $3)::date-INTERVAL '18 years')::date FOR UPDATE`,[email,dob,zone])).rows[0];
-      if (!minor) {
-        if (misses.size<4096) {const m=missesFor(email) ?? {count:0,until:Date.now()+day};m.count++;misses.set(email,m);}
-        throw new AppError(404,'NOT_FOUND','No under-18 account matches that email and date of birth.');
-      }
+      if (!minor) throw new AppError(404,'NOT_FOUND','No under-18 account matches that email and date of birth.');
+      // Outside this transaction so a later 409 still records that the details matched.
+      await pool.query('UPDATE app_minor_sponsor_attempt SET matched=true WHERE id=$1',[attempt]);
       if (!(await db.query(`SELECT userid FROM "user" WHERE userid=$1 AND ${adultSql(2)} FOR SHARE`,[me,zone])).rowCount) throw adultRequired();
       if ((await db.query('SELECT 1 FROM app_minor_sponsor WHERE minor_id=$1 AND adult_id=$2',[minor.id,me])).rowCount)
         throw new AppError(409,'ALREADY_LINKED','You already sponsor this account.');
