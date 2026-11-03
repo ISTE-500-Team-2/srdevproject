@@ -103,6 +103,9 @@ function client() {
       cookie = res.body.data.accessToken;
       return res;
     },
+    adoptCsrf(token: string) {
+      csrf = token;
+    },
     post(path: string, body: unknown = {}) {
       return agent
         .post('/api' + path)
@@ -116,6 +119,23 @@ function client() {
         .send(body);
     },
   };
+}
+type Client = ReturnType<typeof client>;
+/** Members check in at a reader; the web check-in is staff at the desk, in the member's open account. */
+async function deskCheckIn(staff: Client, member: Client, body: unknown) {
+  const opened = await staff.post('/admin/account-mode', { userId: member.id });
+  assert.equal(opened.status, 200, JSON.stringify(opened.body));
+  staff.adoptCsrf(opened.body.data.csrfToken);
+  const response = await staff.post('/me/check-ins', body);
+  const closed = await staff.post('/admin/account-mode/end');
+  assert.equal(closed.status, 200, JSON.stringify(closed.body));
+  staff.adoptCsrf(closed.body.data.csrfToken);
+  return response;
+}
+async function assertMemberCheckInRefused(member: Client, body: unknown) {
+  const own = await member.post('/me/check-ins', body);
+  assert.equal(own.status, 403, JSON.stringify(own.body));
+  assert.equal(own.body.error.code, 'CHECK_IN_AT_READER');
 }
 async function equipment(name = 'Rachel') {
   return (
@@ -442,7 +462,7 @@ test('room reservations reject overlaps, enforce cooldown and gate active room a
   assert.equal(cooldown.body.error.code, 'RESERVATION_COOLDOWN');
   assert.equal((await two.post('/reservations', adjacent)).status, 201);
   await signRequiredWaivers(one);
-  const denied = await one.post('/me/check-ins', { roomId: room });
+  const denied = await deskCheckIn(two, one, { roomId: room });
   assert.equal(denied.status, 403);
   assert.equal(denied.body.error.code, 'RESERVATION_REQUIRED');
   await pool.query(
@@ -453,14 +473,15 @@ test('room reservations reject overlaps, enforce cooldown and gate active room a
   await pool.query("UPDATE room SET status='unavailable' WHERE roomid=$1", [
     room,
   ]);
-  const unavailable = await one.post('/me/check-ins', { roomId: room });
+  const unavailable = await deskCheckIn(two, one, { roomId: room });
   assert.equal(unavailable.status, 409);
   assert.equal(unavailable.body.error.code, 'RESOURCE_UNAVAILABLE');
   await pool.query("UPDATE room SET status='available' WHERE roomid=$1", [
     room,
   ]);
-  const checkin = await one.post('/me/check-ins', { roomId: room });
-  assert.equal(checkin.status, 201);
+  await assertMemberCheckInRefused(one, { roomId: room });
+  const checkin = await deskCheckIn(two, one, { roomId: room });
+  assert.equal(checkin.status, 201, JSON.stringify(checkin.body));
   const stored = await pool.query(
     'SELECT roomid FROM check_in WHERE checkinid=$1',
     [checkin.body.data.id],
@@ -469,8 +490,10 @@ test('room reservations reject overlaps, enforce cooldown and gate active room a
 });
 
 test('membership, certification and waiver eligibility are enforced; check-in is recorded', async () => {
-  const user = client();
+  const user = client(),
+    staff = client();
   await user.register();
+  await staff.demo('admin');
   const cnc = await equipment('Joey');
   const input = interval(cnc, 4);
   let res = await user.post('/reservations', input);
@@ -529,7 +552,7 @@ test('membership, certification and waiver eligibility are enforced; check-in is
   const revokedOverview = await user.agent.get('/api/me/overview');
   assert.equal(revokedOverview.status, 200);
   assert.equal(revokedOverview.body.data.canCheckIn, true);
-  const revokedCheckin = await user.post('/me/check-ins', {
+  const revokedCheckin = await deskCheckIn(staff, user, {
     equipmentId: cnc,
   });
   assert.equal(revokedCheckin.status, 403);
@@ -538,10 +561,11 @@ test('membership, certification and waiver eligibility are enforced; check-in is
     "UPDATE user_certifications SET status='active' WHERE userid=$1 AND certid=$2",
     [user.id, certId],
   );
-  const checkin = await user.post('/me/check-ins', {
+  await assertMemberCheckInRefused(user, { equipmentId: cnc });
+  const checkin = await deskCheckIn(staff, user, {
     equipmentId: cnc,
   });
-  assert.equal(checkin.status, 201);
+  assert.equal(checkin.status, 201, JSON.stringify(checkin.body));
   assert.equal(
     (
       await pool.query('SELECT userid FROM check_in WHERE checkinid=$1', [
@@ -557,14 +581,11 @@ test('membership, certification and waiver eligibility are enforced; check-in is
     "UPDATE user_membership SET status='expired' WHERE userid=$1",
     [user.id],
   );
-  assert.equal(
-    (
-      await user.post('/me/check-ins', {
-        location: 'Integration test entrance',
-      })
-    ).status,
-    403,
-  );
+  const expired = await deskCheckIn(staff, user, {
+    location: 'Integration test entrance',
+  });
+  assert.equal(expired.status, 403);
+  assert.equal(expired.body.error.code, 'MEMBERSHIP_REQUIRED');
   await pool.query('UPDATE "user" SET status=\'inactive\' WHERE userid=$1', [
     user.id,
   ]);

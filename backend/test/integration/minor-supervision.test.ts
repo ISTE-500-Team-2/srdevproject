@@ -388,3 +388,42 @@ test('minor status and supervision use the configured time zone, not New York',a
  await transaction(pool,db=>new MemberModel(db,'Pacific/Kiritimati').createCheckIn(id,'Fixture',null,1));
  assert.equal((await pool.query('SELECT count(*)::int n FROM app_facility_visit WHERE user_id=$1 AND checked_out_at IS NULL',[id])).rows[0].n,1);
 });
+test('an eligible adult cannot make themselves present from the web; staff at the desk can',async()=>{
+ // A web check-in starts the adult's visit, and that visit is what lets their sponsored minor in.
+ const parent=await account('web.parent@example.invalid','1980-01-01'),kid=await account('web.kid@example.invalid','2012-01-01');
+ for(const who of [parent,kid]){
+  await pool.query(`INSERT INTO user_membership(userid,tierid,startdate,end_date,status)
+   VALUES($1,1,(now()-interval '1 day') AT TIME ZONE 'UTC',(now()+interval '30 days') AT TIME ZONE 'UTC','active')`,[who.user.id]);
+  await sign(who);
+ }
+ await pool.query('INSERT INTO app_minor_sponsor(minor_id,adult_id) VALUES($1,$2)',[kid.user.id,parent.user.id]);
+ const space=await fixtureRoom('Web check-in room'),kidSpace=await fixtureRoom('Web check-in kid room');
+ const book=async(userId:number,roomId:number)=>(await pool.query(`INSERT INTO reservation(userid,roomid,location,starttime,endtime,status)
+  VALUES($1,$2,'Fixture',(now()-interval '1 minute') AT TIME ZONE 'UTC',(now()+interval '30 minutes') AT TIME ZONE 'UTC','confirmed') RETURNING reservationid`,[userId,roomId])).rows[0].reservationid;
+ await book(parent.user.id,space);
+ await pool.query('INSERT INTO app_minor_booking(reservation_id,adult_id) VALUES($1,$2)',[await book(kid.user.id,kidSpace),parent.user.id]);
+ const presence=async()=>({
+  checkIns:(await pool.query('SELECT count(*)::int n FROM check_in WHERE userid=$1',[parent.user.id])).rows[0].n,
+  visits:(await pool.query('SELECT count(*)::int n FROM app_facility_visit WHERE user_id=$1',[parent.user.id])).rows[0].n,
+ });
+ const atReader=(userId:number,roomId:number)=>transaction(pool,db=>evaluateReaderAccess(db,'America/New_York',{kind:'room',resourceId:roomId},userId));
+ // The adult is otherwise fully eligible: entitlement, signed policies and a current booking.
+ assert.equal((await atReader(parent.user.id,space)).allowed,true);
+ for(const [path,body] of [['/me/check-ins',{roomId:space}],['/me/check-ins',{}],['/ME/CHECK-INS',{roomId:space}],['/me/check-ins/',{buildingId:1}]] as const){
+  const r=await post(parent,path,body);
+  assert.equal(r.status,403,`${path} ${JSON.stringify(r.body)}`);assert.equal(r.body.error.code,'CHECK_IN_AT_READER');
+ }
+ assert.deepEqual(await presence(),{checkIns:0,visits:0});
+ await assert.rejects(transaction(pool,db=>new MinorSupervision(db).requireSponsor(kid.user.id)),{code:'SPONSOR_REQUIRED'});
+ const denied=await atReader(kid.user.id,kidSpace);assert.equal(denied.allowed,false);assert.equal(denied.reason,'SPONSOR_REQUIRED');
+ // Staff at the desk, in the adult's open account, may check them in.
+ const opened=await post(admin,'/admin/account-mode',{userId:parent.user.id});assert.equal(opened.status,200,JSON.stringify(opened.body));
+ const checkedIn=await post({...admin,csrfToken:opened.body.data.csrfToken},'/me/check-ins',{roomId:space});
+ const closed=await post({...admin,csrfToken:opened.body.data.csrfToken},'/admin/account-mode/end');
+ assert.equal(checkedIn.status,201,JSON.stringify(checkedIn.body));assert.equal(closed.status,200,JSON.stringify(closed.body));
+ assert.equal((await pool.query('SELECT userid FROM check_in WHERE checkinid=$1',[checkedIn.body.data.id])).rows[0].userid,parent.user.id);
+ assert.deepEqual(await presence(),{checkIns:1,visits:1});
+ assert.equal((await transaction(pool,db=>new MinorSupervision(db).requireSponsor(kid.user.id)))?.id,parent.user.id);
+ const allowed=await atReader(kid.user.id,kidSpace);assert.equal(allowed.allowed,true,JSON.stringify(allowed));
+ await transaction(pool,db=>new MinorSupervision(db).checkout(parent.user.id));
+});

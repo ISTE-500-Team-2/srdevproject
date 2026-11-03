@@ -230,8 +230,18 @@ test('room discovery grants, explicit denies, instructor restriction and full-le
     const longRoom = (await pool.query("INSERT INTO room(name,location,status) VALUES($1,$2,'available') RETURNING roomid", [name, location])).rows[0].roomid;
     const now = Date.now();
     await insert(pool, user, null, now - 5 * minute, { room: longRoom });
-    const checkin = await agent.post('/api/me/check-ins').set('X-CSRF-Token', csrf).send({ roomId: longRoom });
-    assert.equal(checkin.status, 201);
+    // Members check in at a reader; the web check-in is staff at the desk, in the member's open account.
+    const own = await agent.post('/api/me/check-ins').set('X-CSRF-Token', csrf).send({ roomId: longRoom });
+    assert.deepEqual([own.status, own.body.error?.code], [403, 'CHECK_IN_AT_READER']);
+    const desk = request.agent(app), staff = await desk.post('/api/auth/demo').send({ role: 'admin' });
+    assert.equal(staff.status, 200);
+    desk.set('Authorization', 'Bearer ' + staff.body.data.accessToken).set('X-CSRF-Token', staff.body.data.csrfToken);
+    const opened = await desk.post('/api/admin/account-mode').send({ userId: user });
+    assert.equal(opened.status, 200, JSON.stringify(opened.body));
+    desk.set('X-CSRF-Token', opened.body.data.csrfToken);
+    const checkin = await desk.post('/api/me/check-ins').send({ roomId: longRoom });
+    assert.equal(checkin.status, 201, JSON.stringify(checkin.body));
+    assert.equal((await desk.post('/api/admin/account-mode/end').send({})).status, 200);
     const stored = (await pool.query('SELECT roomid,location FROM check_in WHERE checkinid=$1', [checkin.body.data.id])).rows[0];
     assert.deepEqual(stored, { roomid: longRoom, location: `${name} - ${location}` });
   });
