@@ -25,13 +25,18 @@ verification of every payment flow on October 26.
   Approved free memberships issue one month without Stripe or automatic renewal.
   Future purchases re-check eligibility; existing recurring agreements retain
   their accepted price snapshot rather than silently changing the charge.
-- SDTA-129 / FR-057: monthly cancellation requires at least 30 elapsed days' notice,
-  effective at the first full monthly billing boundary on/after that deadline.
+- SDTA-129 / FR-057: recurring Stripe monthly cancellation requires at least
+  30 elapsed days' notice, effective at the first full monthly billing boundary
+  on/after that deadline.
   Month-end anchors are preserved. The purchase consent discloses this rule.
   The request/date is persisted before Stripe calls; retries reuse the same date
   and idempotency key. Requested vs provider-confirmed cancellation is visible.
   The customer portal permits payment-method maintenance, not plan changes or a
   shortcut around cancellation notice. No partial-month amount is invented.
+  Separately, a member can cancel a currently running, active desk-issued membership
+  with no linked billing invoice. It ends at the earlier of its existing end and
+  30 elapsed days after the request. Scheduled and suspended records are rejected;
+  refunds remain with staff and no refund is executed by cancellation.
 - SDTA-129 / FR-058: day-pass cancellation deadline is midnight at the start of the
   visit date minus three calendar days, in the studio timezone. Checkout sessions
   that have not been paid may simply expire. Timely paid online cancellations

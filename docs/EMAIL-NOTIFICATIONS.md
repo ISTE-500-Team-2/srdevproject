@@ -24,7 +24,8 @@ address and a Profile preferences link. A signed-waiver event keeps the accepted
 text/version, signer's name and recorded signing time in its immutable payload.
 
 Apply additive migrations `006_notifications.sql`, `007_email_confirmation.sql` and `009_brevo_delivery_events.sql` through the existing migration
-runner before running the updated server. Existing users default to notifications
+runner before running the updated server. The reader-health scan also requires
+`035_mvp_requirement_gaps.sql`. Existing users default to notifications
 enabled and `America/New_York` until they set their time zone. Existing waiver
 records get **no invented expiration date**; their new `expires_at` stays NULL.
 New registrations capture the browser time zone; changing Profile's time zone
@@ -32,7 +33,8 @@ reschedules pending, not-yet-attempted reminders.
 
 ### Runtime and safe defaults
 
-Real sending is disabled unless `EMAIL_ENABLED=true`. It is rejected when
+Automatic reader monitoring and real sending are disabled unless
+`EMAIL_ENABLED=true` with valid email configuration. Enabling email is rejected when
 `ENABLE_DEMO_LOGIN=true`; the existing synthetic Docker demo remains email-off.
 Supply these variables to the backend environment only (never commit API keys):
 
@@ -62,8 +64,12 @@ The worker scans expiration sources at startup and daily, and dispatches every
 minute by default. It schedules at 09:00 in the user's zone **eight calendar days**
 before expiration, leaving retry time before the strict seven-elapsed-day deadline.
 09:00/eight days and the five-minute immediate-event target are implementation
-defaults, **not stated requirements**. Newly discovered short-notice expirations
-cannot retroactively meet the seven-day requirement and must not count as on-time.
+defaults, **not stated requirements**. Short-lived waiver reminders also queue at
+signing. New reminders for records granted at or after the seven-day deadline are
+excluded from the on-time metric; manual waiver expiry uses the assignment time.
+Late discovery of a record granted with enough lead time still counts as a miss.
+Existing pending reminders keep their SLA flag. Exclusion does not meet the literal
+seven-day notice requirement, and queueing is not immediate provider delivery.
 
 Explicit rate-limit rejection retries with bounded backoff. Timeout/network/5xx or
 expired in-flight leases are `uncertain`, not automatically replayed: the provider
@@ -75,7 +81,8 @@ Do not claim exactly-once delivery across HTTP failures.
 `notificationMetrics(db)` reports eligible deadline-passed notices and those with
 provider acceptance at/before the deadline. The percentage is `100 * on_time /
 eligible`; an empty denominator reports no measurement, not 100%. Notices suppressed
-or genuinely superseded before their deadline are excluded. Opting out or changing
+or genuinely superseded before their deadline, and new reminders whose grant or
+expiry assignment left a week or less, are excluded. Opting out or changing
 a source after a missed deadline does not erase the miss. Pending/failed/uncertain late notices are
 not successes. Brevo acceptance does **not** prove inbox delivery. Delivery events are stored separately from acceptance. POST `/api/webhooks/brevo` requires the configured bearer token, validates events, deduplicates retries and retains callbacks that arrive before the send response. The `app_notification_delivery_status` view joins events to their outbox records. Unsubscribe callbacks disable all emails for the matched account; callback recipient addresses cannot change another account.
 
@@ -83,16 +90,18 @@ not successes. Brevo acceptance does **not** prove inbox delivery. Delivery even
 
 Wired existing flows: account created, newly signed waiver with copy, equipment
 reservation and cancellation, staff-issued membership/day pass and payment records,
-payment status/refund changes. Preferences have authenticated GET/PATCH endpoints
-at `/api/me/notifications`; PATCH retains normal CSRF protection.
+payment status/refund changes, studio booking/cancellation, membership renewal,
+membership/studio/delayed day-pass payment failure, and system issues/restoration
+from reader checks and admin notices. Automatic system-issue detection covers silent
+readers only; notices target active accounts and respect opt-out. Preferences have
+authenticated GET/PATCH endpoints at `/api/me/notifications`; PATCH retains normal CSRF protection.
 
 Scheduler supports certification renewal/end dates, explicit waiver expiration,
 and membership expiration. Membership expiry is not an auto-renewal charge;
-automatic billing/renewal workflows are absent and must not be implied by the email.
+recurring-billing notices come from the separate billing flow.
 
-Templates also cover documented but not yet implemented sources: studio booking/
-cancellation, transaction and account-creation failure, system issues/restoration,
-account closure, certification changes and role changes. A template alone does not
+Templates also cover sources not yet wired: account-creation failure, account
+closure, certification changes and role changes. A template alone does not
 mean that event is wired. Account-creation failures may have no persisted user to
 target; no unsolicited notice is sent to arbitrary failed-registration addresses.
 
@@ -119,7 +128,8 @@ a saved snapshot report that the copy is unavailable instead of recreating one.
   sender/recipient and opt-out), NFR-002/003.
 - SDTA-140 templates: FR-027/028/030–034/063–068; distinguish wired sources above.
 - SDTA-141 scheduling: FR-045, BR-010 (one week), BR-009 (98% as clarified).
-  FR-056 auto-renewal notification remains dependent on an auto-renewal source.
+  FR-056 auto-renewal notification is queued by the recurring-billing
+  `invoice.upcoming` handler.
 - SDTA-142 now records the confirmed all-notifications opt-out policy.
 
 Live source documents checked before coding:
