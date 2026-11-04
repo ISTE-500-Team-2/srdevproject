@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
@@ -127,9 +127,12 @@ export function ClassesPage() {
     classes.reload();
     setRefreshToken((t) => t + 1);
   };
+  // Restarting a request that is still running would abort it, so a slow list never finished.
+  const classesBusy = useRef(false);
+  classesBusy.current = classes.loading || classes.refreshing;
   useEffect(() => {
     const refresh = () => {
-      if (!hasUnsavedEdits && busyId === null && document.visibilityState !== "hidden") {
+      if (!classesBusy.current && !hasUnsavedEdits && busyId === null && document.visibilityState !== "hidden") {
         classes.reload();
         setRefreshToken((t) => t + 1);
       }

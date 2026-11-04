@@ -299,3 +299,15 @@ test('staff schedule a creative workshop from the picker without a certification
   const body = calls('/classes', 'POST')[0][1]?.body as Record<string, unknown>;
   expect(body).toMatchObject({ title: 'Glow Up: Floral Resin Nightlight', certificationId: null, catalogId: 2, capacity: 15 });
 });
+
+test('a slow class list is left to finish instead of being restarted by the next refresh', async () => {
+  await mount();
+  const original = vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation(((path: string, ...rest: unknown[]) =>
+    path === '/classes' ? new Promise(() => {}) : (original as (...a: unknown[]) => unknown)(path, ...rest)) as never);
+  const before = calls('/classes').length;
+  await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
+  expect(calls('/classes').length).toBe(before + 1);
+  await act(async () => { await vi.advanceTimersByTimeAsync(45000); });
+  expect(calls('/classes').length).toBe(before + 1);
+});

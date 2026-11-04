@@ -52,3 +52,32 @@ test("FR-032: staff can see notices but only administrators can send them", () =
   expect(screen.queryByRole("button", { name: "Review notice" })).toBeNull();
   expect(screen.queryByRole("button", { name: /^Mark fixed/ })).toBeNull();
 });
+
+test("FR-032: a failed send's error does not follow the admin into the other dialog", async () => {
+  vi.mocked(api).mockRejectedValueOnce(new Error("Could not send"));
+  mount([manual]);
+  fireEvent.change(screen.getByLabelText("What members should know"), { target: { value: "Another problem here." } });
+  fireEvent.change(screen.getByLabelText("Reason for the change log"), { target: { value: "Report" } });
+  fireEvent.click(screen.getByRole("button", { name: "Review notice" }));
+  const first = screen.getByRole("dialog", { name: "Email every member?" });
+  fireEvent.click(within(first).getByRole("button", { name: "Send to everyone" }));
+  expect(await within(first).findByRole("alert")).toBeTruthy();
+  fireEvent.click(within(first).getByRole("button", { name: "Keep editing" }));
+  fireEvent.click(screen.getByRole("button", { name: /^Mark fixed/ }));
+  expect(within(screen.getByRole("dialog", { name: "Tell everyone it's fixed?" })).queryByRole("alert")).toBeNull();
+});
+
+test("FR-032: while a send is running the draft is locked, so a late reply cannot wipe new edits", async () => {
+  let finish = (_: unknown) => {};
+  vi.mocked(api).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }) as never);
+  mount([manual]);
+  fireEvent.change(screen.getByLabelText("What members should know"), { target: { value: "Another problem here." } });
+  fireEvent.change(screen.getByLabelText("Reason for the change log"), { target: { value: "Report" } });
+  fireEvent.click(screen.getByRole("button", { name: "Review notice" }));
+  const dialog = screen.getByRole("dialog", { name: "Email every member?" });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Send to everyone" }));
+  await waitFor(() => expect(api).toHaveBeenCalled());
+  expect((within(dialog).getByRole("button", { name: "Keep editing" }) as HTMLButtonElement).disabled).toBe(true);
+  finish({});
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+});

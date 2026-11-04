@@ -41,7 +41,6 @@ export function ServiceNotices() {
   };
   return (
     <section>
-      <h2>Service notices</h2>
       <p>
         Staff are emailed automatically when a card reader stops reporting in. Use a notice to tell
         everyone about any other problem, and again once it's fixed. An outage of this whole site
@@ -52,6 +51,7 @@ export function ServiceNotices() {
           className="management-search"
           onSubmit={(e) => {
             e.preventDefault();
+            setError("");
             setConfirming(true);
           }}
         >
@@ -63,7 +63,7 @@ export function ServiceNotices() {
             Reason for the change log
             <input value={reason} onChange={(e) => setReason(e.target.value)} required maxLength={500} />
           </label>
-          <button className="button button--quiet">Review notice</button>
+          <button className="button button--quiet" disabled={busy}>Review notice</button>
         </form>
       ) : null}
       {error && !confirming && !resolving ? <p role="alert">{error}</p> : null}
@@ -87,7 +87,9 @@ export function ServiceNotices() {
                 <button
                   className="button button--quiet"
                   aria-label={`Mark fixed: ${notice.summary}`}
+                  disabled={busy}
                   onClick={() => {
+                    setError("");
                     setFixedNote("");
                     setResolving(notice);
                   }}
@@ -101,12 +103,12 @@ export function ServiceNotices() {
           <p>No service notices have been sent.</p>
         ) : null}
       </div>
-      <Modal open={confirming} title="Email every member?" width="compact" onClose={() => setConfirming(false)}>
+      <Modal open={confirming} title="Email every member?" width="compact" dismissible={!busy} onClose={() => setConfirming(false)}>
         <p>This goes to every active account that hasn't opted out of notifications:</p>
         <blockquote>{summary}</blockquote>
         {error ? <p role="alert">{error}</p> : null}
         <div className="membership-dialog__actions">
-          <button className="button button--quiet" onClick={() => setConfirming(false)}>
+          <button className="button button--quiet" disabled={busy} onClick={() => setConfirming(false)}>
             Keep editing
           </button>
           <button
@@ -124,14 +126,14 @@ export function ServiceNotices() {
           </button>
         </div>
       </Modal>
-      <Modal open={!!resolving} title="Tell everyone it's fixed?" width="compact" onClose={() => setResolving(null)}>
+      <Modal open={!!resolving} title="Tell everyone it's fixed?" width="compact" dismissible={!busy} onClose={() => setResolving(null)}>
         <label className="cw-field">
           <span>What was fixed</span>
           <input value={fixedNote} onChange={(e) => setFixedNote(e.target.value)} required maxLength={500} />
         </label>
         {error ? <p role="alert">{error}</p> : null}
         <div className="membership-dialog__actions">
-          <button className="button button--quiet" onClick={() => setResolving(null)}>
+          <button className="button button--quiet" disabled={busy} onClick={() => setResolving(null)}>
             Not yet
           </button>
           <button

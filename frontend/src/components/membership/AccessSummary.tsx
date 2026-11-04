@@ -54,7 +54,7 @@ export function AccessSummary({ history, billing, passes, busy, act }: Props) {
   const [stopping, setStopping] = useState<Billing | null>(null);
   const [cancelling, setCancelling] = useState<BillingPass | null>(null);
   const [ending, setEnding] = useState<Entitlement | null>(null);
-  const deskMembership = current && !current.cardBilled && !recurring && !pending ? current : null;
+  const deskMembership = current && !current.cardBilled && !recurring ? current : null;
 
   return (
     <section className="panel membership-status" aria-labelledby="access-heading">
@@ -74,16 +74,21 @@ export function AccessSummary({ history, billing, passes, busy, act }: Props) {
           onStop={setStopping}
           onCancelCheckout={(r) => act(`/me/billing/${r.id}/cancel`)}
         />
-      ) : deskMembership ? (
-        <p className="membership-muted">
+      ) : null}
+      {deskMembership ? (
+        <div className="membership-billing">
           {deskMembership.cancellationRequestedAt ? (
-            `You cancelled this membership. Your last day is ${shortDate(deskMembership.endsAt!, true)}.`
+            <p className="membership-muted">
+              You cancelled this membership. Your last day is {shortDate(deskMembership.endsAt!, true)}.
+            </p>
           ) : (
-            <button className="button button--quiet" disabled={busy} onClick={() => setEnding(deskMembership)}>
-              Cancel membership
-            </button>
+            <div className="membership-actions">
+              <button className="button button--quiet" disabled={busy} onClick={() => setEnding(deskMembership)}>
+                Cancel membership
+              </button>
+            </div>
           )}
-        </p>
+        </div>
       ) : null}
       {upcoming.length ? (
         <div className="membership-passes">

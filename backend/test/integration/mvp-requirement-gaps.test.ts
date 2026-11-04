@@ -341,3 +341,19 @@ test('FR-032: only administrators can send notices, and an empty notice is refus
  assert.equal((await get('/admin/service-notices',member)).status,403);
  assert.equal((await post('/admin/service-notices',{summary:'',reason:'Empty'},administrator)).status,400);
 });
+
+test('B-014: an old approval date with no training date starts the clock today, not in the past',async()=>{
+ const c=await cert(30),id=await grant(await freshUser('ApprovedOnly'),c.certid,null);
+ await pool.query('UPDATE user_certifications SET approved_at=$2 WHERE usercertid=$1',[id,new Date(Date.now()-400*DAY)]);
+ await pool.query('SELECT app_backfill_certification_expiry($1)',[c.certid]);
+ const at=await renewal(id);
+ assert.ok(at);assert.ok(Math.abs(at.getTime()-(Date.now()+30*DAY))<60_000);
+});
+test('FR-057: cancelling an older membership with no saved plan details still names the plan',async()=>{
+ const userId=await freshUser('NoSnapshot');await grantRole(userId,'member');
+ const id=await membership(userId,-1,60);
+ await pool.query('UPDATE user_membership SET plan_snapshot=NULL WHERE membershipid=$1',[id]);
+ const tier=(await pool.query('SELECT t.tiername FROM user_membership m JOIN membership_tiers t USING(tierid) WHERE m.membershipid=$1',[id])).rows[0].tiername;
+ await new PassBilling(pool).cancelMembership(userId,id);
+ assert.equal((await emails('membership_cancelled',userId))[0].payload.membershipName,tier);
+});

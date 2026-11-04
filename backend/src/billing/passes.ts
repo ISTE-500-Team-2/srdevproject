@@ -43,9 +43,9 @@ export class PassBilling {
    // Staff status changes lock the member before the entitlement. Audit writes
    // also need the member's FK lock, so keep the same order here.
    await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR UPDATE',[userid]);
-   const r=(await db.query(`SELECT m.status,m.cancellation_requested_at,m.plan_snapshot,m.end_date AT TIME ZONE 'UTC' AS ends,
+   const r=(await db.query(`SELECT m.status,m.cancellation_requested_at,COALESCE(m.plan_snapshot->>'name',t.tiername,'Membership') AS plan_name,m.end_date AT TIME ZONE 'UTC' AS ends,
     m.startdate<=NOW() AT TIME ZONE 'UTC' AND m.end_date>NOW() AT TIME ZONE 'UTC' AS running
-    FROM user_membership m WHERE m.membershipid=$1 AND m.userid=$2 FOR UPDATE`,[id,userid])).rows[0];
+    FROM user_membership m LEFT JOIN membership_tiers t USING(tierid) WHERE m.membershipid=$1 AND m.userid=$2 FOR UPDATE OF m`,[id,userid])).rows[0];
    if(!r)throw new AppError(404,'NOT_FOUND','Membership not found.');
    if((await db.query('SELECT id FROM app_membership_invoice WHERE membership_id=$1',[id])).rowCount)throw new AppError(409,'PROVIDER_PAYMENT','Stop auto-renew to cancel a card membership.');
    if(r.cancellation_requested_at)return {cancelled:true,endsAt:r.ends};
@@ -54,7 +54,7 @@ export class PassBilling {
     cancellation_requested_at=NOW(),revision=revision+1 WHERE membershipid=$1 RETURNING end_date AT TIME ZONE 'UTC' AS ends`,[id])).rows[0].ends;
    await new StaffModel(db).audit(userid,userid,'membership.cancelled','membership',id,'Member cancellation with 30 days notice',{endsAt:r.ends},{endsAt:ends});
    await enqueueNotification(db,{userId:userid,kind:'membership_cancelled',dedupeKey:'membership-manual-cancel:'+id,
-    payload:{membershipId:id,membershipName:r.plan_snapshot?.name??'Membership',endsAt:new Date(ends).toISOString(),instructions:'Your membership stays active until the date shown and will not renew. If you paid at the front desk, ask staff about any refund.'}});
+    payload:{membershipId:id,membershipName:r.plan_name,endsAt:new Date(ends).toISOString(),instructions:'Your membership stays active until the date shown and will not renew. If you paid at the front desk, ask staff about any refund.'}});
    return {cancelled:true,endsAt:ends};
   });
  }

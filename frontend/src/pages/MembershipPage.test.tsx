@@ -191,3 +191,9 @@ test("FR-057: card memberships keep using Stop auto-renew, even after billing cl
   mount({ memberships: [deskMembership({ cardBilled: true })] });
   expect(screen.queryByRole("button", { name: "Cancel membership" })).toBeNull();
 });
+
+test("FR-057: a pending checkout does not hide cancelling the current desk membership", () => {
+  mount({ memberships: [deskMembership()], records: [{ id: "b1", status: "pending", amountCents: 5000, plan: { name: "Monthly" }, planSnapshot: { name: "Monthly" } }] });
+  expect(screen.getByRole("button", { name: "Cancel checkout" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Cancel membership" })).toBeTruthy();
+});
