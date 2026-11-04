@@ -2,6 +2,7 @@ import type { Database } from '../db.js';
 import { enqueueNotification, validTimeZone } from './store.js';
 
 const DAY=86_400_000;
+export const EXPIRATION_LOOKAHEAD_DAYS=30;
 function dateParts(date:Date,timeZone:string) {
   const parts=new Intl.DateTimeFormat('en-US',{timeZone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(date);
   const get=(name:string)=>Number(parts.find(p=>p.type===name)!.value);
@@ -40,7 +41,7 @@ export async function scheduleExpirationNotifications(db:Database,now=new Date()
   ) SELECT e.userid AS "userId",source_type AS "sourceType",source_id AS "sourceId",expires_at AS "expiresAt",granted_at AS "grantedAt",name,
     COALESCE(p.time_zone,'America/New_York') AS "timeZone"
     FROM expirations e JOIN "user" u USING(userid) LEFT JOIN app_notification_preferences p USING(userid)
-    WHERE expires_at>$1 AND expires_at<=$1::timestamptz+INTERVAL '30 days' AND u.status='active'`,[now]);
+    WHERE expires_at>$1 AND expires_at<=$1::timestamptz+INTERVAL '${EXPIRATION_LOOKAHEAD_DAYS} days' AND u.status='active'`,[now]);
   for(const row of rows) {
     const expiry=new Date(row.expiresAt);
     const dates=reminderDates(expiry,row.timeZone);

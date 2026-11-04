@@ -131,8 +131,9 @@ test('B-015: a waiver published with a duration expires that long after signing'
  const published=await post('/admin/policies',policyBody(name,{validityDays:365}),administrator);
  assert.equal(published.status,201);assert.equal(published.body.data.validityDays,365);
  assert.equal((await post(`/me/waivers/${published.body.data.id}/sign`,{accepted:true},member)).status,200);
- const row=(await pool.query('SELECT expires_at,signdate AT TIME ZONE \'UTC\' AS signed FROM user_waiver WHERE userid=$1 AND waiverid=$2',[member.id,published.body.data.id])).rows[0];
+ const row=(await pool.query('SELECT userwaiverid,expires_at,signdate AT TIME ZONE \'UTC\' AS signed FROM user_waiver WHERE userid=$1 AND waiverid=$2',[member.id,published.body.data.id])).rows[0];
  assert.ok(row.expires_at);assert.ok(Math.abs(new Date(row.expires_at).getTime()-new Date(row.signed).getTime()-365*DAY)<5000);
+ assert.equal((await emails('waiver_expiring',member.id)).filter(m=>m.payload.sourceId===row.userwaiverid).length,0,'Keep long-term expirations outside the existing 30-day scheduling horizon');
 });
 test('B-015: signature validity lasts the configured elapsed days regardless of database time zone',async()=>{
  const db=await pool.connect();
@@ -157,6 +158,22 @@ test('B-015: a waiver with no duration does not invent an expiry, and bad durati
  assert.equal((await pool.query('SELECT expires_at FROM user_waiver WHERE userid=$1 AND waiverid=$2',[member.id,published.body.data.id])).rows[0].expires_at,null);
  for(const validityDays of [0,-1,3651,'soon',1.5])
   assert.equal((await post('/admin/policies',policyBody(name+validityDays,{validityDays}),administrator)).status,400,String(validityDays));
+});
+test('B-015/BR-010: signing a one-day waiver queues its short-notice reminder before the next daily scan',async()=>{
+ const published=await post('/admin/policies',policyBody('One-day '+randomBytes(3).toString('hex'),{validityDays:1}),administrator);
+ assert.equal(published.status,201);
+ const id=published.body.data.id;
+ assert.equal((await post(`/me/waivers/${id}/sign`,{accepted:true},member)).status,200);
+ const signature=(await pool.query('SELECT userwaiverid,expires_at FROM user_waiver WHERE userid=$1 AND waiverid=$2 AND approval=true',[member.id,id])).rows[0];
+ const reminders=async()=>(await emails('waiver_expiring',member.id)).filter(m=>m.payload.sourceId===signature.userwaiverid);
+ const queued=await reminders();
+ assert.equal(queued.length,1);
+ assert.equal(queued[0].status,'pending');assert.equal(queued[0].counts_for_sla,false);
+ assert.ok(new Date(queued[0].due_at)<=new Date());
+ assert.equal(queued[0].payload.expiresAt,signature.expires_at.toISOString());
+ assert.equal((await post(`/me/waivers/${id}/sign`,{accepted:true},member)).status,200);
+ await scheduleExpirationNotifications(pool);
+ assert.equal((await reminders()).length,1);
 });
 
 test('B-016: the report counts signatures with no retained copy',async()=>{
