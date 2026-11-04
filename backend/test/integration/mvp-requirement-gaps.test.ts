@@ -7,6 +7,7 @@ import {createApp} from '../../src/app.js';
 import {PassBilling} from '../../src/billing/passes.js';
 import {membershipTrends} from '../../src/membershipReports.js';
 import {StaffModel} from '../../src/models/StaffModel.js';
+import {MemberModel} from '../../src/models/MemberModel.js';
 import {StaffService} from '../../src/services/StaffService.js';
 import {scheduleExpirationNotifications} from '../../src/notifications/scheduler.js';
 import {checkReaderHealth} from '../../src/serviceNotices.js';
@@ -111,6 +112,17 @@ test('B-014: the backfill starts the clock today when no training date was recor
  assert.ok(at);assert.ok(Math.abs(at.getTime()-(Date.now()+30*DAY))<60_000);
  assert.equal((await renewal(dated))!.getTime(),fixed.getTime());
 });
+test('B-014: backfill uses the same elapsed-day validity as training issuance across database time zones',async()=>{
+ const trained=new Date('2026-10-28T12:00:00Z'),c=await cert(30),id=await grant(await freshUser('DstBackfill'),c.certid,trained);
+ const db=await pool.connect();
+ try{
+  await db.query('BEGIN');
+  await db.query("SET LOCAL TIME ZONE 'America/New_York'");
+  await db.query('SELECT app_backfill_certification_expiry($1)',[c.certid]);
+  const expiry=(await db.query(`SELECT renewaldate AT TIME ZONE 'UTC' AS expires FROM user_certifications WHERE usercertid=$1`,[id])).rows[0].expires;
+  assert.equal(expiry.getTime(),trained.getTime()+30*DAY);
+ }finally{await db.query('ROLLBACK');db.release();}
+});
 
 const policyBody=(name:string,extra:object={})=>({name,version:'v1',description:'Plain test wording for this waiver.',effectiveAt:new Date(Date.now()-60_000).toISOString(),approvalReference:'Sponsor ticket 1',reason:'Publish for test',...extra});
 
@@ -121,6 +133,20 @@ test('B-015: a waiver published with a duration expires that long after signing'
  assert.equal((await post(`/me/waivers/${published.body.data.id}/sign`,{accepted:true},member)).status,200);
  const row=(await pool.query('SELECT expires_at,signdate AT TIME ZONE \'UTC\' AS signed FROM user_waiver WHERE userid=$1 AND waiverid=$2',[member.id,published.body.data.id])).rows[0];
  assert.ok(row.expires_at);assert.ok(Math.abs(new Date(row.expires_at).getTime()-new Date(row.signed).getTime()-365*DAY)<5000);
+});
+test('B-015: signature validity lasts the configured elapsed days regardless of database time zone',async()=>{
+ const db=await pool.connect();
+ try{
+  await db.query('BEGIN');
+  await db.query("SET LOCAL TIME ZONE 'America/New_York'");
+  for(const days of [90,180,270]){
+   const waiver=(await db.query(`INSERT INTO waiver(name,version,description,validity_days) VALUES($1,'v1','Timezone fixture',$2) RETURNING waiverid`,['Timezone '+days,days])).rows[0].waiverid;
+   const signed=await new MemberModel(db).signWaiver(member.id,waiver);
+   assert.ok(signed);
+   const expiry=(await db.query('SELECT expires_at FROM user_waiver WHERE userwaiverid=$1',[signed.id])).rows[0].expires_at;
+   assert.equal(expiry.getTime()-new Date(signed.signedAt).getTime(),days*DAY);
+  }
+ }finally{await db.query('ROLLBACK');db.release();}
 });
 
 test('B-015: a waiver with no duration does not invent an expiry, and bad durations are refused',async()=>{

@@ -11,7 +11,7 @@ ALTER TABLE user_membership ADD COLUMN cancellation_requested_at TIMESTAMPTZ;
 CREATE FUNCTION app_backfill_certification_expiry(target INTEGER) RETURNS INTEGER LANGUAGE sql AS $$
   WITH dated AS (
     UPDATE user_certifications uc SET
-      renewaldate=(COALESCE(uc.trained_at,uc.approved_at,NOW())+make_interval(days=>c.validity_days)) AT TIME ZONE 'UTC',
+      renewaldate=(COALESCE(uc.trained_at,uc.approved_at,NOW()) AT TIME ZONE 'UTC')+make_interval(days=>c.validity_days),
       revision=uc.revision+1
     FROM certifications c
     WHERE c.certid=uc.certid AND uc.certid=target AND uc.status='active'
