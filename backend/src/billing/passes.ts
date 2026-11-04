@@ -40,6 +40,9 @@ export class PassBilling {
  async cancelMembership(userid:number,id:number){
   return transaction(this.pool,async db=>{
    await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,userid]);
+   // Staff status changes lock the member before the entitlement. Audit writes
+   // also need the member's FK lock, so keep the same order here.
+   await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR UPDATE',[userid]);
    const r=(await db.query(`SELECT m.status,m.cancellation_requested_at,m.plan_snapshot,m.end_date AT TIME ZONE 'UTC' AS ends,
     m.startdate<=NOW() AT TIME ZONE 'UTC' AND m.end_date>NOW() AT TIME ZONE 'UTC' AS running
     FROM user_membership m WHERE m.membershipid=$1 AND m.userid=$2 FOR UPDATE`,[id,userid])).rows[0];

@@ -7,6 +7,7 @@ import {createApp} from '../../src/app.js';
 import {PassBilling} from '../../src/billing/passes.js';
 import {membershipTrends} from '../../src/membershipReports.js';
 import {StaffModel} from '../../src/models/StaffModel.js';
+import {StaffService} from '../../src/services/StaffService.js';
 import {scheduleExpirationNotifications} from '../../src/notifications/scheduler.js';
 import {checkReaderHealth} from '../../src/serviceNotices.js';
 import {initializeDemo} from '../../src/scripts/init-demo.js';
@@ -207,6 +208,31 @@ test('FR-057: other members, card subscriptions and ended memberships cannot be 
  const card=await post(`/me/billing/memberships/${carded}/cancel`,{},member);
  assert.equal(card.status,409);assert.equal(card.body.error.code,'PROVIDER_PAYMENT');
  assert.equal((await get('/me/memberships',member)).body.data.memberships.find((m:any)=>m.id===carded).cardBilled,true);
+});
+test('FR-057: cancellation and a staff status change use the same user-before-membership lock order',async()=>{
+ const userId=await memberActor(),id=await membership(userId,-1,60);
+ let targetLocked!:()=>void,continueStaff!:()=>void;
+ const locked=new Promise<void>(resolve=>{targetLocked=resolve;}),proceed=new Promise<void>(resolve=>{continueStaff=resolve;});
+ const instrument=(staff:boolean)=>({connect:async()=>{
+  const db=await pool.connect();
+  return {release:()=>db.release(),query:async(sql:string,values?:unknown[])=>{
+   // A user-first canceller waits here while the staff transaction finishes.
+   if(!staff&&sql.includes('FROM "user"')&&sql.includes('FOR UPDATE'))continueStaff();
+   const result=await db.query(sql,values);
+   if(staff&&sql.includes('FOR UPDATE OF u')){targetLocked();await proceed;}
+   // The original canceller instead held the membership before waiting on the user.
+   if(!staff&&sql.includes('FROM user_membership m')&&sql.includes('FOR UPDATE'))continueStaff();
+   return result;
+  }};
+ }}) as unknown as Pool;
+ const status=new StaffService(instrument(true),'America/New_York').entitlementStatus(administrator.id,userId,'membership',id,'suspended',1,'Concurrent staff status change');
+ await locked;
+ const cancelled=new PassBilling(instrument(false)).cancelMembership(userId,id);
+ const [staffResult,cancelResult]=await Promise.allSettled([status,cancelled]);
+ assert.equal(staffResult.status,'fulfilled',staffResult.status==='rejected'?String(staffResult.reason):undefined);
+ assert.equal(cancelResult.status,'rejected');
+ if(cancelResult.status==='rejected')assert.equal(cancelResult.reason.code,'INVALID_STATUS');
+ assert.equal((await pool.query('SELECT status,cancellation_requested_at FROM user_membership WHERE membershipid=$1',[id])).rows[0].cancellation_requested_at,null);
 });
 
 test('FR-032: an enabled reader going silent alerts staff once and recovery tells them',async()=>{
