@@ -25,7 +25,7 @@ import {
 } from "../components/classes/classData";
 import "./classes.css";
 
-const REFRESH_MS = 120000;
+const REFRESH_MS = 15000;
 /** How far back to look for past classes whose attendance is still open. */
 const ATTENDANCE_WINDOW_MS = 60 * 86400000;
 const emptyDraft: AttendanceDraft = { statuses: {}, note: "" };

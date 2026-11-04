@@ -171,20 +171,20 @@ test('attendance drafts belong to their class and survive closing the panel', as
   expect((radio(panel, 'First Member', 'No show') as HTMLInputElement).checked).toBe(true);
 });
 
-test('unsaved attendance pauses auto refresh; a pristine page refreshes every two minutes and not while hidden', async () => {
+test('unsaved attendance pauses auto refresh; a pristine page refreshes every 15 seconds and not while hidden', async () => {
   await mount();
   const before = calls('/classes').length;
-  await act(async () => { await vi.advanceTimersByTimeAsync(120000); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
   expect(calls('/classes').length).toBe(before + 1);
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
-  await act(async () => { await vi.advanceTimersByTimeAsync(120000); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
   expect(calls('/classes').length).toBe(before + 1);
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
   const panel = await openRoster();
   fireEvent.click(radio(panel, 'First Member', 'Attended'));
   const paused = calls('/classes').length;
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(120000);
+    await vi.advanceTimersByTimeAsync(15000);
     window.dispatchEvent(new Event('focus'));
   });
   expect(calls('/classes').length).toBe(paused);
@@ -196,7 +196,7 @@ test('roster contact details are cleared when a refresh denies access', async ()
   const panel = await openRoster();
   expect(within(panel).getByText('first@example.invalid')).toBeTruthy();
   denyRoster = true;
-  await act(async () => { await vi.advanceTimersByTimeAsync(120000); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
   expect(screen.getByText('Roster access removed.')).toBeTruthy();
   expect(screen.queryByText('first@example.invalid')).toBeNull();
 });

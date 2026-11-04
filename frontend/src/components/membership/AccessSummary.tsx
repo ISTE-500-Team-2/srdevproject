@@ -53,6 +53,8 @@ export function AccessSummary({ history, billing, passes, busy, act }: Props) {
   const upcoming = upcomingPasses(passes, today);
   const [stopping, setStopping] = useState<Billing | null>(null);
   const [cancelling, setCancelling] = useState<BillingPass | null>(null);
+  const [ending, setEnding] = useState<Entitlement | null>(null);
+  const deskMembership = current && !current.cardBilled && !recurring && !pending ? current : null;
 
   return (
     <section className="panel membership-status" aria-labelledby="access-heading">
@@ -72,6 +74,16 @@ export function AccessSummary({ history, billing, passes, busy, act }: Props) {
           onStop={setStopping}
           onCancelCheckout={(r) => act(`/me/billing/${r.id}/cancel`)}
         />
+      ) : deskMembership ? (
+        <p className="membership-muted">
+          {deskMembership.cancellationRequestedAt ? (
+            `You cancelled this membership. Your last day is ${shortDate(deskMembership.endsAt!, true)}.`
+          ) : (
+            <button className="button button--quiet" disabled={busy} onClick={() => setEnding(deskMembership)}>
+              Cancel membership
+            </button>
+          )}
+        </p>
       ) : null}
       {upcoming.length ? (
         <div className="membership-passes">
@@ -121,6 +133,36 @@ export function AccessSummary({ history, billing, passes, busy, act }: Props) {
             }}
           >
             Stop auto-renew
+          </button>
+        </div>
+      </Modal>
+
+      <Modal
+        open={!!ending}
+        title="Cancel membership?"
+        width="compact"
+        onClose={() => setEnding(null)}
+      >
+        <p>
+          Cancelling takes 30 days of notice. You keep studio access until
+          then, or until your current end date if that comes first, and your
+          membership won't renew. If you paid at the front desk, ask staff
+          about any refund.
+        </p>
+        <div className="membership-dialog__actions">
+          <button className="button button--quiet" onClick={() => setEnding(null)}>
+            Keep membership
+          </button>
+          <button
+            className="button button--primary"
+            disabled={busy}
+            onClick={async () => {
+              const m = ending!;
+              setEnding(null);
+              await act(`/me/billing/memberships/${m.id}/cancel`);
+            }}
+          >
+            Cancel membership
           </button>
         </div>
       </Modal>

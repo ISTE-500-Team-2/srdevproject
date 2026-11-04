@@ -57,6 +57,7 @@ const allowedWhileActing: RegExp[] = [
   /^\/me\/billing\/(checkout|free-membership)$/,
   /^\/me\/billing\/passes\/checkout$/,
   /^\/me\/billing\/[^/]+\/cancel$/,
+  /^\/me\/billing\/memberships\/\d+\/cancel$/,
   /^\/me\/billing\/passes\/[^/]+\/cancel$/,
   /^\/auth\/logout$/,
 ];

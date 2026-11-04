@@ -33,7 +33,8 @@ test('combined migrations upgrade the previous schema without rewriting paid mem
     await pool.query('INSERT INTO user_waiver(userid,waiverid,approval,signdate) VALUES($1,$2,true,now())',[user,waiver]);
     await model.audit(user,user,'fixture.existing','membership',membership,'Historical fixture audit',null,{price:'19.99'});
     async function history(){return {
-      memberships:(await pool.query('SELECT * FROM user_membership ORDER BY membershipid')).rows,
+      // Columns added by later migrations start empty and are not history being rewritten.
+      memberships:(await pool.query('SELECT * FROM user_membership ORDER BY membershipid')).rows.map(({cancellation_requested_at,...row})=>row),
       payments:(await pool.query('SELECT * FROM payment ORDER BY paymentid')).rows,
       signatures:(await pool.query('SELECT * FROM user_waiver ORDER BY userwaiverid')).rows,
       audit:(await pool.query("SELECT * FROM app_staff_audit WHERE action='fixture.existing'")).rows,

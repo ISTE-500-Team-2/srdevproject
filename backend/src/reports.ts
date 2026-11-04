@@ -146,7 +146,15 @@ export function reportRoutes(pool: Pool, tz: string) {
         const checkedInToday = recentCheckIns.map(({ total, ...person }) => person);
         const compliance = (
           await db.query(
-            `SELECT COUNT(*) FILTER(WHERE status='active')::int AS "activeAccounts",COUNT(*) FILTER(WHERE accessstatus<>'active')::int AS "restrictedAccounts",(SELECT COUNT(*)::int FROM user_certifications WHERE status='active' AND renewaldate<NOW() AT TIME ZONE 'UTC') AS "expiredTraining" FROM "user"`,
+            `SELECT COUNT(*) FILTER(WHERE status='active')::int AS "activeAccounts",COUNT(*) FILTER(WHERE accessstatus<>'active')::int AS "restrictedAccounts",(SELECT COUNT(*)::int FROM user_certifications WHERE status='active' AND renewaldate<NOW() AT TIME ZONE 'UTC') AS "expiredTraining",
+            (SELECT COUNT(*)::int FROM user_certifications WHERE status='active' AND renewaldate IS NULL) AS "trainingWithoutExpiry",
+            (SELECT COUNT(*)::int FROM user_membership um JOIN "user" mu USING(userid) WHERE um.status='active' AND mu.status='active'
+              AND um.startdate<=NOW() AT TIME ZONE 'UTC' AND um.end_date>NOW() AT TIME ZONE 'UTC') AS "activeMemberships",
+            (SELECT COUNT(*)::int FROM user_waiver uw WHERE uw.approval=true AND NOT EXISTS(SELECT 1 FROM app_notification_outbox o
+              WHERE o.dedupe_key='waiver-signed:'||uw.userwaiverid AND o.userid=uw.userid AND o.kind='waiver_signed'
+                AND o.payload ?& ARRAY['waiverName','waiverVersion','waiverText','signature','signedAt'])) AS "signaturesWithoutCopy",
+            (SELECT COALESCE(json_agg(name ORDER BY name),'[]') FROM equipment WHERE certid IS NULL AND status='available') AS "machinesWithoutTraining"
+            FROM "user"`,
           )
         ).rows[0];
         const live = (
@@ -183,6 +191,7 @@ export function reportRoutes(pool: Pool, tz: string) {
           notifications,
           notes: [
             ...membershipReportNotes,
+            "Records granted with under a week left still get a reminder, but do not count toward on-time rates because a week's notice was impossible.",
             "Notification cohorts use deadline dates, not creation dates. Expiration/compliance covers waiver and training reminders only. Provider acceptance, delivered callbacks and inbox placement are different; zero eligible notices means no rate, not 100%.",
             "Revenue groups recorded receipts by original purchase date and current refund state; it is not a historical cash-flow ledger.",
             "Booking utilization uses the full selected calendar window, not operating-hours availability. Reader-authorized time is separately measured and is not proof of physical machine operation.",

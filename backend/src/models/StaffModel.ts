@@ -15,6 +15,7 @@ export interface PolicyRecord {
   active: boolean;
   required: boolean;
   approvalReference: string | null;
+  validityDays: number | null;
 }
 export interface ComplianceFilters {
   waiverId: number | null;
@@ -171,7 +172,8 @@ export class StaffModel {
   async memberships(userId: number) {
     return (
       await this.db.query(
-        `SELECT m.membershipid AS id,m.userid AS "userId",m.tierid AS "planId",m.status,m.statusdesc AS reason,m.revision,
+        `SELECT m.membershipid AS id,m.userid AS "userId",m.tierid AS "planId",m.status,m.statusdesc AS reason,m.revision,m.cancellation_requested_at AS "cancellationRequestedAt",
+      EXISTS(SELECT 1 FROM app_membership_invoice i WHERE i.membership_id=m.membershipid) AS "cardBilled",
       m.startdate AT TIME ZONE 'UTC' AS "startsAt",m.end_date AT TIME ZONE 'UTC' AS "endsAt",
       COALESCE(m.plan_snapshot,jsonb_build_object('name',t.tiername,'price',t.tierprice::text,'benefits',t.benefits)) AS plan,
       CASE WHEN m.status<>'active' THEN m.status WHEN m.end_date<=NOW() AT TIME ZONE 'UTC' THEN 'expired'
@@ -443,7 +445,7 @@ export class StaffModel {
   async policies() {
     return (
       await this.db.query<PolicyRecord>(
-        `SELECT waiverid AS id,name,version,description,effectivedate AT TIME ZONE 'UTC' AS "effectiveAt",isactive AS active,required,approval_reference AS "approvalReference" FROM waiver ORDER BY effectivedate DESC NULLS LAST,waiverid DESC`,
+        `SELECT waiverid AS id,name,version,description,effectivedate AT TIME ZONE 'UTC' AS "effectiveAt",isactive AS active,required,approval_reference AS "approvalReference",validity_days AS "validityDays" FROM waiver ORDER BY effectivedate DESC NULLS LAST,waiverid DESC`,
       )
     ).rows;
   }
@@ -454,12 +456,13 @@ export class StaffModel {
     effectiveAt: string,
     approvalReference: string,
     actorId: number,
+    validityDays: number | null = null,
   ) {
     return (
       await this.db.query<PolicyRecord>(
-        `INSERT INTO waiver(name,version,description,effectivedate,approval_reference,created_by) VALUES($1,$2,$3,$4::timestamptz AT TIME ZONE 'UTC',$5,$6)
-      RETURNING waiverid AS id,name,version,description,effectivedate AT TIME ZONE 'UTC' AS "effectiveAt",isactive AS active,required,approval_reference AS "approvalReference"`,
-        [name, version, description, effectiveAt, approvalReference, actorId],
+        `INSERT INTO waiver(name,version,description,effectivedate,approval_reference,created_by,validity_days) VALUES($1,$2,$3,$4::timestamptz AT TIME ZONE 'UTC',$5,$6,$7)
+      RETURNING waiverid AS id,name,version,description,effectivedate AT TIME ZONE 'UTC' AS "effectiveAt",isactive AS active,required,approval_reference AS "approvalReference",validity_days AS "validityDays"`,
+        [name, version, description, effectiveAt, approvalReference, actorId, validityDays],
       )
     ).rows[0]!;
   }

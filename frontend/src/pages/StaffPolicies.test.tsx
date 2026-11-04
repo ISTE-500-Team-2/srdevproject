@@ -74,3 +74,25 @@ test('waiver text and approval evidence survive accidental closing until discard
   expect(screen.queryByRole('dialog')).toBeNull();
   expect(api).not.toHaveBeenCalled();
 });
+
+const publishWith = async (days?: string) => {
+  vi.mocked(useApi).mockImplementation(path => ({ data: path === '/admin/policies' ? [current] : { summary: { userCount: 5 }, waiverBreakdown: [] }, loading: false, refreshing: false, error: '', reload: vi.fn() }));
+  vi.mocked(api).mockResolvedValue({} as never);
+  render(<StaffPolicies />);
+  fireEvent.click(screen.getByRole('button', { name: 'Publish new version' }));
+  const dialog = screen.getByRole('dialog');
+  if (days !== undefined) fireEvent.change(within(dialog).getByLabelText('Valid for (days)'), { target: { value: days } });
+  fireEvent.change(within(dialog).getByLabelText(/Approval/), { target: { value: 'Board vote' } });
+  fireEvent.change(within(dialog).getByLabelText(/Reason/), { target: { value: 'Annual update' } });
+  fireEvent.submit(within(dialog).getByLabelText('Valid for (days)').closest('form')!);
+  await waitFor(() => expect(api).toHaveBeenCalled());
+  return vi.mocked(api).mock.calls[0]![1] as { body: { validityDays: number | null } };
+};
+
+test('B-015: a waiver can be published with a duration in days', async () => {
+  expect((await publishWith('365')).body.validityDays).toBe(365);
+});
+
+test('B-015: leaving the duration blank publishes a waiver that does not expire on its own', async () => {
+  expect((await publishWith('')).body.validityDays).toBeNull();
+});

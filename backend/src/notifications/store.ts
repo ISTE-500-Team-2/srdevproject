@@ -3,7 +3,7 @@ import { AppError } from '../domain.js';
 
 export interface NotificationPreferences { enabled: boolean; timeZone: string }
 export interface NotificationInput {
-  userId: number; kind: string; dedupeKey: string; dueAt?: Date; deadlineAt?: Date;
+  userId: number; kind: string; dedupeKey: string; dueAt?: Date; deadlineAt?: Date; countsForSla?: boolean;
   payload: Record<string, unknown>;
 }
 export function validTimeZone(value: unknown): value is string {
@@ -42,11 +42,11 @@ export async function enqueueNotification(db: Database, input: NotificationInput
   await db.query(`INSERT INTO app_notification_outbox(userid,kind,dedupe_key,payload,due_at,deadline_at,status,counts_for_sla)
     SELECT u.userid,$2,$3,$4::jsonb,$5,$6,
       CASE WHEN (COALESCE(p.enabled,true) OR $2 IN ('password_reset','password_changed')) AND (u.status='active' OR ($2='account_confirmation' AND u.status='pending')) THEN 'pending' ELSE 'suppressed' END,
-      (COALESCE(p.enabled,true) OR $2 IN ('password_reset','password_changed')) AND (u.status='active' OR ($2='account_confirmation' AND u.status='pending'))
+      $7::boolean AND (COALESCE(p.enabled,true) OR $2 IN ('password_reset','password_changed')) AND (u.status='active' OR ($2='account_confirmation' AND u.status='pending'))
     FROM "user" u LEFT JOIN app_notification_preferences p USING(userid) WHERE u.userid=$1
     ON CONFLICT(dedupe_key) DO UPDATE SET due_at=EXCLUDED.due_at,deadline_at=EXCLUDED.deadline_at,updated_at=NOW()
     WHERE app_notification_outbox.status='pending' AND app_notification_outbox.attempts=0
-      AND EXCLUDED.payload ? 'sourceType'`,[input.userId,input.kind,input.dedupeKey,JSON.stringify(input.payload),dueAt,deadlineAt]);
+      AND EXCLUDED.payload ? 'sourceType'`,[input.userId,input.kind,input.dedupeKey,JSON.stringify(input.payload),dueAt,deadlineAt,input.countsForSla??true]);
 }
 export async function notificationMetrics(
   db: Database,

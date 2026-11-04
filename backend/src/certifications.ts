@@ -171,6 +171,7 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
         "UPDATE certifications SET name=$2,description=$3,validity_days=$4,revision=revision+1 WHERE certid=$1",
         [id, name, description, days],
       );
+      await db.query("SELECT app_backfill_certification_expiry($1)", [id]);
       await linkEquipment(db, id, equipmentList(req.body.equipmentIds));
       const after = (
         await db.query(

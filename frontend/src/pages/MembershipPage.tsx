@@ -112,6 +112,8 @@ export function MembershipPage() {
             return "Day pass cancelled. Your refund is on its way.";
           return "Day pass cancelled.";
         }
+        if (path.includes("/memberships/"))
+          return "Membership cancelled. Your last day is shown below.";
         const record = billing.data?.records.find((b) => path.includes(b.id));
         return record?.status === "pending"
           ? "Checkout cancelled. You haven't been charged."

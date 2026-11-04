@@ -24,6 +24,8 @@ export async function membershipTrends(
     SELECT b.userid,b.cancellation_requested_at FROM app_membership_billing b WHERE
       b.cancellation_confirmed=true OR EXISTS(SELECT 1 FROM app_notification_outbox n
         WHERE n.kind='membership_cancelled' AND n.dedupe_key='membership-cancel:'||b.id::text)
+    UNION ALL
+    SELECT userid,cancellation_requested_at FROM user_membership WHERE cancellation_requested_at IS NOT NULL
   ), first_memberships AS (
     SELECT userid,MIN(starts) AS starts FROM membership_windows GROUP BY userid
   ) SELECT to_char(p.d,'YYYY-MM-DD') AS period,
@@ -45,5 +47,5 @@ export async function membershipTrends(
 export const membershipReportNotes = [
   "Membership counts are distinct people per period. New means first recorded membership start; renewals are not new members.",
   "Active means a currently active membership record overlaps the period; these are current-record coverage counts, not reconstructed historical account eligibility. Expiring means a recorded period ends without another currently active period continuing it.",
-  "Cancelled counts confirmed recurring-billing cancellation requests by request date, using the confirmation flag or the durable cancellation-confirmation event (independent of email delivery). Paid access may remain active until its end date. Abandoned checkouts, expiry, suspension and manual revocation are not cancellation requests; undated legacy cancellations cannot be placed in a trend.",
+  "Cancelled counts member cancellations of desk-issued memberships plus confirmed recurring-billing cancellation requests by request date, using the confirmation flag or the durable cancellation-confirmation event (independent of email delivery). Paid access may remain active until its end date. Abandoned checkouts, expiry, suspension and manual revocation are not cancellation requests; undated legacy cancellations cannot be placed in a trend.",
 ];

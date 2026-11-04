@@ -508,6 +508,7 @@ export class StaffService {
       description: string;
       effectiveAt: string;
       approvalReference: string;
+      validityDays: number | null;
       reason: string;
     },
   ) {
@@ -519,6 +520,7 @@ export class StaffService {
         input.effectiveAt,
         input.approvalReference,
         actorId,
+        input.validityDays,
       );
       await model.audit(
         actorId,
