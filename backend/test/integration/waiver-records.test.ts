@@ -116,3 +116,17 @@ test('restoring an explicit expiration revives its canceled reminder without dup
  const rows=(await pool.query("SELECT status,counts_for_sla FROM app_notification_outbox WHERE dedupe_key=$1",[`waiver-expiring:${active}:${expiry}`])).rows;
  assert.equal(rows.length,1);assert.equal(rows[0].status,'pending');assert.equal(rows[0].counts_for_sla,true);
 });
+test('restoring a short-notice waiver expiry keeps its reminder outside the week-notice SLA',async()=>{
+ const waiver=(await pool.query(`INSERT INTO waiver(name,version,description,effectivedate) VALUES($1,'v1','Short-notice fixture',NOW() AT TIME ZONE 'UTC') RETURNING waiverid`,['Short notice '+randomBytes(3).toString('hex')])).rows[0].waiverid;
+ assert.equal((await post(`/me/waivers/${waiver}/sign`,{accepted:true})).status,200);
+ const signature=(await pool.query('SELECT userwaiverid FROM user_waiver WHERE userid=$1 AND waiverid=$2 AND approval=true',[member.id,waiver])).rows[0].userwaiverid;
+ const path=`/admin/users/${member.id}/signed-waivers/${signature}/expiry`;
+ const expiry=new Date(Date.now()+3*86400000).toISOString();
+ const reminder=async()=>(await pool.query('SELECT status,counts_for_sla FROM app_notification_outbox WHERE dedupe_key=$1',[`waiver-expiring:${signature}:${expiry}`])).rows;
+ assert.equal((await patch(path,{expiresAt:expiry,expectedExpiry:null,reason:'Recorded short-notice expiration'})).status,200);
+ assert.equal((await reminder())[0].counts_for_sla,false);
+ assert.equal((await patch(path,{expiresAt:null,expectedExpiry:expiry,reason:'Withdraw expiration'})).status,200);
+ assert.equal((await patch(path,{expiresAt:expiry,expectedExpiry:null,reason:'Restore expiration'})).status,200);
+ const rows=await reminder();
+ assert.equal(rows.length,1);assert.equal(rows[0].status,'pending');assert.equal(rows[0].counts_for_sla,false);
+});
