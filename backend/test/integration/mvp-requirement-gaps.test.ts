@@ -220,6 +220,21 @@ test('FR-057: a membership ending inside the notice period keeps its end date',a
  assert.equal(row.end_date.getTime(),expected.getTime());assert.ok(row.cancellation_requested_at);
  await pool.query(`UPDATE user_membership SET status='revoked' WHERE membershipid=$1`,[id]);
 });
+test('FR-057: the cancellation notice matches the existing elapsed-day policy across database time zones',async()=>{
+ const userId=await memberActor(),id=await membership(userId,-40,200);
+ const now=new Date('2026-10-28T12:00:00Z');
+ const single=new Pool({database,max:1,connectionTimeoutMillis:5000,options:'-c timezone=America/New_York'});
+ // Fix only the transaction clock; execute the service SQL and locks in PostgreSQL.
+ const fixedClock={connect:async()=>{
+  const db=await single.connect();
+  return {release:()=>db.release(),query:(sql:string,values?:unknown[])=>db.query(sql.replaceAll('NOW()',`TIMESTAMPTZ '${now.toISOString()}'`),values)};
+ }} as unknown as Pool;
+ try{
+  await pool.query(`UPDATE user_membership SET startdate=TIMESTAMP '2026-10-01 12:00:00',end_date=TIMESTAMP '2027-02-01 12:00:00' WHERE membershipid=$1`,[id]);
+  const cancelled=await new PassBilling(fixedClock).cancelMembership(userId,id);
+  assert.equal(new Date(cancelled.endsAt).getTime(),now.getTime()+30*DAY);
+ }finally{await single.end();}
+});
 test('FR-057: other members, card subscriptions and ended memberships cannot be cancelled here',async()=>{
  const other=await memberActor();
  const foreign=await membership(other,-1,60);

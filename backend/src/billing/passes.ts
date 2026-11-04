@@ -50,7 +50,7 @@ export class PassBilling {
    if((await db.query('SELECT id FROM app_membership_invoice WHERE membership_id=$1',[id])).rowCount)throw new AppError(409,'PROVIDER_PAYMENT','Stop auto-renew to cancel a card membership.');
    if(r.cancellation_requested_at)return {cancelled:true,endsAt:r.ends};
    if(r.status!=='active'||!r.running)throw new AppError(409,'INVALID_STATUS','Contact staff about this membership.');
-   const ends=(await db.query(`UPDATE user_membership SET end_date=LEAST(end_date,(NOW()+INTERVAL '30 days') AT TIME ZONE 'UTC'),
+   const ends=(await db.query(`UPDATE user_membership SET end_date=LEAST(end_date,(NOW() AT TIME ZONE 'UTC')+INTERVAL '30 days'),
     cancellation_requested_at=NOW(),revision=revision+1 WHERE membershipid=$1 RETURNING end_date AT TIME ZONE 'UTC' AS ends`,[id])).rows[0].ends;
    await new StaffModel(db).audit(userid,userid,'membership.cancelled','membership',id,'Member cancellation with 30 days notice',{endsAt:r.ends},{endsAt:ends});
    await enqueueNotification(db,{userId:userid,kind:'membership_cancelled',dedupeKey:'membership-manual-cancel:'+id,
