@@ -8,6 +8,7 @@ import {
   hasStarted,
   isCancelled,
   monthLabel,
+  registrationPrice,
   seatsLeft,
   timeRange,
   type ClassRecord,
@@ -284,6 +285,7 @@ function ClassRow({
   const full = seatsLeft(c) === 0;
   const holds = certified.has(c.certificationId);
   const busy = busyId === c.id;
+  const price = registrationPrice(c, holds);
   return (
     <li className={`class-row${registered && !cancelled ? " class-row--mine" : ""}${cancelled ? " class-row--cancelled" : ""}`}>
       <DateRail value={c.startsAt} faded={cancelled} />
@@ -328,7 +330,9 @@ function ClassRow({
             </span>
           )}
         </p>
-        {!registered && <small>{holds ? 'No training fee while certified' : c.trainingFeeCents == null ? 'Training fee not configured' : `${cents(c.trainingFeeCents)} one-time training fee`}</small>}
+        {!registered && <small>{price.trainingFee === null ? 'Training fee not configured'
+          : `${cents(price.trainingFee)} total for training; no extra course fee`}</small>}
+        {!registered && (c.trainingFeeCovered ?? holds) && <small>Training fee already covered</small>}
       </div>
       {cancelled ? (
         <p className="class-row__cancelled">The shop cancelled this class.</p>
@@ -352,7 +356,7 @@ function ClassRow({
               <button
                 type="button"
                 className={`button ${holds ? "button--quiet" : "button--primary"}`}
-                disabled={busy}
+                disabled={busy || price.trainingFee === null}
                 aria-label={`Register for ${c.title}`}
                 onClick={() => onRegister(c)}
               >

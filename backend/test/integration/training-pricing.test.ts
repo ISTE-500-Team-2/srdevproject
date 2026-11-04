@@ -67,6 +67,18 @@ test('registration charges the $20 training fee once, including concurrent retri
   assert.equal(saved.myTrainingFeeCents, 2000); assert.equal(saved.myPaymentStatus, 'pending');
 });
 
+test('concurrent registrations for different classes do not create duplicate unpaid training fees', async () => {
+  const first = await schedule(5), second = await schedule(6);
+  const count = Number((await pool.query('SELECT count(*) FROM payment')).rows[0].count);
+  const responses = await Promise.all([first, second].map(c => post(`/classes/${c.id}/enroll`, { expectedTrainingFeeCents: 2000 }, admin)));
+  assert.deepEqual(responses.map(r => r.status).sort(), [200, 409]);
+  assert.equal(responses.find(r => r.status === 409)!.body.error.code, 'TRAINING_PAYMENT_PENDING');
+  assert.equal(Number((await pool.query('SELECT count(*) FROM payment')).rows[0].count), count + 1);
+  const enrolled = responses.find(r => r.status === 200)!.body.data;
+  assert.equal((await post(`/classes/${enrolled.class_id}/withdraw`, {}, admin)).status, 200);
+  assert.equal((await payment(enrolled.payment_id)).paymentstatus, 'void');
+});
+
 test('withdrawal voids unpaid fees; a paid registration can be rejoined without another charge', async () => {
   assert.equal((await post(`/classes/${initialClass.id}/withdraw`)).status, 200);
   assert.equal((await payment(registration.payment_id)).paymentstatus, 'void');
@@ -83,9 +95,21 @@ test('withdrawal voids unpaid fees; a paid registration can be rejoined without 
   assert.equal((await pool.query('SELECT count(*) FROM payment')).rows[0].count, count);
 });
 
+test('settled training is not charged again for another class, even before certification approval', async () => {
+  const other = await schedule(7);
+  const listed = (await get('/classes')).body.data.find((c: any) => c.id === other.id);
+  assert.equal(listed.trainingFeeCovered, true);
+  const count = (await pool.query('SELECT count(*) FROM payment')).rows[0].count;
+  const r = await post(`/classes/${other.id}/enroll`, { expectedTrainingFeeCents: 0 });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.data.training_fee_cents, 0); assert.equal(r.body.data.payment_id, null);
+  assert.equal((await pool.query('SELECT count(*) FROM payment')).rows[0].count, count);
+  assert.equal((await pool.query('SELECT * FROM user_certifications WHERE userid=$1 AND certid=$2', [member.user.id, course.id])).rowCount, 0);
+});
+
 test('class cancellation voids pending training fees and leaves paid fees visible for refund', async () => {
   const pendingClass = await schedule(1);
-  const enrolled = await post(`/classes/${pendingClass.id}/enroll`, { expectedTrainingFeeCents: 2000 });
+  const enrolled = await post(`/classes/${pendingClass.id}/enroll`, { expectedTrainingFeeCents: 2000 }, admin);
   assert.equal(enrolled.status, 200);
   for (const c of [initialClass, pendingClass])
     assert.equal((await post(`/classes/${c.id}/cancel`, { expectedRevision: c.revision, reason: 'Synthetic cancellation' }, admin)).status, 200);
@@ -119,4 +143,47 @@ test('missing training fee configuration never blocks hourly equipment pricing',
   await pool.query('UPDATE certifications SET training_fee_cents=NULL WHERE certid=$1', [course.id]);
   const r = await get(`/equipment/${machine.equipmentid}/quote?hours=2`);
   assert.equal(r.status, 200); assert.equal(r.body.data.totalCents, 5600); assert.equal(r.body.data.trainingFeeCents, 0);
+});
+
+test('approved rates and one-hour training policies match the machine pricing', async () => {
+  // Restore the deliberate unconfigured-price fixture from the previous test.
+  await pool.query('UPDATE certifications SET training_fee_cents=2000 WHERE certid=$1', [course.id]);
+  const rows = (await pool.query(`SELECT e.name,e.hourlyrate,c.training_fee_cents,c.training_minutes
+    FROM equipment e LEFT JOIN certifications c USING(certid) ORDER BY e.equipmentid`)).rows;
+  for (const [name, rate, training] of [
+    ['Rachel', 7, false], ['Darth Vader', 20, false], ['Joey', 28, true],
+    ['Spock', 12, true], ['Kirk', 20, true],
+  ] as const) {
+    const m = rows.find(r => r.name === name);
+    assert.equal(Number(m.hourlyrate), rate);
+    if (training) { assert.equal(m.training_fee_cents, 2000); assert.equal(m.training_minutes, 60); }
+  }
+});
+
+test('training coverage is specific to the equipment certification and survives required retraining', async () => {
+  const wood = (await get('/training/catalog', admin)).body.data.find((c: any) => c.name === 'Wood Lathe');
+  const scheduled = await post('/classes', { ...classBody(8), certificationId: wood.id }, admin);
+  assert.equal(scheduled.status, 201);
+  const id = scheduled.body.data.id;
+  // Paying for CNC does not also pay for Wood Lathe training.
+  const listed = (await get('/classes')).body.data.find((c: any) => c.id === id);
+  assert.equal(listed.trainingFeeCovered, false);
+  const enrolled = await post(`/classes/${id}/enroll`, { expectedTrainingFeeCents: 2000 });
+  assert.equal(enrolled.status, 200, JSON.stringify(enrolled.body));
+  assert.equal((await payment(enrolled.body.data.payment_id)).price, '20.00');
+  assert.equal((await post(`/classes/${id}/withdraw`)).status, 200);
+  assert.equal((await payment(enrolled.body.data.payment_id)).paymentstatus, 'void');
+  const approval = await post(`/training/users/${member.user.id}/certifications/${wood.id}`, {
+    trainedAt: new Date(Date.now() - 3600000).toISOString(), source: 'equipment', verifiedInPerson: true,
+    verificationReference: 'Observed Wood Lathe training', trainingMinutes: 60, reason: 'Synthetic completed training',
+  }, admin);
+  assert.equal(approval.status, 201, JSON.stringify(approval.body));
+  const record = (await get(`/training/users/${member.user.id}`, admin)).body.data.find((r: any) => r.certificationId === wood.id);
+  const revoked = await post(`/training/users/${member.user.id}/certifications/${wood.id}/revoke`, {
+    expectedRevision: record.revision, reason: 'Synthetic retraining requirement',
+  }, admin);
+  assert.equal(revoked.status, 200, JSON.stringify(revoked.body));
+  const r = await post(`/classes/${id}/enroll`, { expectedTrainingFeeCents: 0 });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.data.training_fee_cents, 0); assert.equal(r.body.data.payment_id, null);
 });

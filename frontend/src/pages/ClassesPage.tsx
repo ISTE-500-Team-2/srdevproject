@@ -17,6 +17,7 @@ import {
   byStart,
   hasStarted,
   isCancelled,
+  registrationPrice,
   type AttendanceDraft,
   type ClassRecord,
   type RosterPerson,
@@ -146,8 +147,9 @@ export function ClassesPage() {
     setBusyId(c.id);
     setRowErrors(({ [c.id]: _, ...rest }) => rest);
     try {
+      const price = registrationPrice(c, certified.has(c.certificationId));
       await api(`/classes/${c.id}/${action}`, { method: "POST", body: action === 'enroll'
-        ? { expectedTrainingFeeCents: certified.has(c.certificationId) ? 0 : c.trainingFeeCents ?? 0 } : {} });
+        ? { expectedTrainingFeeCents: price.trainingFee } : {} });
       setToast(
         action === "enroll"
           ? `You're registered for ${c.title} on ${shortDate(c.startsAt)} at ${timeOnly(c.startsAt)}.`

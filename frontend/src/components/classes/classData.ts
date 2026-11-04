@@ -7,6 +7,7 @@ export type ClassRecord = {
   certificationName: string;
   trainingMinutes?: number;
   trainingFeeCents?: number | null;
+  trainingFeeCovered?: boolean;
   myTrainingFeeCents?: number | null;
   myPaymentStatus?: string | null;
   instructorId: number;
@@ -37,6 +38,13 @@ export type ScheduleSeed = Partial<{
   start: string;
   end: string;
 }>;
+
+export function registrationPrice(c: ClassRecord, certified: boolean) {
+  const settled = c.myStatus === 'cancelled' && ['paid', 'waived'].includes(c.myPaymentStatus ?? '');
+  const trainingFee = settled ? c.myTrainingFeeCents ?? 0
+    : (c.trainingFeeCovered ?? certified) ? 0 : c.trainingFeeCents ?? null;
+  return { trainingFee };
+}
 
 export const isCancelled = (c: ClassRecord) => c.status === "cancelled";
 export const hasStarted = (c: ClassRecord, now = Date.now()) => new Date(c.startsAt).getTime() <= now;

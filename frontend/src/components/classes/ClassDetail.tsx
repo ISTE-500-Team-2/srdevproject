@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Modal } from "../Modal";
 import { SeatMeter } from "./ClassBits";
-import { classImage, hasStarted, isCancelled, longDate, seatsLeft, timeRange, type ClassRecord, type MemberRoster } from "./classData";
+import { classImage, hasStarted, isCancelled, longDate, registrationPrice, seatsLeft, timeRange, type ClassRecord, type MemberRoster } from "./classData";
 import { useApi } from "../../lib/useApi";
 import { cents } from '../../lib/display';
 import type { Eligibility } from "./ClassCatalog";
@@ -39,6 +39,7 @@ export function ClassDetail({
   const image = classImage(c.certificationName);
   const counts = participants.data ?? { capacity: c.capacity, enrolled: c.enrolled };
   const registered = c.myStatus === "enrolled";
+  const price = registered ? { trainingFee: c.myTrainingFeeCents ?? 0 } : registrationPrice(c, certified);
   return (
     <Modal open title={c.title} onClose={onClose}>
       <div className="class-detail" role="region" aria-label={`${c.title} details`}>
@@ -49,11 +50,12 @@ export function ClassDetail({
         ) : null}
         <p className="eyebrow">Counts toward {c.certificationName}</p>
         {c.trainingMinutes && <p>{c.trainingMinutes} minutes of training required.</p>}
-        <p>{registered && c.myTrainingFeeCents != null
-          ? `${cents(c.myTrainingFeeCents)} training fee · Payment: ${c.myPaymentStatus ?? 'not required'}`
-          : certified ? 'You are already certified; no training fee is due.'
-          : c.trainingFeeCents == null ? 'Training fee not configured.'
-          : `${cents(c.trainingFeeCents)} one-time training fee when you register. Equipment bookings only charge the hourly rate.`}</p>
+        <section aria-label="Class price breakdown">
+          <p>One-time training fee: {price.trainingFee === null ? 'Not configured' : cents(price.trainingFee)}</p>
+          <p><strong>Total: {price.trainingFee === null ? 'Not configured' : cents(price.trainingFee)}</strong></p>
+          {registered && <p>Payment: {c.myPaymentStatus ?? 'not required'}</p>}
+          <p>The displayed amount is the full one-time training price per equipment certification, with no extra course fee. Previously paid or completed training is not charged again. Equipment bookings only charge the hourly rate. Payment is recorded at the front desk.</p>
+        </section>
         <dl className="class-facts">
           <div>
             <CalendarDays aria-hidden="true" />
@@ -128,7 +130,7 @@ export function ClassDetail({
               See memberships &amp; day passes
             </Link>
           ) : (
-            <button type="button" className="button button--primary" disabled={busy} onClick={() => onRegister(c)}>
+            <button type="button" className="button button--primary" disabled={busy || price.trainingFee === null} onClick={() => onRegister(c)}>
               {c.myStatus === "cancelled" ? "Register again" : "Register for class"}
             </button>
           )}

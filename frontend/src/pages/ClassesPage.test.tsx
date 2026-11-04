@@ -24,6 +24,7 @@ let certified = false;
 const course = (id: number, offsetHours: number, extra: Record<string, unknown> = {}) => ({
   id, title: `Safety ${id}`, certificationId: 7, certificationName: 'Laser cutting', instructorId: 1, instructor: 'Morgan Reyes',
   capacity: 3, enrolled: 2, status: 'scheduled', revision: 4, roomId: 2, roomName: 'Training Room',
+  trainingFeeCents: 0,
   startsAt: new Date(Date.now() + offsetHours * HOUR).toISOString(), endsAt: new Date(Date.now() + (offsetHours + 2) * HOUR).toISOString(),
   myStatus: null, ...extra,
 });
@@ -112,7 +113,7 @@ test('registering for required training shows and submits the one-time $20 fee',
   auth.user = { id: 30, roles: ['member'] };
   classes = [course(5, 48, { trainingFeeCents: 2000 })];
   await mount();
-  expect(screen.getByText('$20.00 one-time training fee')).toBeTruthy();
+  expect(screen.getByText('$20.00 total for training; no extra course fee')).toBeTruthy();
   await click('Register for Safety 5');
   expect(calls('/classes/5/enroll', 'POST')[0][1]?.body).toEqual({ expectedTrainingFeeCents: 2000 });
 });
@@ -122,8 +123,20 @@ test('a certified member registering again is not charged another training fee',
   certified = true;
   classes = [course(5, 48, { trainingFeeCents: 2000 })];
   await mount();
-  expect(screen.getByText('No training fee while certified')).toBeTruthy();
+  expect(screen.getByText('Training fee already covered')).toBeTruthy();
   await click('Register for Safety 5');
+  expect(calls('/classes/5/enroll', 'POST')[0][1]?.body).toEqual({ expectedTrainingFeeCents: 0 });
+});
+
+test('paid training stays covered before certification approval and shows no extra course fee', async () => {
+  auth.user = { id: 30, roles: ['member'] };
+  classes = [course(5, 48, { trainingFeeCents: 2000, trainingFeeCovered: true })];
+  await mount();
+  await click('Details for Safety 5');
+  const detail = screen.getByRole('region', { name: 'Safety 5 details' });
+  expect(within(detail).getByText('Total: $0.00')).toBeTruthy();
+  expect(within(detail).getByText(/no extra course fee/)).toBeTruthy();
+  await click('Register for class');
   expect(calls('/classes/5/enroll', 'POST')[0][1]?.body).toEqual({ expectedTrainingFeeCents: 0 });
 });
 

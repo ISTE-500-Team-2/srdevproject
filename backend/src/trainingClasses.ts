@@ -6,7 +6,7 @@ import { authState, requireCsrf, requireStaff } from "./middleware/auth.js";
 import { requirePermission } from "./middleware/permissions.js";
 import { StaffModel } from "./models/StaffModel.js";
 import { EligibilityModel } from "./models/EligibilityModel.js";
-import { cancelTrainingPayments, enrollTrainingPayment } from './trainingPricing.js';
+import { cancelTrainingPayments, enrollTrainingPayment, trainingFeeCoveredSql } from './trainingPricing.js';
 export function trainingClassRoutes(pool: Pool, tz: string) {
   const r = Router();
   r.get("/classes", async (_req, res) => {
@@ -16,6 +16,7 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
         await pool.query(
           `SELECT c.id,c.title,c.certification_id AS "certificationId",cert.name AS "certificationName",c.instructor_id AS "instructorId",u.firstname||' '||u.lastname AS instructor,LEAST(c.capacity,15) AS capacity,CASE WHEN v.status='confirmed' THEN c.status ELSE 'cancelled' END AS status,c.revision,
  cert.training_minutes AS "trainingMinutes",cert.training_fee_cents AS "trainingFeeCents",
+ ${trainingFeeCoveredSql('$1', 'cert.certid')} AS "trainingFeeCovered",
  v.roomid AS "roomId",room.name AS "roomName",v.starttime AT TIME ZONE 'UTC' AS "startsAt",v.endtime AT TIME ZONE 'UTC' AS "endsAt",(SELECT COUNT(*)::int FROM app_training_enrollment e WHERE e.class_id=c.id AND e.status IN ('enrolled','attended')) AS enrolled,
  mine.status AS "myStatus",mine.training_fee_cents AS "myTrainingFeeCents",p.paymentstatus AS "myPaymentStatus"
  FROM app_training_class c JOIN certifications cert ON cert.certid=c.certification_id JOIN reservation v ON v.reservationid=c.reservation_id JOIN room USING(roomid) JOIN "user" u ON u.userid=c.instructor_id
@@ -127,6 +128,7 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
   r.post("/classes/:id/enroll", requireCsrf, async (req, res) => {
     const user = authState(res).user;
     const data = await transaction(pool, async (db) => {
+      await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR UPDATE', [user.id]);
       const id = integerId(req.params.id, "Class"),
         c = (
           await db.query(

@@ -334,7 +334,7 @@ function TrainingWorkspace({
               <label className="cw-field"><span>Training duration (minutes)</span><input name="minutes" type="number" min={1} max={480} required defaultValue={editing.trainingMinutes ?? 60} /></label>
               <label className="cw-field"><span>One-time training fee ($)</span><input name="fee" type="number" min={0} max={100000} step="0.01" defaultValue={editing.trainingFeeCents == null ? '' : (editing.trainingFeeCents/100).toFixed(2)} /></label>
             </div>
-            <p className="cw-muted">Members who need this training pay the fee once when registering for a class. Equipment bookings only charge the hourly rate. Enter 0 for no training fee; leave blank to pause training registration until priced.</p>
+            <p className="cw-muted">This is the total price of the training session, paid once per equipment certification. There is no extra course fee. Previously paid or completed training is not charged again. Equipment bookings only charge the hourly rate. Enter 0 for no training fee; leave blank to pause new training registration until priced.</p>
             <fieldset className="cw-field cw-equipment">
               <legend>Equipment covered by this certification</legend>
               <label className="cw-field">
