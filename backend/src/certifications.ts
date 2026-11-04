@@ -9,6 +9,8 @@ import { StaffModel } from "./models/StaffModel.js";
 import { scheduleExpirationNotifications } from "./notifications/scheduler.js";
 
 const definition = `c.certid AS id,c.name,c.description,c.validity_days AS "validityDays",c.revision,
+ (SELECT duration_minutes FROM app_training_requirement tr WHERE tr.certification_id=c.certid) AS "trainingMinutes",
+ (SELECT fee_cents FROM app_training_requirement tr WHERE tr.certification_id=c.certid) AS "trainingFeeCents",
  c.effectivedate AT TIME ZONE 'UTC' AS "effectiveAt",c.enddate AT TIME ZONE 'UTC' AS "endsAt",
  COALESCE((SELECT json_agg(e.equipmentid ORDER BY e.equipmentid) FROM equipment e WHERE e.certid=c.certid),'[]') AS "equipmentIds"`;
 const record = `uc.usercertid AS id,uc.userid AS "userId",uc.certid AS "certificationId",c.name,uc.status,uc.revision,
@@ -27,7 +29,7 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
     kind: "catalog" | "approve" | "revoke" | "read",
   ) {
     await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR SHARE', [id]);
-    const user = await new UserModel(db).findById(id);
+    const user = await new UserModel(db, timeZone).findById(id);
     if (!user || user.status !== "active" || user.accessStatus !== "active")
       throw new AppError(
         403,
@@ -221,7 +223,7 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
             "SELF_CERTIFICATION_FORBIDDEN",
             "Another authorized instructor must verify your training.",
           );
-        const target = await new UserModel(db).findById(userId);
+        const target = await new UserModel(db, timeZone).findById(userId);
         if (!target || target.status !== "active")
           throw new AppError(404, "NOT_FOUND", "Active member not found.");
         const cert = (

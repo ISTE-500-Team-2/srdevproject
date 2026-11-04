@@ -1,4 +1,4 @@
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Info } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { Modal } from "../Modal";
@@ -6,10 +6,14 @@ import { MemberSelect } from "../MemberSelect";
 import { api, ApiError, errorMessage } from "../../lib/api";
 import { useApi } from "../../lib/useApi";
 import { localInput } from "../../lib/display";
-import type { Course, Room, ScheduleSeed } from "./classData";
+import type { Course, Room, ScheduleSeed, WorkshopTemplate } from "./classData";
 
 const tomorrow = () => localInput(new Date(Date.now() + 86400000)).slice(0, 10);
 const roomConflict = new Set(["RESERVATION_CONFLICT", "RESERVATION_COOLDOWN"]);
+/** The sponsor caps every class at 15 people, whatever the room holds. */
+const MAX_SEATS = 15;
+const DESCRIPTION_MAX = 4000;
+type Kind = "training" | "workshop";
 
 function duration(date: string, start: string, end: string) {
   if (!date || !start || !end) return null;
@@ -35,8 +39,12 @@ export function ScheduleClassDialog({
 }) {
   const catalog = useApi<Course[]>("/training/catalog");
   const rooms = useApi<Room[]>("/rooms");
+  const workshops = useApi<WorkshopTemplate[]>("/classes/catalog");
+  const [kind, setKind] = useState<Kind>(seed.catalogId ? "workshop" : "training");
   const [form, setForm] = useState({
+    catalogId: seed.catalogId ? String(seed.catalogId) : "",
     title: seed.title ?? "",
+    description: seed.description ?? "",
     certificationId: seed.certificationId ? String(seed.certificationId) : "",
     instructorId: seed.instructorId ? String(seed.instructorId) : "",
     roomId: seed.roomId ? String(seed.roomId) : "",
@@ -68,7 +76,16 @@ export function ScheduleClassDialog({
       if (key === "roomId") {
         // Seats default to the room's size and can't exceed it.
         const cap = rooms.data?.find((r) => String(r.id) === value)?.capacity;
-        if (cap && (!current.capacity || Number(current.capacity) > cap)) next.capacity = String(cap);
+        if (cap && (!current.capacity || Number(current.capacity) > cap)) next.capacity = String(Math.min(cap, MAX_SEATS));
+      }
+      if (key === "catalogId") {
+        // Picking a workshop fills in its title and description.
+        const template = workshops.data?.find((w) => String(w.id) === value);
+        if (template) {
+          next.title = template.title;
+          next.description = template.description;
+          if (!current.capacity) next.capacity = String(Math.min(template.capacity, MAX_SEATS));
+        }
       }
       return next;
     });
@@ -87,7 +104,9 @@ export function ScheduleClassDialog({
         method: "POST",
         body: {
           title: form.title.trim(),
-          certificationId: Number(form.certificationId),
+          certificationId: kind === "training" ? Number(form.certificationId) : null,
+          catalogId: kind === "workshop" ? Number(form.catalogId) : null,
+          description: form.description,
           instructorId: Number(form.instructorId),
           roomId: Number(form.roomId),
           capacity: Number(form.capacity),
@@ -112,6 +131,16 @@ export function ScheduleClassDialog({
 
   const courses = catalog.data?.filter((c) => c.validityDays) ?? [];
   const available = rooms.data?.filter((r) => r.status === "available") ?? [];
+  // Only the list the chosen class type needs can block publishing.
+  const options = kind === "training" ? catalog : workshops;
+  const loadError = options.error || rooms.error;
+  const loading = options.loading || rooms.loading;
+  function choose(next: Kind) {
+    setKind(next);
+    // Each class type sends only its own link: a certification or a workshop.
+    setForm((current) => (next === "training" ? { ...current, catalogId: "" } : { ...current, certificationId: "" }));
+    onDirty(true);
+  }
   return (
     <Modal open title="Schedule a class" onClose={onClose}>
       <form className="class-form" onSubmit={(e) => void submit(e)}>
@@ -121,15 +150,16 @@ export function ScheduleClassDialog({
             <span>{error}</span>
           </p>
         ) : null}
-        {catalog.error || rooms.error ? (
+        {loadError ? (
           <p className="form-error" role="alert">
-            {catalog.error || rooms.error}{" "}
+            {loadError}{" "}
             <button
               type="button"
               className="text-link"
               onClick={() => {
                 catalog.reload();
                 rooms.reload();
+                workshops.reload();
               }}
             >
               Retry
@@ -140,28 +170,94 @@ export function ScheduleClassDialog({
           <legend>
             <i>1</i>Class
           </legend>
+          <div className="class-form__pair" role="radiogroup" aria-label="Class type">
+            <label className="choice-card">
+              <input
+                type="radio"
+                name="class-kind"
+                checked={kind === "training"}
+                onChange={() => choose("training")}
+              />
+              <span>
+                <b>Equipment training</b>
+                <small>Counts toward a certification</small>
+              </span>
+            </label>
+            <label className="choice-card">
+              <input
+                type="radio"
+                name="class-kind"
+                checked={kind === "workshop"}
+                onChange={() => choose("workshop")}
+              />
+              <span>
+                <b>Creative workshop</b>
+                <small>No certification</small>
+              </span>
+            </label>
+          </div>
+          {kind === "workshop" ? (
+            <label className="class-field">
+              <span>
+                Workshop <em>(fills in title and description)</em>
+              </span>
+              <select value={form.catalogId} required onChange={(e) => set("catalogId", e.target.value)}>
+                <option value="">Choose workshop</option>
+                {workshops.data?.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <label className="class-field">
             <span>Title</span>
             <input value={form.title} required maxLength={100} onChange={(e) => set("title", e.target.value)} />
           </label>
+          {kind === "training" ? (
+            <label className="class-field">
+              <span>Counts toward</span>
+              <select value={form.certificationId} required onChange={(e) => set("certificationId", e.target.value)}>
+                <option value="">Choose certification</option>
+                {courses.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              <small>
+                Only certifications with a validity period are listed. Set that up in <Link to="/training">Training</Link>.
+              </small>
+            </label>
+          ) : null}
           <label className="class-field">
-            <span>Counts toward</span>
-            <select value={form.certificationId} required onChange={(e) => set("certificationId", e.target.value)}>
-              <option value="">Choose certification</option>
-              {courses.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-            <small>
-              Only certifications with a validity period are listed. Set that up in <Link to="/training">Training</Link>.
+            <span>Description</span>
+            <textarea
+              rows={4}
+              maxLength={DESCRIPTION_MAX}
+              value={form.description}
+              onChange={(e) => set("description", e.target.value)}
+            />
+            <small className="class-field__meta">
+              <span>Shown to members on the class page</span>
+              <span>
+                {form.description.length} / {DESCRIPTION_MAX}
+              </span>
             </small>
           </label>
+          {kind === "workshop" ? (
+            <p className="class-banner">
+              <Info aria-hidden="true" />
+              <span>
+                Creative workshops don't grant equipment certification. Members see the same note when they register.
+              </span>
+            </p>
+          ) : null}
         </fieldset>
         <fieldset disabled={busy}>
           <legend>
-            <i>2</i>When &amp; where
+            <i>2</i>When
           </legend>
           <div className="class-form__times">
             <label className="class-field">
@@ -180,6 +276,11 @@ export function ScheduleClassDialog({
           <small className={timeProblem ? "class-field__error" : "class-form__hint"}>
             {timeProblem || (minutes ? `${durationText(minutes)} · classes can run up to 8 hours` : "")}
           </small>
+        </fieldset>
+        <fieldset disabled={busy}>
+          <legend>
+            <i>3</i>Where and who
+          </legend>
           <div className="class-form__pair">
             <label className="class-field">
               <span>Room</span>
@@ -192,7 +293,7 @@ export function ScheduleClassDialog({
                 <option value="">Choose room</option>
                 {available.map((r) => (
                   <option key={r.id} value={r.id}>
-                    {r.name} · {r.location}
+                    {r.name} · {r.capacity ? `${r.capacity} seats` : r.location}
                   </option>
                 ))}
               </select>
@@ -208,19 +309,14 @@ export function ScheduleClassDialog({
               <input
                 type="number"
                 min={1}
-                max={room?.capacity ?? 500}
+                max={Math.min(room?.capacity ?? MAX_SEATS, MAX_SEATS)}
                 required
                 value={form.capacity}
                 onChange={(e) => set("capacity", e.target.value)}
               />
-              {room?.capacity ? <small>Can't exceed the room's {room.capacity} seats</small> : null}
+              <small>Max {MAX_SEATS} per class</small>
             </label>
           </div>
-        </fieldset>
-        <fieldset disabled={busy}>
-          <legend>
-            <i>3</i>Instructor &amp; record
-          </legend>
           <div className="class-field class-field--picker">
             <MemberSelect
               name="instructorId"
@@ -231,20 +327,24 @@ export function ScheduleClassDialog({
             />
           </div>
           <label className="class-field">
-            <span>
-              Reason <em>· saved to the change log</em>
-            </span>
-            <input value={form.reason} required maxLength={500} onChange={(e) => set("reason", e.target.value)} />
+            <span>Reason for change</span>
+            <input
+              value={form.reason}
+              required
+              maxLength={500}
+              placeholder="e.g. Sponsor workshop series"
+              onChange={(e) => set("reason", e.target.value)}
+            />
           </label>
         </fieldset>
         <div className="class-dialog-actions">
-          <span />
+          <span>Members see it once published.</span>
           <button type="button" className="button button--quiet" onClick={onClose}>
             Cancel
           </button>
           <button
             className="button button--primary"
-            disabled={busy || Boolean(timeProblem) || catalog.loading || rooms.loading || Boolean(catalog.error || rooms.error)}
+            disabled={busy || Boolean(timeProblem) || loading || Boolean(loadError)}
           >
             {busy ? "Publishing…" : "Publish class"}
           </button>

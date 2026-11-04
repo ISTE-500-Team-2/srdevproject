@@ -137,6 +137,7 @@
 
 .account-edit {
   margin-left: auto;
+  white-space: nowrap;
   min-height: 38px;
   padding: 6px 14px;
 }
@@ -564,5 +565,17 @@
     flex: 1;
     justify-content: center;
     padding: 9px 8px;
+  }
+}
+
+/* People rows: on phones the action drops under the name instead of squeezing it. */
+@media (max-width: 560px) {
+  .account-docs--people li {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .account-docs--people li > :last-child {
+    grid-column: 2;
+    justify-self: start;
   }
 }

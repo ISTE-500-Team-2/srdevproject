@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { before, after, test } from 'node:test';
 import { Pool } from 'pg';
+import { setTimeout as delay } from 'node:timers/promises';
+import type { Server } from 'node:http';
 import request from 'supertest';
 import { createApp } from '../../src/app.js';
 import { initializeDemo } from '../../src/scripts/init-demo.js';
@@ -24,7 +26,12 @@ const config: AppConfig = {
   timeZone: 'America/New_York',
 };
 let created = false;
-let app: ReturnType<typeof createApp>;
+let app: ReturnType<typeof createApp>,server:Server;
+const servers:Server[]=[];
+async function serve(application:ReturnType<typeof createApp>){
+ const listener=application.listen(0,'127.0.0.1');servers.push(listener);
+ await new Promise<void>(resolve=>listener.once('listening',resolve));return listener;
+}
 before(async () => {
   if (!process.env.PGHOST || process.env.DATABASE_URL)
     throw new Error(
@@ -34,14 +41,16 @@ before(async () => {
   created = true;
   await initializeDemo(pool);
   app = createApp(pool, config);
+  server = await serve(app);
 });
 after(async () => {
+  await Promise.all(servers.map(listener=>new Promise<void>(resolve=>{listener.close(()=>resolve());listener.closeAllConnections();})));
   await pool.end();
   if (created) await adminPool.query(`DROP DATABASE "${database}"`);
   await adminPool.end();
 });
 function client() {
-  const agent = request.agent(app);
+  const agent = request.agent(server);
   let csrf = '';
   let id = 0;
   let cookie = '';
@@ -94,6 +103,9 @@ function client() {
       cookie = res.body.data.accessToken;
       return res;
     },
+    adoptCsrf(token: string) {
+      csrf = token;
+    },
     post(path: string, body: unknown = {}) {
       return agent
         .post('/api' + path)
@@ -107,6 +119,23 @@ function client() {
         .send(body);
     },
   };
+}
+type Client = ReturnType<typeof client>;
+/** Members check in at a reader; the web check-in is staff at the desk, in the member's open account. */
+async function deskCheckIn(staff: Client, member: Client, body: unknown) {
+  const opened = await staff.post('/admin/account-mode', { userId: member.id });
+  assert.equal(opened.status, 200, JSON.stringify(opened.body));
+  staff.adoptCsrf(opened.body.data.csrfToken);
+  const response = await staff.post('/me/check-ins', body);
+  const closed = await staff.post('/admin/account-mode/end');
+  assert.equal(closed.status, 200, JSON.stringify(closed.body));
+  staff.adoptCsrf(closed.body.data.csrfToken);
+  return response;
+}
+async function assertMemberCheckInRefused(member: Client, body: unknown) {
+  const own = await member.post('/me/check-ins', body);
+  assert.equal(own.status, 403, JSON.stringify(own.body));
+  assert.equal(own.body.error.code, 'CHECK_IN_AT_READER');
 }
 async function equipment(name = 'Rachel') {
   return (
@@ -196,7 +225,7 @@ test('registration, DB session recovery, profile persistence and logout', async 
   assert.equal((await user.agent.get('/api/auth/session')).status, 401);
   const signedIn = await user.login(email, password);
   assert.equal(signedIn.body.data.user.firstName, 'Updated');
-  const duplicate = await request(app)
+  const duplicate = await request(server)
     .post('/api/auth/register')
     .send({
       email: email.toUpperCase(),
@@ -211,7 +240,7 @@ test('registration, DB session recovery, profile persistence and logout', async 
 });
 
 test('unauthenticated, missing CSRF, cross-origin and malformed writes are rejected', async () => {
-  assert.equal((await request(app).get('/api/equipment')).status, 401);
+  assert.equal((await request(server).get('/api/equipment')).status, 401);
   const user = client();
   await user.demo();
   assert.equal(
@@ -259,7 +288,7 @@ test('reservation saves to PostgreSQL, survives a new app instance, and only its
   assert.equal(row.rows[0].userid, owner.id);
   assert.equal(row.rows[0].status, 'confirmed');
   const restarted = createApp(pool, config);
-  const restored = request.agent(restarted);
+  const restored = request.agent(await serve(restarted));
   const cookie = owner.cookie;
   // Recover the same browser session against a fresh controller/router instance.
   const recovered = await restored
@@ -286,6 +315,29 @@ test('reservation saves to PostgreSQL, survives a new app instance, and only its
     ).rows[0].status,
     'cancelled',
   );
+});
+
+test('queued resource lock waiters serialize bookings without SHARE-to-UPDATE deadlocks',async()=>{
+  const one=client(),two=client();await one.demo();await two.demo('admin');
+  const equipmentId=(await pool.query("INSERT INTO equipment(name,status,waiverrequired) VALUES('Lock order fixture','available',false) RETURNING equipmentid")).rows[0].equipmentid;
+  const input=interval(equipmentId,8),blocker=await pool.connect();
+  let responses: Promise<any[]>|undefined,queued=0;
+  try {
+    await blocker.query('BEGIN');
+    await blocker.query('SELECT equipmentid FROM equipment WHERE equipmentid=$1 FOR UPDATE',[equipmentId]);
+    responses=Promise.all([one.post('/reservations',input),two.post('/reservations',input)]);
+    const deadline=Date.now()+5000;
+    while(Date.now()<deadline){
+      queued=(await pool.query(`SELECT count(*)::int n FROM pg_stat_activity WHERE datname=current_database()
+        AND wait_event_type='Lock' AND query LIKE 'SELECT buildingid FROM equipment%'`)).rows[0].n;
+      if(queued>=2)break;
+      await delay(10);
+    }
+  }finally{await blocker.query('ROLLBACK');blocker.release();}
+  const result=await responses!;
+  assert.equal(queued,2,'Both booking requests were blocked concurrently before release');
+  assert.deepEqual(result.map(r=>r.status).sort(),[201,409]);
+  assert.equal((await pool.query("SELECT count(*)::int n FROM reservation WHERE equipmentid=$1 AND status='confirmed'",[equipmentId])).rows[0].n,1);
 });
 
 test('concurrent overlapping requests produce one reservation; equipment cooldown applies across members', async () => {
@@ -410,7 +462,7 @@ test('room reservations reject overlaps, enforce cooldown and gate active room a
   assert.equal(cooldown.body.error.code, 'RESERVATION_COOLDOWN');
   assert.equal((await two.post('/reservations', adjacent)).status, 201);
   await signRequiredWaivers(one);
-  const denied = await one.post('/me/check-ins', { roomId: room });
+  const denied = await deskCheckIn(two, one, { roomId: room });
   assert.equal(denied.status, 403);
   assert.equal(denied.body.error.code, 'RESERVATION_REQUIRED');
   await pool.query(
@@ -421,14 +473,15 @@ test('room reservations reject overlaps, enforce cooldown and gate active room a
   await pool.query("UPDATE room SET status='unavailable' WHERE roomid=$1", [
     room,
   ]);
-  const unavailable = await one.post('/me/check-ins', { roomId: room });
+  const unavailable = await deskCheckIn(two, one, { roomId: room });
   assert.equal(unavailable.status, 409);
   assert.equal(unavailable.body.error.code, 'RESOURCE_UNAVAILABLE');
   await pool.query("UPDATE room SET status='available' WHERE roomid=$1", [
     room,
   ]);
-  const checkin = await one.post('/me/check-ins', { roomId: room });
-  assert.equal(checkin.status, 201);
+  await assertMemberCheckInRefused(one, { roomId: room });
+  const checkin = await deskCheckIn(two, one, { roomId: room });
+  assert.equal(checkin.status, 201, JSON.stringify(checkin.body));
   const stored = await pool.query(
     'SELECT roomid FROM check_in WHERE checkinid=$1',
     [checkin.body.data.id],
@@ -437,8 +490,10 @@ test('room reservations reject overlaps, enforce cooldown and gate active room a
 });
 
 test('membership, certification and waiver eligibility are enforced; check-in is recorded', async () => {
-  const user = client();
+  const user = client(),
+    staff = client();
   await user.register();
+  await staff.demo('admin');
   const cnc = await equipment('Joey');
   const input = interval(cnc, 4);
   let res = await user.post('/reservations', input);
@@ -497,7 +552,7 @@ test('membership, certification and waiver eligibility are enforced; check-in is
   const revokedOverview = await user.agent.get('/api/me/overview');
   assert.equal(revokedOverview.status, 200);
   assert.equal(revokedOverview.body.data.canCheckIn, true);
-  const revokedCheckin = await user.post('/me/check-ins', {
+  const revokedCheckin = await deskCheckIn(staff, user, {
     equipmentId: cnc,
   });
   assert.equal(revokedCheckin.status, 403);
@@ -506,10 +561,11 @@ test('membership, certification and waiver eligibility are enforced; check-in is
     "UPDATE user_certifications SET status='active' WHERE userid=$1 AND certid=$2",
     [user.id, certId],
   );
-  const checkin = await user.post('/me/check-ins', {
+  await assertMemberCheckInRefused(user, { equipmentId: cnc });
+  const checkin = await deskCheckIn(staff, user, {
     equipmentId: cnc,
   });
-  assert.equal(checkin.status, 201);
+  assert.equal(checkin.status, 201, JSON.stringify(checkin.body));
   assert.equal(
     (
       await pool.query('SELECT userid FROM check_in WHERE checkinid=$1', [
@@ -525,14 +581,11 @@ test('membership, certification and waiver eligibility are enforced; check-in is
     "UPDATE user_membership SET status='expired' WHERE userid=$1",
     [user.id],
   );
-  assert.equal(
-    (
-      await user.post('/me/check-ins', {
-        location: 'Integration test entrance',
-      })
-    ).status,
-    403,
-  );
+  const expired = await deskCheckIn(staff, user, {
+    location: 'Integration test entrance',
+  });
+  assert.equal(expired.status, 403);
+  assert.equal(expired.body.error.code, 'MEMBERSHIP_REQUIRED');
   await pool.query('UPDATE "user" SET status=\'inactive\' WHERE userid=$1', [
     user.id,
   ]);
@@ -557,6 +610,7 @@ test('a day pass grants access only on its valid local calendar day', async () =
 
 test('profile patches preserve omitted/custom fields and clear only explicitly named fields', async () => {
   app = createApp(pool, config);
+  server = await serve(app);
   const user = client();
   await user.register();
   const names = { firstName: 'Profile', lastName: 'Member', phone: '1111111111' };

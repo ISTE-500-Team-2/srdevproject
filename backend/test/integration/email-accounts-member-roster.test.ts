@@ -122,6 +122,27 @@ test('member roster shows only first name/last initial and current seats; withdr
   r=await get(`/classes/${classId}/member-roster`);assert.deepEqual(r.body.data,{capacity:2,enrolled:0,seatsAvailable:2,items:[]});
 });
 
+test('legacy classes above the 15-seat cap show the seats enrollment enforces',async()=>{
+  const db=await pool.connect();
+  try {
+    // Historical classes kept larger capacities; the trigger only blocks new or changed ones.
+    await db.query('BEGIN');
+    await db.query('ALTER TABLE app_training_class DISABLE TRIGGER app_class_capacity_15');
+    await db.query('UPDATE app_training_class SET capacity=20 WHERE id=$1',[classId]);
+    await db.query('ALTER TABLE app_training_class ENABLE TRIGGER app_class_capacity_15');
+    await db.query('COMMIT');
+  } catch(error) {await db.query('ROLLBACK');throw error;} finally {db.release();}
+  await pool.query("UPDATE app_training_enrollment SET status='enrolled' WHERE class_id=$1",[classId]);
+  try {
+    const {capacity,enrolled,seatsAvailable}=(await get(`/classes/${classId}/member-roster`)).body.data;
+    assert.deepEqual({capacity,enrolled,seatsAvailable},{capacity:15,enrolled:1,seatsAvailable:14});
+    assert.equal((await get('/classes')).body.data.find((c:any)=>c.id===classId).capacity,15);
+  } finally {
+    await pool.query("UPDATE app_training_enrollment SET status='cancelled' WHERE class_id=$1",[classId]);
+    await pool.query('UPDATE app_training_class SET capacity=2 WHERE id=$1',[classId]);
+  }
+});
+
 test('member roster excludes past/cancelled classes and malformed IDs',async()=>{
   const path=`/classes/${classId}/member-roster`;
   await pool.query("UPDATE app_training_class SET status='cancelled' WHERE id=$1",[classId]);

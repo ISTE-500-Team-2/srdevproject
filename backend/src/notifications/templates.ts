@@ -16,7 +16,7 @@ const headings = {
   membership_expiring: 'Your membership expiration or renewal is approaching',
   membership_confirmed: 'Your membership is confirmed',
   membership_issued: 'Your membership is confirmed',
-  membership_cancelled: 'Your membership cancellation is confirmed',
+  membership_cancelled: 'Auto-renew is off for your membership',
   day_pass_confirmed: 'Your day pass is confirmed',
   day_pass_issued: 'Your day pass is confirmed',
   reservation_confirmed: 'Your reservation is confirmed',
@@ -34,6 +34,9 @@ const headings = {
   system_issue: 'A studio service issue needs your attention',
   service_restored: 'Studio service has been restored',
   role_granted: 'Your studio role has been updated',
+  sponsor_request_received: 'You have a sponsoring adult request',
+  sponsor_request_accepted: 'Your sponsor request was accepted',
+  sponsor_request_declined: 'Your sponsor request was declined',
   admin_certification_revoked: 'Certification revocation recorded',
 } as const;
 
@@ -60,7 +63,8 @@ function text(value: unknown): string {
 }
 
 type Tone = 'success' | 'info' | 'warning' | 'danger';
-interface Facts { item: string; money: string; role: string; refund: string; certificationName: string; memberName: string }
+interface Facts { item: string; money: string; role: string; refund: string; certificationName: string; memberName: string;
+  adultName: string; minorName: string }
 interface Copy {
   category: string;
   status: string;
@@ -116,8 +120,8 @@ const copy: Record<NotificationKind, Copy> = {
     intro: () => 'You’re all set. Here are the details.', cta: membership },
   membership_issued: { category: 'Membership', status: 'Active', tone: 'success',
     intro: () => 'You’re all set. Here are the details.', cta: membership },
-  membership_cancelled: { category: 'Membership', status: 'Cancelled', tone: 'info',
-    intro: () => 'Here are the details.', cta: membership },
+  membership_cancelled: { category: 'Membership', status: 'Auto-renew off', tone: 'info',
+    intro: () => 'You turned off automatic payments. Your membership ends on the date below and won’t renew after that.', cta: membership },
   day_pass_confirmed: { category: 'Day pass', status: 'Confirmed', tone: 'success',
     intro: () => 'Here are the details.', cta: ['View membership', '/membership'] },
   day_pass_issued: { category: 'Day pass', status: 'Confirmed', tone: 'success',
@@ -155,6 +159,18 @@ const copy: Record<NotificationKind, Copy> = {
     intro: () => 'Everything is working normally again.' },
   role_granted: { category: 'Account', status: 'Updated', tone: 'info',
     intro: f => f.role ? `Your studio role is now ${f.role}.` : 'Here are the details.' },
+  // First names only: the minor never learns the adult's email from this notice.
+  sponsor_request_received: { category: 'Supervision', status: 'Action needed', tone: 'warning',
+    title: f => f.adultName ? `${f.adultName} asked to be your sponsoring adult` : '',
+    intro: () => 'If you accept, you’ll visit together and they check out for you both. You can accept or decline from your member home. If you don’t know them, decline.',
+    cta: ['Review request', '/'] },
+  sponsor_request_accepted: { category: 'Supervision', status: 'Linked', tone: 'success',
+    title: f => f.minorName ? `${f.minorName} accepted your sponsor request` : '',
+    intro: () => 'You’re now their sponsoring adult. They visit with you and check out when you do.',
+    cta: ['View minors', '/profile#minors'] },
+  sponsor_request_declined: { category: 'Supervision', status: 'Declined', tone: 'info',
+    title: f => f.minorName ? `Your sponsor request for ${f.minorName} was declined` : '',
+    intro: () => 'You won’t be linked as their sponsoring adult. There’s nothing else you need to do.' },
   // Sent to staff, not the member: say what was recorded and where to review it.
   admin_certification_revoked: { category: 'Staff notice', status: 'Recorded', tone: 'info',
     title: f => f.certificationName ? `${f.certificationName} certification revoked` : '',
@@ -228,6 +244,35 @@ function safeUrl(value: string, error: string): URL {
 }
 
 const font = "'Barlow','Helvetica Neue',Helvetica,Arial,sans-serif";
+// Dark mode: the inline light palette is tagged with classes at render time so the
+// <style> block can recolor it in clients that honor prefers-color-scheme (Apple Mail,
+// Outlook apps via [data-ogsc]). Gmail's forced inversion ignores CSS, so the logo ships
+// on its own light plate and stays legible either way.
+const darkTags: Array<[RegExp, string]> = [
+  [/background-color:#f7f4f0/, 'em-bg'], [/background-color:#ffffff/, 'em-card'], [/background-color:#faf7f3/, 'em-panel'],
+  [/background-color:#2b1306/, 'em-btn'], [/border:1px solid #4d250b/, 'em-btn-a'],
+  [/(?<![-\w])color:#24150e/, 'em-ink'], [/(?<![-\w])color:#3d2f27/, 'em-body'], [/(?<![-\w])color:#685d57/, 'em-muted'],
+  [/(?<![-\w])color:#8a4f06/, 'em-link'], [/#e5dbd0|#d6c6b6|#ebe2d8/, 'em-line'],
+];
+const tagDark = (html: string) => html.replace(/<([a-z0-9]+)((?:\s+(?!style=)[\w-]+="[^"]*")*)\s+style="([^"]*)"/g, (tag, name: string, attrs: string, style: string) => {
+  const tags = darkTags.filter(([pattern]) => pattern.test(style)).map(([, cls]) => cls);
+  if (!tags.length) return tag;
+  const existing = /\sclass="([^"]*)"/.exec(attrs);
+  const merged = existing ? attrs.replace(existing[0], ` class="${existing[1]} ${tags.join(' ')}"`) : `${attrs} class="${tags.join(' ')}"`;
+  return `<${name}${merged} style="${style}"`;
+});
+const darkCss = (scope: string) => [
+  `${scope}.em-bg{background-color:#18120e!important}`,
+  `${scope}.em-card{background-color:#241a14!important}`,
+  `${scope}.em-panel{background-color:#2e231b!important}`,
+  `${scope}.em-line{border-color:#4a3a2e!important}`,
+  `${scope}.em-ink{color:#f7f4f0!important}`,
+  `${scope}.em-body{color:#e6dacf!important}`,
+  `${scope}.em-muted{color:#c4b3a4!important}`,
+  `${scope}.em-link{color:#ffbf70!important}`,
+  `${scope}.em-btn{background-color:#f7961d!important;background-image:none!important}`,
+  `${scope}.em-btn-a{color:#24150e!important;border-color:#f7961d!important}`,
+].join('');
 const p = (style: string, html: string) => `<p style="margin:0;${style}">${html}</p>`;
 const table = (style: string, rows: string) =>
   `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="${style}">${rows}</table>`;
@@ -262,6 +307,7 @@ export function renderNotification(kind: NotificationKind, payload: Notification
   const paid = field('paymentStatus');
   const facts: Facts = {
     item, money: amount, role: field('role'), certificationName: field('certificationName'), memberName: field('memberName'),
+    adultName: field('adultName'), minorName: field('minorName'),
     refund: !refundAmount ? ''
       : Number(refundAmount) <= 0
         ? paid === 'paid' ? 'Under this studio’s cancellation policy, this booking isn’t eligible for a refund.'
@@ -362,7 +408,7 @@ export function renderNotification(kind: NotificationKind, payload: Notification
   const rule = 'border-top:1px dashed #d6c6b6';
   const home = preferenceLink && new URL('/', preferenceLink).href;
   const logo = home
-    ? `<a href="${e(home)}" style="text-decoration:none"><img src="${e(new URL('/assets/collaboratory-logo-email.png', home).href)}" width="168" height="72" alt="The Collaboratory" style="display:block;width:168px;height:auto;border:0;font-family:${font};font-size:22px;font-weight:700;color:#24150e"></a>`
+    ? `<a href="${e(home)}" style="text-decoration:none"><img src="${e(new URL('/assets/collaboratory-logo-email-plate.png', home).href)}" width="192" height="96" alt="The Collaboratory" style="display:block;width:192px;height:auto;border:0;font-family:${font};font-size:22px;font-weight:700;color:#24150e"></a>`
     : `<span style="font-family:${font};font-size:22px;font-weight:700;color:#24150e">${e(context.senderName)}</span>`;
 
   const hero = heroLabels.map(label => rows.find(r => r[0] === label)).find(Boolean);
@@ -383,11 +429,16 @@ ${lines.length ? `<tr><td style="${rule};padding:6px 20px">${table('', lines.map
 ${meta.length ? `<tr><td style="${rule};padding:12px 20px;font-size:13px;line-height:1.5;color:#685d57;overflow-wrap:anywhere;word-break:break-word">${meta.map(([label, value]) => `${e(label)} ${e(value)}`).join(' &nbsp;·&nbsp; ')}</td></tr>` : ''}`);
 
   const htmlContent = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light"><title>${e(headline)}</title>
-<style>@media (max-width:480px){.email-pad{padding:28px 20px!important}}</style></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark"><title>${e(headline)}</title>
+<style>
+:root{color-scheme:light dark;supported-color-schemes:light dark}
+@media(prefers-color-scheme:dark){${darkCss('')}}
+${darkCss('[data-ogsc] ').replace(/\[data-ogsc\] \.em-(bg|card|panel|btn)\{background/g, '[data-ogsb] .em-$1{background')}
+@media(max-width:480px){.email-pad{padding:24px 18px!important}.email-outer-pad{padding:16px 8px!important}h1{font-size:23px!important}table{max-width:100%!important}}
+</style></head>
 <body style="margin:0;padding:0;background-color:#f7f4f0;color:#24150e;font-family:${font};-webkit-text-size-adjust:100%">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all">${e(lead)}${'&#8199;&#847;'.repeat(60)}</div>
-${table('background-color:#f7f4f0', `<tr><td align="center" style="padding:32px 12px">
+${table('background-color:#f7f4f0', `<tr><td class="email-outer-pad" align="center" style="padding:32px 12px">
 ${table('max-width:600px', `
 <tr><td align="center" style="padding:0 0 24px">${logo}</td></tr>
 <tr><td class="email-pad" style="padding:36px 36px 32px;background-color:#ffffff;border:1px solid #e5dbd0;border-radius:16px;font-family:${font}">
@@ -413,5 +464,5 @@ ${p('', `This email was sent to ${e(context.recipientEmail)}. ${securityMail ? `
 </body></html>`;
 
   const subject = `${context.senderName}: ${heading}`.replace(/[\r\n]+/g, ' ');
-  return { subject, htmlContent, textContent };
+  return { subject, htmlContent: tagDark(htmlContent), textContent };
 }

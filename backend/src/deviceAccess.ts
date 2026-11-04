@@ -1,3 +1,4 @@
+import { MinorSupervision } from "./minorSupervision.js";
 import { evaluateReaderAccess } from "./services/ReaderEligibility.js";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { Router, type RequestHandler } from "express";
@@ -193,7 +194,7 @@ export function deviceDecision(
         verdict =
           card && !card.active
             ? deny("CARD_REVOKED")
-            : await evaluateReaderAccess(db, timeZone, reader, card?.user_id);
+            : await evaluateReaderAccess(db, timeZone, reader, card?.user_id, body.renewal === true || body.checkIn !== true);
       const saved = (
         await db.query(
           `INSERT INTO app_device_access_event(reader_id,request_id,user_id,target_kind,target_id,allowed,reason,expires_at,uid_hash,uid_last4,card_id,is_tap)
@@ -214,7 +215,8 @@ export function deviceDecision(
           ],
         )
       ).rows[0];
-      if (verdict.allowed && body.checkIn === true && body.renewal !== true)
+      if (verdict.allowed && body.checkIn === true && body.renewal !== true) {
+        await new MinorSupervision(db,timeZone).startVisit(card.user_id,verdict.buildingId ?? 1);
         await db.query(
           `INSERT INTO check_in(userid,roomid,location,buildingid,equipmentid,reservationid,checkintime,status,statusdesc)
           VALUES($1,$2,$3,$4,$5,$6,NOW() AT TIME ZONE 'UTC','approved','Authenticated NFC eligibility decision')`,
@@ -227,6 +229,7 @@ export function deviceDecision(
             verdict.reservationId,
           ],
         );
+      }
       return {
         eventId: body.eventId,
         decisionId: saved.id,
@@ -445,6 +448,8 @@ export function cardManagement(
               [userId, id, resource.name.slice(0, 100), ends],
             )
           ).rows[0]!;
+        // Reader access for a minor requires the booking linked to their present sponsor.
+        if (!current) await new MinorSupervision(db, tz).recordBooking(userId, reservation.id);
         if (!current)
           await new StaffModel(db, tz).audit(
             authState(res).user.id,

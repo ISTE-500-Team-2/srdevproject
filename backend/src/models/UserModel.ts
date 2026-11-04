@@ -15,12 +15,14 @@ export const studioContact = {
 };
 
 export class UserModel {
-  constructor(private db: Database) {}
+  constructor(private db: Database, private timeZone = "America/New_York") {}
 
   async findById(id: number): Promise<UserView | null> {
     const { rows } = await this.db.query<UserView>(
       `
       SELECT u.userid AS id, u.firstname AS "firstName", u.lastname AS "lastName", u.email,
+             (u.dob IS NOT NULL AND u.dob::date>((NOW() AT TIME ZONE $2)::date-INTERVAL '18 years')::date) AS "isMinor",
+             (SELECT a.firstname||' '||a.lastname FROM app_minor_sponsor s JOIN "user" a ON a.userid=s.adult_id WHERE s.minor_id=u.userid) AS "sponsorName",
              u.primary_role AS "primaryRole",u.is_student AS "isStudent",u.phone, COALESCE(u.status, '') AS status,u.accessstatus AS "accessStatus",
              CASE
                WHEN EXISTS (SELECT 1 FROM user_role ur JOIN role r USING (roleid)
@@ -34,7 +36,7 @@ export class UserModel {
                                AND um.startdate <= NOW() AT TIME ZONE 'UTC' AND um.end_date > NOW() AT TIME ZONE 'UTC')
                   THEN 'Monthly' ELSE 'None' END AS membership
       FROM "user" u WHERE u.userid=$1`,
-      [id],
+      [id, this.timeZone],
     );
     return rows[0] ?? null;
   }

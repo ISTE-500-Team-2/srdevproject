@@ -55,7 +55,7 @@ export function requireUser(pool: Pool, config: AppConfig) {
     const token = sessionToken(req);
     const session = await sessions.find(token);
     const user = session
-      ? await new UserModel(pool).findById(session.userId)
+      ? await new UserModel(pool, config.timeZone).findById(session.userId)
       : null;
     if (!session || !user)
       throw new AppError(401, "UNAUTHENTICATED", "Sign in to continue.");
@@ -67,7 +67,7 @@ export function requireUser(pool: Pool, config: AppConfig) {
       );
     let subject = user;
     if (session.actingAsUserId && !isWorkspacePath(req.path)) {
-      const opened = await new UserModel(pool).findById(session.actingAsUserId);
+      const opened = await new UserModel(pool, config.timeZone).findById(session.actingAsUserId);
       // Re-check every request: roles, suspensions and restrictions change.
       if (accountModeRefusal(user, opened)) await sessions.setActingAs(token, null);
       else subject = opened!;

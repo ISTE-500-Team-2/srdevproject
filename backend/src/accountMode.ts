@@ -110,11 +110,11 @@ export function accountModeRoutes(pool: Pool, config: AppConfig) {
     if (!Number.isSafeInteger(userId) || userId < 1)
       throw new AppError(400, "INVALID_INPUT", "Choose a member account to open.");
     const { user: actor, token, csrfToken } = authState(res);
-    const subject = await new UserModel(pool).findById(userId);
+    const subject = await new UserModel(pool, config.timeZone).findById(userId);
     const refusal = accountModeRefusal(actor, subject);
     if (refusal) throw new AppError(subject ? 403 : 404, "ACCOUNT_MODE_REFUSED", refusal);
     await transaction(pool, async (db) => {
-      await new SessionModel(db, config.jwtKey, config.accessTokenSeconds, config.refreshTokenSeconds)
+      await new SessionModel(db, config.jwtKey, config.accessTokenSeconds, config.refreshTokenSeconds, config.timeZone)
         .setActingAs(token, subject!.id);
       await db.query(
         `INSERT INTO app_staff_audit(actor_id,subject_id,action,entity_type,entity_id,reason) VALUES($1,$2,'account_mode.opened','user',$2,'Opened from the staff workspace')`,
@@ -127,7 +127,7 @@ export function accountModeRoutes(pool: Pool, config: AppConfig) {
   routes.post("/admin/account-mode/end", requireCsrf, async (_req, res) => {
     const { user: actor, token, csrfToken } = authState(res);
     await transaction(pool, async (db) => {
-      const sessions = new SessionModel(db, config.jwtKey, config.accessTokenSeconds, config.refreshTokenSeconds);
+      const sessions = new SessionModel(db, config.jwtKey, config.accessTokenSeconds, config.refreshTokenSeconds, config.timeZone);
       const open = await sessions.find(token);
       await sessions.setActingAs(token, null);
       if (open?.actingAsUserId)

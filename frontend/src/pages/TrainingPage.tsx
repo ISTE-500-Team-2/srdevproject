@@ -8,7 +8,7 @@ import { useApi } from "../lib/useApi";
 import { LoadState } from "../components/Management";
 import { Modal } from "../components/Modal";
 import HoldButton from "../components/reactbits/HoldButton";
-import { localInput, shortDate } from "../lib/display";
+import { cents, localInput, shortDate } from "../lib/display";
 import type { ComplianceReport } from "../lib/staffContracts";
 import { Check, Pencil, Plus, TriangleAlert } from "lucide-react";
 import "./certwaiver.css";
@@ -19,6 +19,8 @@ type Course = {
   validityDays: number | null;
   revision: number;
   equipmentIds: number[];
+  trainingMinutes?: number | null;
+  trainingFeeCents?: number | null;
 };
 type Record = {
   id: number;
@@ -190,6 +192,9 @@ function TrainingWorkspace({
                   <span className={`cw-tag cw-tag--${n.compliant ? "green" : "grey"}`}>{n.compliant} certified</span>
                 ) : null}
               </div>
+              {c.trainingMinutes != null && c.trainingFeeCents != null ? (
+                <p className="cw-muted">{c.trainingMinutes} minutes · {cents(c.trainingFeeCents)} training fee</p>
+              ) : null}
               {c.validityDays ? (
                 <small className="cw-muted">Renew every {c.validityDays} days</small>
               ) : (

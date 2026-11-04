@@ -7,6 +7,12 @@
   margin: 10px 0 28px;
   color: var(--ink-soft);
 }
+.studios-page > .studio-message,
+.studios-page > .form-notice,
+.studios-page > .form-error,
+.studios-page > [role="status"] {
+  margin: 0 0 16px;
+}
 .studio-message {
   padding: 12px 16px;
   border: 1px solid #b9dcc0;
@@ -54,7 +60,11 @@
 }
 .studio-rental__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+}
+.studio-rental__actions .button {
+  white-space: nowrap;
 }
 .studio-past {
   margin-top: 36px;
@@ -102,37 +112,13 @@
   padding: 0;
   border: 0;
 }
-.studio-booking legend {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-  color: var(--ink-soft);
-  font-size: var(--text-xs);
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-.studio-booking legend span {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: var(--ink);
-  color: #fff;
-  letter-spacing: 0;
-}
 .studio-booking__cols {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 24px;
 }
 .studio-booking__gate {
-  padding: 12px 14px;
-  border: 1px solid #f3cf9c;
-  border-radius: var(--radius-small);
-  background: #fff6ea;
+  margin: 0 0 18px;
 }
 .studio-booking__hint {
   margin: 8px 0 0;
@@ -149,40 +135,14 @@
   color: var(--ink-soft);
   font-size: var(--text-base-sm);
 }
-.studio-options {
-  display: grid;
-  gap: 6px;
-}
-.studio-option {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 12px;
-  border: 1px solid #e7ded7;
-  border-radius: 10px;
-  background: #fff;
-  cursor: pointer;
-}
-.studio-option:has(input:checked) {
-  border-color: #e87e26;
-  background: #fff8f0;
-  box-shadow: inset 3px 0 #e87e26;
-}
-.studio-option.is-unavailable {
+/* Studio and payment radios use the shared .choice-card; taken studios stay
+   visible so members can see why they can't pick them. */
+.studio-booking .choice-card:has(input:disabled) {
   opacity: 0.55;
-  cursor: default;
-}
-.studio-option input {
-  accent-color: var(--ink);
-}
-.studio-option span {
-  display: grid;
-}
-.studio-option small {
-  color: var(--ink-soft);
+  cursor: not-allowed;
 }
 .studio-summary {
-  margin: 0;
+  margin: 0 0 18px;
   padding-top: 12px;
   border-top: 1px solid #e7ded7;
 }
@@ -205,8 +165,26 @@
 .studio-summary dd {
   margin: 0;
 }
+.studio-held {
+  display: grid;
+  gap: 16px;
+}
+.studio-held__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
 .studio-held h3 {
-  margin-top: 0;
+  margin: 0 0 4px;
+  font-size: var(--text-lg);
+}
+.studio-held p {
+  margin: 0;
+}
+.studio-held__head p {
+  color: var(--ink-soft);
 }
 
 /* Staff Studios page (/admin/studios). Queue and board switch to their phone
@@ -607,6 +585,9 @@
   .studio-booking__foot {
     flex-direction: column;
     align-items: stretch;
+  }
+  .studio-held__head .booking-reference {
+    margin-left: 0;
   }
 }
 

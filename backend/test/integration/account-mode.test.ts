@@ -68,14 +68,27 @@ test('changes made in an open account are logged under the staff member',async()
   // Check-in needs a current booking: give the member one in the first room.
   const room=(await pool.query('SELECT roomid FROM room ORDER BY roomid LIMIT 1')).rows[0].roomid;
   await pool.query("INSERT INTO reservation(userid,roomid,location,starttime,endtime,status) VALUES($1,$2,'Account mode room',(now()-interval '1 minute') AT TIME ZONE 'UTC',(now()+interval '30 minutes') AT TIME ZONE 'UTC','confirmed')",[member.user.id,room]);
+  const checkIns=async()=>(await pool.query('SELECT count(*)::int n FROM check_in WHERE userid=$1',[member.user.id])).rows[0].n;
+  const before=await checkIns();
+  // Members check in at a reader; the web check-in is the staff desk's.
   const direct=await as(member).post('/me/check-ins',{roomId:room});
-  assert.ok(direct.status<300,JSON.stringify(direct.body));
+  assert.equal(direct.status,403,JSON.stringify(direct.body));
+  assert.equal(direct.body.error.code,'CHECK_IN_AT_READER');
+  assert.equal(await checkIns(),before);
+  assert.deepEqual(await audits('check_in.created'),[]);
+  // Staff check themselves in at a reader too; the web route needs another member's account open.
+  await as(admin).post('/admin/account-mode/end');
+  const own=await as(admin).post('/me/check-ins',{roomId:room});
+  assert.equal(own.status,403);assert.equal(own.body.error.code,'CHECK_IN_AT_READER');
+  await as(admin).post('/admin/account-mode',{userId:admin.user.id});
+  const ownAccount=await as(admin).post('/me/check-ins',{roomId:room});
+  assert.equal(ownAccount.status,403);assert.equal(ownAccount.body.error.code,'CHECK_IN_AT_READER');
+  await as(admin).post('/admin/account-mode/end');
   await as(admin).post('/admin/account-mode',{userId:member.user.id});
   const onBehalf=await as(admin).post('/me/check-ins',{roomId:room});
-  assert.ok(onBehalf.status<300,JSON.stringify(onBehalf.body));
-  const rows=await audits('check_in.created');
-  assert.deepEqual(rows.at(-2),{actorId:member.user.id,subjectId:member.user.id});
-  assert.deepEqual(rows.at(-1),{actorId:admin.user.id,subjectId:member.user.id});
+  assert.equal(onBehalf.status,201,JSON.stringify(onBehalf.body));
+  assert.equal(await checkIns(),before+1);
+  assert.deepEqual(await audits('check_in.created'),[{actorId:admin.user.id,subjectId:member.user.id}]);
   // The automatic database row for the new check-in names the admin too.
   const inserted=await pool.query(`SELECT actor_id AS "actorId" FROM app_staff_audit WHERE action='check_in.insert' ORDER BY id DESC LIMIT 1`);
   assert.equal(inserted.rows[0].actorId,admin.user.id);

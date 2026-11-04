@@ -3,6 +3,7 @@ import {
   Bell,
   Check,
   ChevronRight,
+  Clock,
   CreditCard,
   Download,
   FileText,
@@ -12,18 +13,21 @@ import {
   Pencil,
   Phone,
   ShieldCheck,
+  UserPlus,
   UserRound,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link } from "react-router-dom";
+import HoldButton from "../components/reactbits/HoldButton";
 import { Toast } from "../components/Toast";
 import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
-import type { ProfileFields, User, UserProfile } from "../lib/contracts";
+import type { ProfileFields, SupervisedMinors, User, UserProfile } from "../lib/contracts";
 import type { SignedWaiver } from "../lib/billingContracts";
 import type { MembershipHistory, Page, Payment } from "../lib/staffContracts";
-import { dollars, shortDate } from "../lib/display";
+import { dollars, shortDate, timeOnly } from "../lib/display";
 import { useApi } from "../lib/useApi";
 import "./profile.css";
 
@@ -59,6 +63,7 @@ const SECTIONS: { id: string; label: string; Icon: LucideIcon }[] = [
   { id: "profile", label: "Profile", Icon: UserRound },
   { id: "contact", label: "Contact", Icon: Phone },
   { id: "billing", label: "Membership & billing", Icon: CreditCard },
+  { id: "minors", label: "Minors", Icon: Users },
   { id: "notifications", label: "Notifications", Icon: Bell },
   { id: "documents", label: "Documents", Icon: FileText },
   { id: "help", label: "Help", Icon: LifeBuoy },
@@ -421,6 +426,147 @@ function BillingSection() {
   );
 }
 
+/** Adults link a child's account here; the child accepts in their own account. */
+function MinorsSection({ notify }: { notify: (message: string) => void }) {
+  const state = useApi<SupervisedMinors>("/me/minors", { retainOnReload: true });
+  const [adding, setAdding] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const minors = state.data?.minors ?? [];
+  const requests = state.data?.requests ?? [];
+  const act = async (key: string, path: string, message: string) => {
+    setBusy(key);
+    setError("");
+    try {
+      await api(path, { method: "POST", body: {} });
+      state.reload();
+      notify(message);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <Section
+      id="minors"
+      title="Minors you supervise"
+      note="Members under 18 visit with you and check out when you do."
+      Icon={Users}
+      editing={adding}
+      action={
+        !adding ? (
+          <button type="button" className="button button--quiet account-edit" onClick={() => setAdding(true)}>
+            <UserPlus aria-hidden="true" /> Link a minor
+          </button>
+        ) : null
+      }
+    >
+      {state.loading && !state.data ? <p role="status">Loading minors…</p> : null}
+      {state.error ? <p className="form-error">{state.error}</p> : null}
+      {adding ? (
+        <SectionForm
+          saveLabel="Send request"
+          onCancel={() => setAdding(false)}
+          onSave={async (form) => {
+            const sent = await api<{ minorName: string }>("/me/minors/requests", {
+              method: "POST",
+              body: { email: String(form.get("email") ?? "").trim(), dob: String(form.get("dob") ?? "") },
+            });
+            setAdding(false);
+            state.reload();
+            notify(`Request sent to ${sent.minorName}.`);
+          }}
+        >
+          <div className="account-fields">
+            <label className="form-field">
+              <span>Their account email</span>
+              <input name="email" type="email" required maxLength={255} autoComplete="off" />
+            </label>
+            <label className="form-field">
+              <span>Their date of birth</span>
+              <input name="dob" type="date" required max={new Date().toISOString().slice(0, 10)} />
+            </label>
+          </div>
+          <p className="account-hint">
+            They’ll see your request on their home page and choose whether to accept. Both of you need your own
+            membership or pass and signed waivers to visit.
+          </p>
+        </SectionForm>
+      ) : null}
+      {state.data && !minors.length && !requests.length && !adding ? (
+        <p className="account-hint">No minors linked yet. Link a child’s account to visit together.</p>
+      ) : null}
+      {minors.length || requests.length ? (
+        <ul className="account-docs account-docs--people">
+          {minors.map((minor) => (
+            <li key={`minor-${minor.id}`}>
+              <span className="account-docs__icon">
+                <UserRound aria-hidden="true" />
+              </span>
+              <div>
+                <b>{minor.name}</b>
+                <p>
+                  {minor.visit
+                    ? `Checked in since ${timeOnly(minor.visit.checkedInAt)} · ${minor.visit.buildingName}`
+                    : "Not in the building"}
+                </p>
+              </div>
+              <HoldButton
+                className="site-hold-button"
+                disabled={busy !== null}
+                holdTime={1200}
+                radius={9}
+                backgroundColor="#fff5f3"
+                fillColor="#b73a2e"
+                textColor="#b73a2e"
+                fillTextColor="#ffffff"
+                doneLabel="Unlinking…"
+                onHold={() =>
+                  void act(`unlink-${minor.id}`, `/me/minors/${minor.id}/unlink`, `${minor.name} is no longer linked to you.`)
+                }
+              >
+                Hold to unlink
+              </HoldButton>
+            </li>
+          ))}
+          {requests.map((request) => (
+            <li key={`request-${request.id}`}>
+              <span className="account-docs__icon">
+                <Clock aria-hidden="true" />
+              </span>
+              <div>
+                <b>{request.minorName}</b> <span className="status-pill status-pill--neutral">Pending</span>
+                <p>Sent {shortDate(request.createdAt)} · waiting for them to accept</p>
+              </div>
+              <button
+                type="button"
+                className="button button--quiet"
+                disabled={busy !== null}
+                aria-label={`Cancel request to ${request.minorName}`}
+                onClick={() =>
+                  void act(
+                    `cancel-${request.id}`,
+                    `/me/minors/requests/${request.id}/cancel`,
+                    `Request to ${request.minorName} cancelled.`,
+                  )
+                }
+              >
+                {busy === `cancel-${request.id}` ? "Cancelling…" : "Cancel"}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {error ? (
+        <p role="alert" className="form-error">
+          {error}
+        </p>
+      ) : null}
+    </Section>
+  );
+}
+
 function NotificationsSection() {
   const [settings, setSettings] = useState<{ enabled: boolean; timeZone: string } | null>(null);
   const [error, setError] = useState("");
@@ -607,8 +753,9 @@ function HelpSection({ profile }: { profile: UserProfile | null }) {
 }
 
 /** Highlights the section menu entry for whatever is on screen. */
-function useCurrentSection() {
-  const [current, setCurrent] = useState(SECTIONS[0]!.id);
+function useCurrentSection(sections: typeof SECTIONS) {
+  const [current, setCurrent] = useState(sections[0]!.id);
+  const ids = sections.map((s) => s.id).join(" ");
   useEffect(() => {
     if (typeof IntersectionObserver === "undefined") return;
     const observer = new IntersectionObserver(
@@ -618,12 +765,12 @@ function useCurrentSection() {
       },
       { rootMargin: "-20% 0px -60% 0px" },
     );
-    for (const { id } of SECTIONS) {
+    for (const id of ids.split(" ")) {
       const el = document.getElementById(id);
       if (el) observer.observe(el);
     }
     return () => observer.disconnect();
-  }, []);
+  }, [ids]);
   return current;
 }
 
@@ -635,7 +782,18 @@ export function ProfilePage() {
   const active = useRef(false);
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const current = useCurrentSection();
+  // Only adults sponsor minors; the session says whether this account is under 18.
+  const sponsors = user?.isMinor === false;
+  const sections = sponsors ? SECTIONS : SECTIONS.filter((s) => s.id !== "minors");
+  const current = useCurrentSection(sections);
+  // Email links land on a section (e.g. #minors); scroll once the profile has laid out.
+  const landed = useRef(false);
+  useEffect(() => {
+    if (!profile || landed.current) return;
+    landed.current = true;
+    const id = window.location.hash.slice(1);
+    if (id) document.getElementById(id)?.scrollIntoView({ block: "start" });
+  }, [profile]);
   useEffect(() => {
     active.current = true;
     const controller = new AbortController();
@@ -711,7 +869,7 @@ export function ProfilePage() {
       ) : null}
       <div className="account-layout">
         <nav className="account-nav" aria-label="Account sections">
-          {SECTIONS.map(({ id, label, Icon }) => (
+          {sections.map(({ id, label, Icon }) => (
             <a key={id} href={`#${id}`} className={current === id ? "is-active" : ""} aria-current={current === id ? "true" : undefined}
               onClick={(e) => {
                 e.preventDefault();
@@ -726,6 +884,7 @@ export function ProfilePage() {
           <ProfileSection user={user} profile={profile} save={save} />
           <ContactSection user={user} profile={profile} save={save} />
           <BillingSection />
+          {sponsors ? <MinorsSection notify={setToast} /> : null}
           <NotificationsSection />
           <DocumentsSection />
           <HelpSection profile={profile} />

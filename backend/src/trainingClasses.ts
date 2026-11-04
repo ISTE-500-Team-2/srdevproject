@@ -1,3 +1,4 @@
+import { MinorSupervision } from "./minorSupervision.js";
 import { Router } from "express";
 import type { Pool } from "pg";
 import { transaction } from "./db.js";
@@ -8,15 +9,16 @@ import { StaffModel } from "./models/StaffModel.js";
 import { EligibilityModel } from "./models/EligibilityModel.js";
 export function trainingClassRoutes(pool: Pool, tz: string) {
   const r = Router();
+  r.get('/classes/catalog',async(_req,res)=>res.json({data:(await pool.query('SELECT id,title,description,capacity FROM app_class_catalog ORDER BY id')).rows}));
   r.get("/classes", async (_req, res) => {
     const user = authState(res).user;
     res.json({
       data: (
         await pool.query(
-          `SELECT c.id,c.title,c.certification_id AS "certificationId",cert.name AS "certificationName",c.instructor_id AS "instructorId",u.firstname||' '||u.lastname AS instructor,c.capacity,CASE WHEN v.status='confirmed' THEN c.status ELSE 'cancelled' END AS status,c.revision,
+          `SELECT c.id,c.title,c.certification_id AS "certificationId",COALESCE(cert.name,'Creative workshop') AS "certificationName",c.instructor_id AS "instructorId",u.firstname||' '||u.lastname AS instructor,LEAST(c.capacity,15) AS capacity,c.description,c.catalog_id AS "catalogId",CASE WHEN v.status='confirmed' THEN c.status ELSE 'cancelled' END AS status,c.revision,
  v.roomid AS "roomId",room.name AS "roomName",v.starttime AT TIME ZONE 'UTC' AS "startsAt",v.endtime AT TIME ZONE 'UTC' AS "endsAt",(SELECT COUNT(*)::int FROM app_training_enrollment e WHERE e.class_id=c.id AND e.status IN ('enrolled','attended')) AS enrolled,
  (SELECT status FROM app_training_enrollment WHERE class_id=c.id AND user_id=$1) AS "myStatus"
- FROM app_training_class c JOIN certifications cert ON cert.certid=c.certification_id JOIN reservation v ON v.reservationid=c.reservation_id JOIN room USING(roomid) JOIN "user" u ON u.userid=c.instructor_id ORDER BY v.starttime DESC LIMIT 200`,
+ FROM app_training_class c LEFT JOIN certifications cert ON cert.certid=c.certification_id JOIN reservation v ON v.reservationid=c.reservation_id JOIN room USING(roomid) JOIN "user" u ON u.userid=c.instructor_id ORDER BY v.starttime DESC LIMIT 200`,
           [user.id],
         )
       ).rows,
@@ -32,10 +34,16 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
       const data = await transaction(pool, async (db) => {
         const roomId = positiveId(req.body.roomId),
           instructorId = positiveId(req.body.instructorId),
-          certId = positiveId(req.body.certificationId),
+          certId = req.body.certificationId == null ? null : positiveId(req.body.certificationId),
           capacity = positiveId(req.body.capacity),
           title = textField(req.body.title, "Title", 100),
           reason = textField(req.body.reason, "Reason", 500);
+        if (capacity>15) throw new AppError(400,'CAPACITY_LIMIT','Classes are limited to 15 participants.');
+        const catalogId=req.body.catalogId == null ? null : positiveId(req.body.catalogId);
+        const catalog=catalogId ? (await db.query('SELECT * FROM app_class_catalog WHERE id=$1 FOR SHARE',[catalogId])).rows[0] : null;
+        if (catalogId && !catalog) throw new AppError(400,'INVALID_CLASS','Choose an existing class template.');
+        if (!certId && !catalog) throw new AppError(400,'CLASS_TYPE_REQUIRED','Choose a workshop template or training certification.');
+        const description=textField(req.body.description ?? catalog?.description ?? '', 'Description',4000,0);
         const starts = new Date(req.body.startsAt),
           ends = new Date(req.body.endsAt);
         if (
@@ -75,7 +83,7 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
             "INSTRUCTOR_REQUIRED",
             "Assign an active instructor.",
           );
-        if (
+        if (certId &&
           !(
             await db.query(
               "SELECT certid FROM certifications WHERE certid=$1 AND validity_days IS NOT NULL",
@@ -96,7 +104,7 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
         ).rows[0];
         const after = (
           await db.query(
-            "INSERT INTO app_training_class(title,certification_id,instructor_id,reservation_id,capacity,created_by) VALUES($1,$2,$3,$4,$5,$6) RETURNING *",
+            "INSERT INTO app_training_class(title,certification_id,instructor_id,reservation_id,capacity,created_by,catalog_id,description) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *",
             [
               title,
               certId,
@@ -104,6 +112,7 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
               slot.reservationid,
               capacity,
               user.id,
+              catalogId, description,
             ],
           )
         ).rows[0];
@@ -128,7 +137,7 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
       const id = integerId(req.params.id, "Class"),
         c = (
           await db.query(
-            `SELECT c.*,v.status AS booking_status,v.starttime AT TIME ZONE 'UTC' AS starts FROM app_training_class c JOIN reservation v ON v.reservationid=c.reservation_id WHERE c.id=$1 AND v.status='confirmed' FOR UPDATE OF c`,
+            `SELECT c.*,rm.buildingid AS building_id,v.status AS booking_status,v.starttime AT TIME ZONE 'UTC' AS starts FROM app_training_class c JOIN reservation v ON v.reservationid=c.reservation_id JOIN room rm ON rm.roomid=v.roomid WHERE c.id=$1 AND v.status='confirmed' FOR UPDATE OF c`,
             [id],
           )
         ).rows[0];
@@ -146,6 +155,10 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
           "ENTITLEMENT_REQUIRED",
           "Active membership or day pass required.",
         );
+      // Lock the member row before sponsor rows (the enrollment FK needs it anyway),
+      // matching sponsor link/unlink order: user, then sponsor.
+      await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR SHARE',[user.id]);
+      const sponsor=await new MinorSupervision(db,tz).requireSponsor(user.id,c.building_id);
       const before = (
         await db.query(
           "SELECT status FROM app_training_enrollment WHERE class_id=$1 AND user_id=$2",
@@ -162,12 +175,12 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
           )
         ).rows[0].count,
       );
-      if (count >= c.capacity)
+      if (count >= Math.min(c.capacity,15))
         throw new AppError(409, "CLASS_FULL", "This class is full.");
       const after = (
         await db.query(
-          "INSERT INTO app_training_enrollment(class_id,user_id) VALUES($1,$2) ON CONFLICT(class_id,user_id) DO UPDATE SET status='enrolled' RETURNING *",
-          [id, user.id],
+          "INSERT INTO app_training_enrollment(class_id,user_id,sponsor_id) VALUES($1,$2,$3) ON CONFLICT(class_id,user_id) DO UPDATE SET status='enrolled',sponsor_id=EXCLUDED.sponsor_id RETURNING *",
+          [id, user.id,sponsor?.id ?? null],
         )
       ).rows[0];
       await new StaffModel(db, tz).audit(
@@ -230,8 +243,9 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
       // Separate from the instructor roster: never select contact details,
       // account IDs or attendance history for the member response.
       const { rows } = await pool.query(
-        `SELECT c.capacity,COUNT(e.user_id)::int AS enrolled,
-          c.capacity-COUNT(e.user_id)::int AS "seatsAvailable",
+        // Enrollment caps legacy larger classes at 15 seats; show the same limit.
+        `SELECT LEAST(c.capacity,15) AS capacity,COUNT(e.user_id)::int AS enrolled,
+          GREATEST(LEAST(c.capacity,15)-COUNT(e.user_id)::int,0) AS "seatsAvailable",
           COALESCE(json_agg(json_build_object('name',u.firstname||' '||left(u.lastname,1)||'.')
             ORDER BY u.firstname,u.lastname,e.user_id) FILTER(WHERE e.user_id IS NOT NULL),'[]') AS items
          FROM app_training_class c JOIN reservation v ON v.reservationid=c.reservation_id

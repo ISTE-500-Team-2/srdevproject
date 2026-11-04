@@ -27,6 +27,10 @@ const course = (id: number, offsetHours: number, extra: Record<string, unknown> 
   myStatus: null, ...extra,
 });
 let classes: ReturnType<typeof course>[];
+const workshopCatalog = [
+  { id: 1, title: 'Custom Epoxy Resin Platter', description: 'Design a statement platter.', capacity: 15 },
+  { id: 2, title: 'Glow Up: Floral Resin Nightlight', description: 'Preserve real dried flowers.', capacity: 15 },
+];
 const calls = (path: string, method?: string) =>
   vi.mocked(api).mock.calls.filter(([p, options]) => p === path && (options?.method ?? undefined) === method);
 
@@ -60,6 +64,7 @@ beforeEach(() => {
     if (path.endsWith('/member-roster')) return { items: [{ name: 'First M.' }], capacity: 3, enrolled: 2, seatsAvailable: 1 } as never;
     if (path === '/me/overview') return { entitlement: { membership: entitled ? { id: 1 } : null, dayPass: null } } as never;
     if (path === '/me/certifications') return [] as never;
+    if (path === '/classes/catalog') return workshopCatalog as never;
     if (path === '/training/catalog') return [{ id: 7, name: 'Laser cutting', validityDays: 365 }] as never;
     if (path === '/rooms') return [{ id: 2, name: 'Training Room', location: 'Main floor', capacity: 18, status: 'available' }] as never;
     return undefined as never;
@@ -90,7 +95,7 @@ test('member sees soonest classes first and registers with one click', async () 
   auth.user = { id: 30, roles: ['member'] };
   classes = [course(6, 96), course(5, 48), course(4, -1, { myStatus: 'attended' })];
   await mount();
-  const rows = screen.getAllByRole('heading', { level: 3 }).map(h => h.textContent);
+  const rows = screen.getAllByRole('heading', { level: 3 }).filter(h => h.closest('.class-row')).map(h => h.textContent);
   expect(rows).toEqual(['Safety 5', 'Safety 6']);
   expect(screen.getByText('You can register')).toBeTruthy();
   await click('Register for Safety 5');
@@ -212,7 +217,7 @@ test('a room conflict on publish is shown on the room field and keeps the form',
   fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Evening laser' } });
   fireEvent.change(screen.getByLabelText(/^Counts toward/), { target: { value: '7' } });
   fireEvent.change(screen.getByLabelText(/^Room/), { target: { value: '2' } });
-  expect((screen.getByRole('spinbutton') as HTMLInputElement).value).toBe('18');
+  expect((screen.getByRole('spinbutton') as HTMLInputElement).value).toBe('15');
   fireEvent.change(screen.getByLabelText(/^Reason/), { target: { value: 'Demand' } });
   await act(async () => { fireEvent.submit(screen.getByRole('button', { name: 'Publish class' }).closest('form')!); });
   expect(screen.getByText(/Training Room is already booked for part of this time/)).toBeTruthy();
@@ -235,4 +240,62 @@ test('cancelling sends the record revision and the staff reason', async () => {
   fireEvent.keyDown(hold, { key: ' ' });
   await act(async () => { await new Promise((r) => setTimeout(r, 1500)); });
   expect(calls('/classes/5/cancel', 'POST')[0][1]?.body).toEqual({ expectedRevision: 4, reason: 'Instructor out sick' });
+});
+
+test('creative workshop details show the description without promising certification approval',async()=>{
+ auth.user={id:30,roles:['member']};
+ classes=[course(5,48,{certificationId:null,certificationName:'Creative workshop',catalogId:1,description:'Build a resin platter with an instructor.'})];
+ await mount();await click('Details for Safety 5');
+ const detail=screen.getByRole('region',{name:'Safety 5 details'});
+ expect(within(detail).getByText('Build a resin platter with an instructor.')).toBeTruthy();
+ expect(within(detail).getByText(/This creative workshop does not grant equipment certification/)).toBeTruthy();
+ expect(detail.textContent).not.toContain('approved separately');
+});
+
+test('members see scheduled workshops as normal rows and the rest as cards, every one with a photo', async () => {
+  auth.user = { id: 30, roles: ['member'] };
+  classes = [
+    course(5, 48),
+    // Staff renamed this session; its photo still comes from the catalog workshop it was made from.
+    course(6, 72, { title: 'Thursday resin night', certificationId: null, certificationName: 'Creative workshop', catalogId: 2 }),
+  ];
+  await mount();
+  // Workshops get their own filter chip because the API names their group "Creative workshop".
+  expect(screen.getByRole('button', { name: /^Creative workshop/ }).getAttribute('aria-pressed')).toBe('false');
+  const row = screen.getByRole('heading', { level: 3, name: 'Thursday resin night' }).closest('li')!;
+  expect(within(row).getByText('Creative workshop')).toBeTruthy();
+  expect(row.querySelector('.class-thumb img')?.getAttribute('src')).toBe('/assets/resin-nightlight.webp');
+  const cards = screen.getByRole('region', { name: 'More creative workshops' });
+  // The nightlight already has a session, so only the platter is listed as a card.
+  expect(within(cards).queryByText('Glow Up: Floral Resin Nightlight')).toBeNull();
+  const card = within(cards).getByRole('heading', { name: 'Custom Epoxy Resin Platter' }).closest('li')!;
+  expect(within(card).getByText('Not scheduled yet')).toBeTruthy();
+  expect(within(card).queryByRole('button')).toBeNull();
+  expect(card.querySelector('img')?.getAttribute('src')).toBe('/assets/resin-platter.webp');
+  for (const img of document.querySelectorAll('.class-row .class-thumb img')) expect(img.getAttribute('src')).toMatch(/\.webp$/);
+  // Filtering to an equipment certification hides the workshop cards.
+  await click(/^Laser cutting/);
+  expect(screen.queryByRole('region', { name: 'More creative workshops' })).toBeNull();
+});
+
+test('staff schedule a creative workshop from the picker without a certification', async () => {
+  await mount();
+  expect(screen.queryByText('More creative workshops')).toBeNull();
+  await click('Schedule class');
+  expect(screen.getByLabelText(/^Counts toward/)).toBeTruthy();
+  await act(async () => { fireEvent.click(screen.getByLabelText(/Creative workshop/)); });
+  expect(screen.queryByLabelText(/^Counts toward/)).toBeNull();
+  expect(screen.getByText(/Creative workshops don't grant equipment certification/)).toBeTruthy();
+  expect((screen.getByRole('radio', { name: /Creative workshop/ }) as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByRole('radio', { name: /Equipment training/ }) as HTMLInputElement).checked).toBe(false);
+  fireEvent.change(screen.getByLabelText(/^Workshop/), { target: { value: '2' } });
+  expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('Glow Up: Floral Resin Nightlight');
+  expect((screen.getByLabelText(/^Description/) as HTMLTextAreaElement).value).toBe('Preserve real dried flowers.');
+  expect(screen.getByText('28 / 4000')).toBeTruthy();
+  expect(screen.getByText('Max 15 per class')).toBeTruthy();
+  fireEvent.change(screen.getByLabelText(/^Room/), { target: { value: '2' } });
+  fireEvent.change(screen.getByLabelText(/^Reason/), { target: { value: 'Sponsor series' } });
+  await act(async () => { fireEvent.submit(screen.getByRole('button', { name: 'Publish class' }).closest('form')!); });
+  const body = calls('/classes', 'POST')[0][1]?.body as Record<string, unknown>;
+  expect(body).toMatchObject({ title: 'Glow Up: Floral Resin Nightlight', certificationId: null, catalogId: 2, capacity: 15 });
 });

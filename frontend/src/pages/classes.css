@@ -782,6 +782,7 @@
 }
 .class-field input,
 .class-field select,
+.class-field textarea,
 .class-field--picker input,
 .class-field--picker select {
   width: 100%;
@@ -802,6 +803,12 @@
   background-repeat: no-repeat;
   background-position: right 12px center;
 }
+.class-field textarea {
+  display: block;
+  min-height: 118px;
+  resize: vertical;
+  line-height: 1.5;
+}
 .class-field [aria-invalid="true"] {
   border-color: var(--red);
   box-shadow: 0 0 0 3px rgba(183, 58, 46, 0.12);
@@ -814,6 +821,25 @@
 }
 .class-field a {
   color: var(--bronze);
+}
+.class-field small.class-field__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.class-field__meta span:last-child {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+/* Class type radio cards share the equipment picker's .choice-card look. */
+.class-form .choice-card {
+  margin: 0;
+}
+.choice-card b {
+  font-weight: 600;
+}
+.class-form fieldset > .class-banner {
+  margin: 0;
 }
 .class-field__error,
 .class-field small.class-field__error {
@@ -834,6 +860,80 @@
 .class-field--picker .member-select__label {
   font-size: var(--text-base-sm);
   font-weight: 700;
+}
+
+/* Creative workshops without a session yet, below the schedule */
+.workshops {
+  margin-top: 40px;
+}
+.workshops-head {
+  margin-bottom: 14px;
+}
+.workshops-head h2 {
+  margin: 0;
+  font-size: var(--text-xl);
+}
+.workshops-head p {
+  margin: 4px 0 0;
+  color: var(--ink-soft);
+  font-size: var(--text-base-sm);
+}
+.workshop-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.workshop-card {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(255, 253, 250, 0.94);
+  box-shadow: var(--shadow-small);
+}
+.workshop-card .class-thumb {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 10;
+  margin-bottom: 6px;
+}
+.workshop-card h3 {
+  margin: 0;
+  font-size: var(--text-lg);
+  line-height: 1.25;
+}
+.workshop-card p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: var(--text-base-sm);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.workshop-card footer {
+  margin-top: auto;
+  padding-top: 4px;
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+}
+.workshop-card footer span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.workshop-card footer svg {
+  width: 14px;
+  height: 14px;
+  color: var(--bronze);
 }
 
 /* Staff schedule */
@@ -1137,7 +1237,16 @@
   }
 }
 
+@media (max-width: 900px) {
+  .workshop-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 760px) {
+  .workshop-grid {
+    grid-template-columns: 1fr;
+  }
   .classes-head {
     flex-direction: column;
     align-items: stretch;

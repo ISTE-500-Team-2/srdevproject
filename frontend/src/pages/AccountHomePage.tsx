@@ -106,7 +106,7 @@ export function AccountHomePage() {
     setCheckIn({ busy: true, message: "", failed: false });
     try {
       await api("/me/check-ins", { method: "POST", body: {} });
-      setCheckIn({ busy: false, message: `${own ? "You're" : `${user.firstName} is`} checked in.`, failed: false });
+      setCheckIn({ busy: false, message: `${user.firstName} is checked in.`, failed: false });
       overview.reload();
     } catch (err) {
       setCheckIn({ busy: false, message: errorMessage(err), failed: true });
@@ -158,9 +158,10 @@ export function AccountHomePage() {
     { icon: Drill, title: "Book equipment", detail: own ? "Machines you're certified on" : `Machines ${user.firstName} is certified on`, to: "/equipment" },
     { icon: DoorOpen, title: "Book a studio", detail: "Hourly or monthly studio rental", to: "/studios" },
     { icon: GraduationCap, title: "Sign up for a class", detail: own ? "Enroll and pay" : "Enroll them and take payment", to: "/classes" },
-    {
+    // Staff can't check themselves in from the web; they tap a tag like everyone else.
+    ...(own ? [] : [{
       icon: Nfc,
-      title: own ? "Check in" : `Check ${user.firstName} in`,
+      title: `Check ${user.firstName} in`,
       detail: checkIn.busy
         ? "Checking in…"
         : o && !o.canCheckIn
@@ -168,7 +169,7 @@ export function AccountHomePage() {
           : "Record a visit without an NFC card",
       onClick: () => void doCheckIn(),
       disabled: checkIn.busy || !o?.canCheckIn,
-    },
+    }]),
     { icon: IdCard, title: "Change membership", detail: own ? "Switch, renew or cancel your plan" : "Switch, renew or cancel their plan", to: "/membership" },
   ];
   // Staff tools open the workspace with this member already selected.

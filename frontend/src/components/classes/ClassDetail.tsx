@@ -3,12 +3,13 @@ import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Modal } from "../Modal";
 import { SeatMeter } from "./ClassBits";
-import { classImage, hasStarted, isCancelled, longDate, seatsLeft, timeRange, type ClassRecord, type MemberRoster } from "./classData";
+import { classPhoto, hasStarted, isCancelled, longDate, seatsLeft, timeRange, type ClassRecord, type MemberRoster, type WorkshopTemplate } from "./classData";
 import { useApi } from "../../lib/useApi";
 import type { Eligibility } from "./ClassCatalog";
 
 export function ClassDetail({
   c,
+  workshops,
   eligibility,
   busy,
   error,
@@ -18,6 +19,8 @@ export function ClassDetail({
   onWithdraw,
 }: {
   c: ClassRecord;
+  /** The workshop catalog, so a renamed workshop session keeps its photo. */
+  workshops?: WorkshopTemplate[];
   eligibility: Eligibility;
   busy: boolean;
   error?: string;
@@ -33,18 +36,17 @@ export function ClassDetail({
   useEffect(() => {
     if (refreshToken) reloadParticipants();
   }, [refreshToken, reloadParticipants]);
-  const image = classImage(c.certificationName);
+  const image = classPhoto(c, workshops);
   const counts = participants.data ?? { capacity: c.capacity, enrolled: c.enrolled };
   const registered = c.myStatus === "enrolled";
   return (
     <Modal open title={c.title} onClose={onClose}>
       <div className="class-detail" role="region" aria-label={`${c.title} details`}>
-        {image ? (
-          <div className={`class-detail__hero${image.cutout ? " class-detail__hero--cutout" : ""}`}>
-            <img src={image.src} alt="" />
-          </div>
-        ) : null}
-        <p className="eyebrow">Counts toward {c.certificationName}</p>
+        <div className={`class-detail__hero${image.cutout ? " class-detail__hero--cutout" : ""}`}>
+          <img src={image.src} alt="" />
+        </div>
+        <p className="eyebrow">{c.certificationId ? `Counts toward ${c.certificationName}` : "Creative workshop"}</p>
+        {c.description && <p>{c.description}</p>}
         <dl className="class-facts">
           <div>
             <CalendarDays aria-hidden="true" />
@@ -90,8 +92,8 @@ export function ClassDetail({
         <p className="class-note">
           <Info aria-hidden="true" />
           <span>
-            Registering saves your seat. Attending doesn't certify you on its own. <b>{c.certificationName}</b> is
-            approved separately, after an instructor verifies your training.
+            {c.certificationId ? <>Registering saves your seat. Attending doesn't certify you on its own. <b>{c.certificationName}</b> is
+            approved separately, after an instructor verifies your training.</> : 'Registering saves your workshop seat. This creative workshop does not grant equipment certification.'}
           </span>
         </p>
         {error ? (
