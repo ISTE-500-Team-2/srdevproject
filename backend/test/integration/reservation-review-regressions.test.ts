@@ -261,6 +261,7 @@ test('concurrent HTTP requests for adjacent equipment bookings return one cooldo
       users.push({ agent, csrf: login.body.data.csrfToken });
     }
     const equipment = (await pool.query("SELECT equipmentid FROM equipment WHERE name='Rachel'")).rows[0].equipmentid;
+    await pool.query('UPDATE equipment SET hourlyrate=0 WHERE equipmentid=$1', [equipment]);
     const start = Date.now() + 5 * 86_400_000;
     const requests = users.map(({ agent, csrf }, i) => agent.post('/api/reservations').set('X-CSRF-Token', csrf).send({
       equipmentId: equipment,

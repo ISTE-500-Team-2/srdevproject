@@ -1,3 +1,4 @@
+import { AppError } from '../domain.js';
 import type { Database } from '../db.js';
 
 export const RESERVATION_COOLDOWN_MINUTES = 15;
@@ -5,6 +6,10 @@ export const RESERVATION_COOLDOWN_MINUTES = 15;
 const selection = `r.reservationid AS id,r.userid AS "userId",r.equipmentid AS "equipmentId",r.roomid AS "roomId",
  COALESCE(e.name,room.name) AS "equipmentName",CASE WHEN r.roomid IS NULL THEN 'equipment' ELSE 'room' END AS "resourceType",
  r.starttime AT TIME ZONE 'UTC' AS "startTime",r.endtime AT TIME ZONE 'UTC' AS "endTime",r.location,r.status,
+ (SELECT c.amount_cents FROM app_equipment_checkout c WHERE c.reservation_id=r.reservationid) AS "amountCents",
+ (SELECT c.status FROM app_equipment_checkout c WHERE c.reservation_id=r.reservationid) AS "paymentStatus",
+ (SELECT c.payer_id FROM app_equipment_checkout c WHERE c.reservation_id=r.reservationid) AS "payerId",
+ (SELECT c.hold_until FROM app_equipment_checkout c WHERE c.reservation_id=r.reservationid) AS "holdUntil",
  r.revision,u.firstname || ' ' || u.lastname AS "memberName",u.email AS "memberEmail"`;
 const joins = `LEFT JOIN equipment e USING (equipmentid) LEFT JOIN room ON room.roomid=r.roomid JOIN "user" u ON u.userid=r.userid`;
 
@@ -16,7 +21,7 @@ export class ReservationModel {
   async listForUser(userId: number) {
     return (
       await this.db.query(
-        `SELECT ${selection} FROM reservation r ${joins} WHERE r.userid=$1 ORDER BY r.starttime DESC LIMIT 100`,
+        `SELECT ${selection} FROM reservation r ${joins} WHERE r.userid=$1 OR EXISTS(SELECT 1 FROM app_equipment_checkout c WHERE c.reservation_id=r.reservationid AND c.payer_id=$1) ORDER BY r.starttime DESC LIMIT 100`,
         [userId],
       )
     ).rows;
@@ -136,11 +141,12 @@ export class ReservationModel {
     location: string;
     start: Date;
     end: Date;
+    status?: 'pending' | 'confirmed';
   }) {
     const { rows } = await this.db.query<{ id: number }>(
       `INSERT INTO reservation
       (userid,equipmentid,roomid,waiverid,location,starttime,endtime,status,statusdesc)
-      VALUES ($1,$2,$3,$4,$5,$6::timestamptz AT TIME ZONE 'UTC',$7::timestamptz AT TIME ZONE 'UTC','confirmed','Created through member portal')
+      VALUES ($1,$2,$3,$4,$5,$6::timestamptz AT TIME ZONE 'UTC',$7::timestamptz AT TIME ZONE 'UTC',$8,'Created through member portal')
       RETURNING reservationid AS id`,
       [
         input.userId,
@@ -150,6 +156,7 @@ export class ReservationModel {
         input.location,
         input.start,
         input.end,
+        input.status ?? 'confirmed',
       ],
     );
     return (
@@ -195,6 +202,7 @@ export class ReservationModel {
     const { rows } = await this.db.query(
       `UPDATE reservation SET status='cancelled',statusdesc='Cancelled by member'
       WHERE reservationid=$1 AND userid=$2 AND status IN ('confirmed','pending')
+        AND NOT EXISTS(SELECT 1 FROM app_equipment_checkout c WHERE c.reservation_id=reservation.reservationid AND c.status='pending')
         AND starttime >= (NOW() + interval '24 hours') AT TIME ZONE 'UTC' RETURNING reservationid AS id`,
       [id, userId],
     );
@@ -204,6 +212,7 @@ export class ReservationModel {
   async cancelAny(id: number) {
     const before = await this.find(id, true);
     if (!before || !['confirmed', 'pending'].includes(before.status)) return null;
+    if (before.paymentStatus === 'pending') throw new AppError(409, 'PAYMENT_WORKFLOW_REQUIRED', 'Cancel the pending Stripe checkout before cancelling this reservation.');
     await this.db.query(
       `UPDATE reservation SET status='cancelled',statusdesc='Cancelled by staff' WHERE reservationid=$1`,
       [id],

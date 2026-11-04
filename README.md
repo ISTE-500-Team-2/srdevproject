@@ -97,7 +97,7 @@ See the [launch checklist and validation boundary](docs/SPONSOR-HANDOFF.md#10-la
 | JWT signing keys and session behavior | [Authentication](docs/JWT-AUTH.md) |
 | Staff roles and permission rules | [Role-based access](docs/rbac.md) |
 | Email sender, worker and notification setup | [Email notifications](docs/EMAIL-NOTIFICATIONS.md) |
-| Monthly studios and Stripe test-mode configuration | [Studio rentals](docs/studio-rentals.md) |
+| Equipment payments and Stripe test-mode setup | [Equipment payments](docs/equipment-payments.md) · [Studio rentals](docs/studio-rentals.md) |
 | Reservation rules and upgrade compatibility | [Scheduling](docs/scheduling-pr26.md) |
 | Requirements, evidence and verification history | [Traceability](docs/REQUIREMENTS-TRACEABILITY.md) · [Primary verification](docs/PRIMARY-VERIFICATION.md) |
 

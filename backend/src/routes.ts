@@ -35,9 +35,9 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   const notifications = new NotificationPreferencesController(pool);
   const waiverRecords = new WaiverRecordsController(pool);
   const member = new MemberController(pool, config.timeZone);
-  const equipment = new EquipmentController(pool, config.timeZone);
+  const equipment = new EquipmentController(pool, config.timeZone, config.studioStripe);
   const rooms = new RoomController(pool);
-  const reservations = new ReservationController(pool, config.timeZone);
+  const reservations = new ReservationController(pool, config.timeZone, config.studioStripe);
   const staff = new StaffController(pool, config.timeZone);
   const permit = (resource: string, action: string, scope: "own" | "global" = "global") => requirePermission(pool,resource,action,scope);
   const protectedRoute = requireUser(pool, config);
@@ -82,6 +82,8 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   routes.get("/rooms", permit("room", "read", "own"), rooms.list);
   routes.get("/reservations", permit("reservation", "read", "own"), reservations.list);
   routes.post("/reservations", permit("reservation", "create", "own"), requireCsrf, reservations.create);
+  routes.post("/reservations/:id/checkout", permit("reservation", "create", "own"), requireCsrf, reservations.checkout);
+  routes.post("/reservations/:id/cancel-checkout", permit("reservation", "update", "own"), requireCsrf, reservations.cancelCheckout);
   routes.post("/reservations/:id/cancel", permit("reservation", "update", "own"), requireCsrf, reservations.cancel);
 
   routes.get("/me/overview", permit("user", "read", "own"), member.overview);

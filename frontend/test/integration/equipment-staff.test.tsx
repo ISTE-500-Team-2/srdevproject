@@ -5,7 +5,7 @@ import {MemoryRouter} from 'react-router-dom';
 import App from '../../src/App';
 import {createBrowserBridge} from '../../../backend/test/helpers/browserBridge';
 let bridge:Awaited<ReturnType<typeof createBrowserBridge>>;
-beforeAll(async()=>{bridge=await createBrowserBridge();},120000);
+beforeAll(async()=>{bridge=await createBrowserBridge();await bridge.pool.query('UPDATE equipment SET hourlyrate=0');},120000);
 afterAll(async()=>{cleanup();vi.unstubAllGlobals();await bridge?.close();},30000);
 // Picks a start in the day-and-time picker: the day button, then the time.
 const pickStart=(scope:{queryByRole:typeof screen.queryByRole;getByRole:typeof screen.getByRole;getByLabelText:typeof screen.getByLabelText},d:Date)=>{
@@ -33,7 +33,7 @@ test('staff equipment UI saves four-hour reservation for selected member and doe
  pickStart(modal,start);void local;
  await user.selectOptions(modal.getByLabelText('Duration'),'4');
  await user.click(modal.getByRole('button',{name:'Confirm reservation'}));
- await screen.findByText('Reservation saved for Rachel for member #'+member+'.');
+ await screen.findByText('Reservation confirmed for Rachel for member #'+member+'.');
  const rows=(await bridge.pool.query('SELECT userid,endtime-starttime AS duration FROM reservation')).rows;
  expect(rows).toHaveLength(1);expect(rows[0].userid).toBe(member);expect(rows[0].duration.hours).toBe(4);
  expect(await screen.findByText(/No reservations yet/)).toBeTruthy();

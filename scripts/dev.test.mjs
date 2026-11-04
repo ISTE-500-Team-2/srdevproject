@@ -12,7 +12,7 @@ test('email mode needs an explicit local key and isolates its queue',()=>{
  assert.equal(env.BREVO_API_KEY,'local-test-key');assert.equal(env.EMAIL_ENABLED,'true');assert.equal(env.ENABLE_DEMO_LOGIN,'false');assert.equal(env.PGPORT,'25435');assert.equal(env.PGHOST,'127.0.0.1');assert.equal(env.APP_ORIGIN,'http://localhost:5173');
 });
 test('frontend does not receive backend secrets',()=>{
- const env=frontendEnv({PATH:'ok',BREVO_API_KEY:'secret',PGPASSWORD:'secret',JWT_SECRET:'secret',DATABASE_URL:'secret'});
+ const env=frontendEnv({PATH:'ok',BREVO_API_KEY:'secret',PGPASSWORD:'secret',JWT_SECRET:'secret',DATABASE_URL:'secret',STRIPE_TEST_SECRET_KEY:'secret',STRIPE_STUDIO_WEBHOOK_SECRET:'secret'});
  assert.deepEqual(env,{PATH:'ok',NODE_ENV:'development'});
 });
 test('busy ports fail instead of silently selecting another URL',async()=>{
@@ -25,4 +25,10 @@ test('launcher enforces the patched Node 24 security floor',()=>{
    assert.throws(()=>assertNodeVersion(version),/24.22.1/);
  for(const version of ['24.22.1','24.22.2','24.23.0'])
    assert.doesNotThrow(()=>assertNodeVersion(version));
+});
+
+test('local Stripe settings reach only the backend and preserve the controlled return origin',()=>{
+ const env=makeEnv({}, {STRIPE_TEST_SECRET_KEY:'sk_test_example',STRIPE_STUDIO_WEBHOOK_SECRET:'whsec_example',APP_ORIGIN:'https://wrong'},false);
+ assert.equal(env.STRIPE_TEST_SECRET_KEY,'sk_test_example');assert.equal(env.STRIPE_STUDIO_WEBHOOK_SECRET,'whsec_example');
+ assert.equal(env.APP_ORIGIN,'http://localhost:5173');
 });

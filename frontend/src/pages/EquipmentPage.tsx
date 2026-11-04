@@ -1,7 +1,7 @@
 import { useAuth } from '../context/AuthContext';
 import { CalendarDays, Filter, ShieldAlert } from 'lucide-react';
 import { type FormEvent, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Modal } from '../components/Modal';
 import { MemberSelect } from '../components/MemberSelect';
 import { StartTimePicker } from '../components/StartTimePicker';
@@ -14,9 +14,11 @@ import { dateTime } from "../lib/display";
 
 export function EquipmentPage() {
   const {user}=useAuth();
+  const [params] = useSearchParams();
+  const attempt = useRef<{signature: string; key: string} | null>(null);
   const canBookForOthers=!!user?.roles.some(r=>['staff','admin'].includes(r)) && !user.roles.includes('instructor');
   const catalog = useApi<LiveEquipment[]>('/equipment');
-  const bookings = useApi<Reservation[]>('/reservations');
+  const bookings = useApi<Reservation[]>('/reservations', {retainOnReload: true});
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
   const mutationInFlight = useRef(false);
@@ -37,6 +39,14 @@ export function EquipmentPage() {
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   const [busy, setBusy] = useState(false);
   const [duration, setDuration] = useState(1);
+  const totalCents = liveSelected?.rate == null ? null : Math.round(liveSelected.rate * 100) * duration;
+  const returnId = Number(params.get('reservation'));
+  const returnedBooking = bookings.data?.find(item => item.id === returnId);
+  useEffect(() => {
+    if (!bookings.data?.some(item => item.paymentStatus === 'pending')) return;
+    const timer = window.setInterval(bookings.reload, 5000);
+    return () => window.clearInterval(timer);
+  }, [bookings.data]);
   const equipment = (catalog.data ?? []).filter(
     (item) =>
       (filter === 'all' ||
@@ -60,13 +70,24 @@ export function EquipmentPage() {
         Number(form.get('duration')),
       );
       const target=String(form.get('memberId')??'').trim();
-      const result=await api<Reservation>('/reservations', { method: 'POST', body: {...input,...(canBookForOthers&&target?{userId:Number(target)}:{})} });
-      setToast('Reservation saved for ' + selected.name + (result.userId!==user?.id?' for member #'+result.userId:'') + '.');
+      const details = {...input, amountCents: totalCents, ...(canBookForOthers&&target?{userId:Number(target)}:{})};
+      const signature = JSON.stringify(details);
+      if (attempt.current?.signature !== signature) attempt.current = {signature, key: crypto.randomUUID()};
+      const result = await api<Reservation>('/reservations', { method: 'POST', body: {...details, requestKey: attempt.current.key} });
+      if (result.checkoutUrl) {
+        window.location.assign(result.checkoutUrl);
+        return;
+      }
+      if (result.status !== 'confirmed') throw new ApiError(409, 'PAYMENT_PENDING', 'Payment is required before this reservation is confirmed. Refresh your reservations to continue checkout.');
+      attempt.current = null;
+      setToast('Reservation confirmed for ' + selected.name + (result.userId!==user?.id?' for member #'+result.userId:'') + '.');
       setSelected(null);
       bookings.reload();
       catalog.reload();
     } catch (err) {
+      if (err instanceof ApiError && ['CHECKOUT_EXPIRED', 'KEY_REUSED'].includes(err.code)) attempt.current = null;
       catalog.reload();
+      bookings.reload();
       setError(err instanceof RangeError ? err.message :
         err instanceof ApiError && err.code === 'RESERVATION_CONFLICT'
           ? 'This equipment is already reserved during your selected time. Choose another start time or shorten the duration, then try again.'
@@ -77,6 +98,17 @@ export function EquipmentPage() {
     }
   };
 
+  const checkoutAction = async (id: number, cancelPayment = false) => {
+    if (mutationInFlight.current) return;
+    mutationInFlight.current = true;
+    setBusy(true); setError(''); setToast(null);
+    try {
+      const result = await api<Reservation>(`/reservations/${id}/${cancelPayment ? 'cancel-checkout' : 'checkout'}`, {method: 'POST'});
+      if (result.checkoutUrl) window.location.assign(result.checkoutUrl);
+      else { bookings.reload(); catalog.reload(); }
+    } catch (err) { setError(errorMessage(err)); bookings.reload(); catalog.reload(); }
+    finally { mutationInFlight.current = false; setBusy(false); }
+  };
   const cancel = async (id: number) => {
     if (mutationInFlight.current) return;
     mutationInFlight.current = true;
@@ -84,7 +116,8 @@ export function EquipmentPage() {
     setToast(null);
     setError('');
     try {
-      await api('/reservations/' + id + '/cancel', { method: 'POST' });
+      const item = bookings.data?.find(booking => booking.id === id);
+      await api((canBookForOthers && item?.userId !== user?.id ? '/admin' : '') + '/reservations/' + id + '/cancel', { method: 'POST' });
       bookings.reload();
       setToast('Reservation cancelled.');
     } catch (err) {
@@ -166,8 +199,18 @@ export function EquipmentPage() {
           </button>
         </div>
         <p>
-          No payment is taken when you book. Cancel at least 24 hours ahead; bookings on the same machine need 15 minutes between them.
+          Pay the hourly rate × your selected hours through Stripe to confirm your reservation. Cancel at least 24 hours ahead; bookings on the same machine need 15 minutes between them. Contact staff about refunds.
         </p>
+        {params.get('payment') === 'returned' && <p role="status" className="form-notice">
+          {returnedBooking?.status === 'confirmed' && returnedBooking.paymentStatus === 'paid'
+            ? 'Payment received. Your reservation is confirmed.'
+            : returnedBooking?.paymentStatus === 'expired' ? 'Checkout expired without payment. Choose a time to try again.'
+            : 'Checking your payment. Your reservation is confirmed only after payment is verified.'}
+        </p>}
+        {params.get('payment') === 'cancelled' && <p role="status" className="form-notice">
+          Checkout was closed. Payment is still required to confirm your reservation. Resume payment or cancel the checkout below.
+        </p>}
+        {error && !selected && <p role="alert" className="form-error">{error}</p>}
         {bookings.loading ? <p role="status">Loading reservations…</p> : null}
         {bookings.error ? (
           <p role="alert" className="form-error">
@@ -189,10 +232,15 @@ export function EquipmentPage() {
                   {dateTime(item.endTime)}
                 </p>
                 <span>
-                  {item.location} · {item.status}
+                  {item.location} · {item.paymentStatus === 'pending' ? 'Awaiting payment' : item.status}
                 </span>
               </div>
-              {['pending', 'confirmed'].includes(item.status) &&
+              {item.amountCents != null && <p>{money(item.amountCents)} · {item.paymentStatus === 'paid' ? 'Paid' : item.paymentStatus === 'expired' ? 'Checkout expired' : 'Payment required'}</p>}
+              {item.paymentStatus === 'pending' && item.payerId === user?.id ? <div>
+                {item.holdUntil && <p>Complete payment by {dateTime(item.holdUntil)} to confirm this booking.</p>}
+                <button className="button button--primary" disabled={busy} onClick={() => void checkoutAction(item.id)}>Pay {money(item.amountCents ?? 0)}</button>
+                <button className="button button--quiet" disabled={busy} onClick={() => void checkoutAction(item.id, true)}>Cancel checkout</button>
+              </div> : item.paymentStatus === 'pending' ? <p>Awaiting payment from the person who started checkout.</p> : ['pending', 'confirmed'].includes(item.status) &&
               new Date(item.startTime).getTime() >= Date.now()+24*60*60*1000 ? (
                 <button
                   className="button button--quiet"
@@ -261,9 +309,15 @@ export function EquipmentPage() {
             ) : null}
             <p className="form-caption">
               Cancel at least 24 hours before the start time. Leave 15 minutes between bookings for the same machine.
-              {' '}The booking member’s access and this time slot are checked when you book. No
-              payment will be collected.
+              {' '}The booking member’s access and this time slot are checked when you book. Payment is required before confirmation. Contact staff about refunds.
             </p>
+            <div className="form-notice" aria-live="polite">
+              {totalCents === null ? 'Rate not set. Contact staff before reserving.' : <>
+                <strong>Total: {money(totalCents)}</strong><br />
+                {money(Math.round((liveSelected?.rate ?? 0) * 100))}/hour × {duration} {duration === 1 ? 'hour' : 'hours'}
+                <p>{totalCents > 0 ? 'Continue to Stripe to pay. Your reservation is confirmed after payment succeeds. You have 31 minutes to complete checkout.' : 'No payment is required for this equipment.'}</p>
+              </>}
+            </div>
             {error ? (
               <p ref={errorRef} tabIndex={-1} role="alert" className="form-error">
                 {error}
@@ -272,10 +326,10 @@ export function EquipmentPage() {
             <button
               className="button button--primary equipment-booking-submit"
               type="submit"
-              disabled={busy || liveSelected?.status !== 'available'}
+              disabled={busy || liveSelected?.status !== 'available' || totalCents === null}
             >
               <CalendarDays aria-hidden="true" />{' '}
-              {busy ? 'Saving…' : 'Confirm reservation'}
+              {busy ? 'Preparing checkout…' : totalCents ? `Pay ${money(totalCents)} & confirm reservation` : 'Confirm reservation'}
             </button>
           </form>
         ) : null}
@@ -284,6 +338,7 @@ export function EquipmentPage() {
     </div>
   );
 }
+function money(cents: number) { return new Intl.NumberFormat('en-US', {style: 'currency', currency: 'USD'}).format(cents / 100); }
 function rateLabel(rate: number | null) {
   return rate === null ? 'Rate not set' : '$' + rate.toFixed(2) + '/hour';
 }

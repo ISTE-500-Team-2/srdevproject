@@ -1,5 +1,9 @@
 # SDTA-123 — hourly equipment reservations
 
+This is historical scheduling evidence. The later [equipment payment flow](equipment-payments.md)
+adds payment before confirmation and lets the payer see checkout-backed bookings
+made for another member.
+
 Ticket: https://teamarbor.atlassian.net/browse/SDTA-123
 Owner/reviewer: Matt Marana. Due September 25, 2026.
 
