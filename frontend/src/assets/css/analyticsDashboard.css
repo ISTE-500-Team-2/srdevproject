@@ -321,6 +321,7 @@
   left: auto;
   transform: none;
 }
+/* Wide exact-value rows scroll within this panel, not the whole dashboard. */
 .analytics-table {
   margin-top: 10px;
   overflow-x: auto;
