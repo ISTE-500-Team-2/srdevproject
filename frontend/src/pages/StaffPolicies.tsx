@@ -61,6 +61,7 @@ function PublishPanel({
   const [effectiveAt, setEffectiveAt] = useState(tomorrowMorning);
   const [version, setVersion] = useState(() => suggestVersion(latest?.version, tomorrowMorning().slice(0, 10)));
   const [text, setText] = useState(latest?.description ?? "");
+  const [validityDays, setValidityDays] = useState(latest?.validityDays ? String(latest.validityDays) : "");
   const [name, setName] = useState(waiver?.name ?? "");
   const [scope, setScope] = useState<Policy['scope']>(latest?.scope ?? 'facility');
   const [tab, setTab] = useState<"edit" | "preview">("edit");
@@ -116,6 +117,7 @@ function PublishPanel({
           description: text,
           effectiveAt: new Date(effectiveAt).toISOString(),
           approvalReference: form.get("approvalReference"),
+          validityDays: validityDays.trim() ? Number(validityDays) : null,
           reason: form.get("reason"),
         },
       });
@@ -216,6 +218,13 @@ function PublishPanel({
                 ? `Filled in from ${imported.name}. Check the wording and formatting before publishing; only the text is saved.`
                 : "PDF, Word (.docx) or text files. Review the extracted wording before publishing. Only the text is saved, not the file."}
           </small>
+        </div>
+        <div className="cw-hinted">
+          <label className="cw-field">
+            <span>Valid for (days)</span>
+            <input type="number" min={1} max={3650} step={1} value={validityDays} onChange={(e) => setValidityDays(e.target.value)} placeholder="Leave blank if it doesn't expire" />
+          </label>
+          <small>Each signature expires this many days after signing, and members must sign again.</small>
         </div>
         <div className="cw-two">
           <div className="cw-hinted">

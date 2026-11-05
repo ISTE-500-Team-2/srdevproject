@@ -42,6 +42,8 @@ export interface Entitlement {
   validDate?: string;
   plan: Partial<Plan> | null;
   reason: string;
+  cancellationRequestedAt?: string | null;
+  cardBilled?: boolean;
 }
 export interface Payment {
   id: number;
@@ -83,6 +85,7 @@ export interface Policy {
   active: boolean;
   required: boolean;
   approvalReference: string;
+  validityDays?: number | null;
   scope: 'facility' | 'equipment';
 }
 export interface MemberDetail {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
@@ -26,7 +26,7 @@ import {
 } from "../components/classes/classData";
 import "./classes.css";
 
-const REFRESH_MS = 120000;
+const REFRESH_MS = 15000;
 /** How far back to look for past classes whose attendance is still open. */
 const ATTENDANCE_WINDOW_MS = 60 * 86400000;
 const emptyDraft: AttendanceDraft = { statuses: {}, note: "" };
@@ -129,9 +129,12 @@ export function ClassesPage() {
     certifications.reload();
     setRefreshToken((t) => t + 1);
   };
+  // Restarting a request that is still running would abort it, so a slow list never finished.
+  const classesBusy = useRef(false);
+  classesBusy.current = classes.loading || classes.refreshing;
   useEffect(() => {
     const refresh = () => {
-      if (!hasUnsavedEdits && busyId === null && document.visibilityState !== "hidden") {
+      if (!classesBusy.current && !hasUnsavedEdits && busyId === null && document.visibilityState !== "hidden") {
         classes.reload();
         setRefreshToken((t) => t + 1);
       }

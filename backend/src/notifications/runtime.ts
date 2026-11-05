@@ -5,6 +5,7 @@ import { BrevoTransport, NotificationTransportError } from './transport.js';
 import { renderNotification, type NotificationKind } from './templates.js';
 import { runNotificationBatch, NotificationSendError } from './worker.js';
 import { scheduleExpirationNotifications } from './scheduler.js';
+import { checkReaderHealth } from '../serviceNotices.js';
 
 /** A single local tick at a time; database leases coordinate multiple processes. */
 export function startNotificationRuntime(pool: Pool, config?: NotificationConfig) {
@@ -44,6 +45,7 @@ export function startNotificationRuntime(pool: Pool, config?: NotificationConfig
           throw error;
         }
       });
+      await checkReaderHealth(pool);
     })().catch(() => {
       // Never log payloads, credentials, recipient addresses or provider response bodies.
       console.error('Notification worker tick failed; retrying on the next interval');

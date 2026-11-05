@@ -63,13 +63,13 @@ export class WaiverRecordsService {
         WHERE userid=$1 AND status='pending' AND payload->>'sourceType'='waiver' AND payload->>'sourceId'=$2`,[userId,String(signatureId)]);
       if(expiresAt && row.approval) {
         const prefs=await getNotificationPreferences(db,userId);
-        const expiry=new Date(expiresAt);
+        const expiry=new Date(expiresAt),dates=reminderDates(expiry,prefs.timeZone),countsForSla=dates.deadlineAt>new Date();
         await enqueueNotification(db,{userId,kind:'waiver_expiring',dedupeKey:`waiver-expiring:${signatureId}:${expiry.toISOString()}`,
-          ...reminderDates(expiry,prefs.timeZone),payload:{sourceType:'waiver',sourceId:signatureId,expiresAt:expiry.toISOString(),name:row.name}});
+          ...dates,countsForSla,payload:{sourceType:'waiver',sourceId:signatureId,expiresAt:expiry.toISOString(),name:row.name}});
         // An administrator can clear and later restore the same date. Revive only
         // a canceled, never-accepted reminder, never an accepted or opted-out one.
-        if(prefs.enabled) await db.query(`UPDATE app_notification_outbox SET status='pending',counts_for_sla=true,updated_at=NOW()
-          WHERE dedupe_key=$1 AND status='obsolete' AND accepted_at IS NULL`,[`waiver-expiring:${signatureId}:${expiry.toISOString()}`]);
+        if(prefs.enabled) await db.query(`UPDATE app_notification_outbox SET status='pending',counts_for_sla=counts_for_sla OR $2,updated_at=NOW()
+          WHERE dedupe_key=$1 AND status='obsolete' AND accepted_at IS NULL`,[`waiver-expiring:${signatureId}:${expiry.toISOString()}`,countsForSla]);
       }
       return {expiresAt};
     });

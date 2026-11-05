@@ -8,6 +8,7 @@ import {
   History,
   Wrench,
   Layers,
+  Megaphone,
   Nfc,
   Receipt,
   ShieldCheck,
@@ -24,6 +25,7 @@ import { StaffReservations } from "../StaffReservations";
 import { StaffStudios } from "../StaffStudios";
 import { StaffUsers } from "../StaffUsers";
 import { ChangeLog } from "./ChangeLog";
+import { ServiceNotices } from "./ServiceNotices";
 
 export interface AdminSection {
   /** URL segment under /admin. */
@@ -56,6 +58,7 @@ export const adminGroups: { label: string; sections: AdminSection[] }[] = [
       { path: "reservations", label: "Reservations", icon: CalendarRange, component: StaffReservations, legacyTab: "reservations" },
       { path: "studios", label: "Studios", icon: DoorOpen, component: StaffStudios, legacyTab: "studios" },
       { path: "access", label: "Reader access", icon: Nfc, component: AccessManagementPage, legacyTab: "access" },
+      { path: "service-notices", label: "Service notices", icon: Megaphone, component: ServiceNotices, legacyTab: "service-notices" },
     ],
   },
   {

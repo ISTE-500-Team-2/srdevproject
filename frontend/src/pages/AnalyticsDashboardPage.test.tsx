@@ -33,7 +33,7 @@ test.each(['From', 'Through'])('historical dates can be entered starting with %s
 
 test('today count and remaining visitors use the full total, not the capped recent list', () => {
   const checkedInToday = Array.from({ length: 50 }, (_, i) => ({ userId: i, name: `Visitor ${i}`, location: 'Studio', at: '2026-10-27T15:00:00Z', method: 'portal' }));
-  vi.mocked(useApi).mockReturnValue({ data: { from: '2026-10-01', to: '2026-10-27', period: 'daily', timeZone: 'America/New_York', generatedAt: '2026-10-27T16:00:00Z', revenue: [], classes: [], active: { approvedCheckIns: 75, activeUsers: 75 }, visitsByDay: [], checkedInToday, checkedInTodayCount: 75, notes: [] }, loading: false, refreshing: false, error: '', reload: vi.fn() });
+  vi.mocked(useApi).mockReturnValue({ data: { from: '2026-10-01', to: '2026-10-27', period: 'daily', timeZone: 'America/New_York', generatedAt: '2026-10-27T16:00:00Z', revenue: [], classes: [], active: { approvedCheckIns: 75, activeUsers: 75 }, visitsByDay: [], checkedInToday, checkedInTodayCount: 75, compliance: { activeMemberships: 0 }, notes: [] }, loading: false, refreshing: false, error: '', reload: vi.fn() });
   render(<AnalyticsDashboardPage />);
   expect(screen.getByText('75 people')).toBeTruthy();
   expect(screen.getByText('+69 more')).toBeTruthy();
@@ -41,9 +41,16 @@ test('today count and remaining visitors use the full total, not the capped rece
 });
 
 test('daily visit values including zero-count days are readable without hover', () => {
-  vi.mocked(useApi).mockReturnValue({ data: { from: '2026-10-25', to: '2026-10-27', period: 'daily', timeZone: 'America/New_York', generatedAt: '2026-10-27T16:00:00Z', revenue: [], classes: [], active: { approvedCheckIns: 9, activeUsers: 9 }, visitsByDay: [{ day: '2026-10-25', visits: 2 }, { day: '2026-10-26', visits: 0 }, { day: '2026-10-27', visits: 7 }], checkedInToday: [], notes: [] }, loading: false, refreshing: false, error: '', reload: vi.fn() });
+  vi.mocked(useApi).mockReturnValue({ data: { from: '2026-10-25', to: '2026-10-27', period: 'daily', timeZone: 'America/New_York', generatedAt: '2026-10-27T16:00:00Z', revenue: [], classes: [], active: { approvedCheckIns: 9, activeUsers: 9 }, visitsByDay: [{ day: '2026-10-25', visits: 2 }, { day: '2026-10-26', visits: 0 }, { day: '2026-10-27', visits: 7 }], checkedInToday: [], compliance: { activeMemberships: 0 }, notes: [] }, loading: false, refreshing: false, error: '', reload: vi.fn() });
   render(<AnalyticsDashboardPage />);
   fireEvent.click(screen.getByText('Show daily visit counts'));
   const table = screen.getByRole('table', { name: 'Visits per day' });
   expect(within(table).getAllByRole('row').map(row => row.textContent)).toEqual(['DateVisits', '2026-10-252', '2026-10-260', '2026-10-277']);
+});
+
+test('FR-073: the dashboard headline shows total active memberships', () => {
+  vi.mocked(useApi).mockReturnValue({ data: { from: '2026-10-25', to: '2026-10-27', period: 'daily', timeZone: 'America/New_York', generatedAt: '2026-10-27T16:00:00Z', revenue: [], classes: [], visitsByDay: [], checkedInToday: [], checkedInTodayCount: 0, active: { activeUsers: 0, approvedCheckIns: 0 }, compliance: { activeMemberships: 42 }, notes: [] }, loading: false, refreshing: false, error: '', reload: vi.fn() } as never);
+  render(<AnalyticsDashboardPage />);
+  const kpis = screen.getByLabelText('Headline numbers');
+  expect(within(kpis).getByText('Active memberships').closest('article')!.textContent).toContain('42');
 });

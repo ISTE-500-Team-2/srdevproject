@@ -1,4 +1,5 @@
-import { enqueueNotification } from "../notifications/store.js";
+import { enqueueNotification, getNotificationPreferences } from "../notifications/store.js";
+import { EXPIRATION_LOOKAHEAD_DAYS, reminderDates } from "../notifications/scheduler.js";
 import type { Request, Response } from "express";
 import type { Pool } from "pg";
 import { transaction } from "../db.js";
@@ -186,6 +187,20 @@ export class MemberController {
             } : {}),
           },
         });
+      // Keep the scheduler's existing horizon. Short-lived signatures can expire
+      // before its next daily scan, so queue those reminders when signing.
+      if (signature?.expiresAt && new Date(signature.expiresAt).getTime() <= Date.now() + EXPIRATION_LOOKAHEAD_DAYS * 86_400_000) {
+        const prefs = await getNotificationPreferences(db, userId);
+        const expiry = new Date(signature.expiresAt), dates = reminderDates(expiry, prefs.timeZone);
+        await enqueueNotification(db, {
+          userId,
+          kind: "waiver_expiring",
+          dedupeKey: `waiver-expiring:${signature.id}:${expiry.toISOString()}`,
+          ...dates,
+          countsForSla: new Date(signature.signedAt) < dates.deadlineAt,
+          payload: { sourceType: "waiver", sourceId: signature.id, expiresAt: expiry.toISOString(), name: waiver.name },
+        });
+      }
     });
     res.json({
       data: await new EligibilityModel(this.pool, this.timeZone).waivers(

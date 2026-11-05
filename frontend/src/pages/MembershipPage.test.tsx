@@ -184,3 +184,34 @@ test("stored status values are shown in plain words", () => {
   expect(statusLabel("expired")).toBe("Ended");
   expect(statusLabel("some_new_state")).toBe("Some new state");
 });
+
+const deskMembership = (extra: object = {}) => ({ id: 9, userId: 1, planId: 1, status: "active", effectiveStatus: "active", revision: 1, reason: "", cardBilled: false, startsAt: future(-5), endsAt: future(90), plan: { name: "Monthly" }, ...extra });
+
+test("FR-057: a desk-issued membership can be cancelled with its 30 days of notice explained", async () => {
+  mount({ memberships: [deskMembership()] });
+  api.mockResolvedValue({ cancelled: true });
+  fireEvent.click(screen.getByRole("button", { name: "Cancel membership" }));
+  const dialog = screen.getByRole("dialog", { name: "Cancel membership?" });
+  expect(dialog.textContent).toMatch(/30 days/);
+  expect(dialog.textContent).toMatch(/won't renew/);
+  fireEvent.click(within(dialog).getByRole("button", { name: "Cancel membership" }));
+  await waitFor(() => expect(api).toHaveBeenCalledWith("/me/billing/memberships/9/cancel", { method: "POST", body: {} }));
+  expect(await screen.findByText(/Membership cancelled/)).toBeTruthy();
+});
+
+test("FR-057: a cancelled desk membership shows its last day instead of the button", () => {
+  mount({ memberships: [deskMembership({ cancellationRequestedAt: future(-1) })] });
+  expect(screen.queryByRole("button", { name: "Cancel membership" })).toBeNull();
+  expect(screen.getByText(/You cancelled this membership/)).toBeTruthy();
+});
+
+test("FR-057: card memberships keep using Stop auto-renew, even after billing closes", () => {
+  mount({ memberships: [deskMembership({ cardBilled: true })] });
+  expect(screen.queryByRole("button", { name: "Cancel membership" })).toBeNull();
+});
+
+test("FR-057: a pending checkout does not hide cancelling the current desk membership", () => {
+  mount({ memberships: [deskMembership()], records: [{ id: "b1", status: "pending", amountCents: 5000, plan: { name: "Monthly" }, planSnapshot: { name: "Monthly" } }] });
+  expect(screen.getByRole("button", { name: "Cancel checkout" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Cancel membership" })).toBeTruthy();
+});

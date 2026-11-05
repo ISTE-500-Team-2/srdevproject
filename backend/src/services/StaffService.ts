@@ -519,6 +519,7 @@ export class StaffService {
       description: string;
       effectiveAt: string;
       approvalReference: string;
+      validityDays: number | null;
       reason: string;
       scope?: PolicyScope;
     },
@@ -534,6 +535,7 @@ export class StaffService {
         input.effectiveAt,
         input.approvalReference,
         actorId,
+        input.validityDays,
         input.scope ?? previous?.scope ?? 'facility',
       );
       await model.audit(

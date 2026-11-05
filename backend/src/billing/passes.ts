@@ -36,6 +36,28 @@ export class PassBilling {
    return {cancelled:true,manualRefundRequired:r.paymentstatus==='paid'};
   });
  }
+ // Card subscriptions stop through Stripe; everything else (desk-paid, free access) stops here.
+ async cancelMembership(userid:number,id:number){
+  return transaction(this.pool,async db=>{
+   await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,userid]);
+   // Staff status changes lock the member before the entitlement. Audit writes
+   // also need the member's FK lock, so keep the same order here.
+   await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR UPDATE',[userid]);
+   const r=(await db.query(`SELECT m.status,m.cancellation_requested_at,COALESCE(m.plan_snapshot->>'name',t.tiername,'Membership') AS plan_name,m.end_date AT TIME ZONE 'UTC' AS ends,
+    m.startdate<=NOW() AT TIME ZONE 'UTC' AND m.end_date>NOW() AT TIME ZONE 'UTC' AS running
+    FROM user_membership m LEFT JOIN membership_tiers t USING(tierid) WHERE m.membershipid=$1 AND m.userid=$2 FOR UPDATE OF m`,[id,userid])).rows[0];
+   if(!r)throw new AppError(404,'NOT_FOUND','Membership not found.');
+   if((await db.query('SELECT id FROM app_membership_invoice WHERE membership_id=$1',[id])).rowCount)throw new AppError(409,'PROVIDER_PAYMENT','Stop auto-renew to cancel a card membership.');
+   if(r.cancellation_requested_at)return {cancelled:true,endsAt:r.ends};
+   if(r.status!=='active'||!r.running)throw new AppError(409,'INVALID_STATUS','Contact staff about this membership.');
+   const ends=(await db.query(`UPDATE user_membership SET end_date=LEAST(end_date,(NOW() AT TIME ZONE 'UTC')+INTERVAL '30 days'),
+    cancellation_requested_at=NOW(),revision=revision+1 WHERE membershipid=$1 RETURNING end_date AT TIME ZONE 'UTC' AS ends`,[id])).rows[0].ends;
+   await new StaffModel(db).audit(userid,userid,'membership.cancelled','membership',id,'Member cancellation with 30 days notice',{endsAt:r.ends},{endsAt:ends});
+   await enqueueNotification(db,{userId:userid,kind:'membership_cancelled',dedupeKey:'membership-manual-cancel:'+id,
+    payload:{membershipId:id,membershipName:r.plan_name,endsAt:new Date(ends).toISOString(),instructions:'Your membership stays active until the date shown and will not renew. If you paid at the front desk, ask staff about any refund.'}});
+   return {cancelled:true,endsAt:ends};
+  });
+ }
  async checkout(userid:number,body:any){
   const returnPath = `/checkout-return?member=${userid}`;
   const date=calendarDate(body.validDate),id=positiveId(body.planId);
@@ -181,7 +203,10 @@ export class PassBilling {
    if(s.livemode||s.mode!=='payment'||s.client_reference_id!==r.id||r.checkout_id&&s.id!==r.checkout_id||s.amount_total!==r.amount_cents||s.currency!=='usd')throw new AppError(400,'PAYMENT_MISMATCH','Day-pass payment does not match checkout.');
    if(s.status==='expired'){await db.query("UPDATE app_pass_checkout SET status='expired' WHERE id=$1 AND status='pending'",[id]);return;}
    if(event.type==='checkout.session.async_payment_failed'&&s.payment_status==='unpaid'){
-    await db.query("UPDATE app_pass_checkout SET status='expired' WHERE id=$1 AND status='pending'",[id]);return;
+    const failed=await db.query("UPDATE app_pass_checkout SET status='expired' WHERE id=$1 AND status='pending' RETURNING id",[id]);
+    if(failed.rowCount)await enqueueNotification(db,{userId:r.userid,kind:'payment_failed',dedupeKey:'pass-failed:'+id,
+     payload:{reference:s.id,planName:r.plan_snapshot.name,instructions:'Your payment did not go through, so this day pass was not issued. Try again from Membership & passes.'}});
+    return;
    }
    if(s.status!=='complete'||s.payment_status!=='paid')return;
    const pi=objectId(s.payment_intent);if(!pi)throw new AppError(400,'PAYMENT_MISMATCH','Original payment missing.');

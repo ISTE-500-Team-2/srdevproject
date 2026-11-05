@@ -205,20 +205,20 @@ test('attendance drafts belong to their class and survive closing the panel', as
   expect((radio(panel, 'First Member', 'No show') as HTMLInputElement).checked).toBe(true);
 });
 
-test('unsaved attendance pauses auto refresh; a pristine page refreshes every two minutes and not while hidden', async () => {
+test('unsaved attendance pauses auto refresh; a pristine page refreshes every 15 seconds and not while hidden', async () => {
   await mount();
   const before = calls('/classes').length;
-  await act(async () => { await vi.advanceTimersByTimeAsync(120000); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
   expect(calls('/classes').length).toBe(before + 1);
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
-  await act(async () => { await vi.advanceTimersByTimeAsync(120000); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
   expect(calls('/classes').length).toBe(before + 1);
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
   const panel = await openRoster();
   fireEvent.click(radio(panel, 'First Member', 'Attended'));
   const paused = calls('/classes').length;
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(120000);
+    await vi.advanceTimersByTimeAsync(15000);
     window.dispatchEvent(new Event('focus'));
   });
   expect(calls('/classes').length).toBe(paused);
@@ -230,7 +230,7 @@ test('roster contact details are cleared when a refresh denies access', async ()
   const panel = await openRoster();
   expect(within(panel).getByText('first@example.invalid')).toBeTruthy();
   denyRoster = true;
-  await act(async () => { await vi.advanceTimersByTimeAsync(120000); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
   expect(screen.getByText('Roster access removed.')).toBeTruthy();
   expect(screen.queryByText('first@example.invalid')).toBeNull();
 });
@@ -336,4 +336,16 @@ test('staff schedule a creative workshop from the picker without a certification
   await act(async () => { fireEvent.submit(screen.getByRole('button', { name: 'Publish class' }).closest('form')!); });
   const body = calls('/classes', 'POST')[0][1]?.body as Record<string, unknown>;
   expect(body).toMatchObject({ title: 'Glow Up: Floral Resin Nightlight', certificationId: null, catalogId: 2, capacity: 15 });
+});
+
+test('a slow class list is left to finish instead of being restarted by the next refresh', async () => {
+  await mount();
+  const original = vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation(((path: string, ...rest: unknown[]) =>
+    path === '/classes' ? new Promise(() => {}) : (original as (...a: unknown[]) => unknown)(path, ...rest)) as never);
+  const before = calls('/classes').length;
+  await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
+  expect(calls('/classes').length).toBe(before + 1);
+  await act(async () => { await vi.advanceTimersByTimeAsync(45000); });
+  expect(calls('/classes').length).toBe(before + 1);
 });
