@@ -502,6 +502,8 @@
   }
 }
 @media (max-width: 560px) {
+  /* Keep the full chart visible without overlapping date labels on phones. */
+  .revenue-bars__col:not(:first-child):not(:last-child) small { display: none; }
   .analytics-classes li {
     grid-template-columns: 1fr auto;
   }
