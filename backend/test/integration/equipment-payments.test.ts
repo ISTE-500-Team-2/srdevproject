@@ -13,6 +13,7 @@ import { AccessService } from '../../src/services/AccessService.js';
 import { evaluateReaderAccess } from '../../src/services/ReaderEligibility.js';
 import { transaction } from '../../src/db.js';
 import { createApp } from '../../src/app.js';
+import { SessionModel } from '../../src/models/SessionModel.js';
 
 const database = 'arbor_equipment_' + randomBytes(6).toString('hex') + '_mvc_test';
 const owner = new Pool(), pool = new Pool({database});
@@ -247,6 +248,59 @@ test('authenticated reservation HTTP flow requires payment, enforces CSRF and co
     assert.equal(confirmed.status, 'confirmed');
     assert.equal(confirmed.paymentStatus, 'paid');
   } finally { create.mock.restore(); retrieve.mock.restore(); }
+});
+
+test('staff and admins can resume and cancel the opened member checkout, not another payer checkout', async () => {
+  const jwtKey = randomBytes(32);
+  const app = createApp(pool, {port: 8080, host: '127.0.0.1', secureCookies: false, demoLogin: true,
+    allowedOrigins: ['http://localhost:8080'], timeZone: 'America/New_York', jwtKey, studioStripe: provider.config});
+  const staffId = (await pool.query(`INSERT INTO "user"(firstname,lastname,email,password,phone,status,primary_role)
+    VALUES('Checkout','Staff','checkout-staff@example.invalid','unused','0000000000','active','staff') RETURNING userid`)).rows[0].userid;
+  await pool.query("INSERT INTO user_role(userid,roleid,assignedat) SELECT $1,roleid,NOW() FROM role WHERE role='staff'", [staffId]);
+  const staffSession = await new SessionModel(pool, jwtKey).create(staffId, false);
+  const admin = (await request(app).post('/api/auth/demo').send({role: 'admin'})).body.data;
+  const prototype = Object.getPrototypeOf(provider.sdk.checkout.sessions);
+  const create = mock.method(prototype, 'create', (...args: any[]) => (provider.sdk.checkout.sessions.create as any)(...args));
+  const retrieve = mock.method(prototype, 'retrieve', (id: string) => Promise.resolve(sessions.get(id)));
+  const expire = mock.method(prototype, 'expire', (id: string) => Promise.resolve(Object.assign(sessions.get(id), {status: 'expired'})));
+  try {
+    for (const actor of [admin, {accessToken: staffSession.token, csrfToken: staffSession.csrfToken}]) {
+      const post = (path: string, body: object = {}) => request(app).post('/api' + path)
+        .set('Authorization', 'Bearer ' + actor.accessToken).set('X-CSRF-Token', actor.csrfToken).send(body);
+      assert.equal((await post('/admin/account-mode', {userId: member})).status, 200);
+      const created = await post('/reservations', booking());
+      assert.equal(created.status, 201, created.text);
+      const id = created.body.data.id, session = await sessionFor(id);
+      assert.equal(created.body.data.payerId, member);
+      for (const action of ['checkout', 'cancel-checkout']) {
+        const csrf = await request(app).post(`/api/reservations/${id}/${action}`)
+          .set('Authorization', 'Bearer ' + actor.accessToken).send({});
+        assert.equal(csrf.body.error?.code, 'CSRF_INVALID', csrf.text);
+        assert.equal((await request(app).post(`/api/reservations/${id}/${action}`).send({})).status, 401);
+      }
+      const resumed = await post(`/reservations/${id}/checkout`);
+      assert.equal(resumed.status, 200, resumed.text);
+      assert.equal(resumed.body.data.checkoutUrl, created.body.data.checkoutUrl);
+      assert.equal((await sessionFor(id)).id, session.id, 'resume reuses the provider checkout');
+      // Opening the beneficiary does not transfer a staff payer's checkout.
+      const foreign = await service.create(staffId, booking(1, {userId: member}));
+      for (const action of ['checkout', 'cancel-checkout']) {
+        const denied = await post(`/reservations/${foreign.id}/${action}`);
+        assert.equal(denied.status, 404, denied.text);
+        assert.equal(denied.body.error.code, 'NOT_FOUND');
+      }
+      assert.equal((await state(foreign.id)).status, 'pending');
+      await billing.cancelPending(staffId, foreign.id);
+      const cancelled = await post(`/reservations/${id}/cancel-checkout`);
+      assert.equal(cancelled.status, 200, cancelled.text);
+      assert.equal(cancelled.body.data.cancelled, true);
+      assert.equal(session.status, 'expired');
+      assert.equal((await state(id)).status, 'cancelled');
+      assert.equal((await state(id)).paymentStatus, 'expired');
+      assert.equal((await pool.query('SELECT paymentstatus FROM payment WHERE paymentid=(SELECT payment_id FROM reservation WHERE reservationid=$1)', [id])).rows[0].paymentstatus, 'void');
+      assert.equal((await post('/admin/account-mode/end')).status, 200);
+    }
+  } finally { create.mock.restore(); retrieve.mock.restore(); expire.mock.restore(); }
 });
 
 

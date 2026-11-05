@@ -49,7 +49,9 @@ export function accountModeRefusal(actor: UserView, subject: UserView | null): s
  */
 const allowedWhileActing: RegExp[] = [
   /^\/reservations$/,
-  /^\/reservations\/\d+\/cancel$/,
+  // Checkout recovery acts as the opened member; billing still requires that
+  // member to be the payer and routes still enforce permissions and CSRF.
+  /^\/reservations\/\d+\/(cancel|checkout|cancel-checkout)$/,
   /^\/me\/check-ins$/,
   /^\/classes\/\d+\/(enroll|withdraw)$/,
   /^\/studio-rentals$/,
