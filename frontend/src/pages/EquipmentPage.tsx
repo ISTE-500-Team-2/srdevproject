@@ -1,7 +1,7 @@
 import { useAuth } from '../context/AuthContext';
 import { CalendarDays, Filter, ShieldAlert } from 'lucide-react';
 import { type FormEvent, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useHref } from 'react-router-dom';
 import { Modal } from '../components/Modal';
 import { MemberSelect } from '../components/MemberSelect';
 import { StartTimePicker } from '../components/StartTimePicker';
@@ -12,6 +12,8 @@ import { useApi } from '../lib/useApi';
 import { reservationInput } from '../lib/reservationInput';
 import { dateTime } from "../lib/display";
 import { assert } from 'vitest';
+//Note: Importing something from the backend causes a failed test, at least for now.
+import { AppError } from "../../../backend/src/domain.js"
 
 export function EquipmentPage() {
   const {user}=useAuth();
@@ -71,6 +73,8 @@ export function EquipmentPage() {
       setError(err instanceof RangeError ? err.message :
         err instanceof ApiError && err.code === 'RESERVATION_CONFLICT'
           ? 'This equipment is already reserved during your selected time. Choose another start time or shorten the duration, then try again.'
+        : err instanceof AppError && err.code === `MEMBERSHIP_REQUIRED` 
+          ? `${err.message} <a href="${useHref("/membership")}">Get a membership here.</a>`
           : errorMessage(err));
     } finally {
       mutationInFlight.current = false;
