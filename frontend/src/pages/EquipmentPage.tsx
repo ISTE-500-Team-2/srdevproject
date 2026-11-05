@@ -42,6 +42,10 @@ export function EquipmentPage() {
   const totalCents = liveSelected?.rate == null ? null : Math.round(liveSelected.rate * 100) * duration;
   const returnId = Number(params.get('reservation'));
   const returnedBooking = bookings.data?.find(item => item.id === returnId);
+  const bookingBlockReason = (item: Reservation) => {
+    const machine = catalog.data?.find(equipment => equipment.id === item.equipmentId);
+    return item.userId === user?.id && machine?.canReserve === false ? machine.availability : '';
+  };
   useEffect(() => {
     if (!bookings.data?.some(item => item.paymentStatus === 'pending')) return;
     const timer = window.setInterval(bookings.reload, 5000);
@@ -57,6 +61,10 @@ export function EquipmentPage() {
   const reserve = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selected || mutationInFlight.current) return;
+    if (!canBookForOthers && !liveSelected?.canReserve) {
+      setError(liveSelected?.availability || 'Complete the required waivers and certifications before reserving this machine.');
+      return;
+    }
     if (!new FormData(event.currentTarget).get('start')) { setError('Choose an available date and time.'); return; }
     mutationInFlight.current = true;
     const form = new FormData(event.currentTarget);
@@ -232,13 +240,15 @@ export function EquipmentPage() {
                   {dateTime(item.endTime)}
                 </p>
                 <span>
-                  {item.location} · {item.paymentStatus === 'pending' ? 'Awaiting payment' : item.status}
+                  {item.location} · {item.paymentStatus === 'pending' ? bookingBlockReason(item) ? 'Requirements need attention' : 'Awaiting payment' : item.status}
                 </span>
               </div>
               {item.amountCents != null && <p>{money(item.amountCents)} · {item.paymentStatus === 'paid' ? 'Paid' : item.paymentStatus === 'expired' ? 'Checkout expired' : 'Payment required'}</p>}
               {item.paymentStatus === 'pending' && item.payerId === user?.id ? <div>
+                {bookingBlockReason(item) && <p className="form-notice">{bookingBlockReason(item)}.{' '}
+                  <Link to="/certifications">Review your waivers and certifications</Link> before continuing.</p>}
                 {item.holdUntil && <p>Complete payment by {dateTime(item.holdUntil)} to confirm this booking.</p>}
-                <button className="button button--primary" disabled={busy} onClick={() => void checkoutAction(item.id)}>Pay {money(item.amountCents ?? 0)}</button>
+                <button className="button button--primary" disabled={busy || !!bookingBlockReason(item)} onClick={() => void checkoutAction(item.id)}>Pay {money(item.amountCents ?? 0)}</button>
                 <button className="button button--quiet" disabled={busy} onClick={() => void checkoutAction(item.id, true)}>Cancel checkout</button>
               </div> : item.paymentStatus === 'pending' ? <p>Awaiting payment from the person who started checkout.</p> : ['pending', 'confirmed'].includes(item.status) &&
               new Date(item.startTime).getTime() >= Date.now()+24*60*60*1000 ? (
@@ -298,9 +308,9 @@ export function EquipmentPage() {
               ))}
             </fieldset>
             </div>
-            {!selected.canReserve && !canBookForOthers ? (
+            {!liveSelected?.canReserve && !canBookForOthers ? (
               <p className="form-notice">
-                {selected.availability}.{' '}
+                {liveSelected?.availability}.{' '}
                 <Link to="/certifications">
                   Review your waivers and certifications
                 </Link>
@@ -326,7 +336,7 @@ export function EquipmentPage() {
             <button
               className="button button--primary equipment-booking-submit"
               type="submit"
-              disabled={busy || liveSelected?.status !== 'available' || totalCents === null}
+              disabled={busy || liveSelected?.status !== 'available' || totalCents === null || (!canBookForOthers && !liveSelected?.canReserve)}
             >
               <CalendarDays aria-hidden="true" />{' '}
               {busy ? 'Preparing checkout…' : totalCents ? `Pay ${money(totalCents)} & confirm reservation` : 'Confirm reservation'}

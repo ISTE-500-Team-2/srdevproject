@@ -16,7 +16,7 @@ export class ReservationController {
     private timeZone: string,
     private stripeConfig?: StudioStripeConfig,
   ) {}
-  private billing() { return new EquipmentBilling(this.pool, this.stripeConfig ? new StudioStripe(this.stripeConfig) : undefined); }
+  private billing() { return new EquipmentBilling(this.pool, this.stripeConfig ? new StudioStripe(this.stripeConfig) : undefined, this.timeZone); }
   checkout = async (req: Request, res: Response) => {
     res.json({data: await this.billing().checkout(authState(res).user.id, positiveId(req.params.id))});
   };

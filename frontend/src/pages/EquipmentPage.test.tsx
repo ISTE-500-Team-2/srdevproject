@@ -119,7 +119,11 @@ test('groups named printers while preserving per-machine prices, access and book
  fireEvent.click(screen.getByRole('button',{name:new Date(tomorrow()+'T12:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric',timeZone:'UTC'})}));
  pickTime(14*60);
  await act(async()=>{fireEvent.submit(screen.getByRole('button',{name:/confirm reservation/i}).closest('form')!);});
- expect((submits()[0]![1]!.body as {equipmentId:number}).equipmentId).toBe(12);
+ expect(submits()).toHaveLength(0);
+ expect((screen.getByRole('button',{name:/confirm reservation/i}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.click(screen.getByRole('radio',{name:/Monica/}));
+ await act(async()=>{fireEvent.submit(screen.getByRole('button',{name:/confirm reservation/i}).closest('form')!);});
+ expect((submits()[0]![1]!.body as {equipmentId:number}).equipmentId).toBe(13);
  fireEvent.change(screen.getByRole('combobox',{name:'Equipment filter'}),{target:{value:'ready'}});
  expect(screen.getByRole('button',{name:/^3D Printer/}).textContent).not.toContain('Phoebe');
  fireEvent.change(screen.getByRole('searchbox'),{target:{value:'Monica'}});
@@ -159,4 +163,34 @@ test('missing equipment rate prevents checkout',async()=>{
  await mount();await open();
  expect((screen.getByRole('button',{name:'Confirm reservation'}) as HTMLButtonElement).disabled).toBe(true);
  expect(screen.getByText(/Rate not set. Contact staff/)).toBeTruthy();
+});
+
+
+test('missing required waivers disable payment and block programmatic form submission',async()=>{
+ vi.mocked(api).mockImplementation(async(path)=>path==='/equipment'?[{...machine,waiverRequired:true,canReserve:false,availability:'Signed waivers required'}] as never:[] as never);
+ await mount();await open();
+ const pay=screen.getByRole('button',{name:'Pay $7.00 & confirm reservation'});
+ expect((pay as HTMLButtonElement).disabled).toBe(true);
+ expect(screen.getByRole('link',{name:'Review your waivers and certifications'}).getAttribute('href')).toBe('/certifications');
+ await act(async()=>{fireEvent.submit(pay.closest('form')!);});
+ expect(submits()).toHaveLength(0);
+ expect(screen.getByRole('alert').textContent).toContain('Signed waivers required');
+});
+
+test('live waiver eligibility changes disable payment even when the selected machine object is stale',async()=>{
+ await mount();await open();
+ vi.mocked(api).mockImplementation(async(path)=>path==='/equipment'?[{...machine,waiverRequired:true,canReserve:false,availability:'Signed waivers required'}] as never:[] as never);
+ await act(async()=>{window.dispatchEvent(new Event('focus'));});
+ expect((screen.getByRole('button',{name:'Pay $7.00 & confirm reservation'}) as HTMLButtonElement).disabled).toBe(true);
+ expect(screen.getByRole('link',{name:'Review your waivers and certifications'})).toBeTruthy();
+});
+
+test('pending checkout cannot be resumed while its owner needs to sign required waivers',async()=>{
+ const start=Date.now()+3*86400000;
+ records=[{id:8,equipmentId:4,userId:1,payerId:1,equipmentName:'3D Printer',startTime:new Date(start).toISOString(),endTime:new Date(start+3600000).toISOString(),status:'pending',paymentStatus:'pending',amountCents:700}];
+ vi.mocked(api).mockImplementation(async(path)=>path==='/equipment'?[{...machine,waiverRequired:true,canReserve:false,availability:'Signed waivers required'}] as never:records as never);
+ await mount();
+ expect((screen.getByRole('button',{name:'Pay $7.00'}) as HTMLButtonElement).disabled).toBe(true);
+ expect(screen.getByRole('link',{name:'Review your waivers and certifications'})).toBeTruthy();
+ expect((screen.getByRole('button',{name:'Cancel checkout'}) as HTMLButtonElement).disabled).toBe(false);
 });

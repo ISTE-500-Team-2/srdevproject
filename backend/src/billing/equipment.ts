@@ -6,10 +6,19 @@ import { ReservationModel } from '../models/ReservationModel.js';
 import { StaffModel } from '../models/StaffModel.js';
 import { enqueueNotification } from '../notifications/store.js';
 import { StudioStripe } from '../studios/stripe.js';
+import { EquipmentModel } from '../models/EquipmentModel.js';
+import { AccessService } from '../services/AccessService.js';
+import type { Database } from '../db.js';
 
 /** Server-priced equipment holds. Only canonical paid Stripe state confirms a booking. */
 export class EquipmentBilling {
-  constructor(readonly pool: Pool, readonly stripe?: StudioStripe) {}
+  constructor(readonly pool: Pool, readonly stripe?: StudioStripe, readonly zone = 'America/New_York') {}
+
+  private async requirements(db: Database, reservation: {userid: number; equipmentid: number; endsAt: Date}) {
+    const equipment = await new EquipmentModel(db).findForUpdate(reservation.equipmentid);
+    if (!equipment) throw new AppError(404, 'NOT_FOUND', 'Equipment not found.');
+    await new AccessService(db, this.zone).assertEquipmentRequirements(reservation.userid, equipment, reservation.endsAt);
+  }
 
   provider() {
     if (!this.stripe) throw new AppError(503, 'PAYMENTS_UNAVAILABLE', 'Card payments are not configured. Please contact staff.');
@@ -17,12 +26,15 @@ export class EquipmentBilling {
   }
 
   async checkout(payerId: number, id: number) {
-    const row = (await this.pool.query(`SELECT c.*,r.userid FROM app_equipment_checkout c
+    const row = (await this.pool.query(`SELECT c.*,r.userid,r.equipmentid,r.endtime AT TIME ZONE 'UTC' AS "endsAt" FROM app_equipment_checkout c
       JOIN reservation r ON r.reservationid=c.reservation_id
       WHERE c.reservation_id=$1 AND c.payer_id=$2`, [id, payerId])).rows[0];
     if (!row) throw new AppError(404, 'NOT_FOUND', 'Checkout not found.');
     if (row.status === 'expired') throw new AppError(409, 'CHECKOUT_EXPIRED', 'Payment time expired. Choose your time again.');
     if (row.status !== 'pending') return { ...await new ReservationModel(this.pool).find(id), amountCents: row.amount_cents };
+    // Recheck the booked member, including staff-assisted and idempotent retries.
+    // A checkout link must never bypass a waiver revoked after the initial hold.
+    await transaction(this.pool, db => this.requirements(db, row));
     const provider = this.provider();
     // An ambiguous create response must reuse the original key, never charge again.
     if (!row.checkout_id && Date.now() - new Date(row.created_at).getTime() > 23 * 3600000)
@@ -70,7 +82,7 @@ export class EquipmentBilling {
     if (!id) return;
     await transaction(this.pool, async db => {
       // Reservation first: use the same lock order as staff edits/cancellations.
-      const reservation = (await db.query('SELECT * FROM reservation WHERE reservationid::text=$1 FOR UPDATE', [id])).rows[0];
+      const reservation = (await db.query(`SELECT *,endtime AT TIME ZONE 'UTC' AS "endsAt" FROM reservation WHERE reservationid::text=$1 FOR UPDATE`, [id])).rows[0];
       const row = (await db.query('SELECT * FROM app_equipment_checkout WHERE reservation_id::text=$1 FOR UPDATE', [id])).rows[0];
       if (!row || !reservation) return;
       if (session.livemode || session.mode !== 'payment' || session.client_reference_id !== id ||
@@ -85,6 +97,9 @@ export class EquipmentBilling {
       if (session.status !== 'complete' || session.payment_status !== 'paid') return;
       const intent = typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id;
       if (!intent || reservation.status !== 'pending') throw new AppError(409, 'RECONCILE_REQUIRED', 'Payment requires staff reconciliation.');
+      // Payment alone cannot confirm a booking whose current waivers/training
+      // are invalid. The same paid session can reconcile after eligibility is restored.
+      await this.requirements(db, reservation);
       const model = new StaffModel(db);
       const payment = await model.createPayment(reservation.userid, null, (row.amount_cents / 100).toFixed(2),
         'paid', 'card', session.id, 'Online equipment reservation (Stripe test mode)', row.payer_id);

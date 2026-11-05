@@ -25,7 +25,7 @@ export class EligibilityModel {
     return rows[0]!;
   }
 
-  async waivers(userId: number) {
+  async waivers(userId: number, through?: Date) {
     const { rows } = await this.db.query<{
       id: number;
       versionId: number;
@@ -52,16 +52,17 @@ export class EligibilityModel {
              previous_sig.waiverid AS "signedVersionId",
              current_sig.userwaiverid IS NULL AND COALESCE(previous_sig.waiverid <> w.waiverid,false) AS "outdatedSignature",
              current_sig.userwaiverid IS NULL AND COALESCE(previous_sig.waiverid = w.waiverid
-               AND previous_sig.expires_at <= NOW(),false) AS "expiredSignature"
+               AND (previous_sig.expires_at <= NOW() OR previous_sig.expires_at < $2::timestamptz),false) AS "expiredSignature"
       FROM current_waivers w LEFT JOIN LATERAL (
-        SELECT userwaiverid,signdate FROM user_waiver WHERE userid=$1 AND waiverid=w.waiverid AND approval=true AND (expires_at IS NULL OR expires_at>NOW())
+        SELECT userwaiverid,signdate FROM user_waiver WHERE userid=$1 AND waiverid=w.waiverid AND approval=true
+          AND (expires_at IS NULL OR (expires_at>NOW() AND ($2::timestamptz IS NULL OR expires_at >= $2::timestamptz)))
         ORDER BY signdate DESC LIMIT 1
       ) current_sig ON true LEFT JOIN LATERAL (
         SELECT uw.userwaiverid,uw.signdate,uw.expires_at,w2.waiverid,w2.version FROM user_waiver uw JOIN waiver w2 USING(waiverid)
         WHERE uw.userid=$1 AND w2.name=w.name AND uw.approval=true
         ORDER BY uw.signdate DESC,uw.userwaiverid DESC LIMIT 1
       ) previous_sig ON true ORDER BY w.name`,
-      [userId],
+      [userId, through ?? null],
     );
     return rows.map(row => ({ ...row, formFields: waiverFormFields(row.description) }));
   }

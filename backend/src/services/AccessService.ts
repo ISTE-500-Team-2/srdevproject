@@ -2,6 +2,7 @@ import { MinorSupervision } from "../minorSupervision.js";
 import type { Database } from "../db.js";
 import { AppError } from "../domain.js";
 import { EligibilityModel } from "../models/EligibilityModel.js";
+import type { EquipmentRecord } from "../models/EquipmentModel.js";
 
 export interface AccessTarget {
   buildingId?: number;
@@ -31,13 +32,21 @@ export class AccessService {
     return value;
   }
 
-  async assertWaivers(userId: number) {
-    const waivers = await this.eligibility.waivers(userId);
+  async assertWaivers(userId: number, through?: Date) {
+    const waivers = await this.eligibility.waivers(userId, through);
     if (!waivers.length)
       throw new AppError(409,'WAIVERS_NOT_CONFIGURED','Staff need to configure the required policies before access can be granted.');
     if (waivers.some(w => !w.signed))
-      throw new AppError(403,'WAIVER_REQUIRED','Sign all current required policies and waivers first.');
+      throw new AppError(403,'WAIVER_REQUIRED',through
+        ? 'Sign all current required policies and waivers first. They must remain valid through your reservation.'
+        : 'Sign all current required policies and waivers first.');
     return waivers;
+  }
+
+  async assertEquipmentRequirements(userId: number, equipment: EquipmentRecord, through: Date) {
+    if (equipment.certId && !await this.eligibility.certification(userId, equipment.certId, through))
+      throw new AppError(403, 'CERTIFICATION_REQUIRED', `A current ${equipment.certification ?? 'equipment'} certification is required.`);
+    return equipment.waiverRequired ? this.assertWaivers(userId, through) : [];
   }
 
   // The caller keeps the decision and check-in in one transaction.

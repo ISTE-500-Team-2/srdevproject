@@ -55,6 +55,17 @@ is reconciled, so a staff edit cannot confirm an unpaid hold or silently change
 the purchased hours or machine. Automatic equipment refunds and a staff
 reconciliation UI are outside this change.
 
+For machines configured to require waivers, all current required agreements must
+be signed and approved, with any expiration covering the whole reserved session.
+The same waiver and certification checks run before creating or resuming Checkout,
+on an idempotent reservation retry, and before payment confirms the booking. Staff
+booking for someone else uses that member's requirements. An unpaid or paid hold
+whose waiver was revoked stays unconfirmed; after valid signing, the original
+paid session can reconcile without another charge. The equipment page disables
+payment and links to waivers/certifications when eligibility is missing. Machine
+requirements are unchanged: CNCs and lathes require waivers; laser engravers keep
+their existing configured requirement.
+
 ## Verification
 
 `backend/test/integration/equipment-payments.test.ts` uses a disposable PostgreSQL
@@ -65,3 +76,8 @@ webhooks, missing configuration/rates, free equipment, lost-response retries,
 and definitive creation failures. Frontend tests check the displayed total,
 redirect before confirmation, pending return state, and checkout cancellation.
 These tests do not claim an actual Stripe card transaction or deployment.
+
+`backend/test/integration/equipment-waivers.test.ts` also checks missing,
+unapproved, expired and superseded waivers, expiration before the booking ends,
+staff-assisted checkout, resume/retry enforcement, certification requirements,
+and payment reconciliation after waiver approval is restored.

@@ -14,7 +14,7 @@ export class EquipmentController {
   ) {}
   list = async (_req: Request, res: Response) => {
     const userId = authState(res).user.id;
-    await new EquipmentBilling(this.pool, this.stripeConfig ? new StudioStripe(this.stripeConfig) : undefined).reconcile();
+    await new EquipmentBilling(this.pool, this.stripeConfig ? new StudioStripe(this.stripeConfig) : undefined, this.timeZone).reconcile();
     const eligibility = new EligibilityModel(this.pool, this.timeZone);
     const [items, entitlement, waivers] = await Promise.all([
       new EquipmentModel(this.pool).list(),

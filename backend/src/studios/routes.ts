@@ -136,7 +136,7 @@ export function studioWebhook(
     await new StudioService(pool, zone, provider).webhook(event);
     await new MembershipBilling(pool,provider).webhook(event);
     await new PassBilling(pool,provider,zone).webhook(event);
-    await new EquipmentBilling(pool,provider).webhook(event);
+    await new EquipmentBilling(pool,provider,zone).webhook(event);
     res.json({ received: true });
   };
 }

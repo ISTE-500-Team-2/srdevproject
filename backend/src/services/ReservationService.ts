@@ -64,7 +64,7 @@ export class ReservationService {
     const requestKey = input.requestKey ?? randomUUID();
     if (typeof requestKey !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestKey))
       throw new AppError(400, 'INVALID_INPUT', 'Invalid reservation request key.');
-    const billing = new EquipmentBilling(this.pool, this.stripe);
+    const billing = new EquipmentBilling(this.pool, this.stripe, this.timeZone);
     if (equipmentId) await billing.reconcile(userId);
     const created = await transaction(this.pool, async (db) => {
       const access = new AccessService(db, this.timeZone);
@@ -138,24 +138,7 @@ export class ReservationService {
             "EQUIPMENT_UNAVAILABLE",
             "This equipment is not available for reservations.",
           );
-        if (
-          equipment.certId &&
-          !(await access.eligibility.certification(
-            targetId,
-            equipment.certId,
-            end,
-          ))
-        ) {
-          throw new AppError(
-            403,
-            "CERTIFICATION_REQUIRED",
-            `A current ${equipment.certification ?? "equipment"} certification is required.`,
-          );
-        }
-
-        const waivers = equipment.waiverRequired
-          ? await access.assertWaivers(targetId)
-          : [];
+        const waivers = await access.assertEquipmentRequirements(targetId, equipment, end);
         waiverId = waivers[0]?.id ?? null;
         location = equipment.location;
         resourceName = equipment.name;
@@ -399,22 +382,7 @@ export class ReservationService {
             "EQUIPMENT_UNAVAILABLE",
             "This equipment is not available for reservations.",
           );
-        if (
-          equipment.certId &&
-          !(await access.eligibility.certification(
-            targetId,
-            equipment.certId,
-            end,
-          ))
-        )
-          throw new AppError(
-            403,
-            "CERTIFICATION_REQUIRED",
-            `A current ${equipment.certification ?? "equipment"} certification is required.`,
-          );
-        const waivers = equipment.waiverRequired
-          ? await access.assertWaivers(targetId)
-          : [];
+        const waivers = await access.assertEquipmentRequirements(targetId, equipment, end);
         waiverId = waivers[0]?.id ?? null;
         location = equipment.location;
         resourceName = equipment.name;
