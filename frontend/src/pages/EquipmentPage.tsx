@@ -268,7 +268,7 @@ export function EquipmentPage() {
             {error ? (
               <p ref={errorRef} tabIndex={-1} role="alert" className="form-error">
                 {error}
-                
+                {}
               </p>
             ) : null}
             <button
