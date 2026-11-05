@@ -40,6 +40,8 @@ before(async () => {
   await adminPool.query(`CREATE DATABASE "${database}"`);
   created = true;
   await initializeDemo(pool);
+  // Scheduling/access tests use free equipment; card checkout has separate payment coverage.
+  await pool.query('UPDATE equipment SET hourlyrate=0');
   app = createApp(pool, config);
   server = await serve(app);
 });
@@ -319,7 +321,7 @@ test('reservation saves to PostgreSQL, survives a new app instance, and only its
 
 test('queued resource lock waiters serialize bookings without SHARE-to-UPDATE deadlocks',async()=>{
   const one=client(),two=client();await one.demo();await two.demo('admin');
-  const equipmentId=(await pool.query("INSERT INTO equipment(name,status,waiverrequired) VALUES('Lock order fixture','available',false) RETURNING equipmentid")).rows[0].equipmentid;
+  const equipmentId=(await pool.query("INSERT INTO equipment(name,status,waiverrequired,hourlyrate) VALUES('Lock order fixture','available',false,0) RETURNING equipmentid")).rows[0].equipmentid;
   const input=interval(equipmentId,8),blocker=await pool.connect();
   let responses: Promise<any[]>|undefined,queued=0;
   try {

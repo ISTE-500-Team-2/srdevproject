@@ -91,6 +91,8 @@ ARBOR works today, but a few launch steps are still open. Check these against th
 - [Authentication](docs/JWT-AUTH.md): JWT signing keys and session behavior
 - [Email-only accounts](docs/email-only-accounts.md): registration, sign-in and
   password recovery
+- [Equipment payments](docs/equipment-payments.md): Stripe test-mode checkout
+  for equipment reservations
 - [Role-based access](docs/rbac.md): staff roles and permission rules
 - [Scheduling](docs/scheduling-pr26.md): reservation rules and upgrade compatibility
 - [Studio rentals](docs/studio-rentals.md): monthly studios and Stripe test mode

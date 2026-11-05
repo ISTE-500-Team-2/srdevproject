@@ -56,6 +56,10 @@ export interface LiveEquipment extends Omit<Equipment, 'rate'> {
   canReserve: boolean;
 }
 export interface Reservation {
+  amountCents?: number | null;
+  payerId?: number | null;
+  holdUntil?: string | null;
+  checkoutUrl?: string;
   priceSnapshot?: EquipmentPrice | null;
   paymentId?: number | null;
   paymentStatus?: string | null;

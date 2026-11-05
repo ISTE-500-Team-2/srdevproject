@@ -1,3 +1,4 @@
+import { EquipmentBilling } from "../billing/equipment.js";
 import {PassBilling} from '../billing/passes.js';
 import {MembershipBilling} from '../billing/service.js';
 import { requirePermission } from '../middleware/permissions.js';
@@ -135,6 +136,7 @@ export function studioWebhook(
     await new StudioService(pool, zone, provider).webhook(event);
     await new MembershipBilling(pool,provider).webhook(event);
     await new PassBilling(pool,provider,zone).webhook(event);
+    await new EquipmentBilling(pool,provider,zone).webhook(event);
     res.json({ received: true });
   };
 }

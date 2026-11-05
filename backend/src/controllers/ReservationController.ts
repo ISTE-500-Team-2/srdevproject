@@ -1,3 +1,5 @@
+import { EquipmentBilling } from "../billing/equipment.js";
+import { StudioStripe, type StudioStripeConfig } from "../studios/stripe.js";
 import { StaffModel } from "../models/StaffModel.js";
 import { transaction } from "../db.js";
 import { enqueueNotification } from "../notifications/store.js";
@@ -13,8 +15,17 @@ export class ReservationController {
   constructor(
     private pool: Pool,
     private timeZone: string,
+    private stripeConfig?: StudioStripeConfig,
   ) {}
+  private billing() { return new EquipmentBilling(this.pool, this.stripeConfig ? new StudioStripe(this.stripeConfig) : undefined, this.timeZone); }
+  checkout = async (req: Request, res: Response) => {
+    res.json({data: await this.billing().checkout(authState(res).user.id, positiveId(req.params.id))});
+  };
+  cancelCheckout = async (req: Request, res: Response) => {
+    res.json({data: await this.billing().cancelPending(authState(res).user.id, positiveId(req.params.id))});
+  };
   list = async (_req: Request, res: Response) => {
+    await this.billing().reconcile(authState(res).user.id);
     res.json({
       data: await new ReservationModel(this.pool, this.timeZone).listForUser(
         authState(res).user.id,
@@ -75,7 +86,7 @@ export class ReservationController {
   };
   create = async (req: Request, res: Response) => {
     res.status(201).json({
-      data: await new ReservationService(this.pool, this.timeZone).create(
+      data: await new ReservationService(this.pool, this.timeZone, this.stripeConfig ? new StudioStripe(this.stripeConfig) : undefined).create(
         authState(res).user.id,
         req.body,
       ),

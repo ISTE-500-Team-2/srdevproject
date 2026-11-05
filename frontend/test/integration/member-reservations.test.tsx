@@ -5,7 +5,7 @@ import {MemoryRouter} from 'react-router-dom';
 import App from '../../src/App';
 import {createBrowserBridge} from '../../../backend/test/helpers/browserBridge';
 let bridge:Awaited<ReturnType<typeof createBrowserBridge>>;
-beforeAll(async()=>{bridge=await createBrowserBridge();},120000);
+beforeAll(async()=>{bridge=await createBrowserBridge();await bridge.pool.query('UPDATE equipment SET hourlyrate=0');},120000);
 afterAll(async()=>{cleanup();vi.unstubAllGlobals();await bridge?.close();},30000);
 // Picks a start in the day-and-time picker: the day button, then the time.
 const pickStart=(scope:{queryByRole:typeof screen.queryByRole;getByRole:typeof screen.getByRole;getByLabelText:typeof screen.getByLabelText},d:Date)=>{
@@ -19,7 +19,7 @@ test('member finds grouped equipment, avoids occupied slots and cooldown, and ca
  Element.prototype.scrollIntoView=vi.fn();
  let creates=0;
  const finishBooking = async()=>{
-  await screen.findByText('Reservation saved for Rachel.');
+  await screen.findByText('Reservation confirmed for Rachel.');
   await screen.findByRole('button',{name:/^3D Printer/});
  };
  const readyToConfirm = async()=>{

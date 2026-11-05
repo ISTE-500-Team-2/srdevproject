@@ -1,5 +1,7 @@
 import type { Request, Response } from "express";
 import type { Pool } from "pg";
+import { EquipmentBilling } from "../billing/equipment.js";
+import { StudioStripe, type StudioStripeConfig } from "../studios/stripe.js";
 import { EquipmentModel } from "../models/EquipmentModel.js";
 import { EligibilityModel } from "../models/EligibilityModel.js";
 import { authState } from "../middleware/auth.js";
@@ -14,9 +16,11 @@ export class EquipmentController {
   constructor(
     private pool: Pool,
     private timeZone: string,
+    private stripeConfig?: StudioStripeConfig,
   ) {}
   list = async (_req: Request, res: Response) => {
     const userId = authState(res).user.id;
+    await new EquipmentBilling(this.pool, this.stripeConfig ? new StudioStripe(this.stripeConfig) : undefined, this.timeZone).reconcile();
     const eligibility = new EligibilityModel(this.pool, this.timeZone);
     const [items, entitlement, facilityPolicies, equipmentWaivers] = await Promise.all([
       new EquipmentModel(this.pool).list(),

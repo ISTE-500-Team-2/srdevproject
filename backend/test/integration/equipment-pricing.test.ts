@@ -65,7 +65,7 @@ test('altered quotes cannot create charges; certified users only pay the hourly 
   assert.equal((await pool.query('SELECT price FROM payment WHERE paymentid=$1',[first.paymentId])).rows[0].price,'56.00');
   const b=await post('/reservations',{...slot(1,1),expectedPrice:await quote(1)});assert.equal(b.status,201,JSON.stringify(b.body));second=b.body.data;
   assert.equal(second.priceSnapshot.totalCents,2800);assert.equal(second.priceSnapshot.trainingFeeCents,0);
-  assert.equal((await post('/reservations',slot(8,1))).status,201);
+  assert.equal((await post('/reservations',{...slot(8,1),expectedPrice:await quote(1)})).status,201);
 });
 test('fee configuration validates bounds and stale revisions; price changes do not rewrite booked amounts',async()=>{
   const path=`/training/catalog/${course.id}`, body={name:course.name,description:course.description,validityDays:null,equipmentIds:course.equipmentIds,expectedRevision:course.revision,trainingMinutes:60,trainingFeeCents:2500,reason:'Synthetic price change'};

@@ -7,12 +7,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
+const stripeNames = ['STRIPE_TEST_SECRET_KEY', 'STRIPE_STUDIO_WEBHOOK_SECRET'];
 const emailNames = ['BREVO_API_KEY','EMAIL_FROM','EMAIL_REPLY_TO','EMAIL_FROM_NAME','EMAIL_POSTAL_ADDRESS','EMAIL_WORKER_INTERVAL_MS'];
 export function makeEnv(parent, local, email) {
   const env = { ...parent };
   for (const key of Object.keys(env)) {
     if (/^(PG|DATABASE_URL$|EMAIL_|BREVO_|JWT_)/i.test(key)) delete env[key];
   }
+  for (const key of stripeNames) if (local[key] !== undefined) env[key] = local[key];
   if (email) for (const key of emailNames) if (local[key] !== undefined) env[key] = local[key];
   if (email && !env.BREVO_API_KEY?.trim()) throw new Error('Add BREVO_API_KEY to the root .env.local before running npm run dev:email.');
   Object.assign(env, {
@@ -27,7 +29,7 @@ export function makeEnv(parent, local, email) {
 }
 export function frontendEnv(parent) {
   const env={...parent};
-  for(const key of Object.keys(env)) if(/^(PG|DATABASE_URL$|EMAIL_|BREVO_|JWT_)/i.test(key)) delete env[key];
+  for(const key of Object.keys(env)) if(/^(PG|DATABASE_URL$|EMAIL_|BREVO_|JWT_|STRIPE_)/i.test(key)) delete env[key];
   env.NODE_ENV='development'; return env;
 }
 export async function assertFree(port) {
@@ -49,7 +51,7 @@ async function main() {
   assertNodeVersion();
   const email=args.includes('--email');
   const file=path.join(root,'.env.local');
-  const local=email && existsSync(file) ? parseEnv(readFileSync(file,'utf8')) : {};
+  const local=existsSync(file) ? parseEnv(readFileSync(file,'utf8')) : {};
   const env=makeEnv(process.env,local,email);
   const clean=frontendEnv(process.env);
   const npmCli=process.env.npm_execpath;

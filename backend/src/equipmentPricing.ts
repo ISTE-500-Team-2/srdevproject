@@ -35,7 +35,7 @@ export function reviewEquipmentPrice(current: EquipmentPrice | null, expected: u
 }
 
 export async function saveReservationPrice(db: Database, reservationId: number, userId: number,
-  actorId: number, price: EquipmentPrice | null, name: string) {
+  actorId: number, price: EquipmentPrice | null, name: string, createPayment = true) {
   const before = (await db.query('SELECT payment_id,price_snapshot FROM reservation WHERE reservationid=$1 FOR UPDATE', [reservationId])).rows[0];
   if (!before) throw new AppError(404, 'NOT_FOUND', 'Reservation not found.');
   const payment = before.payment_id ? await new StaffModel(db).payment(before.payment_id) : null;
@@ -49,7 +49,7 @@ export async function saveReservationPrice(db: Database, reservationId: number, 
       WHERE paymentid=$1`, [payment.id, userId, amount, price!.totalCents === 0 ? 'waived' : 'pending']);
   }
   let paymentId = payment?.id ?? null;
-  if (price && (!payment || ['void', 'refunded'].includes(payment.status) ||
+  if (createPayment && price && (!payment || ['void', 'refunded'].includes(payment.status) ||
       payment.status === 'waived' && (payment.userId !== userId || before.price_snapshot?.totalCents !== price.totalCents))) {
     paymentId = await new StaffModel(db).createPayment(userId, null, amount!, price.totalCents ? 'pending' : 'waived',
       'unspecified', '', `Equipment booking: ${name}; equipment ${(price.equipmentCents/100).toFixed(2)} USD`, auditContext.getStore()?.actorId ?? actorId);

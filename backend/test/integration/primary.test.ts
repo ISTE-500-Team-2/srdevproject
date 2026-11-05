@@ -32,6 +32,8 @@ before(async () => {
   await adminPool.query(`CREATE DATABASE "${database}"`);
   created = true;
   await initializeDemo(pool);
+  // Scheduling/access tests use free equipment; card checkout has separate payment coverage.
+  await pool.query('UPDATE equipment SET hourlyrate=0');
 });
 
 beforeEach(async () => {

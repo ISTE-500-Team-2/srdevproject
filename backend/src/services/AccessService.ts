@@ -2,6 +2,7 @@ import { MinorSupervision } from "../minorSupervision.js";
 import type { Database } from "../db.js";
 import { AppError } from "../domain.js";
 import { EligibilityModel } from "../models/EligibilityModel.js";
+import type { EquipmentRecord } from "../models/EquipmentModel.js";
 import type { PolicyScope } from "../staffDomain.js";
 
 export interface AccessTarget {
@@ -32,22 +33,28 @@ export class AccessService {
     return value;
   }
 
-  async assertWaivers(userId: number, scope: PolicyScope = 'facility') {
-    const waivers = await this.eligibility.waivers(userId, scope);
+  async assertWaivers(userId: number, scope: PolicyScope = 'facility', through?: Date) {
+    const waivers = await this.eligibility.waivers(userId, scope, through);
     if (!waivers.length)
       throw new AppError(409,'WAIVERS_NOT_CONFIGURED',scope === 'equipment'
         ? 'Staff need to configure the required equipment waivers before this equipment can be used.'
         : 'Staff need to configure the required facility policies before access can be granted.');
     if (waivers.some(w => !w.signed))
-      throw new AppError(403,'WAIVER_REQUIRED',scope === 'equipment'
-        ? 'Sign the current required equipment waivers first.'
-        : 'Sign the current required facility policies first.');
+      throw new AppError(403,'WAIVER_REQUIRED',through
+        ? `Sign all current required ${scope === 'equipment' ? 'equipment waivers' : 'facility policies'} first. They must remain valid through your reservation.`
+        : `Sign all current required ${scope === 'equipment' ? 'equipment waivers' : 'facility policies'} first.`);
     return waivers;
   }
 
-  async assertEquipmentWaivers(userId: number) {
-    await this.assertWaivers(userId);
-    return this.assertWaivers(userId, 'equipment');
+  async assertEquipmentWaivers(userId: number, through?: Date) {
+    await this.assertWaivers(userId, 'facility', through);
+    return this.assertWaivers(userId, 'equipment', through);
+  }
+
+  async assertEquipmentRequirements(userId: number, equipment: EquipmentRecord, through: Date) {
+    if (equipment.certId && !await this.eligibility.certification(userId, equipment.certId, through))
+      throw new AppError(403, 'CERTIFICATION_REQUIRED', `A current ${equipment.certification ?? 'equipment'} certification is required.`);
+    return equipment.waiverRequired ? this.assertEquipmentWaivers(userId, through) : [];
   }
 
   // The caller keeps the decision and check-in in one transaction.

@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { EquipmentBilling } from "../billing/equipment.js";
+import { StudioStripe } from "../studios/stripe.js";
 import { MinorSupervision } from "../minorSupervision.js";
 import { StaffModel } from "../models/StaffModel.js";
 import { UserModel } from "../models/UserModel.js";
@@ -19,6 +22,7 @@ export class ReservationService {
   constructor(
     private pool: Pool,
     private timeZone: string,
+    private stripe?: StudioStripe,
   ) {}
 
   async create(
@@ -29,6 +33,8 @@ export class ReservationService {
       startTime?: unknown;
       endTime?: unknown;
       userId?: unknown;
+      requestKey?: unknown;
+      amountCents?: unknown;
       expectedPrice?: unknown;
     },
   ) {
@@ -57,7 +63,12 @@ export class ReservationService {
         "Book a whole number of hours (1-24).",
       );
 
-    return transaction(this.pool, async (db) => {
+    const requestKey = input.requestKey ?? randomUUID();
+    if (typeof requestKey !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestKey))
+      throw new AppError(400, 'INVALID_INPUT', 'Invalid reservation request key.');
+    const billing = new EquipmentBilling(this.pool, this.stripe, this.timeZone);
+    if (equipmentId) await billing.reconcile(userId);
+    const created = await transaction(this.pool, async (db) => {
       const access = new AccessService(db, this.timeZone);
       await access.assertActiveUser(userId);
 
@@ -91,6 +102,17 @@ export class ReservationService {
           "Reservation permission is required.",
         );
 
+      await db.query("SELECT pg_advisory_xact_lock(hashtext('equipment-checkout'),$1)", [userId]);
+      const prior = (await db.query(`SELECT r.reservationid,r.userid,r.equipmentid,
+        r.starttime AT TIME ZONE 'UTC' AS start,r.endtime AT TIME ZONE 'UTC' AS end
+        FROM app_equipment_checkout c JOIN reservation r ON r.reservationid=c.reservation_id
+        WHERE c.payer_id=$1 AND c.request_key=$2`, [userId, requestKey])).rows[0];
+      if (prior) {
+        if (prior.userid !== targetId || prior.equipmentid !== equipmentId ||
+          new Date(prior.start).getTime() !== start.getTime() || new Date(prior.end).getTime() !== end.getTime())
+          throw new AppError(409, 'KEY_REUSED', 'Start a new checkout after changing reservation details.');
+        return new ReservationModel(db).find(prior.reservationid);
+      }
       if (targetId !== userId) await access.assertActiveUser(targetId);
       await access.assertEntitlement(targetId, start, end);
       // Take the final exclusive resource lock directly; upgrading SHARE later
@@ -102,6 +124,10 @@ export class ReservationService {
       let waiverId: number | null = null;
       let location: string;
       let resourceName: string;
+      let hourlyCents = 0;
+      let amountCents = 0;
+      const hours = (end.getTime() - start.getTime()) / 3_600_000;
+      let stripeCheckout = false;
 
       if (equipmentId) {
         const equipment = await new EquipmentModel(db).findForUpdate(
@@ -115,27 +141,18 @@ export class ReservationService {
             "EQUIPMENT_UNAVAILABLE",
             "This equipment is not available for reservations.",
           );
-        if (
-          equipment.certId &&
-          !(await access.eligibility.certification(
-            targetId,
-            equipment.certId,
-            end,
-          ))
-        ) {
-          throw new AppError(
-            403,
-            "CERTIFICATION_REQUIRED",
-            `A current ${equipment.certification ?? "equipment"} certification is required.`,
-          );
-        }
-
-        const waivers = equipment.waiverRequired
-          ? await access.assertEquipmentWaivers(targetId)
-          : [];
+        const waivers = await access.assertEquipmentRequirements(targetId, equipment, end);
         waiverId = waivers[0]?.id ?? null;
         location = equipment.location;
         resourceName = equipment.name;
+        if (equipment.rate === null)
+          throw new AppError(409, 'RATE_NOT_SET', 'The hourly rate has not been set. Please contact staff.');
+        hourlyCents = Math.round(Number(equipment.rate) * 100);
+        amountCents = hourlyCents * hours;
+        if (!Number.isSafeInteger(amountCents) || amountCents < 0 || amountCents > 99_999_999 || amountCents > 0 && amountCents < 50)
+          throw new AppError(409, 'INVALID_RATE', 'This rate cannot be paid online. Please contact staff.');
+        if (input.amountCents !== undefined && input.amountCents !== amountCents)
+          throw new AppError(409, 'PRICE_CHANGED', 'The equipment rate changed. Review the updated total and try again.');
 
         if (await model.overlaps(equipmentId, start, end))
           throw new AppError(
@@ -176,8 +193,25 @@ export class ReservationService {
           );
       }
 
-      const price = equipmentId ? await equipmentPrice(db, equipmentId, (end.getTime()-start.getTime())/3600000) : null;
-      if (equipmentId) reviewEquipmentPrice(price, input.expectedPrice);
+      const price = equipmentId ? await equipmentPrice(db, equipmentId, hours) : null;
+      if (equipmentId) {
+        reviewEquipmentPrice(price, input.expectedPrice);
+        if (price) amountCents = price.totalCents;
+        if (input.amountCents !== undefined && input.amountCents !== amountCents)
+          throw new AppError(409, 'PRICE_CHANGED', 'The equipment rate changed. Review the updated total and try again.');
+        if (!Number.isSafeInteger(amountCents) || amountCents < 0 || amountCents > 99_999_999 || amountCents > 0 && amountCents < 50)
+          throw new AppError(409, 'INVALID_RATE', 'This rate cannot be paid online. Please contact staff.');
+      }
+      if (amountCents > 0) {
+        stripeCheckout = !!this.stripe;
+        if (stripeCheckout) {
+          if (start.getTime() < Date.now() + 30 * 60_000)
+            throw new AppError(400, 'PAYMENT_TIME_REQUIRED', 'Choose a start at least 30 minutes away to allow time for payment.');
+          billing.provider();
+        } else if (input.expectedPrice === undefined) {
+          billing.provider();
+        }
+      }
       let reservation = await model.create({
         userId: targetId,
         equipmentId: equipmentId ?? undefined,
@@ -186,11 +220,15 @@ export class ReservationService {
         location,
         start,
         end,
+        status: stripeCheckout ? 'pending' : 'confirmed',
       });
       if (equipmentId) {
         await saveReservationPrice(db, reservation.id, targetId, userId, price, resourceName);
         reservation = (await model.find(reservation.id))!;
       }
+      if (stripeCheckout) await db.query(`INSERT INTO app_equipment_checkout
+        (reservation_id,payer_id,request_key,hourly_cents,hours,amount_cents,equipment_name) VALUES($1,$2,$3,$4,$5,$6,$7)`,
+        [reservation.id, userId, requestKey, hourlyCents, hours, amountCents, resourceName]);
 
       await new MinorSupervision(db,this.timeZone).recordBooking(targetId,reservation.id);
       await new StaffModel(db).audit(
@@ -205,7 +243,7 @@ export class ReservationService {
         null,
         reservation,
       );
-      await enqueueNotification(db, {
+      if (!stripeCheckout) await enqueueNotification(db, {
         userId: targetId,
         kind: "reservation_created",
         dedupeKey: `reservation-created:${reservation.id}`,
@@ -218,6 +256,10 @@ export class ReservationService {
       });
       return reservation;
     });
+    if (!created) throw new AppError(404, 'NOT_FOUND', 'Reservation not found.');
+    if (equipmentId && (await this.pool.query('SELECT 1 FROM app_equipment_checkout WHERE reservation_id=$1', [created.id])).rowCount)
+      return billing.checkout(userId, created.id);
+    return created;
   }
 
   async update(
@@ -275,6 +317,8 @@ export class ReservationService {
           "CLASS_WORKFLOW_REQUIRED",
           "Cancel and reschedule this training through Classes to preserve enrollment records.",
         );
+      if ((await db.query('SELECT 1 FROM app_equipment_checkout WHERE reservation_id=$1', [reservationId])).rowCount)
+        throw new AppError(409, 'PAYMENT_WORKFLOW_REQUIRED', 'Contact staff to reconcile payment before changing a paid reservation.');
       const expectedRevision = positiveId(input.expectedRevision, "revision");
       if (before.revision !== expectedRevision)
         throw new AppError(
@@ -360,22 +404,7 @@ export class ReservationService {
             "EQUIPMENT_UNAVAILABLE",
             "This equipment is not available for reservations.",
           );
-        if (
-          equipment.certId &&
-          !(await access.eligibility.certification(
-            targetId,
-            equipment.certId,
-            end,
-          ))
-        )
-          throw new AppError(
-            403,
-            "CERTIFICATION_REQUIRED",
-            `A current ${equipment.certification ?? "equipment"} certification is required.`,
-          );
-        const waivers = equipment.waiverRequired
-          ? await access.assertEquipmentWaivers(targetId)
-          : [];
+        const waivers = await access.assertEquipmentRequirements(targetId, equipment, end);
         waiverId = waivers[0]?.id ?? null;
         location = equipment.location;
         resourceName = equipment.name;

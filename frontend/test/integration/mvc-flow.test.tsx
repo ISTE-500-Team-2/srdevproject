@@ -20,6 +20,8 @@ import { equipmentWaiverName, waiverAcceptance } from '../../../backend/test/hel
 let bridge: Awaited<ReturnType<typeof createBrowserBridge>>;
 beforeAll(async () => {
   bridge = await createBrowserBridge();
+  // This flow exercises scheduling; paid checkout has dedicated payment tests.
+  await bridge.pool.query('UPDATE equipment SET hourlyrate=0');
 }, 120000);
 afterEach(() => {
   cleanup();
@@ -226,7 +228,7 @@ test('React → Express controllers/models → PostgreSQL: login, save, refresh,
   await waitFor(() => expect(confirm.disabled).toBe(false));
   await user.click(confirm);
   await screen.findByText(
-    'Reservation saved for Rachel.',
+    'Reservation confirmed for Rachel.',
     {},
     { timeout: 20000 },
   );

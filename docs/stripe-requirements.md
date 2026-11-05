@@ -2,6 +2,10 @@
 
 ## Scope
 
+The later [equipment payment integration](equipment-payments.md) adds server-priced
+hourly equipment Checkout using this same Stripe test configuration and signed
+webhook, with migration 035.
+
 PR #22 was merged on September 29; the implementation remains test-mode-only.
 The October 26 follow-up is described in
 [paid day-pass acceptance](payment-sandbox-acceptance-20261026.md). Its waiver and
