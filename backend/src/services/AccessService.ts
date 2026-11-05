@@ -29,7 +29,7 @@ export class AccessService {
     if (!value.membership && !value.dayPass){
       const href = useHref("/membership")
       throw new AppError(403,'MEMBERSHIP_REQUIRED',`An active membership or valid day pass is required for this time.
-          <a to="">Get a pass here!</a>`);
+          <a to="${href}">Get a pass here!</a>`);
         }
     return value;
   }
