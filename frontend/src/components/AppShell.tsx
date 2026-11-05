@@ -11,8 +11,10 @@ export function AppShell() {
       <a className="skip-link" href="#main-content">
         Skip to main content
       </a>
-      <AccountBar />
-      <Header />
+      <div className="app-shell__header">
+        <AccountBar />
+        <Header />
+      </div>
       {demoLogin ? (
         <div className="sample-data-banner">
           Development demo · sample accounts and equipment · changes are saved

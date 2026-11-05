@@ -195,6 +195,23 @@
 .account-picker__note svg { flex: none; width: 16px; height: 16px; color: var(--bronze); }
 
 /* ---------- account bar (member site, account open) ---------- */
+/* Keep the variable-height account banner and navigation together. */
+.app-shell__header {
+  position: sticky;
+  top: 0;
+  z-index: 120;
+  display: grid;
+  flex: none;
+  background: var(--paper);
+}
+.app-shell__header > .site-header,
+.app-shell__header > .site-card-nav {
+  position: relative;
+  top: auto;
+}
+@media (max-width: 1040px) {
+  .app-shell__header > .site-card-nav { margin-top: 10px; }
+}
 .account-bar {
   position: relative;
   z-index: 120;

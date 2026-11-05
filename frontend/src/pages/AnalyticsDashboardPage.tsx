@@ -123,8 +123,8 @@ function RevenueBars({ points, period }: { points: RevenuePoint[]; period: Reven
   const top = niceMax(Math.max(0, ...points.map((p) => p.gross)));
   const every = Math.ceil(points.length / 8);
   return (
-    <div className="revenue-chart-scroll" role="region" aria-label="Revenue chart; scroll for more dates" tabIndex={0}>
-      <div className="revenue-bars" style={{ minWidth: 60 + points.length * 28 }}>
+    <div className="revenue-chart-scroll" role="region" aria-label="Revenue chart" tabIndex={0}>
+      <div className="revenue-bars">
         <div className="revenue-bars__axis" aria-hidden="true">
           {[1, 0.75, 0.5, 0.25, 0].map((f) => (
             <span key={f}>{money(top * f)}</span>
@@ -306,7 +306,7 @@ export function AnalyticsDashboardPage() {
               </dl>
               {data.revenue.length ? (
                 <>
-                  <p className="analytics-chart-hint">Swipe or scroll for more dates. Exact amounts are also available in the table.</p>
+                  <p className="analytics-chart-hint">Exact amounts are also available in the table.</p>
                   <RevenueBars points={points} period={range.period} />
                 </>
               ) : (

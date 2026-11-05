@@ -2,6 +2,8 @@
    today's check-ins and visits, classes, and a quiet footer. */
 .analytics-dashboard {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
   gap: 18px;
 }
 .analytics-head {
@@ -235,7 +237,7 @@
   position: relative;
   display: flex;
   align-items: stretch;
-  gap: 6px;
+  gap: min(6px, 0.5%);
   margin-bottom: 22px;
   border-bottom: 1px solid #d9cfc7;
   padding: 0 4px;
@@ -277,6 +279,8 @@
   font-size: var(--text-xs);
   white-space: nowrap;
 }
+.revenue-bars__col:first-child small { left: 0; transform: none; }
+.revenue-bars__col:last-child small { right: 0; left: auto; transform: none; }
 .revenue-bars__tip {
   position: absolute;
   bottom: calc(100% + 8px);
