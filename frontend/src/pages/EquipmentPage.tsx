@@ -11,6 +11,7 @@ import type { LiveEquipment, Reservation } from '../lib/contracts';
 import { useApi } from '../lib/useApi';
 import { reservationInput } from '../lib/reservationInput';
 import { dateTime } from "../lib/display";
+import { assert } from 'vitest';
 
 export function EquipmentPage() {
   const {user}=useAuth();
@@ -267,6 +268,7 @@ export function EquipmentPage() {
             {error ? (
               <p ref={errorRef} tabIndex={-1} role="alert" className="form-error">
                 {error}
+                
               </p>
             ) : null}
             <button
