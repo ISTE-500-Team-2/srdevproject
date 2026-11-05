@@ -2,6 +2,7 @@
    today's check-ins and visits, classes, and a quiet footer. */
 .analytics-dashboard {
   display: grid;
+  /* Let the chart shrink with the viewport instead of widening the page. */
   grid-template-columns: minmax(0, 1fr);
   min-width: 0;
   gap: 18px;
