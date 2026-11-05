@@ -35,6 +35,11 @@ data and all writes are rejected. No GitHub token is retrieved, printed, copied
 to the server or placed in command arguments/URLs. No status-response cache or
 invented GitHub status is used. Missing tunnel/provider access fails closed; the
 tunnel and local HTTP listener close at the end of the command.
+The relay forwards every status record and every field used by the gates, but
+omits repeated repository objects, avatar/logo URLs and unused display metadata.
+IDs, exact SHAs, provider slug, names, states/conclusions and workflow main-push
+identity fields are unchanged; unknown failing checks are not filtered out.
+Gate-result parity and reduced payload size are covered by regression tests.
 
 All lanes must succeed; the checkout must remain pristine and identical before
 and after. The receipt records the exact main revision/tree, Node/platform,
