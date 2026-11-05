@@ -14,24 +14,22 @@ SHA = 'a' * 40
 
 
 class StatusBridgeTests(unittest.TestCase):
-    def test_tunnel_is_owned_not_multiplexed_and_closed_on_success_or_error(self):
+    def test_only_owned_forward_is_cancelled_on_success_or_error(self):
         for fail in (False, True):
-            tunnel = SimpleNamespace(poll=lambda: None, terminate=lambda: None, wait=lambda **_kw: 0)
-            with patch.object(bridge.subprocess, 'Popen', return_value=tunnel) as popen, \
-                 patch.object(bridge.subprocess, 'run', return_value=SimpleNamespace(returncode=0)), \
-                 patch.object(tunnel, 'terminate') as stop, patch.object(tunnel, 'wait') as wait:
+            with patch.object(bridge.subprocess, 'Popen') as spawn, \
+                 patch.object(bridge.subprocess, 'run', return_value=SimpleNamespace(returncode=0)) as run:
                 try:
                     with bridge.github_bridge('fixture-host'):
                         if fail: raise RuntimeError('fixture check failed')
                 except RuntimeError:
                     self.assertTrue(fail)
-                command = popen.call_args.args[0]
-                self.assertIn('ControlMaster=no', command)
-                self.assertIn('ControlPath=none', command)
-                self.assertIn('ExitOnForwardFailure=yes', command)
-                self.assertIn('-R', command)
-                self.assertTrue(command[command.index('-R') + 1].startswith('127.0.0.1:'))
-                stop.assert_called_once(); wait.assert_called_once()
+                commands = [call.args[0] for call in run.call_args_list]
+                start = next(c for c in commands if 'forward' in c)
+                stop = next(c for c in commands if 'cancel' in c)
+                self.assertEqual(start[start.index('-R') + 1], stop[stop.index('-R') + 1])
+                self.assertTrue(start[start.index('-R') + 1].startswith('127.0.0.1:'))
+                self.assertFalse(any('exit' in c for c in commands))
+                spawn.assert_not_called()
 
     def test_only_fixed_readonly_project_status_endpoints_reach_gh(self):
         server = ThreadingHTTPServer(('127.0.0.1', 0), bridge.StatusHandler)

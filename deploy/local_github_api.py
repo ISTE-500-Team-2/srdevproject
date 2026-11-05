@@ -67,35 +67,28 @@ def github_bridge(host):
     server = ThreadingHTTPServer(('127.0.0.1', 0), StatusHandler)
     worker = threading.Thread(target=server.serve_forever, daemon=True)
     worker.start()
-    tunnel = subprocess.Popen(['ssh', '-N', '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8',
-                               '-o', 'ControlMaster=no', '-o', 'ControlPath=none',
-                               '-o', 'ExitOnForwardFailure=yes', '-R',
-                               f'127.0.0.1:{PORT}:127.0.0.1:{server.server_port}', host],
-                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    forward = f'127.0.0.1:{PORT}:127.0.0.1:{server.server_port}'
+    ssh = ['ssh', '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8']
+    forwarded = False
     try:
-        # A real remote read proves tunnel readiness; process launch alone is
-        # not treated as a working channel. Never expose a public listener.
+        # Reuse the owner's established SSH connection, but explicitly acquire
+        # and cancel OUR forwarding rule. Never terminate a shared SSH master.
+        subprocess.run([*ssh, host, 'true'], check=True, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=30)
+        subprocess.run([*ssh, '-o', 'ExitOnForwardFailure=yes', '-O', 'forward', '-R', forward, host],
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+        forwarded = True
         probe = ("import urllib.request,json;v=json.load(urllib.request.urlopen("
-                 f"'http://127.0.0.1:{PORT}/health',timeout=2));"
+                 f"'http://127.0.0.1:{PORT}/health',timeout=3));"
                  "assert v=={'provider':'owner-local-gh','repo':'ISTE-500-Team-2/srdevproject'}")
         import shlex
-        deadline = time.monotonic() + 8
-        while True:
-            if tunnel.poll() is not None:
-                raise RuntimeError('Cannot open the private local GitHub-status SSH tunnel')
-            ready = subprocess.run(['ssh', '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=3', host,
-                                    'python3 -c ' + shlex.quote(probe)],
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
-            if ready.returncode == 0:
-                break
-            if time.monotonic() >= deadline:
-                raise RuntimeError('Local GitHub-status tunnel did not become ready')
-            time.sleep(0.1)
+        subprocess.run([*ssh, host, 'python3 -c ' + shlex.quote(probe)], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
         yield
     finally:
-        tunnel.terminate()
         try:
-            tunnel.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            tunnel.kill(); tunnel.wait(timeout=5)
-        server.shutdown(); server.server_close()
+            if forwarded:
+                subprocess.run([*ssh, '-O', 'cancel', '-R', forward, host], check=True,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+        finally:
+            server.shutdown(); server.server_close()
