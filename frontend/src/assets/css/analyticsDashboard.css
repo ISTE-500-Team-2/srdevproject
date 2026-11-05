@@ -281,6 +281,7 @@
   font-size: var(--text-xs);
   white-space: nowrap;
 }
+/* Keep endpoint labels directed into the chart rather than past its edges. */
 .revenue-bars__col:first-child small { left: 0; transform: none; }
 .revenue-bars__col:last-child small { right: 0; left: auto; transform: none; }
 .revenue-bars__tip {
