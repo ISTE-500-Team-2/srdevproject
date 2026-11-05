@@ -77,7 +77,7 @@ export class EquipmentMaintenanceService {
     }
     return transaction(this.pool, async db => {
       await new AccessService(db, this.timeZone).assertActiveUser(actorId);
-      const actor = await new UserModel(db).findById(actorId);
+      const actor = await new UserModel(db, this.timeZone).findById(actorId);
       if (!actor?.roles.includes('admin') || !await new PermissionModel(db).allows(actor, 'equipment', 'update'))
         throw new AppError(403, 'ADMIN_REQUIRED', 'Only an administrator can change equipment availability.');
       // AccessService holds FOR SHARE until its issued grant commits. This lock

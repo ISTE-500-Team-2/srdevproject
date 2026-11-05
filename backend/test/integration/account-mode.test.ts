@@ -1,3 +1,6 @@
+import { mock } from 'node:test';
+import { MembershipBilling } from '../../src/billing/service.js';
+import { PassBilling } from '../../src/billing/passes.js';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { before, after, test } from 'node:test';
@@ -65,14 +68,27 @@ test('changes made in an open account are logged under the staff member',async()
   // Check-in needs a current booking: give the member one in the first room.
   const room=(await pool.query('SELECT roomid FROM room ORDER BY roomid LIMIT 1')).rows[0].roomid;
   await pool.query("INSERT INTO reservation(userid,roomid,location,starttime,endtime,status) VALUES($1,$2,'Account mode room',(now()-interval '1 minute') AT TIME ZONE 'UTC',(now()+interval '30 minutes') AT TIME ZONE 'UTC','confirmed')",[member.user.id,room]);
+  const checkIns=async()=>(await pool.query('SELECT count(*)::int n FROM check_in WHERE userid=$1',[member.user.id])).rows[0].n;
+  const before=await checkIns();
+  // Members check in at a reader; the web check-in is the staff desk's.
   const direct=await as(member).post('/me/check-ins',{roomId:room});
-  assert.ok(direct.status<300,JSON.stringify(direct.body));
+  assert.equal(direct.status,403,JSON.stringify(direct.body));
+  assert.equal(direct.body.error.code,'CHECK_IN_AT_READER');
+  assert.equal(await checkIns(),before);
+  assert.deepEqual(await audits('check_in.created'),[]);
+  // Staff check themselves in at a reader too; the web route needs another member's account open.
+  await as(admin).post('/admin/account-mode/end');
+  const own=await as(admin).post('/me/check-ins',{roomId:room});
+  assert.equal(own.status,403);assert.equal(own.body.error.code,'CHECK_IN_AT_READER');
+  await as(admin).post('/admin/account-mode',{userId:admin.user.id});
+  const ownAccount=await as(admin).post('/me/check-ins',{roomId:room});
+  assert.equal(ownAccount.status,403);assert.equal(ownAccount.body.error.code,'CHECK_IN_AT_READER');
+  await as(admin).post('/admin/account-mode/end');
   await as(admin).post('/admin/account-mode',{userId:member.user.id});
   const onBehalf=await as(admin).post('/me/check-ins',{roomId:room});
-  assert.ok(onBehalf.status<300,JSON.stringify(onBehalf.body));
-  const rows=await audits('check_in.created');
-  assert.deepEqual(rows.at(-2),{actorId:member.user.id,subjectId:member.user.id});
-  assert.deepEqual(rows.at(-1),{actorId:admin.user.id,subjectId:member.user.id});
+  assert.equal(onBehalf.status,201,JSON.stringify(onBehalf.body));
+  assert.equal(await checkIns(),before+1);
+  assert.deepEqual(await audits('check_in.created'),[{actorId:admin.user.id,subjectId:member.user.id}]);
   // The automatic database row for the new check-in names the admin too.
   const inserted=await pool.query(`SELECT actor_id AS "actorId" FROM app_staff_audit WHERE action='check_in.insert' ORDER BY id DESC LIMIT 1`);
   assert.equal(inserted.rows[0].actorId,admin.user.id);
@@ -159,4 +175,40 @@ test('an account that becomes restricted closes itself on the next request',asyn
   assert.equal(session.body.data.actingAs,null);
   const stored=await pool.query('SELECT acting_as_userid FROM app_refresh_family f JOIN app_session s ON s.family_id=f.id WHERE s.userid=$1',[admin.user.id]);
   assert.ok(stored.rows.every(row=>row.acting_as_userid===null));
+});
+
+test('staff-assisted checkout scopes prices and purchases to the selected member and records the staff initiator', async () => {
+ const path=`/admin/users/${member.user.id}/purchase`;
+ assert.equal((await as(member).get(path)).status,403);
+ assert.equal((await as(staff).get(`/admin/users/${admin.user.id}/purchase`)).status,403);
+ const offers=await as(admin).get(path);
+ assert.equal(offers.status,200,JSON.stringify(offers.body));
+ assert.equal(offers.body.data.enabled,false);
+ const monthly=offers.body.data.offers.find((p:any)=>p.kind==='membership');
+ const pass=offers.body.data.offers.find((p:any)=>p.kind==='day_pass');
+ assert.ok(monthly);assert.ok(pass);
+ assert.equal((await request(app).post('/api'+path).set('Authorization','Bearer '+admin.accessToken).send({planId:monthly.id})).status,403);
+ const calls:any[]=[];
+ const checkout=mock.method(MembershipBilling.prototype,'checkout',async(...args:any[])=>{calls.push(args);return {checkoutUrl:'https://checkout.stripe.com/test'};});
+ const passCheckout=mock.method(PassBilling.prototype,'checkout',async(...args:any[])=>{calls.push(args);return {checkoutUrl:'https://checkout.stripe.com/test-pass'};});
+ try {
+  await as(admin).post('/admin/account-mode',{userId:member.user.id});
+  const input={planId:monthly.id,expectedRevision:monthly.revision,amountCents:monthly.amountCents,pricingRevision:monthly.pricingRevision,autoRenewConsent:true};
+  const response=await as(admin).post(path,input);
+  assert.equal(response.status,200,JSON.stringify(response.body));
+  assert.equal(response.body.data.checkoutUrl,'https://checkout.stripe.com/test');
+  assert.deepEqual(calls[0],[member.user.id,input]);
+  assert.equal((await as(staff).post(path,{planId:pass.id,validDate:'2030-01-02'})).status,200);
+  assert.equal(calls[1][0],member.user.id);
+  assert.equal(calls[1].length,2);
+  const audit=await audits('billing.assisted_checkout_requested');
+  assert.deepEqual(audit.slice(-2),[{actorId:admin.user.id,subjectId:member.user.id},{actorId:staff.user.id,subjectId:member.user.id}]);
+ } finally {checkout.mock.restore();passCheckout.mock.restore();}
+});
+
+test('new manual issuance refuses unpaid pending records',async()=>{
+ const response=await as(admin).post(`/admin/users/${member.user.id}/entitlements`,{
+  requestId:'11111111-1111-4111-8111-111111111111',planId:1,paymentStatus:'pending',method:'unspecified',reason:'Unpaid issuance test'
+ });
+ assert.equal(response.status,400);
 });

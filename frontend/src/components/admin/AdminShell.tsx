@@ -1,5 +1,5 @@
-import { CalendarDays, Eye, LogOut, Menu, Search } from "lucide-react";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { CalendarDays, Eye, LogOut, Menu } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { errorMessage } from "../../lib/api";
@@ -15,7 +15,6 @@ export function AdminShell() {
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [query, setQuery] = useState("");
   const [error, setError] = useState("");
   const staff = actor ?? user;
 
@@ -33,12 +32,6 @@ export function AdminShell() {
     setMenuOpen(false);
   }, [location.pathname, location.search]);
 
-  const findMember = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const term = query.trim();
-    navigate(term ? `/admin/members?search=${encodeURIComponent(term)}` : "/admin/members");
-    setQuery("");
-  };
   const signOut = async () => {
     try {
       await logout();
@@ -121,17 +114,6 @@ export function AdminShell() {
           <Link className="admin-top__brand" to="/admin" aria-label="Staff workspace home">
             <img src="/assets/collaboratory-logo.webp" alt="" />
           </Link>
-          <form className="admin-top__search" role="search" onSubmit={findMember}>
-            <Search aria-hidden="true" />
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Find a member by name or email"
-              aria-label="Find a member by name or email"
-              maxLength={100}
-            />
-          </form>
           <button type="button" className="button admin-top__view" aria-label="View member site" title="View member site" onClick={() => setPickerOpen(true)}>
             <Eye aria-hidden="true" />
             <span>View member site</span>

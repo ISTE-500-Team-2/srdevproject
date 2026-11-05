@@ -9,6 +9,8 @@ export interface User {
   roles: string[];
   primaryRole?: string;
   isStudent?: boolean;
+  isMinor?: boolean;
+  sponsorName?: string | null;
   membership: 'Monthly' | 'Day Pass' | 'Staff' | 'None';
 }
 export type ProfileFields = Record<string, string | boolean>;
@@ -124,4 +126,36 @@ export interface Overview {
   canCheckIn: boolean;
   reasons: string[];
   recentCheckIns: { id: number; location: string; checkedInAt: string; method?: 'nfc' | 'portal' }[];
+}
+/** An open facility visit. Staff reads may omit the building name. */
+export interface FacilityVisit {
+  id: number;
+  buildingId: number;
+  buildingName?: string;
+  checkedInAt: string;
+  sponsorId: number | null;
+}
+/** GET /me/supervision and GET /admin/users/:id/supervision. */
+export interface SupervisionSummary {
+  isMinor: boolean;
+  marker: 'Under 18' | null;
+  sponsor: { id: number; name: string; revision: number; email?: string } | null;
+  visit: FacilityVisit | null;
+  /** Adults asking this minor to accept them as sponsor (own summary only). */
+  pendingRequests?: SponsorRequest[];
+}
+export interface SponsorRequest {
+  id: number;
+  adultName: string;
+  createdAt: string;
+}
+/** GET /me/minors: minors this adult sponsors and requests awaiting their answer. */
+export interface SupervisedMinors {
+  minors: { id: number; name: string; visit: { buildingName: string; checkedInAt: string } | null }[];
+  requests: MinorLinkRequest[];
+}
+export interface MinorLinkRequest {
+  id: number;
+  minorName: string;
+  createdAt: string;
 }

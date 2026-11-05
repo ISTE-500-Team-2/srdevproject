@@ -10,6 +10,8 @@ export interface UserView {
   roles: string[];
   primaryRole?: string;
   isStudent?: boolean;
+  isMinor?: boolean;
+  sponsorName?: string | null;
   status: string;
   accessStatus: "active" | "suspended" | "revoked";
   membership: "Monthly" | "Day Pass" | "Staff" | "None";

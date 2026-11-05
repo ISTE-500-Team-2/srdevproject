@@ -31,8 +31,8 @@ export function IssueAccess({
     : localInput();
   return (
     <ActionForm
-      title="Issue membership or day pass"
-      submitLabel="Issue access"
+      title="Record external payment or waive payment"
+      submitLabel="Record payment and issue access"
       disabled={disabled}
       onSubmit={async (f) => {
         if (!selected)
@@ -98,14 +98,13 @@ export function IssueAccess({
           defaultValue={zonedDay(timeZone)}
         />
       ) : null}
-      <Field label="Initial payment record" name="paymentStatus">
+      <Field label="Payment received or waived" name="paymentStatus">
         <select name="paymentStatus">
-          <option value="pending">Pending</option>
           <option value="paid">Paid externally</option>
           <option value="waived">Waived (zero amount)</option>
         </select>
       </Field>
-      <PaymentMethod />
+      <PaymentMethod value="cash" />
       <Field
         label="External receipt/reference (no card details)"
         name="reference"
@@ -114,8 +113,8 @@ export function IssueAccess({
       />
       <ReasonField />
       <p>
-        This grants dated access and records the plan price. It does not collect
-        payment or bypass signed-policy requirements.
+        Use this only for payment already collected outside this app or an approved
+        waiver. It issues dated access without charging Stripe. Required waivers and training still apply.
       </p>
     </ActionForm>
   );

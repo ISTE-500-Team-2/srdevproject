@@ -140,7 +140,7 @@ export function issueInput(body: Record<string, unknown>): IssueInput {
     );
   const paymentStatus = oneOf(
     body.paymentStatus,
-    ["pending", "paid", "waived"] as const,
+    ["paid", "waived"] as const,
     "Payment record",
   );
   const method = paymentMethod(body.method);

@@ -64,8 +64,8 @@ test("failed identical access submissions retain their request id across rerende
   expect(first).toMatchObject({
     planId: 7,
     validDate: null,
-    paymentStatus: "pending",
-    method: "unspecified",
+    paymentStatus: "paid",
+    method: "cash",
     reference: "",
     reason: "Approved access",
   });

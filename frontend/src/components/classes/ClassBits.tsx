@@ -1,5 +1,5 @@
 import { GraduationCap } from "lucide-react";
-import { classImage, dateParts, seatText, seatTone, seatsLeft } from "./classData";
+import { classImage, dateParts, seatText, seatTone, seatsLeft, type ClassPhoto } from "./classData";
 
 export function DateRail({ value, faded = false }: { value: string; faded?: boolean }) {
   const { month, day, weekday } = dateParts(value);
@@ -44,8 +44,12 @@ export function SeatMeter({
   );
 }
 
-export function ClassThumb({ certification }: { certification: string }) {
-  const image = classImage(certification);
+/**
+ * Photo tile for a class. Pass a `photo` to show a class or workshop image;
+ * with only a certification it falls back to the graduation-cap tile.
+ */
+export function ClassThumb({ certification, photo }: { certification: string; photo?: ClassPhoto }) {
+  const image = photo ?? classImage(certification);
   if (!image)
     return (
       <span className="class-thumb class-thumb--icon" aria-hidden="true">

@@ -1,3 +1,4 @@
+import { MinorSupervision } from "../minorSupervision.js";
 import type { Database } from "../db.js";
 import { AppError } from "../domain.js";
 import { EligibilityModel } from "../models/EligibilityModel.js";
@@ -11,7 +12,7 @@ export interface AccessTarget {
 
 export class AccessService {
   readonly eligibility: EligibilityModel;
-  constructor(private db: Database, timeZone: string) {
+  constructor(private db: Database, private timeZone: string) {
     this.eligibility = new EligibilityModel(db,timeZone);
   }
 
@@ -78,6 +79,7 @@ export class AccessService {
       if (building.status !== 'available') throw new AppError(403,'RESOURCE_UNAVAILABLE','This building is unavailable.');
       location ??= building.name;
     }
+    const sponsor = await new MinorSupervision(this.db,this.timeZone).requireSponsor(userId,buildingId);
     const reservation = (await this.db.query<{
       id: number; buildingId: number; buildingName: string; endsAt: Date;
     }>(`SELECT r.reservationid AS id,b.buildingid AS "buildingId",b.name AS "buildingName",
@@ -93,9 +95,11 @@ export class AccessService {
         ORDER BY r.starttime,r.reservationid LIMIT 1 FOR SHARE OF r`,
       [userId,at,buildingId ?? null,target.roomId ?? null,target.equipmentId ?? null])).rows[0];
     if (!reservation) throw new AppError(403,'RESERVATION_REQUIRED','A current confirmed reservation is required for this access.');
+    if (sponsor && !(await this.db.query('SELECT reservation_id FROM app_minor_booking WHERE reservation_id=$1 AND adult_id=$2',[reservation.id,sponsor.id])).rowCount)
+      throw new AppError(403,'SPONSOR_BOOKING_REQUIRED','Staff must link this booking to your current sponsoring adult.');
     return {
       reservationId: reservation.id, buildingId: reservation.buildingId,
-      location: location ?? reservation.buildingName, endsAt: reservation.endsAt, entitlement,
+      location: location ?? reservation.buildingName, endsAt: reservation.endsAt, entitlement, sponsorId:sponsor?.id ?? null,
     };
   }
 }

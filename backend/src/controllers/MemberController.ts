@@ -81,7 +81,7 @@ export class MemberController {
       await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR UPDATE', [
         userId,
       ]);
-      const model = new UserModel(db),
+      const model = new UserModel(db, this.timeZone),
         before = await model.profile(userId);
       const updated = await model.updateProfile(
         authState(res).user.id,
@@ -234,7 +234,13 @@ export class MemberController {
     });
   };
   checkIn = async (req: Request, res: Response) => {
-    const userId = authState(res).user.id;
+    const { user, actor } = authState(res);
+    // A check-in starts a facility visit, which is what lets a sponsored minor in.
+    // Only staff at the desk with the member's account open may record one here;
+    // everyone, staff included, checks themselves in by tapping an NFC tag.
+    if (!actor || actor.id === user.id || !actor.roles.some((role) => role === "staff" || role === "admin"))
+      throw new AppError(403, "CHECK_IN_AT_READER", "Tap your NFC tag at the door, or ask staff to check you in.");
+    const userId = user.id;
     const supplied = (['buildingId','roomId','equipmentId'] as const).filter(key => req.body[key] != null);
     if (supplied.length > 1) throw new AppError(400,'INVALID_INPUT','Choose one building, room, or equipment target.');
     const target: AccessTarget = {};
@@ -242,7 +248,7 @@ export class MemberController {
     const record = await transaction(this.pool, async (db) => {
       const access = new AccessService(db, this.timeZone);
       const grant = await access.reservationForAccess(userId,target);
-      const checkIn = await new MemberModel(db).createCheckIn(userId,grant.location,target.roomId ?? null,
+      const checkIn = await new MemberModel(db, this.timeZone).createCheckIn(userId,grant.location,target.roomId ?? null,
         grant.buildingId,target.equipmentId ?? null,grant.reservationId);
       await new StaffModel(db, this.timeZone).audit(
         userId,

@@ -418,3 +418,10 @@ test('late canonical refund failure corrects refunded state and retry reconciles
  await svc.webhook(old);assert.equal(await state(),'refunded');
  assert.equal((await pool.query("SELECT * FROM app_notification_outbox WHERE dedupe_key=$1 AND status='pending'",[`studio-refund:${r.id}:re_reconciled`])).rowCount,1);
 });
+test("a rental whose month is over can't be cancelled or trigger cancellation notices", async () => {
+ const r=(await pool.query(`INSERT INTO app_studio_rental(studio_id,userid,starts_on,ends_on,amount_cents,cancellation_policy,status,payment_method,payment_status,request_key,hold_until) VALUES(7,$1,'2020-01-01','2020-02-01',20000,'full_before_start','confirmed','manual','paid',$2,now()) RETURNING *`,[member,randomUUID()])).rows[0];
+ await assert.rejects(service.cancel(member,r.id),{code:'RENTAL_ENDED'});
+ const after=(await pool.query("SELECT status,payment_status,refund_cents FROM app_studio_rental WHERE id=$1",[r.id])).rows[0];
+ assert.deepEqual(after,{status:'confirmed',payment_status:'paid',refund_cents:0});
+ assert.equal((await pool.query("SELECT count(*)::int n FROM app_notification_outbox WHERE dedupe_key LIKE $1",[`studio:${r.id}:%`])).rows[0].n,0);
+});

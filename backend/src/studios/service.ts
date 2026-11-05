@@ -1,3 +1,4 @@
+import { MinorSupervision } from "../minorSupervision.js";
 import type { Pool } from "pg";
 import type Stripe from "stripe";
 import { transaction, type Database } from "../db.js";
@@ -24,7 +25,7 @@ export class StudioService {
   }
   async actor(db: Database, id: number, staff = false, admin = false) {
     await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR SHARE', [id]);
-    const user = await new UserModel(db).findById(id);
+    const user = await new UserModel(db, this.zone).findById(id);
     if (!user || user.status !== "active" || user.accessStatus !== "active")
       throw new AppError(
         403,
@@ -223,6 +224,9 @@ export class StudioService {
             );
           return old;
         }
+        // After the replay lookup: retrying a created rental must not need the adult still present.
+        // Studios are all in the main building (1) until studios carry their own building.
+        await new MinorSupervision(db,this.zone).requireSponsor(userid,1);
         const studio = (
           await db.query("SELECT * FROM app_studio WHERE id=$1 FOR UPDATE", [
             studioId,
@@ -242,7 +246,7 @@ export class StudioService {
           throw new AppError(
             409,
             "PRICE_CHANGED",
-            "The studio rate or policy changed. Refresh and review it before booking.",
+            "The studio rate or terms just changed. Review the current price, then book again.",
           );
         const row = (
           await db.query(
@@ -260,6 +264,7 @@ export class StudioService {
             ],
           )
         ).rows[0];
+        await new MinorSupervision(db,this.zone).recordBooking(userid,row.id,true);
         await this.event(db, row, userid, "rental_held");
         return row;
       });
@@ -388,6 +393,14 @@ export class StudioService {
       ).rows[0];
       r = this.dates(r);
       if (r.status === "cancelled" || r.status === "expired") return r;
+      // End dates are exclusive: from ends_on the month is over, so there is
+      // nothing left to free up or refund.
+      if (this.today() >= r.ends_on)
+        throw new AppError(
+          409,
+          "RENTAL_ENDED",
+          "This rental has already ended, so it can't be cancelled.",
+        );
       const refund =
         r.payment_status === "paid" ? refundDue(r, this.today()) : 0;
       const result = (

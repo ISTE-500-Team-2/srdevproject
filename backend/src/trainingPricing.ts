@@ -13,9 +13,10 @@ export function trainingFeeCoveredSql(user: string, cert: string) {
 }
 
 export async function enrollTrainingPayment(db: Database, tz: string, userId: number,
-  course: { id: number; certification_id: number; title: string },
+  course: { id: number; certification_id: number | null; title: string },
   before: { payment_id: number | null; training_fee_cents: number | null } | undefined,
   expectedFee: unknown) {
+  if (course.certification_id === null) return { fee: 0, paymentId: null };
   const staff = new StaffModel(db, tz);
   const payment = before?.payment_id ? await staff.payment(before.payment_id) : null;
   // Rejoining a paid registration must not create another charge.

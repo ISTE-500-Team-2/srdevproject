@@ -2670,10 +2670,6 @@ button:disabled { cursor: not-allowed; opacity: .6; }
   font-size: var(--text-base-sm);
 }
 
-.site-slide-commit {
-  width: 100%;
-}
-
 .check-in__fallback {
   margin: auto 0 8px;
   padding-top: 14px;
@@ -2765,15 +2761,6 @@ button:disabled { cursor: not-allowed; opacity: .6; }
   color: var(--ink-soft);
 }
 
-.site-slide-commit .slide-commit {
-  font-weight: 600;
-}
-
-/* Centre the label in the track to the right of the knob, not under it. */
-.site-slide-commit .slide-commit__label {
-  padding-left: 48px;
-}
-
 /* The three cards take the full width; the access card sits under them as
    a band, details on the left and the badge on the right. */
 .member-summary {
@@ -2807,6 +2794,42 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 
 .access-band.membership-card a {
   position: static;
+}
+
+/* Tier, Under 18 and sponsor-request actions sit side by side and wrap. */
+.access-band__pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.access-band__info p b {
+  color: #fff;
+  font-weight: 600;
+}
+
+.access-band__request {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+  padding-top: 12px;
+}
+
+/* Same light-on-espresso buttons as the profile help band. */
+.access-band .button {
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.access-band .form-error {
+  margin: 0;
+  color: var(--orange-soft);
+}
+
+.member-summary .summary-card .button {
+  width: 100%;
 }
 
 .member-badge {
@@ -3055,11 +3078,11 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 .equipment-booking-step { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font: 600 .8rem var(--font-body, 'Barlow', sans-serif); text-transform: uppercase; letter-spacing: .08em; }
 .equipment-booking-step > span { display: grid; place-items: center; width: 21px; height: 21px; border-radius: 50%; background: var(--ink); color: white; }
 .equipment-machine-picker { border: 0; padding: 0; margin: 0; min-width: 0; }
-.equipment-machine-choice { display: flex; align-items: flex-start; gap: 12px; border: 1px solid #dfd4cc; border-radius: 10px; padding: 12px 14px; margin-bottom: 7px; cursor: pointer; background: white; }
-.equipment-machine-choice:has(input:checked) { border-color: var(--orange); background: #fff8ef; box-shadow: inset 3px 0 var(--orange); }
-.equipment-machine-choice input { margin-top: 5px; accent-color: var(--bronze); }
-.equipment-machine-choice > span { display: grid; gap: 3px; min-width: 0; font-size: .9rem; }
-.equipment-machine-choice small { color: var(--bronze); font-size: .8rem; }
+.equipment-machine-choice, .choice-card { display: flex; align-items: flex-start; gap: 12px; border: 1px solid #dfd4cc; border-radius: 10px; padding: 12px 14px; margin-bottom: 7px; cursor: pointer; background: white; }
+.equipment-machine-choice:has(input:checked), .choice-card:has(input:checked) { border-color: var(--orange); background: #fff8ef; box-shadow: inset 3px 0 var(--orange); }
+.equipment-machine-choice input, .choice-card input { margin-top: 5px; accent-color: var(--bronze); }
+.equipment-machine-choice > span, .choice-card > span { display: grid; gap: 3px; min-width: 0; font-size: .9rem; }
+.equipment-machine-choice small, .choice-card small { color: var(--bronze); font-size: .8rem; }
 .equipment-machine-training { display: flex; align-items: center; gap: 4px; }
 .equipment-machine-training svg { width: 14px; height: 14px; }
 @media (max-width: 600px) { .equipment-booking-layout { grid-template-columns: 1fr; } }

@@ -3,13 +3,15 @@ import { timeOnly } from "../../lib/display";
 export type ClassRecord = {
   id: number;
   title: string;
-  certificationId: number;
+  certificationId: number | null;
   certificationName: string;
   trainingMinutes?: number;
   trainingFeeCents?: number | null;
   trainingFeeCovered?: boolean;
   myTrainingFeeCents?: number | null;
   myPaymentStatus?: string | null;
+  description?: string;
+  catalogId?: number | null;
   instructorId: number;
   instructor: string;
   capacity: number;
@@ -28,9 +30,13 @@ export type Room = { id: number; name: string; location: string; capacity: numbe
 export type Course = { id: number; name: string; validityDays: number | null; trainingMinutes?: number; trainingFeeCents?: number | null };
 /** Attendance choices a manager has made but not saved yet, per class. */
 export type AttendanceDraft = { statuses: Record<number, "attended" | "no_show">; note: string };
+/** A creative workshop the shop runs; staff schedule sessions from it. */
+export type WorkshopTemplate = { id: number; title: string; description: string; capacity: number };
 /** Values used to open the schedule form, e.g. when scheduling a class again. */
 export type ScheduleSeed = Partial<{
   title: string;
+  catalogId: number;
+  description: string;
   certificationId: number;
   instructorId: number;
   roomId: number;
@@ -40,6 +46,7 @@ export type ScheduleSeed = Partial<{
 }>;
 
 export function registrationPrice(c: ClassRecord, certified: boolean) {
+  if (isWorkshop(c)) return { trainingFee: 0 };
   const settled = c.myStatus === 'cancelled' && ['paid', 'waived'].includes(c.myPaymentStatus ?? '');
   const trainingFee = settled ? c.myTrainingFeeCents ?? 0
     : (c.trainingFeeCovered ?? certified) ? 0 : c.trainingFeeCents ?? null;
@@ -72,19 +79,45 @@ export function seatText(c: { capacity: number; enrolled: number }) {
 export const seatTone = (c: { capacity: number; enrolled: number }) =>
   seatsLeft(c) === 0 ? "full" : seatsLeft(c) <= 2 ? "hot" : "open";
 
-/** Photos for classes, matched on the certification name. Cut-outs sit on a tinted tile. */
-export function classImage(certification: string): { src: string; cutout: boolean } | null {
+export type ClassPhoto = { src: string; cutout: boolean };
+/** Workshops are tagged with this name; the API returns it when a class has no certification. */
+export const WORKSHOP_LABEL = "Creative workshop";
+export const isWorkshop = (c: { certificationId: number | null }) => c.certificationId === null;
+
+/** Photos for training, matched on the certification name. Cut-outs sit on a tinted tile. */
+export function classImage(certification: string): ClassPhoto | null {
   const name = certification.toLowerCase();
   if (name.includes("laser")) return { src: "/assets/laser-class.webp", cutout: false };
   if (name.includes("print")) return { src: "/assets/printing-class.webp", cutout: false };
   if (name.includes("cnc")) return { src: "/assets/cnc-machine.webp", cutout: true };
+  if (name.includes("metal")) return { src: "/assets/metal-lathe-class.webp", cutout: false };
   if (name.includes("wood") || name.includes("lathe") || name.includes("turning"))
     return { src: "/assets/wood-lathe.webp", cutout: true };
   return null;
 }
 
+/** Photos for the creative workshop catalog, matched on the workshop title. */
+export function workshopImage(title: string): ClassPhoto {
+  const name = title.toLowerCase();
+  if (name.includes("charcuterie")) return { src: "/assets/resin-charcuterie.webp", cutout: false };
+  if (name.includes("glass") || name.includes("frame")) return { src: "/assets/resin-glass-art.webp", cutout: false };
+  if (name.includes("nightlight") || name.includes("floral") || name.includes("flower"))
+    return { src: "/assets/resin-nightlight.webp", cutout: false };
+  return { src: "/assets/resin-platter.webp", cutout: false };
+}
+
+/**
+ * Every class card gets a photo: workshops by their catalog title (staff may rename a session),
+ * training by certification, else a shop photo.
+ */
+export function classPhoto(
+  c: Pick<ClassRecord, "title" | "certificationId" | "certificationName" | "catalogId">,
+  workshops: WorkshopTemplate[] = [],
+): ClassPhoto {
+  if (isWorkshop(c)) return workshopImage(workshops.find((w) => w.id === c.catalogId)?.title ?? c.title);
+  return classImage(c.certificationName) ?? { src: "/assets/printing-class.webp", cutout: false };
+}
+
 export function enrollmentLabel(status: string) {
-  return (
-    { enrolled: "Registered", attended: "Attended", no_show: "No show", cancelled: "Withdrew" }[status] ?? status
-  );
+  return { enrolled: "Registered", attended: "Attended", no_show: "No show", cancelled: "Withdrew" }[status] ?? status;
 }

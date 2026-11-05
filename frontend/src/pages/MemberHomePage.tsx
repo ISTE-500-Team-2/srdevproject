@@ -2,19 +2,29 @@ import { dateTime, shortDate, timeOnly } from "../lib/display";
 import {
   ArrowUpRight,
   CalendarDays,
+  Check,
   ChevronRight,
   FileCheck2,
   LogIn,
+  LogOut,
+  X,
 } from 'lucide-react';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api, errorMessage } from '../lib/api';
 import { useApi } from '../lib/useApi';
-import type { Overview, Reservation, Waiver } from '../lib/contracts';
+import type {
+  Overview,
+  Reservation,
+  SponsorRequest,
+  SupervisedMinors,
+  SupervisionSummary,
+  Waiver,
+} from '../lib/contracts';
 import { Toast } from '../components/Toast';
 import { MemberBadge } from '../components/MemberBadge';
-import { SiteSlideCommit } from '../components/SiteSlideCommit';
+
 // GSAP is only needed for the greeting, so it loads with it.
 const SplitText = lazy(() => import('../components/reactbits/SplitText'));
 import StatusMark from '../components/reactbits/StatusMark';
@@ -26,14 +36,36 @@ function useFirstVisit(key: string) {
   return first.current;
 }
 
+const names = (list: string[]) =>
+  new Intl.ListFormat('en', { style: 'long', type: 'conjunction' }).format(list);
+const firstName = (name: string) => name.split(' ')[0] ?? name;
+
 export function MemberHomePage() {
-  const { user, notification, clearNotification } = useAuth();
+  const { user, notification, clearNotification, refresh } = useAuth();
   const overview = useApi<Overview>('/me/overview');
   const waivers = useApi<Waiver[]>('/me/waivers');
   const bookings = useApi<Reservation[]>('/reservations');
-  const [error, setError] = useState('');
   const greet = useFirstVisit('collaboratory:greeted');
   const [toast, setToast] = useState<string | null>(null);
+  // Visit and sponsor state feed the Check-in card and access band. If the
+  // request fails, both simply show their usual state.
+  const supervision = useApi<SupervisionSummary>('/me/supervision', {
+    refreshInterval: 15000,
+    retainOnReload: true,
+  });
+  const isMinor = supervision.data?.isMinor ?? user?.isMinor ?? false;
+  const minors = useApi<SupervisedMinors>(user?.isMinor === false ? '/me/minors' : null, {
+    refreshInterval: 15000,
+    retainOnReload: true,
+  });
+  const visit = supervision.data?.visit ?? null;
+  const sponsorName = supervision.data?.sponsor?.name ?? user?.sponsorName ?? null;
+  const linked = minors.data?.minors ?? [];
+  const supervising = linked.filter((m) => m.visit);
+  const requests = isMinor ? (supervision.data?.pendingRequests ?? []) : [];
+  const [busy, setBusy] = useState<string | null>(null);
+  const [visitError, setVisitError] = useState('');
+  const [requestError, setRequestError] = useState('');
   const summary = overview.data;
   const pending = waivers.data?.filter((w) => w.scope !== 'equipment' && !w.signed) ?? [];
   const [now] = useState(() => Date.now());
@@ -58,22 +90,37 @@ export function MemberHomePage() {
     : summary?.entitlement.dayPass
       ? 'Day pass active'
       : 'No active access';
-  // Returns the request so the slider can show its own pending, done and
-  // failed states; a rejection shakes it back and the reason shows below.
-  const checkIn = async () => {
-    setError('');
+  const checkOut = async () => {
+    setBusy('check-out');
+    setVisitError('');
     try {
-      await api('/me/check-ins', {
-        method: 'POST',
-        body: {},
-      });
+      await api('/me/visit/check-out', { method: 'POST', body: {} });
+      supervision.reload();
+      minors.reload();
+      overview.reload();
+      setToast('You’re checked out. See you next time.');
     } catch (err) {
-      setError(errorMessage(err));
-      throw err;
+      setVisitError(errorMessage(err));
+    } finally {
+      setBusy(null);
     }
-    overview.reload();
-    bookings.reload();
-    setToast('Check-in saved. Welcome to the Collaboratory!');
+  };
+  const answer = async (request: SponsorRequest, choice: 'accept' | 'decline') => {
+    setBusy(`${choice}-${request.id}`);
+    setRequestError('');
+    try {
+      await api(`/me/sponsor-requests/${request.id}/${choice}`, { method: 'POST', body: {} });
+      supervision.reload();
+      if (choice === 'accept') {
+        // The session carries the sponsor name the badge falls back to.
+        void refresh();
+        setToast(`${request.adultName} is now your sponsoring adult.`);
+      } else setToast(`Request from ${request.adultName} declined.`);
+    } catch (err) {
+      setRequestError(errorMessage(err));
+    } finally {
+      setBusy(null);
+    }
   };
   useEffect(() => {
     if (!notification) return;
@@ -105,11 +152,6 @@ export function MemberHomePage() {
       {overview.error ? (
         <p role="alert" className="form-error">
           {overview.error} <button onClick={overview.reload}>Retry</button>
-        </p>
-      ) : null}
-      {error ? (
-        <p role="alert" className="form-error">
-          {error}
         </p>
       ) : null}
       {summary ? (
@@ -190,20 +232,34 @@ export function MemberHomePage() {
               </div>
               <p className="check-in__status">
                 <StatusMark
-                  status={summary.canCheckIn ? 'done' : 'failed'}
+                  status={visit || summary.canCheckIn ? 'done' : 'failed'}
                   strike={false}
                   size={20}
                   color="#a86008"
                   doneColor="#1f6b32"
                   errorColor="#b73a2e"
                   label={
-                    summary.canCheckIn
-                      ? 'You can check in.'
-                      : summary.reasons.map((r) => r.replace(/\.$/, '')).join('. ') + '.'
+                    visit
+                      ? isMinor && sponsorName
+                        ? `You’re checked in with ${sponsorName}.`
+                        : supervising.length
+                          ? `You’re checked in, supervising ${names(supervising.map((m) => m.name))}.`
+                          : 'You’re checked in.'
+                      : summary.canCheckIn
+                        ? 'You can check in.'
+                        : summary.reasons.map((r) => r.replace(/\.$/, '')).join('. ') + '.'
                   }
                 />
               </p>
-              {last ? (
+              {visit ? (
+                <p className="check-in__last">
+                  <span>Checked in</span>
+                  <b>
+                    Since {timeOnly(visit.checkedInAt)}
+                    {visit.buildingName ? ` · ${visit.buildingName}` : ''}
+                  </b>
+                </p>
+              ) : last ? (
                 <p className="check-in__last">
                   <span>Last check-in</span>
                   <b>
@@ -212,9 +268,9 @@ export function MemberHomePage() {
                   <small>{last.method === 'nfc' ? 'With your NFC tag' : 'From this site'}</small>
                 </p>
               ) : summary.canCheckIn ? (
-                <p className="summary-card__note">No check-ins yet. Tap your NFC tag at the door.</p>
+                <p className="summary-card__note">No check-ins yet.</p>
               ) : null}
-              {summary.recentCheckIns.length > 1 ? (
+              {!visit && summary.recentCheckIns.length > 1 ? (
                 <details className="check-in__history">
                   <summary>Earlier check-ins</summary>
                   <ul>
@@ -226,18 +282,36 @@ export function MemberHomePage() {
                   </ul>
                 </details>
               ) : null}
-              {summary.canCheckIn ? (
+              {visit ? (
                 <>
-                  <p className="check-in__fallback">Forgot your tag?</p>
-                  <SiteSlideCommit
-                    label="Slide to check in"
-                    doneLabel="Checked in"
-                    errorLabel="Couldn't check in"
-                    onConfirm={checkIn}
-                  />
+                  <p className="check-in__fallback">
+                    {isMinor && sponsorName
+                      ? `Your visit ends when ${firstName(sponsorName)} checks out.`
+                      : supervising.length === 1
+                        ? `Checking out also ends ${firstName(supervising[0]!.name)}’s visit.`
+                        : supervising.length
+                          ? `Checking out also ends visits for ${names(supervising.map((m) => firstName(m.name)))}.`
+                          : 'Check out when you leave so staff know who’s here.'}
+                  </p>
+                  <button
+                    type="button"
+                    className="button button--quiet"
+                    disabled={busy !== null}
+                    onClick={() => void checkOut()}
+                  >
+                    <LogOut aria-hidden="true" /> {busy === 'check-out' ? 'Checking out…' : 'Check out'}
+                  </button>
+                  {visitError ? (
+                    <p role="alert" className="form-error">
+                      {visitError}
+                    </p>
+                  ) : null}
                 </>
+              ) : summary.canCheckIn ? (
+                // Being eligible is not presence: the reader or staff check people in.
+                <p className="check-in__fallback">Tap your NFC tag at the door. Forgot it? Ask staff.</p>
               ) : fix ? (
-                // A disabled slider is a dead end; point at what unblocks it.
+                // Blocked: point at what unblocks it.
                 <Link to={fix.to} className="summary-card__action">
                   <span>{fix.label}</span>
                   <ChevronRight aria-hidden="true" />
@@ -248,10 +322,63 @@ export function MemberHomePage() {
           <aside className="membership-card access-band">
             <div className="access-band__info">
               <div className="membership-card__heading">Your access</div>
-              <span className="membership-card__tier">{accessLabel}</span>
+              <div className="access-band__pills">
+                <span className="membership-card__tier">{accessLabel}</span>
+                {isMinor ? (
+                  <span className="status-pill status-pill--warn">
+                    {supervision.data?.marker ?? 'Under 18'}
+                  </span>
+                ) : null}
+              </div>
               {user ? (
                 <p>
                   {user.firstName} {user.lastName} · Member ID {String(user.id).padStart(6, '0')}
+                </p>
+              ) : null}
+              {isMinor ? (
+                sponsorName ? (
+                  <p>
+                    Sponsoring adult <b>{sponsorName}</b>
+                  </p>
+                ) : requests.length ? null : (
+                  <p>No sponsoring adult linked yet. A parent or guardian can send a request from their profile.</p>
+                )
+              ) : linked.length ? (
+                <p>
+                  Supervising <b>{names(linked.map((m) => m.name))}</b>
+                </p>
+              ) : null}
+              {requests.map((request) => (
+                <div key={request.id} className="access-band__request">
+                  <p>
+                    <b>{request.adultName}</b> asked to be your sponsoring adult. You’ll visit
+                    together and they check out for you both.
+                  </p>
+                  <div className="access-band__pills">
+                    <button
+                      type="button"
+                      className="button"
+                      disabled={busy !== null}
+                      onClick={() => void answer(request, 'accept')}
+                      aria-label={`Accept request from ${request.adultName}`}
+                    >
+                      <Check aria-hidden="true" /> {busy === `accept-${request.id}` ? 'Accepting…' : 'Accept'}
+                    </button>
+                    <button
+                      type="button"
+                      className="button"
+                      disabled={busy !== null}
+                      onClick={() => void answer(request, 'decline')}
+                      aria-label={`Decline request from ${request.adultName}`}
+                    >
+                      <X aria-hidden="true" /> {busy === `decline-${request.id}` ? 'Declining…' : 'Decline'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {requestError ? (
+                <p role="alert" className="form-error">
+                  {requestError}
                 </p>
               ) : null}
               <Link to="/membership">
@@ -260,6 +387,8 @@ export function MemberHomePage() {
             </div>
             {user ? (
               <MemberBadge
+                isMinor={isMinor}
+                sponsorName={sponsorName}
                 name={`${user.firstName} ${user.lastName}`}
                 access={accessLabel}
                 memberId={user.id}

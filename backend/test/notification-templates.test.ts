@@ -98,3 +98,42 @@ test('reset security mail uses a fragment link and never offers to suppress secu
   assert.throws(() => renderNotification('password_reset', { resetUrl: 'https://studio.example/reset-password?token=bad' }, context), /Invalid reset link/);
   assert.throws(() => renderNotification('password_reset', { resetUrl: 'javascript:bad' }, context), /Invalid reset link/);
 });
+
+test('mail supports dark mode with class-based overrides and a plated logo, keeping mobile padding and security actions',()=>{
+ const html=renderNotification('password_reset',{resetUrl:'https://studio.example/reset-password#'+'a'.repeat(43)},{...context,preferencesUrl:'https://studio.example/profile'}).htmlContent;
+ assert.match(html,/color-scheme" content="light dark"/);
+ assert.match(html,/@media\(prefers-color-scheme:dark\)\{\.em-bg\{/);
+ assert.match(html,/\[data-ogsb\] \.em-card\{background-color/);
+ assert.match(html,/\[data-ogsc\] \.em-ink\{color/);
+ assert.doesNotMatch(html,/\[style\*=/,'no attribute-substring selectors');
+ assert.match(html,/class="email-pad em-card em-line"/);
+ assert.match(html,/<td bgcolor="#2b1306" class="em-btn"/);
+ assert.match(html,/collaboratory-logo-email-plate\.png/);
+ assert.match(html,/\.email-outer-pad\{padding:16px 8px!important\}/);
+ assert.match(html,/Set a new password/);
+});
+test('turning off auto-renew sends an auto-renew confirmation',()=>{
+ const r=renderNotification('membership_cancelled',{membershipName:'Monthly',endsAt:'2026-12-02T05:00:00Z'},context);
+ assert.match(r.subject,/Auto-renew is off/);assert.match(r.textContent,/turned off automatic payments/);
+});
+test('sponsor requests name people by first name only and link to where the answer lives',()=>{
+ // Even if a caller slipped an email into the payload, only the approved first-name fields render.
+ const leaked={adultName:'Dana',minorName:'Emma',email:'dana.parent@example.com',adultEmail:'dana.parent@example.com'};
+ const asked=renderNotification('sponsor_request_received',leaked,context);
+ assert.match(asked.subject,/You have a sponsoring adult request/);
+ assert.match(asked.textContent,/^Dana asked to be your sponsoring adult/);
+ assert.match(asked.textContent,/accept or decline from your member home/);
+ assert.ok(asked.textContent.includes('Review request: https://studio.example/\n'));
+ const accepted=renderNotification('sponsor_request_accepted',leaked,context);
+ assert.match(accepted.textContent,/^Emma accepted your sponsor request/);
+ assert.ok(accepted.textContent.includes('View minors: https://studio.example/profile#minors'));
+ const declined=renderNotification('sponsor_request_declined',leaked,context);
+ assert.match(declined.textContent,/^Your sponsor request for Emma was declined/);
+ assert.match(declined.subject,/Your sponsor request was declined/);
+ for(const r of [asked,accepted,declined]){
+  assert.ok(!r.textContent.includes('dana.parent')&&!r.htmlContent.includes('dana.parent'),'no adult email');
+  assert.match(r.htmlContent,/class="email-pad em-card em-line"/);
+  assert.match(r.textContent,/opt out of all notifications/);
+ }
+ assert.match(renderNotification('sponsor_request_received',{},context).textContent,/^You have a sponsoring adult request/);
+});

@@ -1,14 +1,16 @@
+import { MinorSupervision } from "../minorSupervision.js";
 import type { Database } from '../db.js';
 
 export class MemberModel {
-  constructor(private db: Database) {}
+  constructor(private db: Database, private timeZone = "America/New_York") {}
   async certifications(userId: number) {
     return (
       await this.db.query(
         `SELECT c.certid AS id,c.name,uc.status,uc.trained_at AS "trainedAt",uc.approved_at AS "approvedAt",uc.approved_by AS "approvedBy",
       (SELECT firstname||' '||lastname FROM "user" WHERE userid=uc.approved_by) AS "instructorName",
       uc.revision,c.validity_days AS "validityDays",
-      COALESCE((SELECT json_agg(e.equipmentid) FROM equipment e WHERE e.certid=c.certid),'[]') AS "equipmentIds",uc.renewaldate AT TIME ZONE 'UTC' AS "renewalDate",
+      COALESCE((SELECT json_agg(e.equipmentid) FROM equipment e WHERE e.certid=c.certid
+        AND NOT EXISTS(SELECT 1 FROM app_equipment_retirement r WHERE r.equipment_id=e.equipmentid)),'[]') AS "equipmentIds",uc.renewaldate AT TIME ZONE 'UTC' AS "renewalDate",
       (uc.status='active' AND (uc.renewaldate IS NULL OR uc.renewaldate>=NOW() AT TIME ZONE 'UTC')
       AND (c.effectivedate IS NULL OR c.effectivedate<=NOW() AT TIME ZONE 'UTC')
       AND (c.enddate IS NULL OR c.enddate>=NOW() AT TIME ZONE 'UTC')) AS valid
@@ -58,6 +60,7 @@ export class MemberModel {
       RETURNING checkinid AS id,location,checkintime AT TIME ZONE 'UTC' AS "checkedInAt"`,
       [userId, roomId, location,buildingId,equipmentId,reservationId],
     );
+    await new MinorSupervision(this.db,this.timeZone).startVisit(userId,buildingId ?? 1);
     return rows[0]!;
   }
 }

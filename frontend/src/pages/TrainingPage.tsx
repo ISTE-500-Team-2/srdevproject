@@ -197,6 +197,9 @@ function TrainingWorkspace({
                   <span className={`cw-tag cw-tag--${n.compliant ? "green" : "grey"}`}>{n.compliant} certified</span>
                 ) : null}
               </div>
+              {c.trainingMinutes != null && c.trainingFeeCents != null ? (
+                <p className="cw-muted">{c.trainingMinutes} minutes · {cents(c.trainingFeeCents)} training fee</p>
+              ) : null}
               {c.validityDays ? (
                 <small className="cw-muted">Renew every {c.validityDays} days</small>
               ) : (

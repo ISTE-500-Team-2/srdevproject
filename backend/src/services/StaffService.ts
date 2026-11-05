@@ -43,7 +43,7 @@ export class StaffService {
       await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR SHARE', [
         actorId,
       ]);
-      const actor = await new UserModel(db).findById(actorId);
+      const actor = await new UserModel(db, this.timeZone).findById(actorId);
       const actorIsStaffOrAdmin = Boolean(
         actor &&
           Array.isArray(actor.roles) &&

@@ -156,6 +156,11 @@ export function StaffUsers() {
               {openError ? <p className="form-error" role="alert">{openError}</p> : null}
             </div>
           )}
+          {params.get("billing") === "returned" || params.get("pass") === "returned" ? (
+            <p role="status" className="form-notice">Returned from Stripe. Confirmed purchases appear in the memberships, passes and payment records below. Payment verification can take a moment.</p>
+          ) : params.get("billing") === "cancelled" || params.get("pass") === "cancelled" ? (
+            <p role="status" className="form-notice">Checkout cancelled. No access was issued by returning from checkout.</p>
+          ) : null}
           <UserDetail
             key={selected.id}
             id={selected.id}

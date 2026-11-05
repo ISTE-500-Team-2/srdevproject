@@ -217,3 +217,34 @@ test('concurrent correct legacy logins both succeed when only one bcrypt upgrade
     assert.deepEqual((await logins).map(response => response.status), [200, 200]);
   } finally { await blocker.query('ROLLBACK'); blocker.release(); await logins; }
 });
+
+test('admin reset requires admin and CSRF, queues and audits in account mode, and throttles repeats', async () => {
+  const target = await person('admin-reset');
+  const notifications = { apiKey: 'test', senderEmail: 'test@example.invalid', senderName: 'Test',
+    replyToEmail: 'test@example.invalid', postalAddress: 'Test', appOrigin: config.allowedOrigins[0]!, intervalMs: 60000 };
+  app = createApp(pool, { ...config, demoLogin: true, notifications });
+  const adminSession = (await request(app).post('/api/auth/demo').send({ role: 'admin' })).body.data;
+  const memberSession = (await request(app).post('/api/auth/login').send(target)).body.data;
+  const path = `/api/admin/users/${target.id}/password-reset`;
+  const post = (session: typeof adminSession, csrf = true) => {
+    const req = request(app).post(path).set('Authorization', `Bearer ${session.accessToken}`);
+    if (csrf) req.set('X-CSRF-Token', session.csrfToken);
+    return req.send({});
+  };
+  assert.equal((await request(app).post(path).send({})).status, 401);
+  assert.equal((await post(memberSession)).status, 403);
+  assert.equal((await post(adminSession, false)).status, 403);
+  const opened = await request(app).post('/api/admin/account-mode')
+    .set('Authorization', `Bearer ${adminSession.accessToken}`).set('X-CSRF-Token', adminSession.csrfToken).send({ userId: target.id });
+  assert.equal(opened.status, 200);
+  assert.equal((await post(adminSession)).status, 202);
+  const token = await tokenFor(target.id);
+  assert.equal((await check(token)).status, 204);
+  assert.equal((await post(adminSession)).status, 429);
+  const audit = (await pool.query("SELECT actor_id,subject_id FROM app_staff_audit WHERE action='user.password_reset_requested' AND subject_id=$1", [target.id])).rows;
+  assert.deepEqual(audit, [{ actor_id: adminSession.user.id, subject_id: target.id }]);
+  assert.equal((await confirm(token)).status, 204);
+  app = createApp(pool, { ...config, demoLogin: true });
+  assert.equal((await post(adminSession)).status, 503);
+  assert.equal((await pool.query('SELECT 1 FROM app_password_reset WHERE userid=$1', [target.id])).rowCount, 0);
+});

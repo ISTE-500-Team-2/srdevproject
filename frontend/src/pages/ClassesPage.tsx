@@ -22,6 +22,7 @@ import {
   type ClassRecord,
   type RosterPerson,
   type ScheduleSeed,
+  type WorkshopTemplate,
 } from "../components/classes/classData";
 import "./classes.css";
 
@@ -73,6 +74,8 @@ export function ClassesPage() {
   // entitlement check the enroll endpoint applies.
   const overview = useApi<{ entitlement: { membership: unknown; dayPass: unknown } }>(user && !manager ? "/me/overview" : null);
   const certifications = useApi<Certification[]>(user && !manager ? "/me/certifications" : null);
+  // Staff pick workshops in the Schedule class dialog; members see unscheduled ones as cards.
+  const workshops = useApi<WorkshopTemplate[]>(user && !manager ? "/classes/catalog" : null);
 
   const [refreshToken, setRefreshToken] = useState(0);
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -147,7 +150,7 @@ export function ClassesPage() {
     setBusyId(c.id);
     setRowErrors(({ [c.id]: _, ...rest }) => rest);
     try {
-      const price = registrationPrice(c, certified.has(c.certificationId));
+      const price = registrationPrice(c, c.certificationId !== null && certified.has(c.certificationId));
       await api(`/classes/${c.id}/${action}`, { method: "POST", body: action === 'enroll'
         ? { expectedTrainingFeeCents: price.trainingFee } : {} });
       setToast(
@@ -196,10 +199,12 @@ export function ClassesPage() {
             onScheduleAgain={(c) =>
               setScheduleSeed({
                 title: c.title,
-                certificationId: c.certificationId,
+                certificationId: c.certificationId ?? undefined,
+                catalogId: c.catalogId ?? undefined,
+                description: c.description,
                 instructorId: c.instructorId,
                 roomId: c.roomId,
-                capacity: c.capacity,
+                capacity: Math.min(c.capacity, 15),
                 start: hhmm(c.startsAt),
                 end: hhmm(c.endsAt),
               })
@@ -215,6 +220,7 @@ export function ClassesPage() {
             busyId={busyId}
             errors={rowErrors}
             teaching={teaching}
+            workshops={workshops.data ?? []}
             onRegister={(c) => void act(c, "enroll")}
             onWithdraw={(c) => void act(c, "withdraw")}
             onDetails={(c) => setDetailId(c.id)}
@@ -226,8 +232,9 @@ export function ClassesPage() {
       {detail ? (
         <ClassDetail
           c={detail}
+          workshops={workshops.data ?? []}
           eligibility={eligibility}
-          certified={certified.has(detail.certificationId)}
+          certified={detail.certificationId !== null && certified.has(detail.certificationId)}
           busy={busyId === detail.id}
           error={rowErrors[detail.id]}
           refreshToken={refreshToken}

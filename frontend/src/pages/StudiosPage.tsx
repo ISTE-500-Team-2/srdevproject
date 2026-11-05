@@ -27,8 +27,15 @@ import {
 import "./studios.css";
 
 const ACTIVE = ["pending", "confirmed"];
+const clock = (iso: string) =>
+  new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+/** Holds and bookings that still matter; a finished month is history, not something to cancel. */
+const current = (r: Rental, today: string) =>
+  ACTIVE.includes(r.status) && dateOnly(r.ends_on) > today;
 
-function rentalStatus(r: Rental) {
+function rentalStatus(r: Rental, today: string) {
+  if (r.status === "confirmed" && dateOnly(r.ends_on) <= today)
+    return { label: "Ended", tone: "neutral" };
   if (r.status === "confirmed") return { label: "Confirmed", tone: "ok" };
   if (r.status === "pending") return { label: "Awaiting payment", tone: "warn" };
   if (r.status === "expired") return { label: "Hold expired", tone: "neutral" };
@@ -36,10 +43,10 @@ function rentalStatus(r: Rental) {
 }
 
 function paymentLine(r: Rental) {
-  const how = r.payment_method === "stripe_test" ? "card" : "front desk";
   if (r.status === "pending" && r.payment_method === "manual")
-    return `Pay at the front desk by ${new Date(r.hold_until).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`;
-  if (r.status === "pending") return "Card payment not finished yet.";
+    return `Pay at the front desk by ${clock(r.hold_until)} or the hold is released.`;
+  if (r.status === "pending")
+    return `Card payment not finished. Pay by ${clock(r.hold_until)} or the hold is released.`;
   if (r.status === "expired") return "The hold ran out before payment.";
   if (r.refund_cents > 0) {
     const state =
@@ -50,7 +57,8 @@ function paymentLine(r: Rental) {
           : "refund in progress";
     return `${money(r.refund_cents)} ${state} to your original payment method.`;
   }
-  return r.payment_status === "paid" ? `Paid at the ${how}.` : "";
+  if (r.payment_status !== "paid") return "";
+  return r.payment_method === "stripe_test" ? "Paid by card." : "Paid at the front desk.";
 }
 
 export function StudiosPage() {
@@ -62,7 +70,8 @@ export function StudiosPage() {
     [zone, setZone] = useState("America/New_York"),
     [loaded, setLoaded] = useState(false);
   const [size, setSize] = useState<string | null>(null),
-    [held, setHeld] = useState<{ name: string; holdUntil: string } | null>(null),
+    [held, setHeld] = useState<Rental | null>(null),
+    [loadError, setLoadError] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [message, setMessage] = useState(""),
@@ -89,18 +98,22 @@ export function StudiosPage() {
     setZone(data.timeZone);
     setMine(rentals);
     setLoaded(true);
+    setLoadError("");
   }
+  // A failed load keeps retrying on the same schedule as live updates, so
+  // members never need a refresh button to recover.
+  const load = () => refresh().catch((e) => setLoadError(errorMessage(e)));
   useEffect(() => {
-    void refresh().catch((e) => setError(errorMessage(e)));
+    void load();
   }, []);
   // Holds, payments and availability change outside this page (front desk,
   // card checkout, other members), so keep it current without a manual
   // refresh while the viewer has something pending or is choosing dates.
   const waiting = mine.some((r) => r.status === "pending");
-  const live = waiting || size !== null;
+  const live = waiting || size !== null || (!loaded && !!loadError);
   useEffect(() => {
     if (!live) return;
-    const update = () => void refresh().catch(() => {});
+    const update = () => void load();
     const timer = window.setInterval(update, 15000);
     window.addEventListener("focus", update);
     return () => {
@@ -117,6 +130,9 @@ export function StudiosPage() {
       await refresh();
     } catch (e) {
       setError(errorMessage(e));
+      // Conflicts and price changes mean our copy is stale; show the
+      // current availability and rate straight away.
+      void refresh().catch(() => {});
     } finally {
       setBusy(false);
     }
@@ -145,7 +161,7 @@ export function StudiosPage() {
         return;
       }
       attempt.current = null;
-      setHeld({ name: studio.name, holdUntil: r.hold_until });
+      setHeld({ ...r, name: studio.name });
     });
   }
   const instructor = !!user?.roles.includes("instructor");
@@ -171,8 +187,10 @@ export function StudiosPage() {
       }).filter((g) => g.list.length),
     [studios, today],
   );
-  const active = mine.filter((r) => ACTIVE.includes(r.status));
-  const past = mine.filter((r) => !ACTIVE.includes(r.status));
+  const active = mine
+    .filter((r) => current(r, today))
+    .sort((a, b) => a.starts_on.localeCompare(b.starts_on));
+  const past = mine.filter((r) => !current(r, today));
   const returning = params.get("payment") === "returned";
   // A return URL is not payment evidence. Match this checkout to a rental
   // returned by the authenticated API; never substitute a historical payment.
@@ -183,12 +201,27 @@ export function StudiosPage() {
   );
   const paidNow =
     returnedRental?.status === "confirmed" && returnedRental.payment_status === "paid" ? returnedRental : null;
+  const checkoutLeft = params.get("payment") === "cancelled";
+  const unpaidCard = mine.find(
+    (r) => r.status === "pending" && r.payment_method === "stripe_test",
+  );
+  // Back from Stripe with the rental still pending: ask the server to check
+  // the checkout once instead of waiting on the webhook alone.
+  const synced = useRef(false);
+  const syncId = returning && returnedRental?.status === "pending" ? returnedRental.id : null;
+  useEffect(() => {
+    if (syncId === null || synced.current) return;
+    synced.current = true;
+    void api(`/studio-rentals/${syncId}/payment-status`, { method: "POST" })
+      .then(() => refresh())
+      .catch(() => {});
+  }, [syncId]);
 
   function rentalRow(r: Rental) {
-    const status = rentalStatus(r);
+    const status = rentalStatus(r, today);
     return (
       <article className="studio-rental" key={r.id}>
-        <img src={studioImage(studios.find((s) => s.name === r.name)?.size ?? "")} alt="" />
+        <img src={studioImage(studios.find((s) => s.id === r.studio_id)?.size ?? "")} alt="" />
         <div className="studio-rental__body">
           <h3>{r.name}</h3>
           <p>
@@ -206,20 +239,24 @@ export function StudiosPage() {
               disabled={busy}
               onClick={() =>
                 void action(async () => {
-                  const result = await api<{ checkoutUrl?: string }>(
+                  const result = await api<Rental & { checkoutUrl?: string | null }>(
                     `/studio-rentals/${r.id}/payment-status`,
                     { method: "POST" },
                   );
                   if (result.checkoutUrl)
                     window.location.assign(result.checkoutUrl);
-                  else setMessage("Payment status updated.");
+                  else if (result.status === "confirmed")
+                    setMessage(`Payment received. ${r.name} is booked.`);
+                  else if (result.status === "expired")
+                    setMessage(`The hold ran out before payment, so ${r.name} was released. Choose a size below to book again.`);
+                  else setMessage("Your card payment is still processing. This page updates on its own.");
                 })
               }
             >
               Finish card payment
             </button>
           )}
-          {ACTIVE.includes(r.status) && (
+          {current(r, today) && (
             <button
               className="button button--quiet"
               disabled={busy}
@@ -240,6 +277,12 @@ export function StudiosPage() {
         Your own workspace for a month at a time. Equipment is booked separately
         by the hour.
       </p>
+      {loadError && !loaded && (
+        <p className="form-error" role="alert">
+          Couldn’t load studios: {loadError} Trying again automatically.
+        </p>
+      )}
+      {!loaded && !loadError && <p role="status">Loading studios…</p>}
       {error && !size && !cancelling && <p className="form-error" role="alert">{error}</p>}
       {message && <p className="studio-message" role="status">{message}</p>}
       {returning && returnedRental?.status === "pending" && (
@@ -256,6 +299,13 @@ export function StudiosPage() {
           </span>
           <BookingReference id={paidNow.id} />
         </div>
+      )}
+      {checkoutLeft && loaded && (
+        <p className="form-notice studio-notice" role="status">
+          {unpaidCard
+            ? `You left card checkout before paying. ${unpaidCard.name} stays held until ${clock(unpaidCard.hold_until)}. Use Finish card payment below to pay.`
+            : "Card checkout was cancelled. Nothing was charged."}
+        </p>
       )}
       {returning && loaded && !returnedRental && (
         <p className="studio-message" role="status">
@@ -276,7 +326,7 @@ export function StudiosPage() {
             key={g.key}
             type="button"
             className="reservation-card studio-size"
-            aria-label={`${sizeLabel(g.key)} studios, ${g.varies ? "from " : ""}${money(g.price)} a month`}
+            aria-label={`${sizeLabel(g.key)} studios, ${g.varies ? "from " : ""}${money(g.price)} a month. ${availabilityLabel(g)}`}
             onClick={() => {
               setHeld(null);
               setError("");
@@ -288,11 +338,7 @@ export function StudiosPage() {
               <span
                 className={`status-pill status-pill--${g.freeToday ? "ok" : g.opening ? "warn" : "neutral"}`}
               >
-                {g.freeToday
-                  ? `${g.freeToday} of ${g.list.length} free today`
-                  : g.opening
-                    ? `Next opening ${calendarDate(g.opening, { month: "short", day: "numeric" })}`
-                    : "Fully booked"}
+                {availabilityLabel(g)}
               </span>
             </div>
             <div className="reservation-card__rule" />
@@ -308,7 +354,9 @@ export function StudiosPage() {
         ))}
       </div>
       {loaded && !groups.length && (
-        <p className="empty-state">No studios are open for rental right now.</p>
+        <p className="empty-state">
+          No studios are open for rental right now. New spaces show up here as soon as staff open them.
+        </p>
       )}
 
       {past.length > 0 && (
@@ -358,6 +406,7 @@ export function StudiosPage() {
         error={size ? error : ""}
         held={held}
         onClose={() => {
+          if (busy) return;
           setSize(null);
           setHeld(null);
           setError("");
@@ -367,4 +416,10 @@ export function StudiosPage() {
 
     </section>
   );
+}
+
+function availabilityLabel(g: { freeToday: number; list: unknown[]; opening: string | null }) {
+  if (g.freeToday) return `${g.freeToday} of ${g.list.length} free today`;
+  if (g.opening) return `Next opening ${calendarDate(g.opening, { month: "short", day: "numeric" })}`;
+  return "Fully booked";
 }

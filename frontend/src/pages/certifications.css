@@ -1,0 +1,345 @@
+/* Certifications & waivers (member). Reuses the Classes head, thumbnails,
+   meta line, pills and empty states from classes.css. */
+.certs-page {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+.certs-page .button {
+  white-space: nowrap;
+}
+.certs-page .classes-empty h3 {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+
+/* Layout: certifications lead, waivers sit beside them. */
+.certs-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 40px;
+  align-items: start;
+  margin-top: 30px;
+}
+.certs-main {
+  display: grid;
+  gap: 36px;
+  min-width: 0;
+}
+.certs-aside {
+  position: sticky;
+  top: 96px;
+  min-width: 0;
+}
+.certs-section {
+  min-width: 0;
+}
+.certs-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+}
+
+/* Certification rows */
+.cert-rows {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cert-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+  padding: 16px 18px 16px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(255, 253, 250, 0.94);
+  box-shadow: var(--shadow-small);
+}
+.cert-row--expiring,
+.cert-row--expired {
+  box-shadow: inset 4px 0 0 #d07a0c, var(--shadow-small);
+}
+.cert-row--revoked {
+  box-shadow: inset 4px 0 0 var(--red), var(--shadow-small);
+}
+.cert-row__body {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.cert-row__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+.cert-row__head h3 {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+.cert-row__unlocks {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: var(--text-base-sm);
+}
+.cert-row__unlocks svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  margin-top: 2px;
+  color: var(--bronze);
+}
+.cert-row__unlocks b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.cert-row__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+.cert-row__facts {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+}
+
+/* Next step: the class that earns or renews the certification. */
+.cert-next {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 18px;
+  margin-top: 4px;
+  padding: 12px 14px;
+  border: 1px solid #e6ddd6;
+  border-radius: var(--radius-small);
+  background: rgba(255, 255, 255, 0.6);
+}
+.cert-next--mine {
+  border-color: var(--espresso);
+  box-shadow: inset 3px 0 0 var(--orange);
+}
+.cert-next--empty {
+  border-style: dashed;
+  background: transparent;
+}
+.cert-next--quiet {
+  justify-content: flex-start;
+  background: #f6f1ec;
+}
+.cert-next__body,
+.cert-next > p {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+}
+.cert-next__label {
+  color: var(--bronze);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.cert-next strong {
+  font-size: var(--text-base);
+}
+.cert-next .class-meta {
+  margin: 2px 0;
+}
+.cert-next small,
+.cert-next > p > span {
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+}
+.cert-next small.cert-next__seats {
+  color: var(--ink);
+  font-weight: 600;
+}
+.cert-next__icon {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  color: var(--bronze);
+}
+
+.cert-open {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-small);
+  color: var(--ink-soft);
+  font-size: var(--text-base-sm);
+}
+.cert-open > svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: #1f6b32;
+}
+.cert-open > span {
+  flex: 1;
+  min-width: 0;
+}
+.cert-open b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* Waivers & policies */
+.certs-waivers {
+  padding: 20px;
+}
+.certs-waivers__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.certs-waivers__head h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: var(--text-lg);
+}
+.certs-waivers__head h2 svg {
+  width: 18px;
+  height: 18px;
+  color: var(--bronze);
+}
+.certs-waivers__lead {
+  margin: 8px 0 6px;
+  color: var(--ink-soft);
+  font-size: var(--text-base-sm);
+}
+.certs-waivers__empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 0;
+  color: var(--ink-soft);
+}
+.certs-waivers__empty svg {
+  width: 18px;
+  color: #1f6b32;
+}
+.waiver-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.waiver-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px 12px;
+  padding: 14px 0;
+  border-top: 1px solid #e6ddd6;
+}
+.waiver-row--todo {
+  grid-template-columns: minmax(0, 1fr);
+}
+.waiver-row--todo .button {
+  justify-self: start;
+}
+.waiver-row__info {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.waiver-row h3 {
+  margin: 0;
+  font-size: var(--text-base);
+  overflow-wrap: anywhere;
+}
+.waiver-row__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+}
+.waiver-row__info p {
+  margin: 0;
+  color: #704209;
+  font-size: var(--text-sm);
+}
+.certs-waivers__copies {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid #e6ddd6;
+  color: var(--bronze);
+  font-size: var(--text-base-sm);
+  font-weight: 700;
+  text-decoration: none;
+}
+.certs-waivers__copies svg {
+  width: 16px;
+  flex: none;
+  transition: transform 160ms ease;
+}
+.certs-waivers__copies:hover svg {
+  transform: translateX(3px);
+}
+
+@media (max-width: 1080px) {
+  .certs-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+  }
+  .certs-aside {
+    position: static;
+  }
+  /* Something to sign blocks booking, so it comes first on narrow screens. */
+  .certs-layout--sign-first .certs-aside {
+    order: -1;
+  }
+}
+
+@media (max-width: 760px) {
+  .certs-page .classes-head > .button {
+    align-self: flex-start;
+  }
+  .cert-row {
+    grid-template-columns: 56px minmax(0, 1fr);
+    gap: 12px;
+    padding: 14px;
+  }
+  .cert-row .class-thumb {
+    width: 56px;
+    height: 44px;
+  }
+  .cert-next {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .cert-next--quiet {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+  .cert-next .button {
+    width: 100%;
+  }
+  .cert-open {
+    flex-wrap: wrap;
+  }
+}

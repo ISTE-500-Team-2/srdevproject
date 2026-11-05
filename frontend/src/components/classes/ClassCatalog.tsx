@@ -1,17 +1,22 @@
-import { AlertTriangle, Award, Ban, Check, Clock3, GraduationCap, Lock, MapPin, Search, ShieldCheck, UserRound, Users } from "lucide-react";
+import { AlertTriangle, Award, Ban, Check, Clock3, GraduationCap, Lock, MapPin, Palette, Search, ShieldCheck, UserRound, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ClassThumb, DateRail, SeatMeter } from "./ClassBits";
+import { WorkshopCards } from "./WorkshopTemplates";
 import {
   byStart,
+  classPhoto,
   enrollmentLabel,
   hasStarted,
   isCancelled,
+  isWorkshop,
   monthLabel,
   registrationPrice,
   seatsLeft,
   timeRange,
+  WORKSHOP_LABEL,
   type ClassRecord,
+  type WorkshopTemplate,
 } from "./classData";
 import { cents, shortDate } from "../../lib/display";
 
@@ -24,6 +29,8 @@ type Props = {
   busyId: number | null;
   errors: Record<number, string>;
   teaching: ClassRecord[];
+  /** The creative workshop catalog; ones without an upcoming session are listed below the schedule. */
+  workshops: WorkshopTemplate[];
   onRegister: (c: ClassRecord) => void;
   onWithdraw: (c: ClassRecord) => void;
   onDetails: (c: ClassRecord) => void;
@@ -31,7 +38,7 @@ type Props = {
 };
 
 export function ClassCatalog(props: Props) {
-  const { classes, eligibility, teaching, onWithdraw, onRoster, busyId } = props;
+  const { classes, eligibility, teaching, workshops, onWithdraw, onRoster, busyId } = props;
   const [query, setQuery] = useState("");
   const [certification, setCertification] = useState<string | null>(null);
   const upcoming = useMemo(() => classes.filter((c) => !hasStarted(c)).sort(byStart), [classes]);
@@ -50,6 +57,15 @@ export function ClassCatalog(props: Props) {
       (!certification || c.certificationName === certification) &&
       (!needle || `${c.title} ${c.instructor} ${c.certificationName}`.toLowerCase().includes(needle)),
   );
+  // Workshops with a session coming up already have a row; the rest get a card.
+  const unscheduled =
+    certification === null || certification === WORKSHOP_LABEL
+      ? workshops.filter(
+          (w) =>
+            !upcoming.some((c) => c.catalogId === w.id && !isCancelled(c)) &&
+            (!needle || `${w.title} ${w.description}`.toLowerCase().includes(needle)),
+        )
+      : [];
   const months = new Map<string, ClassRecord[]>();
   for (const c of shown) {
     const key = monthLabel(c.startsAt);
@@ -63,8 +79,7 @@ export function ClassCatalog(props: Props) {
           <p className="eyebrow">Learn by making</p>
           <h1 className="display-heading">Classes</h1>
           <p className="classes-head__lead">
-            Hands-on sessions with a shop instructor. Each class prepares you for one certification. Approval is a
-            separate step after class.
+            Creative workshops and equipment training, taught by shop instructors.
           </p>
         </div>
         {upcoming.length ? (
@@ -117,7 +132,7 @@ export function ClassCatalog(props: Props) {
                 Book equipment
               </Link>
             </div>
-          ) : !shown.length ? (
+          ) : !shown.length && !unscheduled.length ? (
             <div className="classes-empty classes-empty--small">
               <h2>No classes match</h2>
               <button
@@ -148,6 +163,7 @@ export function ClassCatalog(props: Props) {
               </section>
             ))
           )}
+          <WorkshopCards workshops={unscheduled} />
         </div>
 
         <aside className="classes-aside">
@@ -277,24 +293,25 @@ function ClassRow({
   certified,
   busyId,
   errors,
+  workshops,
   onRegister,
   onDetails,
 }: Props & { c: ClassRecord }) {
   const cancelled = isCancelled(c);
   const registered = c.myStatus === "enrolled";
   const full = seatsLeft(c) === 0;
-  const holds = certified.has(c.certificationId);
+  const holds = c.certificationId !== null && certified.has(c.certificationId);
   const busy = busyId === c.id;
   const price = registrationPrice(c, holds);
   return (
     <li className={`class-row${registered && !cancelled ? " class-row--mine" : ""}${cancelled ? " class-row--cancelled" : ""}`}>
       <DateRail value={c.startsAt} faded={cancelled} />
-      <ClassThumb certification={c.certificationName} />
+      <ClassThumb certification={c.certificationName} photo={classPhoto(c, workshops)} />
       <div className="class-row__info">
         <h3>{c.title}</h3>
         <div className="class-row__tags">
           <span className="class-cert">
-            <Award aria-hidden="true" />
+            {isWorkshop(c) ? <Palette aria-hidden="true" /> : <Award aria-hidden="true" />}
             {c.certificationName}
           </span>
           {cancelled ? (

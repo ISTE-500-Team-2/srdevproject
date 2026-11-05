@@ -86,6 +86,9 @@ function client() {
       if (r.status === 200) accept(r);
       return r;
     },
+    adoptCsrf(token: string) {
+      csrf = token;
+    },
     refresh: () => agent.post('/api/auth/refresh').set('X-CSRF-Token',csrf).send({}),
     get: (path: string) => agent.get("/api" + path),
     post: (path: string, body: unknown = {}) =>
@@ -123,8 +126,8 @@ function issueBody(
     requestId: randomUUID(),
     planId,
     startsAt,
-    paymentStatus: "pending",
-    method: "unspecified",
+    paymentStatus: "paid",
+    method: "cash",
     reference: "",
     reason: "Integration test issuance",
   };
@@ -150,6 +153,21 @@ async function issue(admin: Client, user: Client, planId: number) {
   );
   assert.equal(r.status, 201, JSON.stringify(r.body));
   return r.body.data;
+}
+/** Members check in at a reader; the web check-in is staff at the desk, in the member's open account. */
+async function deskCheckIn(staff: Client, member: Client, body: unknown) {
+  const opened = await staff.post("/admin/account-mode", { userId: member.id });
+  assert.equal(opened.status, 200, JSON.stringify(opened.body));
+  staff.adoptCsrf(opened.body.data.csrfToken);
+  const response = await staff.post("/me/check-ins", body);
+  const closed = await staff.post("/admin/account-mode/end");
+  assert.equal(closed.status, 200, JSON.stringify(closed.body));
+  staff.adoptCsrf(closed.body.data.csrfToken);
+  return response;
+}
+const outcome = (r: request.Response) => [r.status, r.body.error?.code ?? null];
+async function assertMemberCheckInRefused(member: Client, body: unknown) {
+  assert.deepEqual(outcome(await member.post("/me/check-ins", body)), [403, "CHECK_IN_AT_READER"]);
 }
 async function currentRoomBooking(user: Client) {
   const room = (await pool.query("INSERT INTO room(name,location,status) VALUES($1,'Test','available') RETURNING roomid",['Access fixture '+randomUUID()])).rows[0].roomid;
@@ -419,7 +437,7 @@ test("membership issuance is atomic/idempotent, stores immutable plan details, a
   const records = (await user.get("/me/payments")).body.data.items;
   assert.equal(records.length, 1);
   assert.equal(records[0].amount, "125.50");
-  assert.equal(records[0].status, "pending");
+  assert.equal(records[0].status, "paid");
   assert.equal(
     (
       await admin.patch(`/admin/plans/${p.id}`, {
@@ -448,16 +466,17 @@ test("membership issuance is atomic/idempotent, stores immutable plan details, a
     (await user.get("/me/memberships")).body.data.memberships.length,
     2,
   );
-  assert.equal(
-    (await user.post("/me/check-ins", { location: "Test portal" })).status,
-    403,
+  assert.deepEqual(
+    outcome(await deskCheckIn(admin, user, { location: "Test portal" })),
+    [403, "WAIVER_REQUIRED"],
     "waivers still required",
   );
   await signPolicies(user);
   await currentRoomBooking(user);
-  assert.equal(
-    (await user.post("/me/check-ins", { location: "Test portal" })).status,
-    201,
+  await assertMemberCheckInRefused(user, { location: "Test portal" });
+  assert.deepEqual(
+    outcome(await deskCheckIn(admin, user, { location: "Test portal" })),
+    [201, null],
   );
   const detail = await person(admin, user.id);
   assert.ok(
@@ -504,6 +523,12 @@ test("facility suspension and revocation kill sessions permanently while preserv
       (await user.post("/me/check-ins", { location: "Test portal" })).status,
       401,
     );
+    // Nor can staff open the account to check it in at the desk.
+    assert.deepEqual(
+      outcome(await admin.post("/admin/account-mode", { userId: user.id })),
+      [403, "ACCOUNT_MODE_REFUSED"],
+      status,
+    );
     const rejected = await user.post("/reservations", booking);
     assert.equal(rejected.status,401);
     assert.equal((await user.login()).status,403);
@@ -524,9 +549,10 @@ test("facility suspension and revocation kill sessions permanently while preserv
   assert.equal((await user.get('/auth/session')).status,401);
   assert.equal((await user.login()).status,200);
   await currentRoomBooking(user);
-  assert.equal(
-    (await user.post("/me/check-ins", { location: "Test portal" })).status,
-    201,
+  await assertMemberCheckInRefused(user, { location: "Test portal" });
+  assert.deepEqual(
+    outcome(await deskCheckIn(admin, user, { location: "Test portal" })),
+    [201, null],
   );
 });
 
@@ -557,9 +583,10 @@ test("day passes enforce local calendar dates, duplicate prevention, entitlement
   );
   await signPolicies(user);
   await currentRoomBooking(user);
-  assert.equal(
-    (await user.post("/me/check-ins", { location: "Test pass entry" })).status,
-    201,
+  await assertMemberCheckInRefused(user, { location: "Test pass entry" });
+  assert.deepEqual(
+    outcome(await deskCheckIn(admin, user, { location: "Test pass entry" })),
+    [201, null],
   );
   const route = `/admin/users/${user.id}/entitlements/day_pass/${id}/status`;
   assert.equal(
@@ -572,9 +599,9 @@ test("day passes enforce local calendar dates, duplicate prevention, entitlement
     ).status,
     200,
   );
-  assert.equal(
-    (await user.post("/me/check-ins", { location: "Test pass entry" })).status,
-    403,
+  assert.deepEqual(
+    outcome(await deskCheckIn(admin, user, { location: "Test pass entry" })),
+    [403, "MEMBERSHIP_REQUIRED"],
   );
   assert.equal(
     (
@@ -610,6 +637,10 @@ test("day passes enforce local calendar dates, duplicate prevention, entitlement
     (await user.get("/me/memberships")).body.data.passes[0].effectiveStatus,
     "revoked",
   );
+  assert.deepEqual(
+    outcome(await deskCheckIn(admin, user, { location: "Test pass entry" })),
+    [403, "MEMBERSHIP_REQUIRED"],
+  );
   const stranger = client();
   await stranger.register();
   assert.equal(
@@ -627,6 +658,8 @@ test("day passes enforce local calendar dates, duplicate prevention, entitlement
 test("manual card receipt and refund retain staff identity, reference, and timestamps",async()=>{
  const admin=client(),user=client();await admin.admin();await user.register();
  const p=await plan(admin),issued=await issue(admin,user,p.id);
+ await pool.query("UPDATE payment SET paymentstatus='pending' WHERE paymentid=$1", [issued.paymentId]);
+ await pool.query("DELETE FROM app_notification_outbox WHERE dedupe_key=$1", [`payment-recorded:${issued.paymentId}`]);
  const route=`/admin/payments/${issued.paymentId}/status`;
  assert.equal((await admin.post(route,{status:'paid',method:'external_card',reference:'TERMINAL-TEST-42',revision:1,reason:'Card charged on staff terminal'})).status,200);
  let payment=(await pool.query('SELECT * FROM payment WHERE paymentid=$1',[issued.paymentId])).rows[0];
@@ -647,6 +680,8 @@ test("payment records are owner-scoped, transition-controlled, audited, and do n
   await other.register();
   const p = await plan(admin);
   const issued = await issue(admin, user, p.id);
+  // Existing unpaid records still support reconciliation. New issuance cannot create them.
+  await pool.query("UPDATE payment SET paymentstatus='pending' WHERE paymentid=$1", [issued.paymentId]);
   const route = `/admin/payments/${issued.paymentId}/status`;
   const payment = {
     status: "paid",
@@ -722,15 +757,16 @@ test("new full-length policy versions require fresh agreement; old signatures re
   const first = await admin.post("/admin/policies", body);
   assert.equal(first.status, 201, JSON.stringify(first.body));
   assert.ok(first.body.data.description.length > 255);
-  assert.equal(
-    (await user.post("/me/check-ins", { location: "Policy check" })).status,
-    403,
+  assert.deepEqual(
+    outcome(await deskCheckIn(admin, user, { location: "Policy check" })),
+    [403, "WAIVER_REQUIRED"],
   );
   await signPolicies(user);
   await currentRoomBooking(user);
-  assert.equal(
-    (await user.post("/me/check-ins", { location: "Policy check" })).status,
-    201,
+  await assertMemberCheckInRefused(user, { location: "Policy check" });
+  assert.deepEqual(
+    outcome(await deskCheckIn(admin, user, { location: "Policy check" })),
+    [201, null],
   );
   const next = await admin.post("/admin/policies", {
     ...body,
@@ -743,9 +779,9 @@ test("new full-length policy versions require fresh agreement; old signatures re
   );
   assert.equal(required.id, next.body.data.id);
   assert.equal(required.signed, false);
-  assert.equal(
-    (await user.post("/me/check-ins", { location: "Policy check" })).status,
-    403,
+  assert.deepEqual(
+    outcome(await deskCheckIn(admin, user, { location: "Policy check" })),
+    [403, "WAIVER_REQUIRED"],
   );
   assert.equal(
     (
@@ -757,9 +793,9 @@ test("new full-length policy versions require fresh agreement; old signatures re
     1,
   );
   await signPolicies(user);
-  assert.equal(
-    (await user.post("/me/check-ins", { location: "Policy check" })).status,
-    201,
+  assert.deepEqual(
+    outcome(await deskCheckIn(admin, user, { location: "Policy check" })),
+    [201, null],
   );
   assert.equal(
     (await admin.post("/admin/policies", { ...body, version: "v2" })).status,
@@ -852,6 +888,7 @@ test("waived/void payment records and legacy-invalid plans cannot create incorre
   const other = client();
   await other.register();
   const next = await issue(admin, other, p.id);
+  await pool.query("UPDATE payment SET paymentstatus='pending' WHERE paymentid=$1", [next.paymentId]);
   const route = `/admin/payments/${next.paymentId}/status`;
   assert.equal(
     (
