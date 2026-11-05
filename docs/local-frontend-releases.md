@@ -21,6 +21,14 @@ The warm Mac runs, concurrently:
   disposable local PostgreSQL browser integration suite).
 - Exact-main Docker image preparation on the production host, without promotion.
 
+CI metadata is read freshly through the owner's existing local `gh` login over a
+temporary loopback-only SSH reverse tunnel. Only this repository's exact-revision
+check-runs and main-push workflow GETs are permitted; arbitrary URLs/repos/user
+data and all writes are rejected. No GitHub token is retrieved, printed, copied
+to the server or placed in command arguments/URLs. No status-response cache or
+invented GitHub status is used. Missing tunnel/provider access fails closed; the
+tunnel and local HTTP listener close at the end of the command.
+
 All lanes must succeed; the checkout must remain pristine and identical before
 and after. The receipt records the exact main revision/tree, Node/platform,
 command/results, timings, completion time and log SHA-256 hashes. It expires after
