@@ -8,6 +8,8 @@ import request from 'supertest';
 import { createApp } from '../../src/app.js';
 import { initializeDemo } from '../../src/scripts/init-demo.js';
 import { waiverAcceptance } from '../helpers/waiver.js';
+import { saveReservationPrice } from '../../src/equipmentPricing.js';
+import { StaffService } from '../../src/services/StaffService.js';
 
 const database = `arbor_equipment_price_${randomBytes(5).toString('hex')}_mvc_test`;
 const owner = new Pool({idleTimeoutMillis:1000}), pool = new Pool({database,idleTimeoutMillis:1000});
@@ -113,4 +115,75 @@ test('rescheduling a waived booking keeps the waiver; a newly priced booking get
   const changed=await patch(`/admin/reservations/${booking.id}`,{...slot(7,2),expectedPrice:await quote(2),expectedRevision:moved.body.data.revision});
   assert.equal(changed.status,200,JSON.stringify(changed.body));assert.notEqual(changed.body.data.paymentId,booking.paymentId);assert.equal(changed.body.data.paymentStatus,'pending');
   assert.equal((await pool.query('SELECT paymentstatus FROM payment WHERE paymentid=$1',[booking.paymentId])).rows[0].paymentstatus,'waived');
+});
+
+async function waitForCollectionToBlock(editorPid: number) {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    const blocked = await pool.query(`SELECT pid FROM pg_stat_activity WHERE datname=current_database()
+      AND query LIKE '%FOR UPDATE OF u%' AND $1=ANY(pg_blocking_pids(pid))`, [editorPid]);
+    if (blocked.rowCount) return;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  assert.fail('Payment collection did not wait for the booking member lock.');
+}
+
+test('payment collection overlapping a booking edit returns a revision conflict without deadlocking', { timeout: 15000 }, async () => {
+  const created = await post('/reservations', { ...slot(9, 1), expectedPrice: await quote(1) });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const booking = created.body.data;
+  const before = (await pool.query('SELECT revision FROM payment WHERE paymentid=$1', [booking.paymentId])).rows[0];
+  const editor = await pool.connect();
+  let collecting: Promise<any> | undefined;
+  try {
+    await editor.query('BEGIN');
+    await editor.query("SET LOCAL statement_timeout='5s'");
+    const editorPid = (await editor.query('SELECT pg_backend_pid() AS id')).rows[0].id;
+    await editor.query('SELECT userid FROM "user" WHERE userid=$1 FOR SHARE', [member.user.id]);
+    collecting = new StaffService(pool, 'America/New_York').paymentStatus(admin.user.id, booking.paymentId,
+      'paid', 'cash', 'CONCURRENT-COLLECTION', before.revision, 'Synthetic collection during booking edit')
+      .then(value => ({ value }), error => ({ error }));
+    await waitForCollectionToBlock(editorPid);
+    await saveReservationPrice(editor, booking.id, member.user.id, admin.user.id, booking.priceSnapshot, machine.name);
+    await editor.query('COMMIT');
+    const result = await collecting;
+    assert.equal(result.error?.code, 'STALE_RECORD', JSON.stringify(result));
+    const saved = (await pool.query('SELECT paymentstatus,price FROM payment WHERE paymentid=$1', [booking.paymentId])).rows[0];
+    assert.equal(saved.paymentstatus, 'pending');
+    assert.equal(saved.price, '28.00');
+  } finally {
+    await editor.query('ROLLBACK'); editor.release();
+    if (collecting) await collecting;
+  }
+});
+
+test('collection rechecks payment ownership after waiting for a booking reassignment', { timeout: 15000 }, async () => {
+  const created = await post('/reservations', { ...slot(10, 1), expectedPrice: await quote(1) });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const booking = created.body.data;
+  const before = (await pool.query('SELECT revision FROM payment WHERE paymentid=$1', [booking.paymentId])).rows[0];
+  const editor = await pool.connect();
+  let collecting: Promise<any> | undefined;
+  try {
+    await editor.query('BEGIN');
+    await editor.query("SET LOCAL statement_timeout='5s'");
+    const editorPid = (await editor.query('SELECT pg_backend_pid() AS id')).rows[0].id;
+    await editor.query('SELECT userid FROM "user" WHERE userid=$1 FOR SHARE', [member.user.id]);
+    // Even a matching final revision cannot authorize a different member's bill.
+    collecting = new StaffService(pool, 'America/New_York').paymentStatus(admin.user.id, booking.paymentId,
+      'paid', 'cash', 'REASSIGNED-COLLECTION', before.revision + 1, 'Synthetic collection during reassignment')
+      .then(value => ({ value }), error => ({ error }));
+    await waitForCollectionToBlock(editorPid);
+    await saveReservationPrice(editor, booking.id, admin.user.id, admin.user.id, booking.priceSnapshot, machine.name);
+    await editor.query('UPDATE reservation SET userid=$2 WHERE reservationid=$1', [booking.id, admin.user.id]);
+    await editor.query('COMMIT');
+    const result = await collecting;
+    assert.equal(result.error?.code, 'STALE_RECORD', JSON.stringify(result));
+    const saved = (await pool.query('SELECT userid,paymentstatus FROM payment WHERE paymentid=$1', [booking.paymentId])).rows[0];
+    assert.equal(saved.userid, admin.user.id);
+    assert.equal(saved.paymentstatus, 'pending');
+  } finally {
+    await editor.query('ROLLBACK'); editor.release();
+    if (collecting) await collecting;
+  }
 });

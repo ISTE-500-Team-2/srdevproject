@@ -460,11 +460,16 @@ export class StaffService {
     reason: string,
   ) {
     return this.write(actorId, false, "payment", "update", async (model, actor, db) => {
+      // Bookings and training lock the member before the payment. Read ownership
+      // without a payment lock, then recheck it after acquiring locks in that order.
+      const owner = (await db.query('SELECT userid FROM payment WHERE paymentid=$1', [id])).rows[0];
+      if (owner?.userid == null) throw missing();
+      await this.target(model, actor, owner.userid);
       const before = await model.payment(id);
-      if ((await this.pool.query('SELECT id::text FROM app_membership_invoice WHERE payment_id=$1 UNION ALL SELECT id::text FROM app_pass_checkout WHERE payment_id=$1 AND amount_cents>0',[id])).rowCount)
-        throw new AppError(409,'PROVIDER_PAYMENT','Use the Stripe billing refund workflow for this payment.');
       if (!before || before.userId == null) throw missing();
-      await this.target(model, actor, before.userId);
+      if (before.userId !== owner.userid) throw conflict();
+      if ((await db.query('SELECT id::text FROM app_membership_invoice WHERE payment_id=$1 UNION ALL SELECT id::text FROM app_pass_checkout WHERE payment_id=$1 AND amount_cents>0',[id])).rowCount)
+        throw new AppError(409,'PROVIDER_PAYMENT','Use the Stripe billing refund workflow for this payment.');
       this.expectRevision(before.revision, revision);
       const transitions: Record<string, string[]> = {
         pending: ["paid", "void", "waived"],

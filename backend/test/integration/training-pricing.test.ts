@@ -187,3 +187,20 @@ test('training coverage is specific to the equipment certification and survives 
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal(r.body.data.training_fee_cents, 0); assert.equal(r.body.data.payment_id, null);
 });
+
+test('late withdrawals preserve enrollment and unpaid fees before attendance is recorded', async () => {
+  const c = await schedule(9);
+  const enrolled = await post(`/classes/${c.id}/enroll`, { expectedTrainingFeeCents: 2000 }, admin);
+  assert.equal(enrolled.status, 200, JSON.stringify(enrolled.body));
+  const before = await payment(enrolled.body.data.payment_id);
+  for (const [starts, ends] of [[-30, 30], [-120, -60]]) {
+    await pool.query(`UPDATE reservation SET starttime=(now()+$2*interval '1 minute') AT TIME ZONE 'UTC',
+      endtime=(now()+$3*interval '1 minute') AT TIME ZONE 'UTC' WHERE reservationid=$1`, [c.reservation_id, starts, ends]);
+    const result = await post(`/classes/${c.id}/withdraw`, {}, admin);
+    assert.equal(result.status, 409, JSON.stringify(result.body));
+    assert.equal(result.body.error.code, 'CLASS_CLOSED');
+    assert.deepEqual(await payment(before.paymentid), before);
+    assert.equal((await pool.query('SELECT status FROM app_training_enrollment WHERE class_id=$1 AND user_id=$2',
+      [c.id, admin.user.id])).rows[0].status, 'enrolled');
+  }
+});

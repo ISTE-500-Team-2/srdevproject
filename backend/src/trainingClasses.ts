@@ -207,10 +207,12 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
     const user = authState(res).user;
     await transaction(pool, async (db) => {
       const id = integerId(req.params.id, "Class");
-      await db.query(
-        "SELECT id FROM app_training_class WHERE id=$1 FOR UPDATE",
+      const c = (await db.query(
+        `SELECT c.status,v.status AS booking_status,v.starttime AT TIME ZONE 'UTC' AS starts
+         FROM app_training_class c JOIN reservation v ON v.reservationid=c.reservation_id
+         WHERE c.id=$1 FOR UPDATE OF c`,
         [id],
-      );
+      )).rows[0];
       const before = (
         await db.query(
           "SELECT * FROM app_training_enrollment WHERE class_id=$1 AND user_id=$2 FOR UPDATE",
@@ -223,6 +225,8 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
           "NOT_ENROLLED",
           "Only pending enrollment can be withdrawn.",
         );
+      if (!c || c.status !== 'scheduled' || c.booking_status !== 'confirmed' || c.starts <= new Date())
+        throw new AppError(409, 'CLASS_CLOSED', 'Withdraw before the class starts. Contact staff for changes.');
       await cancelTrainingPayments(db, id, user.id);
       const after = (
         await db.query(
