@@ -1,0 +1,17 @@
+/* Shared by member booking and staff review surfaces. */
+.equipment-price {
+  padding: 20px 24px;
+  border: 1px solid #dfd4cc;
+  border-radius: 12px;
+  background: #faf7f3;
+  min-width: 0;
+}
+.equipment-price h3 { margin: 0 0 16px; font-size: 1rem; font-weight: 600; }
+.equipment-price dl { display: grid; gap: 12px; margin: 0; }
+.equipment-price dl > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 12px; }
+.equipment-price dt { color: #6c5e54; }
+.equipment-price dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.equipment-price .equipment-price__total { border-top: 1px solid #dfd4cc; padding-top: 12px; font-size: 1.15rem; }
+.equipment-price__total dt { color: inherit; }
+.equipment-price p { margin: 14px 0 0; color: #6c5e54; font-size: .8rem; line-height: 1.5; }
+@media (max-width: 480px) { .equipment-price { padding: 16px; } }

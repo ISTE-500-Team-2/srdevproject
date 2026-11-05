@@ -57,12 +57,30 @@ export class AccessService {
     return equipment.waiverRequired ? this.assertEquipmentWaivers(userId, through) : [];
   }
 
+  async facilityContext(userId: number, requestedBuildingId?: number) {
+    const buildings = (await this.db.query<{id: number; name: string; status: string}>(
+      'SELECT buildingid AS id,name,status FROM building ORDER BY name,buildingid')).rows;
+    const visit = (await this.db.query<{buildingId: number}>(`SELECT building_id AS "buildingId"
+      FROM app_facility_visit WHERE user_id=$1 AND checked_out_at IS NULL
+        AND (checked_in_at AT TIME ZONE $2)::date=(now() AT TIME ZONE $2)::date`,
+      [userId,this.timeZone])).rows[0];
+    // An unspecified target must not transfer a current visit. With multiple
+    // buildings and no current visit, the person at the desk must choose one.
+    const buildingId = requestedBuildingId ?? visit?.buildingId ?? (buildings.length === 1 ? buildings[0]!.id : null);
+    return {buildings, buildingId};
+  }
+
   // The caller keeps the decision and check-in in one transaction.
-  async reservationForAccess(userId: number, target: AccessTarget, at = new Date()) {
+  async accessForTarget(userId: number, target: AccessTarget, at = new Date()) {
     await this.assertActiveUser(userId);
     const entitlement = await this.assertEntitlement(userId,at);
     await this.assertWaivers(userId);
     let buildingId = target.buildingId;
+    if (!target.roomId && !target.equipmentId && buildingId === undefined) {
+      buildingId = (await this.facilityContext(userId)).buildingId ?? undefined;
+      if (buildingId === undefined)
+        throw new AppError(400,'BUILDING_REQUIRED','Choose the building where you are arriving.');
+    }
     let location: string | undefined;
     if (target.roomId || target.equipmentId) {
       const table = target.roomId ? 'room' : 'equipment';
@@ -87,6 +105,15 @@ export class AccessService {
       location ??= building.name;
     }
     const sponsor = await new MinorSupervision(this.db,this.timeZone).requireSponsor(userId,buildingId);
+    // Facility presence is independent of a room/equipment booking. A building
+    // grant carries no reservation or resource permission; readers revalidate it
+    // within five seconds just like resource grants.
+    if (!target.roomId && !target.equipmentId) {
+      return {
+        reservationId: null, buildingId: buildingId!, location: location!,
+        endsAt: new Date(at.getTime() + 5000), entitlement, sponsorId: sponsor?.id ?? null,
+      };
+    }
     const reservation = (await this.db.query<{
       id: number; buildingId: number; buildingName: string; endsAt: Date;
     }>(`SELECT r.reservationid AS id,b.buildingid AS "buildingId",b.name AS "buildingName",

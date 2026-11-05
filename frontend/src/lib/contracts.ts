@@ -124,10 +124,13 @@ export interface Certification {
   valid: boolean;
 }
 export interface Overview {
+  userId: number;
   entitlement: { membership: boolean; dayPass: boolean };
   pendingWaivers: number;
   activeReservations: number;
   canCheckIn: boolean;
+  checkInBuildingId: number | null;
+  buildings: { id: number; name: string; status: string }[];
   reasons: string[];
   recentCheckIns: { id: number; location: string; checkedInAt: string; method?: 'nfc' | 'portal' }[];
 }

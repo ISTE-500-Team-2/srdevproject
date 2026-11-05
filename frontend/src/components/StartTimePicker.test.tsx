@@ -23,7 +23,7 @@ test("paid booking lead time rounds up to a slot at least 30 minutes away", () =
   render(<StartTimePicker name="start" hours={1} minLeadMinutes={30} now={new Date(2026, 9, 27, 19, 16)} />);
   expect(value()).toBe("2026-10-27T20:00");
   expect(picker().options[0]!.value).toBe("20:00");
-  expect(screen.getByText(/Paid bookings must start at least 30 minutes from now/)).toBeTruthy();
+  expect(screen.getByText(/Book at least 30 minutes ahead/)).toBeTruthy();
 });
 
 test("paid booking minimum advances the picker date when the lead crosses midnight", () => {

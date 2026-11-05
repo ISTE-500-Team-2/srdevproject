@@ -66,7 +66,7 @@ test('member finds grouped equipment, avoids occupied slots and cooldown, and ca
  await screen.findByText('Reservation cancelled.');
  expect((await bridge.pool.query("SELECT reservationid FROM reservation WHERE status='cancelled'")).rowCount).toBe(1);
  // A booking less than 24h away remains non-cancellable in both UI and API.
- await user.click(screen.getByRole('button',{name:/^3D Printer/}));
+ await user.click(await screen.findByRole('button',{name:/^3D Printer/}));
  const soon=new Date(Date.now()+2*3600000);soon.setMinutes(0,0,0);await choose(soon);
  await user.click(await readyToConfirm());
  await finishBooking();
