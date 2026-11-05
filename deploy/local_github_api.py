@@ -28,6 +28,28 @@ def read_local_status(path):
         return json.load(response)
 
 
+def compact_status(path, value):
+    """Preserve every gate input/record; omit unused logos, URLs and repo copies."""
+    if not allowed(path) or not isinstance(value, dict):
+        raise ValueError('Invalid status response')
+    key = 'check_runs' if path.startswith('commits/') else 'workflow_runs'
+    if not isinstance(value.get(key), list):
+        raise ValueError('Status records missing')
+    fields = (('id', 'name', 'head_sha', 'status', 'conclusion') if key == 'check_runs'
+              else ('id', 'head_sha', 'head_branch', 'event', 'path', 'status', 'conclusion', 'run_attempt'))
+    records = []
+    for original in value[key]:
+        if not isinstance(original, dict):
+            raise ValueError('Invalid status record')
+        record = {name: original[name] for name in fields if name in original}
+        if key == 'check_runs' and 'app' in original:
+            if not isinstance(original['app'], dict):
+                raise ValueError('Invalid provider identity')
+            record['app'] = {'slug': original['app'].get('slug')}
+        records.append(record)
+    return {key: records, **({'total_count': value['total_count']} if 'total_count' in value else {})}
+
+
 class StatusHandler(BaseHTTPRequestHandler):
     def log_message(self, *_args):
         pass
@@ -47,11 +69,11 @@ class StatusHandler(BaseHTTPRequestHandler):
                 self.send_error(503, 'GitHub status read failed')
                 return
             try:
-                json.loads(result.stdout)
+                data = compact_status(path, json.loads(result.stdout))
             except ValueError:
                 self.send_error(503, 'Invalid GitHub status response')
                 return
-            body = result.stdout
+            body = json.dumps(data, separators=(',', ':')).encode()
         else:
             self.send_error(404)
             return

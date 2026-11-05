@@ -9,11 +9,40 @@ import urllib.request
 from unittest.mock import patch
 
 import local_github_api as bridge
+import auto_release
+import local_frontend_release
+from test_auto_release import checks, workflows
 
 SHA = 'a' * 40
 
 
 class StatusBridgeTests(unittest.TestCase):
+    def test_compaction_preserves_all_gate_results_and_unexpected_failures(self):
+        check_path = 'commits/' + SHA + '/check-runs?per_page=100'
+        run_path = 'actions/runs?head_sha=' + SHA + '&event=push&branch=main&per_page=100'
+        for conclusion in ('success', 'failure', 'cancelled', 'skipped', None):
+            original = checks(); original[0].update(conclusion=conclusion,
+                status='completed' if conclusion else 'in_progress')
+            original.append({'id': 99999, 'name': 'unexpected future gate', 'head_sha': SHA,
+                             'app': {'slug': 'github-actions'}, 'status': 'completed', 'conclusion': 'failure'})
+            runs = workflows()
+            for c in original: c['unused_logo_and_metadata'] = 'x' * 10000
+            for r in runs: r['unused_repository_metadata'] = 'x' * 10000
+            compact = bridge.compact_status(check_path, {'total_count': len(original), 'check_runs': original})
+            compact_runs = bridge.compact_status(run_path, {'workflow_runs': runs})
+            self.assertEqual(len(compact['check_runs']), len(original))
+            self.assertEqual(auto_release.green_checks(SHA, original, runs),
+                             auto_release.green_checks(SHA, compact['check_runs'], compact_runs['workflow_runs']))
+            self.assertEqual(local_frontend_release.candidate_failures(original, SHA),
+                             local_frontend_release.candidate_failures(compact['check_runs'], SHA))
+            self.assertTrue(local_frontend_release.candidate_failures(compact['check_runs'], SHA))
+            self.assertLess(len(json.dumps(compact)), len(json.dumps(original)) / 20)
+            self.assertNotIn('unused_logo_and_metadata', compact['check_runs'][0])
+            for key in ('id', 'head_sha', 'head_branch', 'event', 'path', 'status', 'conclusion'):
+                self.assertEqual(compact_runs['workflow_runs'][0][key], runs[0][key])
+        for bad in ({}, {'check_runs': None}, {'check_runs': ['bad']}, {'check_runs': [{'app': None}]}):
+            with self.assertRaises(ValueError): bridge.compact_status(check_path, bad)
+
     def test_only_owned_forward_is_cancelled_on_success_or_error(self):
         for fail in (False, True):
             with patch.object(bridge.subprocess, 'Popen') as spawn, \
