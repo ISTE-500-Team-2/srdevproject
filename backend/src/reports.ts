@@ -79,8 +79,8 @@ export function reportRoutes(pool: Pool, tz: string) {
         ).rows;
         const equipment = (
           await db.query(
-            `SELECT e.equipmentid AS id,e.name,COALESCE(SUM(EXTRACT(EPOCH FROM LEAST(v.endtime AT TIME ZONE 'UTC',$2::timestamptz)-GREATEST(v.starttime AT TIME ZONE 'UTC',$1::timestamptz)))/3600,0)::float AS "bookedHours",COUNT(v.reservationid)::int AS reservations,
- EXTRACT(EPOCH FROM $2::timestamptz-$1::timestamptz)/3600 AS "windowHours",COALESCE(100*SUM(EXTRACT(EPOCH FROM LEAST(v.endtime AT TIME ZONE 'UTC',$2::timestamptz)-GREATEST(v.starttime AT TIME ZONE 'UTC',$1::timestamptz)))/EXTRACT(EPOCH FROM $2::timestamptz-$1::timestamptz),0)::float AS "bookedUtilizationPercent"
+            `SELECT e.equipmentid AS id,e.name,COALESCE(SUM(EXTRACT(EPOCH FROM LEAST(v.endtime AT TIME ZONE 'UTC',$2::timestamptz)-GREATEST(v.starttime AT TIME ZONE 'UTC',$1::timestamptz))) FILTER (WHERE v.reservationid IS NOT NULL)/3600,0)::float AS "bookedHours",COUNT(v.reservationid)::int AS reservations,
+ EXTRACT(EPOCH FROM $2::timestamptz-$1::timestamptz)/3600 AS "windowHours",COALESCE(100*SUM(EXTRACT(EPOCH FROM LEAST(v.endtime AT TIME ZONE 'UTC',$2::timestamptz)-GREATEST(v.starttime AT TIME ZONE 'UTC',$1::timestamptz))) FILTER (WHERE v.reservationid IS NOT NULL)/EXTRACT(EPOCH FROM $2::timestamptz-$1::timestamptz),0)::float AS "bookedUtilizationPercent"
  FROM equipment e LEFT JOIN reservation v ON v.equipmentid=e.equipmentid AND v.status='confirmed' AND v.endtime AT TIME ZONE 'UTC'>$1 AND v.starttime AT TIME ZONE 'UTC'<$2 GROUP BY e.equipmentid,e.name ORDER BY e.name`,
             params.slice(0, 2),
           )
