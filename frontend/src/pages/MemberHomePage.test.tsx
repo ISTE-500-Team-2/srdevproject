@@ -28,10 +28,13 @@ const emma: User = {
 };
 const dana: User = { ...emma, id: 7, firstName: 'Dana', lastName: 'Reyes', isMinor: false, sponsorName: null };
 const overview = (o: Partial<Overview> = {}): Overview => ({
+  userId: auth.user?.id ?? dana.id,
   entitlement: { membership: true, dayPass: false },
   pendingWaivers: 0,
   activeReservations: 0,
   canCheckIn: true,
+  checkInBuildingId: 1,
+  buildings: [{id:1,name:'Main shop',status:'available'}],
   reasons: [],
   recentCheckIns: [{ id: 1, location: 'Main shop', checkedInAt: '2026-10-30T20:02:00Z', method: 'nfc' }],
   ...o,
@@ -186,4 +189,19 @@ test('eligible building check-in explains that reserved resources must wait', as
   const card = await checkInCard();
   expect(within(card).getByText('Building check-in is available before your reservation. Wait until its start time to use your reserved room or equipment.')).toBeTruthy();
   expect(within(card).getByText('Tap your NFC tag at the door. Forgot it? Ask staff.')).toBeTruthy();
+});
+
+test('choosing a building previews eligibility but never records member presence',async()=>{
+  auth.user=dana;
+  const buildings=[{id:1,name:'Main shop',status:'available'},{id:2,name:'Annex',status:'available'}];
+  mount({
+    '/me/overview':overview({buildings,checkInBuildingId:null,canCheckIn:false,reasons:['Choose the building where you are arriving.']}),
+    '/me/overview?buildingId=2':overview({buildings,checkInBuildingId:2}),
+    '/me/supervision':adultSummary(),'/me/minors':{minors:[],requests:[]},
+  });
+  fireEvent.change(await screen.findByLabelText('Check-in building'),{target:{value:'2'}});
+  const card=await checkInCard();
+  expect(await within(card).findByText('You can check in.')).toBeTruthy();
+  expect(within(card).getByText('Tap your NFC tag at the door. Forgot it? Ask staff.')).toBeTruthy();
+  expect(api.mock.calls.some(([,init])=>init?.method==='POST')).toBe(false);
 });

@@ -24,7 +24,7 @@ vi.mock("../../context/AuthContext", () => ({ useAuth: () => auth }));
 const responses = new Map<string, unknown>();
 vi.mock("../../lib/useApi", () => ({
   useApi: (path: string | null) => ({
-    data: path ? (responses.get(path.split("?")[0]) ?? null) : null,
+    data: path ? (responses.get(path) ?? responses.get(path.split("?")[0]) ?? null) : null,
     loading: false,
     error: null,
     reload: vi.fn(),
@@ -88,7 +88,7 @@ test("staff land in the workspace; members get their home; an open account gets 
 
   auth.user = dana;
   auth.actor = admin;
-  responses.set("/me/overview", { entitlement: { membership: true, dayPass: false }, pendingWaivers: 0, activeReservations: 0, canCheckIn: true, reasons: [], recentCheckIns: [] });
+  responses.set("/me/overview", { userId:dana.id, entitlement: { membership: true, dayPass: false }, pendingWaivers: 0, activeReservations: 0, canCheckIn: true, reasons: [], recentCheckIns: [] });
   at(<HomeRoute />);
   expect(screen.getByRole("heading", { name: "What would you like to do?" })).toBeTruthy();
 });
@@ -204,7 +204,7 @@ test("mobile navigation contains focus, locks the background, and restores the m
 test("staff see their tools, with admin-only and instructor actions locked", () => {
   auth.user = dana;
   auth.actor = staff;
-  responses.set("/me/overview", { entitlement: { membership: false, dayPass: false }, pendingWaivers: 1, activeReservations: 0, canCheckIn: false, reasons: ["Sign all current required policies and waivers first."], recentCheckIns: [] });
+  responses.set("/me/overview", { userId:dana.id, entitlement: { membership: false, dayPass: false }, pendingWaivers: 1, activeReservations: 0, canCheckIn: false, reasons: ["Sign all current required policies and waivers first."], recentCheckIns: [] });
   responses.set("/me/certifications", [{ id: 3, name: "Laser", status: "Expired", renewalDate: null }]);
   at(<AccountHomePage />);
   expect(screen.getByRole("region", { name: "Staff tools" })).toBeTruthy();
@@ -227,14 +227,30 @@ test("staff see their tools, with admin-only and instructor actions locked", () 
 test("admins get role changes as a tool; checking a member in posts for that member", async () => {
   auth.user = dana;
   auth.actor = admin;
-  responses.set("/me/overview", { entitlement: { membership: true, dayPass: false }, pendingWaivers: 0, activeReservations: 1, canCheckIn: true, reasons: [], recentCheckIns: [] });
+  responses.set("/me/overview", { userId:dana.id, entitlement: { membership: true, dayPass: false }, pendingWaivers: 0, activeReservations: 1, canCheckIn: true, checkInBuildingId:2, buildings:[{id:1,name:'Main',status:'available'},{id:2,name:'Annex',status:'available'}], reasons: [], recentCheckIns: [] });
   at(<AccountHomePage />);
   const tools = screen.getByRole("region", { name: "Admin tools" });
   expect(within(tools).getByRole("link", { name: /Change role/ })).toBeTruthy();
   expect(screen.getByRole("region", { name: "Needs an instructor" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: /Check Dana in/ }));
   await screen.findByText("Dana is checked in.");
-  expect(api).toHaveBeenCalledWith("/me/check-ins", { method: "POST", body: {} });
+  expect(api).toHaveBeenCalledWith("/me/check-ins", { method: "POST", body: {buildingId:2} });
+});
+
+test("staff choose the actual arrival building; a stale overview cannot authorize the changed target", async () => {
+  auth.user = dana; auth.actor = admin;
+  const overview = { userId:dana.id, entitlement: { membership:true, dayPass:false }, pendingWaivers:0, activeReservations:0,
+    canCheckIn:true, checkInBuildingId:2, buildings:[{id:1,name:'Main',status:'available'},{id:2,name:'Annex',status:'available'}], reasons:[], recentCheckIns:[] };
+  responses.set('/me/overview',overview);
+  at(<AccountHomePage />);
+  expect(screen.getByLabelText('Check-in building')).toHaveProperty('value','2');
+  fireEvent.change(screen.getByLabelText('Check-in building'),{target:{value:'1'}});
+  expect(screen.getByRole('button',{name:/Check Dana in/})).toHaveProperty('disabled',true);
+  expect(api).not.toHaveBeenCalled();
+  responses.set('/me/overview?buildingId=1',{...overview,checkInBuildingId:1});
+  fireEvent.change(screen.getByLabelText('Check-in building'),{target:{value:'1'}});
+  fireEvent.click(screen.getByRole('button',{name:/Check Dana in/}));
+  await waitFor(()=>expect(api).toHaveBeenCalledWith('/me/check-ins',{method:'POST',body:{buildingId:1}}));
 });
 
 test("your own account shows member actions only", () => {

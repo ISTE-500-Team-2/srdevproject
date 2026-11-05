@@ -18,10 +18,12 @@ import {
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { LoadState } from "../components/Management";
+import { CheckInBuilding } from "../components/CheckInBuilding";
 import { initials, roleLabel } from "../components/admin/people";
 import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
-import type { Certification, Overview, Reservation } from "../lib/contracts";
+import type { Certification, Reservation } from "../lib/contracts";
+import { useCheckInOverview } from "../lib/useCheckInOverview";
 import { dateTime } from "../lib/display";
 import type { MemberDetail } from "../lib/staffContracts";
 import { useApi } from "../lib/useApi";
@@ -91,7 +93,7 @@ export function AccountHomePage() {
     failed: false,
   });
   const [reset, setReset] = useState({ busy: false, message: "", failed: false });
-  const overview = useApi<Overview>("/me/overview");
+  const overview = useCheckInOverview(user?.id);
   const certifications = useApi<Certification[]>("/me/certifications");
   const bookings = useApi<Reservation[]>("/reservations");
   const detail = useApi<MemberDetail>(user ? `/admin/users/${user.id}` : null);
@@ -103,9 +105,10 @@ export function AccountHomePage() {
   const memberRecord = `/admin/members?member=${user.id}`;
 
   const doCheckIn = async () => {
+    if (!overview.ready || !overview.data?.canCheckIn || checkIn.busy) return;
     setCheckIn({ busy: true, message: "", failed: false });
     try {
-      await api("/me/check-ins", { method: "POST", body: {} });
+      await api("/me/check-ins", { method: "POST", body: {buildingId:overview.buildingId} });
       setCheckIn({ busy: false, message: `${user.firstName} is checked in.`, failed: false });
       overview.reload();
     } catch (err) {
@@ -168,7 +171,7 @@ export function AccountHomePage() {
           ? (o.reasons[0] ?? "Not available right now")
           : "Record building entry; reserved rooms and equipment stay locked until the reservation starts",
       onClick: () => void doCheckIn(),
-      disabled: checkIn.busy || !o?.canCheckIn,
+      disabled: checkIn.busy || !overview.ready || !o?.canCheckIn,
     }]),
     { icon: IdCard, title: "Change membership", detail: own ? "Switch, renew or cancel your plan" : "Switch, renew or cancel their plan", to: "/membership" },
   ];
@@ -313,6 +316,8 @@ export function AccountHomePage() {
             {problem.action}
           </div>
         ))}
+        {!own && o && <CheckInBuilding buildings={o.buildings} buildingId={overview.buildingId}
+          onChange={overview.selectBuilding} disabled={checkIn.busy} />}
         <ActionGroup title={own ? "For you" : `On ${first}'s behalf`} actions={onBehalf} />
         <ActionGroup title={isAdmin ? "Admin tools" : "Staff tools"} actions={tools} tone="tools" />
         <ActionGroup title={isAdmin ? "Needs an instructor" : "Needs an instructor or admin"} actions={locked} tone="locked" />

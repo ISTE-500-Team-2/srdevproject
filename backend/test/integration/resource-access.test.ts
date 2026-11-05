@@ -77,17 +77,32 @@ async function book(key: 'roomid' | 'equipmentid', id: number) {
     RETURNING reservationid`,[userId,id])).rows[0].reservationid;
 }
 
+test('an arrival without an existing visit must choose a building when several exist',async () => {
+  const overview = await request(app).get('/api/me/overview').set('Authorization','Bearer '+token);
+  assert.equal(overview.body.data.canCheckIn,false);
+  assert.equal(overview.body.data.checkInBuildingId,null);
+  assert.equal(overview.body.data.buildings.length,2);
+  assert.deepEqual(refusal(await deskCheckIn({})),[400,'BUILDING_REQUIRED']);
+  for (const id of ['0','bad','1&buildingId=2'])
+    assert.equal((await request(app).get('/api/me/overview?buildingId='+id).set('Authorization','Bearer '+token)).status,400);
+  const selected = await request(app).get('/api/me/overview?buildingId='+otherBuilding).set('Authorization','Bearer '+token);
+  assert.equal(selected.body.data.canCheckIn,true);
+  assert.equal(selected.body.data.checkInBuildingId,otherBuilding);
+  assert.equal((await deskCheckIn({buildingId:otherBuilding})).status,201);
+});
+
 test('portal and readers enforce building assignments, ownership and current confirmed room bookings',async () => {
+  const before = (await pool.query('SELECT count(*)::int n FROM check_in WHERE userid=$1',[userId])).rows[0].n;
   const own = await post('/me/check-ins',{location:'Spoofed building'});
   assert.deepEqual(refusal(own),[403,'CHECK_IN_AT_READER']);
-  const buildingCheckIn = await deskCheckIn({location:'Spoofed building'});
+  const buildingCheckIn = await deskCheckIn({buildingId:1,location:'Spoofed building'});
   assert.equal(buildingCheckIn.status,201);
   assert.notEqual(buildingCheckIn.body.data.location,'Spoofed building');
   assert.equal((await scan('entrance')).body.data.allowed,true);
   assert.equal((await scan('room')).body.data.reason,'RESERVATION_REQUIRED');
   const booking = await book('roomid',room);
   assert.deepEqual(refusal(await post('/me/check-ins',{roomId:room})),[403,'CHECK_IN_AT_READER'],'a current booking does not open web check-in');
-  assert.equal((await pool.query('SELECT count(*)::int n FROM check_in WHERE userid=$1',[userId])).rows[0].n,1);
+  assert.equal((await pool.query('SELECT count(*)::int n FROM check_in WHERE userid=$1',[userId])).rows[0].n,before+1);
   const desk = await deskCheckIn({roomId:room});
   assert.equal(desk.status,201,JSON.stringify(desk.body));
   assert.equal((await scan('entrance')).body.data.allowed,true);
@@ -115,6 +130,24 @@ test('portal and readers enforce building assignments, ownership and current con
   await pool.query("UPDATE reservation SET starttime=(NOW()-INTERVAL '2 hours') AT TIME ZONE 'UTC',endtime=NOW() AT TIME ZONE 'UTC' WHERE reservationid=$1",[booking]);
   assert.equal((await scan('room')).body.data.allowed,false);
   assert.deepEqual(refusal(await deskCheckIn({roomId:room,equipmentId:machine})),[400,'INVALID_INPUT']);
+});
+
+test('staff overview and unscoped arrival preserve a current second-building visit',async () => {
+  assert.equal((await scan('other',true)).body.data.allowed,true);
+  await pool.query("UPDATE building SET status='unavailable' WHERE buildingid=1");
+  try {
+    const overview = await request(app).get('/api/me/overview').set('Authorization','Bearer '+token);
+    assert.equal(overview.body.data.checkInBuildingId,otherBuilding);
+    assert.equal(overview.body.data.canCheckIn,true);
+    assert.equal((await deskCheckIn({})).status,201);
+    const visit = (await pool.query('SELECT building_id FROM app_facility_visit WHERE user_id=$1 AND checked_out_at IS NULL',[userId])).rows[0];
+    assert.equal(visit.building_id,otherBuilding);
+    const stored = (await pool.query('SELECT buildingid,roomid,equipmentid,reservationid FROM check_in WHERE userid=$1 ORDER BY checkinid DESC LIMIT 1',[userId])).rows[0];
+    assert.deepEqual(stored,{buildingid:otherBuilding,roomid:null,equipmentid:null,reservationid:null});
+    assert.deepEqual(refusal(await deskCheckIn({buildingId:1})),[403,'RESOURCE_UNAVAILABLE']);
+  } finally {
+    await pool.query("UPDATE building SET status='available' WHERE buildingid=1");
+  }
 });
 
 test('early building tap records presence without unlocking a reserved machine or room',async () => {

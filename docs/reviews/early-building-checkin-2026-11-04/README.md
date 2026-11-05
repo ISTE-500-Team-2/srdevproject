@@ -43,3 +43,15 @@ Full verification against the integrated main passed: backend build and 62 unit 
 ## Booking dialog visual correction
 
 The shared hourly-price component used an unstyled definition list in a generic panel and retained obsolete front-desk payment instructions alongside the new checkout instructions. Added scoped price-summary styling with padding and aligned amounts, removed contradictory/duplicated payment messages, and moved the time hint across both controls. Verified the real local dialog visually, checked 390px layout without horizontal overflow, and saved `booking-price-desktop.png`. Frontend build and all 347 unit tests passed, plus all 6 booking/waiver/staff integration tests across 4 files. Local Docker preview rebuilt successfully.
+
+## Review correction: preserve the actual check-in building
+
+Review reproduced a staff arrival in building 2 being silently transferred to building 1: the staff screen submitted an empty target and the service defaulted it to 1. This also ended supervised minors' visits through the existing adult-transfer behavior.
+
+Unscoped facility access now preserves a current same-day visit. Without a current visit, a single configured building can be selected automatically; multiple buildings require a choice instead of assuming building 1. The overview accepts `buildingId`, returns the building choices and resolved target, and uses the same target for eligibility. Staff see the building and send its ID explicitly when recording arrival. Members can preview another building's eligibility, but still cannot establish presence from the website. Resource reservations, signed reader decisions, and lease checks are unchanged.
+
+Changing the selected building disables staff check-in until its eligibility response arrives. Overview responses carry the authenticated subject ID, and switching accounts invalidates the request and selection so another member's eligibility cannot be reused.
+
+Regression coverage includes ambiguous first arrival, explicit building choice, malformed query IDs, repeating second-building arrival while building 1 is unavailable, preserving an adult's supervised minors and their reader renewals, stale-response/account-switch guards, and an actual React/HTTP/PostgreSQL staff workflow for first arrival, repeated arrival, and deliberate transfer. The original review reproduction now retains building 2.
+
+Local Node 24.22.1/PostgreSQL 16 verification: both builds, 62 backend and 350 frontend unit tests passed. All 362 backend integration tests passed with four-worker concurrency and all 38 frontend integration tests passed. After the final account-response guard, both builds/unit suites and 64 focused backend plus 3 frontend HTTP/PostgreSQL tests passed again. The initial simultaneous high-concurrency backend run had three unrelated HTTP-test failures; the relevant tests also ran on the unchanged PR head, and the bounded full rerun passed without changing those tests. No production database, reader hardware, schema, or deployment was changed.

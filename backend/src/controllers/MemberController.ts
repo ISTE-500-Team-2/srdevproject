@@ -208,21 +208,29 @@ export class MemberController {
       ),
     });
   };
-  overview = async (_req: Request, res: Response) => {
+  overview = async (req: Request, res: Response) => {
     const userId = authState(res).user.id;
+    const requestedBuildingId = req.query.buildingId === undefined ? undefined : positiveId(req.query.buildingId,'Building');
     const model = new EligibilityModel(this.pool, this.timeZone);
     const [
       entitlement,
       waivers,
-      checkInFailure,
+      checkInContext,
       reservations,
       checkIns,
     ] = await Promise.all([
       model.entitlement(userId, new Date()),
       model.waivers(userId, 'facility'),
       transaction(this.pool, async db => {
-        try { await new AccessService(db,this.timeZone).accessForTarget(userId,{}); return null; }
-        catch (error) { if (error instanceof AppError) return error.message; throw error; }
+        const access = new AccessService(db,this.timeZone);
+        const context = await access.facilityContext(userId,requestedBuildingId);
+        try {
+          await access.accessForTarget(userId,{buildingId:context.buildingId ?? undefined});
+          return {...context, failure:null};
+        } catch (error) {
+          if (error instanceof AppError) return {...context, failure:error.message};
+          throw error;
+        }
       }),
       new MemberModel(this.pool).activeReservationCount(userId),
       new MemberModel(this.pool).recentCheckIns(userId),
@@ -236,13 +244,16 @@ export class MemberController {
       reasons.push("Required policies have not been configured");
     else if (waivers.some((w) => !w.signed))
       reasons.push("Required policies and waivers need your signature");
-    if (checkInFailure && reasons.length === 0) reasons.push(checkInFailure);
+    if (checkInContext.failure && reasons.length === 0) reasons.push(checkInContext.failure);
     res.json({
       data: {
         entitlement,
         pendingWaivers: waivers.filter((w) => !w.signed).length,
         activeReservations: reservations,
+        userId,
         canCheckIn: reasons.length === 0,
+        checkInBuildingId: checkInContext.buildingId,
+        buildings: checkInContext.buildings,
         reasons,
         recentCheckIns: checkIns,
       },

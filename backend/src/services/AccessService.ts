@@ -57,12 +57,30 @@ export class AccessService {
     return equipment.waiverRequired ? this.assertEquipmentWaivers(userId, through) : [];
   }
 
+  async facilityContext(userId: number, requestedBuildingId?: number) {
+    const buildings = (await this.db.query<{id: number; name: string; status: string}>(
+      'SELECT buildingid AS id,name,status FROM building ORDER BY name,buildingid')).rows;
+    const visit = (await this.db.query<{buildingId: number}>(`SELECT building_id AS "buildingId"
+      FROM app_facility_visit WHERE user_id=$1 AND checked_out_at IS NULL
+        AND (checked_in_at AT TIME ZONE $2)::date=(now() AT TIME ZONE $2)::date`,
+      [userId,this.timeZone])).rows[0];
+    // An unspecified target must not transfer a current visit. With multiple
+    // buildings and no current visit, the person at the desk must choose one.
+    const buildingId = requestedBuildingId ?? visit?.buildingId ?? (buildings.length === 1 ? buildings[0]!.id : null);
+    return {buildings, buildingId};
+  }
+
   // The caller keeps the decision and check-in in one transaction.
   async accessForTarget(userId: number, target: AccessTarget, at = new Date()) {
     await this.assertActiveUser(userId);
     const entitlement = await this.assertEntitlement(userId,at);
     await this.assertWaivers(userId);
-    let buildingId = target.buildingId ?? (target.roomId || target.equipmentId ? undefined : 1);
+    let buildingId = target.buildingId;
+    if (!target.roomId && !target.equipmentId && buildingId === undefined) {
+      buildingId = (await this.facilityContext(userId)).buildingId ?? undefined;
+      if (buildingId === undefined)
+        throw new AppError(400,'BUILDING_REQUIRED','Choose the building where you are arriving.');
+    }
     let location: string | undefined;
     if (target.roomId || target.equipmentId) {
       const table = target.roomId ? 'room' : 'equipment';

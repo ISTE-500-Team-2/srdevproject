@@ -18,9 +18,11 @@ function hasUnsavedManagementEdits() {
     }));
 }
 
-export function useApi<T>(path: string | null, options: { retainOnReload?: boolean; refreshInterval?: number } = {}) {
+export function useApi<T>(path: string | null, options: { retainOnReload?: boolean; refreshInterval?: number; requestKey?: string | number } = {}) {
   const retainOnReload = options.retainOnReload ?? false;
   const previousPath = useRef(path);
+  const requestKey = options.requestKey;
+  const previousKey = useRef(requestKey);
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -30,8 +32,9 @@ export function useApi<T>(path: string | null, options: { retainOnReload?: boole
   const [revision, setRevision] = useState(0);
   const reload = useCallback(() => setRevision((value) => value + 1), []);
   useEffect(() => {
-    const samePath = previousPath.current === path;
+    const samePath = previousPath.current === path && previousKey.current === requestKey;
     previousPath.current = path;
+    previousKey.current = requestKey;
     if (path === null) { dataRef.current = null; setData(null); setLoading(false); setRefreshing(false); setError(""); return; }
     const controller = new AbortController();
     const background = retainOnReload && samePath && dataRef.current !== null;
@@ -56,7 +59,7 @@ export function useApi<T>(path: string | null, options: { retainOnReload?: boole
         if (!controller.signal.aborted) { fetching.current = false; setLoading(false); setRefreshing(false); }
       });
     return () => { controller.abort(); fetching.current = false; };
-  }, [path, revision, retainOnReload]);
+  }, [path, revision, retainOnReload, requestKey]);
   const refreshInterval = options.refreshInterval ?? 0;
   useEffect(() => {
     if (!path || refreshInterval <= 0) return;

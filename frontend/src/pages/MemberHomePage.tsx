@@ -14,8 +14,9 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api, errorMessage } from '../lib/api';
 import { useApi } from '../lib/useApi';
+import { useCheckInOverview } from '../lib/useCheckInOverview';
+import { CheckInBuilding } from '../components/CheckInBuilding';
 import type {
-  Overview,
   Reservation,
   SponsorRequest,
   SupervisedMinors,
@@ -42,7 +43,7 @@ const firstName = (name: string) => name.split(' ')[0] ?? name;
 
 export function MemberHomePage() {
   const { user, notification, clearNotification, refresh } = useAuth();
-  const overview = useApi<Overview>('/me/overview');
+  const overview = useCheckInOverview(user?.id);
   const waivers = useApi<Waiver[]>('/me/waivers');
   const bookings = useApi<Reservation[]>('/reservations');
   const greet = useFirstVisit('collaboratory:greeted');
@@ -230,6 +231,7 @@ export function MemberHomePage() {
                 </span>
                 <h2>Check-in</h2>
               </div>
+              <CheckInBuilding buildings={summary.buildings} buildingId={overview.buildingId} onChange={overview.selectBuilding} />
               <p className="check-in__status">
                 <StatusMark
                   status={visit || summary.canCheckIn ? 'done' : 'failed'}
