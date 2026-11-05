@@ -83,7 +83,7 @@ test('an arrival without an existing visit must choose a building when several e
   assert.equal(overview.body.data.checkInBuildingId,null);
   assert.equal(overview.body.data.buildings.length,2);
   assert.deepEqual(refusal(await deskCheckIn({})),[400,'BUILDING_REQUIRED']);
-  for (const id of ['0','bad','1&buildingId=2'])
+  for (const id of ['0','bad','1&buildingId=2','2147483648',String(Number.MAX_SAFE_INTEGER)])
     assert.equal((await request(app).get('/api/me/overview?buildingId='+id).set('Authorization','Bearer '+token)).status,400);
   const selected = await request(app).get('/api/me/overview?buildingId='+otherBuilding).set('Authorization','Bearer '+token);
   assert.equal(selected.body.data.canCheckIn,true);

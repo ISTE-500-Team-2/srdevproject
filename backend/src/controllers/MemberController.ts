@@ -3,7 +3,7 @@ import { EXPIRATION_LOOKAHEAD_DAYS, reminderDates } from "../notifications/sched
 import type { Request, Response } from "express";
 import type { Pool } from "pg";
 import { transaction } from "../db.js";
-import { AppError, positiveId, profileFields, textField } from "../domain.js";
+import { AppError, integerId, positiveId, profileFields, textField } from "../domain.js";
 import { authState } from "../middleware/auth.js";
 import { UserModel } from "../models/UserModel.js";
 import { EligibilityModel } from "../models/EligibilityModel.js";
@@ -210,7 +210,7 @@ export class MemberController {
   };
   overview = async (req: Request, res: Response) => {
     const userId = authState(res).user.id;
-    const requestedBuildingId = req.query.buildingId === undefined ? undefined : positiveId(req.query.buildingId,'Building');
+    const requestedBuildingId = req.query.buildingId === undefined ? undefined : integerId(req.query.buildingId,'Building');
     const model = new EligibilityModel(this.pool, this.timeZone);
     const [
       entitlement,
