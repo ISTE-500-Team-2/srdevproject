@@ -19,6 +19,18 @@ test.each([
   expect([...picker().options].every(option => /:(00|30)$/.test(option.value))).toBe(true);
 });
 
+test("paid booking lead time rounds up to a slot at least 30 minutes away", () => {
+  render(<StartTimePicker name="start" hours={1} minLeadMinutes={30} now={new Date(2026, 9, 27, 19, 16)} />);
+  expect(value()).toBe("2026-10-27T20:00");
+  expect(picker().options[0]!.value).toBe("20:00");
+  expect(screen.getByText(/Paid bookings must start at least 30 minutes from now/)).toBeTruthy();
+});
+
+test("paid booking minimum advances the picker date when the lead crosses midnight", () => {
+  render(<StartTimePicker name="start" hours={1} minLeadMinutes={30} now={new Date(2026, 9, 27, 23, 20)} />);
+  expect(value()).toBe("2026-10-28T00:00");
+});
+
 test("supports distant dates and preserves a selected half-hour across day changes", () => {
   render(<StartTimePicker name="start" hours={2} now={new Date(2026, 9, 27, 14, 10)} />);
   fireEvent.change(screen.getByLabelText("Booking date"), { target: { value: "2027-02-18" } });

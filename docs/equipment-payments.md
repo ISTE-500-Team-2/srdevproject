@@ -19,7 +19,7 @@ expired unpaid Stripe session releases the equipment slot. Provider outages and
 ambiguous creation responses retain the hold until the original session can be
 verified; retry uses the same Stripe idempotency key and quoted rate/name.
 Unresolved creation attempts older than 23 hours require staff reconciliation.
-Paid bookings must start at least 32 minutes in the future to allow checkout.
+Paid bookings must start at least 30 minutes in the future to allow checkout.
 An explicitly configured $0 rate confirms without payment; a missing rate blocks
 booking. Existing reservations retain their status and history.
 

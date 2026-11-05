@@ -152,8 +152,8 @@ export class ReservationService {
           throw new AppError(409, 'PRICE_CHANGED', 'The equipment rate changed. Review the updated total and try again.');
         if (amountCents > 0) {
           billing.provider();
-          if (start.getTime() < Date.now() + 32 * 60_000)
-            throw new AppError(400, 'PAYMENT_TIME_REQUIRED', 'Choose a start at least 32 minutes away to allow time for payment.');
+          if (start.getTime() < Date.now() + 30 * 60_000)
+            throw new AppError(400, 'PAYMENT_TIME_REQUIRED', 'Choose a start at least 30 minutes away to allow time for payment.');
         }
 
         if (await model.overlaps(equipmentId, start, end))

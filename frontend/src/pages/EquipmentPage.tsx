@@ -284,7 +284,7 @@ export function EquipmentPage() {
             <div className="equipment-booking-layout">
             <section aria-labelledby="equipment-time-heading">
               <h3 className="equipment-booking-step" id="equipment-time-heading"><span>1</span> Start date</h3>
-            <StartTimePicker calendar occupied={liveSelected?.occupied} unavailable={liveSelected?.status !== 'available'} name="start" hours={duration} onPick={() => setError('')}>
+            <StartTimePicker calendar occupied={liveSelected?.occupied} unavailable={liveSelected?.status !== 'available'} minLeadMinutes={totalCents != null && totalCents > 0 ? 30 : 0} name="start" hours={duration} onPick={() => setError('')}>
               <label className="form-field">
                 <span>Duration</span>
                 <select name="duration" value={duration} onChange={e=>setDuration(Number(e.target.value))}>

@@ -11,6 +11,12 @@ const nextHalfHour = (d: Date) => {
   next.setMinutes(Math.floor(d.getMinutes() / 30) * 30 + 30, 0, 0);
   return next;
 };
+const minimumStart = (now: Date, leadMinutes: number) => {
+  if (!leadMinutes) return nextHalfHour(now);
+  const minimum = new Date(now.getTime() + leadMinutes * 60000);
+  minimum.setMinutes(Math.ceil(minimum.getMinutes() / 30) * 30, 0, 0);
+  return minimum;
+};
 const timeLabel = (minutes: number) =>
   new Date(2000, 0, 1, Math.floor(minutes / 60), minutes % 60).toLocaleTimeString([], {
     hour: "numeric",
@@ -18,26 +24,28 @@ const timeLabel = (minutes: number) =>
   });
 
 /** Quick day buttons with future start times on half-hour boundaries. */
-export function StartTimePicker({ name, hours, onPick, children, now: nowProp, calendar = false, occupied = [], unavailable = false }: {
+export function StartTimePicker({ name, hours, onPick, children, now: nowProp, calendar = false, occupied = [], unavailable = false, minLeadMinutes = 0 }: {
   occupied?: {startTime: string; endTime: string}[];
   unavailable?: boolean;
   calendar?: boolean;
+  minLeadMinutes?: number;
   name: string;
   hours: number;
   onPick?: () => void;
   children?: ReactNode;
   now?: Date;
 }) {
-  const [now, setNow] = useState(() => nowProp ?? new Date());
+  const initialNow = nowProp ?? new Date();
+  const [now, setNow] = useState(initialNow);
   useEffect(() => {
     if (nowProp) { setNow(nowProp); return; }
     const timer = window.setInterval(() => setNow(new Date()), 30000);
     return () => window.clearInterval(timer);
   }, [nowProp]);
-  const [day, setDay] = useState(() => dayKey(nextHalfHour(now)));
-  const [calendarMonth, setCalendarMonth] = useState(() => dayKey(nextHalfHour(now)).slice(0, 7));
-  const [time, setTime] = useState(() => clockKey(nextHalfHour(now)));
-  const minimum = nextHalfHour(now);
+  const [day, setDay] = useState(() => dayKey(minimumStart(initialNow, minLeadMinutes)));
+  const [calendarMonth, setCalendarMonth] = useState(() => dayKey(minimumStart(initialNow, minLeadMinutes)).slice(0, 7));
+  const [time, setTime] = useState(() => clockKey(minimumStart(initialNow, minLeadMinutes)));
+  const minimum = minimumStart(now, minLeadMinutes);
   const days = useMemo(() => Array.from({ length: QUICK_DAYS }, (_, offset) => {
     const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset);
     return { key: dayKey(date), date, offset };
@@ -49,7 +57,7 @@ export function StartTimePicker({ name, hours, onPick, children, now: nowProp, c
   };
   // A dialog can remain open across a slot boundary or midnight.
   useEffect(() => {
-    const next = nextHalfHour(now);
+    const next = minimumStart(now, minLeadMinutes);
     const nextDay = dayKey(next);
     if (day && day < nextDay) {
       setDay(nextDay);
@@ -57,7 +65,7 @@ export function StartTimePicker({ name, hours, onPick, children, now: nowProp, c
     } else if (day === nextDay && time < clockKey(next)) {
       setTime(clockKey(next));
     }
-  }, [now, day, time]);
+  }, [now, day, time, minLeadMinutes]);
   // A calendar checks every half-hour on every visible day. Parse each booking
   // once per availability refresh, not again for every candidate start time.
   const occupiedIntervals = useMemo(() => occupied.map(slot => ({
@@ -110,7 +118,7 @@ export function StartTimePicker({ name, hours, onPick, children, now: nowProp, c
             {timeLabel(Number(value.slice(0, 2)) * 60 + Number(value.slice(3)))}
           </option>)}
         </select>
-        <small>{Intl.DateTimeFormat().resolvedOptions().timeZone} · bookings start on the hour or half-hour.</small>
+        <small>{Intl.DateTimeFormat().resolvedOptions().timeZone} · bookings start on the hour or half-hour.{minLeadMinutes ? ` Paid bookings must start at least ${minLeadMinutes} minutes from now.` : ''}</small>
       </label>
       {children}
       <p className="start-picker__summary" aria-live="polite">

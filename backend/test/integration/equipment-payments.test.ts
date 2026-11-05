@@ -71,6 +71,27 @@ test('server charges $7 for one hour and $14 for two; unpaid holds send no confi
   await assert.rejects(service.create(member, booking(2, {amountCents: 1})), {code: 'PRICE_CHANGED'});
 });
 
+test('paid equipment bookings require 30 minutes of lead time', async () => {
+  const startTime = new Date(Date.now() + 29 * 60_000).toISOString();
+  await assert.rejects(service.create(member, {
+    equipmentId: equipment,
+    startTime,
+    endTime: new Date(new Date(startTime).getTime() + 3_600_000).toISOString(),
+    requestKey: randomUUID(),
+    amountCents: 700,
+  }), {code: 'PAYMENT_TIME_REQUIRED'});
+
+  const allowedStart = new Date(Date.now() + 35 * 60_000).toISOString();
+  const result = await service.create(member, {
+    equipmentId: equipment,
+    startTime: allowedStart,
+    endTime: new Date(new Date(allowedStart).getTime() + 3_600_000).toISOString(),
+    requestKey: randomUUID(),
+    amountCents: 700,
+  });
+  assert.equal(result.status, 'pending');
+});
+
 test('only canonical paid state confirms; duplicate and stale events issue one payment and confirmation', async () => {
   const result = await service.create(member, booking(2));
   const session = await sessionFor(result.id);
