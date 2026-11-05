@@ -2,7 +2,7 @@
 """Run warm local frontend checks and immediately invoke the SSH release gate."""
 import argparse
 import base64
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
@@ -15,6 +15,8 @@ import tempfile
 import time
 
 from local_frontend_release import COMMANDS, revision
+
+SERVER_SCRIPT = '/srv/arbor-full/auto-deploy/local-frontend-tools/local_frontend_release.py'
 
 
 def output(*args, **kwargs):
@@ -30,6 +32,19 @@ def pristine(source):
 def remote(host, *args):
     return ['ssh', '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', host,
             shlex.join(args)]
+
+
+@contextmanager
+def cleanup_failed_check(host, sha):
+    try:
+        yield
+    except BaseException:
+        try:
+            subprocess.run(remote(host, 'python3', SERVER_SCRIPT, '--sha', sha, '--abort-prewarm'),
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+        except subprocess.SubprocessError:
+            pass  # Protected prewarm record remains available for safe operator cleanup.
+        raise
 
 
 def main():
@@ -52,14 +67,14 @@ def main():
         raise RuntimeError('The trusted local profile requires macOS arm64 and pinned Node24.22.1')
     if os.environ.get('PGHOST') not in ('127.0.0.1', 'localhost') or os.environ.get('DATABASE_URL'):
         raise RuntimeError('Provide explicit loopback isolated test PostgreSQL, never production DATABASE_URL')
-    release_script = '/srv/arbor-full/auto-deploy/local-frontend-tools/local_frontend_release.py'
+    release_script = SERVER_SCRIPT
     evidence = args.evidence_dir.resolve() if args.evidence_dir else Path(tempfile.mkdtemp(prefix='arbor-local-frontend-'))
     if evidence == source or source in evidence.parents:
         raise RuntimeError('Keep verification evidence outside the checked source tree')
     evidence.mkdir(mode=0o700, parents=True, exist_ok=True)
     evidence.chmod(0o700)
     print('Protected verification logs:', evidence, flush=True)
-    with nullcontext(str(evidence)) as temporary:
+    with nullcontext(str(evidence)) as temporary, cleanup_failed_check(args.host, sha):
         directory = Path(temporary)
         def lane(name, command):
             stamp = time.monotonic()
@@ -72,7 +87,8 @@ def main():
                     'seconds': round(time.monotonic() - stamp, 3)}
         def prepare():
             with (directory / 'prepare.log').open('wb') as stream:
-                subprocess.run(remote(args.host, 'python3', release_script, '--sha', sha, '--prepare'),
+                flags = ['--rehearse'] if args.rehearse else []
+                subprocess.run(remote(args.host, 'python3', release_script, '--sha', sha, '--prepare', *flags),
                                stdout=stream, stderr=subprocess.STDOUT, check=True, timeout=1200)
         # Independent test databases; deployment preparation cannot promote.
         # All futures must settle successfully before creating a trusted receipt.

@@ -19,7 +19,7 @@ import tempfile
 import time
 
 import auto_release as ops
-from blue_green_release import deploy_blue_green, recover_activation
+from blue_green_release import deploy_blue_green, recover_activation, read_route, slot_config, slot_compose, SLOTS
 
 COMMANDS = {
     'frontend-check': ['npm', 'run', 'test', '--prefix', 'frontend', '--', '--maxWorkers=4', '--pool=threads'],
@@ -27,6 +27,7 @@ COMMANDS = {
     'frontend-integration': ['npm', 'run', 'test:integration', '--prefix', 'frontend', '--', '--maxWorkers=6', '--pool=threads'],
 }
 ALLOWED = ('frontend/src/', 'frontend/test/')
+MAC_WORKFLOW_BLOB = 'a853ff2e818b1a8ebd1055f3ba34757037d3f922'
 
 
 def revision(value):
@@ -111,6 +112,58 @@ def candidate_failures(checks, sha):
     return any(c.get('conclusion') not in (None, 'success') for c in latest.values())
 
 
+def baseline_green(root, sha, checks, runs):
+    if ops.green_checks(sha, checks, runs):
+        return True
+    # The owner may run the queued hosted Mac lane on the actual Mac instead.
+    # This replaces ONLY that lane, not failures or any application/Docker gate.
+    latest = {}
+    for c in checks:
+        if c.get('head_sha') == sha and c.get('app', {}).get('slug') == 'github-actions':
+            if c['name'] not in latest or c['id'] > latest[c['name']]['id']:
+                latest[c['name']] = c
+    mac = 'launcher-unit (macos-latest)'
+    if latest.get(mac, {}).get('conclusion') not in (None, 'success'):
+        return False
+    if any(latest.get(n, {}).get('status') != 'completed' or latest[n].get('conclusion') != 'success'
+           for n in ops.REQUIRED - {mac}):
+        return False
+    if any(c['name'] != mac and (c.get('status') != 'completed' or c.get('conclusion') != 'success')
+           for c in latest.values()):
+        return False
+    for path in ('.github/workflows/mvc-verify.yml', '.github/workflows/dev-setup.yml', '.github/workflows/sponsor-hosting.yml'):
+        matches = [r for r in runs if r.get('head_sha') == sha and r.get('head_branch') == 'main'
+                   and r.get('event') == 'push' and r.get('path') == path]
+        run = max(matches, key=lambda r: r['id']) if matches else {}
+        if path.endswith('dev-setup.yml'):
+            if not run or run.get('conclusion') not in (None, 'success'):
+                return False
+        elif run.get('status') != 'completed' or run.get('conclusion') != 'success':
+            return False
+    try:
+        directory = root / 'auto-deploy/releases' / sha
+        evidence = json.loads((directory / 'local-macos-evidence.json').read_text())
+        source = directory / 'source'
+        if (evidence.get('version') != 1 or evidence.get('revision') != sha
+                or evidence.get('platform') != 'Darwin-arm64' or evidence.get('node') != '24.22.1'
+                or evidence.get('ownerAuthorizedLocalReplacement') != 'queued macOS launcher check only'
+                or evidence.get('launcherTestsPassed') != 6 or evidence.get('launcherTestsFailed') != 0
+                or evidence.get('missingKeyExit') != 1
+                or ops.output('git', '-C', str(source), 'rev-parse', 'HEAD') != sha
+                or ops.output('git', '-C', str(source), 'status', '--porcelain', '--untracked-files=all')
+                or ops.output('git', '-C', str(source), 'rev-parse', sha + ':.github/workflows/dev-setup.yml') != MAC_WORKFLOW_BLOB
+                or ops.output('git', '-C', str(source), 'rev-parse', 'HEAD^{tree}') != evidence.get('tree')):
+            return False
+        if set(evidence.get('checksums', {})) != {'local-macos-launcher.log', 'local-missing-key.log'}:
+            return False
+        for name, digest in evidence['checksums'].items():
+            if hashlib.sha256((directory / name).read_bytes()).hexdigest() != digest:
+                return False
+        return True
+    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+        return False
+
+
 def accept_evidence(root, sha, stream):
     """Private SSH stdin only. Fixed filenames; validate everything before publish."""
     raw = stream.read(16 * 1024 * 1024 + 1)
@@ -131,6 +184,60 @@ def accept_evidence(root, sha, stream):
         for name in COMMANDS:
             (stage / (name + '.log')).replace(directory / (name + '.log'))
         ops.write_json(directory / 'receipt.json', bundle['receipt'])
+
+
+def inherited_checks(root, baseline, sha):
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        checks = pool.submit(ops.api, 'commits/' + baseline + '/check-runs?per_page=100')
+        runs = pool.submit(ops.api, 'actions/runs?head_sha=' + baseline + '&event=push&branch=main&per_page=100')
+        candidate = pool.submit(ops.api, 'commits/' + sha + '/check-runs?per_page=100')
+        green = baseline_green(root, baseline, checks.result()['check_runs'], runs.result()['workflow_runs'])
+        failed = candidate_failures(candidate.result()['check_runs'], sha)
+    return green and not failed
+
+
+def abort_prewarm(root, sha):
+    path = root / 'auto-deploy/releases' / sha / 'prewarm.json'
+    if not path.exists():
+        return False
+    saved = json.loads(path.read_text())
+    port = saved.get('port')
+    if (saved.get('revision') != sha or port not in SLOTS
+            or read_route(root / 'routing/active.json')['publicPort'] == port):
+        return False
+    try:
+        inspected = json.loads(ops.output('docker', 'inspect', SLOTS[port][1]))[0]
+    except subprocess.CalledProcessError:
+        return False
+    if (inspected.get('Image') != saved.get('image')
+            or inspected['Config'].get('Labels', {}).get('org.opencontainers.image.revision') != sha):
+        return False
+    ops.run('docker', 'stop', SLOTS[port][1])
+    return True
+
+
+def prewarm_frontend(root, sha, baseline, release, source, image):
+    if not (root / 'auto-deploy/local-frontend-prewarm.enabled').exists():
+        return
+    route = read_route(root / 'routing/active.json')
+    if route['release'] == sha:
+        return
+    if not inherited_checks(root, baseline, sha):
+        raise RuntimeError('Inherited checks changed; no standby started')
+    # Scope was checked before build: backend/dependencies/config/schema are
+    # IDENTICAL to the green baseline. Unchecked frontend bytes are never routed
+    # publicly. Pending local tests cannot authorize promotion or demo changes.
+    ops.backup_databases(release, source)
+    port = 28082 if route['publicPort'] == 18082 else 18082
+    original = json.loads((root / 'compose.json').read_text())
+    file = release / 'prewarm-slot.json'
+    ops.write_json(file, slot_config(original, image, port))
+    ops.write_json(release / 'prewarm.json', {'revision': sha, 'port': port, 'image': image})
+    try:
+        slot_compose(ops, file, port, 'up', '-d', '--no-deps', '--no-build', '--wait', '--wait-timeout', '90')
+    except BaseException:
+        abort_prewarm(root, sha)
+        raise
 
 
 class LocalFrontendOps:
@@ -154,15 +261,7 @@ class LocalFrontendOps:
         # inputs against an exact-main, fully green baseline. Re-runs fail closed.
         # Independent provider reads overlap; every response is still required,
         # including another fresh read immediately before public promotion.
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            baseline_checks = pool.submit(ops.api, 'commits/' + self.baseline + '/check-runs?per_page=100')
-            baseline_runs = pool.submit(ops.api, 'actions/runs?head_sha=' + self.baseline
-                                        + '&event=push&branch=main&per_page=100')
-            candidate_checks = pool.submit(ops.api, 'commits/' + sha + '/check-runs?per_page=100')
-            green = ops.green_checks(self.baseline, baseline_checks.result()['check_runs'],
-                                     baseline_runs.result()['workflow_runs'])
-            failed = candidate_failures(candidate_checks.result()['check_runs'], sha)
-        return green and not failed
+        return inherited_checks(self.root, self.baseline, sha)
 
 
 def main():
@@ -171,6 +270,7 @@ def main():
     parser.add_argument('--sha', type=revision, required=True)
     parser.add_argument('--prepare', action='store_true')
     parser.add_argument('--accept-evidence', action='store_true')
+    parser.add_argument('--abort-prewarm', action='store_true')
     parser.add_argument('--rehearse', action='store_true', help='Validate gates without changing running apps')
     parser.add_argument('--redeploy', action='store_true', help='Owner benchmark of the already-live revision')
     args = parser.parse_args()
@@ -179,9 +279,8 @@ def main():
     if args.accept_evidence:
         accept_evidence(root, sha, sys.stdin.buffer)
         return
-    if not (root / 'auto-deploy/blue-green.enabled').exists():
+    if not args.abort_prewarm and not (root / 'auto-deploy/blue-green.enabled').exists():
         raise RuntimeError('Blue/green release must already be enabled')
-    baseline = revision((root / 'auto-deploy/local-frontend-baseline').read_text().strip())
     with (root / 'deployment.lock').open('a') as lock:
         deadline = time.monotonic() + 10
         while True:
@@ -192,6 +291,10 @@ def main():
                 if time.monotonic() >= deadline:
                     raise RuntimeError('Another release still owns the deployment lock; no changes made')
                 time.sleep(0.1)
+        if args.abort_prewarm:
+            print(json.dumps({'stoppedInactivePrewarm': abort_prewarm(root, sha)}))
+            return
+        baseline = revision((root / 'auto-deploy/local-frontend-baseline').read_text().strip())
         if (root / 'auto-deploy/PAUSED').exists() or ops.main_sha() != sha:
             raise RuntimeError('Paused or not current main')
         if (root / 'auto-deploy/activation.json').exists():
@@ -203,8 +306,10 @@ def main():
         if state.get('failedSha') == sha:
             raise RuntimeError('A recorded failed rollout requires normal operator recovery')
         release, source = scoped_source(root, sha, baseline)
-        ops.prepare_artifact(root, sha)
+        _release, _source, image = ops.prepare_artifact(root, sha)
         if args.prepare:
+            if not args.rehearse:
+                prewarm_frontend(root, sha, baseline, release, source, image)
             return
         directory = release / 'local-frontend'
         checked = LocalFrontendOps(root, sha, baseline, directory)

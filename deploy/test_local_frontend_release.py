@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 import local_frontend_release as local
+from test_auto_release import checks as full_checks, workflows as full_workflows
 
 SHA = 'a' * 40
 BASE = 'b' * 40
@@ -17,6 +18,84 @@ TREE = 'c' * 40
 
 
 class LocalGateTests(unittest.TestCase):
+    def test_failed_checks_cleanup_never_stops_active_or_reused_slot(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); release = root / 'auto-deploy/releases' / SHA
+            release.mkdir(parents=True); (root / 'routing').mkdir()
+            image = 'sha256:' + 'd' * 64
+            local.ops.write_json(release / 'prewarm.json', {'revision': SHA, 'port': 18082, 'image': image})
+            route = root / 'routing/active.json'
+            local.ops.write_json(route, {'version': 1, 'release': SHA, 'publicPort': 18082})
+            inspected = [{'Image': image, 'Config': {'Labels': {'org.opencontainers.image.revision': SHA}}}]
+            with patch.object(local.ops, 'output', return_value=json.dumps(inspected)), patch.object(local.ops, 'run') as run:
+                self.assertFalse(local.abort_prewarm(root, SHA))
+                run.assert_not_called()
+                local.ops.write_json(route, {'version': 1, 'release': BASE, 'publicPort': 28082})
+                self.assertTrue(local.abort_prewarm(root, SHA))
+                run.assert_called_once_with('docker', 'stop', 'arbor-email-app-green')
+                run.reset_mock(); inspected[0]['Image'] = 'different'
+                with patch.object(local.ops, 'output', return_value=json.dumps(inspected)):
+                    self.assertFalse(local.abort_prewarm(root, SHA))
+                run.assert_not_called()
+
+    def test_preparation_cannot_route_unchecked_frontend_or_touch_private_demo(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); release = root / 'auto-deploy/releases' / SHA
+            release.mkdir(parents=True); (root / 'routing').mkdir()
+            (root / 'auto-deploy/local-frontend-prewarm.enabled').touch()
+            route = root / 'routing/active.json'
+            original_route = {'version': 1, 'release': BASE, 'publicPort': 28082}
+            original_config = {'services': {'arbor-email-app': {'image': 'old'}, 'arbor-mvc-current': {'image': 'private'}}}
+            local.ops.write_json(route, original_route); local.ops.write_json(root / 'compose.json', original_config)
+            with patch.object(local, 'inherited_checks', return_value=True), \
+                 patch.object(local.ops, 'backup_databases') as backup, \
+                 patch.object(local, 'slot_compose') as compose:
+                local.prewarm_frontend(root, SHA, BASE, release, release / 'source', 'new-immutable-image')
+                backup.assert_called_once()
+                compose.assert_called_once()
+                self.assertEqual(json.loads(route.read_text()), original_route)
+                self.assertEqual(json.loads((root / 'compose.json').read_text()), original_config)
+                config = json.loads((release / 'prewarm-slot.json').read_text())
+                self.assertEqual(set(config['services']), {'arbor-email-app'})
+                compose.reset_mock()
+                with patch.object(local, 'inherited_checks', return_value=False):
+                    with self.assertRaises(RuntimeError):
+                        local.prewarm_frontend(root, SHA, BASE, release, release / 'source', 'image')
+                compose.assert_not_called()
+
+    def test_only_queued_mac_may_use_real_local_mac_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); directory = root / 'auto-deploy/releases' / SHA
+            directory.mkdir(parents=True)
+            evidence = dict(version=1, revision=SHA, tree=TREE, node='24.22.1', platform='Darwin-arm64',
+                            ownerAuthorizedLocalReplacement='queued macOS launcher check only',
+                            launcherTestsPassed=6, launcherTestsFailed=0, missingKeyExit=1, checksums={})
+            for name in ('local-macos-launcher.log', 'local-missing-key.log'):
+                data = b'fixture local Mac output'; (directory / name).write_bytes(data)
+                evidence['checksums'][name] = hashlib.sha256(data).hexdigest()
+            (directory / 'local-macos-evidence.json').write_text(json.dumps(evidence))
+            checks = full_checks(); runs = full_workflows()
+            for c in checks:
+                if c['name'] == 'launcher-unit (macos-latest)':
+                    c.update(status='queued', conclusion=None)
+            for r in runs:
+                if r['path'].endswith('dev-setup.yml'):
+                    r.update(status='in_progress', conclusion=None)
+            def output(*args):
+                return ('' if 'status' in args else TREE if 'HEAD^{tree}' in args else
+                        local.MAC_WORKFLOW_BLOB if any(a.endswith(':.github/workflows/dev-setup.yml') for a in args) else SHA)
+            with patch.object(local.ops, 'output', side_effect=output):
+                self.assertTrue(local.baseline_green(root, SHA, checks, runs))
+                for name in local.ops.REQUIRED:
+                    bad = [{**c, 'conclusion': 'failure', 'status': 'completed'} if c['name'] == name else c for c in checks]
+                    self.assertFalse(local.baseline_green(root, SHA, bad, runs), name)
+                self.assertFalse(local.baseline_green(root, SHA, [], runs))
+                for path in [r['path'] for r in runs]:
+                    bad = [{**r, 'conclusion': 'failure', 'status': 'completed'} if r['path'] == path else r for r in runs]
+                    self.assertFalse(local.baseline_green(root, SHA, checks, bad))
+                (directory / 'local-missing-key.log').write_text('changed')
+                self.assertFalse(local.baseline_green(root, SHA, checks, runs))
+
     def test_scoped_checkout_never_builds_or_executes_a_changed_dockerfile(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); source = root / 'auto-deploy/releases' / SHA / 'source'

@@ -38,6 +38,15 @@ do not substitute for the local tests; they are simply not the selected check
 provider for this explicit invocation. Normal automation retains its original
 exact-main CI policy.
 
+The owner can replace **only a queued Mac launcher lane** with genuine local
+Mac evidence for that exact revision/tree (six launcher tests and an expected
+missing-email-key startup failure). The protected evidence includes Node/platform,
+the two actual log hashes and explicit owner authorization. All non-Mac checks
+and full main application/sponsor workflows must already have succeeded; no
+failed/cancelled/skipped lane can be replaced. The fallback recognizes a pinned
+launcher-workflow Git object, so it cannot cover a changed job definition.
+It does not create or modify a GitHub status.
+
 An unchanged build/hosting/launcher/server test input can reuse that baseline's
 result; changed frontend behavior must pass all frontend tests again. This is
 not a promise that arbitrary backend/schema/infrastructure pushes take 30s.
@@ -51,6 +60,15 @@ continues using its existing modules, not this directory. Put an exact, fully
 CI-green baseline SHA in the owner-only file
 `auto-deploy/local-frontend-baseline`. Changing this baseline is an operator
 decision; the code still revalidates its CI at promotion.
+
+Optional marker `auto-deploy/local-frontend-prewarm.enabled` permits the source-
+scoped, exact-image **inactive** public standby to start during local tests.
+The backend/dependencies/schema/config must match the checked baseline; backups
+and inherited checks precede startup. No unchecked frontend is routed publicly,
+no private demo process is changed, and promotion still requires every local
+test/build/receipt and fresh main/check/pause/config/route validation. Client
+failures request cleanup; cleanup cannot stop an active or reused slot.
+`--abort-prewarm --sha <exact-sha>` safely retries interrupted cleanup.
 
 The startup probe optimization requires Docker Engine >=25 / Compose >=2.20.2.
 It preserves the exact health command, regular interval, timeout and retry policy;
