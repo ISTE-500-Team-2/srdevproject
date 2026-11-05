@@ -68,6 +68,7 @@ def github_bridge(host):
     worker = threading.Thread(target=server.serve_forever, daemon=True)
     worker.start()
     tunnel = subprocess.Popen(['ssh', '-N', '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8',
+                               '-o', 'ControlMaster=no', '-o', 'ControlPath=none',
                                '-o', 'ExitOnForwardFailure=yes', '-R',
                                f'127.0.0.1:{PORT}:127.0.0.1:{server.server_port}', host],
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
