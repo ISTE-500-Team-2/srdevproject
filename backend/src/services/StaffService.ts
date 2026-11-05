@@ -67,8 +67,8 @@ export class StaffService {
       return work(new StaffModel(db, this.timeZone), actor, db);
     });
   }
-  private async target(model: StaffModel, actor: UserView, id: number) {
-    const user = await model.person(id, true);
+  private async target(model: StaffModel, actor: UserView, id: number, lock: true | 'no-key-update' = true) {
+    const user = await model.person(id, lock);
     if (!user) throw missing();
     if (
       user.roles.some((r: string) => r === "admin" || r === "staff") &&
@@ -464,7 +464,10 @@ export class StaffService {
       // without a payment lock, then recheck it after acquiring locks in that order.
       const owner = (await db.query('SELECT userid FROM payment WHERE paymentid=$1', [id])).rows[0];
       if (owner?.userid == null) throw missing();
-      await this.target(model, actor, owner.userid);
+      // Cancellation audit rows take KEY SHARE on the member while holding the
+      // payment. NO KEY UPDATE still blocks member edits and booking locks, but
+      // lets those foreign-key checks finish without a user/payment deadlock.
+      await this.target(model, actor, owner.userid, 'no-key-update');
       const before = await model.payment(id);
       if (!before || before.userId == null) throw missing();
       if (before.userId !== owner.userid) throw conflict();

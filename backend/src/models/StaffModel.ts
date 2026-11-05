@@ -99,10 +99,10 @@ export class StaffModel {
       )
     ).rows;
   }
-  async person(id: number, lock = false) {
+  async person(id: number, lock: boolean | 'no-key-update' = false) {
     return (
       await this.db.query(
-        `SELECT ${personColumns} FROM "user" u WHERE userid=$1 ${lock ? "FOR UPDATE OF u" : ""}`,
+        `SELECT ${personColumns} FROM "user" u WHERE userid=$1 ${lock === 'no-key-update' ? 'FOR NO KEY UPDATE OF u' : lock ? 'FOR UPDATE OF u' : ''}`,
         [id],
       )
     ).rows[0];
