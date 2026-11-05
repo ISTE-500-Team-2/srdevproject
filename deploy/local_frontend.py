@@ -2,7 +2,7 @@
 """Run warm local frontend checks and immediately invoke the SSH release gate."""
 import argparse
 import base64
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
@@ -50,6 +50,14 @@ def cleanup_failed_check(host, sha):
         raise
 
 
+@contextmanager
+def settle_pool_before_cleanup(pool):
+    try:
+        yield
+    finally:
+        pool.shutdown(wait=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', type=Path, default=Path(__file__).resolve().parents[1])
@@ -77,47 +85,49 @@ def main():
     evidence.mkdir(mode=0o700, parents=True, exist_ok=True)
     evidence.chmod(0o700)
     print('Protected verification logs:', evidence, flush=True)
-    with github_bridge(args.host), nullcontext(str(evidence)) as temporary, cleanup_failed_check(args.host, sha):
-        directory = Path(temporary)
-        def lane(name, command):
-            stamp = time.monotonic()
-            with (directory / (name + '.log')).open('wb') as stream:
-                result = subprocess.run(command, cwd=source, stdout=stream, stderr=subprocess.STDOUT, timeout=240)
-            if result.returncode:
-                raise RuntimeError(name + ' failed; no production activation requested')
-            return {'command': command, 'exitCode': result.returncode,
-                    'sha256': hashlib.sha256((directory / (name + '.log')).read_bytes()).hexdigest(),
-                    'seconds': round(time.monotonic() - stamp, 3)}
-        def prepare():
-            with (directory / 'prepare.log').open('wb') as stream:
-                flags = ['--rehearse'] if args.rehearse else []
-                subprocess.run(remote(args.host, 'python3', release_script, '--sha', sha, '--prepare', *flags),
-                               stdout=stream, stderr=subprocess.STDOUT, check=True, timeout=1200)
-        # Independent test databases; deployment preparation cannot promote.
-        # All futures must settle successfully before creating a trusted receipt.
-        with ThreadPoolExecutor(max_workers=4) as pool:
+    directory = evidence
+    def lane(name, command):
+        stamp = time.monotonic()
+        with (directory / (name + '.log')).open('wb') as stream:
+            result = subprocess.run(command, cwd=source, stdout=stream, stderr=subprocess.STDOUT, timeout=240)
+        if result.returncode:
+            raise RuntimeError(name + ' failed; no production activation requested')
+        return {'command': command, 'exitCode': result.returncode,
+                'sha256': hashlib.sha256((directory / (name + '.log')).read_bytes()).hexdigest(),
+                'seconds': round(time.monotonic() - stamp, 3)}
+    def prepare():
+        with (directory / 'prepare.log').open('wb') as stream:
+            flags = ['--rehearse'] if args.rehearse else []
+            subprocess.run(remote(args.host, 'python3', release_script, '--sha', sha, '--prepare', *flags),
+                           stdout=stream, stderr=subprocess.STDOUT, check=True, timeout=1200)
+    # CPU checks start immediately, while the authenticated SSH bridge opens.
+    # Settle preparation before failed-check cleanup, even on exceptions.
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        checks = {name: pool.submit(lane, name, cmd) for name, cmd in COMMANDS.items()}
+        with github_bridge(args.host), cleanup_failed_check(args.host, sha), settle_pool_before_cleanup(pool):
+            bridge_ready_seconds = time.monotonic() - started
             preparation = pool.submit(prepare)
-            checks = {name: pool.submit(lane, name, cmd) for name, cmd in COMMANDS.items()}
             results = {name: future.result() for name, future in checks.items()}
             preparation.result()
-        if pristine(source) != sha or output('git', '-C', str(source), 'rev-parse', 'HEAD^{tree}') != tree:
-            raise RuntimeError('Source changed while checking; results discarded')
-        receipt = {'version': 1, 'revision': sha, 'tree': tree, 'node': node,
-                   'platform': 'Darwin-arm64', 'completedAt': time.time(), 'checks': results}
-        (directory / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
-        bundle = {'receipt': receipt, 'logs': {n: base64.b64encode((directory / (n + '.log')).read_bytes()).decode()
-                                              for n in COMMANDS}}
-        subprocess.run(remote(args.host, 'python3', release_script, '--sha', sha, '--accept-evidence'),
-                       input=json.dumps(bundle).encode(), check=True)
-        checked_seconds = time.monotonic() - started
-        flags = ['--rehearse'] if args.rehearse else ['--redeploy'] if args.redeploy else []
-        subprocess.run(remote(args.host, 'python3', release_script, '--sha', sha, *flags), check=True)
-        timing = {'revision': sha, 'rehearsal': args.rehearse,
-                  'checkAndPreparationSeconds': round(checked_seconds, 3),
-                  'totalIncludingChecksSeconds': round(time.monotonic() - started, 3),
-                  'lanes': {n: item['seconds'] for n, item in results.items()}}
-        (directory / 'timing.json').write_text(json.dumps(timing, indent=2) + '\n')
-        print(json.dumps(timing))
+            if pristine(source) != sha or output('git', '-C', str(source), 'rev-parse', 'HEAD^{tree}') != tree:
+                raise RuntimeError('Source changed while checking; results discarded')
+            receipt = {'version': 1, 'revision': sha, 'tree': tree, 'node': node,
+                       'platform': 'Darwin-arm64', 'completedAt': time.time(), 'checks': results}
+            (directory / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
+            bundle = {'receipt': receipt, 'logs': {n: base64.b64encode((directory / (n + '.log')).read_bytes()).decode()
+                                                  for n in COMMANDS}}
+            subprocess.run(remote(args.host, 'python3', release_script, '--sha', sha, '--accept-evidence'),
+                           input=json.dumps(bundle).encode(), check=True)
+            checked_seconds = time.monotonic() - started
+            flags = ['--rehearse'] if args.rehearse else ['--redeploy'] if args.redeploy else []
+            subprocess.run(remote(args.host, 'python3', release_script, '--sha', sha, *flags), check=True)
+            timing = {'revision': sha, 'rehearsal': args.rehearse,
+                      'bridgeReadySeconds': round(bridge_ready_seconds, 3),
+                      'checkAndPreparationSeconds': round(checked_seconds, 3),
+                      'totalIncludingChecksSeconds': round(time.monotonic() - started, 3),
+                      'lanes': {n: item['seconds'] for n, item in results.items()}}
+            (directory / 'timing.json').write_text(json.dumps(timing, indent=2) + '\n')
+            print(json.dumps(timing))
 
 
 if __name__ == '__main__':

@@ -21,6 +21,13 @@ The warm Mac runs, concurrently:
   disposable local PostgreSQL browser integration suite).
 - Exact-main Docker image preparation on the production host, without promotion.
 
+Local CPU checks start before SSH/status-channel setup, so connection latency
+overlaps useful verification. All preparation futures settle before failed-check
+cleanup. Receipt/source validation precedes activation; fresh inherited CI checks
+remain mandatory immediately before public promotion rather than being duplicated
+after the receipt and again a few seconds later. Prewarm retains its own inherited
+check gate, and rehearsal still verifies the full gate without promoting.
+
 CI metadata is read freshly through the owner's existing local `gh` login over a
 temporary loopback-only SSH reverse tunnel. Only this repository's exact-revision
 check-runs and main-push workflow GETs are permitted; arbitrary URLs/repos/user

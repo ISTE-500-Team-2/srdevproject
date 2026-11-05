@@ -26,6 +26,7 @@ class WorkflowGateTests(unittest.TestCase):
                          'Verify reader onboarding and fail-closed access','node --test deploy/rles-edge.test.mjs',
                          'python3 deploy/test_auto_release.py','python3 deploy/test_blue_green_release.py',
                          'python3 deploy/test_local_frontend_release.py',
+                         'python3 deploy/test_local_frontend_client.py',
                          'python3 deploy/test_local_github_api.py',
                          'python3 deploy/test_frontend_type_cache.py',
                          'node backend/test/container-auth.mjs']:

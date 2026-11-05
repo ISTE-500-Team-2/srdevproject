@@ -103,6 +103,7 @@ jobs:
       - run: python3 deploy/test_auto_release.py
       - run: python3 deploy/test_blue_green_release.py
       - run: python3 deploy/test_local_frontend_release.py
+      - run: python3 deploy/test_local_frontend_client.py
       - run: python3 deploy/test_local_github_api.py
       - run: python3 deploy/test_workflow_gate.py
       - run: python3 deploy/test_arbor_site.py

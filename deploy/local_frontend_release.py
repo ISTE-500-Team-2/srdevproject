@@ -247,7 +247,7 @@ class LocalFrontendOps:
     def __getattr__(self, name):
         return getattr(ops, name)
 
-    def ready(self, sha):
+    def validate_evidence(self, sha):
         if sha != self.sha:
             return False
         source = self.root / 'auto-deploy/releases' / sha / 'source'
@@ -257,6 +257,11 @@ class LocalFrontendOps:
         check_scope(tree_files(source, self.baseline), tree_files(source, sha))
         tree = ops.output('git', '-C', str(source), 'rev-parse', 'HEAD^{tree}')
         validate_receipt(json.loads((self.directory / 'receipt.json').read_text()), self.directory, sha, tree)
+        return True
+
+    def ready(self, sha):
+        if not self.validate_evidence(sha):
+            return False
         # Revalidate unchanged backend/dependencies/build/deployment/launcher
         # inputs against an exact-main, fully green baseline. Re-runs fail closed.
         # Independent provider reads overlap; every response is still required,
@@ -317,9 +322,11 @@ def main():
             return
         directory = release / 'local-frontend'
         checked = LocalFrontendOps(root, sha, baseline, directory)
-        if not checked.ready(sha):
-            raise RuntimeError('Local frontend or inherited full-check gate is not satisfied')
+        if not checked.validate_evidence(sha):
+            raise RuntimeError('Local frontend evidence gate is not satisfied')
         if args.rehearse:
+            if not checked.ready(sha):
+                raise RuntimeError('Inherited full-check gate is not satisfied')
             print(json.dumps({'phase': 'gates-verified', 'revision': sha, 'baseline': baseline}))
             return
         if state.get('deployedSha') == sha and not args.redeploy:
