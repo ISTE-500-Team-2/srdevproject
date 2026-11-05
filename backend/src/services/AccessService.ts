@@ -1,7 +1,6 @@
 import type { Database } from "../db.js";
 import { AppError } from "../domain.js";
 import { EligibilityModel } from "../models/EligibilityModel.js";
-import {useHref} from "react-router"
 
 export interface AccessTarget {
   buildingId?: number;
@@ -27,9 +26,7 @@ export class AccessService {
   async assertEntitlement(userId: number, start: Date, end = start) {
     const value = await this.eligibility.entitlement(userId,start,end);
     if (!value.membership && !value.dayPass){
-      const href = useHref("/membership")
-      throw new AppError(403,'MEMBERSHIP_REQUIRED',`An active membership or valid day pass is required for this time.
-          <a to="${href}">Get a pass here!</a>`);
+      throw new AppError(403,'MEMBERSHIP_REQUIRED',`An active membership or valid day pass is required for this time.`);
         }
     return value;
   }
