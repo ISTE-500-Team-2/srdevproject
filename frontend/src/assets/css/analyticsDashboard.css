@@ -238,6 +238,7 @@
   position: relative;
   display: flex;
   align-items: stretch;
+  /* Proportional gaps keep long date ranges inside the chart viewport. */
   gap: min(6px, 0.5%);
   margin-bottom: 22px;
   border-bottom: 1px solid #d9cfc7;
