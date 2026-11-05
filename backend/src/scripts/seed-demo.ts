@@ -107,9 +107,12 @@ export async function seedDemo(pool: Pool) {
     );
     // Demo and test databases show the fillable equipment waiver; production
     // publishes it from the staff workspace when the shop is ready.
+    // Upgrade tests also seed older schemas before running newer migrations.
+    const scopedPolicies = (await db.query(`SELECT 1 FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='waiver' AND column_name='policy_scope'`)).rowCount;
     await db.query(
-      `INSERT INTO waiver (name,version,description,effectivedate,isactive,required,approval_reference)
-      SELECT $1::varchar,$2::varchar,$3,TIMESTAMP '2026-10-27 00:00:00',true,true,$4
+      `INSERT INTO waiver (name,version,description,effectivedate,isactive,required,approval_reference${scopedPolicies ? ',policy_scope' : ''})
+      SELECT $1::varchar,$2::varchar,$3,TIMESTAMP '2026-10-27 00:00:00',true,true,$4${scopedPolicies ? ",'equipment'" : ''}
       WHERE NOT EXISTS (SELECT 1 FROM waiver WHERE name=$1)`,
       [specializedEquipmentWaiver.name, specializedEquipmentWaiver.version, specializedEquipmentWaiver.text, specializedEquipmentWaiver.approvalReference],
     );

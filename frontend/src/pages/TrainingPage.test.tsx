@@ -38,6 +38,8 @@ test('catalog errors stay inside the editor with its draft and allow retry', asy
   render(<TrainingPage />);
   fireEvent.click(await screen.findByRole('button', { name: 'Configure Laser safety' }));
   const dialog = screen.getByRole('dialog');
+  fireEvent.change(within(dialog).getByLabelText('Training duration (minutes)'), {target:{value:'60'}});
+  fireEvent.change(within(dialog).getByLabelText('One-time training fee ($)'), {target:{value:'20.00'}});
   fireEvent.change(within(dialog).getByLabelText('Policy approval/reference'), { target: { value: 'Approved policy' } });
   fireEvent.click(within(dialog).getByRole('button', { name: 'Save certification' }));
   expect(await within(dialog).findByRole('alert')).toHaveProperty('textContent', 'This record changed. Review and retry.');
@@ -45,6 +47,7 @@ test('catalog errors stay inside the editor with its draft and allow retry', asy
   fireEvent.click(within(dialog).getByRole('button', { name: 'Save certification' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   expect(writes()).toHaveLength(2);
+  expect(writes()[1]![1]?.body).toMatchObject({trainingMinutes:60,trainingFeeCents:2000});
 });
 
 test('training approval errors stay inside the dialog without clearing entered evidence', async () => {

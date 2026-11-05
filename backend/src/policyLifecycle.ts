@@ -20,7 +20,7 @@ export async function retireSupersededPolicies(
     )
     SELECT w.waiverid AS id,w.name,w.version,w.description,
       w.effectivedate AT TIME ZONE 'UTC' AS "effectiveAt",w.isactive AS active,w.required,
-      w.approval_reference AS "approvalReference",c.waiverid AS "supersededBy",
+      w.approval_reference AS "approvalReference",w.policy_scope AS scope,c.waiverid AS "supersededBy",
       c.created_by AS "replacementPublishedBy"
     FROM waiver w JOIN current_versions c ON c.name=w.name
     WHERE w.isactive=true AND w.waiverid<>c.waiverid

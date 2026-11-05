@@ -62,6 +62,10 @@ test("additive finishing migrations preserve legacy training, database contents,
     );
     await migrate(pool);
     await verifyMigrations(pool);
+    const scoped = (await pool.query("SELECT name,policy_scope AS scope FROM waiver")).rows;
+    assert.equal(scoped.find(w => w.name.startsWith('Specialized Equipment Use')).scope, 'equipment');
+    assert.equal(scoped.find(w => w.name === 'Terms of Service').scope, 'facility');
+    assert.equal(scoped.find(w => w.name === 'Demo makerspace policy').scope, 'facility');
     const updated = (await pool.query("SELECT * FROM user_certifications"))
       .rows[0];
     for (const [key, value] of Object.entries(original))

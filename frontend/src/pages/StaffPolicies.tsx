@@ -62,6 +62,7 @@ function PublishPanel({
   const [version, setVersion] = useState(() => suggestVersion(latest?.version, tomorrowMorning().slice(0, 10)));
   const [text, setText] = useState(latest?.description ?? "");
   const [name, setName] = useState(waiver?.name ?? "");
+  const [scope, setScope] = useState<Policy['scope']>(latest?.scope ?? 'facility');
   const [tab, setTab] = useState<"edit" | "preview">("edit");
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -110,6 +111,7 @@ function PublishPanel({
         method: "POST",
         body: {
           name: name.trim(),
+          scope,
           version: version.trim(),
           description: text,
           effectiveAt: new Date(effectiveAt).toISOString(),
@@ -144,6 +146,13 @@ function PublishPanel({
             {latest ? <small>Current: {latest.version}</small> : null}
           </div>
         </div>
+        <label className="cw-field">
+          <span>Required for</span>
+          <select value={scope} onChange={event => setScope(event.target.value as Policy['scope'])}>
+            <option value="facility">Facility access and day passes</option>
+            <option value="equipment">Equipment marked as requiring a waiver</option>
+          </select>
+        </label>
         <div className="cw-field">
           <span className="cw-field__row">
             <span id="waiver-text-label">Text members will read</span>
@@ -233,7 +242,9 @@ function PublishPanel({
                 : `${activeMembers} active ${activeMembers === 1 ? "member" : "members"}`}{" "}
               will need to sign {waiver ? "again" : "it"}
             </b>{" "}
-            from {startsLabel}. Until they do, they can't check in. Past signatures are kept.
+            from {startsLabel}. {scope === 'equipment'
+              ? "Until they do, they can't book or use equipment that requires a waiver."
+              : "Until they do, they can't buy a day pass or check in."} Past signatures are kept.
           </span>
         </p>
         <label className="cw-field">
@@ -278,8 +289,9 @@ function RetireDialog({ policy, onClose, onRetired }: { policy: Policy; onClose:
     <Modal open width="compact" title={`Retire ${policy.name}?`} onClose={onClose}>
       <div className="cw-form">
         <p>
-          Members will no longer be asked to sign version {policy.version}. If no required waiver is left, nobody can
-          check in until one is published. A retired version can't be brought back.
+          Members will no longer be asked to sign version {policy.version}. {policy.scope === 'equipment'
+            ? 'Equipment that requires a waiver stays blocked if no current equipment agreement is published.'
+            : 'Day passes and facility check-in stay blocked if no current facility policy is published.'} A retired version can't be brought back.
         </p>
         <label className="cw-field">
           <span>Reason for the change log</span>
@@ -334,7 +346,7 @@ export function StaffPolicies() {
   return (
     <section className="cw-section">
       <div className="cw-row">
-        <p className="cw-muted">Members sign the current version of every required waiver before they can check in.</p>
+        <p className="cw-muted">Facility policies are required for day passes and check-in. Equipment waivers apply when booking or using equipment that requires them.</p>
         {isAdmin ? (
           <button type="button" className="button button--primary cw-small" onClick={() => setPublishing({ waiver: null })}>
             <Plus aria-hidden="true" /> New waiver
@@ -362,6 +374,7 @@ export function StaffPolicies() {
                 )}
               </div>
               <div className="cw-waiver__meta">
+                <span>{shown.scope === 'equipment' ? 'Equipment use' : 'Facility access and day passes'}</span>
                 <span>
                   <FileText aria-hidden="true" /> Version {shown.version}
                 </span>

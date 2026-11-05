@@ -1,5 +1,6 @@
 import type { Database } from "../db.js";
 import { waiverFormFields } from "../waiverForms.js";
+import type { PolicyScope } from "../staffDomain.js";
 
 export class EligibilityModel {
   constructor(
@@ -25,13 +26,14 @@ export class EligibilityModel {
     return rows[0]!;
   }
 
-  async waivers(userId: number) {
+  async waivers(userId: number, scope?: PolicyScope) {
     const { rows } = await this.db.query<{
       id: number;
       versionId: number;
       name: string;
       version: string;
       description: string;
+      scope: PolicyScope;
       signed: boolean;
       signedAt: Date | null;
       signedVersion: string | null;
@@ -45,7 +47,7 @@ export class EligibilityModel {
           AND (effectivedate IS NULL OR effectivedate <= NOW() AT TIME ZONE 'UTC')
         ORDER BY name, effectivedate DESC NULLS LAST, waiverid DESC
       )
-      SELECT w.waiverid AS id,w.waiverid AS "versionId",w.name,w.version,COALESCE(w.description,'') AS description,
+      SELECT w.waiverid AS id,w.waiverid AS "versionId",w.name,w.version,COALESCE(w.description,'') AS description,w.policy_scope AS scope,
              current_sig.userwaiverid IS NOT NULL AS signed,
              current_sig.signdate AT TIME ZONE 'UTC' AS "signedAt",
              previous_sig.version AS "signedVersion",
@@ -60,8 +62,9 @@ export class EligibilityModel {
         SELECT uw.userwaiverid,uw.signdate,uw.expires_at,w2.waiverid,w2.version FROM user_waiver uw JOIN waiver w2 USING(waiverid)
         WHERE uw.userid=$1 AND w2.name=w.name AND uw.approval=true
         ORDER BY uw.signdate DESC,uw.userwaiverid DESC LIMIT 1
-      ) previous_sig ON true ORDER BY w.name`,
-      [userId],
+      ) previous_sig ON true
+      WHERE ($2::text IS NULL OR w.policy_scope=$2) ORDER BY w.name`,
+      [userId, scope ?? null],
     );
     return rows.map(row => ({ ...row, formFields: waiverFormFields(row.description) }));
   }

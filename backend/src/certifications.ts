@@ -9,11 +9,10 @@ import { StaffModel } from "./models/StaffModel.js";
 import { scheduleExpirationNotifications } from "./notifications/scheduler.js";
 
 const definition = `c.certid AS id,c.name,c.description,c.validity_days AS "validityDays",c.revision,
- (SELECT duration_minutes FROM app_training_requirement tr WHERE tr.certification_id=c.certid) AS "trainingMinutes",
- (SELECT fee_cents FROM app_training_requirement tr WHERE tr.certification_id=c.certid) AS "trainingFeeCents",
+ c.training_fee_cents AS "trainingFeeCents",c.training_minutes AS "trainingMinutes",
  c.effectivedate AT TIME ZONE 'UTC' AS "effectiveAt",c.enddate AT TIME ZONE 'UTC' AS "endsAt",
  COALESCE((SELECT json_agg(e.equipmentid ORDER BY e.equipmentid) FROM equipment e WHERE e.certid=c.certid),'[]') AS "equipmentIds"`;
-const record = `uc.usercertid AS id,uc.userid AS "userId",uc.certid AS "certificationId",c.name,uc.status,uc.revision,
+const record = `uc.usercertid AS id,uc.userid AS "userId",uc.certid AS "certificationId",c.name,uc.status,uc.revision,uc.training_minutes AS "trainingMinutes",
  uc.renewaldate AT TIME ZONE 'UTC' AS "expiresAt",uc.trained_at AS "trainedAt",uc.approved_at AS "approvedAt",
  uc.approved_by AS "approvedBy",a.firstname||' '||a.lastname AS "instructorName",uc.training_source AS source,
  uc.verified_in_person AS "verifiedInPerson",uc.verification_reference AS "verificationReference",uc.revoked_at AS "revokedAt",
@@ -95,14 +94,15 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
           255,
           0,
         );
-      const days = positiveId(req.body.validityDays, "Validity days");
-      if (days > 3650)
+      const days = req.body.validityDays === null ? null : positiveId(req.body.validityDays, "Validity days");
+      if (days !== null && days > 3650)
         throw new AppError(
           400,
           "INVALID_INPUT",
           "Validity must be 1–3650 days.",
         );
       const reason = textField(req.body.reason, "Approval/reference", 500);
+      const pricing = trainingPricing(req.body);
       const equipmentIds = equipmentList(req.body.equipmentIds);
       const id = (
         await db.query(
@@ -110,8 +110,8 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
         )
       ).rows[0]!.id;
       await db.query(
-        "INSERT INTO certifications(certid,name,description,effectivedate,validity_days) VALUES($1,$2,$3,NOW() AT TIME ZONE 'UTC',$4)",
-        [id, name, description, days],
+        "INSERT INTO certifications(certid,name,description,effectivedate,validity_days,training_fee_cents,training_minutes) VALUES($1,$2,$3,NOW() AT TIME ZONE 'UTC',$4,$5,$6)",
+        [id, name, description, days, pricing.fee, pricing.minutes],
       );
       await linkEquipment(db, id, equipmentIds);
       const after = (
@@ -152,8 +152,8 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
           "STALE_RECORD",
           "Refresh the certification before editing.",
         );
-      const days = positiveId(req.body.validityDays, "Validity days");
-      if (days > 3650)
+      const days = req.body.validityDays === null ? null : positiveId(req.body.validityDays, "Validity days");
+      if (days !== null && days > 3650)
         throw new AppError(
           400,
           "INVALID_INPUT",
@@ -167,9 +167,10 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
           0,
         ),
         reason = textField(req.body.reason, "Reason", 500);
+      const pricing = trainingPricing(req.body, before);
       await db.query(
-        "UPDATE certifications SET name=$2,description=$3,validity_days=$4,revision=revision+1 WHERE certid=$1",
-        [id, name, description, days],
+        "UPDATE certifications SET name=$2,description=$3,validity_days=$4,training_fee_cents=$5,training_minutes=$6,revision=revision+1 WHERE certid=$1",
+        [id, name, description, days, pricing.fee, pricing.minutes],
       );
       await linkEquipment(db, id, equipmentList(req.body.equipmentIds));
       const after = (
@@ -243,18 +244,15 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
             "CERTIFICATION_INACTIVE",
             "This certification is not currently effective.",
           );
-        if (!cert.validity_days)
-          throw new AppError(
-            409,
-            "VALIDITY_NOT_CONFIGURED",
-            "Staff must configure this certification’s approved validity period.",
-          );
         if (req.body.verifiedInPerson !== true)
           throw new AppError(
             400,
             "IN_PERSON_REQUIRED",
             "Training must be verified in person.",
           );
+        const completedMinutes = req.body.trainingMinutes ?? cert.training_minutes;
+        if (!Number.isSafeInteger(completedMinutes) || completedMinutes < cert.training_minutes || completedMinutes > 480)
+          throw new AppError(400, 'TRAINING_DURATION', `Verify at least ${cert.training_minutes} minutes of completed training.`);
         if (!["equipment", "external"].includes(req.body.source))
           throw new AppError(
             400,
@@ -312,14 +310,13 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
             "STALE_RECORD",
             "Training record changed. Refresh before saving.",
           );
-        let expires = new Date(
-          trainedAt.getTime() + cert.validity_days * 86400000,
-        );
+        let expires: Date | null = cert.validity_days
+          ? new Date(trainedAt.getTime() + cert.validity_days * 86400000) : null;
         if (cert.enddate)
           expires = new Date(
-            Math.min(expires.getTime(), cert.enddate.getTime()),
+            Math.min(expires?.getTime() ?? Infinity, cert.enddate.getTime()),
           );
-        if (expires <= new Date())
+        if (expires && expires <= new Date())
           throw new AppError(
             400,
             "TRAINING_EXPIRED",
@@ -333,9 +330,9 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
             )
           ).rows[0]!.id;
         await db.query(
-          `INSERT INTO user_certifications(usercertid,userid,certid,renewaldate,status,statusdesc,trained_at,approved_at,approved_by,verification_reference,training_source,verified_in_person)
-    VALUES($1,$2,$3,$4::timestamptz AT TIME ZONE 'UTC','active',$5,$6,NOW(),$7,$8,$9,true)
-    ON CONFLICT(userid,certid) DO UPDATE SET renewaldate=EXCLUDED.renewaldate,status='active',statusdesc=EXCLUDED.statusdesc,trained_at=EXCLUDED.trained_at,approved_at=NOW(),approved_by=EXCLUDED.approved_by,verification_reference=EXCLUDED.verification_reference,training_source=EXCLUDED.training_source,verified_in_person=true,revision=user_certifications.revision+1`,
+          `INSERT INTO user_certifications(usercertid,userid,certid,renewaldate,status,statusdesc,trained_at,approved_at,approved_by,verification_reference,training_source,verified_in_person,training_minutes)
+    VALUES($1,$2,$3,$4::timestamptz AT TIME ZONE 'UTC','active',$5,$6,NOW(),$7,$8,$9,true,$10)
+    ON CONFLICT(userid,certid) DO UPDATE SET renewaldate=EXCLUDED.renewaldate,status='active',statusdesc=EXCLUDED.statusdesc,trained_at=EXCLUDED.trained_at,approved_at=NOW(),approved_by=EXCLUDED.approved_by,verification_reference=EXCLUDED.verification_reference,training_source=EXCLUDED.training_source,verified_in_person=true,training_minutes=EXCLUDED.training_minutes,revision=user_certifications.revision+1`,
           [
             recordId,
             userId,
@@ -346,6 +343,7 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
             user.id,
             reference,
             req.body.source,
+            completedMinutes,
           ],
         );
         const after = (
@@ -426,6 +424,15 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
     },
   );
   return router;
+}
+function trainingPricing(body: Record<string, unknown>, before?: Record<string, unknown>) {
+  const fee = body.trainingFeeCents === undefined ? (before ? before.trainingFeeCents : 0) : body.trainingFeeCents;
+  const minutes = body.trainingMinutes === undefined ? before?.trainingMinutes ?? 60 : body.trainingMinutes;
+  if (fee !== null && (!Number.isSafeInteger(fee) || (fee as number) < 0 || (fee as number) > 10000000))
+    throw new AppError(400, 'INVALID_INPUT', 'The training fee must be a whole number of cents from 0 to 10000000.');
+  if (!Number.isSafeInteger(minutes) || (minutes as number) < 1 || (minutes as number) > 480)
+    throw new AppError(400, 'INVALID_INPUT', 'Training duration must be 1–480 whole minutes.');
+  return { fee: fee as number | null, minutes: minutes as number };
 }
 function equipmentList(value: unknown): number[] {
   if (!Array.isArray(value) || value.length > 100)

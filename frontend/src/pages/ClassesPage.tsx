@@ -17,6 +17,7 @@ import {
   byStart,
   hasStarted,
   isCancelled,
+  registrationPrice,
   type AttendanceDraft,
   type ClassRecord,
   type RosterPerson,
@@ -125,6 +126,7 @@ export function ClassesPage() {
 
   const refreshAll = () => {
     classes.reload();
+    certifications.reload();
     setRefreshToken((t) => t + 1);
   };
   useEffect(() => {
@@ -148,7 +150,9 @@ export function ClassesPage() {
     setBusyId(c.id);
     setRowErrors(({ [c.id]: _, ...rest }) => rest);
     try {
-      await api(`/classes/${c.id}/${action}`, { method: "POST", body: {} });
+      const price = registrationPrice(c, c.certificationId !== null && certified.has(c.certificationId));
+      await api(`/classes/${c.id}/${action}`, { method: "POST", body: action === 'enroll'
+        ? { expectedTrainingFeeCents: price.trainingFee } : {} });
       setToast(
         action === "enroll"
           ? `You're registered for ${c.title} on ${shortDate(c.startsAt)} at ${timeOnly(c.startsAt)}.`
@@ -230,6 +234,7 @@ export function ClassesPage() {
           c={detail}
           workshops={workshops.data ?? []}
           eligibility={eligibility}
+          certified={detail.certificationId !== null && certified.has(detail.certificationId)}
           busy={busyId === detail.id}
           error={rowErrors[detail.id]}
           refreshToken={refreshToken}

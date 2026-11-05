@@ -67,7 +67,7 @@ export function MemberHomePage() {
   const [visitError, setVisitError] = useState('');
   const [requestError, setRequestError] = useState('');
   const summary = overview.data;
-  const pending = waivers.data?.filter((w) => !w.signed) ?? [];
+  const pending = waivers.data?.filter((w) => w.scope !== 'equipment' && !w.signed) ?? [];
   const [now] = useState(() => Date.now());
   const upcoming = (bookings.data ?? [])
     .filter((r) => r.status !== 'cancelled' && new Date(r.endTime).getTime() > now)
@@ -185,7 +185,7 @@ export function MemberHomePage() {
                 <p className="summary-card__note">
                   {summary.pendingWaivers
                     ? `${summary.pendingWaivers} waiting for your signature.`
-                    : 'Everything is signed.'}
+                      : 'All facility policies are signed.'}
                 </p>
               )}
               <Link to="/certifications" className="summary-card__action">

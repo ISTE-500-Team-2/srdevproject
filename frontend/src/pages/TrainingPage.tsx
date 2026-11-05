@@ -19,8 +19,9 @@ type Course = {
   validityDays: number | null;
   revision: number;
   equipmentIds: number[];
-  trainingMinutes?: number | null;
-  trainingFeeCents?: number | null;
+  trainingFeeCents: number | null;
+  trainingMinutes: number;
+  endsAt?: string | null;
 };
 type Record = {
   id: number;
@@ -33,6 +34,7 @@ type Record = {
   trainedAt: string | null;
   revokedAt?: string | null;
   instructorName: string | null;
+  trainingMinutes?: number | null;
 };
 export function TrainingPage({ embedded = false }: { embedded?: boolean }) {
   const { user } = useAuth();
@@ -115,7 +117,9 @@ function TrainingWorkspace({
           body: {
             name: f.get("name"),
             description: f.get("description"),
-            validityDays: Number(f.get("days")),
+            validityDays: String(f.get("days")).trim() ? Number(f.get("days")) : null,
+            trainingMinutes: Number(f.get('minutes')),
+            trainingFeeCents: String(f.get('fee')).trim() ? Math.round(Number(f.get('fee')) * 100) : null,
             equipmentIds,
             reason: f.get("reason"),
             ...(editing?.id ? { expectedRevision: editing.revision } : {}),
@@ -136,6 +140,7 @@ function TrainingWorkspace({
           method: "POST",
           body: {
             trainedAt: new Date(String(f.get("trainedAt"))).toISOString(),
+            trainingMinutes: Number(f.get('completedMinutes')),
             source: f.get("source"),
             verifiedInPerson: f.get("verified") === "on",
             verificationReference: f.get("reference"),
@@ -198,10 +203,9 @@ function TrainingWorkspace({
               {c.validityDays ? (
                 <small className="cw-muted">Renew every {c.validityDays} days</small>
               ) : (
-                <span className="cw-tag cw-tag--amber">
-                  <TriangleAlert aria-hidden="true" /> Renewal period not set
-                </span>
+                <small className="cw-muted">Valid until revoked{c.endsAt ? ' or the certification ends' : ''}</small>
               )}
+              <p>{c.trainingMinutes ?? 60} minutes of training · {c.trainingFeeCents == null ? 'Training fee not configured' : `${cents(c.trainingFeeCents)} one-time fee when registering for training`}</p>
               <div className="cw-cert__equipment">
                 {c.equipmentIds.length ? (
                   c.equipmentIds.map((id) => (
@@ -253,6 +257,7 @@ function TrainingWorkspace({
                     <small>
                       {r.trainedAt ? `Trained ${shortDate(r.trainedAt, true)}` : "Training date not recorded"}
                       {r.instructorName ? ` by ${r.instructorName}` : ""}
+                      {r.trainingMinutes ? ` · ${r.trainingMinutes} minutes verified` : ''}
                     </small>
                     {r.status === "revoked" && r.revokedAt ? (
                       <small>Revoked {shortDate(r.revokedAt, true)}. New in-person training is needed before approving again.</small>
@@ -291,6 +296,7 @@ function TrainingWorkspace({
                           <button
                             type="button"
                             className="button button--primary cw-small"
+                            aria-label={`Record ${c.name} training`}
                             onClick={() => { setError(""); setRenewing({ certificationId: c.id, name: c.name } as Record); }}
                           >
                             <Check aria-hidden="true" /> Record training
@@ -322,11 +328,16 @@ function TrainingWorkspace({
             </label>
             <div className="cw-hinted">
               <label className="cw-field">
-                <span>Approved validity in days</span>
-                <input name="days" type="number" min={1} max={3650} required defaultValue={editing.validityDays ?? ""} />
+                <span>Validity in days (optional)</span>
+                <input name="days" type="number" min={1} max={3650} defaultValue={editing.validityDays ?? ""} />
               </label>
-              <small>How long training stays valid before it must be renewed.</small>
+              <small>Leave blank for no scheduled expiry. Training can still be revoked.</small>
             </div>
+            <div className="cw-two">
+              <label className="cw-field"><span>Training duration (minutes)</span><input name="minutes" type="number" min={1} max={480} required defaultValue={editing.trainingMinutes ?? 60} /></label>
+              <label className="cw-field"><span>One-time training fee ($)</span><input name="fee" type="number" min={0} max={100000} step="0.01" defaultValue={editing.trainingFeeCents == null ? '' : (editing.trainingFeeCents/100).toFixed(2)} /></label>
+            </div>
+            <p className="cw-muted">This is the total price of the training session, paid once per equipment certification. There is no extra course fee. Previously paid or completed training is not charged again. Equipment bookings only charge the hourly rate. Enter 0 for no training fee; leave blank to pause new training registration until priced.</p>
             <fieldset className="cw-field cw-equipment">
               <legend>Equipment covered by this certification</legend>
               <label className="cw-field">
@@ -342,6 +353,7 @@ function TrainingWorkspace({
                       <input
                         type="checkbox"
                         checked={equipmentIds.includes(item.id)}
+                        disabled={!!editing.equipmentIds?.includes(item.id) || !!(item.certification && item.certification !== editing.name)}
                         onChange={(e) =>
                           setEquipmentIds((ids) => (e.target.checked ? [...ids, item.id] : ids.filter((id) => id !== item.id)))
                         }
@@ -351,8 +363,8 @@ function TrainingWorkspace({
                   ))}
               </div>
               <small>
-                {equipmentIds.length} selected. A machine has one required certification, so selecting it here replaces
-                its current link.
+                {equipmentIds.length} selected. Each machine can require one certification. Equipment linked to another
+                certification cannot be reassigned here. Existing links are kept and cannot be unchecked.
               </small>
             </fieldset>
             <label className="cw-field">
@@ -387,6 +399,7 @@ function TrainingWorkspace({
                 <option value="external">External training verified in person</option>
               </select>
             </label>
+            <label className="cw-field"><span>Completed training (minutes)</span><input name="completedMinutes" type="number" required min={catalog.data?.find(c=>c.id===renewing.certificationId)?.trainingMinutes ?? 60} max={480} defaultValue={catalog.data?.find(c=>c.id===renewing.certificationId)?.trainingMinutes ?? 60} /></label>
             <label className="cw-field">
               <span>Verification reference</span>
               <input name="reference" required maxLength={500} placeholder="e.g. Observed safe demonstration" />

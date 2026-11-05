@@ -79,6 +79,7 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   routes.use(billingRoutes(pool,config.studioStripe,config.timeZone));
 
   routes.get("/equipment", permit("equipment", "read", "own"), equipment.list);
+  routes.get("/equipment/:id/quote", permit("equipment", "read", "own"), equipment.quote);
   routes.get("/rooms", permit("room", "read", "own"), rooms.list);
   routes.get("/reservations", permit("reservation", "read", "own"), reservations.list);
   routes.post("/reservations", permit("reservation", "create", "own"), requireCsrf, reservations.create);

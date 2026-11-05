@@ -10,7 +10,7 @@ import { AccessService, type AccessTarget } from "../services/AccessService.js";
 import { MemberModel } from "../models/MemberModel.js";
 import { StaffModel } from "../models/StaffModel.js";
 import { page } from "./StaffController.js";
-import { pageOffset } from "../staffDomain.js";
+import { oneOf, pageOffset } from "../staffDomain.js";
 import { completedWaiverText, serverWaiverValues, validateWaiverFields, waiverFormFields } from "../waiverForms.js";
 
 export class MemberController {
@@ -107,10 +107,11 @@ export class MemberController {
       data: updated ? await new UserModel(this.pool).profile(updated.id) : null,
     });
   };
-  waivers = async (_req: Request, res: Response) => {
+  waivers = async (req: Request, res: Response) => {
     const { user } = authState(res);
     const signerName = `${user.firstName} ${user.lastName}`;
-    const waivers = await new EligibilityModel(this.pool, this.timeZone).waivers(user.id);
+    const scope = req.query.scope === undefined ? undefined : oneOf(req.query.scope, ['facility', 'equipment'] as const, 'Policy applicability');
+    const waivers = await new EligibilityModel(this.pool, this.timeZone).waivers(user.id, scope);
     // The form shows whose name the signature has to match.
     res.json({ data: waivers.map((waiver) => ({ ...waiver, signerName })) });
   };
@@ -203,7 +204,7 @@ export class MemberController {
       checkIns,
     ] = await Promise.all([
       model.entitlement(userId, new Date()),
-      model.waivers(userId),
+      model.waivers(userId, 'facility'),
       transaction(this.pool, async db => {
         try { await new AccessService(db,this.timeZone).reservationForAccess(userId,{}); return null; }
         catch (error) { if (error instanceof AppError) return error.message; throw error; }

@@ -10,14 +10,17 @@ export async function accessDeadline(
   const cap = new Date(Math.min(at.getTime() + 5000, reservationEnd.getTime()));
   const { rows } = await db.query<{ ends: Date }>(`
     WITH current_policies AS (
-      SELECT DISTINCT ON (name) waiverid FROM waiver
+      SELECT DISTINCT ON (name) waiverid,policy_scope FROM waiver
       WHERE isactive AND required
         AND (effectivedate IS NULL OR effectivedate <= $2::timestamptz AT TIME ZONE 'UTC')
       ORDER BY name,effectivedate DESC NULLS LAST,waiverid DESC
+    ), applicable_policies AS (
+      SELECT waiverid FROM current_policies WHERE policy_scope='facility'
+        OR EXISTS(SELECT 1 FROM equipment WHERE equipmentid=$5 AND waiverrequired=true)
     ), policy_limits AS (
       SELECT COALESCE(MAX(CASE WHEN uw.userwaiverid IS NOT NULL
         THEN COALESCE(uw.expires_at,'infinity'::timestamptz) END),$2::timestamptz) AS ends
-      FROM current_policies w LEFT JOIN user_waiver uw ON uw.waiverid=w.waiverid
+      FROM applicable_policies w LEFT JOIN user_waiver uw ON uw.waiverid=w.waiverid
         AND uw.userid=$1 AND uw.approval
         AND (uw.expires_at IS NULL OR uw.expires_at > $2::timestamptz)
       GROUP BY w.waiverid
@@ -34,7 +37,8 @@ export async function accessDeadline(
       ),$2::timestamptz),
       COALESCE((SELECT MIN(ends) FROM policy_limits),$2::timestamptz),
       (SELECT MIN(effectivedate AT TIME ZONE 'UTC') FROM waiver
-       WHERE isactive AND required AND effectivedate > $2::timestamptz AT TIME ZONE 'UTC'),
+       WHERE isactive AND required AND effectivedate > $2::timestamptz AT TIME ZONE 'UTC'
+         AND (policy_scope='facility' OR EXISTS(SELECT 1 FROM equipment WHERE equipmentid=$5 AND waiverrequired=true))),
       CASE WHEN EXISTS(SELECT 1 FROM equipment WHERE equipmentid=$5 AND certid IS NOT NULL)
       THEN COALESCE((SELECT MAX(COALESCE(LEAST(uc.renewaldate AT TIME ZONE 'UTC',c.enddate AT TIME ZONE 'UTC'),'infinity'::timestamptz))
        FROM equipment e JOIN certifications c USING(certid)

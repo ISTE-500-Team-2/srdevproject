@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, test, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import {
   cleanup,
   fireEvent,
@@ -10,6 +10,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import App from "../../src/App";
+import { api } from "../../src/lib/api";
 import { createBrowserBridge } from "../../../backend/test/helpers/browserBridge";
 let bridge: Awaited<ReturnType<typeof createBrowserBridge>>;
 beforeAll(async () => {
@@ -26,19 +27,16 @@ beforeAll(async () => {
     },
   });
 }, 120000);
+beforeEach(async () => {
+  vi.stubGlobal("fetch", bridge.fetch);
+  await api("/auth/demo", { method: "POST", body: { role: "admin" } });
+});
+afterEach(cleanup);
 afterAll(async () => {
-  cleanup();
   vi.unstubAllGlobals();
   await bridge?.close();
 }, 30000);
 test("staff training UI configures approved expiry, records actual instructor training and revokes safely", async () => {
-  vi.stubGlobal("fetch", bridge.fetch);
-  let login = await bridge.fetch("/api/auth/demo", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ role: "admin" }),
-  });
-  expect(login.status).toBe(200);
   const member = (
     await bridge.pool.query(
       `SELECT userid FROM "user" WHERE email='demo.member@collaboratory.invalid'`,
@@ -52,7 +50,8 @@ test("staff training UI configures approved expiry, records actual instructor tr
   const user = userEvent.setup();
   await user.click(await screen.findByRole("button", { name: "New certification" }));
   await user.type(await screen.findByLabelText("Name"), "UI printer safety");
-  await user.type(screen.getByLabelText("Approved validity in days"), "90");
+  await user.type(screen.getByLabelText("Validity in days (optional)"), "90");
+  await user.type(screen.getByLabelText('One-time training fee ($)'), '0');
   await user.type(screen.getByLabelText('Find equipment'), 'Darth');
   await user.click(await screen.findByRole('checkbox',{name:/Darth Vader/}));
   await user.type(
@@ -69,7 +68,7 @@ test("staff training UI configures approved expiry, records actual instructor tr
   void member;
   // Picking a member loads their records; untrained certifications offer
   // "Record training", which opens the approval form.
-  await user.click(await screen.findByRole("button", { name: "Record training" }));
+  await user.click(await screen.findByRole("button", { name: "Record UI printer safety training" }));
   const cert = (
     await bridge.pool.query(
       "SELECT certid FROM certifications WHERE name='UI printer safety'",
@@ -111,10 +110,8 @@ test("staff training UI configures approved expiry, records actual instructor tr
     { key: " " },
   );
   await screen.findByText("Not current · revoked", {}, { timeout: 5000 });
-  cleanup();
 });
 test("staff reports UI reads actual ledger instead of sample charts", async () => {
-  vi.stubGlobal("fetch", bridge.fetch);
   await bridge.pool.query(
     `INSERT INTO payment(userid,price,paymentstatus,paymentdate,method) SELECT userid,125.50,'paid',NOW() AT TIME ZONE 'UTC','cash' FROM "user" WHERE email='demo.member@collaboratory.invalid'`,
   );
@@ -134,20 +131,23 @@ test("staff reports UI reads actual ledger instead of sample charts", async () =
   expect(within(table).getAllByText("$125.50")).toHaveLength(2);
   expect(screen.getByRole("button", { name: "Export PDF" })).toBeTruthy();
   expect(screen.queryByText(/Design preview: all charts/)).toBeNull();
-  cleanup();
 });
 
 test('staff schedules a class using named certification, instructor and room selectors',async()=>{
-  vi.stubGlobal('fetch',bridge.fetch);
   const admin=(await bridge.pool.query(`SELECT userid FROM "user" WHERE email='demo.admin@collaboratory.invalid'`)).rows[0].userid;
   await bridge.pool.query("INSERT INTO user_role(userid,roleid) SELECT $1,roleid FROM role WHERE role='instructor' ON CONFLICT DO NOTHING",[admin]);
-  const cert=(await bridge.pool.query("SELECT certid FROM certifications WHERE name='UI printer safety'")).rows[0].certid;
+  // This test owns its course instead of depending on the training editor test.
+  const course=await api<{id:number}>('/training/catalog',{method:'POST',body:{
+    name:'UI class safety',description:'Class scheduling fixture',validityDays:90,
+    trainingMinutes:60,trainingFeeCents:0,equipmentIds:[],reason:'Isolated class scheduling fixture',
+  }});
+  const cert=course.id;
   const room=(await bridge.pool.query("SELECT roomid FROM room WHERE status='available' ORDER BY roomid LIMIT 1")).rows[0].roomid;
   render(<MemoryRouter initialEntries={['/classes']}><App /></MemoryRouter>);
   const user=userEvent.setup();
   await user.click(await screen.findByRole('button',{name:'Schedule class'}));
   await user.type(await screen.findByLabelText('Title'),'Named selector orientation');
-  await screen.findByRole('option',{name:'UI printer safety'});
+  await screen.findByRole('option',{name:'UI class safety'});
   await user.selectOptions(screen.getByLabelText(/^Counts toward/),String(cert));
   await user.type(screen.getByRole('combobox',{name:'Instructor'}),'Alex');
   await user.click(await screen.findByRole('option',{name:/Alex Demo/}));
@@ -164,11 +164,9 @@ test('staff schedules a class using named certification, instructor and room sel
   await screen.findByRole('heading',{name:'Named selector orientation'});
   const saved=(await bridge.pool.query("SELECT c.instructor_id,c.certification_id,v.roomid FROM app_training_class c JOIN reservation v ON v.reservationid=c.reservation_id WHERE c.title='Named selector orientation'")).rows[0];
   expect(saved).toEqual({instructor_id:admin,certification_id:cert,roomid:room});
-  cleanup();
 });
 
 test("staff card assignment, revocation and timed override UI save audited records", async () => {
-  vi.stubGlobal("fetch", bridge.fetch);
   render(
     <MemoryRouter initialEntries={["/admin"]}>
       <App />
@@ -229,5 +227,4 @@ test("staff card assignment, revocation and timed override UI save audited recor
       )
     ).rows[0].n,
   ).toBe(1);
-  cleanup();
 });
