@@ -8,4 +8,5 @@
 **/.sponsor-backups
 **/coverage
 **/*.tsbuildinfo
+**/.tsbuild-cache
 **/.DS_Store

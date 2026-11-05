@@ -5,14 +5,17 @@ COPY frontend/package*.json ./frontend/
 RUN npm ci --prefix backend && npm ci --prefix frontend
 
 # Keep source/build cache keys separate: editing a page must not recompile the
-# unchanged backend. This also works on the production host's legacy builder.
+# unchanged backend. BuildKit retains TypeScript's checked incremental graph;
+# Vite still rebuilds the actual frontend for every changed source layer.
 FROM dependencies AS backend-build
 COPY backend ./backend
 RUN npm run build --prefix backend
 
 FROM dependencies AS frontend-build
 COPY frontend ./frontend
-RUN npm run build --prefix frontend
+# Check content even when a checkout carries timestamps older than the cache.
+RUN --mount=type=cache,id=arbor-frontend-typescript-node24,target=/app/frontend/.tsbuild-cache,sharing=locked \
+    find frontend/src -type f -exec touch {} + && touch frontend/vite.config.ts && npm run build --prefix frontend
 
 # The verification target still runs the complete source-based suite. Runtime
 # images use only the compiled output from the two independent build stages.

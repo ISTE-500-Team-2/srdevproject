@@ -77,6 +77,7 @@ jobs:
             frontend/package-lock.json
       - run: npm ci --prefix backend
       - run: npm ci --prefix frontend
+      - run: python3 deploy/test_frontend_type_cache.py
       - run: npm run check --prefix frontend
       - run: npm run test:integration --prefix frontend
   deployment:
@@ -101,6 +102,7 @@ jobs:
       - run: bash -n deploy/deploy-arbor.sh
       - run: python3 deploy/test_auto_release.py
       - run: python3 deploy/test_blue_green_release.py
+      - run: python3 deploy/test_local_frontend_release.py
       - run: python3 deploy/test_workflow_gate.py
       - run: python3 deploy/test_arbor_site.py
       - run: docker build -t collaboratory-mvc:verification .

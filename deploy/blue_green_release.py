@@ -34,12 +34,25 @@ def read_route(path):
     return route
 
 
+def startup_healthcheck(service):
+    """Probe promptly during startup; preserve the test and steady-state policy."""
+    result = copy.deepcopy(service)
+    health = result.get('healthcheck')
+    if health and health.get('test') and not health.get('disable') and health['test'] != ['NONE']:
+        # Docker Engine >=25 / Compose >=2.20.2. A failure still cannot mark the
+        # app healthy: compose --wait and all authenticated smokes remain gates.
+        # Respect explicit operator startup settings, including a zero period.
+        health.setdefault('start_period', '10s')
+        health.setdefault('start_interval', '500ms')
+    return result
+
+
 def slot_config(original, image, port):
     if port not in SLOTS or any(name not in original.get('services', {})
                                 for name in ('arbor-email-app', 'arbor-mvc-current')):
         raise ValueError('Expected public/demo stack is missing')
     slot, container = SLOTS[port]
-    service = copy.deepcopy(original['services']['arbor-email-app'])
+    service = startup_healthcheck(original['services']['arbor-email-app'])
     service.pop('depends_on', None)
     service.update(image=image, container_name=container, ports=[f'127.0.0.1:{port}:8080'])
     # Preserve real public DB, JWT keys, reader config and notification policy.
@@ -72,8 +85,9 @@ def rollback(root, journal, ops):
     if current not in (journal['previousCompose'], journal['candidateCompose']):
         raise RuntimeError('Operator configuration changed; public routing restored, demo rollback requires review')
     ops.write_json(root / 'compose.json', journal['previousCompose'])
-    ops.compose(root / 'compose.json', 'up', '-d', '--no-deps', '--no-build',
-                '--wait', '--wait-timeout', '90', 'arbor-mvc-current')
+    if journal.get('updateDemo', True):
+        ops.compose(root / 'compose.json', 'up', '-d', '--no-deps', '--no-build',
+                    '--wait', '--wait-timeout', '90', 'arbor-mvc-current')
 
 
 def recover_activation(root, ops):
@@ -149,7 +163,7 @@ def schedule_retirement(root, old_route, ops):
         return False
 
 
-def deploy_blue_green(root, sha, ops):
+def deploy_blue_green(root, sha, ops, *, update_demo=True):
     if not re.fullmatch('[a-f0-9]{40}', sha):
         raise ValueError('Invalid release revision')
     started = time.monotonic()
@@ -160,7 +174,8 @@ def deploy_blue_green(root, sha, ops):
     original = json.loads((root / 'compose.json').read_text())
     ops.write_json(release / 'previous-compose.json', original)
     candidate = copy.deepcopy(original)
-    for name in ('arbor-email-app', 'arbor-mvc-current'):
+    for name in (('arbor-email-app', 'arbor-mvc-current') if update_demo else ('arbor-email-app',)):
+        candidate['services'][name] = startup_healthcheck(candidate['services'][name])
         candidate['services'][name]['image'] = image
     file = release / 'public-slot.json'
     ops.write_json(file, slot_config(original, image, port))
@@ -172,7 +187,7 @@ def deploy_blue_green(root, sha, ops):
                  'previousPublicPort': old_route['publicPort']}
     journal = {'phase': 'pending', 'oldRoute': old_route, 'newRoute': new_route,
                'previousCompose': original, 'candidateCompose': candidate,
-               'releaseDirectory': str(release)}
+               'releaseDirectory': str(release), 'updateDemo': update_demo}
     journal_path = root / 'auto-deploy/activation.json'
     pending = False
     try:
@@ -187,9 +202,12 @@ def deploy_blue_green(root, sha, ops):
         ops.write_json(root / 'compose.json', candidate)
         # Demo startup does not extend public traffic cutover. It remains fully
         # separate, with its own DB/key and its original loopback endpoint.
-        progress(ops, root, sha, 'updating-and-verifying-demo')
-        ops.compose(root / 'compose.json', 'up', '-d', '--no-deps', '--no-build',
-                    '--wait', '--wait-timeout', '90', 'arbor-mvc-current')
+        if update_demo:
+            progress(ops, root, sha, 'updating-and-verifying-demo')
+            ops.compose(root / 'compose.json', 'up', '-d', '--no-deps', '--no-build',
+                        '--wait', '--wait-timeout', '90', 'arbor-mvc-current')
+        else:
+            progress(ops, root, sha, 'verifying-preserved-demo')
         ops.verify(root, 'http://127.0.0.1:8081', demo=True)
         if (json.loads((root / 'compose.json').read_text()) != candidate or
                 read_route(root / 'routing/active.json') != old_route):
@@ -229,6 +247,7 @@ def deploy_blue_green(root, sha, ops):
             'previousPublicPort': old_route['publicPort'],
             'cutoverSeconds': round(cutover_seconds, 3),
             'preparedSeconds': round(prepared_seconds, 3),
+            'demoPreserved': not update_demo,
             'retirementScheduled': retirement_scheduled}
 
 

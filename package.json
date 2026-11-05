@@ -8,6 +8,7 @@
     "dev": "node scripts/dev.mjs",
     "dev:email": "node scripts/dev.mjs --email",
     "test:dev": "node --test scripts/dev.test.mjs",
-    "test:dev:smoke": "node scripts/dev-smoke.mjs"
+    "test:dev:smoke": "node scripts/dev-smoke.mjs",
+    "release:frontend:local": "python3 deploy/local_frontend.py"
   }
 }

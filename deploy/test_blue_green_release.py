@@ -28,6 +28,18 @@ def config():
 
 
 class PromotionTests(unittest.TestCase):
+    def test_startup_probe_is_faster_without_weakening_health_or_operator_policy(self):
+        service = {'healthcheck': {'test': ['CMD', 'node', 'health.js'], 'interval': '5s',
+                                  'timeout': '3s', 'retries': 20}}
+        result = blue.startup_healthcheck(service)
+        self.assertEqual(result['healthcheck'], {**service['healthcheck'],
+                         'start_period': '10s', 'start_interval': '500ms'})
+        self.assertNotIn('start_period', service['healthcheck'])
+        custom = {'healthcheck': {**service['healthcheck'], 'start_period': '0s', 'start_interval': '2s'}}
+        self.assertEqual(blue.startup_healthcheck(custom), custom)
+        for health in ({'disable': True}, {'test': ['NONE']}, {}):
+            self.assertEqual(blue.startup_healthcheck({'healthcheck': health}), {'healthcheck': health})
+
     def fixture(self, failure=None):
         tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
@@ -105,6 +117,33 @@ class PromotionTests(unittest.TestCase):
             with self.assertRaises(RuntimeError): blue.deploy_blue_green(root, NEW, ops)
         self.assertEqual(blue.read_route(root / 'routing/active.json'), old_route)
         self.assertEqual(json.loads((root / 'compose.json').read_text()), original)
+
+    def test_frontend_only_release_keeps_private_demo_image_and_process_untouched(self):
+        root, original, old_route, ops, calls = self.fixture()
+        with patch.object(blue, 'verify_route'):
+            result = blue.deploy_blue_green(root, NEW, ops, update_demo=False)
+        self.assertTrue(result['demoPreserved'])
+        self.assertFalse(any(c[0] == 'demo' for c in calls if isinstance(c, tuple)))
+        self.assertTrue(any(c[0] == 'verify' and c[1].endswith(':8081') for c in calls if isinstance(c, tuple)))
+        after = json.loads((root / 'compose.json').read_text())
+        self.assertEqual(after['services']['arbor-mvc-current'], original['services']['arbor-mvc-current'])
+        self.assertEqual(after['services']['arbor-email-app']['image'], IMAGE)
+        self.assertFalse(json.loads((root / 'auto-deploy/activation.json').read_text())['updateDemo'])
+
+    def test_frontend_only_failure_restores_public_without_replacing_private_demo(self):
+        for failure in ('demo', 'ci', 'live'):
+            root, original, old_route, ops, calls = self.fixture('ci' if failure == 'ci' else None)
+            original_verify = ops.verify
+            def verify(_root, origin, demo=False):
+                if demo and failure == 'demo': raise RuntimeError('Preserved demo unhealthy')
+                return original_verify(_root, origin, demo)
+            ops.verify = verify
+            with patch.object(blue, 'verify_route', side_effect=RuntimeError('Public smoke failed') if failure == 'live' else None):
+                with self.assertRaises(RuntimeError):
+                    blue.deploy_blue_green(root, NEW, ops, update_demo=False)
+            self.assertEqual(blue.read_route(root / 'routing/active.json'), old_route)
+            self.assertEqual(json.loads((root / 'compose.json').read_text()), original)
+            self.assertFalse(any(c[0] == 'demo' for c in calls if isinstance(c, tuple)))
 
     def test_interrupted_pending_switch_is_recovered_before_next_release(self):
         root, original, old_route, ops, calls = self.fixture()
