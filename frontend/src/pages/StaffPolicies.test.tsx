@@ -74,3 +74,47 @@ test('waiver text and approval evidence survive accidental closing until discard
   expect(screen.queryByRole('dialog')).toBeNull();
   expect(api).not.toHaveBeenCalled();
 });
+
+const publishWith = async (days?: string) => {
+  vi.mocked(useApi).mockImplementation(path => ({ data: path === '/admin/policies' ? [current] : { summary: { userCount: 5 }, waiverBreakdown: [] }, loading: false, refreshing: false, error: '', reload: vi.fn() }));
+  vi.mocked(api).mockResolvedValue({} as never);
+  render(<StaffPolicies />);
+  fireEvent.click(screen.getByRole('button', { name: 'Publish new version' }));
+  const dialog = screen.getByRole('dialog');
+  if (days !== undefined) fireEvent.change(within(dialog).getByLabelText('Valid for (days)'), { target: { value: days } });
+  fireEvent.change(within(dialog).getByLabelText(/Approval/), { target: { value: 'Board vote' } });
+  fireEvent.change(within(dialog).getByLabelText(/Reason/), { target: { value: 'Annual update' } });
+  fireEvent.submit(within(dialog).getByLabelText('Valid for (days)').closest('form')!);
+  await waitFor(() => expect(api).toHaveBeenCalled());
+  return vi.mocked(api).mock.calls[0]![1] as { body: { validityDays: number | null } };
+};
+
+test('B-015: a waiver can be published with a duration in days', async () => {
+  expect((await publishWith('365')).body.validityDays).toBe(365);
+});
+
+test('B-015: leaving the duration blank publishes a waiver that does not expire on its own', async () => {
+  expect((await publishWith('')).body.validityDays).toBeNull();
+});
+
+test('administrators can publish an equipment waiver without making it a day-pass prerequisite', async () => {
+  vi.mocked(useApi).mockImplementation(path => ({ data: path === '/admin/policies' ? [] : null, loading: false, refreshing: false, error: '', reload: vi.fn() }));
+  vi.mocked(api).mockResolvedValue({} as never);
+  render(<StaffPolicies />);
+  fireEvent.click(screen.getByRole('button', { name: 'New waiver' }));
+  const editor = screen.getByRole('dialog', { name: 'New waiver' });
+  fireEvent.change(within(editor).getByLabelText('Waiver'), { target: { value: 'Equipment safety' } });
+  fireEvent.change(within(editor).getByLabelText('Required for'), { target: { value: 'equipment' } });
+  fireEvent.change(within(editor).getByLabelText('Text members will read'), { target: { value: 'Approved equipment agreement wording for this test.' } });
+  fireEvent.change(within(editor).getByLabelText('Reason for the change log'), { target: { value: 'Separate equipment requirements' } });
+  expect(within(editor).getByText(/Until they do, they can't book or use equipment/)).toBeTruthy();
+  fireEvent.submit(within(editor).getByRole('button', { name: 'Publish version' }).closest('form')!);
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/admin/policies', expect.objectContaining({ body: expect.objectContaining({ scope: 'equipment' }) })));
+});
+
+test('publishing a new equipment version retains its applicability', () => {
+  vi.mocked(useApi).mockImplementation(path => ({ data: path === '/admin/policies' ? [{ ...current, scope: 'equipment' }] : null, loading: false, refreshing: false, error: '', reload: vi.fn() }));
+  render(<StaffPolicies />);
+  fireEvent.click(screen.getByRole('button', { name: 'Publish new version' }));
+  expect(screen.getByLabelText('Required for')).toHaveProperty('value', 'equipment');
+});

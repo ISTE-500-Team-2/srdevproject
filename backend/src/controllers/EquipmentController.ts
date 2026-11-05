@@ -5,8 +5,14 @@ import { StudioStripe, type StudioStripeConfig } from "../studios/stripe.js";
 import { EquipmentModel } from "../models/EquipmentModel.js";
 import { EligibilityModel } from "../models/EligibilityModel.js";
 import { authState } from "../middleware/auth.js";
+import { positiveId } from '../domain.js';
+import { equipmentPrice } from '../equipmentPricing.js';
 
 export class EquipmentController {
+  quote = async (req: Request, res: Response) => {
+    const hours = typeof req.query.hours === 'string' && /^\d+$/.test(req.query.hours) ? Number(req.query.hours) : NaN;
+    res.json({ data: await equipmentPrice(this.pool, positiveId(req.params.id), hours) });
+  };
   constructor(
     private pool: Pool,
     private timeZone: string,
@@ -16,10 +22,11 @@ export class EquipmentController {
     const userId = authState(res).user.id;
     await new EquipmentBilling(this.pool, this.stripeConfig ? new StudioStripe(this.stripeConfig) : undefined, this.timeZone).reconcile();
     const eligibility = new EligibilityModel(this.pool, this.timeZone);
-    const [items, entitlement, waivers] = await Promise.all([
+    const [items, entitlement, facilityPolicies, equipmentWaivers] = await Promise.all([
       new EquipmentModel(this.pool).list(),
       eligibility.entitlement(userId, new Date()),
-      eligibility.waivers(userId),
+      eligibility.waivers(userId, 'facility'),
+      eligibility.waivers(userId, 'equipment'),
     ]);
     // Public summary is intentionally separate from the staff maintenance view.
     const outages = (await this.pool.query(`SELECT equipment_id AS "equipmentId",reason,
@@ -50,7 +57,8 @@ export class EquipmentController {
         if (trainingRequired) reasons.push("Current certification required");
         if (
           item.waiverRequired &&
-          (!waivers.length || waivers.some((w) => !w.signed))
+          (!facilityPolicies.length || facilityPolicies.some(w => !w.signed) ||
+            !equipmentWaivers.length || equipmentWaivers.some(w => !w.signed))
         )
           reasons.push("Signed waivers required");
         return {
@@ -58,6 +66,8 @@ export class EquipmentController {
           name: item.name,
           type: item.type,
           rate: item.rate === null ? null : Number(item.rate),
+          trainingFeeCents: item.trainingFeeCents,
+          trainingMinutes: item.trainingMinutes,
           image: item.image,
           status: item.status,
           occupied: occupied.filter(slot => slot.equipmentId === item.id).map(({startTime, endTime}) => ({startTime, endTime})),

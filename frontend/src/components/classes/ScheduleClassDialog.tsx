@@ -5,7 +5,7 @@ import { Modal } from "../Modal";
 import { MemberSelect } from "../MemberSelect";
 import { api, ApiError, errorMessage } from "../../lib/api";
 import { useApi } from "../../lib/useApi";
-import { localInput } from "../../lib/display";
+import { cents, localInput } from "../../lib/display";
 import type { Course, Room, ScheduleSeed, WorkshopTemplate } from "./classData";
 
 const tomorrow = () => localInput(new Date(Date.now() + 86400000)).slice(0, 10);
@@ -48,7 +48,7 @@ export function ScheduleClassDialog({
     certificationId: seed.certificationId ? String(seed.certificationId) : "",
     instructorId: seed.instructorId ? String(seed.instructorId) : "",
     roomId: seed.roomId ? String(seed.roomId) : "",
-    capacity: seed.capacity ? String(seed.capacity) : "",
+    capacity: seed.capacity ? String(Math.min(seed.capacity, 15)) : "",
     date: tomorrow(),
     start: seed.start ?? "18:00",
     end: seed.end ?? "20:00",
@@ -58,12 +58,15 @@ export function ScheduleClassDialog({
   const [error, setError] = useState("");
   const [roomError, setRoomError] = useState("");
   const room = rooms.data?.find((r) => String(r.id) === form.roomId);
+  const course = catalog.data?.find(c => String(c.id) === form.certificationId);
   const minutes = duration(form.date, form.start, form.end);
   const timeProblem =
     minutes === null
       ? ""
       : minutes <= 0
         ? "End time must be after the start time."
+        : course?.trainingMinutes && minutes < course.trainingMinutes
+          ? `This certification requires at least ${course.trainingMinutes} minutes of training.`
         : minutes > 480
           ? "Classes can run up to 8 hours."
           : new Date(`${form.date}T${form.start}`).getTime() <= Date.now()
@@ -129,7 +132,7 @@ export function ScheduleClassDialog({
     }
   }
 
-  const courses = catalog.data?.filter((c) => c.validityDays) ?? [];
+  const courses = catalog.data ?? [];
   const available = rooms.data?.filter((r) => r.status === "available") ?? [];
   // Only the list the chosen class type needs can block publishing.
   const options = kind === "training" ? catalog : workshops;
@@ -227,7 +230,7 @@ export function ScheduleClassDialog({
                 ))}
               </select>
               <small>
-                Only certifications with a validity period are listed. Set that up in <Link to="/training">Training</Link>.
+                Configure training duration and the one-time training fee in <Link to="/training">Training</Link>.
               </small>
             </label>
           ) : null}
@@ -255,6 +258,7 @@ export function ScheduleClassDialog({
             </p>
           ) : null}
         </fieldset>
+        {course && <p>{course.trainingMinutes ?? 60} minutes of training required. {course.trainingFeeCents == null ? 'Training fee not configured.' : `${cents(course.trainingFeeCents)} is charged once when a member registers for required training.`}</p>}
         <fieldset disabled={busy}>
           <legend>
             <i>2</i>When

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
@@ -17,6 +17,7 @@ import {
   byStart,
   hasStarted,
   isCancelled,
+  registrationPrice,
   type AttendanceDraft,
   type ClassRecord,
   type RosterPerson,
@@ -25,7 +26,7 @@ import {
 } from "../components/classes/classData";
 import "./classes.css";
 
-const REFRESH_MS = 120000;
+const REFRESH_MS = 15000;
 /** How far back to look for past classes whose attendance is still open. */
 const ATTENDANCE_WINDOW_MS = 60 * 86400000;
 const emptyDraft: AttendanceDraft = { statuses: {}, note: "" };
@@ -125,11 +126,15 @@ export function ClassesPage() {
 
   const refreshAll = () => {
     classes.reload();
+    certifications.reload();
     setRefreshToken((t) => t + 1);
   };
+  // Restarting a request that is still running would abort it, so a slow list never finished.
+  const classesBusy = useRef(false);
+  classesBusy.current = classes.loading || classes.refreshing;
   useEffect(() => {
     const refresh = () => {
-      if (!hasUnsavedEdits && busyId === null && document.visibilityState !== "hidden") {
+      if (!classesBusy.current && !hasUnsavedEdits && busyId === null && document.visibilityState !== "hidden") {
         classes.reload();
         setRefreshToken((t) => t + 1);
       }
@@ -148,7 +153,9 @@ export function ClassesPage() {
     setBusyId(c.id);
     setRowErrors(({ [c.id]: _, ...rest }) => rest);
     try {
-      await api(`/classes/${c.id}/${action}`, { method: "POST", body: {} });
+      const price = registrationPrice(c, c.certificationId !== null && certified.has(c.certificationId));
+      await api(`/classes/${c.id}/${action}`, { method: "POST", body: action === 'enroll'
+        ? { expectedTrainingFeeCents: price.trainingFee } : {} });
       setToast(
         action === "enroll"
           ? `You're registered for ${c.title} on ${shortDate(c.startsAt)} at ${timeOnly(c.startsAt)}.`
@@ -230,6 +237,7 @@ export function ClassesPage() {
           c={detail}
           workshops={workshops.data ?? []}
           eligibility={eligibility}
+          certified={detail.certificationId !== null && certified.has(detail.certificationId)}
           busy={busyId === detail.id}
           error={rowErrors[detail.id]}
           refreshToken={refreshToken}

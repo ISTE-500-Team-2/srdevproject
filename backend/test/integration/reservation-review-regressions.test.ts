@@ -91,8 +91,9 @@ for (const alreadyApplied of [false, true]) test(`upgrade ${alreadyApplied ? 'or
     const ledgerBefore = (await pool.query('SELECT name,checksum FROM app_migration ORDER BY name')).rows;
     await migrate(pool);
     const bookingsAfter = (await pool.query('SELECT * FROM reservation ORDER BY reservationid')).rows;
-    assert.deepEqual(bookingsAfter.map(({ roomid, cooldown_enforced, ...r }) =>
+    assert.deepEqual(bookingsAfter.map(({ roomid, cooldown_enforced, price_snapshot, payment_id, ...r }) =>
       alreadyApplied ? { ...r, roomid } : r), bookingsBefore);
+    assert.ok(bookingsAfter.every(r => r.price_snapshot === null && r.payment_id === null), 'No charges are invented for existing bookings');
     assert.ok(bookingsAfter.every(r => r.cooldown_enforced === false));
     const ledger = (await pool.query('SELECT name,checksum FROM app_migration ORDER BY name')).rows;
     for (const old of ledgerBefore) assert.deepEqual(ledger.find(r => r.name === old.name), old);

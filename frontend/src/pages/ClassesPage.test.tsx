@@ -20,9 +20,11 @@ const HOUR = 3600000;
 type Person = { userId: number; name: string; email: string; status: string };
 let people: Person[];
 let denyRoster = false, failFor: number | null = null, entitled = true, scheduleError: ApiError | null = null;
+let certified = false;
 const course = (id: number, offsetHours: number, extra: Record<string, unknown> = {}) => ({
   id, title: `Safety ${id}`, certificationId: 7, certificationName: 'Laser cutting', instructorId: 1, instructor: 'Morgan Reyes',
   capacity: 3, enrolled: 2, status: 'scheduled', revision: 4, roomId: 2, roomName: 'Training Room',
+  trainingFeeCents: 0,
   startsAt: new Date(Date.now() + offsetHours * HOUR).toISOString(), endsAt: new Date(Date.now() + (offsetHours + 2) * HOUR).toISOString(),
   myStatus: null, ...extra,
 });
@@ -39,6 +41,7 @@ beforeEach(() => {
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
   auth.user = { id: 1, roles: ['admin'] };
   denyRoster = false; failFor = null; entitled = true; scheduleError = null;
+  certified = false;
   people = [
     { userId: 11, name: 'First Member', email: 'first@example.invalid', status: 'enrolled' },
     { userId: 12, name: 'Second Member', email: 'second@example.invalid', status: 'enrolled' },
@@ -63,7 +66,7 @@ beforeEach(() => {
     }
     if (path.endsWith('/member-roster')) return { items: [{ name: 'First M.' }], capacity: 3, enrolled: 2, seatsAvailable: 1 } as never;
     if (path === '/me/overview') return { entitlement: { membership: entitled ? { id: 1 } : null, dayPass: null } } as never;
-    if (path === '/me/certifications') return [] as never;
+    if (path === '/me/certifications') return (certified ? [{ id: 7, valid: true }] : []) as never;
     if (path === '/classes/catalog') return workshopCatalog as never;
     if (path === '/training/catalog') return [{ id: 7, name: 'Laser cutting', validityDays: 365 }] as never;
     if (path === '/rooms') return [{ id: 2, name: 'Training Room', location: 'Main floor', capacity: 18, status: 'available' }] as never;
@@ -109,6 +112,37 @@ test('member without membership or day pass is sent to membership instead of a f
   await mount();
   expect(screen.queryByRole('button', { name: 'Register for Safety 5' })).toBeNull();
   expect(screen.getByRole('link', { name: 'Membership or day pass needed' }).getAttribute('href')).toBe('/membership');
+});
+
+test('registering for required training shows and submits the one-time $20 fee', async () => {
+  auth.user = { id: 30, roles: ['member'] };
+  classes = [course(5, 48, { trainingFeeCents: 2000 })];
+  await mount();
+  expect(screen.getByText('$20.00 total for training; no extra course fee')).toBeTruthy();
+  await click('Register for Safety 5');
+  expect(calls('/classes/5/enroll', 'POST')[0][1]?.body).toEqual({ expectedTrainingFeeCents: 2000 });
+});
+
+test('a certified member registering again is not charged another training fee', async () => {
+  auth.user = { id: 30, roles: ['member'] };
+  certified = true;
+  classes = [course(5, 48, { trainingFeeCents: 2000 })];
+  await mount();
+  expect(screen.getByText('Training fee already covered')).toBeTruthy();
+  await click('Register for Safety 5');
+  expect(calls('/classes/5/enroll', 'POST')[0][1]?.body).toEqual({ expectedTrainingFeeCents: 0 });
+});
+
+test('paid training stays covered before certification approval and shows no extra course fee', async () => {
+  auth.user = { id: 30, roles: ['member'] };
+  classes = [course(5, 48, { trainingFeeCents: 2000, trainingFeeCovered: true })];
+  await mount();
+  await click('Details for Safety 5');
+  const detail = screen.getByRole('region', { name: 'Safety 5 details' });
+  expect(within(detail).getByText('Total: $0.00')).toBeTruthy();
+  expect(within(detail).getByText(/no extra course fee/)).toBeTruthy();
+  await click('Register for class');
+  expect(calls('/classes/5/enroll', 'POST')[0][1]?.body).toEqual({ expectedTrainingFeeCents: 0 });
 });
 
 test('member detail shows first-name participants and no contact details', async () => {
@@ -171,20 +205,20 @@ test('attendance drafts belong to their class and survive closing the panel', as
   expect((radio(panel, 'First Member', 'No show') as HTMLInputElement).checked).toBe(true);
 });
 
-test('unsaved attendance pauses auto refresh; a pristine page refreshes every two minutes and not while hidden', async () => {
+test('unsaved attendance pauses auto refresh; a pristine page refreshes every 15 seconds and not while hidden', async () => {
   await mount();
   const before = calls('/classes').length;
-  await act(async () => { await vi.advanceTimersByTimeAsync(120000); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
   expect(calls('/classes').length).toBe(before + 1);
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
-  await act(async () => { await vi.advanceTimersByTimeAsync(120000); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
   expect(calls('/classes').length).toBe(before + 1);
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
   const panel = await openRoster();
   fireEvent.click(radio(panel, 'First Member', 'Attended'));
   const paused = calls('/classes').length;
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(120000);
+    await vi.advanceTimersByTimeAsync(15000);
     window.dispatchEvent(new Event('focus'));
   });
   expect(calls('/classes').length).toBe(paused);
@@ -196,7 +230,7 @@ test('roster contact details are cleared when a refresh denies access', async ()
   const panel = await openRoster();
   expect(within(panel).getByText('first@example.invalid')).toBeTruthy();
   denyRoster = true;
-  await act(async () => { await vi.advanceTimersByTimeAsync(120000); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
   expect(screen.getByText('Roster access removed.')).toBeTruthy();
   expect(screen.queryByText('first@example.invalid')).toBeNull();
 });
@@ -218,6 +252,7 @@ test('a room conflict on publish is shown on the room field and keeps the form',
   fireEvent.change(screen.getByLabelText(/^Counts toward/), { target: { value: '7' } });
   fireEvent.change(screen.getByLabelText(/^Room/), { target: { value: '2' } });
   expect((screen.getByRole('spinbutton') as HTMLInputElement).value).toBe('15');
+  expect((screen.getByRole('spinbutton') as HTMLInputElement).max).toBe('15');
   fireEvent.change(screen.getByLabelText(/^Reason/), { target: { value: 'Demand' } });
   await act(async () => { fireEvent.submit(screen.getByRole('button', { name: 'Publish class' }).closest('form')!); });
   expect(screen.getByText(/Training Room is already booked for part of this time/)).toBeTruthy();
@@ -244,12 +279,15 @@ test('cancelling sends the record revision and the staff reason', async () => {
 
 test('creative workshop details show the description without promising certification approval',async()=>{
  auth.user={id:30,roles:['member']};
- classes=[course(5,48,{certificationId:null,certificationName:'Creative workshop',catalogId:1,description:'Build a resin platter with an instructor.'})];
+ classes=[course(5,48,{certificationId:null,certificationName:'Creative workshop',catalogId:1,trainingFeeCents:null,description:'Build a resin platter with an instructor.'})];
  await mount();await click('Details for Safety 5');
  const detail=screen.getByRole('region',{name:'Safety 5 details'});
  expect(within(detail).getByText('Build a resin platter with an instructor.')).toBeTruthy();
  expect(within(detail).getByText(/This creative workshop does not grant equipment certification/)).toBeTruthy();
  expect(detail.textContent).not.toContain('approved separately');
+ expect(within(detail).queryByRole('region',{name:'Class price breakdown'})).toBeNull();
+ await act(async()=>{fireEvent.click(screen.getByRole('button',{name:'Register for class'}));});
+ expect(calls('/classes/5/enroll','POST')[0][1]?.body).toEqual({expectedTrainingFeeCents:0});
 });
 
 test('members see scheduled workshops as normal rows and the rest as cards, every one with a photo', async () => {
@@ -298,4 +336,16 @@ test('staff schedule a creative workshop from the picker without a certification
   await act(async () => { fireEvent.submit(screen.getByRole('button', { name: 'Publish class' }).closest('form')!); });
   const body = calls('/classes', 'POST')[0][1]?.body as Record<string, unknown>;
   expect(body).toMatchObject({ title: 'Glow Up: Floral Resin Nightlight', certificationId: null, catalogId: 2, capacity: 15 });
+});
+
+test('a slow class list is left to finish instead of being restarted by the next refresh', async () => {
+  await mount();
+  const original = vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation(((path: string, ...rest: unknown[]) =>
+    path === '/classes' ? new Promise(() => {}) : (original as (...a: unknown[]) => unknown)(path, ...rest)) as never);
+  const before = calls('/classes').length;
+  await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
+  expect(calls('/classes').length).toBe(before + 1);
+  await act(async () => { await vi.advanceTimersByTimeAsync(45000); });
+  expect(calls('/classes').length).toBe(before + 1);
 });

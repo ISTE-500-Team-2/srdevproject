@@ -1,5 +1,5 @@
 import {afterAll,beforeAll,expect,test,vi} from 'vitest';
-import {cleanup,fireEvent,render,screen,within} from '@testing-library/react';
+import {cleanup,fireEvent,render,screen,within,waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {MemoryRouter} from 'react-router-dom';
 import App from '../../src/App';
@@ -32,7 +32,9 @@ test('staff equipment UI saves four-hour reservation for selected member and doe
  const local=[start.getFullYear(),String(start.getMonth()+1).padStart(2,'0'),String(start.getDate()).padStart(2,'0')].join('-')+'T14:00';
  pickStart(modal,start);void local;
  await user.selectOptions(modal.getByLabelText('Duration'),'4');
- await user.click(modal.getByRole('button',{name:'Confirm reservation'}));
+ const confirm=modal.getByRole('button',{name:'Confirm reservation'}) as HTMLButtonElement;
+ await waitFor(()=>expect(confirm.disabled).toBe(false));
+ await user.click(confirm);
  await screen.findByText('Reservation confirmed for Rachel for member #'+member+'.');
  const rows=(await bridge.pool.query('SELECT userid,endtime-starttime AS duration FROM reservation')).rows;
  expect(rows).toHaveLength(1);expect(rows[0].userid).toBe(member);expect(rows[0].duration.hours).toBe(4);

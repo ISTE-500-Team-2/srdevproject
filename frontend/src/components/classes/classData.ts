@@ -5,6 +5,11 @@ export type ClassRecord = {
   title: string;
   certificationId: number | null;
   certificationName: string;
+  trainingMinutes?: number;
+  trainingFeeCents?: number | null;
+  trainingFeeCovered?: boolean;
+  myTrainingFeeCents?: number | null;
+  myPaymentStatus?: string | null;
   description?: string;
   catalogId?: number | null;
   instructorId: number;
@@ -22,7 +27,7 @@ export type ClassRecord = {
 export type RosterPerson = { userId: number; name: string; email: string; status: string };
 export type MemberRoster = { items: { name: string }[]; capacity: number; enrolled: number; seatsAvailable: number };
 export type Room = { id: number; name: string; location: string; capacity: number | null; status: string };
-export type Course = { id: number; name: string; validityDays: number | null };
+export type Course = { id: number; name: string; validityDays: number | null; trainingMinutes?: number; trainingFeeCents?: number | null };
 /** Attendance choices a manager has made but not saved yet, per class. */
 export type AttendanceDraft = { statuses: Record<number, "attended" | "no_show">; note: string };
 /** A creative workshop the shop runs; staff schedule sessions from it. */
@@ -39,6 +44,14 @@ export type ScheduleSeed = Partial<{
   start: string;
   end: string;
 }>;
+
+export function registrationPrice(c: ClassRecord, certified: boolean) {
+  if (isWorkshop(c)) return { trainingFee: 0 };
+  const settled = c.myStatus === 'cancelled' && ['paid', 'waived'].includes(c.myPaymentStatus ?? '');
+  const trainingFee = settled ? c.myTrainingFeeCents ?? 0
+    : (c.trainingFeeCovered ?? certified) ? 0 : c.trainingFeeCents ?? null;
+  return { trainingFee };
+}
 
 export const isCancelled = (c: ClassRecord) => c.status === "cancelled";
 export const hasStarted = (c: ClassRecord, now = Date.now()) => new Date(c.startsAt).getTime() <= now;

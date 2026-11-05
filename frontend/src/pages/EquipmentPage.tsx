@@ -7,10 +7,11 @@ import { MemberSelect } from '../components/MemberSelect';
 import { StartTimePicker } from '../components/StartTimePicker';
 import { Toast } from '../components/Toast';
 import { api, ApiError, errorMessage } from '../lib/api';
-import type { LiveEquipment, Reservation } from '../lib/contracts';
+import type { EquipmentPrice, LiveEquipment, Reservation } from '../lib/contracts';
+import { EquipmentPriceBreakdown } from '../components/EquipmentPriceBreakdown';
 import { useApi } from '../lib/useApi';
 import { reservationInput } from '../lib/reservationInput';
-import { dateTime } from "../lib/display";
+import { cents, dateTime } from "../lib/display";
 
 export function EquipmentPage() {
   const {user}=useAuth();
@@ -39,7 +40,8 @@ export function EquipmentPage() {
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   const [busy, setBusy] = useState(false);
   const [duration, setDuration] = useState(1);
-  const totalCents = liveSelected?.rate == null ? null : Math.round(liveSelected.rate * 100) * duration;
+  const quote = useApi<EquipmentPrice | null>(liveSelected ? `/equipment/${liveSelected.id}/quote?hours=${duration}` : null);
+  const totalCents = quote.data?.totalCents ?? null;
   const returnId = Number(params.get('reservation'));
   const returnedBooking = bookings.data?.find(item => item.id === returnId);
   const bookingBlockReason = (item: Reservation) => {
@@ -78,7 +80,8 @@ export function EquipmentPage() {
         Number(form.get('duration')),
       );
       const target=String(form.get('memberId')??'').trim();
-      const details = {...input, amountCents: totalCents, ...(canBookForOthers&&target?{userId:Number(target)}:{})};
+      if (!quote.data) throw new ApiError(409, 'PRICE_NOT_CONFIGURED', 'Refresh the equipment price before reserving.');
+      const details = {...input, amountCents: totalCents, expectedPrice: quote.data, ...(canBookForOthers&&target?{userId:Number(target)}:{})};
       const signature = JSON.stringify(details);
       if (attempt.current?.signature !== signature) attempt.current = {signature, key: crypto.randomUUID()};
       const result = await api<Reservation>('/reservations', { method: 'POST', body: {...details, requestKey: attempt.current.key} });
@@ -96,6 +99,7 @@ export function EquipmentPage() {
       if (err instanceof ApiError && ['CHECKOUT_EXPIRED', 'KEY_REUSED'].includes(err.code)) attempt.current = null;
       catalog.reload();
       bookings.reload();
+      if (err instanceof ApiError && err.code === 'PRICE_CHANGED') quote.reload();
       setError(err instanceof RangeError ? err.message :
         err instanceof ApiError && err.code === 'RESERVATION_CONFLICT'
           ? 'This equipment is already reserved during your selected time. Choose another start time or shorten the duration, then try again.'
@@ -208,6 +212,7 @@ export function EquipmentPage() {
         </div>
         <p>
           Pay the hourly rate × your selected hours through Stripe to confirm your reservation. Cancel at least 24 hours ahead; bookings on the same machine need 15 minutes between them. Contact staff about refunds.
+            {liveSelected?.rate === null && <p className="form-notice">Rate not set. Contact staff before reserving.</p>}
         </p>
         {params.get('payment') === 'returned' && <p role="status" className="form-notice">
           {returnedBooking?.status === 'confirmed' && returnedBooking.paymentStatus === 'paid'
@@ -240,8 +245,9 @@ export function EquipmentPage() {
                   {dateTime(item.endTime)}
                 </p>
                 <span>
-                  {item.location} · {item.paymentStatus === 'pending' ? bookingBlockReason(item) ? 'Requirements need attention' : 'Awaiting payment' : item.status}
+                  {item.location} · {item.paymentStatus === 'pending' ? item.payerId == null ? 'Payment due at front desk' : bookingBlockReason(item) ? 'Requirements need attention' : 'Awaiting payment' : item.status}
                 </span>
+                {item.priceSnapshot && <p>{cents(item.priceSnapshot.equipmentCents)} equipment{!!item.priceSnapshot.trainingFeeCents && <> + {cents(item.priceSnapshot.trainingFeeCents)} training fee</>} = <strong>{cents(item.priceSnapshot.totalCents)}</strong> · Payment: {item.paymentStatus ?? 'not recorded'}</p>}
               </div>
               {item.amountCents != null && <p>{money(item.amountCents)} · {item.paymentStatus === 'paid' ? 'Paid' : item.paymentStatus === 'expired' ? 'Checkout expired' : 'Payment required'}</p>}
               {item.paymentStatus === 'pending' && item.payerId === user?.id ? <div>
@@ -250,7 +256,7 @@ export function EquipmentPage() {
                 {item.holdUntil && <p>Complete payment by {dateTime(item.holdUntil)} to confirm this booking.</p>}
                 <button className="button button--primary" disabled={busy || !!bookingBlockReason(item)} onClick={() => void checkoutAction(item.id)}>Pay {money(item.amountCents ?? 0)}</button>
                 <button className="button button--quiet" disabled={busy} onClick={() => void checkoutAction(item.id, true)}>Cancel checkout</button>
-              </div> : item.paymentStatus === 'pending' ? <p>Awaiting payment from the person who started checkout.</p> : ['pending', 'confirmed'].includes(item.status) &&
+              </div> : item.paymentStatus === 'pending' && item.payerId != null ? <p>Awaiting payment from the person who started checkout.</p> : ['pending', 'confirmed'].includes(item.status) &&
               new Date(item.startTime).getTime() >= Date.now()+24*60*60*1000 ? (
                 <button
                   className="button button--quiet"
@@ -302,6 +308,7 @@ export function EquipmentPage() {
                   <span><strong>{item.name}</strong><span>{rateLabel(item.rate)}</span>
                     {item.type.toLowerCase() !== selectedGroup.type.toLowerCase() && <span>{item.type}</span>}
                     {item.trainingRequired && <span className="equipment-machine-training"><ShieldAlert aria-hidden="true" />Training required</span>}
+                    {item.trainingRequired && item.trainingMinutes && <span>{item.trainingMinutes}-minute training required · <Link to="/classes">Find a training class</Link></span>}
                     {item.availability !== 'Choose a time to check availability' && <small>{item.availability}</small>}
                   </span>
                 </label>
@@ -317,17 +324,15 @@ export function EquipmentPage() {
                 .
               </p>
             ) : null}
+            <EquipmentPriceBreakdown price={quote.data} />
+            {quote.error && <p role="alert" className="form-error">{quote.error} <button type="button" onClick={quote.reload}>Refresh price</button></p>}
             <p className="form-caption">
               Cancel at least 24 hours before the start time. Leave 15 minutes between bookings for the same machine.
               {' '}The booking member’s access and this time slot are checked when you book. Payment is required before confirmation. Contact staff about refunds.
             </p>
-            <div className="form-notice" aria-live="polite">
-              {totalCents === null ? 'Rate not set. Contact staff before reserving.' : <>
-                <strong>Total: {money(totalCents)}</strong><br />
-                {money(Math.round((liveSelected?.rate ?? 0) * 100))}/hour × {duration} {duration === 1 ? 'hour' : 'hours'}
-                <p>{totalCents > 0 ? 'Continue to Stripe to pay. Your reservation is confirmed after payment succeeds. You have 31 minutes to complete checkout.' : 'No payment is required for this equipment.'}</p>
-              </>}
-            </div>
+            {totalCents !== null && <p className="form-notice" aria-live="polite">
+              {totalCents > 0 ? `Total: ${money(totalCents)}. Payment is due at the front desk unless Stripe checkout is enabled; online reservations are confirmed after payment succeeds.` : 'No payment is required for this equipment.'}
+            </p>}
             {error ? (
               <p ref={errorRef} tabIndex={-1} role="alert" className="form-error">
                 {error}
@@ -336,7 +341,7 @@ export function EquipmentPage() {
             <button
               className="button button--primary equipment-booking-submit"
               type="submit"
-              disabled={busy || liveSelected?.status !== 'available' || totalCents === null || (!canBookForOthers && !liveSelected?.canReserve)}
+              disabled={busy || liveSelected?.status !== 'available' || quote.loading || !!quote.error || totalCents === null || (!canBookForOthers && !liveSelected?.canReserve)}
             >
               <CalendarDays aria-hidden="true" />{' '}
               {busy ? 'Preparing checkout…' : totalCents ? `Pay ${money(totalCents)} & confirm reservation` : 'Confirm reservation'}

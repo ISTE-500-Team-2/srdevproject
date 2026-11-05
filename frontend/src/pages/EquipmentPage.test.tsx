@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import {act,cleanup,fireEvent,render,screen,within} from '@testing-library/react';
+import {act,cleanup,fireEvent,render,screen,within,waitFor} from '@testing-library/react';
 import {MemoryRouter} from 'react-router-dom';
 import {afterEach,beforeEach,expect,test,vi} from 'vitest';
 import {EquipmentPage} from './EquipmentPage';
@@ -7,6 +7,14 @@ import {api,ApiError} from '../lib/api';
 vi.mock('../context/AuthContext',()=>({useAuth:()=>({user:{id:1,roles:['member'],membership:'Monthly'}})}));
 vi.mock('../lib/api',async original=>({...await original<typeof import('../lib/api')>(),api:vi.fn()}));
 const machine={id:4,name:'3D Printer',type:'3D printing',rate:7,image:'/assets/3d-printer.webp',status:'available',canReserve:true,trainingRequired:false,availability:'Choose a time to check availability',location:'Makerspace'};
+function quoteFor(path:string,items=[machine]){
+ const match=/\/equipment\/(\d+)\/quote\?hours=(\d+)/.exec(path);
+ if(!match)return null;
+ const selected=items.find(item=>item.id===Number(match[1]));
+ if(!selected||selected.rate==null)return null;
+ const hours=Number(match[2]),hourlyRateCents=Math.round(selected.rate*100),equipmentCents=hourlyRateCents*hours;
+ return {currency:'USD',hours,hourlyRateCents,equipmentCents,trainingFeeCents:0,totalCents:equipmentCents,certificationId:null,certificationRevision:null};
+}
 let records:Record<string,unknown>[];
 beforeEach(()=>{
  records=[];
@@ -15,6 +23,7 @@ beforeEach(()=>{
   if(options?.method) return {id:8,userId:1,status:'confirmed'} as never;
   if(path==='/equipment')return [machine,{...machine,id:5,name:'Wood Lathe',type:'Wood turning'}] as never;
   if(path==='/reservations')return records as never;
+    if(path.includes('/quote?'))return quoteFor(path) as never;
   return {studios:[],timeZone:'America/New_York'} as never;
  });
 });
@@ -28,6 +37,24 @@ async function open(){await act(async()=>{fireEvent.click(screen.getByRole('butt
  pickTime(14*60);
 }
 const submits=()=>vi.mocked(api).mock.calls.filter(([p,o])=>p==='/reservations'&&o?.method==='POST');
+
+test('reviews hourly equipment charges without adding the configured training fee',async()=>{
+ vi.mocked(api).mockImplementation(async(path,options)=>{
+  if(options?.method)return {id:8,userId:1} as never;
+  if(path==='/equipment')return [{...machine,trainingFeeCents:2000,trainingMinutes:60}] as never;
+  if(path==='/reservations')return [] as never;
+  if(path.includes('/quote?')){const hours=Number(path.split('hours=')[1]);return {currency:'USD',hours,hourlyRateCents:700,equipmentCents:hours*700,trainingFeeCents:0,totalCents:hours*700,certificationId:9,certificationRevision:1} as never;}
+  return null as never;
+ });
+ await mount();await open();
+ fireEvent.change(screen.getByLabelText('Duration'),{target:{value:'2'}});
+ const breakdown=await screen.findByRole('region',{name:'Booking price breakdown'});
+ await waitFor(()=>expect(within(breakdown).getAllByText('$14.00')).toHaveLength(2));
+ expect(within(breakdown).queryByText('$20.00')).toBeNull();
+ expect(screen.queryByText(/fee on every booking/)).toBeNull();
+ await act(async()=>{fireEvent.submit(screen.getByRole('button',{name:/confirm reservation/i}).closest('form')!);});
+ expect(submits()[0]![1]!.body).toMatchObject({expectedPrice:{hours:2,equipmentCents:1400,trainingFeeCents:0,totalCents:1400}});
+});
 test('equipment search matches name or type and links straight to saved bookings',async()=>{
  await mount();
  expect(screen.getByRole('heading',{name:/^Equipment$/})).toBeTruthy();
@@ -102,6 +129,13 @@ test('groups named printers while preserving per-machine prices, access and book
    {...machine,id:14,name:'Kirk',type:'Metal lathe'},
    {...machine,id:15,name:'Spock',type:'Wood lathe'},
   ] as never;
+    if(path.includes('/quote?'))return quoteFor(path,[
+     {...machine,id:11,name:'Rachel',type:'3D printer'},
+     {...machine,id:12,name:'Phoebe',type:'3D printer',rate:9,trainingRequired:true,canReserve:false,availability:'Training and waiver required'},
+     {...machine,id:13,name:'Monica',type:'3D printer'},
+     {...machine,id:14,name:'Kirk',type:'Metal lathe'},
+     {...machine,id:15,name:'Spock',type:'Wood lathe'},
+    ]) as never;
   return [] as never;
  });
  await mount();
@@ -122,6 +156,7 @@ test('groups named printers while preserving per-machine prices, access and book
  expect(submits()).toHaveLength(0);
  expect((screen.getByRole('button',{name:/confirm reservation/i}) as HTMLButtonElement).disabled).toBe(true);
  fireEvent.click(screen.getByRole('radio',{name:/Monica/}));
+ await waitFor(()=>expect((screen.getByRole('button',{name:/confirm reservation/i}) as HTMLButtonElement).disabled).toBe(false));
  await act(async()=>{fireEvent.submit(screen.getByRole('button',{name:/confirm reservation/i}).closest('form')!);});
  expect((submits()[0]![1]!.body as {equipmentId:number}).equipmentId).toBe(13);
  fireEvent.change(screen.getByRole('combobox',{name:'Equipment filter'}),{target:{value:'ready'}});
@@ -134,10 +169,11 @@ test('groups named printers while preserving per-machine prices, access and book
 
 test('charges the displayed hourly price times duration and redirects before confirmation', async()=>{
  await mount();await open();
+ await screen.findByRole('region',{name:'Booking price breakdown'});
  const assign=vi.fn();
  vi.stubGlobal('location',{assign});
  fireEvent.change(screen.getByLabelText('Duration'),{target:{value:'2'}});
- expect(screen.getByText('Total: $14.00')).toBeTruthy();
+ expect(await screen.findByText(/Total: \$14\.00/)).toBeTruthy();
  expect(screen.getByRole('button',{name:'Pay $14.00 & confirm reservation'})).toBeTruthy();
  vi.mocked(api).mockImplementationOnce(async()=>({id:8,status:'pending',checkoutUrl:'https://checkout.stripe.com/test-equipment'}) as never);
  await act(async()=>{fireEvent.submit(screen.getByRole('button',{name:'Pay $14.00 & confirm reservation'}).closest('form')!);});
@@ -159,15 +195,16 @@ test('return parameters alone do not claim payment succeeded; pending checkout c
 });
 
 test('missing equipment rate prevents checkout',async()=>{
- vi.mocked(api).mockImplementation(async(path)=>path==='/equipment'?[{...machine,rate:null}] as never:[] as never);
+ vi.mocked(api).mockImplementation(async(path)=>path==='/equipment'?[{...machine,rate:null}] as never:path.includes('/quote?')?null as never:[] as never);
  await mount();await open();
+ await waitFor(()=>expect((screen.getByRole('button',{name:'Confirm reservation'}) as HTMLButtonElement).disabled).toBe(true));
  expect((screen.getByRole('button',{name:'Confirm reservation'}) as HTMLButtonElement).disabled).toBe(true);
  expect(screen.getByText(/Rate not set. Contact staff/)).toBeTruthy();
 });
 
 
 test('missing required waivers disable payment and block programmatic form submission',async()=>{
- vi.mocked(api).mockImplementation(async(path)=>path==='/equipment'?[{...machine,waiverRequired:true,canReserve:false,availability:'Signed waivers required'}] as never:[] as never);
+ vi.mocked(api).mockImplementation(async(path)=>path==='/equipment'?[{...machine,waiverRequired:true,canReserve:false,availability:'Signed waivers required'}] as never:path.includes('/quote?')?quoteFor(path) as never:[] as never);
  await mount();await open();
  const pay=screen.getByRole('button',{name:'Pay $7.00 & confirm reservation'});
  expect((pay as HTMLButtonElement).disabled).toBe(true);
@@ -179,7 +216,7 @@ test('missing required waivers disable payment and block programmatic form submi
 
 test('live waiver eligibility changes disable payment even when the selected machine object is stale',async()=>{
  await mount();await open();
- vi.mocked(api).mockImplementation(async(path)=>path==='/equipment'?[{...machine,waiverRequired:true,canReserve:false,availability:'Signed waivers required'}] as never:[] as never);
+ vi.mocked(api).mockImplementation(async(path)=>path==='/equipment'?[{...machine,waiverRequired:true,canReserve:false,availability:'Signed waivers required'}] as never:path.includes('/quote?')?quoteFor(path) as never:[] as never);
  await act(async()=>{window.dispatchEvent(new Event('focus'));});
  expect((screen.getByRole('button',{name:'Pay $7.00 & confirm reservation'}) as HTMLButtonElement).disabled).toBe(true);
  expect(screen.getByRole('link',{name:'Review your waivers and certifications'})).toBeTruthy();

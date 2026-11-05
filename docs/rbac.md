@@ -26,11 +26,16 @@ isStudent, revision, reason}`. Unknown historical classifications are not delete
 
 ## Route enforcement
 
-Every protected business route has permission middleware before its controller.
-Personal grants are evaluated only for the authenticated user; record ownership
-is additionally checked by the existing models/services. Admin endpoints require
-staff status plus the relevant global permission. Global grants never come from
-request-body ownership or role fields. Explicit applicable denies override grants,
+Protected business routes use permission middleware or route-specific role and
+ownership checks. Personal grants are evaluated only for the authenticated user;
+record ownership is additionally checked by the existing models/services. Admin
+endpoints protected by resource permissions require staff status plus the relevant
+global permission.
+Service-notice reads require staff/admin status; sending and resolving also check
+the admin role and CSRF directly, without a resource-permission grant. Member
+membership cancellation inherits the own-entitlement read permission on
+`/me/billing`, then checks ownership and CSRF; it has no separate update grant.
+Global grants never come from request-body ownership or role fields. Explicit applicable denies override grants,
 except the existing super-administrator bypass. Staff writes keep their existing
 transaction-time permission and target-account checks. Equipment booking also
 rechecks assignments/permissions under the locked user row.

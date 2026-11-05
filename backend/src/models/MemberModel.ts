@@ -26,8 +26,8 @@ export class MemberModel {
     await this.db.query(`UPDATE user_waiver SET approval=false WHERE userid=$1 AND waiverid=$2
       AND approval=true AND expires_at<=NOW()`,[userId,waiverId]);
     const result = await this.db.query(
-      `INSERT INTO user_waiver (userid,waiverid,signdate,approval)
-      VALUES ($1,$2,NOW() AT TIME ZONE 'UTC',true) ON CONFLICT (userid,waiverid) WHERE approval=true DO NOTHING RETURNING userwaiverid AS id, signdate AT TIME ZONE 'UTC' AS "signedAt"`,
+      `INSERT INTO user_waiver (userid,waiverid,signdate,approval,expires_at)
+      VALUES ($1,$2,NOW() AT TIME ZONE 'UTC',true,(SELECT (NOW() AT TIME ZONE 'UTC'+make_interval(days=>validity_days)) AT TIME ZONE 'UTC' FROM waiver WHERE waiverid=$2)) ON CONFLICT (userid,waiverid) WHERE approval=true DO NOTHING RETURNING userwaiverid AS id, signdate AT TIME ZONE 'UTC' AS "signedAt",expires_at AS "expiresAt"`,
       [userId, waiverId],
     );
     return result.rows[0] ?? null;

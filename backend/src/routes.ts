@@ -4,6 +4,7 @@ import { equipmentManagement } from "./equipmentManagement.js";
 import { ReaderRegistry } from './readerRegistry.js';
 import {readerSetupRoutes} from './readerSetup.js';
 import {reportRoutes} from './reports.js';
+import {serviceNoticeRoutes} from './serviceNotices.js';
 import {accountModeRoutes,paymentDetailsAreMemberOnly,settingsAreMemberOnly,signatureIsMemberOnly,waiverCopiesAreAdminOnly} from './accountMode.js';
 import {trainingClassRoutes} from './trainingClasses.js';
 import {cardManagement} from './deviceAccess.js';
@@ -79,6 +80,7 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   routes.use(billingRoutes(pool,config.studioStripe,config.timeZone));
 
   routes.get("/equipment", permit("equipment", "read", "own"), equipment.list);
+  routes.get("/equipment/:id/quote", permit("equipment", "read", "own"), equipment.quote);
   routes.get("/rooms", permit("room", "read", "own"), rooms.list);
   routes.get("/reservations", permit("reservation", "read", "own"), reservations.list);
   routes.post("/reservations", permit("reservation", "create", "own"), requireCsrf, reservations.create);
@@ -109,6 +111,7 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   routes.use(accountModeRoutes(pool, config));
   routes.use(staffPurchaseRoutes(pool, config.studioStripe, config.timeZone));
   routes.use(reportRoutes(pool,config.timeZone));
+  routes.use(serviceNoticeRoutes(pool));
   routes.use(cardManagement(pool,config.timeZone,config.devices,readers));
   routes.use(readerSetupRoutes(pool,config.timeZone,readers));
   routes.get("/admin/plans", permit("plan","read","global"), staff.plans);

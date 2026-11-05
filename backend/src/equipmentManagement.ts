@@ -28,7 +28,7 @@ export function equipmentManagement(pool: Pool, timeZone: string) {
   });
   for (const action of ['review-move', 'move'] as const) routes.post(`/admin/equipment/:id/bookings/:bookingId/${action}`, read, book, requireCsrf, async (req, res) => {
     res.json({ data: await reservations.update(authState(res).user.id, positiveId(req.params.bookingId), {
-      equipmentId: positiveId(req.body.equipmentId, 'Equipment'), expectedRevision: req.body.expectedRevision,
+      equipmentId: positiveId(req.body.equipmentId, 'Equipment'), expectedRevision: req.body.expectedRevision, expectedPrice: req.body.expectedPrice,
     }, { sourceEquipmentId: positiveId(req.params.id), preview: action === 'review-move', expectedRate: req.body.expectedRate }) });
   });
   routes.post('/admin/equipment/:id/bookings/:bookingId/cancel', read, book, requireCsrf, async (req, res) => {

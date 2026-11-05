@@ -47,8 +47,9 @@ not enable live keys or live charges.
    `stripe listen --forward-to localhost:8080/api/webhooks/stripe-studios`
    and use its signing secret.
 
-If Stripe is unconfigured, paid equipment booking fails with an explicit error
-and does not create a confirmed booking. Cancellation retains the existing
+When Stripe is configured, paid equipment bookings use hosted Checkout. If it is
+not configured, clients submitting a fresh server-issued price quote can save a
+front-desk payment record; unquoted paid requests fail closed. Cancellation retains the existing
 24-hour notice rule. Cancelling a paid reservation does not automatically refund
 it; contact staff. Changes to checkout-backed bookings are blocked until payment
 is reconciled, so a staff edit cannot confirm an unpaid hold or silently change

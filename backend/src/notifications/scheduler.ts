@@ -2,6 +2,7 @@ import type { Database } from '../db.js';
 import { enqueueNotification, validTimeZone } from './store.js';
 
 const DAY=86_400_000;
+export const EXPIRATION_LOOKAHEAD_DAYS=30;
 function dateParts(date:Date,timeZone:string) {
   const parts=new Intl.DateTimeFormat('en-US',{timeZone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(date);
   const get=(name:string)=>Number(parts.find(p=>p.type===name)!.value);
@@ -25,28 +26,30 @@ export function reminderDates(expiry:Date,timeZone:string):{dueAt:Date;deadlineA
   const deadlineAt=new Date(expiry.getTime()-7*DAY);
   return {dueAt:new Date(Math.min(actual,deadlineAt.getTime()-3_600_000)),deadlineAt};
 }
-interface ExpirationSource {userId:number; sourceType:string;sourceId:number;expiresAt:Date;name:string;timeZone:string}
+interface ExpirationSource {userId:number; sourceType:string;sourceId:number;expiresAt:Date;grantedAt:Date|null;name:string;timeZone:string}
 export async function scheduleExpirationNotifications(db:Database,now=new Date()):Promise<number> {
   const {rows}=await db.query<ExpirationSource>(`WITH expirations AS (
     SELECT uc.userid, 'certification'::text AS source_type,uc.usercertid AS source_id,
-      LEAST(uc.renewaldate,c.enddate) AT TIME ZONE 'UTC' AS expires_at,c.name
+      LEAST(uc.renewaldate,c.enddate) AT TIME ZONE 'UTC' AS expires_at,COALESCE(uc.approved_at,uc.trained_at) AS granted_at,c.name
     FROM user_certifications uc JOIN certifications c USING(certid) WHERE uc.status='active'
     UNION ALL
-    SELECT uw.userid,'waiver',uw.userwaiverid,uw.expires_at,w.name
+    SELECT uw.userid,'waiver',uw.userwaiverid,uw.expires_at,uw.signdate AT TIME ZONE 'UTC',w.name
     FROM user_waiver uw JOIN waiver w USING(waiverid) WHERE uw.approval=true AND w.isactive=true
     UNION ALL
-    SELECT um.userid,'membership',um.membershipid,um.end_date AT TIME ZONE 'UTC','Membership'
+    SELECT um.userid,'membership',um.membershipid,um.end_date AT TIME ZONE 'UTC',um.startdate AT TIME ZONE 'UTC','Membership'
     FROM user_membership um WHERE um.status='active'
-  ) SELECT e.userid AS "userId",source_type AS "sourceType",source_id AS "sourceId",expires_at AS "expiresAt",name,
+  ) SELECT e.userid AS "userId",source_type AS "sourceType",source_id AS "sourceId",expires_at AS "expiresAt",granted_at AS "grantedAt",name,
     COALESCE(p.time_zone,'America/New_York') AS "timeZone"
     FROM expirations e JOIN "user" u USING(userid) LEFT JOIN app_notification_preferences p USING(userid)
-    WHERE expires_at>$1 AND expires_at<=$1::timestamptz+INTERVAL '30 days' AND u.status='active'`,[now]);
+    WHERE expires_at>$1 AND expires_at<=$1::timestamptz+INTERVAL '${EXPIRATION_LOOKAHEAD_DAYS} days' AND u.status='active'`,[now]);
   for(const row of rows) {
     const expiry=new Date(row.expiresAt);
     const dates=reminderDates(expiry,row.timeZone);
     await enqueueNotification(db,{userId:row.userId,kind:`${row.sourceType}_expiring`,
       dedupeKey:`${row.sourceType}-expiring:${row.sourceId}:${expiry.toISOString()}`,
-      ...dates,payload:{sourceType:row.sourceType,sourceId:row.sourceId,expiresAt:expiry.toISOString(),name:row.name}});
+      // Granted with under a week left: a week's notice was impossible, so send
+      // it now but do not record it as a missed deadline.
+      ...dates,countsForSla:!row.grantedAt||new Date(row.grantedAt)<dates.deadlineAt,payload:{sourceType:row.sourceType,sourceId:row.sourceId,expiresAt:expiry.toISOString(),name:row.name}});
   }
   return rows.length;
 }

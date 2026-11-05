@@ -44,6 +44,8 @@ export interface Registration {
   password: string;
 }
 export interface LiveEquipment extends Omit<Equipment, 'rate'> {
+  trainingFeeCents?: number | null;
+  trainingMinutes?: number | null;
   occupied?: {startTime: string; endTime: string}[];
   rate: number | null;
   status: string;
@@ -55,10 +57,12 @@ export interface LiveEquipment extends Omit<Equipment, 'rate'> {
 }
 export interface Reservation {
   amountCents?: number | null;
-  paymentStatus?: 'pending' | 'paid' | 'expired' | null;
   payerId?: number | null;
   holdUntil?: string | null;
   checkoutUrl?: string;
+  priceSnapshot?: EquipmentPrice | null;
+  paymentId?: number | null;
+  paymentStatus?: string | null;
   id: number;
   userId: number;
   equipmentId: number | null;
@@ -73,12 +77,18 @@ export interface Reservation {
   memberName?: string;
   memberEmail?: string;
 }
+export interface EquipmentPrice {
+  currency: 'USD'; hours: number; hourlyRateCents: number; equipmentCents: number;
+  trainingFeeCents: number; totalCents: number; certificationId: number | null;
+  certificationRevision: number | null;
+}
 export interface Waiver {
   id: number;
   versionId: number;
   name: string;
   version: string;
   description: string;
+  scope: 'facility' | 'equipment';
   formFields?: WaiverFormField[];
   /** The account holder's name; a form signature has to match it. */
   signerName?: string;

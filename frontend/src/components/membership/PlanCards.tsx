@@ -1,7 +1,9 @@
 import { useRef, useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { ArrowRight, Check, Clock, Lock } from "lucide-react";
 import type { Billing, Offer } from "../../lib/billingContracts";
 import type { Entitlement, Plan } from "../../lib/staffContracts";
+import type { Waiver } from "../../lib/contracts";
 import { useApi } from "../../lib/useApi";
 import { cents, dollars, shortDate } from "../../lib/display";
 import { lastCancelDay } from "./dates";
@@ -35,6 +37,8 @@ interface Props {
 
 export function PlanCards({ plans, billingEnabled, billing, memberships, today, busy, post, run }: Props) {
   const [date, setDate] = useState("");
+  const policies = useApi<Waiver[]>(billingEnabled ? '/me/waivers?scope=facility' : null, { retainOnReload: true, refreshInterval: 15000 });
+  const policiesReady = !policies.loading && !policies.error && !!policies.data?.length && policies.data.every(policy => policy.signed);
   const offers = useApi<Offer[]>(
     billingEnabled
       ? "/me/billing/offers" + (date ? "?date=" + encodeURIComponent(date) : "")
@@ -72,6 +76,15 @@ export function PlanCards({ plans, billingEnabled, billing, memberships, today, 
         ) : null}
       </div>
       <LoadState {...offers} loading={offers.loading && !lastOffers.current} />
+      {billingEnabled && dayPasses.length ? <>
+        <LoadState {...policies} />
+        {!policies.loading && !policies.error && !policies.data?.length ? (
+          <p className="membership-hint">Day passes are unavailable until staff publish the required facility policies.</p>
+        ) : policies.data?.some(policy => !policy.signed) ? (
+          <p className="membership-hint">Before buying a day pass, <Link to="/certifications">review and sign the required facility policies</Link>: {policies.data.filter(policy => !policy.signed).map(policy => policy.name).join(', ')}.</p>
+        ) : null}
+        <p className="membership-hint">Equipment waivers and training are checked separately when booking or using restricted equipment.</p>
+      </> : null}
       <div className="plan-cards">
         {membershipPlans.map((plan) => {
           const offer = offerFor(plan.id);
@@ -151,7 +164,7 @@ export function PlanCards({ plans, billingEnabled, billing, memberships, today, 
                   ) : null}
                   <button
                     className="button button--primary button--wide"
-                    disabled={busy || !date || quoting}
+                    disabled={busy || !date || quoting || !policiesReady}
                     onClick={() =>
                       run(
                         "/me/billing/passes/checkout",

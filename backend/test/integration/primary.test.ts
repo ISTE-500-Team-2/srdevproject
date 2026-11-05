@@ -570,6 +570,7 @@ test("day passes enforce local calendar dates, duplicate prevention, entitlement
     )
   ).rows[0].day;
   const body = { ...issueBody(p.id), startsAt: null, validDate: date };
+  await signPolicies(user);
   const issued = await admin.post(`/admin/users/${user.id}/entitlements`, body);
   assert.equal(issued.status, 201, JSON.stringify(issued.body));
   const id = issued.body.data.id;

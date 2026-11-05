@@ -157,6 +157,7 @@ test('a definitive checkout creation rejection releases the unpaid hold', async 
   const row = (await pool.query('SELECT reservation_id FROM app_equipment_checkout WHERE request_key=$1', [data.requestKey])).rows[0];
   assert.equal((await state(row.reservation_id)).status, 'cancelled');
   assert.equal((await state(row.reservation_id)).paymentStatus, 'expired');
+  assert.equal((await pool.query('SELECT paymentstatus FROM payment WHERE paymentid=(SELECT payment_id FROM reservation WHERE reservationid=$1)', [row.reservation_id])).rows[0].paymentstatus, 'void');
   await service.create(member, {...data, requestKey: randomUUID()});
 });
 
@@ -168,6 +169,7 @@ test('expired or cancelled unpaid checkouts release slots; stale expiry cannot c
   await billing.cancelPending(member, first.id);
   assert.equal((await state(first.id)).status, 'cancelled');
   await assert.rejects(billing.checkout(member, first.id), {code: 'CHECKOUT_EXPIRED'});
+  assert.equal((await pool.query('SELECT paymentstatus FROM payment WHERE paymentid=(SELECT payment_id FROM reservation WHERE reservationid=$1)', [first.id])).rows[0].paymentstatus, 'void');
   const second = await service.create(member, {...data, requestKey: randomUUID()});
   const session = await sessionFor(second.id);
   Object.assign(session, {status: 'expired'});

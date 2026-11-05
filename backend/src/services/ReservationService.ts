@@ -16,6 +16,7 @@ import {
 } from "../models/ReservationModel.js";
 import { RoomModel } from "../models/RoomModel.js";
 import { AccessService } from "./AccessService.js";
+import { equipmentPrice, reviewEquipmentPrice, saveReservationPrice, cancelReservationPayment } from '../equipmentPricing.js';
 
 export class ReservationService {
   constructor(
@@ -34,6 +35,7 @@ export class ReservationService {
       userId?: unknown;
       requestKey?: unknown;
       amountCents?: unknown;
+      expectedPrice?: unknown;
     },
   ) {
     const hasEquipment =
@@ -125,6 +127,7 @@ export class ReservationService {
       let hourlyCents = 0;
       let amountCents = 0;
       const hours = (end.getTime() - start.getTime()) / 3_600_000;
+      let stripeCheckout = false;
 
       if (equipmentId) {
         const equipment = await new EquipmentModel(db).findForUpdate(
@@ -150,11 +153,6 @@ export class ReservationService {
           throw new AppError(409, 'INVALID_RATE', 'This rate cannot be paid online. Please contact staff.');
         if (input.amountCents !== undefined && input.amountCents !== amountCents)
           throw new AppError(409, 'PRICE_CHANGED', 'The equipment rate changed. Review the updated total and try again.');
-        if (amountCents > 0) {
-          billing.provider();
-          if (start.getTime() < Date.now() + 30 * 60_000)
-            throw new AppError(400, 'PAYMENT_TIME_REQUIRED', 'Choose a start at least 30 minutes away to allow time for payment.');
-        }
 
         if (await model.overlaps(equipmentId, start, end))
           throw new AppError(
@@ -195,7 +193,26 @@ export class ReservationService {
           );
       }
 
-      const reservation = await model.create({
+      const price = equipmentId ? await equipmentPrice(db, equipmentId, hours) : null;
+      if (equipmentId) {
+        reviewEquipmentPrice(price, input.expectedPrice);
+        if (price) amountCents = price.totalCents;
+        if (input.amountCents !== undefined && input.amountCents !== amountCents)
+          throw new AppError(409, 'PRICE_CHANGED', 'The equipment rate changed. Review the updated total and try again.');
+        if (!Number.isSafeInteger(amountCents) || amountCents < 0 || amountCents > 99_999_999 || amountCents > 0 && amountCents < 50)
+          throw new AppError(409, 'INVALID_RATE', 'This rate cannot be paid online. Please contact staff.');
+      }
+      if (amountCents > 0) {
+        stripeCheckout = !!this.stripe;
+        if (stripeCheckout) {
+          if (start.getTime() < Date.now() + 30 * 60_000)
+            throw new AppError(400, 'PAYMENT_TIME_REQUIRED', 'Choose a start at least 30 minutes away to allow time for payment.');
+          billing.provider();
+        } else if (input.expectedPrice === undefined) {
+          billing.provider();
+        }
+      }
+      let reservation = await model.create({
         userId: targetId,
         equipmentId: equipmentId ?? undefined,
         roomId: roomId ?? undefined,
@@ -203,9 +220,13 @@ export class ReservationService {
         location,
         start,
         end,
-        status: amountCents > 0 ? 'pending' : 'confirmed',
+        status: stripeCheckout ? 'pending' : 'confirmed',
       });
-      if (amountCents > 0) await db.query(`INSERT INTO app_equipment_checkout
+      if (equipmentId) {
+        await saveReservationPrice(db, reservation.id, targetId, userId, price, resourceName);
+        reservation = (await model.find(reservation.id))!;
+      }
+      if (stripeCheckout) await db.query(`INSERT INTO app_equipment_checkout
         (reservation_id,payer_id,request_key,hourly_cents,hours,amount_cents,equipment_name) VALUES($1,$2,$3,$4,$5,$6,$7)`,
         [reservation.id, userId, requestKey, hourlyCents, hours, amountCents, resourceName]);
 
@@ -222,7 +243,7 @@ export class ReservationService {
         null,
         reservation,
       );
-      if (!amountCents) await enqueueNotification(db, {
+      if (!stripeCheckout) await enqueueNotification(db, {
         userId: targetId,
         kind: "reservation_created",
         dedupeKey: `reservation-created:${reservation.id}`,
@@ -251,6 +272,7 @@ export class ReservationService {
       endTime?: unknown;
       userId?: unknown;
       expectedRevision?: unknown;
+      expectedPrice?: unknown;
     },
     maintenance?: { sourceEquipmentId: number; preview?: boolean; expectedRate?: unknown },
   ) {
@@ -427,6 +449,8 @@ export class ReservationService {
           );
       }
 
+      const price = equipmentId ? await equipmentPrice(db, equipmentId, (end.getTime()-start.getTime())/3600000) : null;
+      if (!maintenance?.preview && equipmentId) reviewEquipmentPrice(price, input.expectedPrice);
       if (maintenance) {
         const target = await new EquipmentModel(db).findForUpdate(equipmentId!);
         const rate = target!.rate === null ? null : Number(target!.rate);
@@ -434,13 +458,13 @@ export class ReservationService {
         if (maintenance.preview) return {
           reservationId, expectedRevision, equipmentId, equipmentName: resourceName,
           startTime: start.toISOString(), endTime: end.toISOString(),
-          oldRate: source.hourlyrate === null ? null : Number(source.hourlyrate), rate,
+          oldRate: source.hourlyrate === null ? null : Number(source.hourlyrate), rate, priceSnapshot: price,
         };
         if (maintenance.expectedRate !== rate)
           throw new AppError(409, "RATE_CHANGED", "The hourly rate changed. Review this move again before confirming.");
       }
 
-      const reservation = await model.update(reservationId, {
+      let reservation = await model.update(reservationId, {
         userId: targetId,
         equipmentId: equipmentId ?? undefined,
         roomId: roomId ?? undefined,
@@ -451,6 +475,10 @@ export class ReservationService {
       });
       if (!reservation)
         throw new AppError(404, "NOT_FOUND", "Reservation not found.");
+      if (equipmentId || before.paymentId) {
+        await saveReservationPrice(db, reservationId, targetId, actorId, price, resourceName);
+        reservation = (await model.find(reservationId))!;
+      }
       if (!keepSponsorLink) await new MinorSupervision(db,this.timeZone).recordBooking(targetId,reservation.id);
       await new StaffModel(db).audit(
         actorId,
@@ -534,6 +562,7 @@ export class ReservationService {
           "INVALID_STATUS",
           "Only active reservations can be cancelled.",
         );
+      await cancelReservationPayment(db, reservationId);
       await new StaffModel(db).audit(
         actorId,
         before.userId,

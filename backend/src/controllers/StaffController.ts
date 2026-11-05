@@ -39,6 +39,12 @@ function optionalAuditAction(value: unknown) {
     throw new AppError(400, "INVALID_INPUT", "Audit action is invalid.");
   return action;
 }
+function waiverValidity(value: unknown) {
+  if (value == null || value === "") return null;
+  if (!Number.isInteger(value) || (value as number) < 1 || (value as number) > 3650)
+    throw new AppError(400, "INVALID_INPUT", "Waiver validity must be 1–3650 days.");
+  return value as number;
+}
 function optionalInstant(value: unknown) {
   if (value == null || value === "") return null;
   return instant(value);
@@ -370,6 +376,7 @@ export class StaffController {
   publishPolicy = async (req: Request, res: Response) => {
     res.status(201).json({
       data: await this.service.publishPolicy(authState(res).user.id, {
+        scope: req.body.scope === undefined ? undefined : oneOf(req.body.scope, ['facility', 'equipment'] as const, 'Policy applicability'),
         name: textField(req.body.name, "Policy name", 100),
         version: textField(req.body.version, "Version", 50),
         description: textField(req.body.description, "Policy text", 16000, 20),
@@ -380,6 +387,7 @@ export class StaffController {
           500,
           3,
         ),
+        validityDays: waiverValidity(req.body.validityDays),
         reason: reasonField(req.body.reason),
       }),
     });

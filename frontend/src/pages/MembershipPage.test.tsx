@@ -25,6 +25,8 @@ interface Data {
   passes?: unknown[];
   offers?: unknown[];
   accessStatus?: string;
+  policies?: { id: number; name: string; signed: boolean; scope: 'facility' | 'equipment' }[];
+  policyError?: string;
 }
 function mount(d: Data = {}, url = "/membership") {
   // The real hook keeps the same data object between renders; mirror that.
@@ -34,12 +36,13 @@ function mount(d: Data = {}, url = "/membership") {
     const data =
       path === null ? null
       : path.startsWith("/me/billing/offers") ? (d.offers ?? [offer(monthly, 5000), offer(dayPass, 1500)])
+      : path === '/me/waivers?scope=facility' ? (d.policies ?? [{ id: 1, name: 'Terms of Service', signed: true, scope: 'facility' }])
       : path === "/me/billing/passes" ? (d.passes ?? [])
       : path === "/me/billing" ? { enabled: d.enabled ?? true, records: d.records ?? [] }
       : path === "/me/memberships" ? { memberships: d.memberships ?? [], passes: d.historyPasses ?? [], timeZone: "America/New_York", accessStatus: d.accessStatus ?? "active" }
       : path === "/plans" ? [monthly, dayPass]
       : { items: [], nextOffset: null };
-    const result = { data, loading: false, refreshing: false, error: "", reload };
+    const result = { data, loading: false, refreshing: false, error: path === '/me/waivers?scope=facility' ? d.policyError ?? '' : '', reload };
     cache.set(path, result);
     return result;
   });
@@ -125,6 +128,21 @@ test("a free month says it doesn't renew and never opens card checkout", async (
   await waitFor(() => expect(api).toHaveBeenCalledWith("/me/billing/free-membership", { method: "POST", body: { planId: 1, expectedRevision: 2, pricingRevision: 4 } }));
 });
 
+test('unsigned facility policies block day-pass purchases and link to the agreements', () => {
+  mount({ policies: [{ id: 1, name: 'Terms of Service', signed: false, scope: 'facility' }] });
+  fireEvent.change(screen.getByLabelText('Visit date'), { target: { value: future(10) } });
+  expect((screen.getByRole('button', { name: /Buy day pass/ }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByRole('link', { name: /review and sign the required facility policies/ }).getAttribute('href')).toBe('/certifications');
+  expect(screen.getByText(/Before buying a day pass/).textContent).toContain('Terms of Service');
+  expect(api).not.toHaveBeenCalled();
+});
+
+test.each([[], undefined])('missing or unavailable facility policies cannot enable checkout (%s)', policies => {
+  mount({ policies, policyError: policies === undefined ? 'Policy service unavailable' : '' });
+  fireEvent.change(screen.getByLabelText('Visit date'), { target: { value: future(10) } });
+  expect((screen.getByRole('button', { name: /Buy day pass/ }) as HTMLButtonElement).disabled).toBe(true);
+});
+
 test("upcoming passes show the cancel window and hide Cancel once it has passed", () => {
   mount({
     passes: [
@@ -165,4 +183,35 @@ test("stored status values are shown in plain words", () => {
   expect(statusLabel("incomplete_expired")).toBe("Checkout expired");
   expect(statusLabel("expired")).toBe("Ended");
   expect(statusLabel("some_new_state")).toBe("Some new state");
+});
+
+const deskMembership = (extra: object = {}) => ({ id: 9, userId: 1, planId: 1, status: "active", effectiveStatus: "active", revision: 1, reason: "", cardBilled: false, startsAt: future(-5), endsAt: future(90), plan: { name: "Monthly" }, ...extra });
+
+test("FR-057: a desk-issued membership can be cancelled with its 30 days of notice explained", async () => {
+  mount({ memberships: [deskMembership()] });
+  api.mockResolvedValue({ cancelled: true });
+  fireEvent.click(screen.getByRole("button", { name: "Cancel membership" }));
+  const dialog = screen.getByRole("dialog", { name: "Cancel membership?" });
+  expect(dialog.textContent).toMatch(/30 days/);
+  expect(dialog.textContent).toMatch(/won't renew/);
+  fireEvent.click(within(dialog).getByRole("button", { name: "Cancel membership" }));
+  await waitFor(() => expect(api).toHaveBeenCalledWith("/me/billing/memberships/9/cancel", { method: "POST", body: {} }));
+  expect(await screen.findByText(/Membership cancelled/)).toBeTruthy();
+});
+
+test("FR-057: a cancelled desk membership shows its last day instead of the button", () => {
+  mount({ memberships: [deskMembership({ cancellationRequestedAt: future(-1) })] });
+  expect(screen.queryByRole("button", { name: "Cancel membership" })).toBeNull();
+  expect(screen.getByText(/You cancelled this membership/)).toBeTruthy();
+});
+
+test("FR-057: card memberships keep using Stop auto-renew, even after billing closes", () => {
+  mount({ memberships: [deskMembership({ cardBilled: true })] });
+  expect(screen.queryByRole("button", { name: "Cancel membership" })).toBeNull();
+});
+
+test("FR-057: a pending checkout does not hide cancelling the current desk membership", () => {
+  mount({ memberships: [deskMembership()], records: [{ id: "b1", status: "pending", amountCents: 5000, plan: { name: "Monthly" }, planSnapshot: { name: "Monthly" } }] });
+  expect(screen.getByRole("button", { name: "Cancel checkout" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Cancel membership" })).toBeTruthy();
 });

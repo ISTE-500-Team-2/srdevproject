@@ -112,8 +112,8 @@ test('expired, unapproved and superseded equipment waiver signatures do not perm
   await signatureState(false);
   await assert.rejects(service.create(member, booking()), {code: 'WAIVER_REQUIRED'});
   await signatureState(true);
-  await pool.query(`INSERT INTO waiver(name,version,description,effectivedate,isactive,required)
-    VALUES($1,'waiver-regression-v2','Updated fixture safety waiver',NOW() AT TIME ZONE 'UTC',true,true)`, [equipmentWaiverName]);
+  await pool.query(`INSERT INTO waiver(name,version,description,effectivedate,isactive,required,policy_scope)
+    VALUES($1,'waiver-regression-v2','Updated fixture safety waiver',NOW() AT TIME ZONE 'UTC',true,true,'equipment')`, [equipmentWaiverName]);
   await assert.rejects(service.create(member, booking()), {code: 'WAIVER_REQUIRED'});
   await sign(memberAgent);
   assert.equal((await service.create(member, booking())).status, 'pending');

@@ -9,6 +9,7 @@ import { AppError, positiveId } from "../domain.js";
 import { authState } from "../middleware/auth.js";
 import { ReservationModel } from "../models/ReservationModel.js";
 import { ReservationService } from "../services/ReservationService.js";
+import { cancelReservationPayment } from '../equipmentPricing.js';
 
 export class ReservationController {
   constructor(
@@ -143,6 +144,7 @@ export class ReservationController {
             "Equipment cancellations require at least 24 hours notice. Contact staff.",
           );
       }
+      if (result) await cancelReservationPayment(db, result.id);
       if (result)
         await new StaffModel(db).audit(
           userId,

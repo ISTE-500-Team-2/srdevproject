@@ -61,7 +61,10 @@ export class EquipmentBilling {
         await transaction(this.pool, async db => {
           await db.query('SELECT reservationid FROM reservation WHERE reservationid=$1 FOR UPDATE', [id]);
           const expired = await db.query("UPDATE app_equipment_checkout SET status='expired' WHERE reservation_id=$1 AND status='pending' AND checkout_id IS NULL RETURNING reservation_id", [id]);
-          if (expired.rowCount) await db.query("UPDATE reservation SET status='cancelled',statusdesc='Checkout creation rejected' WHERE reservationid=$1 AND status='pending'", [id]);
+          if (expired.rowCount) {
+            await db.query("UPDATE reservation SET status='cancelled',statusdesc='Checkout creation rejected' WHERE reservationid=$1 AND status='pending'", [id]);
+            await db.query("UPDATE payment SET paymentstatus='void',revision=revision+1,updated_at=now() WHERE paymentid=(SELECT payment_id FROM reservation WHERE reservationid=$1) AND paymentstatus='pending'", [id]);
+          }
         });
       throw new AppError(503, 'CHECKOUT_UNAVAILABLE', 'Stripe checkout could not be opened. Refresh your reservations and resume payment to try again.');
     }
@@ -92,6 +95,7 @@ export class EquipmentBilling {
       if (session.status === 'expired' && session.payment_status === 'unpaid') {
         await db.query("UPDATE app_equipment_checkout SET status='expired',checkout_id=$2 WHERE reservation_id=$1", [id, session.id]);
         await db.query("UPDATE reservation SET status='cancelled',statusdesc='Unpaid checkout expired' WHERE reservationid=$1 AND status='pending'", [id]);
+        await db.query("UPDATE payment SET paymentstatus='void',revision=revision+1,updated_at=now() WHERE paymentid=(SELECT payment_id FROM reservation WHERE reservationid=$1) AND paymentstatus='pending'", [id]);
         return;
       }
       if (session.status !== 'complete' || session.payment_status !== 'paid') return;
@@ -101,10 +105,14 @@ export class EquipmentBilling {
       // are invalid. The same paid session can reconcile after eligibility is restored.
       await this.requirements(db, reservation);
       const model = new StaffModel(db);
-      const payment = await model.createPayment(reservation.userid, null, (row.amount_cents / 100).toFixed(2),
+      const existingPayment = (await db.query(`UPDATE payment SET paymentstatus='paid',method='card',reference=$2,
+        note='Online equipment reservation (Stripe test mode)',revision=revision+1,updated_at=now()
+        WHERE paymentid=(SELECT payment_id FROM reservation WHERE reservationid=$1)
+          AND userid=$3 AND paymentstatus='pending' RETURNING paymentid AS id`, [id, session.id, reservation.userid])).rows[0];
+      const payment = existingPayment?.id ?? await model.createPayment(reservation.userid, null, (row.amount_cents / 100).toFixed(2),
         'paid', 'card', session.id, 'Online equipment reservation (Stripe test mode)', row.payer_id);
       await db.query("UPDATE app_equipment_checkout SET status='paid',checkout_id=$2,payment_intent=$3,payment_id=$4 WHERE reservation_id=$1", [id, session.id, intent, payment]);
-      await db.query("UPDATE reservation SET status='confirmed',statusdesc='Stripe payment verified',revision=revision+1 WHERE reservationid=$1", [id]);
+      await db.query("UPDATE reservation SET status='confirmed',statusdesc='Stripe payment verified',payment_id=$2,revision=revision+1 WHERE reservationid=$1", [id, payment]);
       const confirmed = await new ReservationModel(db).find(Number(id));
       if (!confirmed) throw new AppError(404, 'NOT_FOUND', 'Reservation not found.');
       await model.audit(row.payer_id, reservation.userid, 'reservation.payment_confirmed', 'reservation', Number(id),

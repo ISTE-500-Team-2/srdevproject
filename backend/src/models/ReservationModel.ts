@@ -7,10 +7,13 @@ const selection = `r.reservationid AS id,r.userid AS "userId",r.equipmentid AS "
  COALESCE(e.name,room.name) AS "equipmentName",CASE WHEN r.roomid IS NULL THEN 'equipment' ELSE 'room' END AS "resourceType",
  r.starttime AT TIME ZONE 'UTC' AS "startTime",r.endtime AT TIME ZONE 'UTC' AS "endTime",r.location,r.status,
  (SELECT c.amount_cents FROM app_equipment_checkout c WHERE c.reservation_id=r.reservationid) AS "amountCents",
- (SELECT c.status FROM app_equipment_checkout c WHERE c.reservation_id=r.reservationid) AS "paymentStatus",
+ COALESCE((SELECT c.status FROM app_equipment_checkout c WHERE c.reservation_id=r.reservationid),
+   (SELECT paymentstatus FROM payment WHERE paymentid=r.payment_id)) AS "paymentStatus",
  (SELECT c.payer_id FROM app_equipment_checkout c WHERE c.reservation_id=r.reservationid) AS "payerId",
  (SELECT c.hold_until FROM app_equipment_checkout c WHERE c.reservation_id=r.reservationid) AS "holdUntil",
- r.revision,u.firstname || ' ' || u.lastname AS "memberName",u.email AS "memberEmail"`;
+ r.revision,r.price_snapshot AS "priceSnapshot",
+ COALESCE((SELECT c.payment_id FROM app_equipment_checkout c WHERE c.reservation_id=r.reservationid),r.payment_id) AS "paymentId",
+ u.firstname || ' ' || u.lastname AS "memberName",u.email AS "memberEmail"`;
 const joins = `LEFT JOIN equipment e USING (equipmentid) LEFT JOIN room ON room.roomid=r.roomid JOIN "user" u ON u.userid=r.userid`;
 
 export class ReservationModel {

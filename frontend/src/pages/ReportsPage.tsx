@@ -59,6 +59,10 @@ export type Report = {
     activeAccounts: number;
     restrictedAccounts: number;
     expiredTraining: number;
+    activeMemberships: number;
+    trainingWithoutExpiry: number;
+    signaturesWithoutCopy: number;
+    machinesWithoutTraining: string[];
   };
   live: {
     kind: string;
@@ -91,6 +95,32 @@ export type Report = {
     >;
   };
 };
+const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
+
+export function ComplianceSummary({ compliance: c }: { compliance: Report["compliance"] }) {
+  return (
+    <>
+      <p>
+        {plural(c.activeMemberships, "active membership", "active memberships")} ·{" "}
+        {c.activeAccounts} active accounts · {c.restrictedAccounts} restricted accounts ·{" "}
+        {c.expiredTraining} expired active training records
+      </p>
+      {c.trainingWithoutExpiry ? (
+        <p>{plural(c.trainingWithoutExpiry, "active training record has", "active training records have")} no expiry date. Set a validity period on the certification to date them.</p>
+      ) : null}
+      {c.signaturesWithoutCopy ? (
+        <p>{plural(c.signaturesWithoutCopy, "signed waiver has", "signed waivers have")} no retained copy of the signed text.</p>
+      ) : null}
+      {c.machinesWithoutTraining.length ? (
+        <p>
+          {plural(c.machinesWithoutTraining.length, "bookable machine has", "bookable machines have")} no training requirement:{" "}
+          {c.machinesWithoutTraining.join(", ")}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
 export function ReportsPage() {
   const today = zonedDay("America/New_York");
   const [query, setQuery] = useState(`from=${today}&to=${today}&period=daily`),
@@ -239,11 +269,7 @@ export function ReportsPage() {
                 {d.active.activeUsers} unique checked-in users ·{" "}
                 {d.active.approvedCheckIns} approved check-ins
               </p>
-              <p>
-                {d.compliance.activeAccounts} active accounts ·{" "}
-                {d.compliance.restrictedAccounts} restricted accounts ·{" "}
-                {d.compliance.expiredTraining} expired active training records
-              </p>
+              <ComplianceSummary compliance={d.compliance} />
               <h3>Current authenticated reader leases</h3>
               {d.live.length ? (
                 d.live.map((r, i) => (

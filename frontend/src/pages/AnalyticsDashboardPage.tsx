@@ -6,6 +6,7 @@ import {
   DoorOpen,
   Gauge,
   GraduationCap,
+  IdCard,
   Info,
   TrendingDown,
   TrendingUp,
@@ -258,6 +259,9 @@ export function AnalyticsDashboardPage() {
           <div className="kpis" aria-label="Headline numbers">
             <Kpi label="Net revenue" Icon={CircleDollarSign} value={money(sum(points, "net"))}>
               <Delta value={before ? sum(points, "net") - sum(beforePoints, "net") : null} format={money} unit={unit} />
+            </Kpi>
+            <Kpi label="Active memberships" Icon={IdCard} value={String(data.compliance.activeMemberships)}>
+              <span className="kpi__delta">Right now</span>
             </Kpi>
             <Kpi label="Visits" Icon={DoorOpen} value={String(data.active.approvedCheckIns)}>
               <Delta

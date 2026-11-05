@@ -224,9 +224,9 @@ test('React → Express controllers/models → PostgreSQL: login, save, refresh,
   fireEvent.change(within(dialog).getByLabelText('Start time'), {
     target: { value: "14:00" },
   });
-  await user.click(
-    within(dialog).getByRole('button', { name: 'Confirm reservation' }),
-  );
+  const confirm = within(dialog).getByRole('button', { name: 'Confirm reservation' }) as HTMLButtonElement;
+  await waitFor(() => expect(confirm.disabled).toBe(false));
+  await user.click(confirm);
   await screen.findByText(
     'Reservation confirmed for Rachel.',
     {},
