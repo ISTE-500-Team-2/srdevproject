@@ -166,7 +166,7 @@ export function AccountHomePage() {
         ? "Checking in…"
         : o && !o.canCheckIn
           ? (o.reasons[0] ?? "Not available right now")
-          : "Record a visit without an NFC card",
+          : "Record building entry; reserved rooms and equipment stay locked until the reservation starts",
       onClick: () => void doCheckIn(),
       disabled: checkIn.busy || !o?.canCheckIn,
     }]),

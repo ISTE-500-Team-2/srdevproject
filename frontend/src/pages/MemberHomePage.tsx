@@ -251,6 +251,9 @@ export function MemberHomePage() {
                   }
                 />
               </p>
+              {visit || summary.canCheckIn ? (
+                <p className="summary-card__note">Building check-in is available before your reservation. Wait until its start time to use your reserved room or equipment.</p>
+              ) : null}
               {visit ? (
                 <p className="check-in__last">
                   <span>Checked in</span>

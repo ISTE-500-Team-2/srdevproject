@@ -9,6 +9,9 @@ import { ReservationService } from '../../src/services/ReservationService.js';
 import { ReservationModel } from '../../src/models/ReservationModel.js';
 import { EquipmentBilling } from '../../src/billing/equipment.js';
 import { StudioStripe } from '../../src/studios/stripe.js';
+import { AccessService } from '../../src/services/AccessService.js';
+import { evaluateReaderAccess } from '../../src/services/ReaderEligibility.js';
+import { transaction } from '../../src/db.js';
 import { createApp } from '../../src/app.js';
 
 const database = 'arbor_equipment_' + randomBytes(6).toString('hex') + '_mvc_test';
@@ -244,4 +247,29 @@ test('authenticated reservation HTTP flow requires payment, enforces CSRF and co
     assert.equal(confirmed.status, 'confirmed');
     assert.equal(confirmed.paymentStatus, 'paid');
   } finally { create.mock.restore(); retrieve.mock.restore(); }
+});
+
+
+test('checkout and payment never couple early building entry to early equipment access', async () => {
+  await pool.query(`INSERT INTO user_waiver(userid,waiverid,signdate,approval)
+    SELECT $1,waiverid,NOW() AT TIME ZONE 'UTC',true FROM waiver
+    WHERE isactive AND required AND policy_scope='facility'
+    ON CONFLICT (userid,waiverid) WHERE approval=true DO NOTHING`,[member]);
+  const data = booking(), result = await service.create(member, data);
+  const atStart = new Date(data.startTime);
+  const machineAccess = (at: Date) => transaction(pool,db=>new AccessService(db,'America/New_York').accessForTarget(member,{equipmentId:equipment},at));
+  const buildingAccess = () => transaction(pool,db=>evaluateReaderAccess(db,'America/New_York',{kind:'building',resourceId:1},member));
+  assert.equal(result.status,'pending');
+  const beforePayment = await buildingAccess();
+  assert.equal(beforePayment.allowed,true,JSON.stringify(beforePayment));
+  assert.equal(beforePayment.reservationId,null);
+  await assert.rejects(machineAccess(atStart),{code:'RESERVATION_REQUIRED'},'unpaid hold is insufficient even during its reservation window');
+  const session = paid(await sessionFor(result.id));
+  await billing.apply(session);
+  assert.equal((await state(result.id)).status,'confirmed');
+  assert.equal((await buildingAccess()).allowed,true);
+  const earlyMachine = await transaction(pool,db=>evaluateReaderAccess(db,'America/New_York',{kind:'equipment',resourceId:equipment},member));
+  assert.equal(earlyMachine.allowed,false);assert.equal(earlyMachine.reason,'RESERVATION_REQUIRED');
+  await assert.rejects(machineAccess(new Date(atStart.getTime()-1)),{code:'RESERVATION_REQUIRED'},'payment does not allow early use');
+  assert.equal((await machineAccess(atStart)).reservationId,result.id);
 });

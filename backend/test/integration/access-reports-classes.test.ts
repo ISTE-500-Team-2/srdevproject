@@ -261,7 +261,7 @@ test("staff supervision creates a reservation without bypassing safety; card rev
   );
   assert.equal((await scan()).body.data.reason, "RESERVATION_REQUIRED");
   assert.equal((await pool.query('SELECT status FROM reservation WHERE reservationid=$1',[supervisedReservation])).rows[0].status,'cancelled');
-  assert.equal((await scan({reader:'entrance'})).body.data.reason,'RESERVATION_REQUIRED');
+  assert.equal((await scan({reader:'entrance'})).body.data.allowed,true);
   const entranceRoom = (await pool.query("INSERT INTO room(name,location) VALUES('Entrance fixture','Test') RETURNING roomid")).rows[0].roomid;
   await pool.query("INSERT INTO reservation(userid,roomid,location,starttime,endtime,status) VALUES($1,$2,'Building booking',(NOW()-INTERVAL '1 minute') AT TIME ZONE 'UTC',(NOW()+INTERVAL '10 minutes') AT TIME ZONE 'UTC','confirmed')",[memberId,entranceRoom]);
   assert.equal((await scan({ reader: "entrance" })).body.data.allowed, true);

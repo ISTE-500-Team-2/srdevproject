@@ -5,6 +5,9 @@ import { before, after, test } from 'node:test';
 import { Pool } from 'pg';
 import request from 'supertest';
 import { createApp } from '../../src/app.js';
+import { evaluateReaderAccess } from '../../src/services/ReaderEligibility.js';
+import { AccessService } from '../../src/services/AccessService.js';
+import { transaction } from '../../src/db.js';
 import { initializeDemo } from '../../src/scripts/init-demo.js';
 
 const database = `arbor_resource_${randomBytes(6).toString('hex')}_mvc_test`;
@@ -62,8 +65,8 @@ async function deskCheckIn(body: unknown) {
   return response;
 }
 const refusal = (r: request.Response) => [r.status, r.body.error?.code];
-function scan(reader: string, checkIn = false) {
-  const body=JSON.stringify({uid,eventId:randomUUID(),checkIn}), stamp=String(Date.now());
+function scan(reader: string, checkIn = false, renewal = false) {
+  const body=JSON.stringify({uid,eventId:randomUUID(),checkIn,renewal}), stamp=String(Date.now());
   return request(app).post('/api/devices/decision').set('Content-Type','application/json')
     .set('X-Reader-ID',reader).set('X-Reader-Timestamp',stamp)
     .set('X-Reader-Signature',createHmac('sha256',secret).update(stamp+'\n'+body).digest('hex')).send(body);
@@ -77,29 +80,31 @@ async function book(key: 'roomid' | 'equipmentid', id: number) {
 test('portal and readers enforce building assignments, ownership and current confirmed room bookings',async () => {
   const own = await post('/me/check-ins',{location:'Spoofed building'});
   assert.deepEqual(refusal(own),[403,'CHECK_IN_AT_READER']);
-  assert.deepEqual(refusal(await deskCheckIn({location:'Spoofed building'})),[403,'RESERVATION_REQUIRED']);
-  assert.equal((await scan('entrance')).body.data.reason,'RESERVATION_REQUIRED');
+  const buildingCheckIn = await deskCheckIn({location:'Spoofed building'});
+  assert.equal(buildingCheckIn.status,201);
+  assert.notEqual(buildingCheckIn.body.data.location,'Spoofed building');
+  assert.equal((await scan('entrance')).body.data.allowed,true);
   assert.equal((await scan('room')).body.data.reason,'RESERVATION_REQUIRED');
   const booking = await book('roomid',room);
   assert.deepEqual(refusal(await post('/me/check-ins',{roomId:room})),[403,'CHECK_IN_AT_READER'],'a current booking does not open web check-in');
-  assert.equal((await pool.query('SELECT count(*)::int n FROM check_in WHERE userid=$1',[userId])).rows[0].n,0);
+  assert.equal((await pool.query('SELECT count(*)::int n FROM check_in WHERE userid=$1',[userId])).rows[0].n,1);
   const desk = await deskCheckIn({roomId:room});
   assert.equal(desk.status,201,JSON.stringify(desk.body));
   assert.equal((await scan('entrance')).body.data.allowed,true);
-  assert.equal((await scan('other')).body.data.reason,'RESERVATION_REQUIRED');
+  assert.equal((await scan('other')).body.data.allowed,true);
   await pool.query('UPDATE room SET buildingid=$2 WHERE roomid=$1',[room,otherBuilding]);
-  assert.equal((await scan('entrance')).body.data.allowed,false);
+  assert.equal((await scan('entrance')).body.data.allowed,true);
   const allowed = await scan('other',true);
   assert.equal(allowed.body.data.allowed,true);
   const stored = (await pool.query("SELECT buildingid,reservationid FROM check_in WHERE statusdesc='Authenticated NFC eligibility decision' ORDER BY checkinid DESC LIMIT 1")).rows[0];
-  assert.equal(stored.buildingid,otherBuilding); assert.equal(stored.reservationid,booking);
+  assert.equal(stored.buildingid,otherBuilding); assert.equal(stored.reservationid,null);
   await pool.query("UPDATE building SET status='unavailable' WHERE buildingid=$1",[otherBuilding]);
   assert.equal((await scan('room')).body.data.reason,'RESOURCE_UNAVAILABLE');
   assert.deepEqual(refusal(await deskCheckIn({roomId:room})),[403,'RESOURCE_UNAVAILABLE']);
   await pool.query("UPDATE building SET status='available' WHERE buildingid=$1",[otherBuilding]);
   for (const status of ['pending','cancelled']) {
     await pool.query('UPDATE reservation SET status=$2 WHERE reservationid=$1',[booking,status]);
-    assert.equal((await scan('other')).body.data.reason,'RESERVATION_REQUIRED');
+    assert.equal((await scan('other')).body.data.allowed,true);
     assert.deepEqual(refusal(await deskCheckIn({roomId:room})),[403,'RESERVATION_REQUIRED'],status);
   }
   const otherUser = (await pool.query('SELECT userid FROM "user" WHERE userid<>$1 LIMIT 1',[userId])).rows[0].userid;
@@ -112,12 +117,71 @@ test('portal and readers enforce building assignments, ownership and current con
   assert.deepEqual(refusal(await deskCheckIn({roomId:room,equipmentId:machine})),[400,'INVALID_INPUT']);
 });
 
+test('early building tap records presence without unlocking a reserved machine or room',async () => {
+  for (const kind of ['room','equipment'] as const) {
+    const invalid = await evaluateReaderAccess(pool,'America/New_York',{kind},userId);
+    assert.equal(invalid.allowed,false);
+    assert.equal(invalid.reason,'RESOURCE_UNAVAILABLE');
+  }
+  const booking = await book('equipmentid',machine);
+  await pool.query("UPDATE reservation SET starttime=(NOW()+INTERVAL '1 hour') AT TIME ZONE 'UTC',endtime=(NOW()+INTERVAL '2 hours') AT TIME ZONE 'UTC' WHERE reservationid=$1",[booking]);
+  const overview = await request(app).get('/api/me/overview').set('Authorization','Bearer '+token);
+  assert.equal(overview.body.data.canCheckIn,true,JSON.stringify(overview.body));
+  const before = (await pool.query('SELECT count(*)::int n FROM check_in WHERE userid=$1',[userId])).rows[0].n;
+  const tap = await scan('entrance',true);
+  assert.equal(tap.body.data.allowed,true,JSON.stringify(tap.body));
+  assert.equal(tap.body.data.reason,'ELIGIBLE');
+  assert.equal(tap.body.data.reservationId,null);
+  assert.ok(tap.body.data.leaseSeconds>0 && tap.body.data.leaseSeconds<=5);
+  const visit = (await pool.query('SELECT building_id FROM app_facility_visit WHERE user_id=$1 AND checked_out_at IS NULL',[userId])).rows[0];
+  assert.equal(visit.building_id,1);
+  const stored = (await pool.query('SELECT roomid,equipmentid,reservationid,buildingid FROM check_in WHERE userid=$1 ORDER BY checkinid DESC LIMIT 1',[userId])).rows[0];
+  assert.deepEqual(stored,{roomid:null,equipmentid:null,reservationid:null,buildingid:1});
+  assert.equal((await scan('entrance',true,true)).body.data.allowed,true);
+  for (const reader of ['machine','room']) {
+    const denied = await scan(reader,true);
+    assert.equal(denied.body.data.allowed,false);
+    assert.equal(denied.body.data.reason,'RESERVATION_REQUIRED');
+  }
+  assert.deepEqual(refusal(await deskCheckIn({equipmentId:machine})),[403,'RESERVATION_REQUIRED']);
+  assert.equal((await pool.query('SELECT count(*)::int n FROM check_in WHERE userid=$1',[userId])).rows[0].n,before+1,'renewals and denied resource taps do not record check-ins');
+  const start = new Date('2030-01-15T15:00:00.000Z'), end = new Date('2030-01-15T16:00:00.000Z');
+  await pool.query(`UPDATE reservation SET starttime=$2::timestamptz AT TIME ZONE 'UTC',endtime=$3::timestamptz AT TIME ZONE 'UTC' WHERE reservationid=$1`,[booking,start,end]);
+  // Use a day pass to isolate exact reservation boundaries from membership expiry.
+  await pool.query("INSERT INTO day_pass(userid,validdate,status) VALUES($1,'2030-01-15','active')",[userId]);
+  const evaluate = (at:Date) => transaction(pool,db=>new AccessService(db,'America/New_York').accessForTarget(userId,{equipmentId:machine},at));
+  await assert.rejects(evaluate(new Date(start.getTime()-1)),{code:'RESERVATION_REQUIRED'});
+  assert.equal((await evaluate(start)).reservationId,booking);
+  assert.equal((await evaluate(new Date(end.getTime()-1))).reservationId,booking);
+  await assert.rejects(evaluate(end),{code:'RESERVATION_REQUIRED'});
+  await pool.query('DELETE FROM reservation WHERE reservationid=$1',[booking]);
+});
+
+test('building entry still enforces facility waivers, account access and building availability',async () => {
+  await pool.query("UPDATE building SET status='unavailable' WHERE buildingid=1");
+  assert.equal((await scan('entrance',true)).body.data.reason,'RESOURCE_UNAVAILABLE');
+  await pool.query("UPDATE building SET status='available' WHERE buildingid=1");
+  await pool.query("UPDATE \"user\" SET accessstatus='suspended' WHERE userid=$1",[userId]);
+  assert.equal((await scan('entrance',true)).body.data.reason,'ACCOUNT_BLOCKED');
+  await pool.query("UPDATE \"user\" SET accessstatus='active' WHERE userid=$1",[userId]);
+  await pool.query('UPDATE user_waiver SET approval=false WHERE userid=$1',[userId]);
+  assert.equal((await scan('entrance',true)).body.data.reason,'WAIVER_REQUIRED');
+  assert.deepEqual(refusal(await deskCheckIn({buildingId:1})),[403,'WAIVER_REQUIRED']);
+  await pool.query('UPDATE user_waiver SET approval=true WHERE userid=$1',[userId]);
+  assert.equal((await scan('entrance',true)).body.data.allowed,true);
+  // Restoring access never revives a revoked web session.
+  const login = await request(app).post('/api/auth/demo').send({role:'member'});
+  assert.equal(login.status,200);
+  token=login.body.data.accessToken; csrf=login.body.data.csrfToken;
+});
+
 test('equipment checks its own booking and certification and immediately rejects expired access',async () => {
   const booking = await book('equipmentid',machine);
   await pool.query("INSERT INTO certifications(certid,name) VALUES(87001,'Required machine safety'),(87002,'Other safety')");
   await pool.query('UPDATE equipment SET certid=87001 WHERE equipmentid=$1',[machine]);
   await pool.query("INSERT INTO user_certifications(usercertid,userid,certid,status) VALUES(87001,$1,87002,'active')",[userId]);
   assert.equal((await scan('machine')).body.data.reason,'CERTIFICATION_REQUIRED');
+  assert.equal((await scan('entrance')).body.data.allowed,true,'equipment training does not grant or block building entry');
   assert.deepEqual(refusal(await deskCheckIn({equipmentId:machine})),[403,'CERTIFICATION_REQUIRED']);
   assert.deepEqual(refusal(await deskCheckIn({equipmentId:otherMachine})),[403,'RESERVATION_REQUIRED']);
   await pool.query("INSERT INTO user_certifications(usercertid,userid,certid,status,renewaldate) VALUES(87002,$1,87001,'active',(NOW()+INTERVAL '1 day') AT TIME ZONE 'UTC')",[userId]);

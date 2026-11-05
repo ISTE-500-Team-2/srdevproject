@@ -21,12 +21,15 @@ export async function evaluateReaderAccess(db: Database, tz: string, r: ReaderTa
     reservationId: null as number | null,
   });
   if (!userId) return deny("CARD_NOT_ASSIGNED");
+  // A misconfigured resource reader must never fall back to building entry.
+  if (r.kind !== 'building' && (!Number.isInteger(r.resourceId) || r.resourceId! <= 0))
+    return deny('RESOURCE_UNAVAILABLE');
   const now = new Date();
   const target: AccessTarget = r.kind === 'building' ? {buildingId:r.resourceId ?? 1}
     : r.kind === 'room' ? {roomId:r.resourceId} : {equipmentId:r.resourceId};
-  let grant: Awaited<ReturnType<AccessService['reservationForAccess']>>;
+  let grant: Awaited<ReturnType<AccessService['accessForTarget']>>;
   try {
-    grant = await new AccessService(db,tz).reservationForAccess(userId,target,now);
+    grant = await new AccessService(db,tz).accessForTarget(userId,target,now);
   } catch (error) {
     if (!(error instanceof AppError)) throw error;
     const reason = error.code === 'ACCOUNT_INACTIVE' || error.code === 'ACCESS_BLOCKED' ? 'ACCOUNT_BLOCKED'

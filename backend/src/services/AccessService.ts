@@ -58,11 +58,11 @@ export class AccessService {
   }
 
   // The caller keeps the decision and check-in in one transaction.
-  async reservationForAccess(userId: number, target: AccessTarget, at = new Date()) {
+  async accessForTarget(userId: number, target: AccessTarget, at = new Date()) {
     await this.assertActiveUser(userId);
     const entitlement = await this.assertEntitlement(userId,at);
     await this.assertWaivers(userId);
-    let buildingId = target.buildingId;
+    let buildingId = target.buildingId ?? (target.roomId || target.equipmentId ? undefined : 1);
     let location: string | undefined;
     if (target.roomId || target.equipmentId) {
       const table = target.roomId ? 'room' : 'equipment';
@@ -87,6 +87,15 @@ export class AccessService {
       location ??= building.name;
     }
     const sponsor = await new MinorSupervision(this.db,this.timeZone).requireSponsor(userId,buildingId);
+    // Facility presence is independent of a room/equipment booking. A building
+    // grant carries no reservation or resource permission; readers revalidate it
+    // within five seconds just like resource grants.
+    if (!target.roomId && !target.equipmentId) {
+      return {
+        reservationId: null, buildingId: buildingId!, location: location!,
+        endsAt: new Date(at.getTime() + 5000), entitlement, sponsorId: sponsor?.id ?? null,
+      };
+    }
     const reservation = (await this.db.query<{
       id: number; buildingId: number; buildingName: string; endsAt: Date;
     }>(`SELECT r.reservationid AS id,b.buildingid AS "buildingId",b.name AS "buildingName",

@@ -173,7 +173,9 @@ test('charges the displayed hourly price times duration and redirects before con
  const assign=vi.fn();
  vi.stubGlobal('location',{assign});
  fireEvent.change(screen.getByLabelText('Duration'),{target:{value:'2'}});
- expect(await screen.findByText(/Total: \$14\.00/)).toBeTruthy();
+ await waitFor(()=>expect(within(screen.getByRole('region',{name:'Booking price breakdown'})).getAllByText('$14.00')).toHaveLength(2));
+ expect(screen.getByText('Continue to secure checkout. Your reservation is confirmed after payment succeeds.')).toBeTruthy();
+ expect(screen.queryByText(/Payment is recorded at the front desk/)).toBeNull();
  expect(screen.getByRole('button',{name:'Pay $14.00 & confirm reservation'})).toBeTruthy();
  vi.mocked(api).mockImplementationOnce(async()=>({id:8,status:'pending',checkoutUrl:'https://checkout.stripe.com/test-equipment'}) as never);
  await act(async()=>{fireEvent.submit(screen.getByRole('button',{name:'Pay $14.00 & confirm reservation'}).closest('form')!);});

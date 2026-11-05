@@ -118,9 +118,9 @@ export function StartTimePicker({ name, hours, onPick, children, now: nowProp, c
             {timeLabel(Number(value.slice(0, 2)) * 60 + Number(value.slice(3)))}
           </option>)}
         </select>
-        <small>{Intl.DateTimeFormat().resolvedOptions().timeZone} · bookings start on the hour or half-hour.{minLeadMinutes ? ` Paid bookings must start at least ${minLeadMinutes} minutes from now.` : ''}</small>
       </label>
       {children}
+      <p className="start-picker__hint">{Intl.DateTimeFormat().resolvedOptions().timeZone} · Hour or half-hour starts.{minLeadMinutes ? ` Book at least ${minLeadMinutes} minutes ahead.` : ''}</p>
       <p className="start-picker__summary" aria-live="polite">
         {valid ? <>{chosen.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })} · {timeLabel(start)} – {timeLabel(end % (24 * 60))}{end >= 24 * 60 ? " the next day" : ""}</> : "Choose a date and start time."}
       </p>

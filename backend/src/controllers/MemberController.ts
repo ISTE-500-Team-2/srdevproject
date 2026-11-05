@@ -221,7 +221,7 @@ export class MemberController {
       model.entitlement(userId, new Date()),
       model.waivers(userId, 'facility'),
       transaction(this.pool, async db => {
-        try { await new AccessService(db,this.timeZone).reservationForAccess(userId,{}); return null; }
+        try { await new AccessService(db,this.timeZone).accessForTarget(userId,{}); return null; }
         catch (error) { if (error instanceof AppError) return error.message; throw error; }
       }),
       new MemberModel(this.pool).activeReservationCount(userId),
@@ -262,7 +262,7 @@ export class MemberController {
     for (const key of supplied) target[key] = positiveId(req.body[key],key);
     const record = await transaction(this.pool, async (db) => {
       const access = new AccessService(db, this.timeZone);
-      const grant = await access.reservationForAccess(userId,target);
+      const grant = await access.accessForTarget(userId,target);
       const checkIn = await new MemberModel(db, this.timeZone).createCheckIn(userId,grant.location,target.roomId ?? null,
         grant.buildingId,target.equipmentId ?? null,grant.reservationId);
       await new StaffModel(db, this.timeZone).audit(

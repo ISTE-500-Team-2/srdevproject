@@ -62,6 +62,19 @@ test('both visitors need their own access; adult presence gates minor bookings a
  assert.equal((await pool.query('SELECT adult_id FROM app_minor_booking WHERE reservation_id=$1',[booking])).rows[0].adult_id,adult.user.id);
  assert.equal((await post(admin,root(),{adultId:adult.user.id,revision:1,consent:true,reason:'Attempt while visiting'})).status,409);
 });
+test('a supervised minor can enter the building before a reservation without gaining room access',async()=>{
+ const building=()=>transaction(pool,db=>evaluateReaderAccess(db,'America/New_York',{kind:'building',resourceId:1},minor.user.id));
+ const early=await building();
+ assert.equal(early.allowed,true,JSON.stringify(early));assert.equal(early.reservationId,null);
+ const roomAccess=await transaction(pool,db=>evaluateReaderAccess(db,'America/New_York',{kind:'room',resourceId:room},minor.user.id));
+ assert.equal(roomAccess.allowed,false);assert.equal(roomAccess.reason,'RESERVATION_REQUIRED');
+ await post(adult,'/me/visit/check-out');
+ const denied=await building();assert.equal(denied.allowed,false);assert.equal(denied.reason,'SPONSOR_REQUIRED');
+ await transaction(pool,async db=>{
+  await new MinorSupervision(db).startVisit(adult.user.id,1);
+  await new MinorSupervision(db).startVisit(minor.user.id,1);
+ });
+});
 test('adult checkout ends linked minor visits and denies subsequent reader grants without deleting bookings',async()=>{
  await pool.query("UPDATE reservation SET starttime=(now()-interval '1 minute') AT TIME ZONE 'UTC',endtime=(now()+interval '30 minutes') AT TIME ZONE 'UTC' WHERE reservationid=$1",[booking]);
  const allowed=await transaction(pool,db=>evaluateReaderAccess(db,'America/New_York',{kind:'room',resourceId:room},minor.user.id));

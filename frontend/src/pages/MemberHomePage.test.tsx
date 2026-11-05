@@ -174,3 +174,16 @@ test('if the supervision request fails the card keeps its normal state', async (
   expect(await within(card).findByText('You can check in.')).toBeTruthy();
   expect(screen.queryByRole('alert')).toBeNull();
 });
+
+test('eligible building check-in explains that reserved resources must wait', async () => {
+  auth.user = dana;
+  api.mockImplementation((path: string) => Promise.resolve({
+    '/me/overview': overview(),
+    '/me/supervision': adultSummary(),
+    '/me/minors': { minors: [], requests: [] },
+  }[path]));
+  render(<MemoryRouter><MemberHomePage /></MemoryRouter>);
+  const card = await checkInCard();
+  expect(within(card).getByText('Building check-in is available before your reservation. Wait until its start time to use your reserved room or equipment.')).toBeTruthy();
+  expect(within(card).getByText('Tap your NFC tag at the door. Forgot it? Ask staff.')).toBeTruthy();
+});

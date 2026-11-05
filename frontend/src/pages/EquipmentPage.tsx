@@ -328,10 +328,10 @@ export function EquipmentPage() {
             {quote.error && <p role="alert" className="form-error">{quote.error} <button type="button" onClick={quote.reload}>Refresh price</button></p>}
             <p className="form-caption">
               Cancel at least 24 hours before the start time. Leave 15 minutes between bookings for the same machine.
-              {' '}The booking member’s access and this time slot are checked when you book. Payment is required before confirmation. Contact staff about refunds.
+              {' '}Membership, training and waivers are checked when you book. Contact staff about refunds.
             </p>
-            {totalCents !== null && <p className="form-notice" aria-live="polite">
-              {totalCents > 0 ? `Total: ${money(totalCents)}. Payment is due at the front desk unless Stripe checkout is enabled; online reservations are confirmed after payment succeeds.` : 'No payment is required for this equipment.'}
+            {totalCents !== null && <p className="equipment-payment-note" aria-live="polite">
+              {totalCents > 0 ? 'Continue to secure checkout. Your reservation is confirmed after payment succeeds.' : 'No payment is required for this equipment.'}
             </p>}
             {error ? (
               <p ref={errorRef} tabIndex={-1} role="alert" className="form-error">
