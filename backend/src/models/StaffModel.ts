@@ -1,6 +1,7 @@
 import { auditContext } from "../auditContext.js";
 import type { Database } from "../db.js";
 import type { PlanInput } from "../staffDomain.js";
+import type { PolicyScope } from "../staffDomain.js";
 
 export interface Plan extends PlanInput {
   id: number;
@@ -16,6 +17,7 @@ export interface PolicyRecord {
   required: boolean;
   approvalReference: string | null;
   validityDays: number | null;
+  scope: PolicyScope;
 }
 export interface ComplianceFilters {
   waiverId: number | null;
@@ -98,10 +100,10 @@ export class StaffModel {
       )
     ).rows;
   }
-  async person(id: number, lock = false) {
+  async person(id: number, lock: boolean | 'no-key-update' = false) {
     return (
       await this.db.query(
-        `SELECT ${personColumns} FROM "user" u WHERE userid=$1 ${lock ? "FOR UPDATE OF u" : ""}`,
+        `SELECT ${personColumns} FROM "user" u WHERE userid=$1 ${lock === 'no-key-update' ? 'FOR NO KEY UPDATE OF u' : lock ? 'FOR UPDATE OF u' : ''}`,
         [id],
       )
     ).rows[0];
@@ -346,9 +348,18 @@ export class StaffModel {
         `SELECT p.paymentid AS id,p.userid AS "userId",u.firstname || ' ' || u.lastname AS "memberName",
       p.membershipid AS "membershipId",d.dayid AS "dayPassId",p.price::text AS amount,p.paymentstatus AS status,p.method,p.reference,p.revision,
       p.paymentdate AT TIME ZONE 'UTC' AS "recordedAt",p.updated_at AS "updatedAt",
-      COALESCE(m.plan_snapshot->>'name',d.plan_snapshot->>'name',t.tiername,'Legacy record') AS "planName"
+      COALESCE(m.plan_snapshot->>'name',d.plan_snapshot->>'name',t.tiername,
+        CASE WHEN booking.reservationid IS NOT NULL THEN 'Equipment: '||machine.name||
+          CASE WHEN booking.status='cancelled' AND p.paymentstatus='paid' THEN ' (cancelled; refund due)' ELSE '' END END,
+        CASE WHEN training.class_id IS NOT NULL THEN 'Training class: '||class.title||
+          CASE WHEN (training.status='cancelled' OR class.status='cancelled') AND p.paymentstatus='paid'
+            THEN ' (cancelled; refund due)' ELSE '' END END,
+        CASE WHEN p.note LIKE 'Equipment booking:%' OR p.note LIKE 'Training class:%' THEN p.note END,'Legacy record') AS "planName"
       FROM payment p LEFT JOIN "user" u USING(userid) LEFT JOIN user_membership m USING(membershipid)
       LEFT JOIN membership_tiers t ON m.tierid=t.tierid LEFT JOIN LATERAL(SELECT * FROM day_pass WHERE paymentid=p.paymentid ORDER BY dayid LIMIT 1) d ON true
+      LEFT JOIN reservation booking ON booking.payment_id=p.paymentid LEFT JOIN equipment machine ON machine.equipmentid=booking.equipmentid
+      LEFT JOIN app_training_enrollment training ON training.payment_id=p.paymentid
+      LEFT JOIN app_training_class class ON class.id=training.class_id
       WHERE ($1::int IS NULL OR p.userid=$1) ORDER BY p.paymentid DESC LIMIT 51 OFFSET $2`,
         [userId, offset],
       )
@@ -445,7 +456,7 @@ export class StaffModel {
   async policies() {
     return (
       await this.db.query<PolicyRecord>(
-        `SELECT waiverid AS id,name,version,description,effectivedate AT TIME ZONE 'UTC' AS "effectiveAt",isactive AS active,required,approval_reference AS "approvalReference",validity_days AS "validityDays" FROM waiver ORDER BY effectivedate DESC NULLS LAST,waiverid DESC`,
+        `SELECT waiverid AS id,name,version,description,effectivedate AT TIME ZONE 'UTC' AS "effectiveAt",isactive AS active,required,approval_reference AS "approvalReference",validity_days AS "validityDays",policy_scope AS scope FROM waiver ORDER BY effectivedate DESC NULLS LAST,waiverid DESC`,
       )
     ).rows;
   }
@@ -457,12 +468,13 @@ export class StaffModel {
     approvalReference: string,
     actorId: number,
     validityDays: number | null = null,
+    scope: PolicyScope = 'facility',
   ) {
     return (
       await this.db.query<PolicyRecord>(
-        `INSERT INTO waiver(name,version,description,effectivedate,approval_reference,created_by,validity_days) VALUES($1,$2,$3,$4::timestamptz AT TIME ZONE 'UTC',$5,$6,$7)
-      RETURNING waiverid AS id,name,version,description,effectivedate AT TIME ZONE 'UTC' AS "effectiveAt",isactive AS active,required,approval_reference AS "approvalReference",validity_days AS "validityDays"`,
-        [name, version, description, effectiveAt, approvalReference, actorId, validityDays],
+        `INSERT INTO waiver(name,version,description,effectivedate,approval_reference,created_by,validity_days,policy_scope) VALUES($1,$2,$3,$4::timestamptz AT TIME ZONE 'UTC',$5,$6,$7,$8)
+      RETURNING waiverid AS id,name,version,description,effectivedate AT TIME ZONE 'UTC' AS "effectiveAt",isactive AS active,required,approval_reference AS "approvalReference",validity_days AS "validityDays",policy_scope AS scope`,
+        [name, version, description, effectiveAt, approvalReference, actorId, validityDays, scope],
       )
     ).rows[0]!;
   }

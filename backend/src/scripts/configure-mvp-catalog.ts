@@ -34,8 +34,8 @@ export async function configureMvpCatalog(pool:Pool,apply=false,actorId?:number)
     }
     for(const group of groups) {
       let cert=(await db.query('SELECT certid FROM certifications WHERE name=$1 ORDER BY certid LIMIT 1 FOR UPDATE',[group.name])).rows[0];
-      if(!cert) cert=(await db.query(`INSERT INTO certifications(certid,name,description,effectivedate)
-        SELECT COALESCE(MAX(certid),0)+1,$1,'One-hour instructor-led safety training. Training fee: $20. Staff must configure the approved certification validity.',NOW() AT TIME ZONE 'UTC'
+      if(!cert) cert=(await db.query(`INSERT INTO certifications(certid,name,description,effectivedate,training_fee_cents,training_minutes)
+        SELECT COALESCE(MAX(certid),0)+1,$1,'One-hour instructor-led safety training. Training fee: $20. Staff must configure the approved certification validity.',NOW() AT TIME ZONE 'UTC',2000,60
         FROM certifications RETURNING certid`,[group.name])).rows[0];
       await db.query(`INSERT INTO app_training_requirement(certification_id,duration_minutes,fee_cents) VALUES($1,60,2000)
         ON CONFLICT(certification_id) DO NOTHING`,[cert.certid]);

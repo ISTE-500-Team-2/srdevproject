@@ -96,3 +96,25 @@ test('B-015: a waiver can be published with a duration in days', async () => {
 test('B-015: leaving the duration blank publishes a waiver that does not expire on its own', async () => {
   expect((await publishWith('')).body.validityDays).toBeNull();
 });
+
+test('administrators can publish an equipment waiver without making it a day-pass prerequisite', async () => {
+  vi.mocked(useApi).mockImplementation(path => ({ data: path === '/admin/policies' ? [] : null, loading: false, refreshing: false, error: '', reload: vi.fn() }));
+  vi.mocked(api).mockResolvedValue({} as never);
+  render(<StaffPolicies />);
+  fireEvent.click(screen.getByRole('button', { name: 'New waiver' }));
+  const editor = screen.getByRole('dialog', { name: 'New waiver' });
+  fireEvent.change(within(editor).getByLabelText('Waiver'), { target: { value: 'Equipment safety' } });
+  fireEvent.change(within(editor).getByLabelText('Required for'), { target: { value: 'equipment' } });
+  fireEvent.change(within(editor).getByLabelText('Text members will read'), { target: { value: 'Approved equipment agreement wording for this test.' } });
+  fireEvent.change(within(editor).getByLabelText('Reason for the change log'), { target: { value: 'Separate equipment requirements' } });
+  expect(within(editor).getByText(/Until they do, they can't book or use equipment/)).toBeTruthy();
+  fireEvent.submit(within(editor).getByRole('button', { name: 'Publish version' }).closest('form')!);
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/admin/policies', expect.objectContaining({ body: expect.objectContaining({ scope: 'equipment' }) })));
+});
+
+test('publishing a new equipment version retains its applicability', () => {
+  vi.mocked(useApi).mockImplementation(path => ({ data: path === '/admin/policies' ? [{ ...current, scope: 'equipment' }] : null, loading: false, refreshing: false, error: '', reload: vi.fn() }));
+  render(<StaffPolicies />);
+  fireEvent.click(screen.getByRole('button', { name: 'Publish new version' }));
+  expect(screen.getByLabelText('Required for')).toHaveProperty('value', 'equipment');
+});

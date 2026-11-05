@@ -5,7 +5,9 @@ export const RESERVATION_COOLDOWN_MINUTES = 15;
 const selection = `r.reservationid AS id,r.userid AS "userId",r.equipmentid AS "equipmentId",r.roomid AS "roomId",
  COALESCE(e.name,room.name) AS "equipmentName",CASE WHEN r.roomid IS NULL THEN 'equipment' ELSE 'room' END AS "resourceType",
  r.starttime AT TIME ZONE 'UTC' AS "startTime",r.endtime AT TIME ZONE 'UTC' AS "endTime",r.location,r.status,
- r.revision,u.firstname || ' ' || u.lastname AS "memberName",u.email AS "memberEmail"`;
+ r.revision,r.price_snapshot AS "priceSnapshot",r.payment_id AS "paymentId",
+ (SELECT paymentstatus FROM payment WHERE paymentid=r.payment_id) AS "paymentStatus",
+ u.firstname || ' ' || u.lastname AS "memberName",u.email AS "memberEmail"`;
 const joins = `LEFT JOIN equipment e USING (equipmentid) LEFT JOIN room ON room.roomid=r.roomid JOIN "user" u ON u.userid=r.userid`;
 
 export class ReservationModel {

@@ -9,6 +9,8 @@ import type { IssueInput, PlanInput } from "../staffDomain.js";
 import { PermissionModel } from "../models/PermissionModel.js";
 import { planInput } from "../staffDomain.js";
 import { retireSupersededPolicies } from "../policyLifecycle.js";
+import { AccessService } from "./AccessService.js";
+import type { PolicyScope } from "../staffDomain.js";
 
 const missing = () =>
   new AppError(404, "NOT_FOUND", "The selected record was not found.");
@@ -65,8 +67,8 @@ export class StaffService {
       return work(new StaffModel(db, this.timeZone), actor, db);
     });
   }
-  private async target(model: StaffModel, actor: UserView, id: number) {
-    const user = await model.person(id, true);
+  private async target(model: StaffModel, actor: UserView, id: number, lock: true | 'no-key-update' = true) {
+    const user = await model.person(id, lock);
     if (!user) throw missing();
     if (
       user.roles.some((r: string) => r === "admin" || r === "staff") &&
@@ -353,6 +355,7 @@ export class StaffService {
             "PASS_EXISTS",
             "An active or suspended pass already exists for that date.",
           );
+        await new AccessService(db, this.timeZone).assertWaivers(userId);
         id = await model.createPass(
           userId,
           plan,
@@ -457,11 +460,19 @@ export class StaffService {
     reason: string,
   ) {
     return this.write(actorId, false, "payment", "update", async (model, actor, db) => {
+      // Bookings and training lock the member before the payment. Read ownership
+      // without a payment lock, then recheck it after acquiring locks in that order.
+      const owner = (await db.query('SELECT userid FROM payment WHERE paymentid=$1', [id])).rows[0];
+      if (owner?.userid == null) throw missing();
+      // Cancellation audit rows take KEY SHARE on the member while holding the
+      // payment. NO KEY UPDATE still blocks member edits and booking locks, but
+      // lets those foreign-key checks finish without a user/payment deadlock.
+      await this.target(model, actor, owner.userid, 'no-key-update');
       const before = await model.payment(id);
-      if ((await this.pool.query('SELECT id::text FROM app_membership_invoice WHERE payment_id=$1 UNION ALL SELECT id::text FROM app_pass_checkout WHERE payment_id=$1 AND amount_cents>0',[id])).rowCount)
-        throw new AppError(409,'PROVIDER_PAYMENT','Use the Stripe billing refund workflow for this payment.');
       if (!before || before.userId == null) throw missing();
-      await this.target(model, actor, before.userId);
+      if (before.userId !== owner.userid) throw conflict();
+      if ((await db.query('SELECT id::text FROM app_membership_invoice WHERE payment_id=$1 UNION ALL SELECT id::text FROM app_pass_checkout WHERE payment_id=$1 AND amount_cents>0',[id])).rowCount)
+        throw new AppError(409,'PROVIDER_PAYMENT','Use the Stripe billing refund workflow for this payment.');
       this.expectRevision(before.revision, revision);
       const transitions: Record<string, string[]> = {
         pending: ["paid", "void", "waived"],
@@ -510,9 +521,13 @@ export class StaffService {
       approvalReference: string;
       validityDays: number | null;
       reason: string;
+      scope?: PolicyScope;
     },
   ) {
     return this.write(actorId, true, "waiver", "create", async (model, _actor, db) => {
+      // Omitted scope on older clients must not turn an equipment waiver's
+      // replacement into a facility-wide prerequisite.
+      const previous = (await model.policies()).find(policy => policy.name === input.name);
       const after = await model.createPolicy(
         input.name,
         input.version,
@@ -521,6 +536,7 @@ export class StaffService {
         input.approvalReference,
         actorId,
         input.validityDays,
+        input.scope ?? previous?.scope ?? 'facility',
       );
       await model.audit(
         actorId,

@@ -86,6 +86,7 @@ export interface Policy {
   required: boolean;
   approvalReference: string;
   validityDays?: number | null;
+  scope: 'facility' | 'equipment';
 }
 export interface MemberDetail {
   user: Person;

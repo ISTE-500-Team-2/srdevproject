@@ -22,6 +22,11 @@ test('member finds grouped equipment, avoids occupied slots and cooldown, and ca
   await screen.findByText('Reservation saved for Rachel.');
   await screen.findByRole('button',{name:/^3D Printer/});
  };
+ const readyToConfirm = async()=>{
+  const button=screen.getByRole('button',{name:'Confirm reservation'}) as HTMLButtonElement;
+  await waitFor(()=>expect(button.disabled).toBe(false));
+  return button;
+ };
  vi.stubGlobal('fetch',async(input:string,init:RequestInit={})=>{
   if(input==='/api/reservations'&&init.method==='POST')creates++;
   return bridge.fetch(input,init);
@@ -36,7 +41,7 @@ test('member finds grouped equipment, avoids occupied slots and cooldown, and ca
  const choose=async(d:Date)=>{await screen.findByLabelText('Start time');pickStart(screen,d);};
  await choose(start);
  await user.selectOptions(screen.getByLabelText('Duration'),'2');
- const form=screen.getByRole('button',{name:'Confirm reservation'}).closest('form')!;
+ const form=(await readyToConfirm()).closest('form')!;
  fireEvent.submit(form);fireEvent.submit(form);
  await finishBooking();
  expect(creates).toBe(1);
@@ -52,7 +57,7 @@ test('member finds grouped equipment, avoids occupied slots and cooldown, and ca
  expect((await bridge.pool.query('SELECT reservationid FROM reservation')).rowCount).toBe(1);
  const end=new Date(start.getTime()+2*3600000);
  await choose(new Date(end.getTime()+30*60000));
- await user.click(screen.getByRole('button',{name:'Confirm reservation'}));
+ await user.click(await readyToConfirm());
  await finishBooking();
  expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('3d print');
  const mine=screen.getByRole('region',{name:'My reservations'});
@@ -63,7 +68,7 @@ test('member finds grouped equipment, avoids occupied slots and cooldown, and ca
  // A booking less than 24h away remains non-cancellable in both UI and API.
  await user.click(screen.getByRole('button',{name:/^3D Printer/}));
  const soon=new Date(Date.now()+2*3600000);soon.setMinutes(0,0,0);await choose(soon);
- await user.click(screen.getByRole('button',{name:'Confirm reservation'}));
+ await user.click(await readyToConfirm());
  await finishBooking();
  await screen.findByText('Online cancellation closes 24 hours before the start time.');
  const soonRow=(await bridge.pool.query("SELECT reservationid FROM reservation WHERE status='confirmed' ORDER BY reservationid DESC LIMIT 1")).rows[0];

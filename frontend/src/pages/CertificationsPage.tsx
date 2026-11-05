@@ -517,6 +517,7 @@ export function CertificationsPage() {
                             : `Version ${item.version}`}
                         </span>
                       </div>
+                      {!item.signed && <p>{item.scope === 'equipment' ? 'Required before booking or using equipment that requires a waiver' : 'Required for facility access and day passes'}</p>}
                       {item.signed ? null : item.expiredSignature ? (
                         <p>Your signature has expired. Review and sign again. Last signed: {item.signedVersion}.</p>
                       ) : item.outdatedSignature ? (

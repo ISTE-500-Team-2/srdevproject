@@ -376,6 +376,7 @@ export class StaffController {
   publishPolicy = async (req: Request, res: Response) => {
     res.status(201).json({
       data: await this.service.publishPolicy(authState(res).user.id, {
+        scope: req.body.scope === undefined ? undefined : oneOf(req.body.scope, ['facility', 'equipment'] as const, 'Policy applicability'),
         name: textField(req.body.name, "Policy name", 100),
         version: textField(req.body.version, "Version", 50),
         description: textField(req.body.description, "Policy text", 16000, 20),

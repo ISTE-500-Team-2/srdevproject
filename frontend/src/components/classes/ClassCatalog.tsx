@@ -11,13 +11,14 @@ import {
   isCancelled,
   isWorkshop,
   monthLabel,
+  registrationPrice,
   seatsLeft,
   timeRange,
   WORKSHOP_LABEL,
   type ClassRecord,
   type WorkshopTemplate,
 } from "./classData";
-import { shortDate } from "../../lib/display";
+import { cents, shortDate } from "../../lib/display";
 
 export type Eligibility = "eligible" | "ineligible" | "unknown";
 
@@ -301,6 +302,7 @@ function ClassRow({
   const full = seatsLeft(c) === 0;
   const holds = c.certificationId !== null && certified.has(c.certificationId);
   const busy = busyId === c.id;
+  const price = registrationPrice(c, holds);
   return (
     <li className={`class-row${registered && !cancelled ? " class-row--mine" : ""}${cancelled ? " class-row--cancelled" : ""}`}>
       <DateRail value={c.startsAt} faded={cancelled} />
@@ -345,6 +347,9 @@ function ClassRow({
             </span>
           )}
         </p>
+        {!registered && <small>{price.trainingFee === null ? 'Training fee not configured'
+          : `${cents(price.trainingFee)} total for training; no extra course fee`}</small>}
+        {!registered && (c.trainingFeeCovered ?? holds) && <small>Training fee already covered</small>}
       </div>
       {cancelled ? (
         <p className="class-row__cancelled">The shop cancelled this class.</p>
@@ -368,7 +373,7 @@ function ClassRow({
               <button
                 type="button"
                 className={`button ${holds ? "button--quiet" : "button--primary"}`}
-                disabled={busy}
+                disabled={busy || price.trainingFee === null}
                 aria-label={`Register for ${c.title}`}
                 onClick={() => onRegister(c)}
               >

@@ -5,6 +5,7 @@ import { api, errorMessage } from '../../lib/api';
 import { useApi } from '../../lib/useApi';
 import { Modal } from '../../components/Modal';
 import { LoadState } from '../../components/Management';
+import { EquipmentPriceBreakdown } from '../../components/EquipmentPriceBreakdown';
 import type { Page } from '../../lib/staffContracts';
 import { zonedDay } from '../../lib/display';
 import { equipmentRate, equipmentTime, maintenanceReasons, type EquipmentDetail, type EquipmentBooking, type ManagedEquipment, type MoveReview } from '../../lib/equipmentMaintenance';
@@ -91,7 +92,7 @@ function BookingAction({ machine, booking, action, onClose, onChanged }: { machi
     try {
       const operation = action === 'cancel' ? 'cancel' : confirm ? 'move' : 'review-move';
       const result = await api<MoveReview>(`/admin/equipment/${machine.id}/bookings/${booking.id}/${operation}`, { method: 'POST', body: {
-        expectedRevision: booking.revision, ...(action === 'move' ? { equipmentId: Number(target), ...(confirm ? { expectedRate: review?.rate } : {}) } : {}),
+        expectedRevision: booking.revision, ...(action === 'move' ? { equipmentId: Number(target), ...(confirm ? { expectedRate: review?.rate, expectedPrice: review?.priceSnapshot } : {}) } : {}),
       } });
       if (operation === 'review-move') setReview(result);
       else { onClose(); onChanged(`Booking ${action === 'cancel' ? 'cancelled' : 'moved'}. Confirmation follows the member’s email preferences.`); }
@@ -106,6 +107,7 @@ function BookingAction({ machine, booking, action, onClose, onChanged }: { machi
         <p className="eq-muted">The member and booking time stay the same. Eligibility and availability are checked before you confirm.</p>
         {review && <div className="eq-move-review" role="status"><h3>Move to {review.equipmentName}</h3><p><Check aria-hidden="true" /> Membership, certification and waivers checked</p><p><Check aria-hidden="true" /> Full time slot and 15-minute gap available</p><p><strong>{equipmentRate(review.oldRate)} → {equipmentRate(review.rate)}</strong></p><p>No payment is collected by this change. All checks run again when you confirm.</p><p>An updated confirmation follows the member’s email preferences.</p></div>}
       </>}
+      {review && <EquipmentPriceBreakdown price={review.priceSnapshot} />}
       {error && <p className="form-error" role="alert">{error}</p>}
       <div className="eq-actions"><button className="button button--quiet" disabled={busy} onClick={requestClose}>Keep booking</button>
         <button className="button button--primary" disabled={busy || (action === 'move' && !target)} onClick={() => void perform(action === 'cancel' || !!review)}>{busy ? 'Checking…' : action === 'cancel' ? 'Confirm cancellation' : review ? 'Confirm move' : 'Review move'}</button></div>

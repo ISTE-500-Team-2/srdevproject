@@ -42,7 +42,10 @@ test('workshops do not falsely grant equipment certification; 16 concurrent enro
   await pool.query(`INSERT INTO user_membership(userid,tierid,startdate,end_date,status) VALUES($1,1,(now()-interval '1 day') AT TIME ZONE 'UTC',(now()+interval '30 days') AT TIME ZONE 'UTC','active')`,[id]);
   const login=await request(server).post('/api/auth/login').send({email,password});assert.equal(login.status,200);sessions.push(login.body.data);
  }
+ const paymentsBefore=(await pool.query('SELECT count(*)::int n FROM payment')).rows[0].n;
  const results=await Promise.all(sessions.map(who=>post(`/classes/${c.body.data.id}/enroll`,{},who)));
+ assert.ok(results.filter(r=>r.status===200).every(r=>r.body.data.training_fee_cents===0&&r.body.data.payment_id===null));
+ assert.equal((await pool.query('SELECT count(*)::int n FROM payment')).rows[0].n,paymentsBefore);
  assert.equal(results.filter(r=>r.status===200).length,15);assert.equal(results.filter(r=>r.status===409).length,1);
  assert.equal((await pool.query('SELECT count(*)::int n FROM app_training_enrollment WHERE class_id=$1',[c.body.data.id])).rows[0].n,15);
  assert.equal((await pool.query('SELECT count(*)::int n FROM user_certifications')).rows[0].n,0);
@@ -76,5 +79,7 @@ test('catalog cleanup is preview-first, idempotent, hides only obsolete entries 
  assert.ok(publicList.body.data.every((r:any)=>r.id!==welded&&r.id!==cnc));
  assert.equal((await pool.query("SELECT count(*)::int n FROM equipment WHERE name=ANY($1::text[]) AND certid IS NOT NULL",[['Joey','Ross','Chandler','Kirk','Spock']])).rows[0].n,5);
  assert.equal((await pool.query('SELECT count(*)::int n FROM app_training_requirement WHERE duration_minutes=60 AND fee_cents=2000')).rows[0].n,3);
+ const configured=await request(server).get('/api/training/catalog').set('Authorization','Bearer '+admin.accessToken);
+ assert.ok(configured.body.data.filter((c:any)=>['CNC Training','Metal Lathe Training','Wood Lathe Training'].includes(c.name)).every((c:any)=>c.trainingFeeCents===2000&&c.trainingMinutes===60));
  assert.ok((await pool.query("SELECT validity_days FROM certifications WHERE name IN ('CNC Training','Metal Lathe Training','Wood Lathe Training')")).rows.every(r=>r.validity_days===null),'No expiry policy was invented');
 });
