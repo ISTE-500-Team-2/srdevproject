@@ -206,6 +206,7 @@ class LocalGateTests(unittest.TestCase):
                 self.assertFalse(gate.ready(BASE))
                 baseline.return_value = False
                 self.assertFalse(gate.ready(SHA))
+                self.assertTrue(gate.validate_evidence(SHA), 'Local proof alone is not public promotion permission')
                 baseline.return_value = True
                 with patch.object(local.ops, 'output', return_value='dirty'):
                     self.assertFalse(gate.ready(SHA))
