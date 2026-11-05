@@ -271,9 +271,13 @@ def main():
     parser.add_argument('--prepare', action='store_true')
     parser.add_argument('--accept-evidence', action='store_true')
     parser.add_argument('--abort-prewarm', action='store_true')
+    parser.add_argument('--local-github', action='store_true', help='Read fresh CI status through owner-local gh over private SSH')
     parser.add_argument('--rehearse', action='store_true', help='Validate gates without changing running apps')
     parser.add_argument('--redeploy', action='store_true', help='Owner benchmark of the already-live revision')
     args = parser.parse_args()
+    if args.local_github:
+        from local_github_api import read_local_status
+        ops.api = read_local_status  # This invocation only; no credentials or GitHub status changes.
     os.umask(0o077)
     root, sha = args.root, args.sha
     if args.accept_evidence:

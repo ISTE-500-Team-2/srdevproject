@@ -15,6 +15,7 @@ import tempfile
 import time
 
 from local_frontend_release import COMMANDS, revision
+from local_github_api import github_bridge
 
 SERVER_SCRIPT = '/srv/arbor-full/auto-deploy/local-frontend-tools/local_frontend_release.py'
 
@@ -30,6 +31,8 @@ def pristine(source):
 
 
 def remote(host, *args):
+    if args[:2] == ('python3', SERVER_SCRIPT):
+        args = (*args, '--local-github')
     return ['ssh', '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', host,
             shlex.join(args)]
 
@@ -74,7 +77,7 @@ def main():
     evidence.mkdir(mode=0o700, parents=True, exist_ok=True)
     evidence.chmod(0o700)
     print('Protected verification logs:', evidence, flush=True)
-    with nullcontext(str(evidence)) as temporary, cleanup_failed_check(args.host, sha):
+    with github_bridge(args.host), nullcontext(str(evidence)) as temporary, cleanup_failed_check(args.host, sha):
         directory = Path(temporary)
         def lane(name, command):
             stamp = time.monotonic()
