@@ -148,7 +148,7 @@ test('move preview is read-only; confirmation rechecks the rate, slot and revisi
   assert.equal((await post(base + '/move', { ...input, expectedRate: 20 })).body.error.code, 'RESERVATION_CONFLICT');
   await pool.query("UPDATE reservation SET status='cancelled' WHERE reservationid=$1", [conflict.id]);
   const moved = await post(base + '/move', { ...input, expectedRate: 20 });
-  assert.equal(moved.status, 200, JSON.stringify(moved.body)); assert.equal(moved.body.data.equipmentId, target);
+  assert.equal(moved.status, 200, `Move failed: ${JSON.stringify(moved.body)}`); assert.equal(moved.body.data.equipmentId, target);
   assert.equal((await notifications(b.id)).length, 1);
   assert.equal((await post(base + '/cancel', { expectedRevision: b.revision })).body.error.code, 'STALE_RECORD');
   assert.equal((await notifications(b.id)).length, 1);

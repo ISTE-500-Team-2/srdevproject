@@ -215,7 +215,8 @@ export class ReservationModel {
   async cancelAny(id: number) {
     const before = await this.find(id, true);
     if (!before || !['confirmed', 'pending'].includes(before.status)) return null;
-    if (before.paymentStatus === 'pending') throw new AppError(409, 'PAYMENT_WORKFLOW_REQUIRED', 'Cancel the pending Stripe checkout before cancelling this reservation.');
+    if (before.paymentStatus === 'pending' && before.payerId != null)
+      throw new AppError(409, 'PAYMENT_WORKFLOW_REQUIRED', 'Cancel the pending Stripe checkout before cancelling this reservation.');
     await this.db.query(
       `UPDATE reservation SET status='cancelled',statusdesc='Cancelled by staff' WHERE reservationid=$1`,
       [id],

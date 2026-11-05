@@ -60,8 +60,8 @@ before(async () => {
   member = (await request(app).post('/api/auth/demo').send({ role: 'member' })).body.data;
   admin = (await request(app).post('/api/auth/demo').send({ role: 'admin' })).body.data;
   day = (await pool.query("SELECT tierid AS id FROM membership_tiers WHERE kind='day_pass' AND active LIMIT 1")).rows[0];
-  machine = (await pool.query("INSERT INTO equipment(name,status,waiverrequired) VALUES('Scoped test machine','available',true) RETURNING equipmentid")).rows[0].equipmentid;
-  ordinaryMachine = (await pool.query("INSERT INTO equipment(name,status,waiverrequired) VALUES('Ordinary test machine','available',false) RETURNING equipmentid")).rows[0].equipmentid;
+  machine = (await pool.query("INSERT INTO equipment(name,status,hourlyrate,waiverrequired) VALUES('Scoped test machine','available',0,true) RETURNING equipmentid")).rows[0].equipmentid;
+  ordinaryMachine = (await pool.query("INSERT INTO equipment(name,status,hourlyrate,waiverrequired) VALUES('Ordinary test machine','available',0,false) RETURNING equipmentid")).rows[0].equipmentid;
   room = (await pool.query("INSERT INTO room(name,location,status) VALUES('Scoped test room','Test','available') RETURNING roomid")).rows[0].roomid;
 });
 beforeEach(async () => {

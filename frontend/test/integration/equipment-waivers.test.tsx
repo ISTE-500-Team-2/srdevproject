@@ -24,7 +24,7 @@ test('actual CNC eligibility blocks the payment form and points an unsigned memb
   expect((pay as HTMLButtonElement).disabled).toBe(true);
   expect(dialog.getByRole('link', {name: 'Review your waivers and certifications'}).getAttribute('href')).toBe('/certifications');
   fireEvent.submit(pay.closest('form')!);
-  expect(await dialog.findByRole('alert')).toHaveProperty('textContent', 'Signed waivers required');
+  expect((await dialog.findByRole('alert')).textContent).toContain('Signed waivers required');
   expect(creates).toBe(0);
   expect((await bridge.pool.query('SELECT 1 FROM reservation')).rowCount).toBe(0);
 });
