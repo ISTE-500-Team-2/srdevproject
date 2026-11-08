@@ -1,3 +1,5 @@
+import { matchPath } from 'react-router-dom';
+
 type Place = { pathname: string; search: string; hash: string };
 
 /**
@@ -13,7 +15,15 @@ export function safeNext(raw: string | null | undefined): string | null {
   } catch {
     return null;
   }
-  if (url.origin !== window.location.origin || url.pathname === '/login') return null;
+  if (url.origin !== window.location.origin) return null;
+  // Match the way the router will: decoded, any case, optional trailing slash.
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(url.pathname);
+  } catch {
+    return null;
+  }
+  if (matchPath('/login', decoded)) return null;
   return url.pathname + url.search + url.hash;
 }
 

@@ -96,6 +96,10 @@ test('server failure hides protected content and permits retry, not a false logi
   unavailable=true;mount();await screen.findByRole('alert');expect(screen.queryByText('Private profile')).toBeNull();
   unavailable=false;fireEvent.click(screen.getByText('Retry'));await screen.findByText('Private profile');
 });
+test('a member sent to the staff workspace sees a titled access-denied page',async()=>{
+  document.title='Login · The Collaboratory';mount('/admin');await screen.findByText('Access denied');
+  await waitFor(()=>expect(document.title).toBe('Access denied · The Collaboratory'));
+});
 test('logout removes protected content',async()=>{
   mount();await screen.findByText('Private profile');fireEvent.click(screen.getByText('Log out'));
   await screen.findByText('Sign in');expect(screen.queryByText('Private profile')).toBeNull();
