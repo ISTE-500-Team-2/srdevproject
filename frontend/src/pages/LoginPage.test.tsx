@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, beforeAll, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, useLocation } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { ApiError } from '../lib/api';
 import { LoginPage } from './LoginPage';
 
-const auth = vi.hoisted(() => ({ register: vi.fn(), loading: false }));
+const auth = vi.hoisted(() => ({ register: vi.fn(), login: vi.fn(), loading: false }));
 vi.mock('../context/AuthContext', () => ({
   useAuth: () => ({
-    login: vi.fn(),
+    login: auth.login,
     loginAs: vi.fn(),
     register: auth.register,
     demoLogin: false,
@@ -107,4 +108,86 @@ test.each([' member@example.invalid ', 'invalid-email'])('Forgot password routes
     path: '/reset-password', ...(email.includes('@') ? { email: email.trim() } : {}),
   });
   expect(screen.queryByRole('dialog', { name: 'Reset your password' })).toBeNull();
+});
+
+function signIn(path = '/login') {
+  render(
+    <MemoryRouter initialEntries={[path]}>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="*" element={<Landed />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+function Landed() {
+  const { pathname, search } = useLocation();
+  return <p>Landed on {pathname + search}</p>;
+}
+const emailField = () => screen.getByPlaceholderText('Enter your email…');
+const passwordField = () => screen.getByPlaceholderText('Enter your password…');
+const submit = () => fireEvent.click(screen.getByRole('button', { name: 'Login' }));
+
+test('Remember me starts unchecked for shared computers', () => {
+  signIn();
+  expect(screen.getByRole('checkbox', { name: 'Remember me' }).getAttribute('aria-checked')).toBe('false');
+});
+
+test('signing in returns to the page that required it', async () => {
+  auth.login.mockResolvedValue('member');
+  signIn('/login?next=%2Fmembership%3Fplan%3D2');
+  type(emailField(), 'casey@example.invalid');
+  type(passwordField(), 'ValidPassword!');
+  submit();
+  await screen.findByText('Landed on /membership?plan=2');
+  expect(auth.login).toHaveBeenCalledWith('casey@example.invalid', 'ValidPassword!', false);
+});
+
+test('a next link to another site lands on home instead', async () => {
+  auth.login.mockResolvedValue('member');
+  signIn('/login?next=%2F%2Fevil.example%2Fphish');
+  type(emailField(), 'casey@example.invalid');
+  type(passwordField(), 'ValidPassword!');
+  submit();
+  await screen.findByText('Landed on /');
+});
+
+test('missing fields are marked invalid, described by the error, and focused', () => {
+  signIn();
+  submit();
+  const alert = screen.getByRole('alert');
+  expect(alert.id).toBe('login-error');
+  expect(emailField().getAttribute('aria-invalid')).toBe('true');
+  expect(emailField().getAttribute('aria-describedby')).toBe('login-error');
+  expect(passwordField().getAttribute('aria-invalid')).toBe('true');
+  expect(document.activeElement).toBe(emailField());
+  type(emailField(), 'casey@example.invalid');
+  expect(emailField().getAttribute('aria-invalid')).toBeNull();
+  submit();
+  expect(document.activeElement).toBe(passwordField());
+  expect(emailField().getAttribute('aria-invalid')).toBeNull();
+  expect(auth.login).not.toHaveBeenCalled();
+});
+
+test('wrong credentials mark both fields and move focus to the password', async () => {
+  auth.login.mockRejectedValue(new ApiError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect.'));
+  signIn();
+  type(emailField(), 'casey@example.invalid');
+  type(passwordField(), 'wrong');
+  submit();
+  await screen.findByText('Email or password is incorrect.');
+  expect(emailField().getAttribute('aria-invalid')).toBe('true');
+  expect(passwordField().getAttribute('aria-describedby')).toBe('login-error');
+  await waitFor(() => expect(document.activeElement).toBe(passwordField()));
+});
+
+test('errors that are not about the fields leave them unmarked', async () => {
+  auth.login.mockRejectedValue(new ApiError(429, 'RATE_LIMITED', 'Too many attempts. Try again later.'));
+  signIn();
+  type(emailField(), 'casey@example.invalid');
+  type(passwordField(), 'whatever');
+  submit();
+  await screen.findByText('Too many attempts. Try again later.');
+  expect(emailField().getAttribute('aria-invalid')).toBeNull();
+  expect(passwordField().getAttribute('aria-invalid')).toBeNull();
 });

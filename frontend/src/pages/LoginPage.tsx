@@ -1,13 +1,14 @@
 import { Eye, EyeOff, LockKeyhole, Mail } from 'lucide-react';
 import { type ChangeEvent, type CSSProperties, type FormEvent, type KeyboardEvent, lazy, Suspense, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Modal } from '../components/Modal';
 import ClickSpark from '../components/reactbits/ClickSpark';
 import SpringCheck from '../components/reactbits/SpringCheck';
 import Stepper, { Step } from '../components/reactbits/Stepper';
 import { useAuth } from '../context/AuthContext';
 import type { UserRole } from '../types';
-import { errorMessage } from '../lib/api';
+import { ApiError, errorMessage } from '../lib/api';
+import { safeNext } from '../lib/returnPath';
 
 const SplitText = lazy(() => import('../components/reactbits/SplitText'));
 
@@ -47,9 +48,17 @@ const stepForError = (message: string) =>
 export function LoginPage() {
   const { login, loginAs, register, demoLogin, loading } = useAuth();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  // After signing in, open the page that sent the user here (see RequireUser).
+  const destination = safeNext(params.get('next')) ?? '/';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [remember, setRemember] = useState(true);
+  // Off by default: members often sign in on shared makerspace computers.
+  const [remember, setRemember] = useState(false);
+  // Fields the current login error is about; drives aria-invalid and focus.
+  const [invalid, setInvalid] = useState<{ email?: boolean; password?: boolean }>({});
+  const emailInput = useRef<HTMLInputElement>(null);
+  const passwordInput = useRef<HTMLInputElement>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [dialog, setDialog] = useState<'signup' | null>(null);
@@ -77,7 +86,7 @@ export function LoginPage() {
     setError('');
     try {
       await loginAs(role);
-      navigate('/');
+      navigate(destination, { replace: true });
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -87,17 +96,26 @@ export function LoginPage() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!email.trim() || !password.trim()) {
+    const missing = { email: !email.trim(), password: !password.trim() };
+    if (missing.email || missing.password) {
+      setInvalid(missing);
       setError('Enter your email and password to continue.');
+      (missing.email ? emailInput : passwordInput).current?.focus();
       return;
     }
     setError('');
+    setInvalid({});
     setBusy(true);
     try {
       await login(email, password, remember);
-      navigate('/');
+      navigate(destination, { replace: true });
     } catch (err) {
       setError(errorMessage(err));
+      // Wrong credentials can't say which field was wrong; mark both, retry the password.
+      if (err instanceof ApiError && err.code === 'INVALID_CREDENTIALS') {
+        setInvalid({ email: true, password: true });
+        passwordInput.current?.focus();
+      }
     } finally {
       setBusy(false);
     }
@@ -187,8 +205,14 @@ export function LoginPage() {
               <span className="form-field__control">
                 <Mail aria-hidden="true" />
                 <input
+                  ref={emailInput}
                   value={email}
-                  onChange={(event) => setEmail(event.target.value)}
+                  onChange={(event) => {
+                    setEmail(event.target.value);
+                    setInvalid((current) => ({ ...current, email: false }));
+                  }}
+                  aria-invalid={invalid.email || undefined}
+                  aria-describedby={invalid.email && error ? 'login-error' : undefined}
                   autoComplete="email"
                   type="email"
                   autoCapitalize="none"
@@ -203,8 +227,14 @@ export function LoginPage() {
               <span className="form-field__control">
                 <LockKeyhole aria-hidden="true" />
                 <input
+                  ref={passwordInput}
                   value={password}
-                  onChange={(event) => setPassword(event.target.value)}
+                  onChange={(event) => {
+                    setPassword(event.target.value);
+                    setInvalid((current) => ({ ...current, password: false }));
+                  }}
+                  aria-invalid={invalid.password || undefined}
+                  aria-describedby={invalid.password && error ? 'login-error' : undefined}
                   type={showPassword ? 'text' : 'password'}
                   autoComplete="current-password"
                   placeholder="Enter your password…"
@@ -253,7 +283,7 @@ export function LoginPage() {
             </div>
 
             {error ? (
-              <p className="form-error" role="alert">
+              <p className="form-error" id="login-error" role="alert">
                 {error}
               </p>
             ) : null}

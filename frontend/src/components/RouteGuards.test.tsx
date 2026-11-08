@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
+import { Link, MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { setAccessToken, setCsrfToken } from '../lib/api';
 import { RequireStaff, RequireUser } from './RouteGuards';
@@ -29,13 +29,17 @@ function mount(path='/profile') {
     return Response.json({data:captured});
   }));
   return render(<MemoryRouter initialEntries={[path]}><AuthProvider><Routes>
-    <Route path="/login" element={<h1>Sign in</h1>} />
+    <Route path="/login" element={<><h1>Sign in</h1><Where /></>} />
     <Route path="/confirm-email" element={<h1>Public confirmation</h1>} />
     <Route element={<RequireUser />}>
       <Route path="/profile" element={<Protected />} />
       <Route element={<RequireStaff />}><Route path="/admin" element={<h1>Private staff workspace</h1>} /></Route>
     </Route>
   </Routes></AuthProvider></MemoryRouter>);
+}
+function Where() {
+  const { pathname, search } = useLocation();
+  return <output aria-label="Login URL">{pathname + search}</output>;
 }
 function Protected() {
   const {logout}=useAuth();
@@ -48,6 +52,11 @@ test('signed-out deep links never render protected content', async()=>{
   expired=true; mount('/admin');
   await screen.findByText('Sign in');
   expect(screen.queryByText('Private staff workspace')).toBeNull();
+});
+test('the login redirect remembers the page that was asked for', async()=>{
+  expired=true; mount('/admin?tab=members');
+  await screen.findByText('Sign in');
+  expect(screen.getByLabelText('Login URL').textContent).toBe('/login?next=%2Fadmin%3Ftab%3Dmembers');
 });
 test('no private content mounts until session validation finishes',async()=>{
   let release!:()=>void; hold=new Promise(r=>release=r);mount();

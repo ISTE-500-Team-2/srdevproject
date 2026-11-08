@@ -12,6 +12,8 @@ import { ConfirmEmailPage } from './pages/ConfirmEmailPage';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
 import { AuthProvider } from './context/AuthContext';
+import { PageTitle } from './components/PageTitle';
+import type { ReactNode } from 'react';
 import { CertificationsPage } from './pages/CertificationsPage';
 import { ClassesPage } from './pages/ClassesPage';
 import { LoadingPage } from './pages/LoadingPage';
@@ -35,6 +37,9 @@ export function HomeRoute() {
   return <MemberHomePage />;
 }
 
+/** Each page names its browser tab, e.g. "Membership · The Collaboratory". */
+const titled = (title: string, page: ReactNode) => <><PageTitle title={title} />{page}</>;
+
 function LegacyEquipmentRedirect() {
   const { search, hash } = useLocation();
   return <Navigate replace to={{ pathname: '/equipment', search, hash }} />;
@@ -44,34 +49,34 @@ export default function App() {
   return (
     <AuthProvider>
       <Routes>
-        <Route path="/reset-password" element={<ResetPasswordPage />} />
-        <Route path="/confirm-email" element={<ConfirmEmailPage />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/loading" element={<LoadingPage />} />
+        <Route path="/reset-password" element={titled('Reset password', <ResetPasswordPage />)} />
+        <Route path="/confirm-email" element={titled('Confirm email', <ConfirmEmailPage />)} />
+        <Route path="/login" element={titled('Login', <LoginPage />)} />
+        <Route path="/loading" element={titled('Loading', <LoadingPage />)} />
         <Route element={<RequireUser />}>
-          <Route path="checkout-return" element={<CheckoutReturn />} />
+          <Route path="checkout-return" element={titled('Checkout', <CheckoutReturn />)} />
           <Route element={<RequireStaff />}>
             <Route path="admin" element={<AdminShell />}>
-              <Route index element={<AdminIndex />} />
+              <Route index element={titled('Today', <AdminIndex />)} />
               {adminSections.map((section) => (
-                <Route key={section.path} path={section.path === 'equipment' ? 'equipment/:equipmentId?' : section.path} element={<AdminSectionPage section={section} />} />
+                <Route key={section.path} path={section.path === 'equipment' ? 'equipment/:equipmentId?' : section.path} element={titled(section.label, <AdminSectionPage section={section} />)} />
               ))}
               <Route path="*" element={<Navigate replace to="/admin" />} />
             </Route>
           </Route>
           <Route element={<AppShell />}>
-            <Route index element={<HomeRoute />} />
-            <Route path="equipment" element={<EquipmentPage />} />
+            <Route index element={titled('Home', <HomeRoute />)} />
+            <Route path="equipment" element={titled('Equipment', <EquipmentPage />)} />
             <Route path="reservations" element={<LegacyEquipmentRedirect />} />
-            <Route path="studios" element={<StudiosPage />} />
-            <Route path="certifications" element={<CertificationsPage />} />
-            <Route path="classes" element={<ClassesPage />} />
-            <Route path="training" element={<TrainingPage />} />
-            <Route path="profile" element={<ProfilePage />} />
-            <Route path="membership" element={<CheckoutReturn><MembershipPage /></CheckoutReturn>} />
+            <Route path="studios" element={titled('Studios', <StudiosPage />)} />
+            <Route path="certifications" element={titled('Certifications', <CertificationsPage />)} />
+            <Route path="classes" element={titled('Classes', <ClassesPage />)} />
+            <Route path="training" element={titled('Training', <TrainingPage />)} />
+            <Route path="profile" element={titled('Profile', <ProfilePage />)} />
+            <Route path="membership" element={titled('Membership', <CheckoutReturn><MembershipPage /></CheckoutReturn>)} />
           </Route>
         </Route>
-        <Route path="*" element={<NotFoundPage />} />
+        <Route path="*" element={titled('Page not found', <NotFoundPage />)} />
       </Routes>
     </AuthProvider>
   );

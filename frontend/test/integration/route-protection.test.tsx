@@ -48,3 +48,11 @@ test('profile save still displays its success popup after refreshing the session
   fireEvent.focus(window);
   expect(await screen.findByText('Changes saved.')).toBeTruthy();
 });
+
+test('a signed-out deep link survives login and names the tab after the page', async () => {
+  mount('/membership');
+  fireEvent.click(await screen.findByRole('button', { name: 'Member demo' }));
+  await screen.findByRole('heading', { name: 'Membership & passes' });
+  await waitFor(() => expect(document.title).toBe('Membership · The Collaboratory'));
+  expect(screen.queryByLabelText('Password')).toBeNull();
+});

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { loginPath } from '../lib/returnPath';
 
 /** Revalidate before mounting protected content on each navigation or tab return. */
 export function RequireUser() {
@@ -34,7 +35,8 @@ export function RequireUser() {
   if (error)
     return <main className="page-shell"><p role="alert">{error}</p>
       <button className="button" onClick={() => void refresh(true)}>Retry</button></main>;
-  return user ? <Outlet /> : <Navigate to="/login" replace />;
+  // Remember the requested page so signing in lands there, not on home.
+  return user ? <Outlet /> : <Navigate to={loginPath(location)} replace />;
 }
 
 export const isWorkspaceUser = (user: { roles: string[] } | null | undefined) =>
