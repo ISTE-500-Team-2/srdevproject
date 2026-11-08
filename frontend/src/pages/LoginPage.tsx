@@ -1,5 +1,5 @@
 import { Eye, EyeOff, LockKeyhole, Mail } from 'lucide-react';
-import { type ChangeEvent, type CSSProperties, type FormEvent, type KeyboardEvent, lazy, Suspense, useRef, useState } from 'react';
+import { type ChangeEvent, type CSSProperties, type FormEvent, type KeyboardEvent, lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Modal } from '../components/Modal';
 import ClickSpark from '../components/reactbits/ClickSpark';
@@ -59,6 +59,12 @@ export function LoginPage() {
   const [invalid, setInvalid] = useState<{ email?: boolean; password?: boolean }>({});
   const emailInput = useRef<HTMLInputElement>(null);
   const passwordInput = useRef<HTMLInputElement>(null);
+  // Focus after the render that adds aria-invalid, so screen readers announce it.
+  // A fresh object per request, so asking for the same field twice still refocuses.
+  const [focusRequest, setFocusRequest] = useState<{ field: 'email' | 'password' } | null>(null);
+  useEffect(() => {
+    if (focusRequest) (focusRequest.field === 'email' ? emailInput : passwordInput).current?.focus();
+  }, [focusRequest]);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [dialog, setDialog] = useState<'signup' | null>(null);
@@ -100,7 +106,7 @@ export function LoginPage() {
     if (missing.email || missing.password) {
       setInvalid(missing);
       setError('Enter your email and password to continue.');
-      (missing.email ? emailInput : passwordInput).current?.focus();
+      setFocusRequest({ field: missing.email ? 'email' : 'password' });
       return;
     }
     setError('');
@@ -114,7 +120,7 @@ export function LoginPage() {
       // Wrong credentials can't say which field was wrong; mark both, retry the password.
       if (err instanceof ApiError && err.code === 'INVALID_CREDENTIALS') {
         setInvalid({ email: true, password: true });
-        passwordInput.current?.focus();
+        setFocusRequest({ field: 'password' });
       }
     } finally {
       setBusy(false);

@@ -1,6 +1,7 @@
 import { Cog } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { safeNext } from '../lib/returnPath';
 
 export function LoadingPage() {
   const [progress, setProgress] = useState(0);
@@ -8,7 +9,8 @@ export function LoadingPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const next = params.get('next') || '/';
+    // Same rule as the login page: only pages on this site.
+    const next = safeNext(params.get('next')) ?? '/';
     const started = performance.now();
     const duration = 1350;
     const interval = window.setInterval(() => {

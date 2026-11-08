@@ -14,6 +14,7 @@ test.each([
   null, '', 'membership', '//evil.example', '/\\evil.example', '/\t/evil.example',
   'https://evil.example/', 'javascript:alert(1)', '/login', '/login?next=%2Fmembership',
   '/LOGIN', '/login/', '/%6cogin', '/Login//', '/bad%E0%A4%A', '/.//login', '/.//evil.example/x', '/a/..//b',
+  '/loading?next=%2F%2Fevil.example', '/Loading', '/confirm-email#token', '/reset-password?token=x', '/reset-password/',
 ])('refuses %j, which could leave the site or loop back to login', (raw) => {
   expect(safeNext(raw)).toBeNull();
 });

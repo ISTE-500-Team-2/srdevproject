@@ -64,7 +64,13 @@ test('signing out from a page leaves a plain login link for the next person', as
   await screen.findByRole('heading', { name: 'Membership & passes' });
   fireEvent.click(screen.getByRole('button', { name: 'Open account menu' }));
   fireEvent.click(await screen.findByRole('button', { name: /Sign out/ }));
-  await screen.findByLabelText('Password');
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  expect(window.location.pathname + window.location.search).toBe('/login');
+  try {
+    await screen.findByLabelText('Password');
+    await waitFor(() => expect(window.location.pathname + window.location.search).toBe('/login'));
+    // The bug was a later redirect overwriting /login with ?next=, so it must also stay put.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(window.location.pathname + window.location.search).toBe('/login');
+  } finally {
+    window.history.replaceState(null, '', '/');
+  }
 });

@@ -152,19 +152,23 @@ test('a next link to another site lands on home instead', async () => {
   await screen.findByText('Landed on /');
 });
 
-test('missing fields are marked invalid, described by the error, and focused', () => {
+test('missing fields are marked invalid, described by the error, and focused', async () => {
   signIn();
+  // What a screen reader reads on focus: the field must already be marked invalid.
+  const atFocus: (string | null)[] = [];
+  emailField().addEventListener('focus', () => atFocus.push(emailField().getAttribute('aria-invalid')));
   submit();
+  await waitFor(() => expect(document.activeElement).toBe(emailField()));
+  expect(atFocus).toEqual(['true']);
   const alert = screen.getByRole('alert');
   expect(alert.id).toBe('login-error');
   expect(emailField().getAttribute('aria-invalid')).toBe('true');
   expect(emailField().getAttribute('aria-describedby')).toBe('login-error');
   expect(passwordField().getAttribute('aria-invalid')).toBe('true');
-  expect(document.activeElement).toBe(emailField());
   type(emailField(), 'casey@example.invalid');
   expect(emailField().getAttribute('aria-invalid')).toBeNull();
   submit();
-  expect(document.activeElement).toBe(passwordField());
+  await waitFor(() => expect(document.activeElement).toBe(passwordField()));
   expect(emailField().getAttribute('aria-invalid')).toBeNull();
   expect(auth.login).not.toHaveBeenCalled();
 });
