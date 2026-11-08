@@ -87,9 +87,11 @@ export class AuthController {
   }
   csrf = async (req: Request,res: Response) => {
     res.set('Cache-Control','no-store');
-    const csrfToken = await new SessionModel(this.pool,this.config.jwtKey).refreshCsrf(refreshToken(req));
-    if (!csrfToken) throw new AppError(401,'UNAUTHENTICATED','Sign in to continue.');
-    res.json({data:{csrfToken}});
+    // Signed out is an ordinary answer here, not an error: the app asks on every
+    // visit, and a 401 would log a console error for each signed-out page load.
+    const token = refreshToken(req);
+    const csrfToken = token ? await new SessionModel(this.pool,this.config.jwtKey).refreshCsrf(token) : undefined;
+    res.json({data:{csrfToken:csrfToken ?? null}});
   };
   refresh = async (req: Request,res: Response) => {
     const session = await transaction(this.pool,db => new SessionModel(db,this.config.jwtKey,this.config.accessTokenSeconds,this.config.refreshTokenSeconds,this.config.timeZone).rotate(refreshToken(req),req.get('X-CSRF-Token') ?? ''));

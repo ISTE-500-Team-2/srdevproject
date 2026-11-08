@@ -3,7 +3,7 @@ import type { Database } from '../db.js';
 import { timingSafeEqual } from 'node:crypto';
 import { UserModel } from './UserModel.js';
 import { AppError } from '../domain.js';
-import { JwtTokens, rememberedLifetimeSeconds } from '../jwt.js';
+import { browserSessionLifetimeSeconds, JwtTokens, rememberedLifetimeSeconds } from '../jwt.js';
 
 export const tokenHash = (token: string): string =>
   createHash('sha256').update(token).digest('hex');
@@ -18,7 +18,9 @@ export class SessionModel {
     await this.db.query('DELETE FROM app_session WHERE expires_at<=NOW()');
     await this.db.query('DELETE FROM app_refresh_family WHERE expires_at<=NOW()');
     const familyId = randomUUID(), csrfToken = randomBytes(32).toString('hex');
-    await this.db.query(`INSERT INTO app_refresh_family(id,userid,csrf_token,expires_at,persistent) VALUES($1,$2,$3,NOW()+$4*INTERVAL '1 second',$5)`, [familyId,userId,csrfToken,this.refreshSeconds,remember]);
+    // Shared makerspace computers: without Remember me, sign-in ends within hours even if the browser restores its session cookies.
+    const lifetime = remember ? this.refreshSeconds : Math.min(this.refreshSeconds, browserSessionLifetimeSeconds);
+    await this.db.query(`INSERT INTO app_refresh_family(id,userid,csrf_token,expires_at,persistent) VALUES($1,$2,$3,NOW()+$4*INTERVAL '1 second',$5)`, [familyId,userId,csrfToken,lifetime,remember]);
     return this.issue(userId, familyId, csrfToken, remember);
   }
   private async issue(userId: number, familyId: string, csrfToken: string, persistent: boolean) {

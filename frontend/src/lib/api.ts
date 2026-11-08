@@ -91,7 +91,9 @@ async function renew(): Promise<void> {
   refreshing = (async () => {
     try {
       // Read CSRF via same-origin response; refresh credentials remain HttpOnly.
-      const session = await api<{csrfToken:string}>('/auth/csrf');
+      const session = await api<{csrfToken:string|null}>('/auth/csrf');
+      // No refresh session: signed out. Skip the refresh call that could only fail.
+      if (!session.csrfToken) throw new ApiError(401, 'UNAUTHENTICATED', 'Sign in to continue.');
       csrfToken = session.csrfToken;
       await api('/auth/refresh', {method:'POST'});
     } catch (error) {

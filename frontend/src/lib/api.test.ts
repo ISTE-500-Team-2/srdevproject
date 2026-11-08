@@ -12,3 +12,15 @@ test.each(['/auth/password-reset', '/auth/password-reset/check', '/auth/password
     expect(fetch).toHaveBeenCalledWith(`/api${path}`, expect.objectContaining({ method: 'POST' }));
   },
 );
+
+test('a signed-out visit stops at the CSRF lookup instead of calling refresh', async () => {
+  const fetch = vi.fn(async (url: string) =>
+    url === '/api/auth/csrf' ? Response.json({ data: { csrfToken: null } }) : Response.json({}, { status: 500 }));
+  vi.stubGlobal('fetch', fetch);
+  const expired = vi.fn();
+  window.addEventListener('session-expired', expired);
+  await expect(api('/auth/session')).rejects.toMatchObject({ status: 401 });
+  window.removeEventListener('session-expired', expired);
+  expect(fetch.mock.calls.map(([url]) => url)).toEqual(['/api/auth/csrf']);
+  expect(expired).toHaveBeenCalledTimes(1);
+});

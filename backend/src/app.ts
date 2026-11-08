@@ -3,7 +3,7 @@ import {readerSetupPoll} from './readerSetup.js';
 import {deviceDecision} from './deviceAccess.js';
 import {studioWebhook} from './studios/routes.js';
 import { auditContext, auditedPool } from './auditContext.js';
-import express, { type ErrorRequestHandler } from 'express';
+import express, { type ErrorRequestHandler, type RequestHandler } from 'express';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import type { Pool } from 'pg';
@@ -11,6 +11,7 @@ import type { AppConfig } from './config.js';
 import { AppError } from './domain.js';
 import { checkOrigin } from './middleware/auth.js';
 import { apiRoutes } from './routes.js';
+import { knownRoutesOnly } from './middleware/knownRoutes.js';
 import { brevoWebhook } from './notifications/webhook.js';
 
 export function createApp(
@@ -41,23 +42,34 @@ export function createApp(
   );
   // Provider callbacks authenticate with their own bearer token, not browser CSRF.
   app.post('/api/webhooks/brevo', brevoWebhook(pool, config.brevoWebhookToken));
+  const api = apiRoutes(pool, config, readers);
+  const apiNotFound: RequestHandler = (_req, _res, next) =>
+    next(new AppError(404, 'NOT_FOUND', 'API endpoint not found.'));
   app.use(
     '/api',
+    knownRoutesOnly(api, apiNotFound),
     express.json({ limit: '96kb' }),
     checkOrigin(config),
-    apiRoutes(pool, config, readers),
+    api,
   );
-  app.use('/api', (_req, _res, next) =>
-    next(new AppError(404, 'NOT_FOUND', 'API endpoint not found.')),
-  );
+  app.use('/api', apiNotFound);
   if (
     frontendDirectory &&
     existsSync(path.join(frontendDirectory, 'index.html'))
   ) {
     app.use(express.static(frontendDirectory, { index: false }));
-    app.get('/{*path}', (_req, res) =>
-      res.sendFile(path.join(frontendDirectory, 'index.html')),
-    );
+    // Only page routes get the app shell. Files (an extension in the last
+    // segment) and dot paths such as /.env are real 404s for crawlers, scanners
+    // and the release edge's previous-asset fallback.
+    app.get('/{*path}', (req, res) => {
+      // Decode the whole path first, so /%2eenv, /missing%2ejs and an encoded slash
+      // hiding a dot segment are judged like their plain forms. Malformed escapes
+      // never get here: Express fails to decode them and onError answers 400.
+      const segments = decodeURIComponent(req.path).split('/');
+      if (segments.some((s) => s.startsWith('.')) || segments.at(-1)!.includes('.'))
+        return res.status(404).type('text/plain').send('Not found');
+      res.sendFile(path.join(frontendDirectory, 'index.html'));
+    });
   }
   const onError: ErrorRequestHandler = (error, _req, res, _next) => {
     if (error instanceof AppError) {
@@ -93,6 +105,14 @@ export function createApp(
               : 'That resource is already reserved for part of this time.',
           },
         });
+      return;
+    }
+    // Express could not decode a %-escape in the path (e.g. /api/users/%E0).
+    // That is a bad request, not a server failure worth logging.
+    if (error instanceof URIError && (error as URIError & { status?: number }).status === 400) {
+      res.status(400).json({
+        error: { code: 'INVALID_PATH', message: 'The request path is not valid.' },
+      });
       return;
     }
     if (

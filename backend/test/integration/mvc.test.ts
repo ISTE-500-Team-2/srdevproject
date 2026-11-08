@@ -268,11 +268,12 @@ test('unauthenticated, missing CSRF, cross-origin and malformed writes are rejec
     ).status,
     400,
   );
+  // With demo login off the route is not registered: not found, not signed out.
   const disabled = createApp(pool, { ...config, demoLogin: false });
   assert.equal(
     (await request(disabled).post('/api/auth/demo').send({ role: 'admin' }))
       .status,
-    401,
+    404,
   );
 });
 
