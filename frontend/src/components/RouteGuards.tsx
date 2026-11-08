@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { loginPath } from '../lib/returnPath';
+import { PageTitle } from './PageTitle';
 
 /** Revalidate before mounting protected content on each navigation or tab return. */
 export function RequireUser() {
-  const { user, loading, error, refresh } = useAuth();
+  const { user, loading, error, refresh, signedOut } = useAuth();
   const location = useLocation();
   const [checkedLocation, setCheckedLocation] = useState<object | null>(null);
   useEffect(() => {
@@ -34,7 +36,10 @@ export function RequireUser() {
   if (error)
     return <main className="page-shell"><p role="alert">{error}</p>
       <button className="button" onClick={() => void refresh(true)}>Retry</button></main>;
-  return user ? <Outlet /> : <Navigate to="/login" replace />;
+  // Remember the requested page so signing in lands there, not on home. Not after
+  // a deliberate sign-out: the next person at a shared computer starts fresh.
+  if (user) return <Outlet />;
+  return <Navigate to={signedOut ? '/login' : loginPath(location)} replace />;
 }
 
 export const isWorkspaceUser = (user: { roles: string[] } | null | undefined) =>
@@ -48,6 +53,7 @@ export function RequireStaff() {
   const { user, actor } = useAuth();
   if (isWorkspaceUser(actor ?? user)) return <Outlet />;
   return <section aria-labelledby="access-denied-title">
+    <PageTitle title="Access denied" />
     <h1 id="access-denied-title">Access denied</h1>
     <p>This page is available to staff and administrators only.</p>
     <Link className="button" to="/">Return to home</Link>

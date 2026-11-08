@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { BrowserRouter, MemoryRouter } from 'react-router-dom';
 import App from '../../src/App';
 import { setAccessToken, setCsrfToken } from '../../src/lib/api';
 import { createBrowserBridge } from '../../../backend/test/helpers/browserBridge';
@@ -47,4 +47,30 @@ test('profile save still displays its success popup after refreshing the session
   // A completed background auth refresh must not unmount and erase the popup.
   fireEvent.focus(window);
   expect(await screen.findByText('Changes saved.')).toBeTruthy();
+});
+
+test('a signed-out deep link survives login and names the tab after the page', async () => {
+  mount('/membership');
+  fireEvent.click(await screen.findByRole('button', { name: 'Member demo' }));
+  await screen.findByRole('heading', { name: 'Membership & passes' });
+  await waitFor(() => expect(document.title).toBe('Membership · The Collaboratory'));
+  expect(screen.queryByLabelText('Password')).toBeNull();
+});
+
+test('signing out from a page leaves a plain login link for the next person', async () => {
+  await login('member');
+  window.history.replaceState(null, '', '/membership');
+  render(<BrowserRouter><App /></BrowserRouter>);
+  await screen.findByRole('heading', { name: 'Membership & passes' });
+  fireEvent.click(screen.getByRole('button', { name: 'Open account menu' }));
+  fireEvent.click(await screen.findByRole('button', { name: /Sign out/ }));
+  try {
+    await screen.findByLabelText('Password');
+    await waitFor(() => expect(window.location.pathname + window.location.search).toBe('/login'));
+    // The bug was a later redirect overwriting /login with ?next=, so it must also stay put.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(window.location.pathname + window.location.search).toBe('/login');
+  } finally {
+    window.history.replaceState(null, '', '/');
+  }
 });

@@ -22,6 +22,8 @@ interface AuthContextValue {
   loading: boolean;
   error: string;
   demoLogin: boolean;
+  /** True after an explicit sign-out (until the next sign-in), unlike an expired session. */
+  signedOut: boolean;
   login: (
     email: string,
     password: string,
@@ -44,10 +46,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [demoLogin, setDemoLogin] = useState(false);
+  const [signedOut, setSignedOut] = useState(false);
   const revision = useRef(0);
   const acceptSession = useCallback((session: Session) => {
     revision.current++;
     setLoading(false);
+    setSignedOut(false);
     if (session.accessToken) setAccessToken(session.accessToken);
     setCsrfToken(session.csrfToken);
     setUser(session.user);
@@ -126,6 +130,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoading(false);
     setCsrfToken(null);
         setAccessToken(null);
+    // Same render as clearing the user, so the route guard never sees one without the other.
+    setSignedOut(true);
     setUser(null);
     setActor(null);
     setNotification(null);
@@ -148,6 +154,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       error,
       demoLogin,
+      signedOut,
       login,
       loginAs,
       register,
@@ -165,6 +172,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       error,
       demoLogin,
+      signedOut,
       login,
       loginAs,
       register,
