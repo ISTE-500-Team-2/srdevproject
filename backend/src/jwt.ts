@@ -5,6 +5,8 @@ export const jwtIssuer = 'arbor-collaboratory';
 export const jwtAudience = 'arbor-collaboratory-api';
 export const sessionLifetimeSeconds = 15 * 60;
 export const rememberedLifetimeSeconds = 30 * 24 * 60 * 60;
+/** Server-side limit without Remember me; restored browser tabs must not extend it. */
+export const browserSessionLifetimeSeconds = 12 * 60 * 60;
 
 export class JwtTokens {
   constructor(private key: Uint8Array, private accessSeconds = sessionLifetimeSeconds) {
