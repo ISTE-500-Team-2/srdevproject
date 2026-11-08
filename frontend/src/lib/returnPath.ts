@@ -15,7 +15,8 @@ export function safeNext(raw: string | null | undefined): string | null {
   } catch {
     return null;
   }
-  if (url.origin !== window.location.origin) return null;
+  // Normalizing can turn /.//x into //x, which the router treats as another site.
+  if (url.origin !== window.location.origin || url.pathname.startsWith('//')) return null;
   // Match the way the router will: decoded, any case, optional trailing slash.
   let decoded: string;
   try {
