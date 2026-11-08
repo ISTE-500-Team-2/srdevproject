@@ -62,9 +62,9 @@ export function createApp(
     // segment) and dot paths such as /.env are real 404s for crawlers, scanners
     // and the release edge's previous-asset fallback.
     app.get('/{*path}', (req, res) => {
-      // Decode first so /%2eenv and /missing%2ejs are judged like /.env and /missing.js
-      // (Express has already rejected malformed encodings before this runs).
-      // Decode the whole path so an encoded slash can't hide a dot segment.
+      // Decode the whole path first, so /%2eenv, /missing%2ejs and an encoded slash
+      // hiding a dot segment are judged like their plain forms. Malformed escapes
+      // never get here: Express fails to decode them and onError answers 400.
       const segments = decodeURIComponent(req.path).split('/');
       if (segments.some((s) => s.startsWith('.')) || segments.at(-1)!.includes('.'))
         return res.status(404).type('text/plain').send('Not found');
@@ -105,6 +105,14 @@ export function createApp(
               : 'That resource is already reserved for part of this time.',
           },
         });
+      return;
+    }
+    // Express could not decode a %-escape in the path (e.g. /api/users/%E0).
+    // That is a bad request, not a server failure worth logging.
+    if (error instanceof URIError && (error as URIError & { status?: number }).status === 400) {
+      res.status(400).json({
+        error: { code: 'INVALID_PATH', message: 'The request path is not valid.' },
+      });
       return;
     }
     if (

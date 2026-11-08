@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
@@ -13,6 +13,7 @@ import { cookieName } from '../../src/middleware/auth.js';
 import { apiRoutes } from '../../src/routes.js';
 import { ReaderRegistry } from '../../src/readerRegistry.js';
 import { initializeDemo } from '../../src/scripts/init-demo.js';
+import { repositoryRoot } from '../../src/scripts/migrate.js';
 
 const database = 'arbor_routes_' + randomBytes(6).toString('hex') + '_mvc_test';
 const admin = new Pool({ connectionTimeoutMillis: 5000 });
@@ -76,6 +77,22 @@ test('every registered API route still answers rather than reporting itself miss
   }
 });
 
+test('malformed %-escapes in a path are a 400, not a logged server error', async () => {
+  const logged: unknown[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => { logged.push(args); };
+  try {
+    for (const url of ['/api/admin/users/%E0', '/api/equipment/%E0/quote', '/foo%E0']) {
+      const res = await request(app).get(url);
+      assert.equal(res.status, 400, url);
+      assert.equal(res.body.error.code, 'INVALID_PATH');
+    }
+  } finally {
+    console.error = original;
+  }
+  assert.deepEqual(logged, []);
+});
+
 test('the CSRF lookup answers signed-out visits with null instead of a 401', async () => {
   const anonymous = await request(app).get('/api/auth/csrf');
   assert.equal(anonymous.status, 200);
@@ -91,6 +108,24 @@ test('the CSRF lookup answers signed-out visits with null instead of a 401', asy
   const csrf = await request(app).get('/api/auth/csrf').set('Cookie', cookie);
   assert.equal(csrf.status, 200);
   assert.equal(csrf.body.data.csrfToken, signedIn.body.data.csrfToken);
+});
+
+test('the migration caps sessions created before the 12-hour limit', async () => {
+  const { rows: [user] } = await pool.query(`SELECT userid FROM "user" WHERE email='demo.member@collaboratory.invalid'`);
+  const ids = ['00000000-0000-4000-8000-0000000000a1', '00000000-0000-4000-8000-0000000000a2', '00000000-0000-4000-8000-0000000000a3'];
+  await pool.query(
+    `INSERT INTO app_refresh_family(id,userid,csrf_token,expires_at,persistent) VALUES
+     ($1,$4,'x',NOW()+INTERVAL '29 days',false), ($2,$4,'x',NOW()+INTERVAL '29 days',true), ($3,$4,'x',NOW()+INTERVAL '2 hours',false)`,
+    [...ids, user.userid],
+  );
+  const sql = readFileSync(path.join(repositoryRoot, 'database/migrations/036_browser_session_limit.sql'), 'utf8');
+  await pool.query(sql);
+  const { rows } = await pool.query(
+    `SELECT id, EXTRACT(EPOCH FROM expires_at-NOW())/3600 AS hours FROM app_refresh_family WHERE id = ANY($1::uuid[]) ORDER BY id`, [ids]);
+  assert.ok(Math.abs(rows[0].hours - 12) < 0.1, `old browser session: ${rows[0].hours}h`);
+  assert.ok(rows[1].hours > 24 * 28, 'remembered session untouched');
+  assert.ok(Math.abs(rows[2].hours - 2) < 0.1, 'shorter session not extended');
+  await pool.query('DELETE FROM app_refresh_family WHERE id = ANY($1::uuid[])', [ids]);
 });
 
 test('without Remember me the server-side sign-in ends within hours, not 30 days', async () => {
