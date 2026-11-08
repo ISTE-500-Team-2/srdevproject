@@ -112,7 +112,8 @@ test('only page routes get the app shell; files and dot paths are real 404s', as
     assert.equal(res.status, 200, url);
     assert.match(res.text, /app shell/);
   }
-  for (const url of ['/.env', '/.git/config', '/assets/missing-5678.js', '/assets/app-1234.js.map', '/favicon.ico', '/wp-login.php']) {
+  for (const url of ['/.env', '/.git/config', '/assets/missing-5678.js', '/assets/app-1234.js.map', '/favicon.ico', '/wp-login.php',
+    '/%2eenv', '/%2Egit/config', '/assets/missing%2ejs']) {
     const res = await request(app).get(url);
     assert.equal(res.status, 404, url);
     assert.doesNotMatch(res.text, /app shell/);
