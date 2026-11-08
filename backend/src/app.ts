@@ -62,9 +62,10 @@ export function createApp(
     // segment) and dot paths such as /.env are real 404s for crawlers, scanners
     // and the release edge's previous-asset fallback.
     app.get('/{*path}', (req, res) => {
-      // Decode first so /%2eenv and /missing%2ejs are judged like /.env and /missing.js.
-      // (Express has already rejected malformed encodings before this runs.)
-      const segments = req.path.split('/').map((s) => decodeURIComponent(s));
+      // Decode first so /%2eenv and /missing%2ejs are judged like /.env and /missing.js
+      // (Express has already rejected malformed encodings before this runs).
+      // Decode the whole path so an encoded slash can't hide a dot segment.
+      const segments = decodeURIComponent(req.path).split('/');
       if (segments.some((s) => s.startsWith('.')) || segments.at(-1)!.includes('.'))
         return res.status(404).type('text/plain').send('Not found');
       res.sendFile(path.join(frontendDirectory, 'index.html'));
