@@ -19,6 +19,7 @@ import {
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { errorMessage } from "../lib/api";
+import { AppearanceControl } from "./AppearanceControl";
 import CardNav from "./reactbits/CardNav";
 
 // CardNav renders plain anchors; route them through the router instead.
@@ -29,16 +30,16 @@ const RouterLink = forwardRef<HTMLAnchorElement, AnchorHTMLAttributes<HTMLAnchor
 // The mobile menu in the site palette: paper panel, espresso, brown and
 // orange cards, matching the desktop header.
 const cardNavStyle = {
-  "--cn-panel": "rgba(250, 248, 245, 0.94)",
-  "--cn-solid": "#faf8f5",
-  "--cn-edge": "rgba(92, 73, 62, 0.24)",
-  "--cn-text": "#24150e",
-  "--cn-muted": "#685d57",
-  "--cn-hover": "#f3ece7",
-  "--cn-ring": "#f7961d",
-  "--cn-shadow": "0 4px 12px rgba(36, 16, 6, 0.09)",
-  "--cn-cta": "linear-gradient(135deg, #2b1306, #59300f)",
-  "--cn-cta-ink": "#ffffff",
+  "--cn-panel": "var(--nav-panel)",
+  "--cn-solid": "var(--nav-solid)",
+  "--cn-edge": "var(--nav-edge)",
+  "--cn-text": "var(--nav-text)",
+  "--cn-muted": "var(--nav-muted)",
+  "--cn-hover": "var(--nav-hover)",
+  "--cn-ring": "var(--orange)",
+  "--cn-shadow": "var(--nav-shadow)",
+  "--cn-cta": "var(--nav-cta)",
+  "--cn-cta-ink": "var(--nav-cta-ink)",
   "--cn-logo": "34px",
 } as CSSProperties;
 
@@ -100,8 +101,8 @@ export function Header() {
     {
       label: "Book",
       description: "Reserve time in the shop.",
-      bgColor: "#241006",
-      textColor: "#ffffff",
+      bgColor: "var(--nav-card-1)",
+      textColor: "var(--nav-card-1-ink)",
       links: [
         { label: "Equipment", href: "/equipment" },
         { label: "Studios", href: "/studios" },
@@ -111,8 +112,8 @@ export function Header() {
     {
       label: "Account",
       description: user ? `${user.firstName} ${user.lastName}` : undefined,
-      bgColor: "#59300f",
-      textColor: "#ffffff",
+      bgColor: "var(--nav-card-2)",
+      textColor: "var(--nav-card-2-ink)",
       links: [
         { label: "Home", href: "/" },
         { label: "Membership", href: "/membership" },
@@ -122,8 +123,8 @@ export function Header() {
     },
     {
       label: hasStaffWorkspace ? "Staff" : "Session",
-      bgColor: "#ffdba5",
-      textColor: "#241006",
+      bgColor: "var(--nav-card-3)",
+      textColor: "var(--nav-card-3-ink)",
       links: [
         ...(hasStaffWorkspace ? [{ label: "Staff workspace", href: "/admin" }] : []),
         { label: "Sign out", signOut: true },
@@ -241,6 +242,9 @@ export function Header() {
                     {user ? `${user.firstName} ${user.lastName}` : "Account"}
                   </strong>
                   <span>{user?.email ?? "Not signed in"}</span>
+                </div>
+                <div className="account-menu__appearance">
+                  <AppearanceControl />
                 </div>
                 <button
                   onClick={() => {

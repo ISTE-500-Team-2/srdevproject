@@ -35,6 +35,38 @@
   --shadow-small: 0 5px 14px rgba(41, 20, 8, 0.08);
   --radius: 16px;
   --radius-small: 10px;
+
+  /* Role tokens. Light values match the literals they replaced; src/theme/dark.css redefines them. */
+  --surface-raised: #fffdfa;
+  --surface-sunken: #efe8e1;
+  --muted: #8b7163;
+  --status-pending: #a86008;
+  --status-done: #1f6b32;
+  --status-error: #b73a2e;
+  --check-fill: #241006;
+  --check-ink: #ffffff;
+  --hold-danger-bg: #fff5f3;
+  --hold-danger: #b73a2e;
+  --hold-danger-ink: #ffffff;
+  --stepper-theme-well: rgba(113, 91, 78, 0.1);
+  --stepper-theme-tile: #fffdfa;
+  --stepper-theme-tile-edge: rgba(113, 91, 78, 0.22);
+  --stepper-theme-solid-ink: #ffffff;
+  --nav-panel: rgba(250, 248, 245, 0.94);
+  --nav-solid: #faf8f5;
+  --nav-edge: rgba(92, 73, 62, 0.24);
+  --nav-text: #24150e;
+  --nav-muted: #685d57;
+  --nav-hover: #f3ece7;
+  --nav-shadow: 0 4px 12px rgba(36, 16, 6, 0.09);
+  --nav-cta: linear-gradient(135deg, #2b1306, #59300f);
+  --nav-cta-ink: #ffffff;
+  --nav-card-1: #241006;
+  --nav-card-1-ink: #ffffff;
+  --nav-card-2: #59300f;
+  --nav-card-2-ink: #ffffff;
+  --nav-card-3: #ffdba5;
+  --nav-card-3-ink: #241006;
 }
 
 * {

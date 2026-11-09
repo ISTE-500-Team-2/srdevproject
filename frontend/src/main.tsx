@@ -9,6 +9,8 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import './styles.css';
 import './tables.css';
+// Last, so designed dark rules win over generated twins.
+import './theme/dark.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

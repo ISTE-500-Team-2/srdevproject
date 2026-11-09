@@ -442,10 +442,10 @@ function TrainingWorkspace({
                 disabled={busy || !revokeReason.trim()}
                 holdTime={1200}
                 radius={9}
-                backgroundColor="#fff5f3"
-                fillColor="#b73a2e"
-                textColor="#b73a2e"
-                fillTextColor="#ffffff"
+                backgroundColor="var(--hold-danger-bg)"
+                fillColor="var(--hold-danger)"
+                textColor="var(--hold-danger)"
+                fillTextColor="var(--hold-danger-ink)"
                 doneLabel="Revoking…"
                 onHold={() => {
                   const r = revoking;

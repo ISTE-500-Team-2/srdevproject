@@ -237,9 +237,9 @@ export function MemberHomePage() {
                   status={visit || summary.canCheckIn ? 'done' : 'failed'}
                   strike={false}
                   size={20}
-                  color="#a86008"
-                  doneColor="#1f6b32"
-                  errorColor="#b73a2e"
+                  color="var(--status-pending)"
+                  doneColor="var(--status-done)"
+                  errorColor="var(--status-error)"
                   label={
                     visit
                       ? isMinor && sponsorName

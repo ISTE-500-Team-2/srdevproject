@@ -17,6 +17,8 @@ export default function Lanyard(props: {
   gravity?: number;
   damping?: number;
   breeze?: number;
+  /** Tone-mapping exposure; lower it on dark pages so the white card doesn't glare. */
+  exposure?: number;
   interactive?: boolean;
   intro?: boolean;
   className?: string;
