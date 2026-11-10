@@ -399,17 +399,42 @@ small {
   position: relative;
 }
 
+/* While the menu is open the trigger stays pressed, and the popover's orange
+   outline runs up into a caret that points back at it, so it is clear where
+   the menu came from. */
+.account-menu__trigger[aria-expanded='true'] {
+  background: rgba(50, 25, 12, 0.08);
+}
+
 .account-menu__popover {
   position: absolute;
   top: calc(100% + 10px);
   right: 0;
   width: 270px;
-  overflow: hidden;
-  border: 1px solid var(--border);
+  border: 2px solid var(--orange);
   border-radius: 13px;
   background: #fffdfa;
   box-shadow: var(--shadow);
+  /* Grow out of the trigger, which sits 22px in from the right edge. */
+  transform-origin: calc(100% - 22px) 0;
   animation: popover-in 180ms ease both;
+}
+
+/* Centred under the 44px trigger, on the panel's top edge. Inherits the
+   panel's fill and outline, so the dark theme needs no override. */
+.account-menu__popover::before {
+  content: '';
+  position: absolute;
+  top: -7px;
+  right: 14px;
+  width: 12px;
+  height: 12px;
+  border: inherit;
+  border-right: 0;
+  border-bottom: 0;
+  border-top-left-radius: 2px;
+  background: inherit;
+  transform: rotate(45deg);
 }
 
 .account-menu__identity {
@@ -441,6 +466,12 @@ small {
 
 .account-menu__popover button:hover {
   background: #f3ece7;
+}
+
+/* The panel no longer clips (the caret sits outside it), so the last row
+   rounds its own hover fill. */
+.account-menu__popover button:last-child {
+  border-radius: 0 0 11px 11px;
 }
 
 .account-menu__popover svg {
