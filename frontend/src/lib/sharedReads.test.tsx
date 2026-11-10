@@ -1,25 +1,26 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from 'vitest';
+import { StrictMode } from 'react';
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { prefetchRoute, useApi } from './useApi';
 import { ApiError } from './api';
-import { cacheGeneration, invalidateApiCache, noteRouteRead, peekPrefetched, readCache, resetApiCache, routeReadsFor, scopeApiCache, writeCache } from './apiCache';
+import { endPrefetchArrival, invalidateApiCache, noteRouteRead, prefetchFor, resetApiCache, routeReadsFor, scopeApiCache, storeResult } from './apiCache';
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
 vi.mock('./api', () => ({ api, ApiError: class extends Error { constructor(public status: number, public code: string, message: string) { super(message); } }, errorMessage: (e: Error) => e.message }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); vi.restoreAllMocks(); window.history.replaceState(null, '', '/'); });
 
-/** Let settled reads finish their bookkeeping (in-flight tracking clears a few ticks after the response). */
 const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 const deferred = <T,>() => { let resolve!: (value: T) => void; const promise = new Promise<T>((r) => { resolve = r; }); return { promise, resolve }; };
-/** Visit `route` once so it remembers reading `path`. */
+/** Visit `route` once so it remembers reading `path`, and end that arrival. */
 async function visit(route: string, path: string, data: unknown) {
   window.history.replaceState(null, '', route);
   api.mockResolvedValueOnce(data);
   renderHook(() => useApi(path)).unmount();
   await settle();
+  endPrefetchArrival();
 }
 
-test('a revisit never renders a copy from an earlier visit; it waits for a fresh read', async () => {
+test('a revisit without a prefetch reads for itself, as before (no copy from an earlier visit)', async () => {
   await visit('/admin/plans', '/admin/plans', { n: 1 });
   const next = deferred<{ n: number }>();
   api.mockReturnValueOnce(next.promise);
@@ -31,148 +32,167 @@ test('a revisit never renders a copy from an earlier visit; it waits for a fresh
   expect(api).toHaveBeenCalledTimes(2);
 });
 
-test('identical reads in flight at the same time share one request', async () => {
-  const pending = deferred<{ n: number }>();
-  api.mockReturnValue(pending.promise);
-  const a = renderHook(() => useApi<{ n: number }>('/equipment'));
-  const b = renderHook(() => useApi<{ n: number }>('/equipment'));
-  await act(async () => {});
-  expect(api).toHaveBeenCalledTimes(1);
-  await act(async () => { pending.resolve({ n: 7 }); });
-  expect(a.result.current.data?.n).toBe(7);
-  expect(b.result.current.data?.n).toBe(7);
-});
-
-test('a prefetch that succeeded for this arrival renders on the first frame without another read', async () => {
+test('a finished arrival prefetch renders on the first frame, consistently for every hook on the page', async () => {
   await visit('/admin/plans', '/admin/plans', { n: 1 });
   api.mockResolvedValueOnce({ n: 2 });
   prefetchRoute('/admin/plans');
   await settle();
-  const arrived = renderHook(() => useApi<{ n: number }>('/admin/plans'));
-  expect(arrived.result.current.data?.n).toBe(2);
-  expect(arrived.result.current.loading).toBe(false);
+  const a = renderHook(() => useApi<{ n: number }>('/admin/plans'));
+  const b = renderHook(() => useApi<{ n: number }>('/admin/plans'));
+  expect(a.result.current.data?.n).toBe(2);
+  expect(b.result.current.data?.n).toBe(2);
+  expect(a.result.current.loading).toBe(false);
   await settle();
   expect(api).toHaveBeenCalledTimes(2);
-  arrived.unmount();
-  // The mark is spent: the next arrival reads for itself.
+  // The arrival is over: anything mounted afterwards reads for itself.
+  endPrefetchArrival();
   api.mockResolvedValueOnce({ n: 3 });
-  const again = renderHook(() => useApi<{ n: number }>('/admin/plans'));
-  expect(again.result.current.data).toBeNull();
+  const later = renderHook(() => useApi<{ n: number }>('/admin/plans'));
+  expect(later.result.current.data).toBeNull();
   await settle();
-  expect(again.result.current.data?.n).toBe(3);
-  expect(api).toHaveBeenCalledTimes(3);
+  expect(later.result.current.data?.n).toBe(3);
 });
 
-test('an arrival joins a prefetch that is still in flight (loading until it lands)', async () => {
+test('an arrival waits for its pending prefetch instead of repeating it', async () => {
   await visit('/admin/studios', '/studios', { n: 1 });
   const pending = deferred<{ n: number }>();
   api.mockReturnValueOnce(pending.promise);
   prefetchRoute('/admin/studios');
   const { result } = renderHook(() => useApi<{ n: number }>('/studios'));
-  expect(result.current.data).toBeNull();
   expect(result.current.loading).toBe(true);
   await act(async () => { pending.resolve({ n: 2 }); });
   expect(api).toHaveBeenCalledTimes(2);
   expect(result.current.data?.n).toBe(2);
 });
 
-test('a failed prefetch never stands in: the arrival reads again and shows its error', async () => {
+test('a failed, foreign, stale or rejected prefetch never stands in', async () => {
+  // Failed: the arrival reads again and shows its own error.
   await visit('/admin/plans', '/admin/plans', { n: 1 });
-  api.mockRejectedValueOnce(new ApiError(503, 'UNAVAILABLE', 'Server unavailable'));
+  api.mockRejectedValueOnce(new ApiError(503, 'UNAVAILABLE', 'down'));
   prefetchRoute('/admin/plans');
   await settle();
-  api.mockRejectedValueOnce(new ApiError(503, 'UNAVAILABLE', 'Server unavailable'));
-  const { result } = renderHook(() => useApi('/admin/plans'));
+  api.mockRejectedValueOnce(new ApiError(503, 'UNAVAILABLE', 'down'));
+  const failed = renderHook(() => useApi('/admin/plans'));
   await settle();
+  expect(failed.result.current.error).toBeTruthy();
   expect(api).toHaveBeenCalledTimes(3);
-  expect(result.current.data).toBeNull();
-  expect(result.current.error).toBeTruthy();
-});
+  cleanup(); endPrefetchArrival(); api.mockReset();
 
-test('a prefetch made for another page, or too long ago, never stands in', async () => {
+  // Made for another page.
   await visit('/equipment', '/equipment/3/quote', { price: 10 });
   api.mockResolvedValueOnce({ price: 10 });
   prefetchRoute('/equipment');
   await settle();
   window.history.replaceState(null, '', '/admin/reservations');
   api.mockResolvedValueOnce({ price: 12 });
-  const other = renderHook(() => useApi<{ price: number }>('/equipment/3/quote'));
+  const foreign = renderHook(() => useApi<{ price: number }>('/equipment/3/quote'));
   await settle();
-  expect(other.result.current.data?.price).toBe(12);
-  other.unmount();
+  expect(foreign.result.current.data?.price).toBe(12);
+  cleanup(); endPrefetchArrival();
 
+  // Finished too long ago.
   window.history.replaceState(null, '', '/equipment');
   api.mockResolvedValueOnce({ price: 12 });
   prefetchRoute('/equipment');
   await settle();
   vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 6000);
   api.mockResolvedValueOnce({ price: 14 });
-  const late = renderHook(() => useApi<{ price: number }>('/equipment/3/quote'));
-  expect(late.result.current.data).toBeNull();
+  const stale = renderHook(() => useApi<{ price: number }>('/equipment/3/quote'));
+  expect(stale.result.current.data).toBeNull();
   await settle();
-  expect(late.result.current.data?.price).toBe(14);
+  expect(stale.result.current.data?.price).toBe(14);
+  cleanup(); endPrefetchArrival(); vi.restoreAllMocks();
+
+  // Rejected by start time, including while still pending.
+  const pending = deferred<{ price: number }>();
+  api.mockReturnValueOnce(pending.promise);
+  prefetchRoute('/equipment');
+  api.mockResolvedValueOnce({ price: 16 });
+  const rejected = renderHook(() => useApi<{ price: number }>('/equipment/3/quote', { acceptPrefetch: () => false }));
+  await settle();
+  expect(rejected.result.current.data?.price).toBe(16);
+  await act(async () => { pending.resolve({ price: 15 }); });
+  expect(rejected.result.current.data?.price).toBe(16);
 });
 
-test('a write or sign-out cancels pending prefetches; a read overlapping a write is not stored', async () => {
+test('reload() always starts its own read, superseding a pending one', async () => {
+  const first = deferred<{ status: string }>();
+  const second = deferred<{ status: string }>();
+  api.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+  const { result } = renderHook(() => useApi<{ status: string }>('/reservations', { retainOnReload: true }));
+  await act(async () => {});
+  act(() => result.current.reload());
+  await act(async () => {});
+  expect(api).toHaveBeenCalledTimes(2);
+  await act(async () => { second.resolve({ status: 'cancelled' }); first.resolve({ status: 'confirmed' }); });
+  expect(result.current.data?.status).toBe('cancelled');
+});
+
+test('an abandoned read is never picked up by a later visit', async () => {
+  window.history.replaceState(null, '', '/membership');
+  const slow = deferred<{ n: number }>();
+  api.mockReturnValueOnce(slow.promise);
+  renderHook(() => useApi('/me/memberships')).unmount();
+  endPrefetchArrival();
+  api.mockResolvedValueOnce({ n: 2 });
+  const { result } = renderHook(() => useApi<{ n: number }>('/me/memberships'));
+  await settle();
+  slow.resolve({ n: 1 });
+  await settle();
+  expect(api).toHaveBeenCalledTimes(2);
+  expect(result.current.data?.n).toBe(2);
+});
+
+test('a StrictMode replay of an arrival keeps the prefetched result instead of reloading', async () => {
+  await visit('/admin/payments', '/admin/payments', { revision: 1 });
+  api.mockResolvedValueOnce({ revision: 2 });
+  prefetchRoute('/admin/payments');
+  await settle();
+  api.mockResolvedValue({ revision: 3 });
+  const { result } = renderHook(() => useApi<{ revision: number }>('/admin/payments', { retainOnReload: true }), { wrapper: StrictMode });
+  await settle();
+  expect(result.current.data?.revision).toBe(2);
+  expect(api).toHaveBeenCalledTimes(2);
+});
+
+test('writes, token renewal and sign-out cancel prefetches; sign-out also forgets route reads', async () => {
   for (const clear of [invalidateApiCache, resetApiCache]) {
     await visit('/admin/reservations', '/admin/reservations', { n: 1 });
     api.mockResolvedValueOnce({ n: 2 });
     prefetchRoute('/admin/reservations');
     await settle();
     clear();
-    api.mockReturnValueOnce(new Promise(() => {}));
-    const { result } = renderHook(() => useApi('/admin/reservations'));
-    expect(result.current.data).toBeNull();
-    expect(result.current.loading).toBe(true);
-    cleanup();
+    expect(prefetchFor('/admin/reservations')).toBeUndefined();
   }
-  const stale = deferred<{ n: number }>();
-  api.mockReturnValueOnce(stale.promise);
-  renderHook(() => useApi('/admin/payments')).unmount();
-  invalidateApiCache();
-  await act(async () => { stale.resolve({ n: 1 }); });
-  expect(readCache('/admin/payments')).toBeUndefined();
+  expect(routeReadsFor('/admin/reservations')).toHaveLength(0);
 });
 
-test('a resource the server refuses is evicted', async () => {
-  await visit('/admin/members', '/admin/users/1', { secret: true });
-  expect(readCache('/admin/users/1')).toBeDefined();
-  api.mockRejectedValueOnce(new ApiError(403, 'PERMISSION_REQUIRED', 'Permission removed'));
-  renderHook(() => useApi('/admin/users/1'));
-  await settle();
-  expect(readCache('/admin/users/1')).toBeUndefined();
+test('a different confirmed identity starts over', () => {
+  scopeApiCache('staff-7');
+  noteRouteRead('/', '/me/overview');
+  scopeApiCache('staff-7');
+  expect(routeReadsFor('/')).toHaveLength(1);
+  scopeApiCache('staff-7 acting for member-12');
+  expect(routeReadsFor('/')).toHaveLength(0);
 });
 
-test('changing requestKey starts its own read instead of joining the pending one', async () => {
-  const first = deferred<{ user: number }>();
-  const second = deferred<{ user: number }>();
-  api.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
-  const { result, rerender } = renderHook(({ key }) => useApi<{ user: number }>('/me/overview', { requestKey: key }), { initialProps: { key: 1 } });
-  await act(async () => {});
-  rerender({ key: 2 });
-  await act(async () => {});
-  expect(api).toHaveBeenCalledTimes(2);
-  await act(async () => { first.resolve({ user: 1 }); second.resolve({ user: 2 }); });
-  expect(result.current.data?.user).toBe(2);
-  expect(readCache('/me/overview')).toBeUndefined();
-});
-
-test('cache: false reads are private: never served from, or stored in, the shared store', async () => {
+test('requestKey and cache: false reads never use a prefetch', async () => {
   await visit('/admin/members', '/admin/users/14/access-readiness', { allowed: true });
   api.mockResolvedValueOnce({ allowed: true });
   prefetchRoute('/admin/members');
   await settle();
-  const pending = deferred<{ allowed: boolean }>();
-  api.mockReturnValueOnce(pending.promise);
-  const { result } = renderHook(() => useApi<{ allowed: boolean }>('/admin/users/14/access-readiness', { cache: false }));
-  expect(result.current.data).toBeNull();
-  await act(async () => { pending.resolve({ allowed: false }); });
-  expect(result.current.data?.allowed).toBe(false);
-  expect(api).toHaveBeenCalledTimes(3);
+  api.mockResolvedValueOnce({ allowed: false }).mockResolvedValueOnce({ allowed: false });
+  const privateRead = renderHook(() => useApi<{ allowed: boolean }>('/admin/users/14/access-readiness', { cache: false }));
+  const keyed = renderHook(() => useApi<{ allowed: boolean }>('/admin/users/14/access-readiness', { requestKey: 1 }));
+  expect(privateRead.result.current.data).toBeNull();
+  await settle();
+  expect(privateRead.result.current.data?.allowed).toBe(false);
+  expect(keyed.result.current.data?.allowed).toBe(false);
+  expect(api).toHaveBeenCalledTimes(4);
 });
 
 test('reuse: a stored setting renders at once and refreshes in the background', async () => {
-  writeCache('/config', { timeZone: 'UTC' }, cacheGeneration());
+  storeResult('/config', { timeZone: 'UTC' });
   const next = deferred<{ timeZone: string }>();
   api.mockReturnValueOnce(next.promise);
   const { result } = renderHook(() => useApi<{ timeZone: string }>('/config', { reuse: true }));
@@ -184,38 +204,13 @@ test('reuse: a stored setting renders at once and refreshes in the background', 
   expect(result.current.data?.timeZone).toBe('America/New_York');
 });
 
-test('results are scoped to one identity, including an opened member account', () => {
-  scopeApiCache('staff-7');
-  writeCache('/me/overview', { name: 'Staff' }, cacheGeneration());
-  noteRouteRead('/', '/me/overview');
-  scopeApiCache('staff-7');
-  expect(readCache('/me/overview')).toBeDefined();
-  scopeApiCache('staff-7 acting for member-12');
-  expect(readCache('/me/overview')).toBeUndefined();
-  expect(routeReadsFor('/')).toHaveLength(0);
-});
-
-test('the store is bounded: oldest results, pages and prefetch marks go first', () => {
-  writeCache('/config', { timeZone: 'UTC' }, cacheGeneration());
-  for (let i = 0; i < 260; i++) writeCache(`/admin/users?offset=${i}`, i, cacheGeneration());
-  expect(readCache('/admin/users?offset=0')).toBeUndefined();
-  expect(readCache('/admin/users?offset=259')).toBeDefined();
-  expect(readCache('/config')).toBeDefined();
+test('route memory and prefetches are bounded', () => {
   for (let i = 0; i < 130; i++) noteRouteRead(`/admin/members?page=${i}`, `/x/${i}`);
   expect(routeReadsFor('/admin/members?page=0')).toHaveLength(0);
   expect(routeReadsFor('/admin/members?page=129')).toHaveLength(1);
   api.mockReturnValue(new Promise(() => {}));
   for (let i = 30; i < 130; i++) prefetchRoute(`/admin/members?page=${i}`);
-  for (let i = 0; i < 30; i++) noteRouteRead(`/extra/${i}`, `/y/${i}`);
-  for (let i = 0; i < 30; i++) prefetchRoute(`/extra/${i}`);
-  expect(peekPrefetched('/x/30')).toBeUndefined();
-  expect(peekPrefetched('/y/29')).toBeDefined();
-});
-
-test('signing out forgets which reads each page makes', async () => {
-  await visit('/admin/members', '/admin/users?search=', {});
-  resetApiCache();
-  api.mockClear();
-  prefetchRoute('/admin/members');
-  expect(api).not.toHaveBeenCalled();
+  for (let i = 0; i < 30; i++) { noteRouteRead(`/extra/${i}`, `/y/${i}`); prefetchRoute(`/extra/${i}`); }
+  expect(prefetchFor('/x/30')).toBeUndefined();
+  expect(prefetchFor('/y/29')).toBeDefined();
 });

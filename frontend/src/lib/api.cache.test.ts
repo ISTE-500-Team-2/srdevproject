@@ -1,47 +1,46 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from 'vitest';
 import { api, setAccessToken, setCsrfToken } from './api';
-import { cacheGeneration, readCache, writeCache } from './apiCache';
+import { addPrefetch, noteRouteRead, prefetchFor, readStored, routeReadsFor, storeResult } from './apiCache';
 
 afterEach(() => { vi.unstubAllGlobals(); setAccessToken(null); setCsrfToken(null); });
 const json = (data: unknown) => ({ status: 200, ok: true, json: async () => ({ data }) });
+const pending = () => addPrefetch('/admin/plans', '/admin/plans', new Promise(() => {}));
 
-test('every write clears cached reads, before it starts and after it finishes', async () => {
+test('every write cancels prefetches, both those started before it and during it', async () => {
   setAccessToken('token'); setCsrfToken('csrf');
-  writeCache('/admin/plans', { n: 1 }, cacheGeneration());
-  let during = -1;
-  vi.stubGlobal('fetch', vi.fn(async () => { during = cacheGeneration(); return json({ ok: true }); }));
-  const before = cacheGeneration();
+  pending();
+  let during: unknown = 'unset';
+  vi.stubGlobal('fetch', vi.fn(async () => { during = prefetchFor('/admin/plans'); pending(); return json({ ok: true }); }));
   await api('/admin/plans', { method: 'POST', body: { name: 'x' } });
-  expect(readCache('/admin/plans')).toBeUndefined();
-  // A read started while the write was in flight belongs to an older generation and is dropped.
-  expect(during).toBeGreaterThan(before);
-  expect(cacheGeneration()).toBeGreaterThan(during);
+  expect(during).toBeUndefined();
+  expect(prefetchFor('/admin/plans')).toBeUndefined();
 });
 
-test('a failed write still invalidates (the server may have applied part of it)', async () => {
+test('a failed write still cancels prefetches (the server may have applied part of it)', async () => {
   setAccessToken('token'); setCsrfToken('csrf');
-  writeCache('/admin/plans', { n: 1 }, cacheGeneration());
+  pending();
   vi.stubGlobal('fetch', vi.fn(async () => ({ status: 409, ok: false, json: async () => ({ error: { code: 'CONFLICT', message: 'no' } }) })));
   await expect(api('/admin/plans', { method: 'POST' })).rejects.toThrow('no');
-  expect(readCache('/admin/plans')).toBeUndefined();
+  expect(prefetchFor('/admin/plans')).toBeUndefined();
 });
 
-test('token renewal and signing out both drop stored reads', async () => {
+test('token renewal cancels prefetches; signing out also forgets route reads', async () => {
   // Another tab may have signed in as someone else; renewal installs that session
-  // without a /auth/session check, so nothing stored may outlive it.
+  // without a /auth/session check, so nothing started before it may stand in.
   setAccessToken('token'); setCsrfToken('csrf');
-  writeCache('/me/overview', { n: 1 }, cacheGeneration());
+  pending();
+  noteRouteRead('/admin/plans', '/admin/plans');
   vi.stubGlobal('fetch', vi.fn(async () => json({ accessToken: 'next', csrfToken: 'csrf2' })));
   await api('/auth/refresh', { method: 'POST' });
-  expect(readCache('/me/overview')).toBeUndefined();
-  writeCache('/me/overview', { n: 2 }, cacheGeneration());
+  expect(prefetchFor('/admin/plans')).toBeUndefined();
+  expect(routeReadsFor('/admin/plans')).toHaveLength(1);
   setAccessToken(null);
-  expect(readCache('/me/overview')).toBeUndefined();
+  expect(routeReadsFor('/admin/plans')).toHaveLength(0);
 });
 
 test('public server settings survive a change of account', () => {
-  writeCache('/config', { timeZone: 'America/New_York' }, cacheGeneration());
+  storeResult('/config', { timeZone: 'America/New_York' });
   setAccessToken(null);
-  expect(readCache('/config')).toEqual(expect.objectContaining({ data: { timeZone: 'America/New_York' } }));
+  expect(readStored('/config')).toEqual({ data: { timeZone: 'America/New_York' } });
 });

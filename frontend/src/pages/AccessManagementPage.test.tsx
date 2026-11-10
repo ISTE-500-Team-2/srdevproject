@@ -148,8 +148,10 @@ test("member link displays the selected person and automatically loads cards", a
   ).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Load cards" })).toBeNull();
   expect(await screen.findByText(/No NFC cards are assigned/)).toBeTruthy();
-  // Page reads are shared (one request per resource), so they carry no per-component abort signal.
-  expect(api).toHaveBeenCalledWith("/admin/access/cards?userId=12");
+  expect(api).toHaveBeenCalledWith(
+    "/admin/access/cards?userId=12",
+    expect.anything(),
+  );
 });
 test("changing members removes old controls and typed values; the next assignment targets the selected person", async () => {
   mount();

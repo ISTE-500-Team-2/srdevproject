@@ -1,69 +1,37 @@
 /**
- * Session-scoped store behind useApi's shared reads.
+ * Session-scoped state behind useApi's arrival prefetch.
  *
- * Identical concurrent reads share one request (browsers serialize identical
- * in-flight GETs, costing a round trip each), and the route check can start a
- * page's reads early so they arrive with it. Pages never render a copy kept
- * from an earlier visit (only /config-like settings opt in to that); stored
- * results exist to hand a prefetch to the page it was made for. The store
- * never outlives the signed-in identity: any write or token renewal clears it
- * (see api.ts), a different confirmed identity clears it (scopeApiCache), and
- * signing out also forgets which reads each page makes.
+ * Each page remembers which reads it made (per route). When the route check
+ * revalidates the session for a later visit, it starts those reads at the same
+ * time, so the page's data arrives with the check instead of one round trip
+ * after it. A prefetch only serves the page arriving with that check: marks are
+ * dropped right after the page's first commit (endPrefetchArrival), by any write
+ * or token renewal (api.ts), and when the confirmed identity changes
+ * (scopeApiCache). Pages never render data kept from an earlier visit; the only
+ * stored results are settings that are the same for everyone (/config).
  */
-type Entry = { data: unknown; at: number };
-type Inflight = { generation: number; promise: Promise<unknown> };
 
-const entries = new Map<string, Entry>();
-const inflight = new Map<string, Inflight>();
+/** A read started for an arriving page while its session check runs. */
+export type PrefetchMark = { route: string; startedAt: number; promise: Promise<unknown>; ok?: boolean; data?: unknown; settledAt?: number };
+
+/** Settings that are the same for every visitor and account (see useApi `reuse`). */
+const stored = new Map<string, unknown>();
 const routeReads = new Map<string, string[]>();
-/** Reads started early for an arriving page; a successful one lets one mount skip its own read. */
-export type PrefetchMark = { route: string; startedAt: number; ok?: boolean; settledAt?: number };
 const prefetched = new Map<string, PrefetchMark>();
-let generation = 0;
-/** Whose results the store holds: account, opened member account and roles (see AuthContext). */
+/** Whose reads the route memory holds: account, opened member account and roles (see AuthContext). */
 let identity: string | null = null;
 
-/** Server settings that are identical for every visitor survive identity changes. */
-const SHARED_ACROSS_ACCOUNTS = new Set(['/config']);
 /** Reads remembered per page; enough for the busiest page, bounded for search-driven pages. */
 const MAX_READS_PER_ROUTE = 16;
-/** Session-wide bounds; the least recently stored results and pages go first. */
-const MAX_ENTRIES = 200;
 const MAX_ROUTES = 100;
-const MAX_PREFETCH_MARKS = 100;
+const MAX_PREFETCHES = 100;
 
-export const cacheGeneration = () => generation;
-
-export function readCache<T>(path: string): { data: T; at: number } | undefined {
-  return entries.get(path) as { data: T; at: number } | undefined;
+export function readStored<T>(path: string): { data: T } | undefined {
+  return stored.has(path) ? { data: stored.get(path) as T } : undefined;
 }
 
-/** Stores a result only if no write or sign-out happened since the read started. */
-export function writeCache(path: string, data: unknown, startedAt: number) {
-  if (startedAt !== generation) return;
-  entries.delete(path);
-  entries.set(path, { data, at: Date.now() });
-  for (const key of entries.keys()) {
-    if (entries.size <= MAX_ENTRIES) break;
-    if (!SHARED_ACROSS_ACCOUNTS.has(key)) entries.delete(key);
-  }
-}
-
-export function evictCache(path: string) {
-  entries.delete(path);
-}
-
-export function joinInflight<T>(path: string): Promise<T> | undefined {
-  const current = inflight.get(path);
-  return current && current.generation === generation ? (current.promise as Promise<T>) : undefined;
-}
-
-export function trackInflight(path: string, promise: Promise<unknown>) {
-  const entry = { generation, promise };
-  inflight.set(path, entry);
-  void promise.catch(() => {}).finally(() => {
-    if (inflight.get(path) === entry) inflight.delete(path);
-  });
+export function storeResult(path: string, data: unknown) {
+  stored.set(path, data);
 }
 
 /** Remember that `route` (pathname + search) loads `path`, so a later visit can start it early. */
@@ -81,53 +49,43 @@ export function routeReadsFor(route: string): readonly string[] {
   return routeReads.get(route) ?? [];
 }
 
-export function markPrefetched(path: string, route: string): PrefetchMark {
-  const mark: PrefetchMark = { route, startedAt: Date.now() };
+export function addPrefetch(path: string, route: string, promise: Promise<unknown>): PrefetchMark {
+  const mark: PrefetchMark = { route, startedAt: Date.now(), promise };
   prefetched.delete(path);
   prefetched.set(path, mark);
-  if (prefetched.size > MAX_PREFETCH_MARKS) prefetched.delete(prefetched.keys().next().value!);
+  if (prefetched.size > MAX_PREFETCHES) prefetched.delete(prefetched.keys().next().value!);
   return mark;
 }
 
-export function peekPrefetched(path: string): PrefetchMark | undefined {
+export function prefetchFor(path: string): PrefetchMark | undefined {
   return prefetched.get(path);
 }
 
 /**
- * The arriving page has mounted and consumed what was prefetched for it. Reads a
- * route made last time from panels opened later are dropped here, so a panel
- * opened afterwards reads for itself (the identity may have changed meanwhile).
+ * The arriving page has mounted (its hooks' effects ran before this). Whatever
+ * was prefetched for that arrival must not serve later mounts, such as a panel
+ * opened afterwards, which read for themselves (the identity may have changed).
  */
 export function endPrefetchArrival() {
   prefetched.clear();
 }
 
-/** Once per prefetch: the arriving page learns whether that read succeeded and when. */
-export function takePrefetched(path: string): PrefetchMark | undefined {
-  const mark = prefetched.get(path);
-  prefetched.delete(path);
-  return mark;
-}
-
-/** After any write: drop cached results so no page shows pre-write data, and ignore older reads. */
+/** After any write or token renewal: no prefetch started before it may stand in for a read. */
 export function invalidateApiCache() {
-  generation++;
-  inflight.clear();
   prefetched.clear();
-  for (const key of entries.keys()) if (!SHARED_ACROSS_ACCOUNTS.has(key)) entries.delete(key);
 }
 
 /** On sign-out or expiry: also forget which reads pages make for this account. */
 export function resetApiCache() {
-  invalidateApiCache();
+  prefetched.clear();
   routeReads.clear();
   identity = null;
 }
 
 /**
  * Called with each session the server confirms. A different identity (another
- * account signed in elsewhere, an opened member account, changed roles) must
- * never see the previous one's results, so the store starts over first.
+ * account signed in elsewhere, an opened member account, changed roles) starts
+ * over, so nothing started for the previous one serves the new one.
  */
 export function scopeApiCache(next: string) {
   if (identity !== null && identity !== next) resetApiCache();
@@ -137,5 +95,5 @@ export function scopeApiCache(next: string) {
 /** Tests only: start from an empty store. */
 export function clearApiCacheForTests() {
   resetApiCache();
-  entries.clear();
+  stored.clear();
 }

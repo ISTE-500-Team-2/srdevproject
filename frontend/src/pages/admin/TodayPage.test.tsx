@@ -111,7 +111,7 @@ test("at midnight every panel starts the new day, so a failed refresh is not hid
   await act(async () => { vi.advanceTimersByTime(60000); });
   expect(await screen.findByText(/Equipment request failed/)).toBeTruthy();
   expect(screen.queryByText("Nothing needs you right now.")).toBeNull();
-  expect(api).toHaveBeenCalledWith("/admin/reports?period=daily&from=2026-10-29&to=2026-10-29");
+  expect(api.mock.calls.map(([p]) => p)).toContain("/admin/reports?period=daily&from=2026-10-29&to=2026-10-29");
   vi.useRealTimers();
 });
 
@@ -132,6 +132,32 @@ test("a prefetch from before midnight never stands in for the new day's panels",
   fail = compliance;
   mount();
   expect(await screen.findByText(/Equipment request failed/)).toBeTruthy();
+  expect(screen.queryByText("Nothing needs you right now.")).toBeNull();
+  expect(api.mock.calls.filter(([p]) => p === compliance)).toHaveLength(3);
+  window.history.replaceState(null, "", "/");
+});
+
+test("a prefetch started before midnight and still pending is not joined by the new day's panels", async () => {
+  const compliance = "/admin/compliance?userStatus=active&attention=true";
+  window.history.replaceState(null, "", "/admin");
+  vi.mocked(Date.now).mockReturnValue(Date.parse("2026-10-28T18:29:00Z"));
+  mount();
+  expect(await screen.findByText("Nothing needs you right now.")).toBeTruthy();
+  cleanup();
+  // 23:59:59: the revisit's prefetch of yesterday's compliance is still in flight at midnight.
+  vi.mocked(Date.now).mockReturnValue(Date.parse("2026-10-28T18:29:59Z"));
+  const original = api.getMockImplementation()!;
+  let finishYesterday!: () => void;
+  api.mockImplementation((path: string) => path === compliance
+    ? new Promise((resolve) => { finishYesterday = () => resolve({ summary: { userCount: 7, waiverCompliantUsers: 7, certificationCompliantUsers: 7 } }); })
+    : original(path));
+  prefetchRoute("/admin");
+  vi.mocked(Date.now).mockReturnValue(Date.parse("2026-10-28T18:30:01Z"));
+  api.mockImplementation(original);
+  fail = compliance;
+  mount();
+  expect(await screen.findByText(/Equipment request failed/)).toBeTruthy();
+  await act(async () => { finishYesterday(); });
   expect(screen.queryByText("Nothing needs you right now.")).toBeNull();
   expect(api.mock.calls.filter(([p]) => p === compliance)).toHaveLength(3);
   window.history.replaceState(null, "", "/");
