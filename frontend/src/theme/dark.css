@@ -275,6 +275,16 @@
   color: #ffc98a;
 }
 
+/* Peach and espresso both darken, so the light pairing vanishes; use the cream chip. */
+:root[data-theme='dark'] .account-bar .account-bar__back {
+  background: var(--dk-cream-chip);
+  color: var(--dk-copper-ink);
+}
+
+:root[data-theme='dark'] .account-bar .account-bar__back:hover:not(:disabled) {
+  background: #fff6ea;
+}
+
 :root[data-theme='dark'] .account-bar .account-bar__back,
 :root[data-theme='dark'] .cw-impact,
 :root[data-theme='dark'] .class-note,

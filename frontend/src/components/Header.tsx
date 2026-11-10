@@ -123,6 +123,8 @@ export function Header() {
     },
     {
       label: hasStaffWorkspace ? "Staff" : "Session",
+      // Matches the other cards' head so the link rows line up.
+      description: hasStaffWorkspace ? "Run the studio." : "Sign out on shared devices.",
       bgColor: "var(--nav-card-3)",
       textColor: "var(--nav-card-3-ink)",
       links: [

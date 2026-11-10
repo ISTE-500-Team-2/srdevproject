@@ -132,14 +132,35 @@
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
-  align-items: end;
+  align-items: start;
   margin: 16px 0;
+}
+/* Every control is 44px so labels share a baseline; the button lines up with the fields. */
+.management-search > input,
+.management-search > select,
+.management-search label > input,
+.management-search label > select {
+  height: 44px;
+  box-sizing: border-box;
+}
+.management-search .member-select__field input {
+  min-height: 42px;
+}
+.management-search label:has(input[type="date"], input[type="datetime-local"]) {
+  flex: 0 1 220px;
+  min-width: 200px;
+}
+.management-search > .button {
+  align-self: end;
+}
+.member-select__status:empty {
+  display: none;
 }
 .management-search label {
   display: grid;
   gap: 6px;
   flex: 1;
-  min-width: 140px;
+  min-width: 170px;
 }
 .management-search input,
 .management-search select,
@@ -172,6 +193,15 @@
 }
 .management-form fieldset:disabled {
   opacity: 0.65;
+}
+/* In a dialog the header already separates the form; the page rule's rule-and-gap is an empty band. */
+.modal-card__body > .management-form:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.management-form input[type="checkbox"] {
+  accent-color: var(--bronze);
 }
 .management-form .form-field {
   display: grid;

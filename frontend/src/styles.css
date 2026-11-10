@@ -2683,7 +2683,14 @@ button:disabled { cursor: not-allowed; opacity: .6; }
     top: 10px;
     z-index: 100;
     display: block;
-    padding: 0 12px;
+    /* The panel is absolutely positioned, so padding would not inset it. */
+    width: calc(100% - 24px);
+    margin-inline: auto;
+  }
+
+  /* Links start under each heading so the rows line up across cards. */
+  .site-card-nav .card-nav__links {
+    margin-top: 0;
   }
 }
 

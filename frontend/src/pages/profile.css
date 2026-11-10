@@ -213,6 +213,17 @@
   font-size: var(--text-base-sm);
 }
 
+/* Reads like the hint's links (e.g. "Review your waivers"). */
+.account-hint__action {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .account-choice {
   min-width: 0;
   margin: 0;

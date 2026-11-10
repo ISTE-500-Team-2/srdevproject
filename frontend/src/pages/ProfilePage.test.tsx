@@ -266,6 +266,15 @@ describe('minors you supervise', () => {
     expect(within(box).queryByLabelText('Their account email')).toBeNull();
   });
 
+  test('the empty state opens the link form too', async () => {
+    asAdult(false);
+    mount({ '/me/minors': () => ({ minors: [], requests: [] }) });
+    const box = section('Minors you supervise');
+    fireEvent.click(await within(box).findByRole('button', { name: 'Link a child’s account' }));
+    expect(within(box).getByLabelText('Their account email')).toBeTruthy();
+    expect(within(box).queryByText(/No minors linked yet/)).toBeNull();
+  });
+
   test('a mismatch keeps the form open with the server message', async () => {
     asAdult(false);
     mount({
