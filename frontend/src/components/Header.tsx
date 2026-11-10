@@ -47,7 +47,7 @@ const navItems: { label: string; to: string; desktop?: boolean }[] = [
   { label: "Home", to: "/" },
   // Mobile only. On desktop, Membership is reached from Account settings and
   // the home page, so the links clear the centred logo.
-  { label: "Membership", to: "/membership", desktop: false },
+  { label: "Membership", to: "/membership" },
   { label: "Equipment", to: "/equipment" },
   { label: "Studios", to: "/studios" },
   { label: "Certifications & Waivers", to: "/certifications" },
