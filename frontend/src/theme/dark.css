@@ -1,0 +1,576 @@
+/*
+ * Dark mode ("after hours"): the shop at night. Walnut neutrals, cream ink, orange as lamplight.
+ *
+ * Every stylesheet rule that sets a color already has a generated dark twin (src/theme/darkCompiler.ts).
+ * This file sets the theme tokens and the components that need a designed answer rather than a mapped one.
+ * Loaded last, so equal-specificity rules here win over the generated twins.
+ *
+ * Rules of thumb:
+ * - Cards are opaque. Wells and icon tiles are a lighter tint of their card (a darker tint in light).
+ * - Copper is for primary actions only. Status fills are opaque with a 1px ring.
+ * - Selected chips invert to cream with espresso text, as espresso-on-paper does in light.
+ * - The logo is never altered. It gets a warm backlight on the page behind it.
+ * - Real objects keep their colors (badge, photos).
+ */
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  color: #f2e8dd;
+  background: #1a1410;
+
+  --paper: #1a1410;
+  --paper-raised: #251c16;
+  --ink: #f2e8dd;
+  --ink-soft: #bfae9f;
+  --muted: #a8927f;
+  --espresso: #3b2314;
+  --espresso-2: #3a1d0b;
+  --bronze: #eba454;
+  --orange: #f7961d;
+  --orange-soft: #3a2611;
+  --border: #46372d;
+  --border-strong: #7d6656;
+  --green: #8fdc9b;
+  --red: #f2907f;
+  --shadow: inset 0 1px 0 rgba(255, 235, 215, 0.05), 0 18px 44px rgba(0, 0, 0, 0.5);
+  --shadow-small: inset 0 1px 0 rgba(255, 235, 215, 0.045), 0 6px 18px rgba(0, 0, 0, 0.32);
+
+  --surface-raised: #2c2119;
+  --surface-sunken: #120d0a;
+  --status-pending: #eba454;
+  --status-done: #8fdc9b;
+  --status-error: #f2907f;
+  --check-fill: #f7961d;
+  --check-ink: #1c0c03;
+  --hold-danger-bg: #44201b;
+  --hold-danger: #b73a2e;
+  --hold-danger-text: #f2907f;
+  --hold-danger-ink: #ffffff;
+  --stepper-theme-well: rgba(255, 240, 225, 0.05);
+  --stepper-theme-tile: #2c2119;
+  --stepper-theme-tile-edge: rgba(255, 232, 210, 0.1);
+  --stepper-theme-solid-ink: #1c0c03;
+  --nav-panel: rgba(30, 22, 17, 0.94);
+  --nav-solid: #1e1611;
+  --nav-edge: rgba(255, 232, 210, 0.1);
+  --nav-text: #f2e8dd;
+  --nav-muted: #bfae9f;
+  --nav-hover: rgba(255, 240, 225, 0.07);
+  --nav-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --nav-cta: linear-gradient(135deg, #e0953a, #b9691a);
+  --nav-cta-ink: #1c0c03;
+  --nav-card-1: #3a1d0b;
+  --nav-card-1-ink: #fbf3ea;
+  --nav-card-2: #4a2a12;
+  --nav-card-2-ink: #fbf3ea;
+  --nav-card-3: #3a2611;
+  --nav-card-3-ink: #ffc98a;
+
+  /* Designed values used below. */
+  --dk-card: #251c16;
+  --dk-card-edge: #3f3128;
+  --dk-well: rgba(255, 240, 225, 0.05);
+  --dk-well-ring: rgba(255, 232, 210, 0.08);
+  --dk-wash: rgba(255, 240, 225, 0.04);
+  --dk-wash-hover: rgba(255, 240, 225, 0.09);
+  --dk-hairline: rgba(255, 232, 210, 0.08);
+  --dk-copper: linear-gradient(135deg, #e0953a, #b9691a);
+  --dk-copper-hover: linear-gradient(135deg, #eaa24a, #c87822);
+  --dk-copper-ink: #1c0c03;
+  --dk-cream-chip: #f2e8dd;
+  --dk-backlight: radial-gradient(closest-side, rgba(255, 226, 186, 0.22), rgba(247, 150, 29, 0.08) 55%, transparent);
+}
+
+/* ---------- Page and paper ---------- */
+/* The shipped texture is a black shadow map that vanishes on dark; this one is the same crease map in cream. */
+:root[data-theme='dark'] body,
+:root[data-theme='dark'] .login-page,
+:root[data-theme='dark'] .loading-page {
+  background-color: #1d1612;
+  background-image: linear-gradient(rgba(14, 10, 7, 0.86), rgba(14, 10, 7, 0.86)), url('/assets/paper-texture-night.webp');
+}
+
+:root[data-theme='dark'] ::selection {
+  background: #5a3a1c;
+  color: #f2e8dd;
+}
+
+/* ---------- Header and logo ---------- */
+:root[data-theme='dark'] .site-header {
+  border-bottom-color: var(--dk-hairline);
+  background: rgba(20, 15, 11, 0.82);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+:root[data-theme='dark'] .site-nav__link::after,
+:root[data-theme='dark'] .site-header__admin-link::after {
+  background: var(--orange);
+}
+
+/* Backlight only: the logo's pixels are never changed. */
+:root[data-theme='dark'] .site-header__brand,
+:root[data-theme='dark'] .admin-side__brand,
+:root[data-theme='dark'] .admin-top__brand {
+  position: relative;
+}
+
+:root[data-theme='dark'] .site-header__brand::before,
+:root[data-theme='dark'] .admin-side__brand::before,
+:root[data-theme='dark'] .admin-top__brand::before {
+  position: absolute;
+  inset: -10px -30px 0;
+  z-index: -1;
+  background: var(--dk-backlight);
+  content: '';
+  pointer-events: none;
+}
+
+:root[data-theme='dark'] .site-header__brand {
+  isolation: isolate;
+  filter: drop-shadow(0 5px 8px rgba(0, 0, 0, 0.45));
+}
+
+:root[data-theme='dark'] .admin-side__brand,
+:root[data-theme='dark'] .admin-top__brand {
+  isolation: isolate;
+}
+
+:root[data-theme='dark'] .admin-side__brand img {
+  filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.4));
+}
+
+:root[data-theme='dark'] .login-page__logo {
+  background: var(--dk-backlight);
+  filter: drop-shadow(0 12px 14px rgba(0, 0, 0, 0.5));
+}
+
+:root[data-theme='dark'] .account-menu__popover,
+:root[data-theme='dark'] .search-panel {
+  border-color: var(--border);
+  background: var(--surface-raised);
+}
+
+:root[data-theme='dark'] .account-menu__identity {
+  border-bottom-color: var(--dk-hairline);
+}
+
+:root[data-theme='dark'] .account-menu__popover button:hover {
+  background: var(--dk-wash-hover);
+}
+
+/* ---------- Buttons ---------- */
+/* Plain and quiet buttons come from the generated twins; hover also lifts the edge. */
+:root[data-theme='dark'] .button--quiet:hover:not(:disabled) {
+  border-color: var(--ink-soft);
+}
+
+:root[data-theme='dark'] .button--primary {
+  border-color: #e9a24f;
+  background: var(--dk-copper);
+  color: var(--dk-copper-ink);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 9px 24px rgba(0, 0, 0, 0.4);
+}
+
+:root[data-theme='dark'] .button--primary:hover:not(:disabled) {
+  border-color: #e9a24f;
+  background: var(--dk-copper-hover);
+}
+
+/* The orange ring disappears against copper. */
+:root[data-theme='dark'] .button--primary:focus-visible {
+  outline-color: var(--ink);
+}
+
+/* Disabled reads as inert rather than as a faded live button. */
+:root[data-theme='dark'] .button:disabled,
+:root[data-theme='dark'] .button--primary:disabled {
+  border-color: var(--border);
+  background: #3a2d24;
+  color: #9a8777;
+  box-shadow: none;
+  opacity: 1;
+}
+
+:root[data-theme='dark'] .icon-button:hover {
+  background: var(--dk-wash-hover);
+}
+
+:root[data-theme='dark'] .button.button--danger {
+  border-color: #8f2a20;
+  background: #b73a2e;
+  color: #ffffff;
+}
+
+/* ---------- Selected chips: cream with espresso text ---------- */
+:root[data-theme='dark'] .segmented button.is-selected,
+:root[data-theme='dark'] .studio-cal__day[aria-pressed='true'],
+:root[data-theme='dark'] .equipment-booking-step > span,
+:root[data-theme='dark'] .class-chip[aria-pressed='true'],
+:root[data-theme='dark'] .management-page .cw-chip[aria-checked='true'],
+:root[data-theme='dark'] .desk-chip[aria-pressed='true'],
+:root[data-theme='dark'] .nfc-nav a[aria-current='page'],
+:root[data-theme='dark'] .cw-toggle button[aria-selected='true'] {
+  border-color: var(--dk-cream-chip);
+  background: var(--dk-cream-chip);
+  color: var(--dk-copper-ink);
+}
+
+/* Switches: the knob stays a physical cream; on reads as lamplight. */
+:root[data-theme='dark'] .account-switch,
+:root[data-theme='dark'] .plans-switch__track {
+  background: #4a3b31;
+}
+
+:root[data-theme='dark'] .account-switch[aria-checked='true'] {
+  background: var(--orange);
+}
+
+:root[data-theme='dark'] .account-switch::after,
+:root[data-theme='dark'] .plans-switch__track::after {
+  background: #f2e8dd;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+:root[data-theme='dark'] .desk-chip[aria-pressed='true'] em {
+  color: #8a4b00;
+}
+
+:root[data-theme='dark'] .check-control input:checked + span {
+  border-color: var(--orange);
+  background: var(--orange);
+  color: var(--dk-copper-ink);
+}
+
+/* Where light uses espresso as an outline or text, dark needs it light. */
+:root[data-theme='dark'] .cert-next--mine,
+:root[data-theme='dark'] .class-row--mine,
+:root[data-theme='dark'] .studio-terms__policy:has(input:checked) {
+  border-color: var(--ink-soft);
+}
+
+:root[data-theme='dark'] .studio-terms__policy:has(input:checked) {
+  box-shadow: inset 0 0 0 1px var(--ink-soft);
+}
+
+:root[data-theme='dark'] .loading-page__progress svg {
+  color: var(--orange);
+}
+
+:root[data-theme='dark'] .profile-hero__avatar {
+  border-color: var(--orange);
+  box-shadow: 5px 5px 0 #000000;
+}
+
+:root[data-theme='dark'] .plans-check input,
+:root[data-theme='dark'] .studio-terms__policy input,
+:root[data-theme='dark'] .studio-terms__confirm input {
+  accent-color: var(--orange);
+}
+
+/* orange-soft as text or edge: a peach that reads on dark. */
+:root[data-theme='dark'] .account-action__icon,
+:root[data-theme='dark'] .admin-avatar--self,
+:root[data-theme='dark'] .account-help__icon,
+:root[data-theme='dark'] .access-band .form-error {
+  color: #ffc98a;
+}
+
+:root[data-theme='dark'] .account-bar .account-bar__back,
+:root[data-theme='dark'] .cw-impact,
+:root[data-theme='dark'] .class-note,
+:root[data-theme='dark'] .class-banner,
+:root[data-theme='dark'] .membership-banner,
+:root[data-theme='dark'] .plan-pill--warn {
+  border-color: rgba(247, 150, 29, 0.45);
+}
+
+/* ---------- Cards, wells, panels ---------- */
+:root[data-theme='dark'] .panel,
+:root[data-theme='dark'] .summary-card,
+:root[data-theme='dark'] .plan-card,
+:root[data-theme='dark'] .studio-rental {
+  border-color: var(--dk-card-edge);
+  background: var(--dk-card);
+  box-shadow: inset 0 1px 0 rgba(255, 235, 215, 0.06), 0 8px 22px rgba(0, 0, 0, 0.38);
+}
+
+:root[data-theme='dark'] .summary-card__icon {
+  background: rgba(235, 164, 84, 0.13);
+  box-shadow: inset 0 0 0 1px rgba(235, 164, 84, 0.22);
+  color: var(--bronze);
+}
+
+:root[data-theme='dark'] .check-in__last {
+  background: var(--dk-well);
+  box-shadow: inset 0 0 0 1px var(--dk-well-ring);
+}
+
+:root[data-theme='dark'] .summary-card__action {
+  border-color: var(--border-strong);
+  background: var(--dk-wash);
+}
+
+/* ---------- Access band (espresso in light; the warmest surface in dark) ---------- */
+:root[data-theme='dark'] .membership-card {
+  border: 1px solid rgba(247, 150, 29, 0.32);
+  background: radial-gradient(120% 140% at 0% 0%, #4a250d 0%, #3a1c0b 45%, #2f160a 100%);
+  color: #fbf3ea;
+  box-shadow: inset 0 1px 0 rgba(255, 214, 160, 0.08), 0 16px 35px rgba(0, 0, 0, 0.35);
+}
+
+:root[data-theme='dark'] .access-band__info p,
+:root[data-theme='dark'] .membership-card a {
+  color: #d8c6b8;
+}
+
+/* Copper belongs to buttons; the tier is outlined. */
+:root[data-theme='dark'] .membership-card__tier {
+  border: 1px solid var(--bronze);
+  background: transparent;
+  color: #ffc98a;
+}
+
+:root[data-theme='dark'] .membership-pill {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--bronze);
+  color: #ffc98a;
+}
+
+/* ---------- Status pills: opaque with a ring ---------- */
+:root[data-theme='dark'] .status-pill--ok {
+  background: #1f3323;
+  color: #8fdc9b;
+  box-shadow: inset 0 0 0 1px rgba(143, 220, 155, 0.25);
+}
+
+:root[data-theme='dark'] .status-pill--warn {
+  background: #3d3210;
+  color: #f2cf6b;
+  box-shadow: inset 0 0 0 1px rgba(242, 207, 107, 0.25);
+}
+
+:root[data-theme='dark'] .status-pill--neutral {
+  background: #332922;
+  color: var(--ink-soft);
+  box-shadow: inset 0 0 0 1px rgba(255, 232, 210, 0.1);
+}
+
+/* ---------- Forms ---------- */
+:root[data-theme='dark'] .form-field input,
+:root[data-theme='dark'] .form-field select,
+:root[data-theme='dark'] .form-field textarea {
+  border-color: var(--border-strong);
+  background: var(--dk-wash);
+  color: var(--ink);
+}
+
+:root[data-theme='dark'] .form-field__control {
+  border-bottom-color: var(--ink-soft);
+}
+
+:root[data-theme='dark'] .form-field__control:focus-within {
+  border-bottom-color: var(--orange);
+}
+
+:root[data-theme='dark'] .form-field__control input {
+  background: transparent;
+}
+
+:root[data-theme='dark'] input::placeholder,
+:root[data-theme='dark'] textarea::placeholder {
+  color: var(--muted);
+}
+
+/* Native fields the app never styled: walnut instead of the browser's neutral grey. :where() keeps this
+   below every styled field's own rule. */
+:root[data-theme='dark'] :where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file']), textarea, select) {
+  border-color: var(--border-strong);
+  background-color: #211915;
+  color: var(--ink);
+}
+
+/* ---------- Login card ---------- */
+:root[data-theme='dark'] .login-card {
+  border-color: rgba(255, 232, 210, 0.12);
+  background: rgba(38, 28, 22, 0.74);
+  box-shadow: inset 0 1px 0 rgba(255, 235, 215, 0.07), 0 18px 44px rgba(0, 0, 0, 0.5);
+}
+
+:root[data-theme='dark'] .login-page__ambient--one {
+  background: radial-gradient(circle, rgba(247, 150, 29, 0.16), transparent 68%);
+}
+
+:root[data-theme='dark'] .login-page__ambient--two {
+  background: radial-gradient(circle, rgba(160, 112, 78, 0.16), transparent 68%);
+}
+
+/* ---------- Modals and toast ---------- */
+:root[data-theme='dark'] .modal-backdrop {
+  background: rgba(5, 3, 2, 0.72);
+}
+
+:root[data-theme='dark'] .modal-card {
+  border-color: var(--border);
+  background: var(--surface-raised);
+  box-shadow: inset 0 1px 0 rgba(255, 235, 215, 0.06), 0 28px 80px rgba(0, 0, 0, 0.6);
+}
+
+:root[data-theme='dark'] .modal-card__header {
+  border-bottom-color: var(--dk-hairline);
+  background: rgba(44, 33, 25, 0.96);
+}
+
+:root[data-theme='dark'] .toast {
+  border-color: rgba(143, 220, 155, 0.35);
+  background: #1c2a1e;
+  color: #c7efcd;
+}
+
+/* ---------- Tables ---------- */
+:root[data-theme='dark'] :is(.data-table, .membership-table, .certifications-table, .staff-directory table) :is(th, td) {
+  border-bottom-color: var(--border);
+}
+
+:root[data-theme='dark'] :is(.data-table, .membership-table, .certifications-table, .staff-directory table) thead th {
+  background: #1f1813;
+  color: var(--muted);
+}
+
+/* ---------- Footer: below the page, with the badge header's orange rule ---------- */
+:root[data-theme='dark'] .site-footer {
+  border-top: 1px solid rgba(247, 150, 29, 0.35);
+  background: #0e0a07;
+  color: var(--ink-soft);
+}
+
+:root[data-theme='dark'] .site-footer h2 {
+  color: var(--ink);
+}
+
+:root[data-theme='dark'] .site-footer a {
+  color: var(--muted);
+}
+
+:root[data-theme='dark'] .site-footer a:hover {
+  color: var(--ink);
+}
+
+/* ---------- Staff workspace ---------- */
+:root[data-theme='dark'] .admin-shell {
+  background: linear-gradient(to right, var(--surface-sunken) 251px, var(--dk-hairline) 251px 252px, transparent 252px);
+}
+
+:root[data-theme='dark'] .admin-side,
+:root[data-theme='dark'] .modal-card--navigation,
+:root[data-theme='dark'] .modal-card--navigation .modal-card__header {
+  border-color: var(--dk-hairline);
+  background: var(--surface-sunken);
+}
+
+:root[data-theme='dark'] .admin-nav__item {
+  color: #e6d9cc;
+}
+
+:root[data-theme='dark'] .admin-nav__item:hover {
+  background: var(--dk-wash-hover);
+}
+
+:root[data-theme='dark'] .admin-nav__item.is-active {
+  background: var(--surface-raised);
+  box-shadow: inset 3px 0 0 var(--orange), 0 1px 3px rgba(0, 0, 0, 0.25);
+  color: var(--ink);
+}
+
+:root[data-theme='dark'] .admin-top {
+  border-bottom-color: var(--dk-hairline);
+  background: rgba(20, 15, 11, 0.82);
+}
+
+:root[data-theme='dark'] .admin-avatar--self {
+  background: #3a1d0b;
+  box-shadow: inset 0 0 0 1px rgba(247, 150, 29, 0.45);
+}
+
+:root[data-theme='dark'] .admin-avatar--1 { background: rgba(143, 220, 155, 0.14); color: #a9e3b3; }
+:root[data-theme='dark'] .admin-avatar--2 { background: rgba(196, 160, 214, 0.16); color: #dcc6e6; }
+:root[data-theme='dark'] .admin-avatar--3 { background: rgba(150, 184, 212, 0.16); color: #bfd4e6; }
+:root[data-theme='dark'] .admin-avatar--4 { background: rgba(242, 144, 127, 0.16); color: #f5b4a8; }
+:root[data-theme='dark'] .admin-avatar,
+:root[data-theme='dark'] .admin-avatar--large { background: rgba(247, 150, 29, 0.16); color: #ffc98a; }
+
+/* Today: the now-line must stay visible through the in-use block. */
+:root[data-theme='dark'] .today-panel {
+  border-color: var(--dk-card-edge);
+  background: var(--dk-card);
+}
+
+:root[data-theme='dark'] .today-swatch--live,
+:root[data-theme='dark'] .today-block--live {
+  background: #d9c7b4;
+  color: var(--dk-copper-ink);
+}
+
+:root[data-theme='dark'] .today-swatch--booked,
+:root[data-theme='dark'] .today-block--booked {
+  background: #3a2611;
+  color: #ffc98a;
+}
+
+:root[data-theme='dark'] .today-swatch--class,
+:root[data-theme='dark'] .today-block--class {
+  background: #2f2620;
+  color: var(--ink);
+}
+
+:root[data-theme='dark'] .today-now {
+  box-shadow: 0 0 0 1px var(--dk-copper-ink);
+}
+
+:root[data-theme='dark'] .today-nowtag {
+  color: var(--dk-copper-ink);
+}
+
+:root[data-theme='dark'] .today-count {
+  background: #332922;
+  box-shadow: inset 0 0 0 1px rgba(255, 232, 210, 0.1);
+}
+
+:root[data-theme='dark'] .today-count--hot {
+  background: #3a2611;
+  color: #ffc98a;
+  box-shadow: inset 0 0 0 1px rgba(247, 150, 29, 0.3);
+}
+
+:root[data-theme='dark'] .today-button {
+  border-color: var(--border-strong);
+  background: var(--dk-wash);
+}
+
+:root[data-theme='dark'] .today-button:hover {
+  border-color: var(--ink-soft);
+  background: var(--dk-wash-hover);
+}
+
+/* ---------- Charts ---------- */
+:root[data-theme='dark'] .revenue-bars__paid {
+  background: var(--dk-copper);
+}
+
+:root[data-theme='dark'] .revenue-bars__refund {
+  background: #c97a70;
+}
+
+:root[data-theme='dark'] .revenue-bars__tip {
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--ink);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+}
+
+:root[data-theme='dark'] .chart-gridline {
+  stroke: #5a4a3f;
+}
+
+:root[data-theme='dark'] .chart-dot {
+  fill: var(--paper-raised);
+}

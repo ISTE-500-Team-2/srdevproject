@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
+import { useAppearance } from "../theme/appearance";
 
 // three.js is large, so the lanyard only loads on the page that shows it.
 const Lanyard = lazy(() => import("./reactbits/Lanyard"));
@@ -126,6 +127,7 @@ export function MemberBadge({
   isMinor?: boolean;
   sponsorName?: string | null;
 }) {
+  const { theme } = useAppearance();
   const [face, setFace] = useState<string>();
   const [strap, setStrap] = useState<string>();
   useEffect(() => {
@@ -155,6 +157,8 @@ export function MemberBadge({
             size={0.62}
             strapLength={0.42}
             breeze={0.3}
+            // The badge keeps its printed colors; only the lighting drops on dark pages.
+            exposure={theme === "dark" ? 0.8 : 1}
           />
         </Suspense>
       ) : null}
