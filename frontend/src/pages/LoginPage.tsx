@@ -59,6 +59,10 @@ export function LoginPage() {
   // Fields the current login error is about; drives aria-invalid and focus.
   const [invalid, setInvalid] = useState<{ email?: boolean; password?: boolean }>({});
   const emailInput = useRef<HTMLInputElement>(null);
+  // A sign-in that finishes after the visitor has left this page (e.g. to reset a
+  // password) must not pull them to its destination.
+  const onPage = useRef(true);
+  useEffect(() => { onPage.current = true; return () => { onPage.current = false; }; }, []);
   const passwordInput = useRef<HTMLInputElement>(null);
   // Focus after the render that adds aria-invalid, so screen readers announce it.
   // A fresh object per request, so asking for the same field twice still refocuses.
@@ -91,9 +95,10 @@ export function LoginPage() {
   const continueAs = async (role: UserRole) => {
     setBusy(true);
     setError('');
+    preloadForSignIn();
     try {
       await prepareArrival(await loginAs(role), destination);
-      navigate(destination, { replace: true });
+      if (onPage.current) navigate(destination, { replace: true });
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -113,9 +118,12 @@ export function LoginPage() {
     setError('');
     setInvalid({});
     setBusy(true);
+    // Password managers may submit without focusing the form: start here too, so
+    // the download overlaps the password check.
+    preloadForSignIn();
     try {
       await prepareArrival(await login(email, password, remember), destination);
-      navigate(destination, { replace: true });
+      if (onPage.current) navigate(destination, { replace: true });
     } catch (err) {
       setError(errorMessage(err));
       // Wrong credentials can't say which field was wrong; mark both, retry the password.
