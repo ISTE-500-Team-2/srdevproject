@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
 import {
   Banknote,
@@ -12,12 +12,11 @@ import {
 } from "lucide-react";
 import { LoadState } from "../../components/Management";
 import type { LiveEquipment, Reservation } from "../../lib/contracts";
-import type { ComplianceReport, Page } from "../../lib/staffContracts";
+import type { ComplianceReport } from "../../lib/staffContracts";
 import type { Rental, Studio } from "../../lib/studioContracts";
 import {
   bookingBlock,
   dayKey,
-  equipmentBookings,
   formatTime,
   groupMachines,
   initials,
@@ -30,6 +29,7 @@ import {
   type NeedsYouItem,
 } from "../../lib/today";
 import { useApi } from "../../lib/useApi";
+import { useDayBookings } from "./useDayBookings";
 import type { Report } from "../ReportsPage";
 import "./today.css";
 
@@ -64,39 +64,6 @@ export function TodayPage() {
   return <TodayContent key={day} config={config} now={now} day={day} />;
 }
 
-// The staff bookings list is paged; each page keeps its own refresh and retry.
-type BookingPageResult = Result<Page<Reservation>>;
-function BookingPage({ day, offset, receive }: { day: string; offset: number; receive: (offset: number, result: BookingPageResult) => void }) {
-  const { data, loading, error, reload } = useApi<Page<Reservation>>(
-    `/admin/reservations?date=${day}${offset ? `&offset=${offset}` : ""}`,
-    refresh,
-  );
-  useEffect(() => {
-    receive(offset, { data, loading, error, reload });
-  }, [offset, receive, data, loading, error, reload]);
-  return null;
-}
-
-function useTodayBookings(day: string) {
-  const [pages, setPages] = useState<Record<number, BookingPageResult>>({});
-  const receive = useCallback(
-    (offset: number, result: BookingPageResult) => setPages((previous) => ({ ...previous, [offset]: result })),
-    [],
-  );
-  const offsets = [0];
-  for (let next = pages[0]?.data?.nextOffset; next != null && !offsets.includes(next); next = pages[next]?.data?.nextOffset)
-    offsets.push(next);
-  const missing = offsets.map((offset) => pages[offset]).find((page) => !page?.data);
-  const state: Result<unknown> | undefined = offsets.every((offset) => pages[offset]?.data)
-    ? undefined
-    : (missing ?? { data: null, loading: true, error: "", reload: () => {} });
-  const bookings = equipmentBookings(offsets.flatMap((offset) => pages[offset]?.data?.items ?? []));
-  const loaders = day
-    ? offsets.map((offset) => <BookingPage key={offset} day={day} offset={offset} receive={receive} />)
-    : null;
-  return { bookings, state, loaders };
-}
-
 function TodayContent({ config, now, day }: { config: Result<{ timeZone: string }>; now: number; day: string }) {
   const zone = config.data?.timeZone;
   const report = useApi<Report>(`/admin/reports?period=daily&from=${day}&to=${day}`, refresh);
@@ -104,7 +71,7 @@ function TodayContent({ config, now, day }: { config: Result<{ timeZone: string 
   const studios = useApi<{ studios: Studio[] }>("/studios", refresh);
   const rentals = useApi<Rental[]>("/studio-management/rentals", refresh);
   const compliance = useApi<ComplianceReport>("/admin/compliance?userStatus=active&attention=true", refresh);
-  const { bookings, state: bookingState, loaders } = useTodayBookings(day);
+  const { bookings, state: bookingState, loaders } = useDayBookings(day, refresh);
 
   const live = new Set(
     report.data?.live

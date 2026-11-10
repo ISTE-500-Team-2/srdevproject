@@ -1,8 +1,9 @@
 import { useAuth } from '../context/AuthContext';
-import { CalendarDays, Filter, ShieldAlert } from 'lucide-react';
-import { type FormEvent, useEffect, useRef, useState } from 'react';
+import { CalendarDays, ChevronDown, Filter, ShieldAlert } from 'lucide-react';
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Modal } from '../components/Modal';
+import { Skeleton, SkeletonGroup } from '../components/Skeleton';
 import { MemberSelect } from '../components/MemberSelect';
 import { StartTimePicker } from '../components/StartTimePicker';
 import { Toast } from '../components/Toast';
@@ -11,7 +12,7 @@ import type { EquipmentPrice, LiveEquipment, Reservation } from '../lib/contract
 import { EquipmentPriceBreakdown } from '../components/EquipmentPriceBreakdown';
 import { useApi } from '../lib/useApi';
 import { reservationInput } from '../lib/reservationInput';
-import { cents, dateTime } from "../lib/display";
+import { cents, dateTime, shortDate, timeOnly } from "../lib/display";
 
 export function EquipmentPage() {
   const {user}=useAuth();
@@ -48,6 +49,12 @@ export function EquipmentPage() {
     const machine = catalog.data?.find(equipment => equipment.id === item.equipmentId);
     return item.userId === user?.id && machine?.canReserve === false ? machine.availability : '';
   };
+  const [pastOpen, setPastOpen] = useState(true);
+  const [showCancelled, setShowCancelled] = useState(false);
+  const now = Date.now();
+  const sortedBookings = splitBookings(bookings.data ?? [], now, user?.id);
+  const machineFor = (item: Reservation) =>
+    item.equipmentId == null ? undefined : catalog.data?.find(equipment => equipment.id === item.equipmentId);
   useEffect(() => {
     if (!bookings.data?.some(item => item.paymentStatus === 'pending')) return;
     const timer = window.setInterval(bookings.reload, 5000);
@@ -165,7 +172,6 @@ export function EquipmentPage() {
           <span>Find equipment</span>
           <input type="search" value={search} placeholder="Search by name or type" onChange={e => setSearch(e.target.value)} />
         </label>
-        {catalog.loading ? <p role="status">Loading equipment…</p> : null}
         {catalog.error ? (
           <p role="alert" className="form-error">
             {catalog.error} <button onClick={catalog.reload}>Retry</button>
@@ -176,7 +182,7 @@ export function EquipmentPage() {
             {error}
           </p>
         ) : null}
-        <div className="equipment-grid">
+        {catalog.loading ? <EquipmentTilesLoading /> : <div className="equipment-grid">
           {groupEquipment(equipment).map(([type, machines]) => (
             <button className="reservation-card equipment-card" key={type}
               onClick={() => {
@@ -191,7 +197,7 @@ export function EquipmentPage() {
               <p className="equipment-card__names">{machines.map(item => item.name).join(' \u00b7 ')}</p>
             </button>
           ))}
-        </div>
+        </div>}
         {!catalog.loading && !catalog.error && !equipment.length ? (
           <p className="empty-state">No equipment matches this filter.</p>
         ) : null}
@@ -210,10 +216,6 @@ export function EquipmentPage() {
             Refresh
           </button>
         </div>
-        <p>
-          Pay the hourly rate × your selected hours through Stripe to confirm your reservation. Cancel at least 24 hours ahead; bookings on the same machine need 15 minutes between them. Contact staff about refunds.
-            {liveSelected?.rate === null && <p className="form-notice">Rate not set. Contact staff before reserving.</p>}
-        </p>
         {params.get('payment') === 'returned' && <p role="status" className="form-notice">
           {returnedBooking?.status === 'confirmed' && returnedBooking.paymentStatus === 'paid'
             ? 'Payment received. Your reservation is confirmed.'
@@ -224,7 +226,7 @@ export function EquipmentPage() {
           Checkout was closed. Payment is still required to confirm your reservation. Resume payment or cancel the checkout below.
         </p>}
         {error && !selected && <p role="alert" className="form-error">{error}</p>}
-        {bookings.loading ? <p role="status">Loading reservations…</p> : null}
+        {bookings.loading ? <BookingsLoading /> : null}
         {bookings.error ? (
           <p role="alert" className="form-error">
             {bookings.error} <button onClick={bookings.reload}>Retry</button>
@@ -235,44 +237,51 @@ export function EquipmentPage() {
             No reservations yet. Choose equipment above to get started.
           </p>
         ) : null}
-        <div className="saved-records">
-          {bookings.data?.map((item) => (
-            <article className="panel saved-record" key={item.id}>
-              <div>
-                <h3>{item.equipmentName}</h3>
-                <p>
-                  {dateTime(item.startTime)} –{' '}
-                  {dateTime(item.endTime)}
-                </p>
-                <span>
-                  {item.location} · {item.paymentStatus === 'pending' ? item.payerId == null ? 'Payment due at front desk' : bookingBlockReason(item) ? 'Requirements need attention' : 'Awaiting payment' : item.status}
-                </span>
-                {item.priceSnapshot && <p>{cents(item.priceSnapshot.equipmentCents)} equipment{!!item.priceSnapshot.trainingFeeCents && <> + {cents(item.priceSnapshot.trainingFeeCents)} training fee</>} = <strong>{cents(item.priceSnapshot.totalCents)}</strong> · Payment: {item.paymentStatus ?? 'not recorded'}</p>}
-              </div>
-              {item.amountCents != null && <p>{money(item.amountCents)} · {item.paymentStatus === 'paid' ? 'Paid' : item.paymentStatus === 'expired' ? 'Checkout expired' : 'Payment required'}</p>}
-              {item.paymentStatus === 'pending' && item.payerId === user?.id ? <div>
-                {bookingBlockReason(item) && <p className="form-notice">{bookingBlockReason(item)}.{' '}
-                  <Link to="/certifications">Review your waivers and certifications</Link> before continuing.</p>}
-                {item.holdUntil && <p>Complete payment by {dateTime(item.holdUntil)} to confirm this booking.</p>}
-                <button className="button button--primary" disabled={busy || !!bookingBlockReason(item)} onClick={() => void checkoutAction(item.id)}>Pay {money(item.amountCents ?? 0)}</button>
-                <button className="button button--quiet" disabled={busy} onClick={() => void checkoutAction(item.id, true)}>Cancel checkout</button>
-              </div> : item.paymentStatus === 'pending' && item.payerId != null ? <p>Awaiting payment from the person who started checkout.</p> : ['pending', 'confirmed'].includes(item.status) &&
-              new Date(item.startTime).getTime() >= Date.now()+24*60*60*1000 ? (
-                <button
-                  className="button button--quiet"
-                  disabled={busy}
-                  onClick={() => void cancel(item.id)}
-                >
-                  Cancel reservation
+        {sortedBookings.upcoming.length || sortedBookings.past.length || sortedBookings.cancelled.length ? <>
+          <div className="booking-group">
+            <h3>Upcoming · {sortedBookings.upcoming.length}</h3>
+          </div>
+          {sortedBookings.upcoming.length ? (
+            <div className="booking-list">
+              {sortedBookings.upcoming.map(item => {
+                const view = describeBooking(item, now, user?.id, bookingBlockReason(item));
+                return (
+                  <BookingRow key={item.id} item={item} view={view} machine={machineFor(item)} userId={user?.id} now={now} card>
+                    {view.action === 'pay' ? <>
+                      <button className="button button--quiet" disabled={busy} onClick={() => void checkoutAction(item.id, true)}>Cancel checkout</button>
+                      <button className="button button--primary" disabled={busy || !!bookingBlockReason(item)} onClick={() => void checkoutAction(item.id)}>Pay {money(item.amountCents ?? 0)}</button>
+                    </> : view.action === 'cancel' ? (
+                      <button className="button button--quiet" disabled={busy} onClick={() => void cancel(item.id)}>Cancel reservation</button>
+                    ) : null}
+                  </BookingRow>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="empty-state booking-empty">No upcoming reservations. Choose equipment above to book one.</p>
+          )}
+          {sortedBookings.past.length || sortedBookings.cancelled.length ? <>
+            <div className="booking-group">
+              <h3>
+                <button type="button" aria-expanded={pastOpen} aria-controls="past-bookings" onClick={() => setPastOpen(open => !open)}>
+                  <ChevronDown aria-hidden="true" />Past · {sortedBookings.past.length}
                 </button>
-              ) : ['pending', 'confirmed'].includes(item.status) ? (
-                <p className="form-caption">{new Date(item.startTime).getTime() > Date.now()
-                  ? 'Online cancellation closes 24 hours before the start time.'
-                  : 'This reservation has started; online cancellation is closed.'}</p>
+              </h3>
+              {sortedBookings.cancelled.length ? (
+                <label className="booking-group__toggle">
+                  <input type="checkbox" checked={showCancelled} onChange={event => setShowCancelled(event.target.checked)} />
+                  <span>Show cancelled<span className="booking-group__long"> and expired</span> ({sortedBookings.cancelled.length})</span>
+                </label>
               ) : null}
-            </article>
-          ))}
-        </div>
+            </div>
+            <div className="panel booking-history" id="past-bookings" hidden={!pastOpen}>
+              {(showCancelled ? byStartDescending([...sortedBookings.past, ...sortedBookings.cancelled]) : sortedBookings.past).map(item => (
+                <BookingRow key={item.id} item={item} view={describeBooking(item, now, user?.id, '')} machine={machineFor(item)} userId={user?.id} now={now} />
+              ))}
+              {!showCancelled && !sortedBookings.past.length ? <p className="booking-history__empty">Only cancelled or expired bookings so far.</p> : null}
+            </div>
+          </> : null}
+        </> : null}
       </section>
       <Modal
         open={!!selected}
@@ -324,6 +333,7 @@ export function EquipmentPage() {
                 .
               </p>
             ) : null}
+            {liveSelected?.rate === null && <p className="form-notice">Rate not set. Contact staff before reserving.</p>}
             <EquipmentPriceBreakdown price={quote.data} />
             {quote.error && <p role="alert" className="form-error">{quote.error} <button type="button" onClick={quote.reload}>Refresh price</button></p>}
             <p className="form-caption">
@@ -358,16 +368,155 @@ function rateLabel(rate: number | null) {
   return rate === null ? 'Rate not set' : '$' + rate.toFixed(2) + '/hour';
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const ACTIVE_STATUSES = ['pending', 'confirmed'];
+const PAID_WORDS: Record<string, string> = { paid: 'Paid', refunded: 'Refunded', waived: 'Waived', failed: 'Payment failed' };
+const time = (value: string) => new Date(value).getTime();
+const byStartDescending = (items: Reservation[]) => [...items].sort((a, b) => time(b.startTime) - time(a.startTime));
+
+/** Upcoming soonest first, with bookings waiting on this member's payment on top; past newest first. */
+function splitBookings(items: Reservation[], now: number, userId: number | undefined) {
+  const upcoming: Reservation[] = [], past: Reservation[] = [], cancelled: Reservation[] = [];
+  for (const item of items) {
+    if (!ACTIVE_STATUSES.includes(item.status)) cancelled.push(item);
+    else if (time(item.endTime) > now) upcoming.push(item);
+    else past.push(item);
+  }
+  const waitsOnMe = (item: Reservation) => item.paymentStatus === 'pending' && item.payerId != null && item.payerId === userId;
+  upcoming.sort((a, b) => Number(waitsOnMe(b)) - Number(waitsOnMe(a)) || time(a.startTime) - time(b.startTime));
+  return { upcoming, past: byStartDescending(past), cancelled: byStartDescending(cancelled) };
+}
+
+type BookingView = { status: string; tone: 'ok' | 'warn' | 'neutral'; note?: ReactNode; action?: 'pay' | 'cancel'; due?: boolean };
+
+/** One status, one note and at most one kind of action for each booking. */
+function describeBooking(item: Reservation, now: number, userId: number | undefined, blockReason: string): BookingView {
+  const payment = item.paymentStatus ?? '';
+  // A cancelled booking keeps its payment outcome, so paid-but-not-refunded and refunded differ.
+  if (!ACTIVE_STATUSES.includes(item.status))
+    return { status: payment === 'expired' ? 'Checkout expired' : [item.status === 'expired' ? 'Expired' : 'Cancelled', PAID_WORDS[payment]].filter(Boolean).join(' · '), tone: 'neutral' };
+  if (time(item.endTime) <= now)
+    return { status: ['Ended', payment === 'pending' ? 'Unpaid' : PAID_WORDS[payment]].filter(Boolean).join(' · '), tone: 'neutral' };
+  if (payment === 'pending') {
+    if (item.payerId != null && item.payerId !== userId) return { status: 'Awaiting payment', tone: 'warn', note: 'Awaiting payment from the person who started checkout.' };
+    if (item.payerId === userId) return {
+      status: blockReason ? 'Requirements need attention' : 'Awaiting payment', tone: 'warn', action: 'pay', due: true,
+      note: blockReason || item.holdUntil ? <>
+        {blockReason ? <>{blockReason}. <Link to="/certifications">Review your waivers and certifications</Link> before paying. </> : null}
+        {item.holdUntil ? <>Complete payment by {dateTime(item.holdUntil)} to confirm this booking.</> : null}
+      </> : undefined,
+    };
+  }
+  // No checkout yet: payment is collected at the front desk, and the usual cancellation rules apply.
+  const frontDesk = payment === 'pending';
+  const confirmed = item.status === 'confirmed';
+  const status = frontDesk ? 'Payment due at front desk' : confirmed ? ['Confirmed', PAID_WORDS[payment]].filter(Boolean).join(' · ') : 'Pending';
+  const tone = confirmed && !frontDesk && payment !== 'failed' ? 'ok' : 'warn';
+  const start = time(item.startTime);
+  if (start <= now) return { status: 'In progress', tone: 'ok', note: `Ends at ${timeOnly(item.endTime)}.` };
+  if (start >= now + DAY_MS)
+    return { status, tone, action: 'cancel', note: `You can cancel online until ${dateTime(new Date(start - DAY_MS))}.` };
+  return { status, tone, note: 'Online cancellation closes 24 hours before the start time.' };
+}
+
+const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+function dayLabel(value: string, now: number) {
+  const start = new Date(value), today = new Date(now);
+  return sameDay(start, today) ? 'Today' : shortDate(start, start.getFullYear() !== today.getFullYear());
+}
+function timeRange(startValue: string, endValue: string) {
+  const start = new Date(startValue), end = new Date(endValue);
+  return sameDay(start, end) ? `${timeOnly(start)} – ${timeOnly(end)}` : `${timeOnly(start)} – ${shortDate(end)}, ${timeOnly(end)}`;
+}
+
+/** Four tiles in the shape of the equipment tiles, shown until the catalog arrives. */
+function EquipmentTilesLoading() {
+  const widths: [string, string][] = [['62%', '86%'], ['48%', '70%'], ['70%', '40%'], ['44%', '62%']];
+  return (
+    <SkeletonGroup label="Loading equipment" className="equipment-grid">
+      {widths.map(([title, names], index) => (
+        <div className="equipment-card-skeleton" key={index}>
+          <Skeleton className="equipment-card-skeleton__image" />
+          <span className="equipment-card-skeleton__rule" />
+          <Skeleton width={title} height={24} />
+          <Skeleton width={names} height={13} />
+        </div>
+      ))}
+    </SkeletonGroup>
+  );
+}
+
+/** Two rows on the booking row grid, shown until the reservations arrive. */
+function BookingsLoading() {
+  const widths: [string, string, string, string][] = [['58%', '40%', '46%', '62%'], ['44%', '52%', '38%', '56%']];
+  return (
+    <SkeletonGroup label="Loading reservations">
+      <div className="booking-group" aria-hidden="true"><h3>Upcoming ·<Skeleton width={14} height={12} /></h3></div>
+      <div className="booking-list">
+        {widths.map(([name, detail, day, time], index) => (
+          <div className="booking-row panel booking-row--card" key={index}>
+            <div className="booking-row__thumb"><Skeleton width="100%" height="100%" /></div>
+            <div className="booking-row__name skeleton-lines"><Skeleton width={name} height={16} /><Skeleton width={detail} height={12} /></div>
+            <div className="booking-row__when skeleton-lines"><Skeleton width={day} height={16} /><Skeleton width={time} height={12} /></div>
+            <div className="booking-row__price"><Skeleton width={index ? 48 : 56} height={16} /></div>
+            <div className="booking-row__status"><Skeleton round width={index ? 80 : 92} height={22} /></div>
+            <div className="booking-row__actions"><Skeleton round width={170} height={42} /></div>
+          </div>
+        ))}
+      </div>
+    </SkeletonGroup>
+  );
+}
+
+function BookingRow({ item, view, machine, userId, now, card = false, children }: {
+  item: Reservation; view: BookingView; machine: LiveEquipment | undefined; userId: number | undefined; now: number; card?: boolean; children?: ReactNode;
+}) {
+  const type = machine ? equipmentGroup(machine.type) : item.resourceType === 'room' ? 'Studio' : '';
+  // Walk-up sessions store the machine's name as their location; don't repeat it.
+  const place = item.location && item.location !== item.equipmentName ? item.location : '';
+  const total = item.priceSnapshot?.totalCents ?? item.amountCents ?? null;
+  const fee = item.priceSnapshot?.trainingFeeCents ?? 0;
+  const detail = [type, place].filter(Boolean).join(' · ');
+  return (
+    <article className={`booking-row${card ? ' panel booking-row--card' : ''}${view.due ? ' booking-row--due' : ''}`}>
+      <div className="booking-row__thumb reservation-card__image">
+        {machine?.image ? <img src={machine.image} alt="" /> : <CalendarDays aria-hidden="true" />}
+      </div>
+      <div className="booking-row__name">
+        <h3>{item.equipmentName}</h3>
+        {detail ? <span>{detail}</span> : null}
+        {item.userId !== userId && item.memberName ? <span className="booking-row__for">For {item.memberName}</span> : null}
+      </div>
+      <div className="booking-row__when">
+        <strong>{dayLabel(item.startTime, now)}</strong>
+        <span>{timeRange(item.startTime, item.endTime)}</span>
+      </div>
+      <div className="booking-row__price">
+        {total === 0 ? <span className="booking-row__free">No charge</span> : total != null ? cents(total) : null}
+        {fee > 0 ? <small>incl. {cents(fee)} training</small> : null}
+      </div>
+      <div className="booking-row__status"><span className={`status-pill status-pill--${view.tone}`}>{view.status}</span></div>
+      <div className="booking-row__actions">{children}</div>
+      {view.note ? <p className="booking-row__note">{view.note}</p> : null}
+    </article>
+  );
+}
+
+/** The display group for a machine type, shared by the equipment tiles and booking rows. */
+function equipmentGroup(rawType: string) {
+  const category = rawType.trim();
+  return /^3d[ -]*(print|printing|printer)$/i.test(category) ? '3D Printer'
+    : /\bcnc\b/i.test(category) ? 'CNC Machine'
+    : /\blathe\b/i.test(category) ? 'Lathe'
+    : /^laser( engraver)?$/i.test(category) ? 'Laser Engraver'
+    : category || 'Other equipment';
+}
+
 // Group presentation only; booking always retains the original machine record.
 function groupEquipment(equipment: LiveEquipment[]): [string, LiveEquipment[]][] {
   const groups = new Map<string, LiveEquipment[]>();
   for (const item of equipment) {
-    const category = item.type.trim();
-    const type = /^3d[ -]*(print|printing|printer)$/i.test(category) ? '3D Printer'
-      : /\bcnc\b/i.test(category) ? 'CNC Machine'
-      : /\blathe\b/i.test(category) ? 'Lathe'
-      : /^laser( engraver)?$/i.test(category) ? 'Laser Engraver'
-      : category || 'Other equipment';
+    const type = equipmentGroup(item.type);
     groups.set(type, [...(groups.get(type) ?? []), item]);
   }
   const order = ['3D Printer', 'Laser Engraver', 'Lathe', 'CNC Machine'];

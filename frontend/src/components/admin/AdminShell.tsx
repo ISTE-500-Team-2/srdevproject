@@ -8,6 +8,7 @@ import { AccountPicker } from "./AccountPicker";
 import { Modal } from "../Modal";
 import { AppearanceControl } from "../AppearanceControl";
 import { initials, lastWorkspacePathKey, roleLabel } from "./people";
+import { PageWidthContext, type PageWidth } from "./pageWidth";
 
 /** The staff workspace: its own sidebar layout, separate from the member site. */
 export function AdminShell() {
@@ -17,6 +18,7 @@ export function AdminShell() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [error, setError] = useState("");
+  const [pageWidth, setPageWidth] = useState<PageWidth>("standard");
   const staff = actor ?? user;
 
   // Arriving in the workspace closes any member account left open. Only on
@@ -49,7 +51,9 @@ export function AdminShell() {
       <Link className="admin-side__brand" to="/admin" aria-label="Staff workspace home">
         <img src="/assets/collaboratory-logo.webp" alt="The Collaboratory" />
       </Link>
-      <p className="admin-side__label">Staff workspace</p>
+      <p className="admin-side__label">
+        <span>Staff</span>
+      </p>
       <nav className="admin-nav" aria-label="Staff workspace">
         <NavLink className={navLinkClass} to="/admin" end>
           <CalendarDays aria-hidden="true" />
@@ -128,8 +132,10 @@ export function AdminShell() {
             {error}
           </p>
         ) : null}
-        <main id="admin-main" className="admin-content page-enter">
-          <Outlet />
+        <main id="admin-main" className="admin-content page-enter" data-width={pageWidth}>
+          <PageWidthContext.Provider value={setPageWidth}>
+            <Outlet />
+          </PageWidthContext.Provider>
         </main>
       </div>
       {pickerOpen ? <AccountPicker onClose={() => setPickerOpen(false)} /> : null}

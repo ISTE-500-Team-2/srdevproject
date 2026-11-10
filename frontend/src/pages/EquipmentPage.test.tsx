@@ -233,3 +233,70 @@ test('pending checkout cannot be resumed while its owner needs to sign required 
  expect(screen.getByRole('link',{name:'Review your waivers and certifications'})).toBeTruthy();
  expect((screen.getByRole('button',{name:'Cancel checkout'}) as HTMLButtonElement).disabled).toBe(false);
 });
+
+test('reservations split into upcoming and past, with cancelled and expired bookings behind a toggle',async()=>{
+ const hour=3600000,now=Date.now(),at=(offset:number)=>new Date(now+offset).toISOString();
+ const row=(id:number,name:string,start:number,extra:Record<string,unknown>={})=>({id,userId:1,equipmentId:4,equipmentName:name,location:'Makerspace',startTime:at(start),endTime:at(start+hour),status:'confirmed',...extra});
+ records=[
+  row(1,'Ended paid',-50*hour,{paymentStatus:'paid',amountCents:700}),
+  row(2,'Later',72*hour,{paymentStatus:'paid',amountCents:700}),
+  row(3,'Running',-hour/2,{paymentStatus:'paid'}),
+  row(4,'Pay me',96*hour,{status:'pending',paymentStatus:'pending',payerId:1,amountCents:1400,priceSnapshot:{currency:'USD',hours:2,hourlyRateCents:700,equipmentCents:700,trainingFeeCents:700,totalCents:1400,certificationId:9,certificationRevision:1}}),
+  row(5,'Expired checkout',-30*hour,{status:'cancelled',paymentStatus:'expired'}),
+  row(6,'Front desk',48*hour,{status:'pending',paymentStatus:'pending',payerId:null}),
+  row(7,'For a member',120*hour,{userId:2,memberName:'Dana Whitfield',paymentStatus:'paid'}),
+  row(8,'Wood Shop',150*hour,{equipmentId:null,resourceType:'room',location:'Instructor-led training'}),
+ ];
+ await mount();
+ const mine=screen.getByRole('region',{name:'My reservations'});
+ const names=()=>within(mine).getAllByRole('heading',{level:3}).map(h=>h.textContent);
+ // The member's own payment comes first, then soonest first; ended bookings follow, newest first.
+ expect(names()).toEqual(['Upcoming · 6','Pay me','Running','Front desk','Later','For a member','Wood Shop','Past · 1','Ended paid']);
+ const card=(name:string)=>within(mine).getByRole('heading',{name}).closest('article')!;
+ expect(within(card('Pay me')).getByText('Awaiting payment')).toBeTruthy();
+ expect(within(card('Pay me')).getByText('incl. $7.00 training')).toBeTruthy();
+ expect(within(card('Pay me')).getByRole('button',{name:'Pay $14.00'})).toBeTruthy();
+ expect(within(card('Running')).getByText('In progress')).toBeTruthy();
+ expect(within(card('Running')).queryByRole('button')).toBeNull();
+ expect(within(card('Front desk')).getByText('Payment due at front desk')).toBeTruthy();
+ expect(within(card('Front desk')).getByRole('button',{name:'Cancel reservation'})).toBeTruthy();
+ expect(within(card('Later')).getByText('Confirmed · Paid')).toBeTruthy();
+ expect(within(card('Later')).getByText('3D Printer · Makerspace')).toBeTruthy();
+ expect(within(card('For a member')).getByText('For Dana Whitfield')).toBeTruthy();
+ expect(within(card('Wood Shop')).getByText('Studio · Instructor-led training')).toBeTruthy();
+ expect(within(card('Ended paid')).getByText('Ended · Paid')).toBeTruthy();
+ expect(within(card('Ended paid')).queryByText(/online cancellation/i)).toBeNull();
+ expect(within(mine).queryByRole('heading',{name:'Expired checkout'})).toBeNull();
+ const toggle=within(mine).getByLabelText(/Show cancelled/);expect(toggle.closest("label")!.textContent).toBe("Show cancelled and expired (1)");fireEvent.click(toggle);
+ expect(within(card('Expired checkout')).getByText('Checkout expired')).toBeTruthy();
+ fireEvent.click(within(mine).getByRole('button',{name:'Past · 1'}));
+ expect(within(mine).queryByRole('heading',{name:'Ended paid'})).toBeNull();
+});
+test('cancelled bookings keep whether they were paid or refunded',async()=>{
+ const at=(offset:number)=>new Date(Date.now()+offset).toISOString();
+ const row=(id:number,name:string,paymentStatus:string)=>({id,userId:1,equipmentId:4,equipmentName:name,location:'Makerspace',startTime:at(-48*3600000),endTime:at(-47*3600000),status:'cancelled',paymentStatus,amountCents:700});
+ records=[row(1,'Kept payment','paid'),row(2,'Money back','refunded'),row(3,'Never paid','pending')];
+ await mount();
+ const mine=screen.getByRole('region',{name:'My reservations'});
+ fireEvent.click(within(mine).getByLabelText(/Show cancelled/));
+ const card=(name:string)=>within(mine).getByRole('heading',{name}).closest('article')!;
+ expect(within(card('Kept payment')).getByText('Cancelled · Paid')).toBeTruthy();
+ expect(within(card('Money back')).getByText('Cancelled · Refunded')).toBeTruthy();
+ expect(within(card('Never paid')).getByText('Cancelled')).toBeTruthy();
+});
+test('equipment and reservations show placeholders in their own shape while they load',async()=>{
+ let catalog!:(items:unknown)=>void,saved!:(items:unknown)=>void;
+ vi.mocked(api).mockImplementation((path=>path==='/equipment'?new Promise<unknown>(resolve=>{catalog=resolve;})
+  :path==='/reservations'?new Promise<unknown>(resolve=>{saved=resolve;}):Promise.resolve(null)) as typeof api);
+ await mount();
+ expect(screen.getByRole('status',{name:'Loading equipment'})).toBeTruthy();
+ expect(screen.getByRole('status',{name:'Loading reservations'})).toBeTruthy();
+ expect(screen.queryByText(/Loading (equipment|reservations)…/)).toBeNull();
+ // The placeholders are hidden from screen readers: no stray headings or buttons.
+ expect(within(screen.getByRole('region',{name:'My reservations'})).queryAllByRole('heading',{level:3})).toHaveLength(0);
+ expect(screen.queryByRole('button',{name:/3D Printer/})).toBeNull();
+ await act(async()=>{catalog([machine]);saved([]);});
+ expect(screen.queryByRole('status',{name:/Loading/})).toBeNull();
+ expect(screen.getByRole('button',{name:/^3D Printer/})).toBeTruthy();
+ expect(screen.getByText(/No reservations yet/)).toBeTruthy();
+});

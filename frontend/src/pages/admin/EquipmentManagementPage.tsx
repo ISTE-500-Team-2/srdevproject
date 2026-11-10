@@ -1,45 +1,24 @@
 import { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, ArrowUpRight, Check, ChevronRight, Search, Wrench } from 'lucide-react';
+import { Link, useLocation, useParams } from 'react-router-dom';
+import { ArrowLeft, ArrowUpRight, Check, Wrench } from 'lucide-react';
 import { useApi } from '../../lib/useApi';
 import { LoadState } from '../../components/Management';
 import { shortDate, zonedDay } from '../../lib/display';
-import { equipmentRate, equipmentTime, maintenanceReasons, type EquipmentDetail, type ManagedEquipment } from '../../lib/equipmentMaintenance';
+import { equipmentRate, equipmentTime, maintenanceReasons, type EquipmentDetail } from '../../lib/equipmentMaintenance';
 import { AvailabilityForm, EquipmentBookings } from './EquipmentWorkflows';
+import { EquipmentBoard } from './EquipmentBoard';
 import './equipment.css';
 
 const refresh = { retainOnReload: true, refreshInterval: 15000 };
 export function EquipmentManagementPage() {
   const { equipmentId } = useParams();
-  return equipmentId ? <EquipmentDetailPage key={equipmentId} id={equipmentId} /> : <EquipmentList />;
-}
-function EquipmentList() {
-  const result = useApi<ManagedEquipment[]>('/admin/equipment', refresh);
-  const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState('all');
-  const machines = result.data ?? [];
-  const down = machines.filter(m => m.status !== 'available').length;
-  const visible = machines.filter(m => (filter !== 'down' || m.status !== 'available') && `${m.name} ${m.type} ${m.location}`.toLowerCase().includes(search.toLowerCase().trim()));
-  return <div className="eq-workspace">
-    <header className="eq-heading"><div><p className="eq-eyebrow">Operations</p><h1 className="admin-title">Equipment</h1><p>Keep the shop ready for what’s next.</p></div>
-      {result.data && <span className={`eq-pill${down ? ' eq-pill--down' : ''}`}>{down ? <Wrench aria-hidden="true" /> : <Check aria-hidden="true" />}{down} out of service</span>}
-    </header>
-    <div className="eq-toolbar"><label className="eq-search"><Search aria-hidden="true" /><span className="sr-only">Find equipment</span><input placeholder="Find a machine…" value={search} onChange={e => setSearch(e.target.value)} /></label>
-      <label><span className="sr-only">Equipment status</span><select value={filter} onChange={e => setFilter(e.target.value)}><option value="all">All equipment</option><option value="down">Out of service</option></select></label>
-      <button className="button button--quiet" onClick={result.reload}>Refresh</button>
-    </div>
-    <LoadState {...result} />
-    <div className="eq-list">{visible.map(m => <Link className="eq-machine-row" key={m.id} to={`/admin/equipment/${m.id}`}>
-      <img src={m.image} alt="" /><div className="eq-machine-name"><strong>{m.name}</strong><span>{m.type} · {m.location}</span></div>
-      <div className="eq-machine-state"><span className={`eq-pill${m.status !== 'available' ? ' eq-pill--down' : ''}`}>{m.status === 'available' ? m.activeReaderLeases ? 'In use' : 'Available' : 'Out of service'}</span>
-        {m.outage && <small>{maintenanceReasons[m.outage.reason]}{m.outage.expectedBack ? ` · Est. ${shortDate(m.outage.expectedBack)}` : ''}</small>}</div><ChevronRight aria-hidden="true" />
-    </Link>)}</div>
-    {result.data && !visible.length && <p className="eq-empty">No equipment matches this view.</p>}
-  </div>;
+  return equipmentId ? <EquipmentDetailPage key={equipmentId} id={equipmentId} /> : <EquipmentBoard />;
 }
 function EquipmentDetailPage({ id }: { id: string }) {
   const result = useApi<EquipmentDetail>(`/admin/equipment/${id}`, refresh);
-  const [editing, setEditing] = useState(false);
+  // The equipment board's "Take out of service" arrives with the form already open.
+  const location = useLocation();
+  const [editing, setEditing] = useState(() => !!(location.state as { editAvailability?: boolean } | null)?.editAvailability);
   const [message, setMessage] = useState('');
   const [bookingRevision, setBookingRevision] = useState(0);
   const machine = result.data;

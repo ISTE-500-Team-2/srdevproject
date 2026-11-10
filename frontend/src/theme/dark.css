@@ -37,6 +37,9 @@
 
   --surface-raised: #2c2119;
   --surface-sunken: #120d0a;
+  /* Translucent so placeholders read on the page, on cards and on a selected row alike. */
+  --skeleton: rgba(255, 236, 215, 0.1);
+  --skeleton-shine: rgba(255, 236, 215, 0.08);
   --status-pending: #eba454;
   --status-done: #8fdc9b;
   --status-error: #f2907f;
@@ -591,4 +594,9 @@
 
 :root[data-theme='dark'] .chart-dot {
   fill: var(--paper-raised);
+}
+
+/* Staff workspace mark: lamplight copper under the logo. */
+:root[data-theme='dark'] .admin-side__label {
+  color: var(--bronze);
 }
