@@ -1,5 +1,5 @@
 import { afterEach } from 'vitest';
-import { clearApiCacheForTests } from './lib/apiCache';
+import { clearStoredSettingsForTests } from './lib/apiCache';
 
-// The GET cache is module state; each test starts as a fresh browser session.
-afterEach(() => clearApiCacheForTests());
+// Stored settings are module state; each test starts as a fresh browser session.
+afterEach(() => clearStoredSettingsForTests());
