@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense, useEffect, type ComponentType, type ReactNode } from 'react';
+import { useEffect, useState, type ComponentType, type ReactNode } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { RequireUser, RequireStaff, isWorkspaceUser } from './components/RouteGuards';
 import { useAuth, AuthProvider } from './context/AuthContext';
@@ -6,18 +6,46 @@ import { titled } from './components/PageTitle';
 import { LoadingPage } from './pages/LoadingPage';
 import { LoginPage } from './pages/LoginPage';
 import { NotFoundPage } from './pages/NotFoundPage';
-import { loadMemberArea, loadStaffArea, preloadAreaFor, preloadMemberArea, preloadStaffArea, type AreaLoader } from './areas/load';
+import { loadMemberArea, loadStaffArea, preloadAreaFor, preloadMemberArea, preloadStaffArea, retryable, type AreaLoader } from './areas/load';
 
 // The login page and app frame load first; the member site and the staff
 // workspace are separate downloads, started as soon as it is clear which one
 // is needed (see areas/load.ts and AreaPreloader).
-/** A component from a lazily loaded area: rendered directly once that area has arrived. */
-function fromArea<M>(area: AreaLoader<M>, pick: (module: M) => ComponentType<{ children?: ReactNode }>) {
-  const Pending = lazy(() => area().then((module) => ({ default: pick(module) })));
+
+/** Shown in place of a page whose code could not be downloaded (offline, or an old tab after a release). */
+export function AreaUnavailable() {
+  return (
+    <main className="page-shell">
+      <p role="alert">This page couldn’t load. Check your connection, then reload.</p>
+      <button className="button" onClick={() => window.location.reload()}>Reload</button>
+    </main>
+  );
+}
+
+/**
+ * A component from a separately downloaded area. Once the area has arrived it
+ * renders directly; until then a placeholder waits for it. No React.lazy or
+ * Suspense: those hold a page back ~300 ms after its code arrives, keep a failed
+ * download for good, and can remount a page when switching paths. A failure
+ * shows AreaUnavailable in this spot only; other routes keep working.
+ */
+export function fromArea<M>(area: AreaLoader<M>, pick: (module: M) => ComponentType<{ children?: ReactNode }>) {
   return function AreaComponent(props: { children?: ReactNode }) {
     const module = area.loaded();
-    const Page = module ? pick(module) : Pending;
-    return <Page {...props} />;
+    const [failed, setFailed] = useState(false);
+    const [, arrived] = useState(0);
+    useEffect(() => {
+      if (module) return;
+      let live = true;
+      area().then(() => { if (live) arrived((n) => n + 1); }, () => { if (live) setFailed(true); });
+      return () => { live = false; };
+    }, [module]);
+    if (module) {
+      const Page = pick(module);
+      return <Page {...props} />;
+    }
+    if (failed) return <AreaUnavailable />;
+    return <main className="page-shell" role="status">Loading…</main>;
   };
 }
 type MemberArea = Awaited<ReturnType<typeof loadMemberArea>>;
@@ -35,8 +63,8 @@ const ProfilePage = member('ProfilePage');
 const StudiosPage = member('StudiosPage');
 const TrainingPage = member('TrainingPage');
 const StaffArea = fromArea(loadStaffArea, (area) => area.default);
-const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage').then((m) => ({ default: m.ResetPasswordPage })));
-const ConfirmEmailPage = lazy(() => import('./pages/ConfirmEmailPage').then((m) => ({ default: m.ConfirmEmailPage })));
+const ResetPasswordPage = fromArea(retryable(() => import('./pages/ResetPasswordPage')), (m) => m.ResetPasswordPage);
+const ConfirmEmailPage = fromArea(retryable(() => import('./pages/ConfirmEmailPage')), (m) => m.ConfirmEmailPage);
 
 /** Starts the right area's download from the URL, and from the role once it is known. */
 function AreaPreloader() {
@@ -48,26 +76,18 @@ function AreaPreloader() {
     if (!isWorkspaceUser(actor ?? user) || actor) { preloadMemberArea(); return; }
     preloadStaffArea();
     // Staff can open the member site (their own or a member's account): fetch it when idle.
-    // Members never download the staff workspace.
     const idle = window.requestIdleCallback ?? ((run: () => void) => window.setTimeout(run, 1000));
     idle(() => preloadMemberArea());
   }, [user, actor]);
   return null;
 }
 
-/** A page's code could not be downloaded (offline, or an older tab after a release). */
-export class AreaBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
-  state = { failed: false };
-  static getDerivedStateFromError() { return { failed: true }; }
-  render() {
-    if (!this.state.failed) return this.props.children;
-    return (
-      <main className="page-shell">
-        <p role="alert">This page couldn’t load. Check your connection, then reload.</p>
-        <button className="button" onClick={() => window.location.reload()}>Reload</button>
-      </main>
-    );
-  }
+/** The member site's frame. Staff landing on Home go straight to the workspace without it. */
+export function MemberSite() {
+  const { user, actor } = useAuth();
+  const { pathname } = useLocation();
+  if (pathname === '/' && !actor && isWorkspaceUser(user)) return <Navigate replace to="/admin" />;
+  return <AppShell />;
 }
 
 /**
@@ -90,8 +110,6 @@ export default function App() {
   return (
     <AuthProvider>
       <AreaPreloader />
-      <AreaBoundary>
-      <Suspense fallback={<main className="page-shell" role="status">Loading…</main>}>
       <Routes>
         <Route path="/reset-password" element={titled('Reset password', <ResetPasswordPage />)} />
         <Route path="/confirm-email" element={titled('Confirm email', <ConfirmEmailPage />)} />
@@ -102,7 +120,7 @@ export default function App() {
           <Route element={<RequireStaff />}>
             <Route path="admin/*" element={<StaffArea />} />
           </Route>
-          <Route element={<AppShell />}>
+          <Route element={<MemberSite />}>
             <Route index element={titled('Home', <HomeRoute />)} />
             <Route path="equipment" element={titled('Equipment', <EquipmentPage />)} />
             <Route path="reservations" element={<LegacyEquipmentRedirect />} />
@@ -116,8 +134,6 @@ export default function App() {
         </Route>
         <Route path="*" element={titled('Page not found', <NotFoundPage />)} />
       </Routes>
-      </Suspense>
-      </AreaBoundary>
     </AuthProvider>
   );
 }

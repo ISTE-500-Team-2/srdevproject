@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { AreaBoundary } from '../App';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { useState, type ComponentType } from 'react';
+import { fromArea } from '../App';
 const { staffLoaded, memberLoaded } = vi.hoisted(() => ({ staffLoaded: vi.fn(), memberLoaded: vi.fn() }));
 vi.mock('./StaffArea', () => { staffLoaded(); return { default: () => null }; });
 vi.mock('./memberPages', () => { memberLoaded(); return {}; });
@@ -27,16 +28,35 @@ test('the URL decides which area starts downloading; public pages start none', a
   await vi.waitFor(() => { expect(staffLoaded).toHaveBeenCalled(); expect(memberLoaded).toHaveBeenCalled(); });
 });
 
-test('if a page’s code cannot be downloaded, the app offers a reload instead of going blank', () => {
-  vi.spyOn(console, 'error').mockImplementation(() => {});
+test('an area page waits in place, then renders, and keeps its state from then on', async () => {
+  let arrive!: (m: { Page: ComponentType }) => void;
+  const area = retryable(() => new Promise<{ Page: ComponentType }>((r) => { arrive = r; }));
+  function Draft() { const [text, setText] = useState(''); return <input aria-label="Draft" value={text} onChange={(e) => setText(e.target.value)} />; }
+  const Page = fromArea(area, (m) => m.Page);
+  const view = render(<Page />);
+  expect(screen.getByRole('status').textContent).toBe('Loading…');
+  await act(async () => { arrive({ Page: Draft }); });
+  fireEvent.change(screen.getByLabelText('Draft'), { target: { value: 'unsaved' } });
+  view.rerender(<Page />);
+  expect((screen.getByLabelText('Draft') as HTMLInputElement).value).toBe('unsaved');
+  cleanup();
+  // Once arrived, later mounts render on the first frame.
+  render(<Page />);
+  expect(screen.queryByRole('status')).toBeNull();
+  expect(screen.getByLabelText('Draft')).toBeTruthy();
+});
+
+test('a failed download shows a reload screen in that spot only', async () => {
   const reload = vi.fn();
   vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, reload } as Location);
-  function Broken(): never { throw new Error('Failed to fetch dynamically imported module'); }
-  render(<AreaBoundary><Broken /></AreaBoundary>);
-  expect(screen.getByRole('alert').textContent).toContain('couldn’t load');
+  const Broken = fromArea(retryable<{ P: ComponentType }>(() => Promise.reject(new Error('Failed to fetch dynamically imported module'))), (m) => m.P);
+  render(<><Broken /><p>Rest of the app</p></>);
+  expect((await screen.findByRole('alert')).textContent).toContain('couldn’t load');
+  expect(screen.getByText('Rest of the app')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
   expect(reload).toHaveBeenCalled();
 });
+
 
 test('after sign-in, staff landing in the workspace load it first; everyone else loads the member site', () => {
   expect(arrivalArea('admin', '/')).toBe('staff');
