@@ -2,9 +2,13 @@ import { randomBytes, webcrypto } from 'node:crypto';
 import { beforeEach, vi } from 'vitest';
 import { configure } from '@testing-library/react';
 import { JwtTokens } from '../../../backend/src/jwt';
+import { clearApiCacheForTests } from '../../src/lib/apiCache';
 
 // These assertions wait on real HTTP/PostgreSQL operations, including parallel CI runs.
 configure({ asyncUtilTimeout: 20000 });
+
+// The GET cache is module state; each test starts as a fresh browser session.
+beforeEach(() => clearApiCacheForTests());
 
 // jsdom has no matchMedia; the animation libraries ask for reduced motion.
 if (!window.matchMedia)

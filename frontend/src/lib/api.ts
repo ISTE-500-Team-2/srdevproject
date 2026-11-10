@@ -1,3 +1,4 @@
+import { invalidateApiCache, resetApiCache } from './apiCache';
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -8,7 +9,11 @@ export class ApiError extends Error {
   }
 }
 let accessToken: string | null = null;
-export function setAccessToken(value: string | null) { accessToken = value; }
+export function setAccessToken(value: string | null) {
+  accessToken = value;
+  // Signed out or expired: nothing cached for the previous account may be shown again.
+  if (value === null) resetApiCache();
+}
 let refreshing: Promise<void> | null = null;
 let csrfToken: string | null = null;
 export function setCsrfToken(value: string | null) {
@@ -22,6 +27,10 @@ export async function api<T>(
   if (!accessToken && !authEntry) await renew();
   const method = options.method ?? 'GET';
   const mutation = !['GET', 'HEAD'].includes(method);
+  // Writes change what reads return (and sign-in/account mode change whose data it is).
+  // Token rotation keeps the same account and data, so it keeps the cache.
+  const invalidates = mutation && path !== '/auth/refresh';
+  if (invalidates) invalidateApiCache();
   const perform = () => fetch('/api' + path, {
     method,
     credentials: 'include',
@@ -34,10 +43,16 @@ export async function api<T>(
     },
     ...(mutation ? { body: JSON.stringify(options.body ?? {}) } : {}),
   });
-  let response = await perform();
-  if (response.status === 401 && !authEntry) {
-    await renew();
+  let response: Response;
+  try {
     response = await perform();
+    if (response.status === 401 && !authEntry) {
+      await renew();
+      response = await perform();
+    }
+  } finally {
+    // Reads that overlapped the write must not be stored as current.
+    if (invalidates) invalidateApiCache();
   }
   if (response.status === 204) return undefined as T;
   const payload = await response.json().catch(() => null);
@@ -98,7 +113,7 @@ async function renew(): Promise<void> {
       await api('/auth/refresh', {method:'POST'});
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
-        accessToken = null; csrfToken = null;
+        setAccessToken(null); csrfToken = null;
         window.dispatchEvent(new Event('session-expired'));
       }
       throw error;
