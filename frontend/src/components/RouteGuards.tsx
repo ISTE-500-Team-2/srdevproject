@@ -3,6 +3,7 @@ import { Link, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { loginPath } from '../lib/returnPath';
 import { prefetchRoute } from '../lib/useApi';
+import { endPrefetchArrival } from '../lib/apiCache';
 import { PageTitle } from './PageTitle';
 
 /** Revalidate before mounting protected content on each navigation or tab return. */
@@ -38,6 +39,11 @@ export function RequireUser() {
       document.removeEventListener('visibilitychange', visible);
     };
   }, [location, refresh]);
+  // Runs after the page's first commit for this check; the page's own effects ran
+  // first and took the prefetches made for them. The rest must not serve later mounts.
+  useEffect(() => {
+    if (checkedLocation === location) endPrefetchArrival();
+  }, [checkedLocation, location]);
   if (loading || checkedLocation !== location)
     return <main className="page-shell" role="status">Loading your account…</main>;
   if (error)

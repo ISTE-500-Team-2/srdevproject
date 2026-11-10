@@ -93,6 +93,15 @@ export function peekPrefetched(path: string): PrefetchMark | undefined {
   return prefetched.get(path);
 }
 
+/**
+ * The arriving page has mounted and consumed what was prefetched for it. Reads a
+ * route made last time from panels opened later are dropped here, so a panel
+ * opened afterwards reads for itself (the identity may have changed meanwhile).
+ */
+export function endPrefetchArrival() {
+  prefetched.clear();
+}
+
 /** Once per prefetch: the arriving page learns whether that read succeeded and when. */
 export function takePrefetched(path: string): PrefetchMark | undefined {
   const mark = prefetched.get(path);
