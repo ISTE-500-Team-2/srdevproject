@@ -18,10 +18,15 @@ import { brevoWebhook } from './notifications/webhook.js';
 // Token-bearing auth responses (BREACH), signed NFC reader traffic and provider
 // webhooks keep their exact wire format. Routing is case-insensitive, so match
 // the path the same way, and also its decoded form. The filter runs when the
-// headers go out, inside the /api mount, so req.path has lost its prefix there.
+// headers go out, inside the /api mount, so req.path has lost its prefix there;
+// parse originalUrl so absolute-form targets (http://host/api/auth/...) match too.
 const uncompressedApi = /^\/api\/(?:auth|devices|webhooks)(?:\/|$)/i;
 function shouldCompress(req: Request, res: Response) {
-  const pathname = req.originalUrl.split('?')[0]!;
+  // A byte range addresses the stored file; compressing it would mislabel the range.
+  if (req.headers.range) return false;
+  let pathname: string;
+  try { pathname = new URL(req.originalUrl, 'http://origin.invalid').pathname; }
+  catch { return false; }
   let decoded = pathname;
   try { decoded = decodeURIComponent(pathname); } catch { /* answered 400 elsewhere */ }
   if (uncompressedApi.test(pathname) || uncompressedApi.test(decoded)) return false;
@@ -114,6 +119,12 @@ export function createApp(
     });
   }
   const onError: ErrorRequestHandler = (error, _req, res, _next) => {
+    // Static serving sets caching and validators before it can fail; an error
+    // must never be cached (least of all for a year) or look like the file.
+    if (!res.headersSent) {
+      for (const header of ['ETag', 'Last-Modified', 'Content-Range', 'Accept-Ranges']) res.removeHeader(header);
+      res.set('Cache-Control', 'no-store');
+    }
     if (error instanceof AppError) {
       res
         .status(error.status)
@@ -169,6 +180,14 @@ export function createApp(
             message: 'The request body is invalid or too large.',
           },
         });
+      return;
+    }
+    // Static-file conditions the client asked for and cannot be met
+    // (If-Match/If-Unmodified-Since, unsatisfiable Range) are client errors.
+    if (error?.status === 412 || error?.status === 416) {
+      if (error.status === 416 && error.headers?.['Content-Range'])
+        res.set('Content-Range', error.headers['Content-Range']);
+      res.status(error.status).type('text/plain').end(error.status === 412 ? 'Precondition failed' : 'Range not satisfiable');
       return;
     }
     // Never log request bodies, cookies, connection strings, or SQL parameter values.

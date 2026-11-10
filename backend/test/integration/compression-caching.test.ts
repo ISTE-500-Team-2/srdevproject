@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { request as httpRequest, type IncomingMessage } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
@@ -144,4 +146,47 @@ test('auth, reader and webhook responses are never compressed, whatever the clie
   const other = await request(app).get('/api/admin/policies').set('Authorization', bearer).set('Accept-Encoding', 'gzip, br');
   assert.equal(other.status, 200);
   assert.match(other.headers.vary, /Accept-Encoding/);
+});
+
+test('byte ranges are served from the stored file, never compressed', async () => {
+  const res = await request(app).get('/assets/index-AbCd1234.js')
+    .set('Range', 'bytes=0-1999').set('Accept-Encoding', 'gzip, br').buffer(true).parse(raw);
+  assert.equal(res.status, 206);
+  assert.equal(res.headers['content-encoding'], undefined);
+  assert.equal(res.headers['content-range'], `bytes 0-1999/${Buffer.byteLength(bundle)}`);
+  assert.equal((res.body as Buffer).toString(), bundle.slice(0, 2000));
+});
+
+test('failed static conditions answer 412/416 and are never cached', async () => {
+  const precondition = await request(app).get('/assets/index-AbCd1234.js').set('If-Match', '"not-this-file"');
+  const range = await request(app).get('/assets/index-AbCd1234.js').set('Range', `bytes=${Buffer.byteLength(bundle) + 10}-`);
+  for (const [res, status] of [[precondition, 412], [range, 416]] as const) {
+    assert.equal(res.status, status);
+    assert.equal(res.headers['cache-control'], 'no-store');
+    assert.equal(res.headers.etag, undefined);
+    assert.equal(res.headers['last-modified'], undefined);
+    assert.doesNotMatch(String(res.headers['content-type']), /javascript/);
+  }
+  assert.equal(range.headers['content-range'], `bytes */${Buffer.byteLength(bundle)}`);
+});
+
+test('absolute-form request targets cannot bypass the compression exclusions', async () => {
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise((resolve) => server.once('listening', resolve));
+  const { port } = server.address() as AddressInfo;
+  try {
+    const res = await new Promise<IncomingMessage>((resolve, reject) => {
+      const req = httpRequest({ host: '127.0.0.1', port, method: 'POST', path: `http://localhost:${port}/api/auth/demo`,
+        headers: { 'Content-Type': 'application/json', 'Accept-Encoding': 'gzip, br' } }, resolve);
+      req.on('error', reject);
+      req.end(JSON.stringify({ role: 'admin' }));
+    });
+    res.resume();
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.headers['content-encoding'], undefined);
+    // compression adds Vary only once a response passes the filter, so this holds even under 1 KB.
+    assert.doesNotMatch(String(res.headers.vary ?? ''), /accept-encoding/i);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
