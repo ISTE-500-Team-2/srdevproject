@@ -233,3 +233,42 @@ test('pending checkout cannot be resumed while its owner needs to sign required 
  expect(screen.getByRole('link',{name:'Review your waivers and certifications'})).toBeTruthy();
  expect((screen.getByRole('button',{name:'Cancel checkout'}) as HTMLButtonElement).disabled).toBe(false);
 });
+
+test('reservations split into upcoming and past, with cancelled and expired bookings behind a toggle',async()=>{
+ const hour=3600000,now=Date.now(),at=(offset:number)=>new Date(now+offset).toISOString();
+ const row=(id:number,name:string,start:number,extra:Record<string,unknown>={})=>({id,userId:1,equipmentId:4,equipmentName:name,location:'Makerspace',startTime:at(start),endTime:at(start+hour),status:'confirmed',...extra});
+ records=[
+  row(1,'Ended paid',-50*hour,{paymentStatus:'paid',amountCents:700}),
+  row(2,'Later',72*hour,{paymentStatus:'paid',amountCents:700}),
+  row(3,'Running',-hour/2,{paymentStatus:'paid'}),
+  row(4,'Pay me',96*hour,{status:'pending',paymentStatus:'pending',payerId:1,amountCents:1400,priceSnapshot:{currency:'USD',hours:2,hourlyRateCents:700,equipmentCents:700,trainingFeeCents:700,totalCents:1400,certificationId:9,certificationRevision:1}}),
+  row(5,'Expired checkout',-30*hour,{status:'cancelled',paymentStatus:'expired'}),
+  row(6,'Front desk',48*hour,{status:'pending',paymentStatus:'pending',payerId:null}),
+  row(7,'For a member',120*hour,{userId:2,memberName:'Dana Whitfield',paymentStatus:'paid'}),
+  row(8,'Wood Shop',150*hour,{equipmentId:null,resourceType:'room',location:'Instructor-led training'}),
+ ];
+ await mount();
+ const mine=screen.getByRole('region',{name:'My reservations'});
+ const names=()=>within(mine).getAllByRole('heading',{level:3}).map(h=>h.textContent);
+ // The member's own payment comes first, then soonest first; ended bookings follow, newest first.
+ expect(names()).toEqual(['Upcoming · 6','Pay me','Running','Front desk','Later','For a member','Wood Shop','Past · 1','Ended paid']);
+ const card=(name:string)=>within(mine).getByRole('heading',{name}).closest('article')!;
+ expect(within(card('Pay me')).getByText('Awaiting payment')).toBeTruthy();
+ expect(within(card('Pay me')).getByText('incl. $7.00 training')).toBeTruthy();
+ expect(within(card('Pay me')).getByRole('button',{name:'Pay $14.00'})).toBeTruthy();
+ expect(within(card('Running')).getByText('In progress')).toBeTruthy();
+ expect(within(card('Running')).queryByRole('button')).toBeNull();
+ expect(within(card('Front desk')).getByText('Payment due at front desk')).toBeTruthy();
+ expect(within(card('Front desk')).getByRole('button',{name:'Cancel reservation'})).toBeTruthy();
+ expect(within(card('Later')).getByText('Confirmed · Paid')).toBeTruthy();
+ expect(within(card('Later')).getByText('3D Printer · Makerspace')).toBeTruthy();
+ expect(within(card('For a member')).getByText('For Dana Whitfield')).toBeTruthy();
+ expect(within(card('Wood Shop')).getByText('Studio · Instructor-led training')).toBeTruthy();
+ expect(within(card('Ended paid')).getByText('Ended · Paid')).toBeTruthy();
+ expect(within(card('Ended paid')).queryByText(/online cancellation/i)).toBeNull();
+ expect(within(mine).queryByRole('heading',{name:'Expired checkout'})).toBeNull();
+ const toggle=within(mine).getByLabelText(/Show cancelled/);expect(toggle.closest("label")!.textContent).toBe("Show cancelled and expired (1)");fireEvent.click(toggle);
+ expect(within(card('Expired checkout')).getByText('Checkout expired')).toBeTruthy();
+ fireEvent.click(within(mine).getByRole('button',{name:'Past · 1'}));
+ expect(within(mine).queryByRole('heading',{name:'Ended paid'})).toBeNull();
+});
