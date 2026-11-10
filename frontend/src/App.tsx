@@ -46,7 +46,9 @@ export function fromArea<M>(area: AreaLoader<M>, pick: (module: M) => ComponentT
       return <Page {...props} />;
     }
     if (failed) return <AreaUnavailable />;
-    return <main className="page-shell" role="status"><PageTitle title="Loading" />Loading…</main>;
+    // The route owns the tab title. Overriding it here would leave "Loading"
+    // behind after this placeholder unmounts without remounting the route title.
+    return <main className="page-shell" role="status">Loading…</main>;
   };
 }
 type MemberArea = Awaited<ReturnType<typeof loadMemberArea>>;

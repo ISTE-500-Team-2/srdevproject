@@ -33,9 +33,10 @@ test('an area page waits in place, then renders, and keeps its state from then o
   const area = retryable(() => new Promise<{ Page: ComponentType }>((r) => { arrive = r; }));
   function Draft() { const [text, setText] = useState(''); return <input aria-label="Draft" value={text} onChange={(e) => setText(e.target.value)} />; }
   const Page = fromArea(area, (m) => m.Page);
+  document.title = 'Equipment · The Collaboratory';
   const view = render(<Page />);
   expect(screen.getByRole('status').textContent).toBe('Loading…');
-  expect(document.title).toBe('Loading · The Collaboratory');
+  expect(document.title).toBe('Equipment · The Collaboratory');
   await act(async () => { arrive({ Page: Draft }); });
   fireEvent.change(screen.getByLabelText('Draft'), { target: { value: 'unsaved' } });
   view.rerender(<Page />);
