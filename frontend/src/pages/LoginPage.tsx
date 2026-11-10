@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext';
 import type { UserRole } from '../types';
 import { ApiError, errorMessage } from '../lib/api';
 import { safeNext } from '../lib/returnPath';
+import { prepareArrival, preloadForSignIn } from '../areas/load';
 
 const SplitText = lazy(() => import('../components/reactbits/SplitText'));
 
@@ -58,6 +59,10 @@ export function LoginPage() {
   // Fields the current login error is about; drives aria-invalid and focus.
   const [invalid, setInvalid] = useState<{ email?: boolean; password?: boolean }>({});
   const emailInput = useRef<HTMLInputElement>(null);
+  // A sign-in that finishes after the visitor has left this page (e.g. to reset a
+  // password) must not pull them to its destination.
+  const onPage = useRef(true);
+  useEffect(() => { onPage.current = true; return () => { onPage.current = false; }; }, []);
   const passwordInput = useRef<HTMLInputElement>(null);
   // Focus after the render that adds aria-invalid, so screen readers announce it.
   // A fresh object per request, so asking for the same field twice still refocuses.
@@ -90,9 +95,10 @@ export function LoginPage() {
   const continueAs = async (role: UserRole) => {
     setBusy(true);
     setError('');
+    preloadForSignIn();
     try {
-      await loginAs(role);
-      navigate(destination, { replace: true });
+      await prepareArrival(await loginAs(role), destination);
+      if (onPage.current) navigate(destination, { replace: true });
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -112,9 +118,12 @@ export function LoginPage() {
     setError('');
     setInvalid({});
     setBusy(true);
+    // Password managers may submit without focusing the form: start here too, so
+    // the download overlaps the password check.
+    preloadForSignIn();
     try {
-      await login(email, password, remember);
-      navigate(destination, { replace: true });
+      await prepareArrival(await login(email, password, remember), destination);
+      if (onPage.current) navigate(destination, { replace: true });
     } catch (err) {
       setError(errorMessage(err));
       // Wrong credentials can't say which field was wrong; mark both, retry the password.
@@ -205,7 +214,7 @@ export function LoginPage() {
             </h1>
             <p>Sign in to book equipment, studios and classes.</p>
           </div>
-          <form onSubmit={handleSubmit} noValidate>
+          <form onSubmit={handleSubmit} onFocus={preloadForSignIn} noValidate>
             <label className="form-field">
               <span>Email</span>
               <span className="form-field__control">

@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, beforeAll, expect, test, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { ApiError } from '../lib/api';
 import { LoginPage } from './LoginPage';
 
 const auth = vi.hoisted(() => ({ register: vi.fn(), login: vi.fn(), loading: false }));
+const { preloadForSignIn, prepareArrival } = vi.hoisted(() => ({ preloadForSignIn: vi.fn(), prepareArrival: vi.fn(async () => {}) }));
+vi.mock('../areas/load', () => ({ preloadForSignIn, prepareArrival }));
 vi.mock('../context/AuthContext', () => ({
   useAuth: () => ({
     login: auth.login,
@@ -194,4 +196,37 @@ test('errors that are not about the fields leave them unmarked', async () => {
   await screen.findByText('Too many attempts. Try again later.');
   expect(emailField().getAttribute('aria-invalid')).toBeNull();
   expect(passwordField().getAttribute('aria-invalid')).toBeNull();
+});
+
+test('starting to sign in begins downloading the member site', () => {
+  preloadForSignIn.mockClear();
+  signIn();
+  fireEvent.focus(emailField());
+  expect(preloadForSignIn).toHaveBeenCalled();
+});
+
+test('submitting starts the member download before the password check finishes', async () => {
+  preloadForSignIn.mockClear();
+  let finish!: (role: string) => void;
+  auth.login.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+  signIn();
+  type(emailField(), 'casey@example.invalid');
+  type(passwordField(), 'ValidPassword!');
+  preloadForSignIn.mockClear();
+  fireEvent.submit(emailField().closest('form')!);
+  expect(preloadForSignIn).toHaveBeenCalled();
+  finish('member');
+});
+
+test('a sign-in that finishes after leaving the login page does not pull the visitor away', async () => {
+  let finish!: (role: string) => void;
+  auth.login.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+  signIn('/login?next=%2Fmembership');
+  type(emailField(), 'casey@example.invalid');
+  type(passwordField(), 'ValidPassword!');
+  fireEvent.submit(emailField().closest('form')!);
+  fireEvent.click(screen.getByRole('button', { name: 'Forgot password?' }));
+  expect((await screen.findByText(/^Landed on/)).textContent).toBe('Landed on /reset-password');
+  await act(async () => { finish('member'); await new Promise((r) => setTimeout(r, 0)); });
+  expect(screen.getByText(/^Landed on/).textContent).toBe('Landed on /reset-password');
 });

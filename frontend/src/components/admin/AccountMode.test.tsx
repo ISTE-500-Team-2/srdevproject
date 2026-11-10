@@ -80,7 +80,7 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-test("staff land in the workspace; members get their home; an open account gets the action screen", () => {
+test("staff land in the workspace; members get their home; an open account gets the action screen", async () => {
   auth.user = admin;
   at(<HomeRoute />);
   expect(screen.getByLabelText("location").textContent).toBe("/admin");
@@ -90,7 +90,8 @@ test("staff land in the workspace; members get their home; an open account gets 
   auth.actor = admin;
   responses.set("/me/overview", { userId:dana.id, entitlement: { membership: true, dayPass: false }, pendingWaivers: 0, activeReservations: 0, canCheckIn: true, reasons: [], recentCheckIns: [] });
   at(<HomeRoute />);
-  expect(screen.getByRole("heading", { name: "What would you like to do?" })).toBeTruthy();
+  // The account screen is part of the separately loaded member area.
+  expect(await screen.findByRole("heading", { name: "What would you like to do?" }, { timeout: 5000 })).toBeTruthy();
 });
 
 test("the account bar names the member and the staff role, and goes back to the last workspace page", async () => {
