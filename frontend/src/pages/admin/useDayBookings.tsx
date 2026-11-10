@@ -24,6 +24,7 @@ function BookingPage({ day, offset, refresh, receive }: { day: string; offset: n
  * Every equipment booking on one day, across all pages of the staff bookings list.
  * Render `loaders` somewhere in the tree: each page is fetched by its own component.
  * `state` is the first page still loading or failed, or undefined once all have loaded.
+ * `failed` is a page whose latest read failed, even if it still holds older data.
  */
 export function useDayBookings(day: string, refresh: Refresh) {
   const [pages, setPages] = useState<Record<number, BookingPageResult>>({});
@@ -38,10 +39,12 @@ export function useDayBookings(day: string, refresh: Refresh) {
   const state: Result<unknown> | undefined = offsets.every((offset) => pages[offset]?.data)
     ? undefined
     : (missing ?? { data: null, loading: true, error: "", reload: () => {} });
+  // A failed refresh keeps the page's older data, so `state` alone would not show it.
+  const failed = offsets.map((offset) => pages[offset]).find((page) => page?.error);
   const bookings = equipmentBookings(offsets.flatMap((offset) => pages[offset]?.data?.items ?? []));
   const loaders = day
     ? offsets.map((offset) => <BookingPage key={offset} day={day} offset={offset} refresh={refresh} receive={receive} />)
     : null;
-  return { bookings, state, loaders };
+  return { bookings, state, failed, loaders };
 }
 

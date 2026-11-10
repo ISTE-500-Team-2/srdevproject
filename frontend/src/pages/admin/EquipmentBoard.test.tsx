@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { EquipmentManagementPage } from './EquipmentManagementPage';
 import type { ManagedEquipment } from '../../lib/equipmentMaintenance';
@@ -141,4 +141,26 @@ test('on a wide screen a row opens beside the list instead of leaving it', async
   // The availability action opens the machine page with its form already open.
   fireEvent.click(await within(next).findByRole('link', { name: 'Take out of service' }));
   expect(await screen.findByRole('button', { name: 'Confirm out of service' })).toBeTruthy();
+});
+
+test('a refresh that fails after a good read stops vouching for the older schedule', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    bookings = [];
+    mount();
+    await waitFor(async () => expect((await row('Kirk')).textContent).toContain('Nothing else booked today'));
+    bookings = new Error('Server error');
+    await act(() => vi.advanceTimersByTimeAsync(61000));
+    await waitFor(async () => expect((await row('Kirk')).textContent).toMatch(/Not in use.*Bookings unavailable/));
+    expect(screen.getByText(/Today’s bookings could not be loaded\. Server error/)).toBeTruthy();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('rates keep their cents when they have any', async () => {
+  machines[4] = machine(5, 'Kirk', { rate: 15.5 });
+  mount();
+  expect((await row('Kirk')).textContent).toContain('$15.50/hr');
+  expect((await row('Ross')).textContent).toContain('$15/hr');
 });

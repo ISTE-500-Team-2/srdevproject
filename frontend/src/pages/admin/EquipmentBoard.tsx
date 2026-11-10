@@ -43,8 +43,8 @@ function BoardContent({ day, zone, now, machines }: { day: string; zone: string;
   // in yesterday's list: read both and keep what reaches into today.
   const today = useDayBookings(day, bookingRefresh);
   const yesterday = useDayBookings(day && previousDay(day), bookingRefresh);
-  const bookingState = today.state ?? yesterday.state;
-  const schedule: Schedule = !day || (bookingState && !bookingState.error) ? 'loading' : bookingState ? 'unavailable' : 'known';
+  const failed = today.failed ?? yesterday.failed;
+  const schedule: Schedule = !day ? 'loading' : failed ? 'unavailable' : today.state ?? yesterday.state ? 'loading' : 'known';
   const bookings = schedule === 'known' ? mergeBookings(today.bookings, yesterday.bookings.filter(b => Date.parse(b.endTime) > localHour(day, 0, zone))) : [];
   const win = timeWindow(now, zone, bookings);
   const [search, setSearch] = useState('');
@@ -79,7 +79,7 @@ function BoardContent({ day, zone, now, machines }: { day: string; zone: string;
       </div>
     </div>
     <LoadState {...machines} />
-    {bookingState?.error ? <div className="eq-notice"><LoadState loading={false} error={`Today’s bookings could not be loaded. ${bookingState.error}`} reload={bookingState.reload} /></div> : null}
+    {failed ? <div className="eq-notice"><LoadState loading={false} error={`Today’s bookings could not be loaded. ${failed.error}`} reload={failed.reload} /></div> : null}
     {machines.data && <div className={`eq-split${active ? ' eq-split--open' : ''}`}>
       <div className="eq-board">
         <div className="eq-row eq-row--head" aria-hidden="true"><span>Machine</span><span>Status</span><span className="eq-row__day"><span>Today</span><Ticks win={win} /></span><span className="eq-row__cert">Requires</span><span className="eq-row__rate">Rate</span><span /></div>
@@ -88,7 +88,7 @@ function BoardContent({ day, zone, now, machines }: { day: string; zone: string;
           <span className="eq-row__status"><span className={`eq-pill eq-pill--${row.tone}`}>{row.label}</span><small>{row.detail}</small></span>
           <span className="eq-row__day"><DayStrip row={row} win={win} now={now} zone={zone} /></span>
           <span className="eq-row__cert">{row.machine.certification ?? <em>None</em>}</span>
-          <span className="eq-row__rate">{row.machine.rate === null ? '—' : `$${row.machine.rate.toFixed(0)}/hr`}</span>
+          <span className="eq-row__rate">{row.machine.rate === null ? '—' : `$${row.machine.rate.toFixed(Number.isInteger(row.machine.rate) ? 0 : 2)}/hr`}</span>
           <ChevronRight aria-hidden="true" className="eq-row__chev" />
         </Link>)}
         {!visible.length && <p className="eq-empty">No equipment matches this view.</p>}
