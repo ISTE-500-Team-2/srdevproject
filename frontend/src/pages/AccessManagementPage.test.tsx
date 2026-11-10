@@ -57,6 +57,13 @@ const card: NfcCard = {
   lastUsedAt: null,
   lastReader: null,
 };
+const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString();
+const taps = [
+  { id: 90, readerId: "front", readerName: "Front door", userId: 12, memberName: "Jordan Example", last4: "1234", allowed: false, reason: "WAIVER_REQUIRED", createdAt: minutesAgo(2) },
+  { id: 89, readerId: "front", readerName: "Front door", userId: null, memberName: null, last4: "4F21", allowed: false, reason: "CARD_NOT_ASSIGNED", createdAt: minutesAgo(14) },
+  { id: 88, readerId: "front", readerName: "Front door", userId: 13, memberName: "Alex Example", last4: "5678", allowed: true, reason: "ELIGIBLE", createdAt: minutesAgo(30) },
+  ...[87, 86, 85].map((id) => ({ id, readerId: "front", readerName: "Front door", userId: 13, memberName: "Alex Example", last4: "5678", allowed: true, reason: "ELIGIBLE", createdAt: minutesAgo(200) })),
+];
 let cards: Record<number, NfcCard[]>,
   configured: boolean,
   mutation: (path: string, body: any) => Promise<unknown>;
@@ -66,6 +73,10 @@ beforeEach(() => {
   mutation = async () => ({});
   vi.mocked(api).mockImplementation(async (path, options) => {
     if (options?.method) return mutation(path, options.body);
+    if (path.startsWith("/admin/access/events?")) {
+      const denied = path.includes("result=denied");
+      return { items: taps.filter((t) => !denied || !t.allowed), nextBefore: null } as any;
+    }
     if (path === "/admin/access/readers")
       return { ...setup, configured } as any;
     if (path.startsWith("/admin/users/") && !path.includes("access-readiness"))
@@ -369,4 +380,51 @@ test("a scan-start response arriving after the member changed is cancelled", asy
     ),
   );
   expect(screen.queryByRole("button", { name: "Assign card" })).toBeNull();
+});
+
+test("with nobody chosen, recent taps open the member's cards", async () => {
+  mount("/admin/access");
+  expect(screen.getByText("Find a member to view or assign their NFC cards.")).toBeTruthy();
+  const list = await screen.findByRole("list");
+  // Five most recent only, newest first.
+  expect(within(list).getAllByRole("listitem")).toHaveLength(5);
+  const jordanRow = within(list).getByRole("link", { name: /Jordan Example/ });
+  expect(jordanRow.textContent).toContain("Denied · waiver needed");
+  expect(jordanRow.textContent).toContain("2 min ago");
+  await userEvent.click(jordanRow);
+  expect(
+    await screen.findByRole("heading", { name: "NFC cards for Jordan Example" }),
+  ).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "Recent taps" })).toBeNull();
+});
+test("the denied filter asks the server for denied taps only", async () => {
+  mount("/admin/access");
+  await screen.findAllByRole("link", { name: /Alex Example/ });
+  await userEvent.click(screen.getByRole("button", { name: "Denied" }));
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith(
+      "/admin/access/events?result=denied",
+      expect.anything(),
+    ),
+  );
+  await waitFor(() =>
+    expect(screen.queryAllByRole("link", { name: /Alex Example/ })).toHaveLength(0),
+  );
+  expect(screen.getByRole("link", { name: /Jordan Example/ })).toBeTruthy();
+});
+test("an unknown card's tap opens Find a card and looks that card up", async () => {
+  mutation = async (path, body) => {
+    if (path === "/admin/access/cards/lookup") {
+      expect(body).toEqual({ eventId: 89 });
+      return [];
+    }
+    return {};
+  };
+  mount("/admin/access");
+  await userEvent.click(
+    await screen.findByRole("link", { name: /Unknown card ••4F21/ }),
+  );
+  expect(await screen.findByRole("heading", { name: "Find a card" })).toBeTruthy();
+  expect(await screen.findByText("Card from the selected tap:")).toBeTruthy();
+  expect(screen.getByText("No member has been assigned this card.")).toBeTruthy();
 });

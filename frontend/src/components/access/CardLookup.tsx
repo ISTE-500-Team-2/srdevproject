@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { api, errorMessage } from "../../lib/api";
 import { dateTime } from "../../lib/display";
@@ -33,16 +33,44 @@ export function AssignmentResults({
     </div>
   );
 }
-export function CardLookup({ setup }: { setup: ReaderSetup }) {
+export function CardLookup({
+  setup,
+  tapId,
+}: {
+  setup: ReaderSetup;
+  /** Look up the card from this tap as soon as the page opens. */
+  tapId?: number;
+}) {
   const scan = useCardScan("lookup");
   const [results, setResults] = useState<CardAssignment[] | null>(null),
-    [busy, setBusy] = useState(false),
+    [fromTap, setFromTap] = useState(false),
+    [busy, setBusy] = useState(tapId !== undefined),
     [error, setError] = useState("");
+  useEffect(() => {
+    if (tapId === undefined) return;
+    let current = true;
+    api<CardAssignment[]>("/admin/access/cards/lookup", {
+      method: "POST",
+      body: { eventId: tapId },
+    })
+      .then((found) => {
+        if (current) {
+          setResults(found);
+          setFromTap(true);
+        }
+      })
+      .catch((e) => current && setError(errorMessage(e)))
+      .finally(() => current && setBusy(false));
+    return () => {
+      current = false;
+    };
+  }, [tapId]);
   async function lookup(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setBusy(true);
     setError("");
     setResults(null);
+    setFromTap(false);
     try {
       setResults(
         await api<CardAssignment[]>("/admin/access/cards/lookup", {
@@ -95,8 +123,18 @@ export function CardLookup({ setup }: { setup: ReaderSetup }) {
           {error}
         </p>
       ) : null}
+      {tapId !== undefined && busy && !results ? (
+        <p className="nfc-help" role="status">
+          Looking up the card from that tap…
+        </p>
+      ) : null}
       {results && !scan.scan ? (
-        <AssignmentResults assignments={results} />
+        <>
+          {fromTap ? (
+            <p className="nfc-help">Card from the selected tap:</p>
+          ) : null}
+          <AssignmentResults assignments={results} />
+        </>
       ) : null}
     </section>
   );

@@ -495,7 +495,13 @@ function MinorsSection({ notify }: { notify: (message: string) => void }) {
         </SectionForm>
       ) : null}
       {state.data && !minors.length && !requests.length && !adding ? (
-        <p className="account-hint">No minors linked yet. Link a child’s account to visit together.</p>
+        <p className="account-hint">
+          No minors linked yet.{" "}
+          <button type="button" className="account-hint__action" onClick={() => setAdding(true)}>
+            Link a child’s account
+          </button>{" "}
+          to visit together.
+        </p>
       ) : null}
       {minors.length || requests.length ? (
         <ul className="account-docs account-docs--people">
