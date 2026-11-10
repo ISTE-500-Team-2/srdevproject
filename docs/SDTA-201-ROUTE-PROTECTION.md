@@ -16,6 +16,7 @@ Live Jira checked September 24, 2026: SDTA-201, “Implement route/page protecti
 - Explicit “Access denied” with a return-home link instead of an unexplained home redirect.
 - On focus, visibility return and page restoration, refresh current roles/session without unmounting authorized forms. Existing sessions reflect server-side revocation/demotion on their next check; this is not server-push revocation.
 - Unavailable server: hide protected route behind retry feedback, not a false successful authorization or misleading invalid-password response.
+- Concurrent checks for the same router location share one in-flight `/auth/session` read when no auth transition has happened since it started; a new location always gets its own read, and post-write refreshes (profile save, sponsor accept) request a fresh one. `pageshow` revalidates only on a genuine back/forward-cache restoration (`event.persisted`).
 - Ignore obsolete session reads after a newer auth transition or session-expired event. Clear protected user state on successful logout/expiration.
 - Preserve the existing profile-save notification: normal profile-triggered session refresh stays nonblocking.
 

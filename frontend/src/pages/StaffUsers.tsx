@@ -68,7 +68,7 @@ export function StaffUsers() {
     { retainOnReload: true, refreshInterval: 5000 },
   );
   const plans = useApi<Plan[]>("/admin/plans"),
-    config = useApi<{ timeZone: string }>("/config");
+    config = useApi<{ timeZone: string }>("/config", { reuse: true });
   return (
     <section className="staff-directory">
       <div className="staff-directory__head">

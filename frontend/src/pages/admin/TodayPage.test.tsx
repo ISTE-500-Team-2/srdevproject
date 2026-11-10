@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { TodayPage } from "./TodayPage";
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
@@ -78,4 +78,38 @@ test("follows reservation pagination before building the floor", async () => {
 test("config failure does not send requests with a guessed date", async () => {
   fail = "/config"; mount(); await screen.findAllByText(/Equipment request failed/);
   expect(api.mock.calls.some(([p]) => p.startsWith("/admin/reports?") || p.startsWith("/admin/reservations?"))).toBe(false);
+});
+test("requests each endpoint once, and only after /config gives the day", async () => {
+  const original = api.getMockImplementation()!;
+  let resolveConfig!: (value: { timeZone: string }) => void;
+  api.mockImplementation((path: string) => path === "/config"
+    ? new Promise((resolve) => { resolveConfig = resolve; })
+    : original(path));
+  mount();
+  await waitFor(() => expect(api).toHaveBeenCalledWith("/config"));
+  // Mounting the panels before the day is known would read everything twice.
+  expect(api.mock.calls.map(([p]) => p)).toEqual(["/config"]);
+  resolveConfig({ timeZone: "Asia/Kolkata" });
+  expect(await screen.findByText("7 people checked in today, 1 machine running.")).toBeTruthy();
+  expect(await screen.findByText("Nothing needs you right now.")).toBeTruthy();
+  expect(api.mock.calls.map(([p]) => p).sort()).toEqual([
+    "/config", "/equipment", "/studios", "/studio-management/rentals", "/admin/compliance?userStatus=active&attention=true",
+    "/admin/reports?period=daily&from=2026-10-28&to=2026-10-28",
+    "/admin/reservations?date=2026-10-28",
+  ].sort());
+});
+test("at midnight every panel starts the new day, so a failed refresh is not hidden by yesterday's data", async () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  // 23:59 in Kolkata (UTC+5:30); everyone compliant.
+  vi.mocked(Date.now).mockReturnValue(Date.parse("2026-10-28T18:29:00Z"));
+  mount();
+  expect(await screen.findByText("Nothing needs you right now.")).toBeTruthy();
+  // After midnight a waiver has expired, but the compliance read fails.
+  vi.mocked(Date.now).mockReturnValue(Date.parse("2026-10-28T18:31:00Z"));
+  fail = "/admin/compliance?userStatus=active&attention=true";
+  await act(async () => { vi.advanceTimersByTime(60000); });
+  expect(await screen.findByText(/Equipment request failed/)).toBeTruthy();
+  expect(screen.queryByText("Nothing needs you right now.")).toBeNull();
+  expect(api.mock.calls.map(([p]) => p)).toContain("/admin/reports?period=daily&from=2026-10-29&to=2026-10-29");
+  vi.useRealTimers();
 });

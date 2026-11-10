@@ -36,7 +36,7 @@ test('existing staff session loses workspace on demotion and API refuses access'
 test('revoked server session is removed on page return without reloading the browser',async()=>{
   const data=await login('member');mount('/profile');await screen.findByRole('button',{name:'Edit profile'});
   const r=await bridge.fetch('/api/auth/logout',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':data.csrfToken},body:'{}'});
-  expect(r.status).toBe(204);fireEvent(window,new Event('pageshow'));await screen.findByLabelText('Password');
+  expect(r.status).toBe(204);fireEvent(window,new PageTransitionEvent('pageshow',{persisted:true}));await screen.findByLabelText('Password');
   expect(screen.queryByRole('button',{name:'Edit profile'})).toBeNull();
 });
 

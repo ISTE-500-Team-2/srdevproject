@@ -75,7 +75,7 @@ export function StaffCompliance() {
   const [exportError, setExportError] = useState("");
   const report = useApi<ComplianceReport>(reportPath(filters), { retainOnReload: true });
   const plans = useApi<Plan[]>("/admin/plans");
-  const config = useApi<{ timeZone: string }>("/config");
+  const config = useApi<{ timeZone: string }>("/config", { reuse: true });
   useEffect(() => {
     const timer = window.setTimeout(() => setSearch(input.trim().toLowerCase()), 200);
     return () => window.clearTimeout(timer);
