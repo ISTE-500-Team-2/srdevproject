@@ -79,3 +79,21 @@ test("config failure does not send requests with a guessed date", async () => {
   fail = "/config"; mount(); await screen.findAllByText(/Equipment request failed/);
   expect(api.mock.calls.some(([p]) => p.startsWith("/admin/reports?") || p.startsWith("/admin/reservations?"))).toBe(false);
 });
+test("requests each endpoint once, and day-independent data does not wait for /config", async () => {
+  const original = api.getMockImplementation()!;
+  let resolveConfig!: (value: { timeZone: string }) => void;
+  api.mockImplementation((path: string) => path === "/config"
+    ? new Promise((resolve) => { resolveConfig = resolve; })
+    : original(path));
+  mount();
+  const dayIndependent = ["/equipment", "/studios", "/studio-management/rentals", "/admin/compliance?userStatus=active&attention=true"];
+  await waitFor(() => expect(api.mock.calls.map(([p]) => p).sort()).toEqual(["/config", ...dayIndependent].sort()));
+  resolveConfig({ timeZone: "Asia/Kolkata" });
+  expect(await screen.findByText("7 people checked in today, 1 machine running.")).toBeTruthy();
+  expect(await screen.findByText("Nothing needs you right now.")).toBeTruthy();
+  expect(api.mock.calls.map(([p]) => p).sort()).toEqual([
+    "/config", ...dayIndependent,
+    "/admin/reports?period=daily&from=2026-10-28&to=2026-10-28",
+    "/admin/reservations?date=2026-10-28",
+  ].sort());
+});
