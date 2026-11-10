@@ -51,7 +51,9 @@ export function AdminShell() {
       <Link className="admin-side__brand" to="/admin" aria-label="Staff workspace home">
         <img src="/assets/collaboratory-logo.webp" alt="The Collaboratory" />
       </Link>
-      <p className="admin-side__label">Staff workspace</p>
+      <p className="admin-side__label">
+        <span>Staff</span>
+      </p>
       <nav className="admin-nav" aria-label="Staff workspace">
         <NavLink className={navLinkClass} to="/admin" end>
           <CalendarDays aria-hidden="true" />

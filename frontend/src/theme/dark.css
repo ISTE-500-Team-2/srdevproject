@@ -592,3 +592,8 @@
 :root[data-theme='dark'] .chart-dot {
   fill: var(--paper-raised);
 }
+
+/* Staff workspace mark: lamplight copper under the logo. */
+:root[data-theme='dark'] .admin-side__label {
+  color: var(--bronze);
+}
