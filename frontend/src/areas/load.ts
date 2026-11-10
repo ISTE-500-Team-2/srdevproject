@@ -33,11 +33,26 @@ export function preloadAreaFor(pathname: string) {
 }
 
 /**
- * Someone is signing in: fetch both areas now (which one they need is known only
- * after sign-in), so landing afterwards doesn't wait for a download. Not deferred
- * to idle time: the login page animates, and password managers sign in fast.
+ * Someone is starting to sign in: fetch the member site now (most people signing
+ * in are members). The staff workspace is fetched only once sign-in confirms a
+ * staff role (prepareArrival), so members and visitors never download it here.
  */
-export function preloadSignedInAreas() {
+export function preloadForSignIn() {
   preloadMemberArea();
-  preloadStaffArea();
+}
+
+/**
+ * Signed in: finish loading the area the next page needs before going there, so it
+ * renders at once (a page that suspends is held back ~300 ms even after its code
+ * arrives). A failed download doesn't block: the page shows its reload screen.
+ */
+export async function prepareArrival(role: string, destination: string) {
+  await (arrivalArea(role, destination) === 'staff' ? loadStaffArea() : loadMemberArea()).catch(() => {});
+}
+
+/** Which area a person with `role` lands in at `destination`: only staff reach the workspace. */
+export function arrivalArea(role: string, destination: string): 'staff' | 'member' {
+  const path = destination.split(/[?#]/)[0];
+  const staff = role === 'staff' || role === 'admin';
+  return staff && (path === '/' || path === '/admin' || path.startsWith('/admin/')) ? 'staff' : 'member';
 }

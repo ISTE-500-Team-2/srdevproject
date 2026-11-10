@@ -6,8 +6,8 @@ import { ApiError } from '../lib/api';
 import { LoginPage } from './LoginPage';
 
 const auth = vi.hoisted(() => ({ register: vi.fn(), login: vi.fn(), loading: false }));
-const { preloadSignedInAreas } = vi.hoisted(() => ({ preloadSignedInAreas: vi.fn() }));
-vi.mock('../areas/load', () => ({ preloadSignedInAreas }));
+const { preloadForSignIn, prepareArrival } = vi.hoisted(() => ({ preloadForSignIn: vi.fn(), prepareArrival: vi.fn(async () => {}) }));
+vi.mock('../areas/load', () => ({ preloadForSignIn, prepareArrival }));
 vi.mock('../context/AuthContext', () => ({
   useAuth: () => ({
     login: auth.login,
@@ -198,9 +198,9 @@ test('errors that are not about the fields leave them unmarked', async () => {
   expect(passwordField().getAttribute('aria-invalid')).toBeNull();
 });
 
-test('starting to sign in begins downloading the signed-in pages', () => {
-  preloadSignedInAreas.mockClear();
+test('starting to sign in begins downloading the member site', () => {
+  preloadForSignIn.mockClear();
   signIn();
   fireEvent.focus(emailField());
-  expect(preloadSignedInAreas).toHaveBeenCalled();
+  expect(preloadForSignIn).toHaveBeenCalled();
 });

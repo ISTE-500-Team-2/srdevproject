@@ -9,7 +9,7 @@ import { useAuth } from '../context/AuthContext';
 import type { UserRole } from '../types';
 import { ApiError, errorMessage } from '../lib/api';
 import { safeNext } from '../lib/returnPath';
-import { preloadSignedInAreas } from '../areas/load';
+import { prepareArrival, preloadForSignIn } from '../areas/load';
 
 const SplitText = lazy(() => import('../components/reactbits/SplitText'));
 
@@ -92,7 +92,7 @@ export function LoginPage() {
     setBusy(true);
     setError('');
     try {
-      await loginAs(role);
+      await prepareArrival(await loginAs(role), destination);
       navigate(destination, { replace: true });
     } catch (err) {
       setError(errorMessage(err));
@@ -114,7 +114,7 @@ export function LoginPage() {
     setInvalid({});
     setBusy(true);
     try {
-      await login(email, password, remember);
+      await prepareArrival(await login(email, password, remember), destination);
       navigate(destination, { replace: true });
     } catch (err) {
       setError(errorMessage(err));
@@ -206,7 +206,7 @@ export function LoginPage() {
             </h1>
             <p>Sign in to book equipment, studios and classes.</p>
           </div>
-          <form onSubmit={handleSubmit} onFocus={preloadSignedInAreas} noValidate>
+          <form onSubmit={handleSubmit} onFocus={preloadForSignIn} noValidate>
             <label className="form-field">
               <span>Email</span>
               <span className="form-field__control">

@@ -5,7 +5,7 @@ import { AreaBoundary } from '../App';
 const { staffLoaded, memberLoaded } = vi.hoisted(() => ({ staffLoaded: vi.fn(), memberLoaded: vi.fn() }));
 vi.mock('./StaffArea', () => { staffLoaded(); return { default: () => null }; });
 vi.mock('./memberPages', () => { memberLoaded(); return {}; });
-import { preloadAreaFor, retryable } from './load';
+import { arrivalArea, preloadAreaFor, retryable } from './load';
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 test('a failed download is retried on the next call; a successful one is shared', async () => {
@@ -36,4 +36,12 @@ test('if a page’s code cannot be downloaded, the app offers a reload instead o
   expect(screen.getByRole('alert').textContent).toContain('couldn’t load');
   fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
   expect(reload).toHaveBeenCalled();
+});
+
+test('after sign-in, staff landing in the workspace load it first; everyone else loads the member site', () => {
+  expect(arrivalArea('admin', '/')).toBe('staff');
+  expect(arrivalArea('staff', '/admin/payments?tab=open')).toBe('staff');
+  expect(arrivalArea('admin', '/membership')).toBe('member');
+  expect(arrivalArea('member', '/')).toBe('member');
+  expect(arrivalArea('member', '/admin')).toBe('member');
 });
