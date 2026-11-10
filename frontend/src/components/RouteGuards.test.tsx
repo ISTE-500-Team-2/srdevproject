@@ -188,3 +188,23 @@ test('a session-expired event still wins over a read it interrupted',async()=>{
   await waitFor(()=>expect(calls).toBe(3));expired=true;release();
   await new Promise(r=>setTimeout(r,20));expect(screen.queryByText('Private profile')).toBeNull();
 });
+
+test('every tab return revalidates anew; a stalled earlier check cannot keep a revoked role', async () => {
+  roles = ['staff'];
+  mount('/admin');
+  await screen.findByText('Private staff workspace');
+  // A return's check stalls; staff access is then revoked elsewhere.
+  let release!: () => void; hold = new Promise((r) => { release = r; });
+  const before = calls;
+  fireEvent.focus(window);
+  await waitFor(() => expect(calls).toBe(before + 1));
+  roles = ['member'];
+  hold = undefined;
+  // The next return starts its own check instead of joining the stalled one.
+  fireEvent.focus(window);
+  await waitFor(() => expect(calls).toBe(before + 2));
+  await screen.findByText('Access denied');
+  release();
+  await new Promise((r) => setTimeout(r, 0));
+  expect(screen.queryByText('Private staff workspace')).toBeNull();
+});

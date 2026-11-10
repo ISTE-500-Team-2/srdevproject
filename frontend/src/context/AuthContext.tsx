@@ -39,8 +39,9 @@ interface AuthContextValue {
   logout: () => Promise<void>;
   /**
    * Re-read `/auth/session`. Joins a read already in flight for the same router
-   * location unless an auth transition happened since it started; pass
-   * `{ fresh: true }` after a write so the response reflects that write.
+   * location unless an auth transition happened since it started (this collapses
+   * the provider's and the guard's startup checks). Pass `{ fresh: true }` after a
+   * write so the response reflects it, and for tab returns, which must revalidate anew.
    */
   refresh: (blocking?: boolean, options?: { fresh?: boolean }) => Promise<void>;
   openAccount: (userId: number) => Promise<void>;
