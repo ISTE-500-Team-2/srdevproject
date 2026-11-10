@@ -47,6 +47,7 @@ const prefersDark = () => typeof window !== 'undefined' && !!window.matchMedia?.
 let current: Appearance = readAppearance();
 const listeners = new Set<() => void>();
 const notify = () => listeners.forEach((listener) => listener());
+const applyCurrent = () => applyTheme(resolveTheme(current, prefersDark()));
 
 export function setAppearance(next: Appearance) {
   current = next;
@@ -55,30 +56,43 @@ export function setAppearance(next: Appearance) {
   } catch {
     // Private mode or blocked storage: the choice still applies for this visit.
   }
-  applyTheme(resolveTheme(next, prefersDark()));
+  applyCurrent();
   notify();
 }
 
-function subscribe(listener: () => void) {
-  listeners.add(listener);
-  const media = typeof window !== 'undefined' ? window.matchMedia?.(DARK_QUERY) : undefined;
+/**
+ * Keeps the page in step with the device setting and with other tabs for the
+ * whole visit, whether or not any appearance control is on screen. Called once
+ * at the app root (main.tsx); returns a function that stops listening.
+ */
+export function startAppearanceSync(): () => void {
+  if (typeof window === 'undefined') return () => {};
+  const media = window.matchMedia?.(DARK_QUERY);
   const onSystemChange = () => {
-    if (current === 'system') applyTheme(resolveTheme('system', prefersDark()));
+    if (current === 'system') applyCurrent();
     notify();
   };
   // Another tab changed the setting.
   const onStorage = (event: StorageEvent) => {
     if (event.key !== APPEARANCE_KEY) return;
     current = readAppearance();
-    applyTheme(resolveTheme(current, prefersDark()));
+    applyCurrent();
     notify();
   };
   media?.addEventListener?.('change', onSystemChange);
   window.addEventListener('storage', onStorage);
+  // The device may have switched between the pre-paint script and now.
+  applyCurrent();
   return () => {
-    listeners.delete(listener);
     media?.removeEventListener?.('change', onSystemChange);
     window.removeEventListener('storage', onStorage);
+  };
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
   };
 }
 

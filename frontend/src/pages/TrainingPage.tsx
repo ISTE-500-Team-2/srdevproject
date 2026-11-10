@@ -444,7 +444,7 @@ function TrainingWorkspace({
                 radius={9}
                 backgroundColor="var(--hold-danger-bg)"
                 fillColor="var(--hold-danger)"
-                textColor="var(--hold-danger)"
+                textColor="var(--hold-danger-text)"
                 fillTextColor="var(--hold-danger-ink)"
                 doneLabel="Revoking…"
                 onHold={() => {

@@ -21,6 +21,8 @@ export default function CardNav(props: {
   logoHref?: string;
   items?: CardNavItem[];
   cta?: { label: string; href?: string; onClick?: (event: MouseEvent) => void };
+  /** Rendered below the cards inside the open menu; inert while the menu is closed. */
+  footer?: ReactNode;
   theme?: "dark" | "light";
   surface?: "glass" | "solid";
   cardHeight?: number;

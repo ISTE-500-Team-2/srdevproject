@@ -58,6 +58,7 @@ const CTA = 'card-nav__cta';
 const CTA_WIDE = 'card-nav__cta card-nav__cta--wide';
 const CONTENT = 'card-nav__content';
 const CARDS = 'card-nav__cards';
+const FOOTER = 'card-nav__footer';
 const CARD = 'card-nav__card';
 const CARD_HEAD = 'card-nav__card-head';
 const LABEL = 'card-nav__label';
@@ -129,6 +130,7 @@ const CardNav = ({
   logoHref = '#',
   items = DEFAULT_ITEMS,
   cta,
+  footer,
   theme = 'dark',
   surface = 'glass',
   openOn = 'click',
@@ -514,6 +516,19 @@ const CardNav = ({
               }}
             >
               {ctaButton(cta, true)}
+            </div>
+          )}
+          {footer && (
+            // Local addition: extra controls under the cards (e.g. a theme switch).
+            // Animates with the cards; inert while closed so it is skipped by Tab.
+            <div
+              ref={element => {
+                cardRefs.current[items.length + 1] = element;
+              }}
+              className={FOOTER}
+              inert={!open}
+            >
+              {footer}
             </div>
           )}
         </div>

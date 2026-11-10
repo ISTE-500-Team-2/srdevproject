@@ -155,6 +155,11 @@ export function Header() {
         linkComponent={RouterLink}
         ariaLabel="Mobile navigation"
         style={cardNavStyle}
+        footer={
+          <div className="site-card-nav__appearance">
+            <AppearanceControl />
+          </div>
+        }
         onLinkClick={(link) => {
           if (link.signOut) void signOut();
         }}

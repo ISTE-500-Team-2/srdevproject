@@ -80,6 +80,14 @@
   border-bottom: 1px solid #ded4cd;
 }
 
+/* Phone menu (CardNav footer), below 1040px where the desktop header is hidden. */
+.site-card-nav__appearance {
+  padding: 12px 14px 14px;
+  border: 1px solid var(--nav-edge);
+  border-radius: calc(var(--cn-radius) - var(--cn-inset));
+  background: var(--surface-raised);
+}
+
 .admin-side__appearance {
   margin-top: auto;
   padding: 14px 4px 0;

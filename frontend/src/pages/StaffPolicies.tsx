@@ -322,7 +322,7 @@ function RetireDialog({ policy, onClose, onRetired }: { policy: Policy; onClose:
             radius={9}
             backgroundColor="var(--hold-danger-bg)"
             fillColor="var(--hold-danger)"
-            textColor="var(--hold-danger)"
+            textColor="var(--hold-danger-text)"
             fillTextColor="var(--hold-danger-ink)"
             icon={<Archive size={16} aria-hidden="true" />}
             doneLabel="Retiring…"

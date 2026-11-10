@@ -92,7 +92,7 @@ export function CancelClassDialog({
             radius={9}
             backgroundColor="var(--hold-danger-bg)"
             fillColor="var(--hold-danger)"
-            textColor="var(--hold-danger)"
+            textColor="var(--hold-danger-text)"
             fillTextColor="var(--hold-danger-ink)"
             icon={<X size={16} aria-hidden="true" />}
             doneLabel={busy ? "Cancelling…" : "Cancelled"}
