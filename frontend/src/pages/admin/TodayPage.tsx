@@ -43,32 +43,26 @@ function waitingOn(...results: Result<unknown>[]) {
 
 /** The staff landing page: what's happening in the shop today and what needs staff. */
 export function TodayPage() {
+  // Usually already loaded at startup (AuthProvider), so the day is known on the first render.
   const config = useApi<{ timeZone: string }>("/config", refresh);
-  // Data that doesn't depend on the date loads alongside /config and survives a day change.
-  const shared: Shared = {
-    config,
-    equipment: useApi<LiveEquipment[]>("/equipment", refresh),
-    studios: useApi<{ studios: Studio[] }>("/studios", refresh),
-    rentals: useApi<Rental[]>("/studio-management/rentals", refresh),
-    compliance: useApi<ComplianceReport>("/admin/compliance?userStatus=active&attention=true", refresh),
-  };
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60000);
     return () => window.clearInterval(timer);
   }, []);
   const day = config.data ? dayKey(now, config.data.timeZone) : "";
-  // A new day remounts the day's report and bookings so no panel mixes yesterday's with today's.
-  return <TodayContent key={day} shared={shared} now={now} day={day} />;
+  // The panels mount once the day is known (mounting them first would read everything
+  // twice) and remount at midnight, so no panel mixes days. That includes compliance and
+  // rentals, which the server evaluates against the current time.
+  if (!day)
+    return (
+      <div className="today">
+        <header className="today-head"><h1 className="today-title">Today</h1></header>
+        <LoadState loading={config.loading} error={config.error} reload={config.reload} />
+      </div>
+    );
+  return <TodayContent key={day} config={config} now={now} day={day} />;
 }
-
-type Shared = {
-  config: Result<{ timeZone: string }>;
-  equipment: Result<LiveEquipment[]>;
-  studios: Result<{ studios: Studio[] }>;
-  rentals: Result<Rental[]>;
-  compliance: Result<ComplianceReport>;
-};
 
 // The staff bookings list is paged; each page keeps its own refresh and retry.
 type BookingPageResult = Result<Page<Reservation>>;
@@ -103,11 +97,13 @@ function useTodayBookings(day: string) {
   return { bookings, state, loaders };
 }
 
-function TodayContent({ shared, now, day }: { shared: Shared; now: number; day: string }) {
-  const { config, equipment, studios, rentals, compliance } = shared;
+function TodayContent({ config, now, day }: { config: Result<{ timeZone: string }>; now: number; day: string }) {
   const zone = config.data?.timeZone;
-  // Only day-dependent requests live here; until /config gives the day they send nothing.
-  const report = useApi<Report>(day ? `/admin/reports?period=daily&from=${day}&to=${day}` : null, refresh);
+  const report = useApi<Report>(`/admin/reports?period=daily&from=${day}&to=${day}`, refresh);
+  const equipment = useApi<LiveEquipment[]>("/equipment", refresh);
+  const studios = useApi<{ studios: Studio[] }>("/studios", refresh);
+  const rentals = useApi<Rental[]>("/studio-management/rentals", refresh);
+  const compliance = useApi<ComplianceReport>("/admin/compliance?userStatus=active&attention=true", refresh);
   const { bookings, state: bookingState, loaders } = useTodayBookings(day);
 
   const live = new Set(

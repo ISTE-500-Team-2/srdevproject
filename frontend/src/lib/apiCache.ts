@@ -15,7 +15,7 @@ const entries = new Map<string, Entry>();
 const inflight = new Map<string, Inflight>();
 const routeReads = new Map<string, string[]>();
 /** Reads started early for an arriving page; a successful one lets one mount skip its own read. */
-export type PrefetchMark = { ok?: boolean; settledAt?: number };
+export type PrefetchMark = { route: string; ok?: boolean; settledAt?: number };
 const prefetched = new Map<string, PrefetchMark>();
 let generation = 0;
 /** Whose results the store holds: account, opened member account and roles (see AuthContext). */
@@ -78,8 +78,8 @@ export function routeReadsFor(route: string): readonly string[] {
   return routeReads.get(route) ?? [];
 }
 
-export function markPrefetched(path: string): PrefetchMark {
-  const mark: PrefetchMark = {};
+export function markPrefetched(path: string, route: string): PrefetchMark {
+  const mark: PrefetchMark = { route };
   prefetched.set(path, mark);
   return mark;
 }

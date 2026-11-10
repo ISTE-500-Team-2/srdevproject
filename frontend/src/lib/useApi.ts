@@ -26,13 +26,15 @@ const PREFETCH_CURRENT_MS = 5000;
 /** Start the reads `route` made last time, e.g. while its session check is still running. */
 export function prefetchRoute(route: string) {
   for (const path of routeReadsFor(route)) {
-    const mark = markPrefetched(path);
+    const mark = markPrefetched(path, route);
     void loadShared(path).then(
       () => { mark.ok = true; mark.settledAt = Date.now(); },
       () => { mark.ok = false; },
     );
   }
 }
+/** A staff member is typing in, or has unsaved changes on, a revision-keyed management form. */
+const editingManagementForm = () => !!document.activeElement?.closest("form.management-form") || hasUnsavedManagementEdits();
 function hasUnsavedManagementEdits() {
   return Array.from(document.querySelectorAll<HTMLFormElement>("form.management-form")).some(form =>
     Array.from(form.elements).some(element => {
@@ -89,9 +91,10 @@ export function useApi<T>(path: string | null, options: { retainOnReload?: boole
     const prefetch = shared ? takePrefetched(path) : undefined;
     if (shared) noteRouteRead(currentRoute(), path);
     if (cached) { dataRef.current = cached.data; setData(cached.data); setError(""); }
-    // Prefetched for this arrival and already back successfully (the route's session
-    // check took longer): it is current. A failed or pending prefetch never stands in.
-    if (cached && prefetch?.ok && Date.now() - prefetch.settledAt! < PREFETCH_CURRENT_MS && !joinInflight(path)) {
+    // Prefetched for this page's arrival and already back successfully (the route's
+    // session check took longer): it is current. A failed or pending prefetch, or one
+    // made for another page, never stands in.
+    if (cached && prefetch?.ok && prefetch.route === currentRoute() && Date.now() - prefetch.settledAt! < PREFETCH_CURRENT_MS && !joinInflight(path)) {
       fetching.current = false; setLoading(false); setRefreshing(false);
       return;
     }
@@ -105,11 +108,17 @@ export function useApi<T>(path: string | null, options: { retainOnReload?: boole
     setError("");
     (shareable ? loadShared<T>(path) : api<T>(path, { signal: controller.signal }))
       .then((result) => {
-        if (!controller.signal.aborted) { dataRef.current = result; setData(result); }
+        if (controller.signal.aborted) return;
+        // Same rule as polling: a form opened on cached data is not replaced (and its draft
+        // lost) mid-edit. Saving or the next refresh brings the current record.
+        if (cached && editingManagementForm()) return;
+        dataRef.current = result; setData(result);
       })
       .catch((error) => {
         if (!controller.signal.aborted) {
-          if ((retainOnReload || cached) && error instanceof ApiError && [401, 403, 404].includes(error.status)) { dataRef.current = null; setData(null); }
+          // Cached data only stands in while revalidating: if that read fails, show the
+          // failure exactly as a first load would rather than old data that looks current.
+          if (cached || (retainOnReload && error instanceof ApiError && [401, 403, 404].includes(error.status))) { dataRef.current = null; setData(null); }
           setError(errorMessage(error));
         }
       })
@@ -123,7 +132,7 @@ export function useApi<T>(path: string | null, options: { retainOnReload?: boole
     if (!path || refreshInterval <= 0) return;
     const refresh = () => {
       // Do not replace revision-keyed forms while a staff member is editing.
-      if (fetching.current || document.visibilityState === "hidden" || document.activeElement?.closest("form.management-form") || hasUnsavedManagementEdits()) return;
+      if (fetching.current || document.visibilityState === "hidden" || editingManagementForm()) return;
       reload();
     };
     const timer = window.setInterval(refresh, refreshInterval);

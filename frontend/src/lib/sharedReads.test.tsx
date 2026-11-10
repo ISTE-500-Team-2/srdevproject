@@ -200,3 +200,51 @@ test('the store is bounded: oldest results and pages are dropped first', () => {
   expect(routeReadsFor('/admin/members?page=0')).toHaveLength(0);
   expect(routeReadsFor('/admin/members?page=129')).toHaveLength(1);
 });
+
+test('if revalidating cached data fails, the failure shows as it would on a first load', async () => {
+  api.mockResolvedValueOnce({ allClear: true });
+  renderHook(() => useApi('/admin/compliance')).unmount();
+  await settle();
+  api.mockRejectedValueOnce(new ApiError(500, 'INTERNAL_ERROR', 'Server unavailable'));
+  const { result } = renderHook(() => useApi('/admin/compliance'));
+  expect(result.current.data).toEqual({ allClear: true });
+  await settle();
+  expect(result.current.data).toBeNull();
+  expect(result.current.error).toBeTruthy();
+  expect(result.current.loading).toBe(false);
+});
+
+test('a form opened on cached data keeps its draft when the revalidated record arrives', async () => {
+  api.mockResolvedValueOnce({ revision: 1 });
+  renderHook(() => useApi<{ revision: number }>('/admin/payments')).unmount();
+  await settle();
+  const pending = deferred<{ revision: number }>();
+  api.mockReturnValueOnce(pending.promise);
+  const { result } = renderHook(() => useApi<{ revision: number }>('/admin/payments'));
+  expect(result.current.data?.revision).toBe(1);
+  // Staff start typing into the form rendered from the cached revision.
+  const form = document.createElement('form'); form.className = 'management-form';
+  const input = document.createElement('input'); input.defaultValue = ''; form.append(input); document.body.append(form);
+  input.focus(); input.value = 'Receipt 4411';
+  await act(async () => { pending.resolve({ revision: 2 }); });
+  expect(result.current.data?.revision).toBe(1);
+  expect(result.current.refreshing).toBe(false);
+  form.remove();
+});
+
+test('a prefetch made for another page never lets this page skip its read', async () => {
+  window.history.replaceState(null, '', '/equipment');
+  api.mockResolvedValueOnce({ price: 10 });
+  renderHook(() => useApi('/equipment/3/quote')).unmount();
+  await settle();
+  api.mockResolvedValueOnce({ price: 10 });
+  prefetchRoute('/equipment');
+  await settle();
+  // The quote is opened later from a different page; it must read the current price.
+  window.history.replaceState(null, '', '/admin/reservations');
+  api.mockResolvedValueOnce({ price: 12 });
+  const { result } = renderHook(() => useApi<{ price: number }>('/equipment/3/quote'));
+  await settle();
+  expect(api).toHaveBeenCalledTimes(3);
+  expect(result.current.data?.price).toBe(12);
+});
