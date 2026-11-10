@@ -719,6 +719,7 @@ const Lanyard = ({
   damping = 0.5,
   elasticity = 0.5,
   breeze = 0.5,
+  exposure = 1,
   interactive = true,
   intro = true,
   className = '',
@@ -747,6 +748,7 @@ const Lanyard = ({
     damping,
     elasticity,
     breeze,
+    exposure,
     interactive,
     intro
   };
@@ -937,6 +939,10 @@ const Lanyard = ({
 
     const apply = () => {
       const s = settingsRef.current;
+      if (renderer.toneMappingExposure !== s.exposure) {
+        renderer.toneMappingExposure = s.exposure;
+        start();
+      }
       const layoutKey = `${s.orientation}|${s.cornerRadius}`;
       if (layoutKey !== applied.layoutKey) {
         layout = cardLayout(s.orientation, s.cornerRadius);

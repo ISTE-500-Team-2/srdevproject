@@ -15,14 +15,14 @@ const SplitText = lazy(() => import('../components/reactbits/SplitText'));
 
 const SPARK_COLORS = ['#f7961d', '#ffb54d', '#ffdba5', '#a86008'];
 const STEPPER_THEME = {
-  '--stepper-well': 'rgba(113, 91, 78, 0.1)',
-  '--stepper-tile': '#fffdfa',
-  '--stepper-tile-edge': 'rgba(113, 91, 78, 0.22)',
+  '--stepper-well': 'var(--stepper-theme-well)',
+  '--stepper-tile': 'var(--stepper-theme-tile)',
+  '--stepper-tile-edge': 'var(--stepper-theme-tile-edge)',
   '--stepper-ink': 'var(--ink)',
   '--stepper-muted': 'var(--ink-soft)',
   '--stepper-faint': 'var(--border)',
-  '--stepper-solid': 'var(--espresso)',
-  '--stepper-solid-ink': '#fff',
+  '--stepper-solid': 'var(--check-fill)',
+  '--stepper-solid-ink': 'var(--stepper-theme-solid-ink)',
 } as CSSProperties;
 const SIGNUP_STEPS = 3;
 // Accounts use verified email for both registration and sign-in.
@@ -278,8 +278,8 @@ export function LoginPage() {
                 strike="none"
                 doneOpacity={1}
                 color="var(--ink)"
-                fillColor="var(--espresso)"
-                checkColor="#fff"
+                fillColor="var(--check-fill)"
+                checkColor="var(--check-ink)"
                 boxSize={20}
                 boxRadius={5}
                 fontSize={14}

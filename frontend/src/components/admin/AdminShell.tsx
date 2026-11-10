@@ -6,6 +6,7 @@ import { errorMessage } from "../../lib/api";
 import { adminGroups } from "../../pages/admin/sections";
 import { AccountPicker } from "./AccountPicker";
 import { Modal } from "../Modal";
+import { AppearanceControl } from "../AppearanceControl";
 import { initials, lastWorkspacePathKey, roleLabel } from "./people";
 
 /** The staff workspace: its own sidebar layout, separate from the member site. */
@@ -72,6 +73,9 @@ export function AdminShell() {
         <Eye aria-hidden="true" />
         View member site
       </button>
+      <div className="admin-side__appearance">
+        <AppearanceControl compact />
+      </div>
       {staff ? (
         <div className="admin-side__me">
           <span className="admin-avatar admin-avatar--self" aria-hidden="true">
