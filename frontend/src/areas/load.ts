@@ -25,8 +25,15 @@ const quietly = (load: () => Promise<unknown>) => { void load().catch(() => {});
 export const preloadMemberArea = () => quietly(loadMemberArea);
 export const preloadStaffArea = () => quietly(loadStaffArea);
 
+/** A path as the router matches it: decoded and case-insensitive, without query or hash. */
+function routePath(destination: string) {
+  const path = destination.split(/[?#]/)[0];
+  try { return decodeURIComponent(path).toLowerCase(); } catch { return path.toLowerCase(); }
+}
+
 /** Preload what `pathname` will need; unknown or public paths preload nothing. */
-export function preloadAreaFor(pathname: string) {
+export function preloadAreaFor(destination: string) {
+  const pathname = routePath(destination);
   if (pathname === '/admin' || pathname.startsWith('/admin/')) preloadStaffArea();
   else if (/^\/(checkout-return|equipment|reservations|studios|certifications|classes|training|profile|membership)?\/?$/.test(pathname))
     preloadMemberArea();
@@ -59,7 +66,7 @@ export async function prepareArrival(role: string, destination: string) {
 
 /** Which area a person with `role` lands in at `destination`: only staff reach the workspace. */
 export function arrivalArea(role: string, destination: string): 'staff' | 'member' {
-  const path = destination.split(/[?#]/)[0];
+  const path = routePath(destination);
   const staff = role === 'staff' || role === 'admin';
   return staff && (path === '/' || path === '/admin' || path.startsWith('/admin/')) ? 'staff' : 'member';
 }

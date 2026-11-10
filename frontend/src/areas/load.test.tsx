@@ -35,6 +35,7 @@ test('an area page waits in place, then renders, and keeps its state from then o
   const Page = fromArea(area, (m) => m.Page);
   const view = render(<Page />);
   expect(screen.getByRole('status').textContent).toBe('Loading…');
+  expect(document.title).toBe('Loading · The Collaboratory');
   await act(async () => { arrive({ Page: Draft }); });
   fireEvent.change(screen.getByLabelText('Draft'), { target: { value: 'unsaved' } });
   view.rerender(<Page />);
@@ -52,6 +53,7 @@ test('a failed download shows a reload screen in that spot only', async () => {
   const Broken = fromArea(retryable<{ P: ComponentType }>(() => Promise.reject(new Error('Failed to fetch dynamically imported module'))), (m) => m.P);
   render(<><Broken /><p>Rest of the app</p></>);
   expect((await screen.findByRole('alert')).textContent).toContain('couldn’t load');
+  expect(document.title).toBe('Page couldn’t load · The Collaboratory');
   expect(screen.getByText('Rest of the app')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
   expect(reload).toHaveBeenCalled();
@@ -64,4 +66,7 @@ test('after sign-in, staff landing in the workspace load it first; everyone else
   expect(arrivalArea('admin', '/membership')).toBe('member');
   expect(arrivalArea('member', '/')).toBe('member');
   expect(arrivalArea('member', '/admin')).toBe('member');
+  // Routes match case-insensitively and decoded, as React Router does.
+  expect(arrivalArea('admin', '/ADMIN/payments?x=1#top')).toBe('staff');
+  expect(arrivalArea('staff', '/%61dmin')).toBe('staff');
 });

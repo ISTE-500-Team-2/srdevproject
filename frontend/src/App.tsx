@@ -2,7 +2,7 @@ import { useEffect, useState, type ComponentType, type ReactNode } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { RequireUser, RequireStaff, isWorkspaceUser } from './components/RouteGuards';
 import { useAuth, AuthProvider } from './context/AuthContext';
-import { titled } from './components/PageTitle';
+import { PageTitle, titled } from './components/PageTitle';
 import { LoadingPage } from './pages/LoadingPage';
 import { LoginPage } from './pages/LoginPage';
 import { NotFoundPage } from './pages/NotFoundPage';
@@ -16,6 +16,7 @@ import { loadMemberArea, loadStaffArea, preloadAreaFor, preloadMemberArea, prelo
 export function AreaUnavailable() {
   return (
     <main className="page-shell">
+      <PageTitle title="Page couldn’t load" />
       <p role="alert">This page couldn’t load. Check your connection, then reload.</p>
       <button className="button" onClick={() => window.location.reload()}>Reload</button>
     </main>
@@ -45,7 +46,7 @@ export function fromArea<M>(area: AreaLoader<M>, pick: (module: M) => ComponentT
       return <Page {...props} />;
     }
     if (failed) return <AreaUnavailable />;
-    return <main className="page-shell" role="status">Loading…</main>;
+    return <main className="page-shell" role="status"><PageTitle title="Loading" />Loading…</main>;
   };
 }
 type MemberArea = Awaited<ReturnType<typeof loadMemberArea>>;
