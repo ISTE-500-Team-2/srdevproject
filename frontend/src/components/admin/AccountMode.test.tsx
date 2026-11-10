@@ -91,7 +91,7 @@ test("staff land in the workspace; members get their home; an open account gets 
   responses.set("/me/overview", { userId:dana.id, entitlement: { membership: true, dayPass: false }, pendingWaivers: 0, activeReservations: 0, canCheckIn: true, reasons: [], recentCheckIns: [] });
   at(<HomeRoute />);
   // The account screen is part of the separately loaded member area.
-  expect(await screen.findByRole("heading", { name: "What would you like to do?" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "What would you like to do?" }, { timeout: 5000 })).toBeTruthy();
 });
 
 test("the account bar names the member and the staff role, and goes back to the last workspace page", async () => {

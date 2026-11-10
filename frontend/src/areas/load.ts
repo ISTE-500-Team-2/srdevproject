@@ -41,13 +41,20 @@ export function preloadForSignIn() {
   preloadMemberArea();
 }
 
+/** How long sign-in waits for the next page's code before going there anyway. */
+export const ARRIVAL_WAIT_MS = 1500;
+
 /**
- * Signed in: finish loading the area the next page needs before going there, so it
- * renders at once (a page that suspends is held back ~300 ms even after its code
- * arrives). A failed download doesn't block: the page shows its reload screen.
+ * Signed in: give the area the next page needs a moment to finish loading, so the
+ * page appears complete instead of as a placeholder first. Never blocks sign-in:
+ * after ARRIVAL_WAIT_MS, or on failure, the page shows its own loading or reload state.
  */
 export async function prepareArrival(role: string, destination: string) {
-  await (arrivalArea(role, destination) === 'staff' ? loadStaffArea() : loadMemberArea()).catch(() => {});
+  const area = arrivalArea(role, destination) === 'staff' ? loadStaffArea() : loadMemberArea();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<void>((resolve) => { timer = setTimeout(resolve, ARRIVAL_WAIT_MS); });
+  await Promise.race([area.catch(() => {}), deadline]);
+  clearTimeout(timer);
 }
 
 /** Which area a person with `role` lands in at `destination`: only staff reach the workspace. */
