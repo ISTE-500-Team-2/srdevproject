@@ -24,14 +24,17 @@ export function RequireUser() {
     // are removed by the guard as soon as the server response arrives.
     const resume = () => { void refresh(false); };
     const visible = () => { if (document.visibilityState === 'visible') resume(); };
+    // pageshow also fires on every ordinary load; only a back/forward-cache
+    // restoration brings back a page whose session may have changed.
+    const restored = (event: PageTransitionEvent) => { if (event.persisted) resume(); };
     void check();
     window.addEventListener('focus', resume);
-    window.addEventListener('pageshow', resume);
+    window.addEventListener('pageshow', restored);
     document.addEventListener('visibilitychange', visible);
     return () => {
       active = false;
       window.removeEventListener('focus', resume);
-      window.removeEventListener('pageshow', resume);
+      window.removeEventListener('pageshow', restored);
       document.removeEventListener('visibilitychange', visible);
     };
   }, [location, refresh]);

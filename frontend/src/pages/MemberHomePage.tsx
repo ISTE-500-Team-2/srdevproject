@@ -114,7 +114,7 @@ export function MemberHomePage() {
       supervision.reload();
       if (choice === 'accept') {
         // The session carries the sponsor name the badge falls back to.
-        void refresh();
+        void refresh(false, { fresh: true });
         setToast(`${request.adultName} is now your sponsoring adult.`);
       } else setToast(`Request from ${request.adultName} declined.`);
     } catch (err) {

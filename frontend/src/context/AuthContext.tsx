@@ -3,11 +3,13 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useState,
   useRef,
   type ReactNode,
 } from 'react';
+import { useLocation } from 'react-router-dom';
 import { api, ApiError, errorMessage, setCsrfToken, setAccessToken } from '../lib/api';
 import type { NotificationMessage, Registration, Session, User } from '../lib/contracts';
 import type { UserRole } from '../types';
@@ -33,7 +35,12 @@ interface AuthContextValue {
   register: (input: Registration) => Promise<{confirmationRequired:true;email:string;emailSendingEnabled:boolean}>;
   confirmEmail: (token:string) => Promise<UserRole>;
   logout: () => Promise<void>;
-  refresh: (blocking?: boolean) => Promise<void>;
+  /**
+   * Re-read `/auth/session`. Joins a read already in flight for the same router
+   * location unless an auth transition happened since it started; pass
+   * `{ fresh: true }` after a write so the response reflects that write.
+   */
+  refresh: (blocking?: boolean, options?: { fresh?: boolean }) => Promise<void>;
   openAccount: (userId: number) => Promise<void>;
   closeAccount: () => Promise<void>;
   clearNotification: () => void;
@@ -60,10 +67,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError('');
     return session.user.role;
   }, []);
-  const refresh = useCallback(async (blocking = false) => {
-    const requestRevision = ++revision.current;
-    if (blocking) setLoading(true);
-    setError('');
+  // The router location current for session reads; layout effects run before the
+  // guards' passive effects, so a navigation's check always sees its own location.
+  const location = useLocation();
+  const currentLocation = useRef<object>(location);
+  useLayoutEffect(() => { currentLocation.current = location; }, [location]);
+  const pending = useRef<{ location: object; revision: number; read: Promise<void> } | null>(null);
+  const read = useCallback(async (requestRevision: number) => {
     try {
       const session = await api<Session>('/auth/session');
       if (requestRevision !== revision.current) return;
@@ -79,9 +89,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAccessToken(null);
       } else setError(errorMessage(err));
     } finally {
+      if (pending.current?.revision === requestRevision) pending.current = null;
       if (requestRevision === revision.current) setLoading(false);
     }
   }, [acceptSession]);
+  const refresh = useCallback((blocking = false, options?: { fresh?: boolean }) => {
+    const inFlight = pending.current;
+    // Share a read started at this same router location when nothing (login, logout,
+    // account mode, expiry, a newer read) has superseded it; its answer is no older
+    // than this location. A read from an earlier location is never reused.
+    if (!options?.fresh && inFlight && inFlight.revision === revision.current
+      && inFlight.location === currentLocation.current) {
+      // The shared read's settlement (or the transition that supersedes it) clears this.
+      if (blocking) setLoading(true);
+      return inFlight.read;
+    }
+    const requestRevision = ++revision.current;
+    if (blocking) setLoading(true);
+    setError('');
+    const started = { location: currentLocation.current, revision: requestRevision, read: read(requestRevision) };
+    pending.current = started;
+    return started.read;
+  }, [read]);
   useEffect(() => {
     void refresh();
     api<{ demoLogin: boolean }>('/config')
