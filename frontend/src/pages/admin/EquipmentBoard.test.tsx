@@ -20,7 +20,7 @@ const booking = (id: number, equipmentId: number, fromNow: number, hours: number
 });
 
 let machines: ManagedEquipment[];
-let bookings: Reservation[] | Error;
+let bookings: Reservation[] | Error | Promise<Reservation[]>;
 let yesterdayBookings: Reservation[];
 const ZONE = 'America/New_York';
 const todayKey = () => dayKey(Date.now(), ZONE);
@@ -42,7 +42,10 @@ beforeEach(() => {
     if (path === '/admin/equipment') return Promise.resolve(structuredClone(machines));
     if (path === '/config') return Promise.resolve({ timeZone: 'America/New_York' });
     if (path === `/admin/reservations?date=${yesterdayKey()}`) return Promise.resolve({ items: structuredClone(yesterdayBookings), nextOffset: null });
-    if (path.startsWith('/admin/reservations?')) return bookings instanceof Error ? Promise.reject(bookings) : Promise.resolve({ items: structuredClone(bookings), nextOffset: null });
+    if (path.startsWith('/admin/reservations?')) {
+      if (bookings instanceof Error) return Promise.reject(bookings);
+      return Promise.resolve(bookings).then(items => ({ items: structuredClone(items), nextOffset: null }));
+    }
     if (path.includes('/bookings')) return Promise.resolve({ items: [], nextOffset: null });
     const detail = path.match(/^\/admin\/equipment\/(\d+)$/);
     if (detail) return Promise.resolve({ ...machines.find(m => m.id === Number(detail[1])), history: [], activeGrants: [], checkedAt: new Date().toISOString(), timeZone: 'America/New_York', canManage: true, canReadBookings: true, canManageBookings: true });
@@ -163,4 +166,28 @@ test('rates keep their cents when they have any', async () => {
   mount();
   expect((await row('Kirk')).textContent).toContain('$15.50/hr');
   expect((await row('Ross')).textContent).toContain('$15/hr');
+});
+
+test('a retry after a failed refresh keeps the schedule unknown until it succeeds', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    bookings = [];
+    mount();
+    await waitFor(async () => expect((await row('Kirk')).textContent).toContain('Nothing else booked today'));
+    bookings = new Error('Server error');
+    await act(() => vi.advanceTimersByTimeAsync(61000));
+    await waitFor(async () => expect((await row('Kirk')).textContent).toContain('Bookings unavailable'));
+    // The retry is still in flight: nothing new has been read.
+    let answer!: (items: Reservation[]) => void;
+    bookings = new Promise<Reservation[]>(resolve => { answer = resolve; });
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await act(() => vi.advanceTimersByTimeAsync(10));
+    expect((await row('Kirk')).textContent).toContain('Bookings unavailable');
+    expect((await row('Kirk')).textContent).not.toContain('Nothing else booked today');
+    answer([booking(41, 5, 1, 1, 'Sam Lee')]);
+    await waitFor(async () => expect((await row('Kirk')).textContent).toMatch(/Next: Sam L\. at/));
+    expect(screen.queryByText(/Today’s bookings could not be loaded/)).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
 });
