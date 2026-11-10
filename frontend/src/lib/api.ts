@@ -27,9 +27,10 @@ export async function api<T>(
   if (!accessToken && !authEntry) await renew();
   const method = options.method ?? 'GET';
   const mutation = !['GET', 'HEAD'].includes(method);
-  // Writes change what reads return (and sign-in/account mode change whose data it is).
-  // Token rotation keeps the same account and data, so it keeps the cache.
-  const invalidates = mutation && path !== '/auth/refresh';
+  // Writes change what reads return, and sign-in, account mode and token renewal can
+  // change whose data it is (another tab may have signed in as someone else, and a
+  // renewal installs that session without a /auth/session check).
+  const invalidates = mutation;
   if (invalidates) invalidateApiCache();
   const perform = () => fetch('/api' + path, {
     method,

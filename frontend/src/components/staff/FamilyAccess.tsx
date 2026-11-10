@@ -23,7 +23,7 @@ export function FamilyAccess({
   disabled?: boolean;
 }) {
   const root = `/admin/users/${userId}/supervision`;
-  const state = useApi<SupervisionSummary>(root, { refreshInterval: 15000, retainOnReload: true, cache: false });
+  const state = useApi<SupervisionSummary>(root, { refreshInterval: 15000, retainOnReload: true });
   // null until staff pick someone; until then the current sponsor is shown chosen.
   const [picked, setPicked] = useState<string | null>(null);
   const data = state.data;

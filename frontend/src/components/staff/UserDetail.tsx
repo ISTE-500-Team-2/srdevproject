@@ -32,7 +32,7 @@ export function UserDetail({
   timeZone: string;
   onChanged: () => void;
 }) {
-  const detail = useApi<MemberDetail>(`/admin/users/${id}`, { retainOnReload: true, refreshInterval: 3000, cache: false }),
+  const detail = useApi<MemberDetail>(`/admin/users/${id}`, { retainOnReload: true, refreshInterval: 3000 }),
     { user: actor } = useAuth();
   const [confirmedUser, setConfirmedUser] = useState<Person | null>(null);
   const [cardRevision,setCardRevision] = useState(0);

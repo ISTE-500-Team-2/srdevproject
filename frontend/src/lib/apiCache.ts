@@ -1,11 +1,13 @@
 /**
- * Session-scoped store for GET results shared by every useApi caller.
+ * Session-scoped store behind useApi's shared reads.
  *
- * A page the user has already opened renders its last data at once and
- * revalidates in the background, and identical concurrent reads share one
- * request (browsers serialize identical in-flight GETs, costing a round trip
- * each). The store never outlives the signed-in identity: any write clears it
- * (see api.ts), a different signed-in identity clears it (scopeApiCache), and
+ * Identical concurrent reads share one request (browsers serialize identical
+ * in-flight GETs, costing a round trip each), and the route check can start a
+ * page's reads early so they arrive with it. Pages never render a copy kept
+ * from an earlier visit (only /config-like settings opt in to that); stored
+ * results exist to hand a prefetch to the page it was made for. The store
+ * never outlives the signed-in identity: any write or token renewal clears it
+ * (see api.ts), a different confirmed identity clears it (scopeApiCache), and
  * signing out also forgets which reads each page makes.
  */
 type Entry = { data: unknown; at: number };
@@ -28,6 +30,7 @@ const MAX_READS_PER_ROUTE = 16;
 /** Session-wide bounds; the least recently stored results and pages go first. */
 const MAX_ENTRIES = 200;
 const MAX_ROUTES = 100;
+const MAX_PREFETCH_MARKS = 100;
 
 export const cacheGeneration = () => generation;
 
@@ -80,8 +83,14 @@ export function routeReadsFor(route: string): readonly string[] {
 
 export function markPrefetched(path: string, route: string): PrefetchMark {
   const mark: PrefetchMark = { route };
+  prefetched.delete(path);
   prefetched.set(path, mark);
+  if (prefetched.size > MAX_PREFETCH_MARKS) prefetched.delete(prefetched.keys().next().value!);
   return mark;
+}
+
+export function peekPrefetched(path: string): PrefetchMark | undefined {
+  return prefetched.get(path);
 }
 
 /** Once per prefetch: the arriving page learns whether that read succeeded and when. */

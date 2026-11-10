@@ -44,7 +44,7 @@ function waitingOn(...results: Result<unknown>[]) {
 /** The staff landing page: what's happening in the shop today and what needs staff. */
 export function TodayPage() {
   // Usually already loaded at startup (AuthProvider), so the day is known on the first render.
-  const config = useApi<{ timeZone: string }>("/config", refresh);
+  const config = useApi<{ timeZone: string }>("/config", { ...refresh, reuse: true });
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60000);

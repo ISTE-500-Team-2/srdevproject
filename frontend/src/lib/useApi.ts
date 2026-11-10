@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, errorMessage } from "./api";
-import { cacheGeneration, evictCache, joinInflight, markPrefetched, noteRouteRead, readCache, routeReadsFor, takePrefetched, trackInflight, writeCache } from "./apiCache";
+import { cacheGeneration, evictCache, joinInflight, markPrefetched, noteRouteRead, peekPrefetched, readCache, routeReadsFor, takePrefetched, trackInflight, writeCache, type PrefetchMark } from "./apiCache";
 
 /** One shared GET: joins an identical read already in flight and stores the result for later visits. */
 export function loadShared<T>(path: string): Promise<T> {
@@ -33,8 +33,11 @@ export function prefetchRoute(route: string) {
     );
   }
 }
-/** A staff member is typing in, or has unsaved changes on, a revision-keyed management form. */
-const editingManagementForm = () => !!document.activeElement?.closest("form.management-form") || hasUnsavedManagementEdits();
+/** What a successful prefetch fetched for this page's arrival; nothing older or for another page. */
+function prefetchedFor<T>(path: string, mark: PrefetchMark | undefined) {
+  if (!mark?.ok || mark.route !== currentRoute() || Date.now() - mark.settledAt! >= PREFETCH_CURRENT_MS || joinInflight(path)) return undefined;
+  return readCache<T>(path);
+}
 function hasUnsavedManagementEdits() {
   return Array.from(document.querySelectorAll<HTMLFormElement>("form.management-form")).some(form =>
     Array.from(form.elements).some(element => {
@@ -54,19 +57,24 @@ function hasUnsavedManagementEdits() {
 }
 
 /**
- * `cache: false` always waits for a fresh read: use it for records behind
- * editable revision-keyed forms (a cached revision could be replaced mid-edit)
- * and for verdicts whose validity is timed from when they arrive.
- * A `requestKey` read is likewise private to its caller.
+ * Pages render data fetched for this arrival: the route check's prefetch when it
+ * succeeded, otherwise their own read, exactly as before. A copy kept from an
+ * earlier visit is never shown, so editable forms, expiring verdicts and error
+ * states see what they always saw. `reuse: true` is only for settings that are
+ * the same for everyone and rarely change (/config): a stored copy renders at once
+ * and refreshes in the background. `cache: false` and `requestKey` reads are
+ * private to their caller.
  */
-export function useApi<T>(path: string | null, options: { retainOnReload?: boolean; refreshInterval?: number; requestKey?: string | number; cache?: boolean } = {}) {
+export function useApi<T>(path: string | null, options: { retainOnReload?: boolean; refreshInterval?: number; requestKey?: string | number; cache?: boolean; reuse?: boolean } = {}) {
   const retainOnReload = options.retainOnReload ?? false;
   const shareable = options.cache !== false && options.requestKey === undefined;
+  const reuse = shareable && options.reuse === true;
   const previousPath = useRef(path);
   const requestKey = options.requestKey;
   const previousKey = useRef(requestKey);
-  // A resource seen earlier this session renders on the first frame; it is revalidated below.
-  const [initial] = useState(() => (path !== null && shareable ? readCache<T>(path) : undefined));
+  // A prefetch made for this arrival (or a reusable setting) renders on the first frame.
+  const [initial] = useState(() =>
+    path === null || !shareable ? undefined : reuse ? readCache<T>(path) : prefetchedFor<T>(path, peekPrefetched(path)));
   const [data, setData] = useState<T | null>(initial ? initial.data : null);
   const [loading, setLoading] = useState(!initial);
   const [refreshing, setRefreshing] = useState(false);
@@ -86,19 +94,20 @@ export function useApi<T>(path: string | null, options: { retainOnReload?: boole
     if (path === null) { dataRef.current = null; setData(null); setLoading(false); setRefreshing(false); setError(""); return; }
     const controller = new AbortController();
     const shared = arriving && shareable;
-    const cached = shared ? readCache<T>(path) : undefined;
-    // Consume the mark on every arrival so a stale one can't skip a later visit's read.
-    const prefetch = shared ? takePrefetched(path) : undefined;
+    // Consume the mark on every arrival so it can't stand in for a later visit's read.
+    const mark = shared ? takePrefetched(path) : undefined;
     if (shared) noteRouteRead(currentRoute(), path);
-    if (cached) { dataRef.current = cached.data; setData(cached.data); setError(""); }
-    // Prefetched for this page's arrival and already back successfully (the route's
-    // session check took longer): it is current. A failed or pending prefetch, or one
-    // made for another page, never stands in.
-    if (cached && prefetch?.ok && prefetch.route === currentRoute() && Date.now() - prefetch.settledAt! < PREFETCH_CURRENT_MS && !joinInflight(path)) {
+    // Fetched for this arrival while the route's session check ran: it is this visit's read.
+    // A pending prefetch is joined below; a failed one, or one for another page, never stands in.
+    const ready = shared && !reuse ? prefetchedFor<T>(path, mark) : undefined;
+    if (ready) {
+      dataRef.current = ready.data; setData(ready.data); setError("");
       fetching.current = false; setLoading(false); setRefreshing(false);
       return;
     }
-    const background = cached !== undefined || (retainOnReload && samePath && dataRef.current !== null);
+    const stored = shared && reuse ? readCache<T>(path) : undefined;
+    if (stored) { dataRef.current = stored.data; setData(stored.data); }
+    const background = stored !== undefined || (retainOnReload && samePath && dataRef.current !== null);
     fetching.current = true;
     // Loading UI is first-load/resource-change only. Background reads must not
     // insert loading banners, collapse charts, resize buttons or unmount forms.
@@ -108,17 +117,11 @@ export function useApi<T>(path: string | null, options: { retainOnReload?: boole
     setError("");
     (shareable ? loadShared<T>(path) : api<T>(path, { signal: controller.signal }))
       .then((result) => {
-        if (controller.signal.aborted) return;
-        // Same rule as polling: a form opened on cached data is not replaced (and its draft
-        // lost) mid-edit. Saving or the next refresh brings the current record.
-        if (cached && editingManagementForm()) return;
-        dataRef.current = result; setData(result);
+        if (!controller.signal.aborted) { dataRef.current = result; setData(result); }
       })
       .catch((error) => {
         if (!controller.signal.aborted) {
-          // Cached data only stands in while revalidating: if that read fails, show the
-          // failure exactly as a first load would rather than old data that looks current.
-          if (cached || (retainOnReload && error instanceof ApiError && [401, 403, 404].includes(error.status))) { dataRef.current = null; setData(null); }
+          if (retainOnReload && error instanceof ApiError && [401, 403, 404].includes(error.status)) { dataRef.current = null; setData(null); }
           setError(errorMessage(error));
         }
       })
@@ -126,13 +129,13 @@ export function useApi<T>(path: string | null, options: { retainOnReload?: boole
         if (!controller.signal.aborted) { fetching.current = false; setLoading(false); setRefreshing(false); }
       });
     return () => { controller.abort(); fetching.current = false; };
-  }, [path, revision, retainOnReload, requestKey, shareable]);
+  }, [path, revision, retainOnReload, requestKey, shareable, reuse]);
   const refreshInterval = options.refreshInterval ?? 0;
   useEffect(() => {
     if (!path || refreshInterval <= 0) return;
     const refresh = () => {
       // Do not replace revision-keyed forms while a staff member is editing.
-      if (fetching.current || document.visibilityState === "hidden" || editingManagementForm()) return;
+      if (fetching.current || document.visibilityState === "hidden" || document.activeElement?.closest("form.management-form") || hasUnsavedManagementEdits()) return;
       reload();
     };
     const timer = window.setInterval(refresh, refreshInterval);

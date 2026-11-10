@@ -27,12 +27,15 @@ test('a failed write still invalidates (the server may have applied part of it)'
   expect(readCache('/admin/plans')).toBeUndefined();
 });
 
-test('token rotation keeps cached reads; signing out drops them', async () => {
+test('token renewal and signing out both drop stored reads', async () => {
+  // Another tab may have signed in as someone else; renewal installs that session
+  // without a /auth/session check, so nothing stored may outlive it.
   setAccessToken('token'); setCsrfToken('csrf');
   writeCache('/me/overview', { n: 1 }, cacheGeneration());
   vi.stubGlobal('fetch', vi.fn(async () => json({ accessToken: 'next', csrfToken: 'csrf2' })));
   await api('/auth/refresh', { method: 'POST' });
-  expect(readCache('/me/overview')).toEqual(expect.objectContaining({ data: { n: 1 } }));
+  expect(readCache('/me/overview')).toBeUndefined();
+  writeCache('/me/overview', { n: 2 }, cacheGeneration());
   setAccessToken(null);
   expect(readCache('/me/overview')).toBeUndefined();
 });
