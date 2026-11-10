@@ -148,3 +148,5 @@ a.eq-row:hover { background: #fffaf3; }
   .eq-filter:nth-child(odd) { border-left: 0; }
   .eq-filter:nth-child(n + 3) { border-top: 1px solid #cdbfb2; }
 }
+.eq-day--unknown { background: transparent; border-style: dashed; }
+.eq-filter:disabled { cursor: default; opacity: .6; }

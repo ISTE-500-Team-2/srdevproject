@@ -6,7 +6,7 @@ import { LoadState } from '../../components/Management';
 import { usePageWidth } from '../../components/admin/pageWidth';
 import { shortDate } from '../../lib/display';
 import type { Reservation } from '../../lib/contracts';
-import { bookingBlock, dayKey, formatTime, machineStatus, timeWindow } from '../../lib/today';
+import { bookingBlock, dayKey, formatTime, localHour, machineStatus, timeWindow } from '../../lib/today';
 import { equipmentRate, equipmentTime, maintenanceReasons, type EquipmentDetail, type ManagedEquipment } from '../../lib/equipmentMaintenance';
 import { useDayBookings } from './useDayBookings';
 
@@ -18,7 +18,9 @@ const SPLIT_WIDTH = 1360;
 type Filter = 'all' | 'use' | 'booked' | 'down';
 type Window = ReturnType<typeof timeWindow>;
 type Tone = 'free' | 'use' | 'booked' | 'down';
-interface Row { machine: ManagedEquipment; bookings: Reservation[]; live: boolean; down: boolean; bookedLater: boolean; tone: Tone; label: string; detail: string }
+/** Whether today's bookings are all loaded; until they are, nothing is said about them. */
+type Schedule = 'known' | 'loading' | 'unavailable';
+interface Row { machine: ManagedEquipment; bookings: Reservation[]; schedule: Schedule; live: boolean; down: boolean; bookedToday: boolean; tone: Tone; label: string; detail: string }
 
 /** The equipment list: every machine with what it is doing now and its bookings today. */
 export function EquipmentBoard() {
@@ -37,7 +39,13 @@ export function EquipmentBoard() {
 }
 
 function BoardContent({ day, zone, now, machines }: { day: string; zone: string; now: number; machines: ReturnType<typeof useApi<ManagedEquipment[]>> }) {
-  const { bookings, state: bookingState, loaders } = useDayBookings(day, bookingRefresh);
+  // The bookings list matches by start date, so a booking running past midnight is
+  // in yesterday's list: read both and keep what reaches into today.
+  const today = useDayBookings(day, bookingRefresh);
+  const yesterday = useDayBookings(day && previousDay(day), bookingRefresh);
+  const bookingState = today.state ?? yesterday.state;
+  const schedule: Schedule = !day || (bookingState && !bookingState.error) ? 'loading' : bookingState ? 'unavailable' : 'known';
+  const bookings = schedule === 'known' ? mergeBookings(today.bookings, yesterday.bookings.filter(b => Date.parse(b.endTime) > localHour(day, 0, zone))) : [];
   const win = timeWindow(now, zone, bookings);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
@@ -45,10 +53,10 @@ function BoardContent({ day, zone, now, machines }: { day: string; zone: string;
   const [workspace, width] = useWidth();
   const split = width >= SPLIT_WIDTH;
 
-  const rows = (machines.data ?? []).map(machine => describe(machine, bookings.filter(b => b.equipmentId === machine.id), now, zone));
-  const counts: Record<Filter, number> = { all: rows.length, use: rows.filter(r => r.live).length, booked: rows.filter(r => r.bookedLater).length, down: rows.filter(r => r.down).length };
+  const rows = (machines.data ?? []).map(machine => describe(machine, bookings.filter(b => b.equipmentId === machine.id), schedule, now, zone));
+  const counts: Record<Filter, number> = { all: rows.length, use: rows.filter(r => r.live).length, booked: rows.filter(r => r.bookedToday).length, down: rows.filter(r => r.down).length };
   const query = search.toLowerCase().trim();
-  const visible = rows.filter(r => (filter === 'all' || (filter === 'use' && r.live) || (filter === 'booked' && r.bookedLater) || (filter === 'down' && r.down))
+  const visible = rows.filter(r => (filter === 'all' || (filter === 'use' && r.live) || (filter === 'booked' && r.bookedToday) || (filter === 'down' && r.down))
     && `${r.machine.name} ${r.machine.type} ${r.machine.location}`.toLowerCase().includes(query));
   const active = split ? (visible.find(r => r.machine.id === selected) ?? visible[0]) : undefined;
   // On a wide screen a row opens beside the list; modified clicks still open the page.
@@ -60,13 +68,14 @@ function BoardContent({ day, zone, now, machines }: { day: string; zone: string;
   const filters: [Filter, string][] = [['all', 'All'], ['use', 'In use'], ['booked', 'Booked today'], ['down', 'Out of service']];
 
   return <div className="eq-workspace eq-workspace--board" ref={workspace}>
-    {loaders}
+    {today.loaders}
+    {yesterday.loaders}
     <header className="eq-heading"><div><p className="eq-eyebrow">Operations</p><h1 className="admin-title">Equipment</h1><p>Keep the shop ready for what’s next.</p></div></header>
     <div className="eq-toolbar">
       <label className="eq-search"><Search aria-hidden="true" /><span className="sr-only">Find equipment</span><input placeholder="Find a machine…" value={search} onChange={e => setSearch(e.target.value)} /></label>
       <div className="eq-filters" role="group" aria-label="Show equipment">
-        {filters.map(([key, label]) => <button key={key} type="button" className={`eq-filter eq-filter--${key}`} aria-pressed={filter === key} onClick={() => setFilter(key)}>
-          <b>{machines.data ? counts[key] : '–'}</b>{label}</button>)}
+        {filters.map(([key, label]) => <button key={key} type="button" className={`eq-filter eq-filter--${key}`} aria-pressed={filter === key} onClick={() => setFilter(key)}
+          disabled={key === 'booked' && schedule !== 'known'}><b>{machines.data && (key !== 'booked' || schedule === 'known') ? counts[key] : '–'}</b>{label}</button>)}
       </div>
     </div>
     <LoadState {...machines} />
@@ -90,10 +99,9 @@ function BoardContent({ day, zone, now, machines }: { day: string; zone: string;
 }
 
 /** What a machine is doing now, in a few words, and what comes next. */
-function describe(machine: ManagedEquipment, bookings: Reservation[], now: number, zone: string): Row {
+function describe(machine: ManagedEquipment, bookings: Reservation[], schedule: Schedule, now: number, zone: string): Row {
   const live = !!machine.activeReaderLeases, down = machine.status !== 'available';
-  const bookedLater = bookings.some(b => Date.parse(b.endTime) > now);
-  const base = { machine, bookings, live, down, bookedLater };
+  const base = { machine, bookings, schedule, live, down, bookedToday: bookings.length > 0 };
   if (down) {
     const outage = machine.outage;
     return { ...base, tone: 'down', label: 'Out of service', detail: `${outage ? maintenanceReasons[outage.reason] ?? 'Unavailable' : 'Unavailable'}${outage?.expectedBack ? ` · back ${shortDate(outage.expectedBack)}` : ''}` };
@@ -101,13 +109,16 @@ function describe(machine: ManagedEquipment, bookings: Reservation[], now: numbe
   const current = bookings.find(b => Date.parse(b.startTime) <= now && Date.parse(b.endTime) > now);
   const { nextText } = machineStatus(bookings, now, zone, live, down);
   if (live) return { ...base, tone: 'use', label: 'In use', detail: current ? nextText : 'Reader session active' };
+  if (schedule !== 'known') return { ...base, tone: 'free', label: 'Not in use', detail: schedule === 'loading' ? 'Loading bookings…' : 'Bookings unavailable' };
   if (current) return { ...base, tone: 'booked', label: `Booked until ${formatTime(current.endTime, zone)}`, detail: current.memberName ?? '' };
   return { ...base, tone: 'free', label: 'Available', detail: nextText };
 }
 
 function DayStrip({ row, win, now, zone, large }: { row: Row; win: Window; now: number; zone: string; large?: boolean }) {
   const blocks = row.bookings.map(b => bookingBlock(b, win, now, zone, row.live, row.down)).filter(b => b !== null);
-  return <div className={`eq-day${large ? ' eq-day--large' : ''}`} role="img" aria-label={blocks.length ? `Today: ${blocks.map(b => b.label).join('; ')}` : 'Nothing booked today'}>
+  const label = row.schedule === 'loading' ? 'Loading today’s bookings' : row.schedule === 'unavailable' ? 'Today’s bookings are unavailable'
+    : blocks.length ? `Today: ${blocks.map(b => b.label).join('; ')}` : 'Nothing booked today';
+  return <div className={`eq-day${large ? ' eq-day--large' : ''}${row.schedule !== 'known' ? ' eq-day--unknown' : ''}`} role="img" aria-label={label}>
     {row.down && <span className="eq-day__outage" />}
     {blocks.map(b => <span key={b.id} className={`eq-day__block eq-day__block--${b.kind}`} style={{ left: `${b.left * 100}%`, width: `${b.width * 100}%` }}>{large ? b.text : null}</span>)}
     {win.nowInsideWindow && <i className="eq-day__now" style={{ left: `${win.nowFraction * 100}%` }} />}
@@ -134,7 +145,8 @@ function MachinePanel({ row, win, now, zone }: { row: Row; win: Window; now: num
     <DayStrip row={row} win={win} now={now} zone={zone} large />
     <Ticks win={win} />
     <h3 className="eq-mp-label">Bookings today</h3>
-    {row.bookings.length ? <ul className="eq-mp-bookings">{row.bookings.map(b => {
+    {row.schedule !== 'known' ? <p className="eq-muted">{row.schedule === 'loading' ? 'Loading bookings…' : 'Today’s bookings could not be loaded.'}</p>
+      : row.bookings.length ? <ul className="eq-mp-bookings">{row.bookings.map(b => {
       const done = Date.parse(b.endTime) <= now, started = Date.parse(b.startTime) <= now;
       return <li key={b.id} className={done ? 'is-done' : undefined}>
         <span><strong>{formatTime(b.startTime, zone)} – {formatTime(b.endTime, zone)}</strong><small>{b.memberName}</small></span>
@@ -146,6 +158,19 @@ function MachinePanel({ row, win, now, zone }: { row: Row; win: Window; now: num
       {detail.data?.canManage && <Link className="button button--quiet" to={`/admin/equipment/${machine.id}`} state={{ editAvailability: true }}><Wrench aria-hidden="true" />{row.down ? 'Return to service' : 'Take out of service'}</Link>}
     </div>
   </aside>;
+}
+
+/** The day before a YYYY-MM-DD day. */
+function previousDay(day: string) {
+  const date = new Date(`${day}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
+}
+
+/** Bookings from both lists, each once, in start order. */
+function mergeBookings(...lists: Reservation[][]) {
+  const byId = new Map(lists.flat().map(b => [b.id, b]));
+  return [...byId.values()].sort((a, b) => Date.parse(a.startTime) - Date.parse(b.startTime));
 }
 
 /** The element's content width, kept current as the window or sidebar changes. */
