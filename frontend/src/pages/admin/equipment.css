@@ -70,6 +70,7 @@
 .eq-filter--down b { color: #b2462a; }
 .eq-filter[aria-pressed="true"] { background: #efe3d6; color: #3d2a20; box-shadow: inset 0 -2px 0 #c9822f; }
 .eq-notice { margin-bottom: 12px; }
+.eq-machine-panel .eq-notice { margin: 16px 0 0; }
 .eq-split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; align-items: start; }
 .eq-split--open { grid-template-columns: minmax(0, 1fr) minmax(440px, 520px); }
 /* The rows respond to the list's own width, not the window's: see the container rules below. */

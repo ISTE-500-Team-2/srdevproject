@@ -168,8 +168,10 @@ function MachinePanel({ row, win, now, zone }: { row: Row; win: Window; now: num
     <dl className="eq-facts">
       <div><dt>Rate</dt><dd>{equipmentRate(machine.rate)}</dd></div>
       <div><dt>Requires</dt><dd>{machine.certification ?? 'No training'}</dd></div>
-      <div><dt>Last outage</dt><dd>{detail.data ? last ? new Intl.DateTimeFormat('en-US', { timeZone: zone, dateStyle: 'medium' }).format(new Date(last.startedAt)) : 'None recorded' : <><Skeleton width="76%" height={14} /><span className="sr-only">Loading</span></>}</dd></div>
+      <div><dt>Last outage</dt><dd>{detail.data ? last ? new Intl.DateTimeFormat('en-US', { timeZone: zone, dateStyle: 'medium' }).format(new Date(last.startedAt)) : 'None recorded'
+        : detail.error ? 'Unavailable' : <><Skeleton width="76%" height={14} /><span className="sr-only">Loading</span></>}</dd></div>
     </dl>
+    {detail.error ? <div className="eq-notice"><LoadState loading={false} error={`Machine details could not be loaded. ${detail.error}`} reload={detail.reload} /></div> : null}
     {machine.outage && <p className="eq-warning">{maintenanceReasons[machine.outage.reason] ?? 'Unavailable'} since {equipmentTime(machine.outage.startedAt, zone)}.{machine.outage.expectedBack ? ` Estimated back ${shortDate(machine.outage.expectedBack, true)}.` : ' No return date set.'}</p>}
     <h3 className="eq-mp-label">Today</h3>
     <DayStrip row={row} win={win} now={now} zone={zone} large />

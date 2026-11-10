@@ -392,8 +392,9 @@ type BookingView = { status: string; tone: 'ok' | 'warn' | 'neutral'; note?: Rea
 /** One status, one note and at most one kind of action for each booking. */
 function describeBooking(item: Reservation, now: number, userId: number | undefined, blockReason: string): BookingView {
   const payment = item.paymentStatus ?? '';
+  // A cancelled booking keeps its payment outcome, so paid-but-not-refunded and refunded differ.
   if (!ACTIVE_STATUSES.includes(item.status))
-    return { status: payment === 'expired' ? 'Checkout expired' : item.status === 'expired' ? 'Expired' : 'Cancelled', tone: 'neutral' };
+    return { status: payment === 'expired' ? 'Checkout expired' : [item.status === 'expired' ? 'Expired' : 'Cancelled', PAID_WORDS[payment]].filter(Boolean).join(' · '), tone: 'neutral' };
   if (time(item.endTime) <= now)
     return { status: ['Ended', payment === 'pending' ? 'Unpaid' : PAID_WORDS[payment]].filter(Boolean).join(' · '), tone: 'neutral' };
   if (payment === 'pending') {

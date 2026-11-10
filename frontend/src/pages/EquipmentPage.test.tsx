@@ -272,6 +272,18 @@ test('reservations split into upcoming and past, with cancelled and expired book
  fireEvent.click(within(mine).getByRole('button',{name:'Past · 1'}));
  expect(within(mine).queryByRole('heading',{name:'Ended paid'})).toBeNull();
 });
+test('cancelled bookings keep whether they were paid or refunded',async()=>{
+ const at=(offset:number)=>new Date(Date.now()+offset).toISOString();
+ const row=(id:number,name:string,paymentStatus:string)=>({id,userId:1,equipmentId:4,equipmentName:name,location:'Makerspace',startTime:at(-48*3600000),endTime:at(-47*3600000),status:'cancelled',paymentStatus,amountCents:700});
+ records=[row(1,'Kept payment','paid'),row(2,'Money back','refunded'),row(3,'Never paid','pending')];
+ await mount();
+ const mine=screen.getByRole('region',{name:'My reservations'});
+ fireEvent.click(within(mine).getByLabelText(/Show cancelled/));
+ const card=(name:string)=>within(mine).getByRole('heading',{name}).closest('article')!;
+ expect(within(card('Kept payment')).getByText('Cancelled · Paid')).toBeTruthy();
+ expect(within(card('Money back')).getByText('Cancelled · Refunded')).toBeTruthy();
+ expect(within(card('Never paid')).getByText('Cancelled')).toBeTruthy();
+});
 test('equipment and reservations show placeholders in their own shape while they load',async()=>{
  let catalog!:(items:unknown)=>void,saved!:(items:unknown)=>void;
  vi.mocked(api).mockImplementation((path=>path==='/equipment'?new Promise<unknown>(resolve=>{catalog=resolve;})

@@ -192,6 +192,24 @@ test('a retry after a failed refresh keeps the schedule unknown until it succeed
   }
 });
 
+test('a machine panel whose details fail to load says so and offers a retry', async () => {
+  const read = api.getMockImplementation()!;
+  let fail = true;
+  api.mockImplementation((path: string) => path === '/admin/equipment/1' && fail ? Promise.reject(new Error('Server error')) : read(path));
+  observedWidth = 1600;
+  mount();
+  const panel = await screen.findByRole('complementary', { name: 'Rachel details' });
+  expect(await within(panel).findByText(/Machine details could not be loaded\. Server error/)).toBeTruthy();
+  expect(within(panel).getByText('Unavailable')).toBeTruthy();
+  expect(within(panel).queryByRole('status', { name: 'Loading' })).toBeNull();
+  expect(within(panel).queryByRole('link', { name: 'Return to service' })).toBeNull();
+  fail = false;
+  fireEvent.click(within(panel).getByRole('button', { name: 'Retry' }));
+  expect(await within(panel).findByRole('link', { name: 'Take out of service' })).toBeTruthy();
+  expect(within(panel).getByText('None recorded')).toBeTruthy();
+  expect(within(panel).queryByText(/could not be loaded/)).toBeNull();
+});
+
 test('while machines or bookings load, rows are outlined instead of claiming a status', async () => {
   let answerMachines!: (items: ManagedEquipment[]) => void;
   const read = api.getMockImplementation()!;
