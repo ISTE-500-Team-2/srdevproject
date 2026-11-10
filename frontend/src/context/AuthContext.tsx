@@ -14,6 +14,7 @@ import { api, ApiError, errorMessage, setCsrfToken, setAccessToken } from '../li
 import type { NotificationMessage, Registration, Session, User } from '../lib/contracts';
 import type { UserRole } from '../types';
 import { forgetRecentAccounts } from '../components/admin/people';
+import { loadShared } from '../lib/useApi';
 
 interface AuthContextValue {
   /** Whose account the app is showing (an opened member account while staff act for them). */
@@ -113,7 +114,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [read]);
   useEffect(() => {
     void refresh();
-    api<{ demoLogin: boolean }>('/config')
+    // Shared read: pages that need server settings (e.g. Today's time zone) get them without a round trip.
+    loadShared<{ demoLogin: boolean }>('/config')
       .then((config) => setDemoLogin(config.demoLogin))
       .catch(() => setDemoLogin(false));
     const expired = () => {
