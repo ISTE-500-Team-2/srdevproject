@@ -101,7 +101,10 @@
 .admin-top .admin-top__view { margin-left: auto; min-height: 38px; padding: 0 14px; font-size: var(--text-base-sm); }
 .admin-top__view svg, .admin-side__view svg { width: 17px; height: 17px; }
 .admin-error { margin: 12px 28px 0; }
-.admin-content { flex: 1; width: 100%; max-width: 1400px; padding: 26px 28px 56px; }
+/* Pages are centred and capped by kind (see components/admin/pageWidth.tsx). */
+.admin-content { flex: 1; width: 100%; max-width: 1296px; margin-inline: auto; padding: 26px 28px 56px; }
+.admin-content[data-width="narrow"] { max-width: 1016px; }
+.admin-content[data-width="wide"] { max-width: none; }
 .admin-title {
   margin: 0 0 18px;
   font-family: 'Black Ops One', sans-serif;
@@ -139,8 +142,12 @@
   .admin-content { padding: 18px 16px 48px; }
 }
 @media (max-width: 560px) {
-  .admin-top__brand { display: block; margin: 0 auto; }
-  .admin-top .admin-top__view { margin-left: auto; }
+  /* Menu | logo | view: equal outer columns keep the logo centred on the bar
+     whatever the two buttons measure. */
+  .admin-top { display: grid; grid-template-columns: 1fr auto 1fr; }
+  .admin-top .admin-top__menu { justify-self: start; }
+  .admin-top__brand { display: block; }
+  .admin-top .admin-top__view { justify-self: end; margin-left: 0; }
 }
 
 /* ---------- account picker ---------- */

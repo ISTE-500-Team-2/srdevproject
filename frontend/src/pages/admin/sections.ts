@@ -1,5 +1,6 @@
 import { EquipmentManagementPage } from "./EquipmentManagementPage";
 import type { ComponentType } from "react";
+import type { PageWidth } from "../../components/admin/pageWidth";
 import {
   CalendarRange,
   ChartLine,
@@ -35,6 +36,8 @@ export interface AdminSection {
   component: ComponentType;
   /** The old ?tab= value, so bookmarked workspace links keep working. */
   legacyTab: string;
+  /** How wide the page may grow; pages that vary by view (equipment) declare it themselves. */
+  width?: PageWidth;
 }
 
 export const adminGroups: { label: string; sections: AdminSection[] }[] = [
@@ -58,7 +61,7 @@ export const adminGroups: { label: string; sections: AdminSection[] }[] = [
       { path: "reservations", label: "Reservations", icon: CalendarRange, component: StaffReservations, legacyTab: "reservations" },
       { path: "studios", label: "Studios", icon: DoorOpen, component: StaffStudios, legacyTab: "studios" },
       { path: "access", label: "Reader access", icon: Nfc, component: AccessManagementPage, legacyTab: "access" },
-      { path: "service-notices", label: "Service notices", icon: Megaphone, component: ServiceNotices, legacyTab: "service-notices" },
+      { path: "service-notices", label: "Service notices", icon: Megaphone, component: ServiceNotices, legacyTab: "service-notices", width: "narrow" },
     ],
   },
   {
@@ -71,8 +74,8 @@ export const adminGroups: { label: string; sections: AdminSection[] }[] = [
   {
     label: "Records",
     sections: [
-      { path: "analytics", label: "Analytics", icon: ChartLine, component: AnalyticsDashboardPage, legacyTab: "analytics" },
-      { path: "reports", label: "Reports", icon: FileChartColumn, component: ReportsPage, legacyTab: "reports" },
+      { path: "analytics", label: "Analytics", icon: ChartLine, component: AnalyticsDashboardPage, legacyTab: "analytics", width: "wide" },
+      { path: "reports", label: "Reports", icon: FileChartColumn, component: ReportsPage, legacyTab: "reports", width: "wide" },
       { path: "change-log", label: "Change log", icon: History, component: ChangeLog, legacyTab: "audit" },
     ],
   },
