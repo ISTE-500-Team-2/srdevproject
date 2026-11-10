@@ -3,6 +3,7 @@ import { CalendarDays, ChevronDown, Filter, ShieldAlert } from 'lucide-react';
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Modal } from '../components/Modal';
+import { Skeleton, SkeletonGroup } from '../components/Skeleton';
 import { MemberSelect } from '../components/MemberSelect';
 import { StartTimePicker } from '../components/StartTimePicker';
 import { Toast } from '../components/Toast';
@@ -171,7 +172,6 @@ export function EquipmentPage() {
           <span>Find equipment</span>
           <input type="search" value={search} placeholder="Search by name or type" onChange={e => setSearch(e.target.value)} />
         </label>
-        {catalog.loading ? <p role="status">Loading equipment…</p> : null}
         {catalog.error ? (
           <p role="alert" className="form-error">
             {catalog.error} <button onClick={catalog.reload}>Retry</button>
@@ -182,7 +182,7 @@ export function EquipmentPage() {
             {error}
           </p>
         ) : null}
-        <div className="equipment-grid">
+        {catalog.loading ? <EquipmentTilesLoading /> : <div className="equipment-grid">
           {groupEquipment(equipment).map(([type, machines]) => (
             <button className="reservation-card equipment-card" key={type}
               onClick={() => {
@@ -197,7 +197,7 @@ export function EquipmentPage() {
               <p className="equipment-card__names">{machines.map(item => item.name).join(' \u00b7 ')}</p>
             </button>
           ))}
-        </div>
+        </div>}
         {!catalog.loading && !catalog.error && !equipment.length ? (
           <p className="empty-state">No equipment matches this filter.</p>
         ) : null}
@@ -226,7 +226,7 @@ export function EquipmentPage() {
           Checkout was closed. Payment is still required to confirm your reservation. Resume payment or cancel the checkout below.
         </p>}
         {error && !selected && <p role="alert" className="form-error">{error}</p>}
-        {bookings.loading ? <p role="status">Loading reservations…</p> : null}
+        {bookings.loading ? <BookingsLoading /> : null}
         {bookings.error ? (
           <p role="alert" className="form-error">
             {bookings.error} <button onClick={bookings.reload}>Retry</button>
@@ -426,6 +426,45 @@ function dayLabel(value: string, now: number) {
 function timeRange(startValue: string, endValue: string) {
   const start = new Date(startValue), end = new Date(endValue);
   return sameDay(start, end) ? `${timeOnly(start)} – ${timeOnly(end)}` : `${timeOnly(start)} – ${shortDate(end)}, ${timeOnly(end)}`;
+}
+
+/** Four tiles in the shape of the equipment tiles, shown until the catalog arrives. */
+function EquipmentTilesLoading() {
+  const widths: [string, string][] = [['62%', '86%'], ['48%', '70%'], ['70%', '40%'], ['44%', '62%']];
+  return (
+    <SkeletonGroup label="Loading equipment" className="equipment-grid">
+      {widths.map(([title, names], index) => (
+        <div className="equipment-card-skeleton" key={index}>
+          <Skeleton className="equipment-card-skeleton__image" />
+          <span className="equipment-card-skeleton__rule" />
+          <Skeleton width={title} height={24} />
+          <Skeleton width={names} height={13} />
+        </div>
+      ))}
+    </SkeletonGroup>
+  );
+}
+
+/** Two rows on the booking row grid, shown until the reservations arrive. */
+function BookingsLoading() {
+  const widths: [string, string, string, string][] = [['58%', '40%', '46%', '62%'], ['44%', '52%', '38%', '56%']];
+  return (
+    <SkeletonGroup label="Loading reservations">
+      <div className="booking-group" aria-hidden="true"><h3>Upcoming ·<Skeleton width={14} height={12} /></h3></div>
+      <div className="booking-list">
+        {widths.map(([name, detail, day, time], index) => (
+          <div className="booking-row panel booking-row--card" key={index}>
+            <div className="booking-row__thumb"><Skeleton width="100%" height="100%" /></div>
+            <div className="booking-row__name skeleton-lines"><Skeleton width={name} height={16} /><Skeleton width={detail} height={12} /></div>
+            <div className="booking-row__when skeleton-lines"><Skeleton width={day} height={16} /><Skeleton width={time} height={12} /></div>
+            <div className="booking-row__price"><Skeleton width={index ? 48 : 56} height={16} /></div>
+            <div className="booking-row__status"><Skeleton round width={index ? 80 : 92} height={22} /></div>
+            <div className="booking-row__actions"><Skeleton round width={170} height={42} /></div>
+          </div>
+        ))}
+      </div>
+    </SkeletonGroup>
+  );
 }
 
 function BookingRow({ item, view, machine, userId, now, card = false, children }: {

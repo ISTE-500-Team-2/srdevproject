@@ -191,3 +191,28 @@ test('a retry after a failed refresh keeps the schedule unknown until it succeed
     vi.useRealTimers();
   }
 });
+
+test('while machines or bookings load, rows are outlined instead of claiming a status', async () => {
+  let answerMachines!: (items: ManagedEquipment[]) => void;
+  const read = api.getMockImplementation()!;
+  api.mockImplementation((path: string) => path === '/admin/equipment' ? new Promise(resolve => { answerMachines = resolve; }) : read(path));
+  bookings = new Promise<Reservation[]>(() => {});
+  observedWidth = 1600;
+  mount();
+  expect(await screen.findByRole('status', { name: 'Loading equipment' })).toBeTruthy();
+  expect(screen.queryByText(/Loading records/)).toBeNull();
+  expect(screen.queryByRole('link')).toBeNull();
+  await act(async () => answerMachines(structuredClone(machines)));
+  expect(screen.queryByRole('status', { name: 'Loading equipment' })).toBeNull();
+  // Reader and outage states are known without bookings; nothing else is claimed.
+  expect((await row('Rachel')).textContent).toContain('In use');
+  expect((await row('Spock')).textContent).toContain('Out of service');
+  const kirk = await row('Kirk');
+  expect(kirk.textContent).not.toMatch(/Not in use|Available|Loading bookings/);
+  expect(within(kirk).getByRole('img').getAttribute('aria-label')).toBe('Loading today’s bookings');
+  expect((screen.getByRole('button', { name: /Booked today/ }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(kirk);
+  const panel = await screen.findByRole('complementary', { name: 'Kirk details' });
+  expect(within(panel).getByRole('status', { name: 'Loading today’s bookings' })).toBeTruthy();
+  expect(panel.textContent).not.toMatch(/Not in use|Loading bookings…/);
+});

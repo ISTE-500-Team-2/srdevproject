@@ -138,7 +138,7 @@ a.eq-row:hover { background: #fffaf3; }
   .eq-row--head { display: none; }
   .eq-row__name { grid-area: name; }
   .eq-row__status { grid-area: status; justify-items: end; }
-  .eq-row__status small, .eq-row__chev { display: none; }
+  .eq-row__status small, .eq-row__status .eq-row__detail, .eq-row__chev { display: none; }
   .eq-row__day { grid-area: day; }
 }
 @media (max-width: 720px) { .eq-filters { width: 100%; } .eq-filter { flex: 1; justify-content: center; } }
@@ -150,3 +150,9 @@ a.eq-row:hover { background: #fffaf3; }
 }
 .eq-day--unknown { background: transparent; border-style: dashed; }
 .eq-filter:disabled { cursor: default; opacity: .6; }
+/* While loading: outlines in the shape of the rows (components/Skeleton.tsx). */
+.eq-day--loading { display: block; border-color: transparent; background: transparent; }
+.eq-row--loading .eq-row__photo { flex: none; border-radius: 8px; }
+.eq-row--loading .eq-row__name > .skeleton-lines { flex: 1; gap: 6px; }
+.eq-row__rate .skeleton { margin-left: auto; }
+.eq-mp-bookings .skeleton-lines { gap: 6px; }

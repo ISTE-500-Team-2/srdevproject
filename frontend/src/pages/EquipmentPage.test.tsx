@@ -272,3 +272,19 @@ test('reservations split into upcoming and past, with cancelled and expired book
  fireEvent.click(within(mine).getByRole('button',{name:'Past · 1'}));
  expect(within(mine).queryByRole('heading',{name:'Ended paid'})).toBeNull();
 });
+test('equipment and reservations show placeholders in their own shape while they load',async()=>{
+ let catalog!:(items:unknown)=>void,saved!:(items:unknown)=>void;
+ vi.mocked(api).mockImplementation((path=>path==='/equipment'?new Promise<unknown>(resolve=>{catalog=resolve;})
+  :path==='/reservations'?new Promise<unknown>(resolve=>{saved=resolve;}):Promise.resolve(null)) as typeof api);
+ await mount();
+ expect(screen.getByRole('status',{name:'Loading equipment'})).toBeTruthy();
+ expect(screen.getByRole('status',{name:'Loading reservations'})).toBeTruthy();
+ expect(screen.queryByText(/Loading (equipment|reservations)…/)).toBeNull();
+ // The placeholders are hidden from screen readers: no stray headings or buttons.
+ expect(within(screen.getByRole('region',{name:'My reservations'})).queryAllByRole('heading',{level:3})).toHaveLength(0);
+ expect(screen.queryByRole('button',{name:/3D Printer/})).toBeNull();
+ await act(async()=>{catalog([machine]);saved([]);});
+ expect(screen.queryByRole('status',{name:/Loading/})).toBeNull();
+ expect(screen.getByRole('button',{name:/^3D Printer/})).toBeTruthy();
+ expect(screen.getByText(/No reservations yet/)).toBeTruthy();
+});

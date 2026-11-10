@@ -39,6 +39,9 @@
   /* Role tokens. Light values match the literals they replaced; src/theme/dark.css redefines them. */
   --surface-raised: #fffdfa;
   --surface-sunken: #efe8e1;
+  /* Placeholder blocks for content that is still loading, and the light that sweeps across them. */
+  --skeleton: #e8dfd6;
+  --skeleton-shine: rgba(255, 251, 246, 0.85);
   --muted: #8b7163;
   --status-pending: #a86008;
   --status-done: #1f6b32;
@@ -3265,3 +3268,39 @@ a.nfc-recent__row:focus-visible { outline: 2px solid var(--bronze); outline-offs
 .start-picker__hint { margin: 0; color: #6c5e54; font-size: .75rem; line-height: 1.5; }
 .equipment-booking-layout .start-picker__hint { grid-column: 1 / -1; }
 .equipment-reservation-form > .equipment-payment-note { margin: 0; font-size: .85rem; color: #6c5e54; line-height: 1.5; }
+
+/* Loading placeholders (components/Skeleton.tsx). Each block fades in after 200ms so quick
+   loads never flash grey; a soft light sweeps across it unless motion is reduced. */
+.skeleton {
+  display: block;
+  position: relative;
+  overflow: hidden;
+  max-width: 100%;
+  border-radius: 4px;
+  background: var(--skeleton);
+  animation: skeleton-appear 160ms ease-out 200ms both;
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, var(--skeleton-shine), transparent);
+  animation: skeleton-sweep 1.6s ease-in-out 200ms infinite;
+}
+.skeleton--round { border-radius: 999px; }
+.skeleton-lines { display: grid; gap: 7px; min-width: 0; }
+@keyframes skeleton-appear { from { opacity: 0; } to { opacity: 1; } }
+@keyframes skeleton-sweep { to { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: skeleton-appear 0s linear 200ms both; }
+  .skeleton::after { display: none; }
+}
+
+/* Equipment tiles and My reservations while they load. */
+.equipment-card-skeleton { min-width: 0; }
+.equipment-card-skeleton__image { aspect-ratio: 1 / 0.9; border-radius: 3px; }
+.equipment-card-skeleton__rule { display: block; height: 2px; margin: 18px 0 13px; background: var(--border); }
+/* The machine names sit 16px under the type name, whose line box is taller than its block. */
+.equipment-card-skeleton .skeleton + .skeleton { margin-top: 18px; }
+.booking-group .skeleton { display: inline-block; vertical-align: middle; margin-left: 2px; }

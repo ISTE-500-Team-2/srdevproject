@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowUpRight, ChevronRight, Search, Wrench } from 'lucide-react';
 import { useApi } from '../../lib/useApi';
 import { LoadState } from '../../components/Management';
+import { Skeleton, SkeletonGroup } from '../../components/Skeleton';
 import { usePageWidth } from '../../components/admin/pageWidth';
 import { shortDate } from '../../lib/display';
 import type { Reservation } from '../../lib/contracts';
@@ -20,7 +21,8 @@ type Window = ReturnType<typeof timeWindow>;
 type Tone = 'free' | 'use' | 'booked' | 'down';
 /** Whether today's bookings are all loaded; until they are, nothing is said about them. */
 type Schedule = 'known' | 'loading' | 'unavailable';
-interface Row { machine: ManagedEquipment; bookings: Reservation[]; schedule: Schedule; live: boolean; down: boolean; bookedToday: boolean; tone: Tone; label: string; detail: string }
+/** `pending`: the status depends on bookings that are still loading, so it shows as a placeholder. */
+interface Row { machine: ManagedEquipment; bookings: Reservation[]; schedule: Schedule; live: boolean; down: boolean; bookedToday: boolean; pending: boolean; tone: Tone; label: string; detail: string }
 
 /** The equipment list: every machine with what it is doing now and its bookings today. */
 export function EquipmentBoard() {
@@ -78,14 +80,17 @@ function BoardContent({ day, zone, now, machines }: { day: string; zone: string;
           disabled={key === 'booked' && schedule !== 'known'}><b>{machines.data && (key !== 'booked' || schedule === 'known') ? counts[key] : '–'}</b>{label}</button>)}
       </div>
     </div>
-    <LoadState {...machines} />
+    <LoadState loading={false} error={machines.error} reload={machines.reload} />
     {failed ? <div className="eq-notice"><LoadState loading={false} error={`Today’s bookings could not be loaded. ${failed.error}`} reload={failed.reload} /></div> : null}
+    {machines.loading && <SkeletonGroup label="Loading equipment" className="eq-board"><BoardHead win={win} />{boardPlaceholders.map((widths, index) => <RowLoading key={index} widths={widths} />)}</SkeletonGroup>}
     {machines.data && <div className={`eq-split${active ? ' eq-split--open' : ''}`}>
       <div className="eq-board">
-        <div className="eq-row eq-row--head" aria-hidden="true"><span>Machine</span><span>Status</span><span className="eq-row__day"><span>Today</span><Ticks win={win} /></span><span className="eq-row__cert">Requires</span><span className="eq-row__rate">Rate</span><span /></div>
+        <BoardHead win={win} />
         {visible.map(row => <Link key={row.machine.id} to={`/admin/equipment/${row.machine.id}`} className="eq-row" onClick={choose(row.machine.id)} aria-current={active?.machine.id === row.machine.id ? 'true' : undefined}>
           <span className="eq-row__name"><img src={row.machine.image} alt="" /><span><strong>{row.machine.name}</strong><small>{row.machine.type} · {row.machine.location}</small></span></span>
-          <span className="eq-row__status"><span className={`eq-pill eq-pill--${row.tone}`}>{row.label}</span><small>{row.detail}</small></span>
+          <span className="eq-row__status">{row.pending
+            ? <><Skeleton round width={104} height={27} /><Skeleton className="eq-row__detail" width={120} height={12} /></>
+            : <><span className={`eq-pill eq-pill--${row.tone}`}>{row.label}</span><small>{row.detail}</small></>}</span>
           <span className="eq-row__day"><DayStrip row={row} win={win} now={now} zone={zone} /></span>
           <span className="eq-row__cert">{row.machine.certification ?? <em>None</em>}</span>
           <span className="eq-row__rate">{row.machine.rate === null ? '—' : `$${row.machine.rate.toFixed(Number.isInteger(row.machine.rate) ? 0 : 2)}/hr`}</span>
@@ -98,10 +103,32 @@ function BoardContent({ day, zone, now, machines }: { day: string; zone: string;
   </div>;
 }
 
+function BoardHead({ win }: { win: Window }) {
+  return <div className="eq-row eq-row--head" aria-hidden="true"><span>Machine</span><span>Status</span><span className="eq-row__day"><span>Today</span><Ticks win={win} /></span><span className="eq-row__cert">Requires</span><span className="eq-row__rate">Rate</span><span /></div>;
+}
+
+/** Widths of the name, type, training and rate placeholders in each loading row. */
+const boardPlaceholders: [string, string, string, string][] = [
+  ['52%', '64%', '58%', '70%'], ['38%', '72%', '46%', '54%'], ['60%', '58%', '52%', '40%'],
+  ['44%', '66%', '62%', '64%'], ['56%', '50%', '48%', '52%'], ['40%', '70%', '56%', '46%'],
+];
+
+/** One board row in outline, shown until the machines arrive. */
+function RowLoading({ widths: [name, type, cert, rate] }: { widths: [string, string, string, string] }) {
+  return <div className="eq-row eq-row--loading">
+    <span className="eq-row__name"><Skeleton className="eq-row__photo" width={48} height={48} /><span className="skeleton-lines"><Skeleton width={name} height={17} /><Skeleton width={type} height={12} /></span></span>
+    <span className="eq-row__status"><Skeleton round width={100} height={27} /><Skeleton className="eq-row__detail" width={120} height={12} /></span>
+    <span className="eq-row__day"><span className="eq-day eq-day--loading"><Skeleton width="100%" height="100%" /></span></span>
+    <span className="eq-row__cert"><Skeleton width={cert} height={12} /></span>
+    <span className="eq-row__rate"><Skeleton width={rate} height={12} /></span>
+    <ChevronRight aria-hidden="true" className="eq-row__chev" />
+  </div>;
+}
+
 /** What a machine is doing now, in a few words, and what comes next. */
 function describe(machine: ManagedEquipment, bookings: Reservation[], schedule: Schedule, now: number, zone: string): Row {
   const live = !!machine.activeReaderLeases, down = machine.status !== 'available';
-  const base = { machine, bookings, schedule, live, down, bookedToday: bookings.length > 0 };
+  const base = { machine, bookings, schedule, live, down, bookedToday: bookings.length > 0, pending: false };
   if (down) {
     const outage = machine.outage;
     return { ...base, tone: 'down', label: 'Out of service', detail: `${outage ? maintenanceReasons[outage.reason] ?? 'Unavailable' : 'Unavailable'}${outage?.expectedBack ? ` · back ${shortDate(outage.expectedBack)}` : ''}` };
@@ -109,7 +136,8 @@ function describe(machine: ManagedEquipment, bookings: Reservation[], schedule: 
   const current = bookings.find(b => Date.parse(b.startTime) <= now && Date.parse(b.endTime) > now);
   const { nextText } = machineStatus(bookings, now, zone, live, down);
   if (live) return { ...base, tone: 'use', label: 'In use', detail: current ? nextText : 'Reader session active' };
-  if (schedule !== 'known') return { ...base, tone: 'free', label: 'Not in use', detail: schedule === 'loading' ? 'Loading bookings…' : 'Bookings unavailable' };
+  if (schedule === 'loading') return { ...base, pending: true, tone: 'free', label: '', detail: '' };
+  if (schedule === 'unavailable') return { ...base, tone: 'free', label: 'Not in use', detail: 'Bookings unavailable' };
   if (current) return { ...base, tone: 'booked', label: `Booked until ${formatTime(current.endTime, zone)}`, detail: current.memberName ?? '' };
   return { ...base, tone: 'free', label: 'Available', detail: nextText };
 }
@@ -118,6 +146,8 @@ function DayStrip({ row, win, now, zone, large }: { row: Row; win: Window; now: 
   const blocks = row.bookings.map(b => bookingBlock(b, win, now, zone, row.live, row.down)).filter(b => b !== null);
   const label = row.schedule === 'loading' ? 'Loading today’s bookings' : row.schedule === 'unavailable' ? 'Today’s bookings are unavailable'
     : blocks.length ? `Today: ${blocks.map(b => b.label).join('; ')}` : 'Nothing booked today';
+  if (row.schedule === 'loading' && !row.down)
+    return <div className={`eq-day eq-day--loading${large ? ' eq-day--large' : ''}`} role="img" aria-label={label}><Skeleton width="100%" height="100%" /></div>;
   return <div className={`eq-day${large ? ' eq-day--large' : ''}${row.schedule !== 'known' ? ' eq-day--unknown' : ''}`} role="img" aria-label={label}>
     {row.down && <span className="eq-day__outage" />}
     {blocks.map(b => <span key={b.id} className={`eq-day__block eq-day__block--${b.kind}`} style={{ left: `${b.left * 100}%`, width: `${b.width * 100}%` }}>{large ? b.text : null}</span>)}
@@ -134,18 +164,21 @@ function MachinePanel({ row, win, now, zone }: { row: Row; win: Window; now: num
   const { machine } = row;
   const last = detail.data?.history[0];
   return <aside className="eq-panel eq-machine-panel" aria-label={`${machine.name} details`}>
-    <div className="eq-mp-head"><img src={machine.image} alt="" /><div><p className="eq-eyebrow">{machine.type} · {machine.location}</p><h2>{machine.name}</h2><span className={`eq-pill eq-pill--${row.tone}`}>{row.label}</span></div></div>
+    <div className="eq-mp-head"><img src={machine.image} alt="" /><div><p className="eq-eyebrow">{machine.type} · {machine.location}</p><h2>{machine.name}</h2>{row.pending ? <Skeleton round width={96} height={27} /> : <span className={`eq-pill eq-pill--${row.tone}`}>{row.label}</span>}</div></div>
     <dl className="eq-facts">
       <div><dt>Rate</dt><dd>{equipmentRate(machine.rate)}</dd></div>
       <div><dt>Requires</dt><dd>{machine.certification ?? 'No training'}</dd></div>
-      <div><dt>Last outage</dt><dd>{detail.data ? last ? new Intl.DateTimeFormat('en-US', { timeZone: zone, dateStyle: 'medium' }).format(new Date(last.startedAt)) : 'None recorded' : '…'}</dd></div>
+      <div><dt>Last outage</dt><dd>{detail.data ? last ? new Intl.DateTimeFormat('en-US', { timeZone: zone, dateStyle: 'medium' }).format(new Date(last.startedAt)) : 'None recorded' : <><Skeleton width="76%" height={14} /><span className="sr-only">Loading</span></>}</dd></div>
     </dl>
     {machine.outage && <p className="eq-warning">{maintenanceReasons[machine.outage.reason] ?? 'Unavailable'} since {equipmentTime(machine.outage.startedAt, zone)}.{machine.outage.expectedBack ? ` Estimated back ${shortDate(machine.outage.expectedBack, true)}.` : ' No return date set.'}</p>}
     <h3 className="eq-mp-label">Today</h3>
     <DayStrip row={row} win={win} now={now} zone={zone} large />
     <Ticks win={win} />
     <h3 className="eq-mp-label">Bookings today</h3>
-    {row.schedule !== 'known' ? <p className="eq-muted">{row.schedule === 'loading' ? 'Loading bookings…' : 'Today’s bookings could not be loaded.'}</p>
+    {row.schedule === 'loading' ? <SkeletonGroup label="Loading today’s bookings"><ul className="eq-mp-bookings">{[130, 118].map(width => <li key={width}>
+        <span className="skeleton-lines"><Skeleton width={width} height={16} /><Skeleton width={width - 30} height={12} /></span><Skeleton round width={76} height={27} />
+      </li>)}</ul></SkeletonGroup>
+      : row.schedule === 'unavailable' ? <p className="eq-muted">Today’s bookings could not be loaded.</p>
       : row.bookings.length ? <ul className="eq-mp-bookings">{row.bookings.map(b => {
       const done = Date.parse(b.endTime) <= now, started = Date.parse(b.startTime) <= now;
       return <li key={b.id} className={done ? 'is-done' : undefined}>
