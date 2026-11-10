@@ -158,7 +158,7 @@
   border-bottom-color: var(--dk-hairline);
 }
 
-:root[data-theme='dark'] .account-menu__popover button:hover {
+:root[data-theme='dark'] .account-menu__popover :is(button, a):hover {
   background: var(--dk-wash-hover);
 }
 

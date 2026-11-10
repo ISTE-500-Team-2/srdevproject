@@ -452,7 +452,7 @@ small {
   text-overflow: ellipsis;
 }
 
-.account-menu__popover button {
+.account-menu__popover :is(button, a) {
   width: 100%;
   display: flex;
   align-items: center;
@@ -461,16 +461,21 @@ small {
   padding: 13px 18px;
   background: transparent;
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
 }
 
-.account-menu__popover button:hover {
+.account-menu__popover .status-pill {
+  margin-left: auto;
+}
+
+.account-menu__popover :is(button, a):hover {
   background: #f3ece7;
 }
 
 /* The panel no longer clips (the caret sits outside it), so the last row
    rounds its own hover fill. */
-.account-menu__popover button:last-child {
+.account-menu__popover :is(button, a):last-child {
   border-radius: 0 0 11px 11px;
 }
 
