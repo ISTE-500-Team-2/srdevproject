@@ -1,6 +1,7 @@
 import {
   ChevronDown,
   CircleUserRound,
+  CreditCard,
   LogOut,
   Menu,
   Search,
@@ -45,8 +46,8 @@ const cardNavStyle = {
 
 const navItems: { label: string; to: string; desktop?: boolean }[] = [
   { label: "Home", to: "/" },
-  // Mobile only. On desktop, Membership is reached from Account settings and
-  // the home page, so the links clear the centred logo.
+  // Mobile only, so the desktop links clear the centred logo. On desktop,
+  // Membership lives in the account menu.
   { label: "Membership", to: "/membership", desktop: false },
   { label: "Equipment", to: "/equipment" },
   { label: "Studios", to: "/studios" },
@@ -63,6 +64,16 @@ export function Header() {
   //   ? [...navItems, { label: "Staff workspace", to: "/admin" }]
   //   : navItems;
   const visibleNavItems = navItems;
+  // The account menu says where the account stands. Staff without a plan of
+  // their own see no pill rather than an invitation to join.
+  const membershipStatus =
+    user?.membership === "Monthly"
+      ? { label: "Active", tone: "ok" }
+      : user?.membership === "Day Pass"
+        ? { label: "Day pass", tone: "neutral" }
+        : user && !hasStaffWorkspace
+          ? { label: "Join", tone: "warn" }
+          : null;
   const [error, setError] = useState("");
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -123,6 +134,8 @@ export function Header() {
     },
     {
       label: hasStaffWorkspace ? "Staff" : "Session",
+      // Matches the other cards' head so the link rows line up.
+      description: hasStaffWorkspace ? "Run the studio." : "Sign out on shared devices.",
       bgColor: "var(--nav-card-3)",
       textColor: "var(--nav-card-3-ink)",
       links: [
@@ -251,6 +264,14 @@ export function Header() {
                 <div className="account-menu__appearance">
                   <AppearanceControl />
                 </div>
+                <Link to="/membership" onClick={() => setAccountOpen(false)}>
+                  <CreditCard aria-hidden="true" /> Membership
+                  {membershipStatus ? (
+                    <span className={`status-pill status-pill--${membershipStatus.tone}`}>
+                      {membershipStatus.label}
+                    </span>
+                  ) : null}
+                </Link>
                 <button
                   onClick={() => {
                     navigate("/profile");

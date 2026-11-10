@@ -144,9 +144,13 @@
   filter: drop-shadow(0 12px 14px rgba(0, 0, 0, 0.5));
 }
 
-:root[data-theme='dark'] .account-menu__popover,
 :root[data-theme='dark'] .search-panel {
   border-color: var(--border);
+  background: var(--surface-raised);
+}
+
+/* Keeps the orange outline from the light rule. */
+:root[data-theme='dark'] .account-menu__popover {
   background: var(--surface-raised);
 }
 
@@ -154,7 +158,11 @@
   border-bottom-color: var(--dk-hairline);
 }
 
-:root[data-theme='dark'] .account-menu__popover button:hover {
+:root[data-theme='dark'] .account-menu__popover :is(button, a):hover {
+  background: var(--dk-wash-hover);
+}
+
+:root[data-theme='dark'] .account-menu__trigger[aria-expanded='true'] {
   background: var(--dk-wash-hover);
 }
 
@@ -273,6 +281,16 @@
 :root[data-theme='dark'] .account-help__icon,
 :root[data-theme='dark'] .access-band .form-error {
   color: #ffc98a;
+}
+
+/* Peach and espresso both darken, so the light pairing vanishes; use the cream chip. */
+:root[data-theme='dark'] .account-bar .account-bar__back {
+  background: var(--dk-cream-chip);
+  color: var(--dk-copper-ink);
+}
+
+:root[data-theme='dark'] .account-bar .account-bar__back:hover:not(:disabled) {
+  background: #fff6ea;
 }
 
 :root[data-theme='dark'] .account-bar .account-bar__back,

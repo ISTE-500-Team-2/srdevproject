@@ -203,7 +203,7 @@ export function ReaderManager({
         title={
           editing === "new"
             ? "Add reader"
-            : `Manage ${editing?.name ?? "reader"}`
+            : "Manage reader"
         }
         onClose={() => {
           if (!busy) setEditing(null);

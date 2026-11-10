@@ -17,6 +17,8 @@ export function MemberSelect({
   required = true,
   instructorsOnly = false,
   selectedMember,
+  description,
+  autoFocus = false,
 }: {
   name?: string;
   value?: string;
@@ -25,6 +27,9 @@ export function MemberSelect({
   required?: boolean;
   instructorsOnly?: boolean;
   selectedMember?: Member;
+  /** Shown under the empty search field. */
+  description?: string;
+  autoFocus?: boolean;
 }) {
   const id = useId();
   const input = useRef<HTMLInputElement>(null);
@@ -111,6 +116,8 @@ export function MemberSelect({
             aria-expanded={showList}
             aria-controls={listId}
             aria-autocomplete="list"
+            aria-describedby={description ? id + "-description" : undefined}
+            autoFocus={autoFocus}
             aria-activedescendant={showList && options[active] ? `${listId}-${options[active].id}` : undefined}
             autoComplete="off"
             placeholder="Search by name or email"
@@ -165,6 +172,11 @@ export function MemberSelect({
             </li>
           ))}
         </ul>
+      ) : null}
+      {!current && description ? (
+        <p className="member-select__description" id={id + "-description"}>
+          {description}
+        </p>
       ) : null}
       {!current ? (
         <div className="member-select__status">
