@@ -43,14 +43,24 @@ function waitingOn(...results: Result<unknown>[]) {
 
 /** The staff landing page: what's happening in the shop today and what needs staff. */
 export function TodayPage() {
-  const config = useApi<{ timeZone: string }>("/config", refresh);
+  // Usually already loaded at startup (AuthProvider), so the day is known on the first render.
+  const config = useApi<{ timeZone: string }>("/config", { ...refresh, reuse: true });
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60000);
     return () => window.clearInterval(timer);
   }, []);
   const day = config.data ? dayKey(now, config.data.timeZone) : "";
-  // A new day remounts everything so no panel mixes yesterday's data with today's.
+  // The panels mount once the day is known (mounting them first would read everything
+  // twice) and remount at midnight, so no panel mixes days. That includes compliance and
+  // rentals, which the server evaluates against the current time.
+  if (!day)
+    return (
+      <div className="today">
+        <header className="today-head"><h1 className="today-title">Today</h1></header>
+        <LoadState loading={config.loading} error={config.error} reload={config.reload} />
+      </div>
+    );
   return <TodayContent key={day} config={config} now={now} day={day} />;
 }
 
@@ -89,7 +99,7 @@ function useTodayBookings(day: string) {
 
 function TodayContent({ config, now, day }: { config: Result<{ timeZone: string }>; now: number; day: string }) {
   const zone = config.data?.timeZone;
-  const report = useApi<Report>(day ? `/admin/reports?period=daily&from=${day}&to=${day}` : null, refresh);
+  const report = useApi<Report>(`/admin/reports?period=daily&from=${day}&to=${day}`, refresh);
   const equipment = useApi<LiveEquipment[]>("/equipment", refresh);
   const studios = useApi<{ studios: Studio[] }>("/studios", refresh);
   const rentals = useApi<Rental[]>("/studio-management/rentals", refresh);

@@ -21,7 +21,7 @@ const live = { retainOnReload: true, refreshInterval: 15000 };
 export function StaffStudios() {
   const { user } = useAuth();
   const admin = !!user?.roles.some((r) => ["admin", "super-admin"].includes(r));
-  const config = useApi<{ timeZone: string }>("/config", { retainOnReload: true });
+  const config = useApi<{ timeZone: string }>("/config", { retainOnReload: true, reuse: true });
   const studios = useApi<{ studios: Studio[] }>("/studios", live);
   const rentals = useApi<Rental[]>("/studio-management/rentals", live);
   const [now, setNow] = useState(Date.now);

@@ -833,7 +833,7 @@ export function ProfilePage() {
       latestProfile.current = saved;
       setProfile(saved);
       setToast("Changes saved.");
-      await refresh();
+      await refresh(false, { fresh: true });
     });
     // One failed section must not prevent another queued section from saving.
     saveQueue.current = request.catch(() => {});
