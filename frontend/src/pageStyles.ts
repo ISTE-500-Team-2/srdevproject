@@ -11,6 +11,7 @@ import './components/EquipmentPriceBreakdown.css';
 import './pages/admin/equipment.css';
 import './assets/css/analyticsDashboard.css';
 import './pages/plans.css';
+import './components/appearanceControl.css';
 import './pages/admin/today.css';
 import './components/reactbits/CardNav.css';
 import './pages/classes.css';

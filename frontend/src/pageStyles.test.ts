@@ -6,9 +6,9 @@ import { expect, test } from 'vitest';
 // a stylesheet imported only from a lazily loaded page would land after styles.css
 // and tables.css and silently win the cascade. Add new page styles there.
 const src = path.dirname(new URL(import.meta.url).pathname);
-// main.tsx loads the global sheets after pageStyles; Lanyard's sheet is emitted last, where it
+// main.tsx loads the global sheets and the dark theme after pageStyles; Lanyard's sheet is emitted last, where it
 // sat when it loaded with the lazy 3D badge; CodeSlots.jsx is unused (add its sheet when it isn't).
-const loadedElsewhere = new Set(['styles.css', 'tables.css', 'components/reactbits/Lanyard.css', 'components/reactbits/CodeSlots.css']);
+const loadedElsewhere = new Set(['styles.css', 'tables.css', 'theme/dark.css', 'components/reactbits/Lanyard.css', 'components/reactbits/CodeSlots.css']);
 
 function sources(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -41,6 +41,7 @@ const SHIPPED_ORDER = [
   'pages/admin/equipment.css',
   'assets/css/analyticsDashboard.css',
   'pages/plans.css',
+  'components/appearanceControl.css',
   'pages/admin/today.css',
   'components/reactbits/CardNav.css',
   'pages/classes.css',
@@ -62,4 +63,5 @@ test('page styles keep their shipped order, ahead of the app and the global shee
   expect(at('./pageStyles')).toBeLessThan(at('./App'));
   expect(at('./App')).toBeLessThan(at('./styles.css'));
   expect(at('./styles.css')).toBeLessThan(at('./tables.css'));
+  expect(at('./tables.css')).toBeLessThan(at('./theme/dark.css'));
 });
