@@ -7,7 +7,7 @@ export function AccessReadiness({ userId, revision, headingLevel = 2 }: { userId
   const [readerId,setReaderId] = useState('');
   const [now,setNow] = useState(Date.now());
   const path = `/admin/users/${userId}/access-readiness${readerId ? `?readerId=${encodeURIComponent(readerId)}` : ''}`;
-  const status = useApi<AccessReadinessResult>(path, {retainOnReload:true});
+  const status = useApi<AccessReadinessResult>(path, {retainOnReload:true, cache:false});
   const previousRevision = useRef(revision);
   useEffect(() => {
     if (previousRevision.current !== revision) { previousRevision.current = revision; status.reload(); }

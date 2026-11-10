@@ -15,7 +15,8 @@ import "./studios.css";
 
 // Holds and payments arrive from members and card checkout while staff watch
 // this page, so it stays current without a manual refresh.
-const live = { retainOnReload: true, refreshInterval: 15000 };
+// Fresh reads only: the studio sheet's rate/terms form is keyed by these records' revision.
+const live = { retainOnReload: true, refreshInterval: 15000, cache: false };
 
 /** Staff Studios page: what needs recording, who's in which studio, and each studio's terms. */
 export function StaffStudios() {

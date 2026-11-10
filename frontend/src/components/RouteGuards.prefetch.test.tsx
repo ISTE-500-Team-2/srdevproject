@@ -60,3 +60,33 @@ test('a revisited page starts its reads during the session check but renders onl
   // The page used the prefetched result instead of reading again.
   expect(requests.filter((u) => u === '/api/me/memberships')).toHaveLength(1);
 });
+
+test('when the session now belongs to someone else, the previous identity\'s cached data never renders', async () => {
+  // Alice's tab has her membership cached; elsewhere she signs out and Bob signs in.
+  window.history.replaceState(null, '', '/membership');
+  setAccessToken('t');
+  stubServer();
+  mount();
+  expect(await screen.findByText('Private membership Monthly')).toBeTruthy();
+  cleanup();
+
+  let answer!: () => void;
+  const bobsRecord = new Promise<void>((resolve) => { answer = resolve; });
+  const seen: string[] = [];
+  vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => {
+    const path = String(url);
+    if (path === '/api/config') return Response.json({ data: { demoLogin: false } });
+    if (path === '/api/auth/session')
+      return Response.json({ data: { accessToken: 'b', csrfToken: 'c', user: { id: 2, role: 'member', roles: ['member'], firstName: 'Bob' } } });
+    await bobsRecord;
+    return Response.json({ data: { plan: 'Bob plan' } });
+  });
+  const observer = new MutationObserver(() => { const h = document.querySelector('h1'); if (h) seen.push(h.textContent ?? ''); });
+  observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+  mount();
+  await waitFor(() => expect(screen.getByRole('heading').textContent).toContain('Private membership'));
+  answer();
+  expect(await screen.findByText('Private membership Bob plan')).toBeTruthy();
+  observer.disconnect();
+  expect(seen.some((text) => text.includes('Monthly'))).toBe(false);
+});

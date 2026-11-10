@@ -15,6 +15,13 @@ import type { NotificationMessage, Registration, Session, User } from '../lib/co
 import type { UserRole } from '../types';
 import { forgetRecentAccounts } from '../components/admin/people';
 import { loadShared } from '../lib/useApi';
+import { scopeApiCache } from '../lib/apiCache';
+
+/** Whose data cached reads hold: the account, an opened member account, and their roles. */
+const cacheIdentity = (session: Session) => {
+  const actor = session.actingAs?.actor;
+  return JSON.stringify([session.user.id, [...session.user.roles].sort(), actor?.id ?? null, actor ? [...actor.roles].sort() : null]);
+};
 
 interface AuthContextValue {
   /** Whose account the app is showing (an opened member account while staff act for them). */
@@ -57,6 +64,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [signedOut, setSignedOut] = useState(false);
   const revision = useRef(0);
   const acceptSession = useCallback((session: Session) => {
+    // Before anything renders for this session: drop results held for anyone else.
+    scopeApiCache(cacheIdentity(session));
     revision.current++;
     setLoading(false);
     setSignedOut(false);

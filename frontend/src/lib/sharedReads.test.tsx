@@ -3,7 +3,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { prefetchRoute, useApi } from './useApi';
 import { ApiError } from './api';
-import { invalidateApiCache, resetApiCache } from './apiCache';
+import { invalidateApiCache, readCache, resetApiCache, routeReadsFor, scopeApiCache, writeCache, cacheGeneration, noteRouteRead } from './apiCache';
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
 vi.mock('./api', () => ({ api, ApiError: class extends Error {}, errorMessage: (e: Error) => e.message }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); window.history.replaceState(null, '', '/'); });
@@ -135,4 +135,68 @@ test('signing out forgets which reads each page makes', async () => {
   api.mockClear();
   prefetchRoute('/admin/members');
   expect(api).not.toHaveBeenCalled();
+});
+
+test('a failed prefetch never stands in for the arriving page\'s own read', async () => {
+  window.history.replaceState(null, '', '/admin/plans');
+  api.mockResolvedValueOnce({ n: 1 });
+  renderHook(() => useApi('/admin/plans')).unmount();
+  await settle();
+  api.mockRejectedValueOnce(new ApiError(503, 'UNAVAILABLE', 'Server unavailable'));
+  prefetchRoute('/admin/plans');
+  await settle();
+  // The arrival reads again (and would show its error) instead of presenting old data as current.
+  api.mockRejectedValueOnce(new ApiError(503, 'UNAVAILABLE', 'Server unavailable'));
+  const { result } = renderHook(() => useApi('/admin/plans'));
+  await settle();
+  expect(api).toHaveBeenCalledTimes(3);
+  expect(result.current.error).toBeTruthy();
+});
+
+test('changing requestKey starts its own read instead of joining the pending one', async () => {
+  const first = deferred<{ user: number }>();
+  const second = deferred<{ user: number }>();
+  api.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+  const { result, rerender } = renderHook(({ key }) => useApi<{ user: number }>('/me/overview', { requestKey: key }), { initialProps: { key: 1 } });
+  await act(async () => {});
+  rerender({ key: 2 });
+  await act(async () => {});
+  expect(api).toHaveBeenCalledTimes(2);
+  await act(async () => { first.resolve({ user: 1 }); second.resolve({ user: 2 }); });
+  expect(result.current.data?.user).toBe(2);
+  // Keyed reads are private: nothing was stored for other callers.
+  expect(readCache('/me/overview')).toBeUndefined();
+});
+
+test('cache: false never renders a stored result and waits for a fresh read', async () => {
+  writeCache('/admin/users/14', { revision: 1 }, cacheGeneration());
+  const pending = deferred<{ revision: number }>();
+  api.mockReturnValueOnce(pending.promise);
+  const { result } = renderHook(() => useApi<{ revision: number }>('/admin/users/14', { retainOnReload: true, cache: false }));
+  expect(result.current.data).toBeNull();
+  expect(result.current.loading).toBe(true);
+  await act(async () => { pending.resolve({ revision: 2 }); });
+  expect(result.current.data?.revision).toBe(2);
+});
+
+test('results are scoped to one identity, including an opened member account', () => {
+  scopeApiCache('staff-7');
+  writeCache('/me/overview', { name: 'Staff' }, cacheGeneration());
+  noteRouteRead('/', '/me/overview');
+  scopeApiCache('staff-7');
+  expect(readCache('/me/overview')).toBeDefined();
+  scopeApiCache('staff-7 acting for member-12');
+  expect(readCache('/me/overview')).toBeUndefined();
+  expect(routeReadsFor('/')).toHaveLength(0);
+});
+
+test('the store is bounded: oldest results and pages are dropped first', () => {
+  writeCache('/config', { timeZone: 'UTC' }, cacheGeneration());
+  for (let i = 0; i < 260; i++) writeCache(`/admin/users?offset=${i}`, i, cacheGeneration());
+  expect(readCache('/admin/users?offset=0')).toBeUndefined();
+  expect(readCache('/admin/users?offset=259')).toBeDefined();
+  expect(readCache('/config')).toBeDefined();
+  for (let i = 0; i < 130; i++) noteRouteRead(`/admin/members?page=${i}`, '/x');
+  expect(routeReadsFor('/admin/members?page=0')).toHaveLength(0);
+  expect(routeReadsFor('/admin/members?page=129')).toHaveLength(1);
 });
