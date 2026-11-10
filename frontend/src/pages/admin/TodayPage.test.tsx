@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { TodayPage } from "./TodayPage";
+import { prefetchRoute } from "../../lib/useApi";
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
 vi.mock("../../lib/api", () => ({ api, ApiError: class extends Error {}, errorMessage: (error: Error) => error.message }));
 const people = Array.from({ length: 7 }, (_, i) => ({ userId: i + 1, name: `Member ${i + 1}`, location: "Wood shop", at: "2026-10-28T07:30:00Z", method: i ? "portal" : "nfc" }));
@@ -112,4 +113,26 @@ test("at midnight every panel starts the new day, so a failed refresh is not hid
   expect(screen.queryByText("Nothing needs you right now.")).toBeNull();
   expect(api).toHaveBeenCalledWith("/admin/reports?period=daily&from=2026-10-29&to=2026-10-29");
   vi.useRealTimers();
+});
+
+test("a prefetch from before midnight never stands in for the new day's panels", async () => {
+  const compliance = "/admin/compliance?userStatus=active&attention=true";
+  window.history.replaceState(null, "", "/admin");
+  // 23:59 in Kolkata: a first visit teaches the route its reads, then a revisit prefetches them.
+  vi.mocked(Date.now).mockReturnValue(Date.parse("2026-10-28T18:29:00Z"));
+  mount();
+  expect(await screen.findByText("Nothing needs you right now.")).toBeTruthy();
+  cleanup();
+  vi.mocked(Date.now).mockReturnValue(Date.parse("2026-10-28T18:29:59Z"));
+  prefetchRoute("/admin");
+  await waitFor(() => expect(api.mock.calls.filter(([p]) => p === compliance)).toHaveLength(2));
+  await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+  // The session check finishes after midnight; a waiver has expired and compliance now fails.
+  vi.mocked(Date.now).mockReturnValue(Date.parse("2026-10-28T18:30:01Z"));
+  fail = compliance;
+  mount();
+  expect(await screen.findByText(/Equipment request failed/)).toBeTruthy();
+  expect(screen.queryByText("Nothing needs you right now.")).toBeNull();
+  expect(api.mock.calls.filter(([p]) => p === compliance)).toHaveLength(3);
+  window.history.replaceState(null, "", "/");
 });

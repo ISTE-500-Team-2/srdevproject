@@ -99,11 +99,13 @@ function useTodayBookings(day: string) {
 
 function TodayContent({ config, now, day }: { config: Result<{ timeZone: string }>; now: number; day: string }) {
   const zone = config.data?.timeZone;
-  const report = useApi<Report>(`/admin/reports?period=daily&from=${day}&to=${day}`, refresh);
-  const equipment = useApi<LiveEquipment[]>("/equipment", refresh);
-  const studios = useApi<{ studios: Studio[] }>("/studios", refresh);
-  const rentals = useApi<Rental[]>("/studio-management/rentals", refresh);
-  const compliance = useApi<ComplianceReport>("/admin/compliance?userStatus=active&attention=true", refresh);
+  // A read prefetched before midnight must not stand in for the new day's panels.
+  const daily = { ...refresh, acceptPrefetch: (startedAt: number) => !!zone && dayKey(startedAt, zone) === day };
+  const report = useApi<Report>(`/admin/reports?period=daily&from=${day}&to=${day}`, daily);
+  const equipment = useApi<LiveEquipment[]>("/equipment", daily);
+  const studios = useApi<{ studios: Studio[] }>("/studios", daily);
+  const rentals = useApi<Rental[]>("/studio-management/rentals", daily);
+  const compliance = useApi<ComplianceReport>("/admin/compliance?userStatus=active&attention=true", daily);
   const { bookings, state: bookingState, loaders } = useTodayBookings(day);
 
   const live = new Set(

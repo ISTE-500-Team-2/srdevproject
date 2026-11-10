@@ -34,8 +34,9 @@ export function prefetchRoute(route: string) {
   }
 }
 /** What a successful prefetch fetched for this page's arrival; nothing older or for another page. */
-function prefetchedFor<T>(path: string, mark: PrefetchMark | undefined) {
+function prefetchedFor<T>(path: string, mark: PrefetchMark | undefined, accept?: (startedAt: number) => boolean) {
   if (!mark?.ok || mark.route !== currentRoute() || Date.now() - mark.settledAt! >= PREFETCH_CURRENT_MS || joinInflight(path)) return undefined;
+  if (accept && !accept(mark.startedAt)) return undefined;
   return readCache<T>(path);
 }
 function hasUnsavedManagementEdits() {
@@ -63,18 +64,21 @@ function hasUnsavedManagementEdits() {
  * states see what they always saw. `reuse: true` is only for settings that are
  * the same for everyone and rarely change (/config): a stored copy renders at once
  * and refreshes in the background. `cache: false` and `requestKey` reads are
- * private to their caller.
+ * private to their caller. `acceptPrefetch` can further restrict which prefetch may
+ * stand in, by when it started (e.g. only one from the same day as the page).
  */
-export function useApi<T>(path: string | null, options: { retainOnReload?: boolean; refreshInterval?: number; requestKey?: string | number; cache?: boolean; reuse?: boolean } = {}) {
+export function useApi<T>(path: string | null, options: { retainOnReload?: boolean; refreshInterval?: number; requestKey?: string | number; cache?: boolean; reuse?: boolean; acceptPrefetch?: (startedAt: number) => boolean } = {}) {
   const retainOnReload = options.retainOnReload ?? false;
   const shareable = options.cache !== false && options.requestKey === undefined;
   const reuse = shareable && options.reuse === true;
+  const acceptPrefetch = useRef(options.acceptPrefetch);
+  acceptPrefetch.current = options.acceptPrefetch;
   const previousPath = useRef(path);
   const requestKey = options.requestKey;
   const previousKey = useRef(requestKey);
   // A prefetch made for this arrival (or a reusable setting) renders on the first frame.
   const [initial] = useState(() =>
-    path === null || !shareable ? undefined : reuse ? readCache<T>(path) : prefetchedFor<T>(path, peekPrefetched(path)));
+    path === null || !shareable ? undefined : reuse ? readCache<T>(path) : prefetchedFor<T>(path, peekPrefetched(path), options.acceptPrefetch));
   const [data, setData] = useState<T | null>(initial ? initial.data : null);
   const [loading, setLoading] = useState(!initial);
   const [refreshing, setRefreshing] = useState(false);
@@ -99,7 +103,7 @@ export function useApi<T>(path: string | null, options: { retainOnReload?: boole
     if (shared) noteRouteRead(currentRoute(), path);
     // Fetched for this arrival while the route's session check ran: it is this visit's read.
     // A pending prefetch is joined below; a failed one, or one for another page, never stands in.
-    const ready = shared && !reuse ? prefetchedFor<T>(path, mark) : undefined;
+    const ready = shared && !reuse ? prefetchedFor<T>(path, mark, acceptPrefetch.current) : undefined;
     if (ready) {
       dataRef.current = ready.data; setData(ready.data); setError("");
       fetching.current = false; setLoading(false); setRefreshing(false);
