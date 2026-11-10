@@ -421,6 +421,11 @@
   color: var(--ink-soft, #685d57);
   font-size: var(--text-base-sm);
 }
+.member-select__description {
+  margin: 0;
+  color: var(--ink-soft, #685d57);
+  font-size: var(--text-base-sm);
+}
 
 /* Compact operational timeline: readable outcomes first, forensic detail on demand. */
 .activity-log{--activity-muted:#736b60;color:var(--ink,#292018)}

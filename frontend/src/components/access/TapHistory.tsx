@@ -11,7 +11,7 @@ import {
 import { LoadState } from "../Management";
 import { AssignmentResults } from "./CardLookup";
 
-type Tap = {
+export type Tap = {
   id: number;
   readerId: string;
   readerName: string;

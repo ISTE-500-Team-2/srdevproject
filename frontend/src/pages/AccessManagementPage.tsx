@@ -10,6 +10,7 @@ import { MemberCards } from "../components/access/MemberCards";
 import { ReaderManager } from "../components/access/ReaderManager";
 import { CardLookup } from "../components/access/CardLookup";
 import { TapHistory } from "../components/access/TapHistory";
+import { RecentTaps } from "../components/access/RecentTaps";
 
 export function AccessManagementPage() {
   const [params, setParams] = useSearchParams();
@@ -21,6 +22,11 @@ export function AccessManagementPage() {
   )
     ? params.get("view")!
     : "cards";
+  const requestedTap = Number(params.get("tap"));
+  const tap =
+    Number.isSafeInteger(requestedTap) && requestedTap > 0
+      ? requestedTap
+      : undefined;
   const detail = useApi<{ user: Person }>(
     member ? `/admin/users/${member}` : null,
   );
@@ -66,6 +72,8 @@ export function AccessManagementPage() {
                 : undefined
             }
             onChange={(value) => setParams(value ? { member: value } : {})}
+            description="Find a member to view or assign their NFC cards."
+            autoFocus={finePointer()}
           />
           {member ? (
             <>
@@ -83,10 +91,7 @@ export function AccessManagementPage() {
               ) : null}
             </>
           ) : (
-            <p className="empty-state">
-              Choose a member to see their NFC cards and assign a new one. Cards
-              load as soon as you select a person.
-            </p>
+            <RecentTaps timeZone={setup.data?.timeZone} />
           )}
         </>
       ) : (
@@ -105,7 +110,7 @@ export function AccessManagementPage() {
                 refreshing={setup.refreshing}
               />
             ) : view === "lookup" ? (
-              <CardLookup setup={setup.data} />
+              <CardLookup key={tap} setup={setup.data} tapId={tap} />
             ) : (
               <TapHistory setup={setup.data} />
             )
@@ -114,6 +119,12 @@ export function AccessManagementPage() {
       )}
     </section>
   );
+}
+/** Typing straight away suits a desk; on touch screens the keyboard would hide the page. */
+function finePointer() {
+  return typeof window.matchMedia === "function"
+    ? window.matchMedia("(pointer: fine)").matches
+    : false;
 }
 function MemberWorkspace({ person }: { person: Person }) {
   const [revision, setRevision] = useState(0);
