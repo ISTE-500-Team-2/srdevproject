@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
 
 export const SITE_TITLE = 'The Collaboratory';
 
@@ -9,3 +9,6 @@ export function PageTitle({ title }: { title?: string }) {
   }, [title]);
   return null;
 }
+
+/** Each page names its browser tab, e.g. "Membership · The Collaboratory". */
+export const titled = (title: string, page: ReactNode) => <><PageTitle title={title} />{page}</>;

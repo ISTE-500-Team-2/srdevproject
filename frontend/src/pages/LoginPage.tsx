@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext';
 import type { UserRole } from '../types';
 import { ApiError, errorMessage } from '../lib/api';
 import { safeNext } from '../lib/returnPath';
+import { preloadSignedInAreas } from '../areas/load';
 
 const SplitText = lazy(() => import('../components/reactbits/SplitText'));
 
@@ -205,7 +206,7 @@ export function LoginPage() {
             </h1>
             <p>Sign in to book equipment, studios and classes.</p>
           </div>
-          <form onSubmit={handleSubmit} noValidate>
+          <form onSubmit={handleSubmit} onFocus={preloadSignedInAreas} noValidate>
             <label className="form-field">
               <span>Email</span>
               <span className="form-field__control">

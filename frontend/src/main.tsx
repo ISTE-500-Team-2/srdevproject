@@ -6,6 +6,7 @@ import '@fontsource/black-ops-one/400.css';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
+import './pageStyles';
 import App from './App';
 import './styles.css';
 import './tables.css';
