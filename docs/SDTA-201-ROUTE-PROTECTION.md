@@ -12,7 +12,8 @@ Live Jira checked September 24, 2026: SDTA-201, “Implement route/page protecti
 
 ## Changes
 - Extract reusable user/staff guards from App.
-- Revalidate `/auth/session` before mounting protected content at each router location; initial deep links cannot flash cached private pages.
+- Revalidate `/auth/session` before first mounting protected content, so initial deep links cannot flash cached private pages.
+- Revalidate again at each later router location, in the background: the current page frame stays mounted (no blank screen, reset sidebar or lost form between pages or tabs), and a revoked session or role replaces it with login or “Access denied” as soon as that location's own read answers. Until then the next page may render and request its data; the backend rejects anything the session no longer allows.
 - Explicit “Access denied” with a return-home link instead of an unexplained home redirect.
 - On focus, visibility return and page restoration, refresh current roles/session without unmounting authorized forms. Existing sessions reflect server-side revocation/demotion on their next check; this is not server-push revocation.
 - Unavailable server: hide protected route behind retry feedback, not a false successful authorization or misleading invalid-password response.

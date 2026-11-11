@@ -45,7 +45,7 @@ function Where() {
 }
 function Protected() {
   const {logout,refresh}=useAuth();
-  return <><h1>Private profile</h1><input aria-label="Unsaved name" defaultValue="" /><Link to="/admin">Direct staff link</Link>
+  return <><h1>Private profile</h1><input aria-label="Unsaved name" defaultValue="" /><Link to="/admin">Direct staff link</Link><Link to="/profile?section=contact">Same page link</Link>
     <button onClick={()=>void logout()}>Log out</button>
     <button onClick={()=>{void refresh();void refresh(true);}}>Background then blocking check</button>
     <button onClick={()=>{void refresh();void refresh(false,{fresh:true});}}>Background then fresh check</button></>;
@@ -144,12 +144,38 @@ test('a focus read in flight at the old location is not reused by a navigation',
   roles=['staff'];mount();await screen.findByText('Private profile');
   let release!:()=>void;hold=new Promise(r=>release=r);
   fireEvent.focus(window);await waitFor(()=>expect(calls).toBe(2));
-  // The focus read captured the staff role; the navigation must see the demotion.
-  roles=['member'];fireEvent.click(screen.getByText('Direct staff link'));
+  // The focus read captured the staff role and stays stalled; the navigation
+  // reads for itself (it would wait forever if it joined) and sees the demotion.
+  roles=['member'];hold=undefined;fireEvent.click(screen.getByText('Direct staff link'));
   await waitFor(()=>expect(calls).toBe(3));
-  expect(screen.queryByText('Private staff workspace')).toBeNull();
+  await screen.findByText('Access denied');
+  // The stalled, older read cannot bring the staff workspace back.
   release();
-  await screen.findByText('Access denied');expect(screen.queryByText('Private staff workspace')).toBeNull();
+  await new Promise(r=>setTimeout(r,20));
+  expect(screen.queryByText('Private staff workspace')).toBeNull();
+});
+test('moving between protected pages shows the next page at once while the session is rechecked',async()=>{
+  roles=['staff'];mount();await screen.findByText('Private profile');
+  let release!:()=>void;hold=new Promise(r=>release=r);
+  fireEvent.click(screen.getByText('Direct staff link'));
+  await waitFor(()=>expect(calls).toBe(2));
+  // No blank "Loading your account…" screen between pages.
+  expect(screen.getByText('Private staff workspace')).toBeTruthy();
+  expect(screen.queryByText('Loading your account…')).toBeNull();
+  release();await new Promise(r=>setTimeout(r,0));
+  expect(screen.getByText('Private staff workspace')).toBeTruthy();
+});
+test('a link within the same page keeps unsaved edits and still rechecks the session',async()=>{
+  mount();await screen.findByText('Private profile');
+  fireEvent.change(screen.getByLabelText('Unsaved name'),{target:{value:'Keep my edit'}});
+  fireEvent.click(screen.getByText('Same page link'));
+  await waitFor(()=>expect(calls).toBe(2));
+  expect((screen.getByLabelText('Unsaved name') as HTMLInputElement).value).toBe('Keep my edit');
+});
+test('a navigation that finds the session expired sends the user to login',async()=>{
+  mount();await screen.findByText('Private profile');expired=true;
+  fireEvent.click(screen.getByText('Same page link'));
+  await screen.findByText('Sign in');expect(screen.queryByText('Private profile')).toBeNull();
 });
 test('only a back/forward-cache pageshow revalidates the session',async()=>{
   mount();await screen.findByText('Private profile');

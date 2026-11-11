@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentType, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { RequireUser, RequireStaff, isWorkspaceUser } from './components/RouteGuards';
 import { useAuth, AuthProvider } from './context/AuthContext';
@@ -104,6 +104,21 @@ export function HomeRoute() {
   return <MemberHomePage />;
 }
 
+/**
+ * A new page starts at the top. Only a change of path counts: filters, tabs and
+ * #section links that change the query or hash keep the reader where they are.
+ */
+export function ScrollToTopOnNavigate() {
+  const { pathname } = useLocation();
+  const previous = useRef(pathname);
+  useLayoutEffect(() => {
+    if (previous.current === pathname) return;
+    previous.current = pathname;
+    window.scrollTo(0, 0);
+  }, [pathname]);
+  return null;
+}
+
 function LegacyEquipmentRedirect() {
   const { search, hash } = useLocation();
   return <Navigate replace to={{ pathname: '/equipment', search, hash }} />;
@@ -113,6 +128,7 @@ export default function App() {
   return (
     <AuthProvider>
       <AreaPreloader />
+      <ScrollToTopOnNavigate />
       <Routes>
         <Route path="/reset-password" element={titled('Reset password', <ResetPasswordPage />)} />
         <Route path="/confirm-email" element={titled('Confirm email', <ConfirmEmailPage />)} />

@@ -1,41 +1,49 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { loginPath } from '../lib/returnPath';
 import { PageTitle } from './PageTitle';
 
-/** Revalidate before mounting protected content on each navigation or tab return. */
+/**
+ * Arriving at protected pages waits for a session check, so a deep link never
+ * shows private pages before the session is known. After that, each navigation
+ * and tab return rechecks in the background: the page frame stays mounted (no
+ * blank screen, reset sidebar or lost form between pages), and a revoked
+ * session or role is removed as soon as the server answers.
+ */
 export function RequireUser() {
   const { user, loading, error, refresh, signedOut } = useAuth();
   const location = useLocation();
-  const [checkedLocation, setCheckedLocation] = useState<object | null>(null);
+  const [arrived, setArrived] = useState(false);
+  const arrivedRef = useRef(false);
   useEffect(() => {
+    // Every location gets its own read; an older location's read is never reused.
+    if (arrivedRef.current) { void refresh(); return; }
     let active = true;
-    const check = async () => {
-      setCheckedLocation(null);
-      await refresh(true);
-      if (active) setCheckedLocation(location);
-    };
-    // Keep unsaved forms mounted during background checks; revoked users/roles
-    // are removed by the guard as soon as the server response arrives.
-    // Each return revalidates anew (never joins an older, possibly stalled read), as before.
+    void refresh(true).then(() => {
+      if (!active) return;
+      arrivedRef.current = true;
+      setArrived(true);
+    });
+    return () => { active = false; };
+  }, [location, refresh]);
+  useEffect(() => {
+    // Each return revalidates anew (never joins an older, possibly stalled read).
     const resume = () => { void refresh(false, { fresh: true }); };
     const visible = () => { if (document.visibilityState === 'visible') resume(); };
     // pageshow also fires on every ordinary load; only a back/forward-cache
     // restoration brings back a page whose session may have changed.
     const restored = (event: PageTransitionEvent) => { if (event.persisted) resume(); };
-    void check();
     window.addEventListener('focus', resume);
     window.addEventListener('pageshow', restored);
     document.addEventListener('visibilitychange', visible);
     return () => {
-      active = false;
       window.removeEventListener('focus', resume);
       window.removeEventListener('pageshow', restored);
       document.removeEventListener('visibilitychange', visible);
     };
-  }, [location, refresh]);
-  if (loading || checkedLocation !== location)
+  }, [refresh]);
+  if (loading || !arrived)
     return <main className="page-shell" role="status">Loading your account…</main>;
   if (error)
     return <main className="page-shell"><p role="alert">{error}</p>
