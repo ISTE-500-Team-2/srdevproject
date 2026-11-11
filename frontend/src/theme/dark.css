@@ -543,6 +543,19 @@
   color: var(--ink);
 }
 
+:root[data-theme='dark'] .res-block.res-block--hold {
+  background: var(--dk-card);
+  color: #ffc98a;
+}
+
+/* Reservations editor: a picked day, time or length reads like a selected chip. */
+:root[data-theme='dark'] .res-chip[aria-pressed='true'],
+:root[data-theme='dark'] .res-strip i.res-strip__mine {
+  border-color: var(--dk-cream-chip);
+  background: var(--dk-cream-chip);
+  color: #24150e;
+}
+
 :root[data-theme='dark'] .today-now {
   box-shadow: 0 0 0 1px var(--dk-copper-ink);
 }

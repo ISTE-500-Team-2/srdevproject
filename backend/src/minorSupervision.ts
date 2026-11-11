@@ -283,7 +283,12 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
     });res.json({data});
   });
   for (const action of ['check-in','check-out']) r.post(`${base}/${action}`,requireCsrf,async(req,res)=>{
-    const id=positiveId(req.params.id),reason=textField(req.body.reason,'Reason',500);
+    // A desk check-in/out needs no explanation; a note is kept when staff give one.
+    const note=req.body.reason;
+    const reason=note==null||(typeof note==='string'&&!note.trim())
+      ? (action==='check-in' ? 'Checked in at the front desk' : 'Checked out at the front desk')
+      : textField(note,'Reason',500);
+    const id=positiveId(req.params.id);
     const data=await transaction(pool,async db=>{
       await guardTarget(db,authState(res).user.id,id);
       const service=new MinorSupervision(db,zone);

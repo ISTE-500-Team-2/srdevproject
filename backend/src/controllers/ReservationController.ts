@@ -5,7 +5,7 @@ import { transaction } from "../db.js";
 import { enqueueNotification } from "../notifications/store.js";
 import type { Request, Response } from "express";
 import type { Pool } from "pg";
-import { AppError, positiveId } from "../domain.js";
+import { AppError, positiveId, textField } from "../domain.js";
 import { authState } from "../middleware/auth.js";
 import { ReservationModel } from "../models/ReservationModel.js";
 import { ReservationService } from "../services/ReservationService.js";
@@ -71,11 +71,22 @@ export class ReservationController {
         : Number(req.query.offset);
     if (!Number.isSafeInteger(offset) || offset < 0)
       throw new AppError(400, "INVALID_INPUT", "Offset must be zero or more.");
+    const when = req.query.when == null || req.query.when === "" ? null : req.query.when;
+    if (when !== null && when !== "upcoming" && when !== "past")
+      throw new AppError(400, "INVALID_INPUT", "When must be upcoming or past.");
+    const search =
+      req.query.search == null || req.query.search === ""
+        ? null
+        : textField(req.query.search, "Search", 100);
     const rows = await new ReservationModel(this.pool, this.timeZone).listAll({
       date,
       userId,
       equipmentId,
       offset,
+      when,
+      search,
+      // The upcoming and past lists hide cancellations unless asked; the day list keeps them.
+      includeCancelled: when === null || req.query.includeCancelled === "true",
     });
     res.json({
       data: {

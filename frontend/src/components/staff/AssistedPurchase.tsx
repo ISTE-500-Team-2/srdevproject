@@ -1,4 +1,4 @@
-import { useState, type ComponentProps } from 'react';
+import { useEffect, useState, type ComponentProps } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { rememberAssistedReturn } from '../../lib/checkoutReturn';
 import { api, ApiError } from '../../lib/api';
@@ -8,7 +8,7 @@ import { useApi } from '../../lib/useApi';
 import { ActionForm, Field, LoadState } from '../Management';
 import { IssueAccess } from './IssueAccess';
 
-export function AssistedPurchase(props: ComponentProps<typeof IssueAccess>) {
+export function AssistedPurchase({ heading = true, ...props }: ComponentProps<typeof IssueAccess> & { heading?: boolean }) {
   const { user, actor } = useAuth();
   const [method, setMethod] = useState(props.renewal ? 'external' : 'stripe');
   const [date, setDate] = useState(zonedDay(props.timeZone));
@@ -17,8 +17,13 @@ export function AssistedPurchase(props: ComponentProps<typeof IssueAccess>) {
     method === 'stripe' ? `/admin/users/${props.id}/purchase?date=${encodeURIComponent(date)}` : null,
   );
   const offer = purchase.data?.offers?.find(item => item.id === Number(planId));
+  // With card checkout off, the only way to sell here is recording an outside payment: start there.
+  const [stripeOff, setStripeOff] = useState(false);
+  useEffect(() => {
+    if (purchase.data?.enabled === false) { setStripeOff(true); setMethod('external'); }
+  }, [purchase.data?.enabled]);
   return <div className="assisted-purchase">
-    <h2>Purchase membership or day pass</h2>
+    {heading ? <h2>Purchase membership or day pass</h2> : null}
     <p>Help this member complete a purchase. Card payments open secure Stripe checkout.</p>
     <Field label="How will the member pay?" name="purchaseMethod">
       <select value={method} onChange={event => setMethod(event.target.value)}>
@@ -26,7 +31,10 @@ export function AssistedPurchase(props: ComponentProps<typeof IssueAccess>) {
         <option value="external">Payment already collected or approved waiver</option>
       </select>
     </Field>
-    {method === 'external' ? <IssueAccess {...props} /> : <>
+    {method === 'external' ? <>
+      {stripeOff ? <p className="form-notice">Card checkout isn’t set up here, so this records a payment taken at the desk or an approved waiver.</p> : null}
+      <IssueAccess {...props} />
+    </> : <>
       <LoadState {...purchase} />
       {purchase.data?.enabled === false ? <p className="form-notice">Card checkout is not configured in this environment. You can record a payment already collected outside this app or an approved waiver.</p> : null}
       <ActionForm title="Card purchase" submitLabel={offer?.amountCents === 0 ? 'Issue approved free access' : 'Continue to Stripe'}

@@ -24,12 +24,24 @@ export function localHour(day: string, hour: number, timeZone: string) {
   }
   return instant;
 }
+/** `day` (YYYY-MM-DD) moved by `by` calendar days. */
+export function addDays(day: string, by: number) {
+  const date = new Date(`${day}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + by);
+  return date.toISOString().slice(0, 10);
+}
+export const previousDay = (day: string) => addDays(day, -1);
+/** Bookings from both lists, each once, in start order. */
+export function mergeBookings(...lists: Reservation[][]) {
+  const byId = new Map(lists.flat().map(b => [b.id, b]));
+  return [...byId.values()].sort((a, b) => Date.parse(a.startTime) - Date.parse(b.startTime));
+}
 export function equipmentBookings(bookings: Reservation[]) {
   return bookings.filter(b => b.equipmentId !== null && b.resourceType !== "room" && b.status !== "cancelled")
     .sort((a, b) => Date.parse(a.startTime) - Date.parse(b.startTime));
 }
-export function timeWindow(now: number, timeZone: string, bookings: Reservation[]) {
-  const day = dayKey(now, timeZone);
+/** The hours a day's timeline shows. `day` defaults to today; another day's window has the "now" mark outside it. */
+export function timeWindow(now: number, timeZone: string, bookings: Reservation[], day = dayKey(now, timeZone)) {
   // Shop hours by default, widened for early or late bookings but never past today.
   const dayStart = localHour(day, 0, timeZone), dayEnd = localHour(day, 24, timeZone);
   let start = localHour(day, 9, timeZone), end = localHour(day, 21, timeZone);

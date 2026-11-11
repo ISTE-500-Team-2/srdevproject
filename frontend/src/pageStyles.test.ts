@@ -55,6 +55,8 @@ const SHIPPED_ORDER = [
   // Added after the split; they only extend management.css rules.
   'components/staff/paymentTable.css',
   'pages/payments.css',
+  'components/staff/record/memberRecord.css',
+  'components/staff/reservations/reservations.css',
 ];
 
 test('page styles keep their shipped order, ahead of the app and the global sheets', () => {

@@ -133,6 +133,13 @@ export class StaffModel {
     );
     return result.rowCount ? this.person(id) : undefined;
   }
+  async conduct(id: number, flagged: boolean, revision: number) {
+    const result = await this.db.query(
+      `UPDATE "user" SET conductflag=$2,revision=revision+1 WHERE userid=$1 AND revision=$3 RETURNING userid`,
+      [id, flagged, revision],
+    );
+    return result.rowCount ? this.person(id) : undefined;
+  }
   async accountStatus(id: number, status: string, reason: string, revision: number) {
     const result = await this.db.query(
       `UPDATE "user" SET status=$2,statusdesc=$3,revision=revision+1 WHERE userid=$1 AND revision=$4 RETURNING userid`,
