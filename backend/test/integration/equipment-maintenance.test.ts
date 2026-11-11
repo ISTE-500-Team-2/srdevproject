@@ -51,6 +51,9 @@ test('catalog creation, edits and retirement are admin-only, versioned, and pres
   assert.equal((await mutate('put', { ...fields, expectedRevision: 1 }, staff)).status, 403);
   assert.equal((await mutate('put', { ...fields, rate: -1, expectedRevision: 1 })).status, 400);
   assert.equal((await mutate('put', { ...fields, rate: 22.25, expectedRevision: 1 })).status, 200);
+  const edited = (await get(`/admin/equipment/${id}`)).body.data;
+  assert.equal(edited.rate, 22.25);
+  assert.equal(edited.imagePath, null, 'the stock picture is a display fallback, not a stored image');
   assert.equal((await mutate('put', { ...fields, expectedRevision: 1 })).status, 409);
   assert.equal((await mutate('delete', { expectedRevision: 2 }, staff)).status, 403);
   assert.equal((await request(app).delete(`/api/admin/equipment/${id}`).set('Authorization', 'Bearer ' + administrator.accessToken).send({ expectedRevision: 2 })).status, 403);

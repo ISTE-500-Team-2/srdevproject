@@ -15,7 +15,7 @@ export function EquipmentEditor({ initial: suppliedInitial, onClose, onSaved }: 
   const [categoryName, setCategoryName] = useState('');
   const categories = [...new Set([...(options.data?.categories ?? []), ...(initial?.type ? [initial.type] : [])])].sort((a, b) => a.localeCompare(b));
   const [location, setLocation] = useState(initial?.location ?? 'Makerspace');
-  const [image, setImage] = useState(initial?.image ?? '');
+  const [image, setImage] = useState(initial?.imagePath ?? '');
   const [rate, setRate] = useState(initial?.rate?.toString() ?? '');
   const [certId, setCertId] = useState(initial?.certId?.toString() ?? '');
   const [waiverRequired, setWaiverRequired] = useState(initial?.waiverRequired ?? true);

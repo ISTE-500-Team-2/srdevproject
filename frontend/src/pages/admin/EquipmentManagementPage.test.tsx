@@ -8,7 +8,7 @@ const { api } = vi.hoisted(() => ({ api: vi.fn() }));
 vi.mock('../../lib/api', () => ({ api, ApiError: class extends Error {}, errorMessage: (e: Error) => e.message }));
 let machine: EquipmentDetail;
 beforeEach(() => {
-  machine = { id: 1, name: 'Phoebe', type: '3D printer', location: 'Print lab', certification: null, rate: 12, image: '/machine.webp', status: 'available', availabilityRevision: 1, outage: null,
+  machine = { id: 1, name: 'Phoebe', type: '3D printer', location: 'Print lab', certification: null, certId: null, waiverRequired: false, rate: 12, image: '/machine.webp', imagePath: null, status: 'available', availabilityRevision: 1, outage: null,
     history: [], activeGrants: [], checkedAt: new Date().toISOString(), timeZone: 'America/New_York', canManage: true, canReadBookings: true, canManageBookings: true };
   api.mockImplementation((path: string) => {
     if (path === '/admin/equipment/catalog-options') return Promise.resolve({ canManage: machine.canManage, categories: ['Laser', '3D printer'], certifications: [{ id: 3, name: 'Laser safety' }] });
@@ -42,7 +42,8 @@ test('admins can add equipment from the board and edit rates in the equipment wi
   await screen.findByRole('option', { name: 'Laser safety' });
   fireEvent.change(screen.getByLabelText(/Hourly rate/), { target: { value: '22.25' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
-  await waitFor(() => expect(api).toHaveBeenCalledWith('/admin/equipment/1', expect.objectContaining({ method: 'PUT', body: expect.objectContaining({ rate: 22.25, expectedRevision: 1 }) })));
+  // Phoebe shows the stock picture; an edit must not save that placeholder as her image.
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/admin/equipment/1', expect.objectContaining({ method: 'PUT', body: expect.objectContaining({ rate: 22.25, image: '', waiverRequired: false, expectedRevision: 1 }) })));
 });
 test('removal is inside edit and requires confirmation; server failures keep the window open', async () => {
   mount(); fireEvent.click(await screen.findByRole('button', { name: 'Edit equipment' }));
