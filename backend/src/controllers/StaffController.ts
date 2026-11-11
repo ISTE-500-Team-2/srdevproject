@@ -40,10 +40,10 @@ function optionalAuditAction(value: unknown) {
   return action;
 }
 function waiverValidity(value: unknown) {
-  if (value == null || value === "") return null;
+  if (value == null || value === "") return 365;
   if (!Number.isInteger(value) || (value as number) < 1 || (value as number) > 3650)
     throw new AppError(400, "INVALID_INPUT", "Waiver validity must be 1–3650 days.");
-  return value as number;
+  return 365;
 }
 const PAYMENT_STATUSES = ["pending", "paid", "void", "waived", "refunded"] as const;
 function optionalInstant(value: unknown) {

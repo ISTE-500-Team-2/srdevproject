@@ -94,13 +94,7 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
           255,
           0,
         );
-      const days = req.body.validityDays === null ? null : positiveId(req.body.validityDays, "Validity days");
-      if (days !== null && days > 3650)
-        throw new AppError(
-          400,
-          "INVALID_INPUT",
-          "Validity must be 1–3650 days.",
-        );
+      const days = 365;
       const reason = textField(req.body.reason, "Approval/reference", 500);
       const pricing = trainingPricing(req.body);
       const equipmentIds = equipmentList(req.body.equipmentIds);
@@ -152,13 +146,7 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
           "STALE_RECORD",
           "Refresh the certification before editing.",
         );
-      const days = req.body.validityDays === null ? null : positiveId(req.body.validityDays, "Validity days");
-      if (days !== null && days > 3650)
-        throw new AppError(
-          400,
-          "INVALID_INPUT",
-          "Validity must be 1–3650 days.",
-        );
+      const days = 365;
       const name = textField(req.body.name, "Name", 100),
         description = textField(
           req.body.description ?? "",

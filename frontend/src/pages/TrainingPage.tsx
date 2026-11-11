@@ -328,10 +328,10 @@ function TrainingWorkspace({
             </label>
             <div className="cw-hinted">
               <label className="cw-field">
-                <span>Validity in days (optional)</span>
-                <input name="days" type="number" min={1} max={3650} defaultValue={editing.validityDays ?? ""} />
+                <span>Validity in days</span>
+                <input name="days" type="number" value={365} readOnly />
               </label>
-              <small>Leave blank for no scheduled expiry. Training can still be revoked.</small>
+              <small>Certifications are valid for 1 year (365 days) from training. Training can still be revoked.</small>
             </div>
             <div className="cw-two">
               <label className="cw-field"><span>Training duration (minutes)</span><input name="minutes" type="number" min={1} max={480} required defaultValue={editing.trainingMinutes ?? 60} /></label>

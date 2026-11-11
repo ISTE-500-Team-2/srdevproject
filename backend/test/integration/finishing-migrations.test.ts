@@ -69,10 +69,11 @@ test("additive finishing migrations preserve legacy training, database contents,
     const updated = (await pool.query("SELECT * FROM user_certifications"))
       .rows[0];
     for (const [key, value] of Object.entries(original))
-      assert.deepEqual(updated[key], value);
+      if (!['renewaldate','revision'].includes(key)) assert.deepEqual(updated[key], value);
+    assert.ok(Math.abs(updated.renewaldate.getTime()-(Date.now()+365*86400000))<60_000);
     assert.equal(updated.approved_by, null);
     assert.equal(updated.trained_at, null);
-    assert.equal(updated.revision, 1);
+    assert.equal(updated.revision, 2);
     assert.equal(
       (
         await pool.query(

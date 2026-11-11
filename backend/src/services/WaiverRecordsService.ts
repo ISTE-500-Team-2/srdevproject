@@ -55,6 +55,9 @@ export class WaiverRecordsService {
       const previous=row.expiresAt ? new Date(row.expiresAt).toISOString():null;
       if(previous!==expectedExpiry)throw new AppError(409,'STALE_RECORD','This expiration changed. Reload before saving.');
       if(expiresAt && new Date(expiresAt)<=new Date(row.signedAt))throw new AppError(400,'INVALID_EXPIRY','Expiration must be after the recorded signing time.');
+      const annualExpiry=new Date(new Date(row.signedAt).getTime()+365*86400000).toISOString();
+      if(expiresAt===null)expiresAt=annualExpiry;
+      if(new Date(expiresAt)>new Date(annualExpiry))throw new AppError(400,'INVALID_EXPIRY','Waivers cannot remain valid for more than 1 year after signing.');
       if(previous===expiresAt)return {expiresAt:previous};
       await db.query('UPDATE user_waiver SET expires_at=$3 WHERE userid=$1 AND userwaiverid=$2',[userId,signatureId,expiresAt]);
       await new StaffModel(db).audit(actorId,userId,'waiver_expiry_updated','user_waiver',signatureId,reason,{expiresAt:previous},{expiresAt});

@@ -41,6 +41,7 @@ test('combined migrations upgrade the previous schema without rewriting paid mem
     };}
     const before=await history(),checksums=(await pool.query('SELECT name,checksum FROM app_migration ORDER BY name')).rows;
     await migrate(pool);
+    for(const signature of before.signatures) signature.expires_at=new Date(new Date(signature.signdate).getTime()+365*86400000);
     assert.deepEqual(await history(),before);
     for(const entry of checksums)assert.equal((await pool.query('SELECT checksum FROM app_migration WHERE name=$1',[entry.name])).rows[0].checksum,entry.checksum);
     assert.equal((await model.plan(plan.id))!.active,false);

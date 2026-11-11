@@ -488,7 +488,7 @@ export class StaffModel {
     effectiveAt: string,
     approvalReference: string,
     actorId: number,
-    validityDays: number | null = null,
+    validityDays: number | null = 365,
     scope: PolicyScope = 'facility',
   ) {
     return (

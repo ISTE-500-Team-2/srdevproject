@@ -46,14 +46,14 @@ test('approved courses have a $20 training fee, separate from hourly equipment q
   const price=await quote();assert.equal(price.equipmentCents,5600);assert.equal(price.trainingFeeCents,0);assert.equal(price.totalCents,5600);
   assert.equal((await get(`/equipment/${machine.equipmentid}/quote?hours=0`)).status,400);
 });
-test('training still gates booking; instructor approval supports an explicitly indefinite certification',async()=>{
+test('training still gates booking; instructor approval issues an annual certification',async()=>{
   const denied=await post('/reservations',{...slot(),expectedPrice:await quote()});assert.equal(denied.status,403);assert.equal(denied.body.error.code,'CERTIFICATION_REQUIRED');
   const evidence={
     trainedAt:new Date(Date.now()-3600000).toISOString(),source:'equipment',verifiedInPerson:true,verificationReference:'Observed one-hour CNC training',reason:'Synthetic completed training'
   };
   assert.equal((await post(`/training/users/${member.user.id}/certifications/${course.id}`,{...evidence,trainingMinutes:59},admin)).status,400);
   const approval=await post(`/training/users/${member.user.id}/certifications/${course.id}`,{...evidence,trainingMinutes:60},admin);
-  assert.equal(approval.status,201,JSON.stringify(approval.body));assert.equal(approval.body.data.valid,true);assert.equal(approval.body.data.expiresAt,null);
+  assert.equal(approval.status,201,JSON.stringify(approval.body));assert.equal(approval.body.data.valid,true);assert.equal(new Date(approval.body.data.expiresAt).getTime()-new Date(evidence.trainedAt).getTime(),365*86400000);
   assert.equal(approval.body.data.trainingMinutes,60);
 });
 test('altered quotes cannot create charges; certified users only pay the hourly rate on every booking',async()=>{

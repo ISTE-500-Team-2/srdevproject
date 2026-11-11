@@ -47,7 +47,7 @@ export function SignedWaiverRecords({
     <section className="panel management-panel">
       <h2>Signed waiver copies</h2>
       <p>
-        Download a copy of each waiver you've signed.
+        Each waiver expires 1 year (365 days) after the individual member signs it. Signing again starts a new 365-day period. A policy update may require signing again sooner. Download a copy of each signed waiver below.
       </p>
       <LoadState {...records} />
       {error ? <p role="alert">{error}</p> : null}
@@ -86,7 +86,7 @@ export function SignedWaiverRecords({
             )}
             {userId ? (
               <details>
-                <summary>Set or clear expiration</summary>
+                <summary>Adjust expiration</summary>
                 <ActionForm
                   key={`${record.id}-${record.expiresAt}`}
                   title="Waiver expiration"
@@ -107,8 +107,8 @@ export function SignedWaiverRecords({
                 >
                   <p>
                     Enter only the approved expiration for this signed
-                    agreement. Leave blank to clear it; no default validity
-                    period is assumed.
+                    agreement. Leave blank to restore the deadline of 365 days
+                    after this member signed. Expiration cannot be later than that deadline.
                   </p>
                   <Field
                     name="expiresAt"

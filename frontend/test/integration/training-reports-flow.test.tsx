@@ -50,7 +50,8 @@ test("staff training UI configures approved expiry, records actual instructor tr
   const user = userEvent.setup();
   await user.click(await screen.findByRole("button", { name: "New certification" }));
   await user.type(await screen.findByLabelText("Name"), "UI printer safety");
-  await user.type(screen.getByLabelText("Validity in days (optional)"), "90");
+  expect(screen.getByLabelText("Validity in days")).toHaveProperty("value", "365");
+  expect(screen.getByLabelText("Validity in days")).toHaveProperty("readOnly", true);
   await user.type(screen.getByLabelText('One-time training fee ($)'), '0');
   await user.type(screen.getByLabelText('Find equipment'), 'Darth');
   await user.click(await screen.findByRole('checkbox',{name:/Darth Vader/}));

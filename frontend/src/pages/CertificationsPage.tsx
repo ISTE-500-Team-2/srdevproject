@@ -491,7 +491,7 @@ export function CertificationsPage() {
               ) : null}
             </div>
             <p className="certs-waivers__lead">
-              Required before you book equipment. We'll ask again when a policy changes or a signature expires.
+              Required before you book equipment. Each waiver expires 1 year (365 days) after you sign it. Signing again starts a new 365-day period. A policy update may require you to sign again sooner.
             </p>
             {waivers.loading ? <p role="status">Loading policies…</p> : null}
             {waivers.error ? <ErrorLine error={waivers.error} reload={waivers.reload} /> : null}

@@ -93,8 +93,8 @@ test('B-015: a waiver can be published with a duration in days', async () => {
   expect((await publishWith('365')).body.validityDays).toBe(365);
 });
 
-test('B-015: leaving the duration blank publishes a waiver that does not expire on its own', async () => {
-  expect((await publishWith('')).body.validityDays).toBeNull();
+test('B-015: annual validity cannot be removed when publishing', async () => {
+  expect((await publishWith()).body.validityDays).toBe(365);
 });
 
 test('administrators can publish an equipment waiver without making it a day-pass prerequisite', async () => {
