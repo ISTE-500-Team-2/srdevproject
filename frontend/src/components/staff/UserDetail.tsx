@@ -13,10 +13,9 @@ import {
   EntitlementList,
   Field,
   LoadState,
-  PaymentList,
   ReasonField,
 } from "../Management";
-import { PaymentEditor } from "./PaymentControls";
+import { PaymentTable } from "./PaymentTable";
 
 import { AccessReadiness } from "./AccessReadiness";
 import { AssistedPurchase } from "./AssistedPurchase";
@@ -36,6 +35,7 @@ export function UserDetail({
     { user: actor } = useAuth();
   const [confirmedUser, setConfirmedUser] = useState<Person | null>(null);
   const [cardRevision,setCardRevision] = useState(0);
+  const [openPayment, setOpenPayment] = useState<number | null>(null);
   const [notice, setNotice] = useState(""),
     [renewal, setRenewal] = useState<Entitlement | null>(null);
   const refresh = (message = "Change saved.") => {
@@ -336,22 +336,23 @@ export function UserDetail({
           </section>
           <section className="panel management-panel">
             <h2>Recent payment records</h2>
-            <PaymentList
-              page={d.payments}
-              actions={(p) =>
-                canManage ? (
-                  <PaymentEditor
-                    key={`${p.id}-${p.revision}`}
-                    payment={p}
-                    onSaved={() => refresh("Payment record updated.")}
-                  />
-                ) : null
-              }
-            />
+            {d.payments.items.length ? (
+              <PaymentTable
+                items={d.payments.items}
+                caption={`Recent payments for ${d.user.firstName} ${d.user.lastName}, newest first`}
+                showMember={false}
+                canManage={canManage}
+                open={openPayment}
+                onOpen={setOpenPayment}
+                onChanged={(message) => refresh(message)}
+              />
+            ) : (
+              <p>No payment records.</p>
+            )}
             {d.payments.nextOffset != null ? (
               <p>
-                More records are available under Payment history, filtered by
-                member ID {id}.
+                Older payments are on the Payments page. Filter it by this
+                member to see them all.
               </p>
             ) : null}
           </section>

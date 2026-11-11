@@ -7,6 +7,7 @@ import {initializeDemo} from '../../src/scripts/init-demo.js';
 import {MembershipBilling} from '../../src/billing/service.js';
 import {StudioStripe} from '../../src/studios/stripe.js';
 import {createApp} from '../../src/app.js';
+import {StaffModel} from '../../src/models/StaffModel.js';
 const database='arbor_billing_'+randomBytes(6).toString('hex')+'_mvc_test';
 const owner=new Pool(),pool=new Pool({database});let created=false,userid:number,other:number,plan:any,row:any;
 const provider=new StudioStripe({key:'sk_test_fixture',webhookSecret:'whsec_fixture',origin:'http://localhost'});
@@ -53,6 +54,12 @@ test('checkout is not access; verified paid invoice issues membership and one re
  assert.equal((await pool.query('SELECT * FROM app_membership_invoice')).rowCount,1);
  assert.equal((await pool.query("SELECT * FROM app_notification_outbox WHERE dedupe_key='membership-receipt:in_first'")).rowCount,1);
  assert.equal((await pool.query("SELECT * FROM payment WHERE reference='in_first' AND paymentstatus='paid'")).rowCount,1);
+ // Staff see which invoice a card payment refunds through, from the payment row itself.
+ const [listed]=await new StaffModel(pool).payments(userid,0,{status:'paid',from:null,to:null});
+ assert.equal(listed.method,'card');assert.equal(listed.invoiceId,'in_first');assert.equal(listed.refundStatus,null);
+ await pool.query("UPDATE app_membership_invoice SET refund_status='pending' WHERE id='in_first'");
+ assert.equal((await new StaffModel(pool).payments(userid))[0].refundStatus,'pending');
+ await pool.query("UPDATE app_membership_invoice SET refund_status=NULL WHERE id='in_first'");
 });
 test('failed renewal does not extend access; later paid renewal grants exactly the next period',async()=>{
  sub.status='past_due';

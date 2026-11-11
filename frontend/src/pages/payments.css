@@ -1,0 +1,77 @@
+/* Staff Payments page: filters, totals for the filtered set, then the table. */
+.payments {
+  display: grid;
+  gap: 16px;
+}
+.payments__intro {
+  margin: -4px 0 0;
+  color: var(--ink-soft);
+}
+.payments .payments__filters {
+  margin: 0;
+}
+.payments__filters > label {
+  flex: 0 1 200px;
+}
+.payments__summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+.payments__summary > div {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: var(--paper-raised);
+}
+.payments__summary > div.is-warn {
+  box-shadow: inset 3px 0 0 var(--orange);
+}
+.payments__summary dt {
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.payments__summary dd {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 4px 0 0;
+  font-size: var(--text-xl);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.payments__summary dd small {
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+.payments__notice {
+  margin: 0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: #e3f6e6;
+  color: #1f6b32;
+  font-weight: 600;
+}
+.payments__empty {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  padding: 28px 20px;
+}
+.payments__empty p {
+  margin: 0;
+}
+
+@media (max-width: 760px) {
+  .payments__summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .payments__filters > label {
+    flex: 1 1 140px;
+  }
+}

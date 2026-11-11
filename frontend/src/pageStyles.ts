@@ -22,3 +22,5 @@ import './pages/profile.css';
 import './pages/membership.css';
 import './management.css';
 import './admin.css';
+import './components/staff/paymentTable.css';
+import './pages/payments.css';

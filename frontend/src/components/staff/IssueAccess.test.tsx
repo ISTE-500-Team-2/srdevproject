@@ -8,7 +8,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { IssueAccess } from "./IssueAccess";
-import { PaymentEditor } from "./PaymentControls";
+import { PaymentEditor, paymentAction } from "./PaymentControls";
 import { api } from "../../lib/api";
 import type { Plan, Payment } from "../../lib/staffContracts";
 vi.mock("../../lib/api", async (importOriginal) => ({
@@ -149,17 +149,15 @@ test("external payment updates retain their revision and request payload", async
   });
 });
 
-test("Stripe payments and terminal external statuses do not expose the external payment form", () => {
-  const payment = { id: 18, status: "paid", method: "card" } as Payment;
-  const view = render(<PaymentEditor payment={payment} onSaved={vi.fn()} />);
-  expect(screen.queryByRole("form")).toBeNull();
-  expect(screen.getByText(/Stripe-managed payment/)).toBeTruthy();
-  view.rerender(
-    <PaymentEditor
-      payment={{ ...payment, method: "cash", status: "refunded" }}
-      onSaved={vi.fn()}
-    />,
-  );
-  expect(screen.queryByRole("form")).toBeNull();
-  expect(screen.getByText(/status is final/)).toBeTruthy();
+test("only open front-desk records are editable; card payments offer a refund only before one was asked for", () => {
+  const payment = { id: 18, status: "paid", method: "card", invoiceId: "in_1", refundStatus: null } as Payment;
+  expect(paymentAction(payment)).toBe("refund");
+  expect(paymentAction({ ...payment, invoiceId: null })).toBeNull();
+  expect(paymentAction({ ...payment, refundStatus: "pending" })).toBeNull();
+  expect(paymentAction({ ...payment, refundStatus: "failed" })).toBeNull();
+  expect(paymentAction({ ...payment, status: "refunded", refundStatus: "succeeded" })).toBeNull();
+  expect(paymentAction({ ...payment, method: "cash", status: "pending" })).toBe("update");
+  expect(paymentAction({ ...payment, method: "cash", status: "paid" })).toBe("update");
+  for (const status of ["refunded", "void", "waived"])
+    expect(paymentAction({ ...payment, method: "cash", status })).toBeNull();
 });
