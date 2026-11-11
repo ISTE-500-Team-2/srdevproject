@@ -172,12 +172,12 @@ export function ReportsPage() {
   return (
     <section className="management-page">
       <header className="admin-page-heading">
-      <p className="admin-page-eyebrow">Records</p>
-      <h1 className="admin-title">Reports</h1>
-      <p>
-        Saved receipts, reservations, training attendance, and authenticated
-        reader activity. Refreshes every 30 seconds.
-      </p>
+        <p className="admin-page-eyebrow">Records</p>
+        <h1 className="admin-title">Reports</h1>
+        <p>
+          Saved receipts, reservations, training attendance, and authenticated
+          reader activity. Refreshes every 30 seconds.
+        </p>
       </header>
       <form className="management-search" onSubmit={filter}>
         <label>

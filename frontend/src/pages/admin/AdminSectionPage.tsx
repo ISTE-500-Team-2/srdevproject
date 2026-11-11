@@ -10,6 +10,7 @@ const ownHeading = new Set(["access", "reports", "studios", "equipment", "analyt
 /** One workspace section under /admin/<path>. */
 export function AdminSectionPage({ section }: { section: AdminSection }) {
   const Content = section.component;
+  // Every workspace tab uses the full-width inset Equipment set.
   usePageWidth("wide");
   const group = adminGroups.find((group) => group.sections.some((item) => item.path === section.path))?.label;
   return (

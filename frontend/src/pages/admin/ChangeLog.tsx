@@ -19,9 +19,10 @@ export function ChangeLog() {
   if (filters.action) query.set("action", filters.action);
   if (filters.from) query.set("from", new Date(filters.from).toISOString());
   if (filters.to) query.set("to", new Date(filters.to).toISOString());
-  const records = useApi<Page<Audit> & { actions: string[] }>(
-    `/admin/audit?${query.toString()}`,
-  );
+  const records = useApi<Page<Audit>>(`/admin/audit?${query.toString()}`);
+  // Fetched once, apart from the filtered page, so the options stay mounted
+  // (and the chosen action stays selected) while results reload.
+  const actions = useApi<string[]>("/admin/audit/actions");
   return (
     <section>
       <h2>Staff change log</h2>
@@ -49,7 +50,7 @@ export function ChangeLog() {
           Action
           <select name="action" defaultValue="">
             <option value="">All actions</option>
-            {records.data?.actions.map((action) => (
+            {actions.data?.map((action) => (
               <option key={action} value={action}>{action}</option>
             ))}
           </select>
