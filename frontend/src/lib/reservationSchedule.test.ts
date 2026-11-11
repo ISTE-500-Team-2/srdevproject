@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { Reservation } from "./contracts";
-import { canChange, dayLabel, isFree, lengthsFrom, reservationStatus, scheduleKind, slotAt, startSlots, timeRange } from "./reservationSchedule";
+import { canChange, dayLabel, isFree, lengthsFrom, reservationStatus, sameTimeOn, scheduleKind, slotAt, startSlots, timeRange } from "./reservationSchedule";
 
 const zone = "America/New_York";
 const at = (iso: string) => Date.parse(iso);
@@ -79,4 +79,18 @@ test("days and times read the way the rest of the workspace writes them", () => 
   expect(timeRange("2026-11-11T20:00:00Z", "2026-11-11T21:00:00Z", zone)).toBe("3:00–4:00 PM");
   expect(timeRange("2026-11-11T16:30:00Z", "2026-11-11T18:00:00Z", zone)).toBe("11:30 AM–1:00 PM");
   expect(timeRange("2026-11-27T04:00:00Z", "2026-11-27T05:00:00Z", zone)).toBe("11:00 PM–12:00 AM");
+});
+
+test("moving to another day keeps the clock time across daylight-saving changes", () => {
+  // 9:00 AM EST on Mar 13, 2027 -> 9:00 AM EDT on Mar 14.
+  expect(sameTimeOn(at("2027-03-13T14:00:00Z"), "2027-03-14", zone)).toBe(at("2027-03-14T13:00:00Z"));
+  // 9:00 AM EDT on Oct 31, 2026 -> 9:00 AM EST on Nov 1.
+  expect(sameTimeOn(at("2026-10-31T13:00:00Z"), "2026-11-01", zone)).toBe(at("2026-11-01T14:00:00Z"));
+  expect(sameTimeOn(at("2026-11-11T20:30:00Z"), "2026-11-12", zone)).toBe(at("2026-11-12T20:30:00Z"));
+});
+
+test("a booking just after midnight limits a late start the evening before", () => {
+  const midnight = booking(2, "2026-11-12T05:00:00Z", "2026-11-12T06:00:00Z"); // 12–1 AM on Nov 12
+  expect(lengthsFrom(at("2026-11-12T03:00:00Z"), [midnight])).toEqual([1]); // 10 PM: 11 PM ends 1 h before midnight
+  expect(lengthsFrom(at("2026-11-12T04:00:00Z"), [midnight])).toEqual([]); // 11 PM: an hour reaches midnight
 });

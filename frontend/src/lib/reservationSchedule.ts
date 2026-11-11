@@ -57,6 +57,13 @@ export function startSlots(day: string, timeZone: string, now: number, machineBo
   return slots;
 }
 
+/** The same local clock time as `at`, on another day. Elapsed time since midnight would shift by an hour across a DST change. */
+export function sameTimeOn(at: number, day: string, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(at);
+  const get = (type: string) => Number(parts.find((p) => p.type === type)!.value);
+  return localHour(day, get("hour") + get("minute") / 60, timeZone);
+}
+
 /** Whole-hour lengths, 1 to 24, that fit from `start`. */
 export function lengthsFrom(start: number, machineBookings: Reservation[], excludeId?: number) {
   const lengths: number[] = [];

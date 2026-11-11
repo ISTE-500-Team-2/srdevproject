@@ -19,6 +19,7 @@ import {
   paidOnline,
   reservationHours,
   reservationStatus,
+  sameTimeOn,
   startSlots,
   timeRange,
 } from "../../../lib/reservationSchedule";
@@ -302,17 +303,17 @@ export function ReservationEditor({
   const machine = machines.find((m) => String(m.id) === equipmentId);
   const down = !!machine && machine.status !== "available";
 
-  // The day's bookings, plus the evening before for anything running past midnight.
+  // The day before and after too: a booking can run past midnight either way, up to 24 hours.
   const dayBookings = useDayBookings(day, refresh);
   const eveBookings = useDayBookings(previousDay(day), refresh);
-  const loadingDay = !!(dayBookings.state ?? eveBookings.state);
+  const nextBookings = useDayBookings(addDays(day, 1), refresh);
+  const loadingDay = !!(dayBookings.state ?? eveBookings.state ?? nextBookings.state);
   const dayStart = localHour(day, 0, zone), dayEnd = localHour(day, 24, zone);
-  const own = mergeBookings(dayBookings.bookings, eveBookings.bookings).filter(
-    (b) => String(b.equipmentId) === equipmentId && Date.parse(b.endTime) > dayStart && Date.parse(b.startTime) < dayEnd,
-  );
-  const slots = startSlots(day, zone, now, own, editing?.id);
+  const machineBookings = mergeBookings(dayBookings.bookings, eveBookings.bookings, nextBookings.bookings).filter((b) => String(b.equipmentId) === equipmentId);
+  const own = machineBookings.filter((b) => Date.parse(b.endTime) > dayStart && Date.parse(b.startTime) < dayEnd);
+  const slots = startSlots(day, zone, now, machineBookings, editing?.id);
   const slot = start === null ? undefined : slots.find((s) => s.at === start);
-  const lengths = start === null ? [] : lengthsFrom(start, own, editing?.id);
+  const lengths = start === null ? [] : lengthsFrom(start, machineBookings, editing?.id);
   const fits = !!slot?.free && lengths.includes(hours);
   const quote = useApi<EquipmentPrice | null>(equipmentId ? `/equipment/${equipmentId}/quote?hours=${hours}` : null);
   const unchanged =
@@ -321,7 +322,7 @@ export function ReservationEditor({
 
   // Another day keeps the same time of day.
   const chooseDay = (next: string) => {
-    if (start !== null) setStart(localHour(next, 0, zone) + (start - localHour(day, 0, zone)));
+    if (start !== null) setStart(sameTimeOn(start, next, zone));
     setDay(next);
   };
 
@@ -505,6 +506,7 @@ export function ReservationEditor({
       </form>
       {dayBookings.loaders}
       {eveBookings.loaders}
+      {nextBookings.loaders}
     </div>
   );
 }

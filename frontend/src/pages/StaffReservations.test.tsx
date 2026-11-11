@@ -181,3 +181,21 @@ test("clicking other open time while booking starts a fresh form at that time", 
   expect(screen.getByRole("button", { name: "1:00 PM" }).getAttribute("aria-pressed")).toBe("false");
   expect(screen.getByRole("button", { name: "1 hour" }).getAttribute("aria-pressed")).toBe("true");
 });
+
+test("the editor counts the next day's bookings, so a late start can't run into one after midnight", async () => {
+  const original = api.getMockImplementation()!;
+  api.mockImplementation((path: string, options?: unknown) =>
+    path === "/admin/reservations?date=2026-11-04"
+      ? Promise.resolve({ items: [{ ...reservation, id: 40, startTime: "2026-11-04T05:00:00Z", endTime: "2026-11-04T06:00:00Z" }], nextOffset: null })
+      : original(path, options),
+  );
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "New reservation" }));
+  const tenPm = (await screen.findByRole("button", { name: "10:00 PM" })) as HTMLButtonElement;
+  await waitFor(() => expect(tenPm.disabled).toBe(false));
+  fireEvent.click(tenPm);
+  // 10–11 PM leaves the 15-minute gap before the 12 AM booking; two hours would not.
+  await waitFor(() => expect((screen.getByRole("button", { name: "2 hours" }) as HTMLButtonElement).disabled).toBe(true));
+  expect((screen.getByRole("button", { name: "1 hour" }) as HTMLButtonElement).disabled).toBe(false);
+  expect((screen.getByRole("button", { name: "11:00 PM, taken" }) as HTMLButtonElement).disabled).toBe(true);
+});
