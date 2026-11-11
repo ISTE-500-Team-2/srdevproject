@@ -56,7 +56,7 @@ test("analytics uses the full settled ledger, real check-ins/classes and zero-fi
     [member, today],
   );
   mount("/admin/analytics");
-  await screen.findByRole("heading", { name: /^Revenue by/ });
+  await screen.findByRole("heading", { name: /^Revenue by (day|week|month)$/ });
   const user = userEvent.setup();
   const totals = screen.getByText("Net receipts").closest("dl")!;
   expect(within(totals).getByText("$75.00")).toBeTruthy();
@@ -65,8 +65,12 @@ test("analytics uses the full settled ledger, real check-ins/classes and zero-fi
   expect(screen.queryByText("Active Users: 56")).toBeNull();
   const visits = screen.getByText("Visits", { selector: ".kpi__label" }).closest("article")!;
   expect(within(visits).getByText("0")).toBeTruthy();
-  expect(screen.getByText("Nobody has checked in yet today.")).toBeTruthy();
-  expect(screen.getByText("No classes in this period.")).toBeTruthy();
+  // Today's check-ins are a live count here; names live on the Today page.
+  expect(screen.getByText(/checked in today/).closest("p")!.textContent).toContain("0 checked in today");
+  // With no classes, the headline card says so and the class list stays hidden.
+  const fill = screen.getByText("Class fill rate", { selector: ".kpi__label" }).closest("article")!;
+  expect(within(fill).getByText("No classes in this period")).toBeTruthy();
+  expect(screen.queryByText("Classes in this period")).toBeNull();
   // Custom dates and grouping apply as soon as they change.
   await user.selectOptions(screen.getByLabelText("Date range"), "custom");
   fireEvent.change(screen.getByLabelText("From"), { target: { value: today } });

@@ -1,6 +1,14 @@
-/* Staff analytics: one control row, headline numbers, revenue bars,
-   today's check-ins and visits, classes, and a quiet footer. */
+/* Staff analytics: title, date range and grouping; a live "right now" line; headline
+   numbers for the range; each chart beside its breakdown; classes; a quiet footer. */
 .analytics-dashboard {
+  /* One color per thing measured; joined and cancelled stay apart for every reader.
+     dark.css sets its own steps. */
+  --chart-net: #a8600c;
+  --chart-visits: #a63b86;
+  --chart-joined: #4a6fb8;
+  --chart-cancelled: #b07d12;
+  /* The card color, for the stripes on partial periods. */
+  --chart-surface: var(--paper-raised);
   display: grid;
   /* Let the chart shrink with the viewport instead of widening the page. */
   grid-template-columns: minmax(0, 1fr);
@@ -11,14 +19,17 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 12px 20px;
+}
+.analytics-head .admin-title {
+  margin: 0;
 }
 .analytics-controls {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 .analytics-range {
   position: relative;
@@ -50,17 +61,20 @@
   font: inherit;
   font-weight: 600;
 }
+/* Grouping drives both charts, so it sits beside the date range. */
 .analytics-period {
   display: inline-flex;
+  flex: none;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 9px;
   background: #fff;
 }
 .management-page .analytics-period button {
+  min-height: 40px;
   border: 0;
   border-radius: 0;
-  padding: 9px 14px;
+  padding: 7px 14px;
   background: none;
   color: var(--ink-soft);
   font: inherit;
@@ -88,6 +102,31 @@
 }
 .analytics-custom small {
   color: var(--ink-soft);
+}
+/* Same height and frame as the date-range menu beside them. */
+.management-page .analytics-custom input {
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 7px 12px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  color-scheme: inherit;
+}
+
+/* Live numbers that ignore the date range. */
+.analytics-now {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 18px;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: var(--text-base-sm);
+}
+.analytics-now b {
+  color: var(--ink);
 }
 
 .kpis {
@@ -140,24 +179,54 @@
   color: var(--red);
 }
 
+/* Each row: a chart over time beside its breakdown. Same columns in every row,
+   so revenue and visits bars line up vertically. */
 .analytics-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(16rem, 1fr);
   gap: 18px;
-  align-items: start;
+  align-items: stretch;
 }
 .analytics-revenue,
-.analytics-activity,
+.analytics-members,
+.analytics-visits,
+.analytics-side-card,
 .analytics-classes {
   min-width: 0;
   padding: 20px 22px;
 }
+/* Nothing to break down: the chart card takes the whole row. */
+.analytics-layout > .is-wide {
+  grid-column: 1 / -1;
+}
+/* Title, then its legend beside it; a link or note sits at the far right. */
 .analytics-panel-head {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
   margin-bottom: 12px;
+}
+.analytics-panel-head > .analytics-link,
+.analytics-panel-head > .analytics-muted {
+  margin-left: auto;
+}
+.analytics-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  color: var(--bronze);
+  font-size: var(--text-base-sm);
+  font-weight: 600;
+  text-decoration: none;
+}
+.analytics-link:hover {
+  text-decoration: underline;
+}
+.analytics-link svg {
+  width: 15px;
+  height: 15px;
 }
 .analytics-panel-head h3 {
   margin: 0;
@@ -169,7 +238,8 @@
   color: var(--ink-soft);
   font-size: var(--text-sm);
 }
-.analytics-legend i {
+.analytics-legend i,
+.period-readout i {
   display: inline-block;
   width: 10px;
   height: 10px;
@@ -177,11 +247,26 @@
   border-radius: 3px;
   vertical-align: -1px;
 }
-.analytics-legend .is-paid {
-  background: var(--bronze);
+/* The same days one period earlier: a line, never a filled swatch, so it can't pass for a series. */
+.analytics-dashboard i.is-earlier {
+  width: 14px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--ink);
+  vertical-align: middle;
 }
-.analytics-legend .is-refund {
-  background: #e9b4ad;
+/* One color per thing measured, wherever it appears on this page. */
+.analytics-dashboard .is-net {
+  background: var(--chart-net);
+}
+.analytics-dashboard .is-joined {
+  background: var(--chart-joined);
+}
+.analytics-dashboard .is-cancelled {
+  background: var(--chart-cancelled);
+}
+.analytics-dashboard .is-visits {
+  background: var(--chart-visits);
 }
 .analytics-muted {
   color: var(--ink-soft);
@@ -201,6 +286,7 @@
   display: flex;
   gap: 6px;
   align-items: baseline;
+  white-space: nowrap;
 }
 .analytics-totals dt {
   color: var(--ink-soft);
@@ -211,30 +297,38 @@
   font-weight: 700;
 }
 
-.revenue-chart-scroll {
+.period-chart {
   min-width: 0;
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  padding: 64px 8px 8px;
+  /* Room for the top axis label. */
+  padding: 12px 8px 8px;
 }
-.analytics-chart-hint { margin: 0; color: var(--ink-soft); font-size: var(--text-base-sm); }
-.revenue-bars {
+.period-bars {
   display: grid;
   grid-template-columns: 52px minmax(0, 1fr);
   gap: 8px;
   height: 220px;
 }
-.revenue-bars__axis {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding-bottom: 22px;
+/* Membership counts are small; a shorter chart keeps them from looking dramatic. */
+.period-bars--short {
+  height: 170px;
+}
+/* Each label is centered on its gridline: same box height as the plot, placed by percent. */
+.period-bars__axis {
+  position: relative;
+  margin-bottom: 22px;
   color: var(--ink-soft);
   font-size: var(--text-xs);
-  text-align: right;
-  transform: translateY(-0.5em);
 }
-.revenue-bars__plot {
+.period-bars__axis span {
+  position: absolute;
+  right: 0;
+  line-height: 1;
+  transform: translateY(50%);
+  white-space: nowrap;
+}
+.period-bars__plot {
   position: relative;
   display: flex;
   align-items: stretch;
@@ -245,34 +339,73 @@
   padding: 0 4px;
   background: repeating-linear-gradient(to top, transparent 0 calc(25% - 1px), #ece4dd calc(25% - 1px) 25%);
 }
-.revenue-bars__col {
+.period-bars__col {
   position: relative;
   display: flex;
   flex: 1;
   flex-direction: column;
   justify-content: flex-end;
+  align-items: center;
+  gap: 2px;
   min-width: 0;
+  border-radius: 6px 6px 0 0;
   outline: none;
+  cursor: default;
 }
-.revenue-bars__paid {
+/* A few periods should read as bars, not blocks. */
+.period-bars__seg,
+.period-bars__zero {
   display: block;
-  border-radius: 5px 5px 0 0;
-  background: linear-gradient(180deg, #bc720d, #8d4d05);
+  flex: none;
+  width: 100%;
+  max-width: 56px;
 }
-.revenue-bars__refund {
-  display: block;
-  border-radius: 5px 5px 0 0;
-  background: #e9b4ad;
+/* The top segment is the first in the column. */
+.period-bars__seg:first-child {
+  border-radius: 4px 4px 0 0;
 }
-.revenue-bars__refund + .revenue-bars__paid {
-  border-radius: 0;
+/* The range covers only part of this period: stripe it so it doesn't read as a slump.
+   Stripes keep the series color, so identity never depends on shade alone. */
+.period-bars__col.is-partial .period-bars__seg {
+  background-image: repeating-linear-gradient(135deg, transparent 0 5px, var(--chart-surface) 5px 8px);
 }
-.revenue-bars__zero {
-  display: block;
+.period-bars__zero {
   height: 2px;
   background: #d9cfc7;
 }
-.revenue-bars__col small {
+/* Two counts side by side within one period. */
+.period-bars__group {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  max-width: 56px;
+  height: 100%;
+}
+.period-bars__group .period-bars__seg,
+.period-bars__group .period-bars__zero {
+  flex: 1;
+  width: auto;
+  border-radius: 4px 4px 0 0;
+}
+.period-bars__group .period-bars__zero {
+  border-radius: 0;
+}
+/* The same days one period earlier. A ring in the card color keeps it readable over a bar;
+   it is a little wider than the bar, so on dense daily charts it reads as a stepped line. */
+.period-bars__earlier {
+  position: absolute;
+  left: 50%;
+  width: min(calc(100% + 6px), 64px);
+  height: 2px;
+  border-radius: 1px;
+  background: var(--ink);
+  box-shadow: 0 0 0 1px var(--chart-surface);
+  transform: translate(-50%, 50%);
+  pointer-events: none;
+}
+.period-bars__col small {
   position: absolute;
   bottom: -22px;
   left: 50%;
@@ -281,46 +414,42 @@
   font-size: var(--text-xs);
   white-space: nowrap;
 }
-/* Keep endpoint labels directed into the chart rather than past its edges. */
-.revenue-bars__col:first-child small { left: 0; transform: none; }
-.revenue-bars__col:last-child small { right: 0; left: auto; transform: none; }
-.revenue-bars__tip {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  z-index: 3;
-  display: none;
-  transform: translateX(-50%);
-  border-radius: 9px;
-  padding: 8px 12px;
-  background: var(--espresso);
-  color: #fff;
-  font-size: var(--text-sm);
-  white-space: nowrap;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
-  pointer-events: none;
-}
-.revenue-bars__tip b {
-  display: block;
-  font-size: var(--text-base-sm);
-}
-.revenue-bars__col:hover .revenue-bars__tip,
-.revenue-bars__col:focus-visible .revenue-bars__tip {
-  display: block;
-}
-.revenue-bars__col:hover,
-.revenue-bars__col:focus-visible {
+/* Narrow bars keep endpoint labels directed into the chart rather than past its edges. */
+.period-bars:not(.period-bars--sparse) .period-bars__col:first-child small { left: 0; transform: none; }
+.period-bars:not(.period-bars--sparse) .period-bars__col:last-child small { right: 0; left: auto; transform: none; }
+.period-bars__col.is-active {
   background: rgba(247, 150, 29, 0.08);
 }
-.revenue-bars__col:first-child .revenue-bars__tip {
-  left: 0;
-  transform: none;
+.period-bars__col:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--bronze);
 }
-.revenue-bars__col:last-child .revenue-bars__tip {
-  right: 0;
-  left: auto;
-  transform: none;
+/* One line of details under the chart; fixed height so the card never jumps. */
+.period-readout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  min-height: 24px;
+  margin: 4px 0 0;
+  padding-left: 68px;
+  color: var(--ink-soft);
+  font-size: var(--text-base-sm);
 }
+.period-readout__line {
+  display: contents;
+}
+.period-readout__name {
+  color: var(--ink);
+  font-weight: 700;
+}
+.period-readout__hint,
+.period-readout__partial {
+  font-size: var(--text-sm);
+}
+.period-readout__partial {
+  font-style: italic;
+}
+
 /* Wide exact-value rows scroll within this panel, not the whole dashboard. */
 .analytics-table {
   margin-top: 10px;
@@ -337,113 +466,83 @@
   width: 100%;
 }
 
-.analytics-live {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: #1f6b32;
-  font-size: var(--text-sm);
-  font-weight: 700;
-}
-.analytics-live::before {
-  content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #2f8a3e;
-  box-shadow: 0 0 0 3px rgba(47, 138, 62, 0.18);
-}
-.analytics-people {
-  display: grid;
-  gap: 10px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.analytics-people li {
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
-}
-.analytics-people li > span:nth-child(2) {
-  display: grid;
-  min-width: 0;
-}
-.analytics-people small {
-  color: var(--ink-soft);
-  font-size: var(--text-sm);
-}
-.analytics-people__avatar {
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: #efe1d1;
-  color: #6b3d0c;
-  font-size: var(--text-sm);
-  font-weight: 700;
-}
-.analytics-people__method {
-  border-radius: 99px;
-  padding: 2px 9px;
-  background: #efe8e2;
-  color: var(--ink-soft);
-  font-size: var(--text-xs);
-  font-weight: 700;
-}
-.analytics-people__more {
-  color: var(--ink-soft);
-  font-size: var(--text-base-sm);
-}
-.analytics-divider {
-  height: 1px;
-  margin: 16px 0;
-  background: #ebe3dc;
-}
-.visits-strip {
-  display: flex;
-  align-items: flex-end;
-  gap: min(3px, 0.3vw);
-  height: 70px;
-}
-.visits-strip i {
-  flex: 1;
-  min-width: 0;
-  border-radius: 3px 3px 0 0;
-  background: #d9a868;
-}
-.visits-strip i.is-empty {
-  height: 2px;
-  background: #e3dad2;
-}
-.visits-strip i:last-child:not(.is-empty) {
-  background: var(--bronze);
-}
-.visits-strip__ends {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 4px;
-  color: var(--ink-soft);
-  font-size: var(--text-xs);
-}
-
-.analytics-classes ul {
+/* Breakdowns: a labelled bar per source or weekday. */
+.analytics-breakdown {
   display: grid;
   gap: 14px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
+.analytics-breakdown--compact {
+  gap: 9px;
+}
+.analytics-breakdown li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 12px;
+  align-items: baseline;
+}
+.analytics-breakdown__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.analytics-breakdown__value {
+  font-weight: 700;
+  white-space: nowrap;
+}
+.analytics-breakdown__value small {
+  margin-left: 4px;
+  color: var(--ink-soft);
+  font-weight: 400;
+}
+.analytics-breakdown__bar {
+  grid-column: 1 / -1;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 9px;
+  background: #ece4dd;
+}
+.analytics-breakdown--compact .analytics-breakdown__bar {
+  height: 6px;
+}
+.analytics-breakdown__bar i {
+  display: block;
+  height: 100%;
+  border-radius: 9px;
+}
+.analytics-breakdown li:not(.is-top) .analytics-breakdown__name {
+  color: var(--ink-soft);
+}
+.analytics-breakdown--compact li.is-top .analytics-breakdown__name {
+  font-weight: 700;
+}
+
+/* Classes: full width but dense, two per row, one line of text each. */
+.analytics-classes ul {
+  display: grid;
+  /* Two per row on a desktop, so class names aren't cut off; one on narrow screens. */
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr));
+  gap: 12px 32px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
 .analytics-classes li {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(120px, 220px) auto;
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) 72px 5.5rem;
+  gap: 14px;
   align-items: center;
 }
-.analytics-classes li > span:first-child {
+.analytics-class__name {
   display: grid;
+  min-width: 0;
+}
+.analytics-class__name b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .analytics-classes small {
   color: var(--ink-soft);
@@ -452,8 +551,9 @@
 .analytics-classes li.is-cancelled {
   opacity: 0.6;
 }
+/* Neutral fill, so seats never read as revenue. */
 .analytics-fill {
-  height: 8px;
+  height: 6px;
   overflow: hidden;
   border-radius: 9px;
   background: #ece4dd;
@@ -462,13 +562,28 @@
   display: block;
   height: 100%;
   border-radius: 9px;
-  background: var(--bronze);
+  background: var(--ink-soft);
 }
 .analytics-fill__count {
+  display: grid;
   font-size: var(--text-base-sm);
   font-weight: 600;
   text-align: right;
   white-space: nowrap;
+}
+.analytics-fill__count small {
+  font-weight: 400;
+}
+.management-page .analytics-more {
+  min-height: 44px;
+  margin-top: 6px;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--bronze);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 .analytics-foot {
@@ -497,22 +612,39 @@
   margin: 8px 0 0;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
   .kpis {
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+@media (max-width: 900px) {
   .analytics-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 @media (max-width: 560px) {
+  .kpis {
+    gap: 10px;
+  }
+  .kpi {
+    padding: 12px 14px;
+  }
+  .kpi strong {
+    font-size: var(--text-3xl, 1.75rem);
+  }
   /* Keep the full chart visible without overlapping date labels on phones. */
-  .revenue-bars__col:not(:first-child):not(:last-child) small { display: none; }
+  .period-bars__col:not(:first-child):not(:last-child) small { display: none; }
+  .period-readout {
+    padding-left: 0;
+  }
+  /* Names matter more than the bar here; "9 / 10" already says how full it was. */
   .analytics-classes li {
-    grid-template-columns: 1fr auto;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
   .analytics-fill {
-    grid-column: 1 / -1;
-    grid-row: 2;
+    display: none;
+  }
+  .analytics-class__name b {
+    white-space: normal;
   }
 }
