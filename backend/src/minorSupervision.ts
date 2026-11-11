@@ -19,6 +19,16 @@ export class MinorSupervision {
     return (await this.db.query(`SELECT dob IS NOT NULL AND dob::date>((now() AT TIME ZONE $2)::date-INTERVAL '18 years')::date AS minor
       FROM "user" WHERE userid=$1`, [id,this.zone])).rows[0]?.minor === true;
   }
+  /** Advance class enrollment needs a valid link; arrival still checks adult presence. */
+  async requireLinkedSponsor(id: number) {
+    if (!await this.isMinor(id)) return null;
+    const sponsor = (await this.db.query(`SELECT s.adult_id AS id FROM app_minor_sponsor s
+      JOIN "user" u ON u.userid=s.adult_id WHERE s.minor_id=$1
+      AND u.dob IS NOT NULL AND u.dob::date<=((now() AT TIME ZONE $2)::date-INTERVAL '18 years')::date
+      AND u.status='active' AND u.accessstatus='active' FOR SHARE OF s,u`,[id,this.zone])).rows[0];
+    if (!sponsor) throw new AppError(403,'SPONSOR_REQUIRED','Link an active sponsoring adult before enrolling.');
+    return sponsor;
+  }
   /** Shared lock serializes booking/access with adult checkout and sponsor reassignment. */
   async requireSponsor(id: number, buildingId?: number) {
     if (!await this.isMinor(id)) return null;
@@ -34,7 +44,7 @@ export class MinorSupervision {
     if (!sponsor) throw new AppError(403,'SPONSOR_REQUIRED','Your sponsoring adult must be linked, checked in and remain in this building. Ask staff to check you in together.');
     const eligibility = new EligibilityModel(this.db,this.zone);
     const entitled = await eligibility.entitlement(sponsor.id,new Date());
-    const waivers = await eligibility.waivers(sponsor.id);
+    const waivers = await eligibility.waivers(sponsor.id, 'facility');
     if ((!entitled.membership && !entitled.dayPass) || !waivers.length || waivers.some(w=>!w.signed))
       throw new AppError(403,'SPONSOR_INELIGIBLE','Your sponsoring adult needs current access and signed policies.');
     return sponsor;
@@ -280,7 +290,7 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
       if (action==='check-in' && !(await db.query('SELECT userid FROM "user" WHERE userid=$1 AND status=\'active\' AND accessstatus=\'active\' FOR SHARE',[id])).rowCount)
         throw new AppError(403,'ACCESS_BLOCKED','This account does not have access.');
       if (action==='check-in') {
-        const model=new EligibilityModel(db,zone),entitlement=await model.entitlement(id,new Date()),waivers=await model.waivers(id);
+        const model=new EligibilityModel(db,zone),entitlement=await model.entitlement(id,new Date()),waivers=await model.waivers(id,'facility');
         if (!entitlement.membership && !entitlement.dayPass) throw new AppError(403,'MEMBERSHIP_REQUIRED','Each visitor needs a membership or day pass.');
         if (!waivers.length || waivers.some(w=>!w.signed)) throw new AppError(403,'WAIVER_REQUIRED','Sign current required policies first.');
         const building=positiveId(req.body.buildingId ?? 1);
