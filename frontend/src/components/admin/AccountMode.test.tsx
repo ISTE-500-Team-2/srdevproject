@@ -179,7 +179,6 @@ test("mobile navigation contains focus, locks the background, and restores the m
   auth.user = admin;
   const user = userEvent.setup();
   const view = at(<AdminShell />, "/admin");
-  expect(view.container.querySelector(".admin-top__view")?.getAttribute("aria-label")).toBe("View member site");
   const trigger = screen.getByRole("button", { name: "Open navigation" });
   // A touch activation need not focus the button first (notably in WebKit).
   fireEvent.click(trigger);
@@ -200,6 +199,32 @@ test("mobile navigation contains focus, locks the background, and restores the m
   fireEvent.click(within(screen.getByRole("dialog")).getByRole("link", { name: "Members" }));
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(screen.getByLabelText("location").textContent).toBe("/admin/members");
+});
+
+test("View a member sits right under Members and opens the account picker", () => {
+  auth.user = admin;
+  at(<AdminShell />, "/admin");
+  const nav = screen.getByRole("navigation", { name: "Staff workspace" });
+  const people = within(nav).getByRole("group", { name: "People" });
+  const items = Array.from(people.querySelectorAll(".admin-nav__item")).map((item) => item.textContent);
+  expect(items.slice(0, 2)).toEqual(["Members", "View a member"]);
+  fireEvent.click(within(people).getByRole("button", { name: "View a member" }));
+  expect(screen.getByRole("dialog", { name: "Whose account?" })).toBeTruthy();
+});
+
+test("View a member in the mobile drawer swaps the drawer for the account picker", () => {
+  auth.user = admin;
+  at(<AdminShell />, "/admin");
+  const trigger = screen.getByRole("button", { name: "Open navigation" });
+  fireEvent.click(trigger);
+  const drawer = screen.getByRole("dialog", { name: "Workspace navigation" });
+  fireEvent.click(within(drawer).getByRole("button", { name: "View a member" }));
+  expect(screen.queryByRole("dialog", { name: "Workspace navigation" })).toBeNull();
+  const picker = screen.getByRole("dialog", { name: "Whose account?" });
+  expect(picker.contains(document.activeElement)).toBe(true);
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(trigger);
 });
 
 test("staff see their tools, with admin-only and instructor actions locked", () => {
