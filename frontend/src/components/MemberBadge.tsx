@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useAppearance } from "../theme/appearance";
 
 // three.js is large, so the lanyard only loads on the page that shows it.
@@ -128,6 +128,7 @@ export function MemberBadge({
   sponsorName?: string | null;
 }) {
   const { theme } = useAppearance();
+  const slot = useRef<HTMLDivElement>(null);
   const [face, setFace] = useState<string>();
   const [strap, setStrap] = useState<string>();
   useEffect(() => {
@@ -140,13 +141,17 @@ export function MemberBadge({
   }, [name, access, memberId, isMinor, sponsorName]);
   return (
     <div
+      ref={slot}
       className="member-badge"
       role="img"
       aria-label={`Member badge for ${name}: ${access}${isMinor ? `; Under 18${sponsorName ? `; with ${sponsorName}` : ""}` : ""}`}
     >
       {face ? (
         <Suspense fallback={null}>
+          {/* The badge rests in this slot but may swing anywhere in the card around it. */}
           <Lanyard
+            home={slot}
+            className="member-badge__stage"
             frontImage={face}
             backImage={face}
             strapImage={strap}

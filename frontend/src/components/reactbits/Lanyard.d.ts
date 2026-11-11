@@ -1,4 +1,4 @@
-import type { CSSProperties, JSX } from "react";
+import type { CSSProperties, JSX, RefObject } from "react";
 
 export default function Lanyard(props: {
   frontImage?: string;
@@ -23,4 +23,10 @@ export default function Lanyard(props: {
   intro?: boolean;
   className?: string;
   style?: CSSProperties;
+  /**
+   * Where the card rests. When set, the lanyard fills its positioned parent
+   * so the card can swing anywhere in that box, and pointer events pass
+   * through to the content beneath except over the card.
+   */
+  home?: RefObject<HTMLElement | null>;
 }): JSX.Element;

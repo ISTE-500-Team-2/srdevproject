@@ -2959,7 +2959,19 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 }
 
 .member-badge {
+  /* Pinned to the top so the strap meets the band's top edge. */
+  align-self: start;
   height: 280px;
+}
+
+/* The badge's canvas covers the whole band, so a far swing or drag never
+   meets an edge inside it; the band's own rounded edge clips it. */
+.access-band .member-badge__stage {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: auto;
+  height: auto;
 }
 
 @media (max-width: 640px) {
