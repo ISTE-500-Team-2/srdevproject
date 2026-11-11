@@ -74,7 +74,7 @@ export function machineStatus(bookings: Reservation[], now: number, timeZone: st
   const next = [...bookings].sort((a,b) => Date.parse(a.startTime) - Date.parse(b.startTime)).find(b => Date.parse(b.startTime) > now);
   return {
     statusText: live ? current ? `In use until ${formatTime(current.endTime, timeZone)}` : "In use" : down ? "Out of service" : next ? `Open, next at ${formatTime(next.startTime, timeZone)}` : "Open",
-    nextText: live && current ? `${shortName(current.memberName ?? "")} until ${formatTime(current.endTime, timeZone, false)}` : next ? `Next: ${shortName(next.memberName ?? "")} at ${formatTime(next.startTime, timeZone, false)}` : "Nothing else booked today",
+    nextText: live && current ? `${shortName(current.memberName ?? "")} until ${formatTime(current.endTime, timeZone, false)}` : next ? `Next: ${shortName(next.memberName ?? "")} at ${formatTime(next.startTime, timeZone, false)}` : bookings.length ? "Nothing else booked today" : "Nothing booked today",
   };
 }
 export function groupMachines(machines: LiveEquipment[]) {
