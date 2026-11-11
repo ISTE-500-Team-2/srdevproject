@@ -1,12 +1,11 @@
-import { Eye, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { isProtectedAccount, rememberAccount } from "../components/admin/people";
 import { useAuth } from "../context/AuthContext";
 import { errorMessage } from "../lib/api";
 import { LoadState, Pager } from "../components/Management";
-import { Modal } from "../components/Modal";
-import { UserDetail } from "../components/staff/UserDetail";
+import { MemberRecord } from "../components/staff/record/MemberRecord";
 import { statusLabel } from "../lib/display";
 import type { Page, Person, Plan } from "../lib/staffContracts";
 import { useApi } from "../lib/useApi";
@@ -135,40 +134,27 @@ export function StaffUsers() {
         <Pager offset={offset} nextOffset={users.data.nextOffset} onChange={setOffset} />
       ) : null}
       {selected ? (
-        <Modal
-          open
-          width="panel"
-          title={`${selected.firstName} ${selected.lastName}`}
+        <MemberRecord
+          key={selected.id}
+          id={selected.id}
+          name={`${selected.firstName} ${selected.lastName}`}
+          plans={plans.data ?? []}
+          timeZone={config.data?.timeZone ?? "America/New_York"}
+          onChanged={users.reload}
           onClose={close}
-        >
-          {isProtectedAccount(selected) || selected.status !== "active" || selected.accessStatus !== "active" ? null : (
-            <div className="staff-directory__open">
-              <button
-                type="button"
-                className="button button--quiet"
-                onClick={() => void openMemberAccount(selected)}
-                disabled={opening}
-              >
-                <Eye aria-hidden="true" />
-                {opening ? "Opening…" : `Open ${selected.firstName}'s account`}
-              </button>
-              <span>See the member site as {selected.firstName} does and book or sign up for them.</span>
-              {openError ? <p className="form-error" role="alert">{openError}</p> : null}
-            </div>
-          )}
-          {params.get("billing") === "returned" || params.get("pass") === "returned" ? (
-            <p role="status" className="form-notice">Returned from Stripe. Confirmed purchases appear in the memberships, passes and payment records below. Payment verification can take a moment.</p>
-          ) : params.get("billing") === "cancelled" || params.get("pass") === "cancelled" ? (
-            <p role="status" className="form-notice">Checkout cancelled. No access was issued by returning from checkout.</p>
-          ) : null}
-          <UserDetail
-            key={selected.id}
-            id={selected.id}
-            plans={plans.data ?? []}
-            timeZone={config.data?.timeZone ?? "America/New_York"}
-            onChanged={users.reload}
-          />
-        </Modal>
+          notice={
+            params.get("billing") === "returned" || params.get("pass") === "returned" ? (
+              <p role="status" className="form-notice mr-notice">Returned from Stripe. Confirmed purchases appear under Membership and Payments below; payment verification can take a moment.</p>
+            ) : params.get("billing") === "cancelled" || params.get("pass") === "cancelled" ? (
+              <p role="status" className="form-notice mr-notice">Checkout cancelled. No access was issued by returning from checkout.</p>
+            ) : undefined
+          }
+          viewAs={
+            isProtectedAccount(selected) || selected.status !== "active" || selected.accessStatus !== "active"
+              ? undefined
+              : { onOpen: () => void openMemberAccount(selected), busy: opening, error: openError }
+          }
+        />
       ) : null}
     </section>
   );
