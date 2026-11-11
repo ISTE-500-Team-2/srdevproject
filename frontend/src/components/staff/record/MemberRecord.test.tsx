@@ -13,12 +13,13 @@ const { api, reload, state, actor } = vi.hoisted(() => ({
 }));
 vi.mock("../../../lib/api", () => ({
   api,
-  ApiError: class extends Error {
+  ApiError: class ApiError extends Error {
     constructor(public status: number, public code: string, message: string) {
       super(message);
     }
   },
-  errorMessage: (e: Error) => e.message,
+  // Same rule as the real helper: only server errors keep their message.
+  errorMessage: (e: Error) => (e?.constructor?.name === "ApiError" ? e.message : "Cannot reach the server. Please try again."),
 }));
 vi.mock("../../../lib/useApi", () => ({
   useApi: (path: string | null) => {
@@ -243,4 +244,18 @@ test("every earlier membership or pass can be reached, not just the first five",
   expect(screen.getAllByRole("button", { name: /^Change Day pass #/ })).toHaveLength(5);
   fireEvent.click(screen.getByRole("button", { name: /Show all 6/ }));
   expect(screen.getAllByRole("button", { name: /^Change Day pass #/ })).toHaveLength(6);
+});
+
+test("a status save that lost a race says so, and the next save uses the fresh revision", async () => {
+  const { ApiError } = await import("../../../lib/api");
+  mount();
+  api.mockRejectedValueOnce(new ApiError(409, "STALE_RECORD", "Stale"));
+  fireEvent.click(screen.getByRole("button", { name: "Change account status" }));
+  const dialog = screen.getByRole("dialog", { name: "Account status" });
+  fireEvent.click(within(dialog).getByRole("radio", { name: /^On hold/ }));
+  fireEvent.change(within(dialog).getByLabelText("Reason"), { target: { value: "Investigation" } });
+  fireEvent.submit(within(dialog).getByRole("form"));
+  expect(await within(dialog).findByRole("alert")).toHaveProperty("textContent", expect.stringMatching(/^Someone else changed this account just now/));
+  expect(reload).toHaveBeenCalled();
+  expect((within(dialog).getByRole("button", { name: "Save status" }) as HTMLButtonElement).disabled).toBe(false);
 });

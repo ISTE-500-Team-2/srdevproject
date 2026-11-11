@@ -28,8 +28,10 @@ export type DialogState =
   | { kind: "endSupervision"; override: { id: number; resourceName: string } }
   | { kind: "sponsor" };
 
-/** Thrown when the record changed under an open dialog: the dialog stops offering a retry on old data. */
-class StaleDialog extends Error {}
+/** A message written for staff, shown as is (errorMessage() keeps only server messages). */
+class DialogMessage extends Error {}
+/** The record changed under an open dialog: the dialog stops offering a retry on old data. */
+class StaleDialog extends DialogMessage {}
 
 /** A compact dialog around one form. `onSubmit` returns the sentence the toast shows. */
 function RecordDialog({
@@ -64,7 +66,7 @@ function RecordDialog({
     try {
       onDone(await onSubmit(new FormData(event.currentTarget)));
     } catch (err) {
-      setError(errorMessage(err));
+      setError(err instanceof DialogMessage ? err.message : errorMessage(err));
       if (err instanceof StaleDialog) setStale(true);
       setBusy(false);
     }
@@ -149,7 +151,8 @@ export function RecordDialogHost({
     } catch (error) {
       if (error instanceof ApiError && error.status === 409 && error.code === "STALE_RECORD") {
         onConflict();
-        throw new Error("Someone else changed this account just now. The latest is loaded; check it and save again.");
+        // The dialog re-reads the member's latest revision, so saving again is a deliberate second try.
+        throw new DialogMessage("Someone else changed this account just now. The latest is loaded; check it and save again.");
       }
       throw error;
     }
