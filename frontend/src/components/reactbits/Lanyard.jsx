@@ -723,7 +723,8 @@ const Lanyard = ({
   interactive = true,
   intro = true,
   className = '',
-  style
+  style,
+  home
 }) => {
   const containerRef = useRef(null);
   const settingsRef = useRef(null);
@@ -868,6 +869,12 @@ const Lanyard = ({
     const tuck = new THREE.Vector3();
     const curve = new THREE.CatmullRomCurve3(controls, false, 'centripetal');
     const view = { width: 1, height: 1 };
+    // With a home element the canvas is a stage: it covers its whole box so
+    // the card can swing anywhere in it, yet rests over home. Pointer events
+    // pass through the stage except where the card is.
+    const homeElement = home?.current ?? null;
+    const stage = homeElement ? container.offsetParent || container.parentElement || container : null;
+    const rest = { x: 0, y: 0, width: 1, height: 1 };
     let layout = cardLayout('portrait', 0.3);
     let applied = {};
     let strapScale = STRAP_WIDTH;
@@ -914,13 +921,23 @@ const Lanyard = ({
 
     const frameView = () => {
       const s = settingsRef.current;
-      const aspect = view.width / view.height;
+      // Frame the card for the rest box; world origin is its centre.
+      const aspect = rest.width / rest.height;
       let viewHeight = layout.height / clamp(s.size, 0.15, 0.9);
       const minimumWidth = layout.width / 0.72;
       if (viewHeight * aspect < minimumWidth) viewHeight = minimumWidth / aspect;
       const viewWidth = viewHeight * aspect;
-      camera.aspect = aspect;
-      camera.position.set(0, 0, viewHeight / 2 / Math.tan((FOV * Math.PI) / 360));
+      // Widen the frustum symmetrically around the rest box, then crop it to
+      // the canvas so the camera still looks straight at the resting card.
+      const cx = rest.x + rest.width / 2;
+      const cy = rest.y + rest.height / 2;
+      const fullWidth = 2 * Math.max(cx, view.width - cx, 1);
+      const fullHeight = 2 * Math.max(cy, view.height - cy, 1);
+      const halfFov = (FOV * Math.PI) / 360;
+      camera.fov = (Math.atan((fullHeight / rest.height) * Math.tan(halfFov)) * 360) / Math.PI;
+      camera.aspect = fullWidth / fullHeight;
+      camera.setViewOffset(fullWidth, fullHeight, fullWidth / 2 - cx, fullHeight / 2 - cy, view.width, view.height);
+      camera.position.set(0, 0, viewHeight / 2 / Math.tan(halfFov));
       camera.lookAt(0, 0, 0);
       camera.updateProjectionMatrix();
       camera.updateMatrixWorld();
@@ -959,7 +976,7 @@ const Lanyard = ({
         ring.position.set(0, layout.ringY, 0);
         applied.framingKey = '';
       }
-      const framingKey = `${layoutKey}|${s.size}|${s.anchor}|${s.strapLength}|${view.width}|${view.height}`;
+      const framingKey = `${layoutKey}|${s.size}|${s.anchor}|${s.strapLength}|${view.width}|${view.height}|${rest.x}|${rest.y}|${rest.width}|${rest.height}`;
       if (framingKey !== applied.framingKey) {
         frameView();
         if (!placed) {
@@ -1167,6 +1184,8 @@ const Lanyard = ({
         ((event.clientX - rect.left) / rect.width) * 2 - 1,
         -((event.clientY - rect.top) / rect.height) * 2 + 1
       );
+      // A dragged card stays inside the box rather than leaving through its edge.
+      if (sim.grab) pointer.set(clamp(pointer.x, -1, 1), clamp(pointer.y, -1, 1));
       raycaster.setFromCamera(pointer, camera);
     };
 
@@ -1179,6 +1198,15 @@ const Lanyard = ({
     const setCursor = value => {
       if (canvas.style.cursor !== value) canvas.style.cursor = value;
     };
+
+    // On a stage the canvas only takes the pointer over the card or mid-drag.
+    const setCatching = value => {
+      if (!stage) return;
+      const next = value ? 'auto' : 'none';
+      if (canvas.style.pointerEvents !== next) canvas.style.pointerEvents = next;
+    };
+    if (stage) container.style.pointerEvents = 'none';
+    setCatching(false);
 
     const flip = point => {
       const body = sim.body;
@@ -1205,6 +1233,9 @@ const Lanyard = ({
         target: hit.point.clone()
       };
       press = { x: event.clientX, y: event.clientY, time: performance.now(), point: hit.point.clone() };
+      setCatching(true);
+      // A touch can land on content under the card; the card takes it instead.
+      if (event.target !== canvas) event.stopPropagation();
       canvas.setPointerCapture?.(event.pointerId);
       setCursor('grabbing');
       event.preventDefault();
@@ -1222,6 +1253,7 @@ const Lanyard = ({
       }
       if (event.pointerType === 'touch') return;
       hovering = !!pickCard();
+      setCatching(hovering);
       setCursor(hovering ? 'grab' : '');
     };
 
@@ -1231,6 +1263,7 @@ const Lanyard = ({
       if (press && event.type === 'pointerup' && performance.now() - press.time < 450) flip(press.point);
       press = null;
       canvas.releasePointerCapture?.(event.pointerId);
+      setCatching(hovering && event.pointerType !== 'touch');
       setCursor(hovering && event.pointerType !== 'touch' ? 'grab' : '');
       start();
     };
@@ -1241,16 +1274,33 @@ const Lanyard = ({
       if (pickCard()) event.preventDefault();
     };
 
-    canvas.addEventListener('pointerdown', onPointerDown);
-    canvas.addEventListener('pointermove', onPointerMove);
-    canvas.addEventListener('pointerup', onPointerUp);
-    canvas.addEventListener('pointercancel', onPointerUp);
-    canvas.addEventListener('lostpointercapture', onPointerUp);
-    canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+    // A stage hears the pointer anywhere in its box; capture runs first so a
+    // press on the card never reaches the content under it.
+    const target = stage || canvas;
+    const capture = !!stage;
+    target.addEventListener('pointerdown', onPointerDown, capture);
+    target.addEventListener('pointermove', onPointerMove, capture);
+    target.addEventListener('pointerup', onPointerUp, capture);
+    target.addEventListener('pointercancel', onPointerUp, capture);
+    target.addEventListener('lostpointercapture', onPointerUp, capture);
+    target.addEventListener('touchstart', onTouchStart, { passive: false, capture });
 
     const resize = () => {
       view.width = Math.max(1, container.clientWidth);
       view.height = Math.max(1, container.clientHeight);
+      if (homeElement) {
+        const box = container.getBoundingClientRect();
+        const spot = homeElement.getBoundingClientRect();
+        rest.x = spot.left - box.left;
+        rest.y = spot.top - box.top;
+        rest.width = Math.max(1, spot.width);
+        rest.height = Math.max(1, spot.height);
+      } else {
+        rest.x = 0;
+        rest.y = 0;
+        rest.width = view.width;
+        rest.height = view.height;
+      }
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       renderer.setSize(view.width, view.height, false);
       apply();
@@ -1259,6 +1309,7 @@ const Lanyard = ({
 
     const resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(container);
+    if (homeElement) resizeObserver.observe(homeElement);
     const intersectionObserver = new IntersectionObserver(([entry]) => {
       visible = entry.isIntersecting;
       if (visible) start();
@@ -1279,12 +1330,12 @@ const Lanyard = ({
       resizeObserver.disconnect();
       intersectionObserver.disconnect();
       document.removeEventListener('visibilitychange', onVisibility);
-      canvas.removeEventListener('pointerdown', onPointerDown);
-      canvas.removeEventListener('pointermove', onPointerMove);
-      canvas.removeEventListener('pointerup', onPointerUp);
-      canvas.removeEventListener('pointercancel', onPointerUp);
-      canvas.removeEventListener('lostpointercapture', onPointerUp);
-      canvas.removeEventListener('touchstart', onTouchStart);
+      target.removeEventListener('pointerdown', onPointerDown, capture);
+      target.removeEventListener('pointermove', onPointerMove, capture);
+      target.removeEventListener('pointerup', onPointerUp, capture);
+      target.removeEventListener('pointercancel', onPointerUp, capture);
+      target.removeEventListener('lostpointercapture', onPointerUp, capture);
+      target.removeEventListener('touchstart', onTouchStart, { capture });
       [bodyMesh, frontMesh, backMesh, ring, clampMesh, eyelet, band].forEach(mesh => mesh.geometry?.dispose());
       [frontMaterial, backMaterial, edgeMaterial, metalMaterial, bandMaterial].forEach(material => material.dispose());
       [frontTexture, backTexture, strapTexture, grain, weave].forEach(texture => texture.dispose());
