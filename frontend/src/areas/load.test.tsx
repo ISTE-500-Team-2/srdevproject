@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState, type ComponentType } from 'react';
 import { fromArea } from '../App';
 const { staffLoaded, memberLoaded } = vi.hoisted(() => ({ staffLoaded: vi.fn(), memberLoaded: vi.fn() }));
@@ -54,7 +54,8 @@ test('a failed download shows a reload screen in that spot only', async () => {
   const Broken = fromArea(retryable<{ P: ComponentType }>(() => Promise.reject(new Error('Failed to fetch dynamically imported module'))), (m) => m.P);
   render(<><Broken /><p>Rest of the app</p></>);
   expect((await screen.findByRole('alert')).textContent).toContain('couldn’t load');
-  expect(document.title).toBe('Page couldn’t load · The Collaboratory');
+  // The alert commits before PageTitle's passive effect updates the browser tab.
+  await waitFor(() => expect(document.title).toBe('Page couldn’t load · The Collaboratory'));
   expect(screen.getByText('Rest of the app')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
   expect(reload).toHaveBeenCalled();
@@ -71,3 +72,4 @@ test('after sign-in, staff landing in the workspace load it first; everyone else
   expect(arrivalArea('admin', '/ADMIN/payments?x=1#top')).toBe('staff');
   expect(arrivalArea('staff', '/%61dmin')).toBe('staff');
 });
+
