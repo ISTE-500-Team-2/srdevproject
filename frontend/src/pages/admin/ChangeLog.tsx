@@ -19,7 +19,7 @@ export function ChangeLog() {
   if (filters.action) query.set("action", filters.action);
   if (filters.from) query.set("from", new Date(filters.from).toISOString());
   if (filters.to) query.set("to", new Date(filters.to).toISOString());
-  const records = useApi<Page<Audit>>(
+  const records = useApi<Page<Audit> & { actions: string[] }>(
     `/admin/audit?${query.toString()}`,
   );
   return (
@@ -46,7 +46,13 @@ export function ChangeLog() {
         <MemberSelect name="userId" label="Person changed" required={false} />
         <MemberSelect name="actorId" label="Changed by" required={false} />
         <label>
-          Action <input name="action" placeholder="user.role_changed" />
+          Action
+          <select name="action" defaultValue="">
+            <option value="">All actions</option>
+            {records.data?.actions.map((action) => (
+              <option key={action} value={action}>{action}</option>
+            ))}
+          </select>
         </label>
         <label>
           From <input name="from" type="datetime-local" />

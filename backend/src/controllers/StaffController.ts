@@ -303,19 +303,22 @@ export class StaffController {
         "Audit start time must not be after the end time.",
       );
     res.json({
-      data: page(
-        await this.model.audits(
-          {
-            userId: optionalPositiveId(req.query.userId, "User"),
-            actorId: optionalPositiveId(req.query.actorId, "Actor"),
-            action: optionalAuditAction(req.query.action),
-            from,
-            to,
-          },
+      data: {
+        actions: await this.model.auditActions(),
+        ...page(
+          await this.model.audits(
+            {
+              userId: optionalPositiveId(req.query.userId, "User"),
+              actorId: optionalPositiveId(req.query.actorId, "Actor"),
+              action: optionalAuditAction(req.query.action),
+              from,
+              to,
+            },
+            offset,
+          ),
           offset,
         ),
-        offset,
-      ),
+      },
     });
   };
   policies = async (_req: Request, res: Response) => {
