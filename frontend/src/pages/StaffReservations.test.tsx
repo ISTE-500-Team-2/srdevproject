@@ -284,3 +284,47 @@ test("a booking form opened before equipment loads books the machine it shows", 
   const [, options] = api.mock.calls.find(([path, o]) => path === "/reservations" && o?.method === "POST")!;
   expect(options.body).toMatchObject({ equipmentId: 3 });
 });
+
+test("after a move, the panel keeps the saved time even when a read hasn't caught up", async () => {
+  const original = api.getMockImplementation()!;
+  const moved = { ...reservation, revision: 3, startTime: "2026-11-03T19:00:00Z", endTime: "2026-11-03T21:00:00Z" };
+  // Reads keep returning revision 2 at the old time.
+  api.mockImplementation((path: string, options?: { method?: string }) =>
+    path === "/admin/reservations/17" && options?.method === "PATCH" ? Promise.resolve(moved) : original(path, options),
+  );
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: /Jordan Member, 10:00 AM/ }));
+  fireEvent.click(screen.getByRole("button", { name: /Change time or machine/ }));
+  const twoPm = (await screen.findByRole("button", { name: "2:00 PM" })) as HTMLButtonElement;
+  await waitFor(() => expect(twoPm.disabled).toBe(false));
+  fireEvent.click(twoPm);
+  const save = screen.getByRole("button", { name: "Save changes" }) as HTMLButtonElement;
+  await waitFor(() => expect(save.disabled).toBe(false));
+  fireEvent.click(save);
+  expect(await screen.findByRole("heading", { name: "Laser cutter, 2:00–4:00 PM" })).toBeTruthy();
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+  expect(screen.getByRole("heading", { name: "Laser cutter, 2:00–4:00 PM" })).toBeTruthy();
+  // Cancelling names the time that will actually be cancelled.
+  fireEvent.click(screen.getByRole("button", { name: "Cancel…" }));
+  expect(screen.getByRole("group", { name: "Cancel this reservation?" }).textContent).toContain("Laser cutter 2:00–4:00 PM");
+});
+
+test("when someone else moves the open reservation, the panel follows its new machine", async () => {
+  const original = api.getMockImplementation()!;
+  api.mockImplementation((path: string, options?: unknown) =>
+    path === "/equipment"
+      ? Promise.resolve([
+          { id: 3, name: "Laser cutter", type: "Laser", status: "available", image: "", certification: "Laser safety" },
+          { id: 4, name: "Kiln", type: "Ceramics", status: "unavailable", image: "", certification: null },
+        ])
+      : original(path, options),
+  );
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: /Jordan Member, 10:00 AM/ }));
+  expect(screen.queryByText(/is out of service/)).toBeNull();
+  booking = { ...reservation, revision: 3, equipmentId: 4, equipmentName: "Kiln" };
+  await act(async () => { window.dispatchEvent(new Event("focus")); });
+  expect(await screen.findByRole("heading", { name: "Kiln, 10:00 AM–12:00 PM" })).toBeTruthy();
+  expect(screen.getByText(/Kiln is out of service\. Move or cancel this reservation\./)).toBeTruthy();
+  expect(screen.getByText("No certification")).toBeTruthy();
+});

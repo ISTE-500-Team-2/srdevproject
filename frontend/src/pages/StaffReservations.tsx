@@ -115,8 +115,14 @@ function Workspace({ zone, now }: { zone: string; now: number }) {
     eveBookings.reload();
     list.reload();
   };
-  // The open reservation, as of the latest read, so a save sends its current revision.
-  const latest = (r: Reservation) => bookings.find((b) => b.id === r.id) ?? list.data?.items.find((b) => b.id === r.id) ?? r;
+  // The newest copy of a reservation by revision: the panel's own (a save's result) or one from a later read.
+  // A read that hasn't caught up with a save must not bring back the old time.
+  const latest = (r: Reservation) =>
+    [bookings.find((b) => b.id === r.id), list.data?.items.find((b) => b.id === r.id)].reduce<Reservation>(
+      (best, copy) => (copy && copy.revision >= best.revision ? copy : best),
+      r,
+    );
+  const shown = panel.kind === "details" ? latest(panel.reservation) : null;
   const panelKey = panel.kind === "needs" ? "needs" : panel.kind === "details" ? `details-${panel.reservation.id}` : `edit-${panel.opened}`;
   const panelTitle = usePanelFocus(panelKey);
 
@@ -307,27 +313,24 @@ function Workspace({ zone, now }: { zone: string; now: number }) {
         <aside className="today-panel res-panel" aria-label="Reservation" onKeyDown={onPanelKey}>
           {panel.kind === "needs" ? (
             <NeedsPanel day={day} today={today} zone={zone} now={now} bookings={starting} machines={machines} loading={!!scheduleState} onOpen={open} />
-          ) : panel.kind === "details" ? (
+          ) : shown ? (
             <ReservationDetails
-              key={panel.reservation.id}
-              reservation={latest(panel.reservation)}
-              machine={machines.find((m) => m.id === panel.reservation.equipmentId)}
+              key={shown.id}
+              reservation={shown}
+              machine={machines.find((m) => m.id === shown.equipmentId)}
               zone={zone}
               now={now}
               today={today}
               titleRef={panelTitle}
               onClose={closePanel}
-              onChange={() => {
-                const r = latest(panel.reservation);
-                edit({ reservation: r, day: dayKey(Date.parse(r.startTime), zone) });
-              }}
+              onChange={() => edit({ reservation: shown, day: dayKey(Date.parse(shown.startTime), zone) })}
               onCancelled={(r) => {
                 setToast(`Reservation #${r.id} cancelled.`);
                 reloadAll();
                 if (currentPanel.current === panel) closePanel();
               }}
             />
-          ) : (
+          ) : panel.kind === "edit" ? (
             <ReservationEditor
               key={panelKey}
               from={panel.from}
@@ -350,7 +353,7 @@ function Workspace({ zone, now }: { zone: string; now: number }) {
                 open(r);
               }}
             />
-          )}
+          ) : null}
         </aside>
       </div>
       <Toast message={toast} onClose={() => setToast(null)} />
