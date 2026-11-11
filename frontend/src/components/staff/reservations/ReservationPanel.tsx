@@ -294,7 +294,9 @@ export function ReservationEditor({
 }) {
   const editing = from.reservation;
   const [userId, setUserId] = useState(editing ? String(editing.userId) : "");
-  const [equipmentId, setEquipmentId] = useState(String(editing?.equipmentId ?? from.equipmentId ?? machines.find((m) => m.status === "available")?.id ?? ""));
+  const [chosenId, setEquipmentId] = useState(String(editing?.equipmentId ?? from.equipmentId ?? ""));
+  // Until staff picks one, the first available machine. Equipment may still be loading when the form opens.
+  const equipmentId = chosenId || String(machines.find((m) => m.status === "available")?.id ?? "");
   const [day, setDay] = useState(from.day < today ? today : from.day);
   const [start, setStart] = useState<number | null>(editing ? Date.parse(editing.startTime) : (from.start ?? null));
   const [hours, setHours] = useState(editing ? reservationHours(editing) : 1);
@@ -386,7 +388,8 @@ export function ReservationEditor({
         {editing ? null : <MemberSelect value={userId} onChange={setUserId} />}
         <label className="form-field">
           Equipment
-          <select value={equipmentId} onChange={(event) => setEquipmentId(event.target.value)}>
+          <select value={equipmentId} disabled={!machines.length} onChange={(event) => setEquipmentId(event.target.value)}>
+            {machines.length ? null : <option value="">Loading equipment…</option>}
             {machines.map((m) => (
               <option key={m.id} value={m.id} disabled={m.status !== "available" && String(m.id) !== equipmentId}>
                 {m.name} ({m.type}){m.status !== "available" ? ", out of service" : ""}

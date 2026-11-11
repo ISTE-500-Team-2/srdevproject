@@ -241,3 +241,46 @@ test("a save that finishes after staff opened something else doesn't replace it"
   expect(screen.getByRole("heading", { name: "Laser cutter, 10:00 AM–12:00 PM" })).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "Laser cutter, 1:00–2:00 PM" })).toBeNull();
 });
+
+test("a cancel that finishes after staff started a booking leaves the booking form open", async () => {
+  const original = api.getMockImplementation()!;
+  let finish: (value: Reservation) => void = () => {};
+  api.mockImplementation((path: string, options?: unknown) =>
+    path === "/admin/reservations/17/cancel" ? new Promise<Reservation>((resolve) => { finish = resolve; }) : original(path, options),
+  );
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: /Jordan Member, 10:00 AM/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Cancel…" }));
+  fireEvent.click(screen.getByRole("button", { name: "Cancel reservation" }));
+  // Staff starts a new booking while the cancel is still in flight.
+  fireEvent.click(screen.getByRole("button", { name: "New reservation" }));
+  fireEvent.click(screen.getByRole("button", { name: "Pick Jordan Member" }));
+  await act(async () => finish({ ...booking, status: "cancelled" }));
+  expect(await screen.findByText("Reservation #17 cancelled.")).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Book equipment" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "Needs you" })).toBeNull();
+});
+
+test("a booking form opened before equipment loads books the machine it shows", async () => {
+  const original = api.getMockImplementation()!;
+  let loadEquipment: () => void = () => {};
+  const equipment = new Promise<void>((resolve) => { loadEquipment = resolve; });
+  api.mockImplementation((path: string, options?: unknown) =>
+    path === "/equipment" ? equipment.then(() => original(path, options)) : original(path, options),
+  );
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "New reservation" }));
+  expect((screen.getByRole("combobox", { name: /Equipment/ }) as HTMLSelectElement).disabled).toBe(true);
+  await act(async () => loadEquipment());
+  await waitFor(() => expect((screen.getByRole("combobox", { name: /Equipment/ }) as HTMLSelectElement).value).toBe("3"));
+  fireEvent.click(screen.getByRole("button", { name: "Pick Jordan Member" }));
+  const onePm = (await screen.findByRole("button", { name: "1:00 PM" })) as HTMLButtonElement;
+  await waitFor(() => expect(onePm.disabled).toBe(false));
+  fireEvent.click(onePm);
+  const book = screen.getByRole("button", { name: "Book" }) as HTMLButtonElement;
+  await waitFor(() => expect(book.disabled).toBe(false));
+  fireEvent.click(book);
+  expect(await screen.findByText("Booked Laser cutter for Jordan Member, 1:00–2:00 PM.")).toBeTruthy();
+  const [, options] = api.mock.calls.find(([path, o]) => path === "/reservations" && o?.method === "POST")!;
+  expect(options.body).toMatchObject({ equipmentId: 3 });
+});

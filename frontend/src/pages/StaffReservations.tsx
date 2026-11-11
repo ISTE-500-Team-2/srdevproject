@@ -70,7 +70,7 @@ function Workspace({ zone, now }: { zone: string; now: number }) {
   const [panel, setPanel] = useState<Panel>({ kind: "needs" });
   const [toast, setToast] = useState<string | null>(null);
   const opened = useRef(0);
-  // The panel on screen now, so a save that finishes after staff moved on leaves their new panel alone.
+  // The panel on screen now, so a save or cancel that finishes after staff moved on leaves their new panel alone.
   const currentPanel = useRef(panel);
   currentPanel.current = panel;
 
@@ -323,8 +323,8 @@ function Workspace({ zone, now }: { zone: string; now: number }) {
               }}
               onCancelled={(r) => {
                 setToast(`Reservation #${r.id} cancelled.`);
-                closePanel();
                 reloadAll();
+                if (currentPanel.current === panel) closePanel();
               }}
             />
           ) : (
