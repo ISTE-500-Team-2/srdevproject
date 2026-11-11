@@ -24,3 +24,4 @@ import './management.css';
 import './admin.css';
 import './components/staff/paymentTable.css';
 import './pages/payments.css';
+import './components/staff/record/memberRecord.css';

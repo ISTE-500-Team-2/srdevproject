@@ -4,8 +4,7 @@ import { apiText, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
 import type { ComplianceBreakdown, ComplianceIssue, ComplianceReport, Plan } from "../lib/staffContracts";
 import { LoadState, Pager } from "../components/Management";
-import { Modal } from "../components/Modal";
-import { UserDetail } from "../components/staff/UserDetail";
+import { MemberRecord } from "../components/staff/record/MemberRecord";
 import { shortDate } from "../lib/display";
 import "./certwaiver.css";
 
@@ -225,15 +224,15 @@ export function StaffCompliance() {
         </>
       ) : null}
       {open ? (
-        <Modal open width="panel" title={open.name} onClose={() => setOpen(null)}>
-          <UserDetail
-            key={open.id}
-            id={open.id}
-            plans={plans.data ?? []}
-            timeZone={config.data?.timeZone ?? "America/New_York"}
-            onChanged={report.reload}
-          />
-        </Modal>
+        <MemberRecord
+          key={open.id}
+          id={open.id}
+          name={open.name}
+          plans={plans.data ?? []}
+          timeZone={config.data?.timeZone ?? "America/New_York"}
+          onChanged={report.reload}
+          onClose={() => setOpen(null)}
+        />
       ) : null}
     </section>
   );

@@ -230,7 +230,7 @@ export function MemberCards({
   );
 }
 
-function AssignCard({
+export function AssignCard({
   userId,
   memberName,
   setup,

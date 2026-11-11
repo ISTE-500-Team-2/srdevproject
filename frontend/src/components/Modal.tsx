@@ -45,6 +45,10 @@ interface ModalProps {
   dismissible?: boolean;
   /** "panel" slides in from the right, keeping the page behind it visible. */
   width?: "compact" | "regular" | "panel" | "navigation";
+  /** Replaces the title heading with richer content; `title` still names the dialog. */
+  header?: ReactNode;
+  /** Extra class on the dialog card, for a panel with its own layout. */
+  className?: string;
 }
 
 export function Modal({
@@ -55,6 +59,8 @@ export function Modal({
   dirty = false,
   dismissible = true,
   width = "regular",
+  header,
+  className,
 }: ModalProps) {
   const [confirmingClose, setConfirmingClose] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -147,13 +153,14 @@ export function Modal({
             ref={dialogRef}
             tabIndex={-1}
             aria-modal="true"
-            aria-labelledby={titleId}
-            className={`modal-card modal-card--${width}`}
+            aria-labelledby={header ? undefined : titleId}
+            aria-label={header ? title : undefined}
+            className={`modal-card modal-card--${width}${className ? ` ${className}` : ""}`}
             role="dialog"
             onMouseDown={(event) => event.stopPropagation()}
           >
             <header className="modal-card__header">
-              <h2 id={titleId}>{title}</h2>
+              {header ?? <h2 id={titleId}>{title}</h2>}
               <button
                 ref={closeRef}
                 className="icon-button"
