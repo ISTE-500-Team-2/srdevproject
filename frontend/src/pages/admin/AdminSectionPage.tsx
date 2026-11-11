@@ -1,6 +1,6 @@
 import { Navigate, useLocation } from "react-router-dom";
 import type { AdminSection } from "./sections";
-import { legacyAdminPath } from "./sections";
+import { adminGroups, legacyAdminPath } from "./sections";
 import { TodayPage } from "./TodayPage";
 import { usePageWidth } from "../../components/admin/pageWidth";
 
@@ -10,10 +10,11 @@ const ownHeading = new Set(["access", "reports", "studios", "equipment", "analyt
 /** One workspace section under /admin/<path>. */
 export function AdminSectionPage({ section }: { section: AdminSection }) {
   const Content = section.component;
-  usePageWidth(section.width);
+  usePageWidth("wide");
+  const group = adminGroups.find((group) => group.sections.some((item) => item.path === section.path))?.label;
   return (
     <div className="admin-section management-page">
-      {ownHeading.has(section.path) ? null : <h1 className="admin-title">{section.label}</h1>}
+      {ownHeading.has(section.path) ? null : <header className="admin-page-heading"><p className="admin-page-eyebrow">{group}</p><h1 className="admin-title">{section.label}</h1></header>}
       <Content />
     </div>
   );
