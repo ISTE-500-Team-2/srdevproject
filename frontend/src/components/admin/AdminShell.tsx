@@ -1,5 +1,5 @@
 import { CalendarDays, Eye, LogOut, Menu } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { errorMessage } from "../../lib/api";
@@ -65,18 +65,31 @@ export function AdminShell() {
               {group.label}
             </span>
             {group.sections.map(({ path, label, icon: Icon }) => (
-              <NavLink key={path} className={navLinkClass} to={`/admin/${path}`}>
-                <Icon aria-hidden="true" />
-                {label}
-              </NavLink>
+              <Fragment key={path}>
+                <NavLink className={navLinkClass} to={`/admin/${path}`}>
+                  <Icon aria-hidden="true" />
+                  {label}
+                </NavLink>
+                {/* Opening a member's account sits with the people it acts on. */}
+                {path === "members" ? (
+                  <button
+                    type="button"
+                    className="admin-nav__item"
+                    aria-haspopup="dialog"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setPickerOpen(true);
+                    }}
+                  >
+                    <Eye aria-hidden="true" />
+                    View a member
+                  </button>
+                ) : null}
+              </Fragment>
             ))}
           </div>
         ))}
       </nav>
-      <button type="button" className="button admin-side__view" onClick={() => setPickerOpen(true)}>
-        <Eye aria-hidden="true" />
-        View member site
-      </button>
       <div className="admin-side__appearance">
         <AppearanceControl compact />
       </div>
@@ -122,10 +135,6 @@ export function AdminShell() {
           <Link className="admin-top__brand" to="/admin" aria-label="Staff workspace home">
             <img src="/assets/collaboratory-logo.webp" alt="" />
           </Link>
-          <button type="button" className="button admin-top__view" aria-label="View member site" title="View member site" onClick={() => setPickerOpen(true)}>
-            <Eye aria-hidden="true" />
-            <span>View member site</span>
-          </button>
         </header>
         {error ? (
           <p className="form-error admin-error" role="alert">

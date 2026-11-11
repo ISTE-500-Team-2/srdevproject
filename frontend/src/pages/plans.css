@@ -123,8 +123,8 @@
 .plans-archived .plans-row:first-child { border-top: 0; }
 
 /* Editor: a side panel that stays in view while the list scrolls. */
-/* Sticks below the 64px workspace top bar. */
-.plans-editor { position: sticky; top: 80px; max-height: calc(100vh - 96px); overflow-y: auto; scroll-margin-top: 80px; }
+/* Only sticky on wide screens, where the workspace has no top bar. */
+.plans-editor { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; scroll-margin-top: 16px; }
 .plans-editor form { display: flex; flex-direction: column; }
 .plans-editor__head {
   display: flex;

@@ -59,6 +59,8 @@
 }
 .admin-nav__item svg { flex: none; width: 17px; height: 17px; color: #8b7163; }
 .admin-nav__item:hover { background: rgba(255, 253, 250, 0.6); }
+/* "View a member" opens the account picker, so it is a button drawn as a link. */
+button.admin-nav__item { width: 100%; border: 0; background: transparent; text-align: left; cursor: pointer; }
 .admin-nav__item.is-active {
   background: #fffdfa;
   box-shadow: inset 3px 0 0 var(--orange), 0 1px 3px rgba(41, 20, 8, 0.1);
@@ -66,7 +68,6 @@
   font-weight: 600;
 }
 .admin-nav__item.is-active svg { color: var(--bronze); }
-.admin-side .admin-side__view { display: none; }
 .admin-side__me {
   display: flex;
   align-items: center;
@@ -100,11 +101,12 @@
 .admin-avatar--large { width: 50px; height: 50px; background: #dfe9dc; color: #2c5432; font-size: var(--text-base); }
 
 .admin-main { display: flex; flex-direction: column; min-width: 0; }
+/* The top bar only carries the mobile menu and logo; the sidebar has everything else. */
 .admin-top {
   position: sticky;
   top: 0;
   z-index: 50;
-  display: flex;
+  display: none;
   align-items: center;
   gap: 12px;
   min-height: 64px;
@@ -113,10 +115,7 @@
   background: rgba(250, 248, 245, 0.92);
   backdrop-filter: blur(14px);
 }
-.admin-top .admin-top__menu, .admin-top__brand { display: none; }
 .admin-top__brand img { width: 84px; }
-.admin-top .admin-top__view { margin-left: auto; min-height: 38px; padding: 0 14px; font-size: var(--text-base-sm); }
-.admin-top__view svg, .admin-side__view svg { width: 17px; height: 17px; }
 .admin-error { margin: 12px 28px 0; }
 /* Pages are centred and capped by kind (see components/admin/pageWidth.tsx). */
 .admin-content { flex: 1; width: 100%; max-width: 1296px; margin-inline: auto; padding: 26px 28px 56px; }
@@ -146,25 +145,16 @@
 .modal-card--navigation .modal-card__header h2 { font: 600 var(--text-base) Barlow, sans-serif; }
 .modal-card--navigation .modal-card__header .icon-button { flex: none; }
 .modal-card--navigation .modal-card__body { padding: 16px 12px; }
-.modal-card--navigation .admin-side__view { display: inline-flex; width: 100%; margin-top: 18px; }
 .modal-card--navigation .admin-side__me { margin-top: 12px; }
 
 @media (max-width: 900px) {
   .admin-shell { grid-template-columns: minmax(0, 1fr); background: none; }
   .admin-side { display: none; }
-  .admin-top { padding: 0 12px; }
-  .admin-top .admin-top__menu { display: inline-grid; }
-  .admin-top__view span { display: none; }
-  .admin-top .admin-top__view { min-width: 44px; min-height: 44px; padding: 0 11px; }
-  .admin-content { padding: 18px 16px 48px; }
-}
-@media (max-width: 560px) {
-  /* Menu | logo | view: equal outer columns keep the logo centred on the bar
-     whatever the two buttons measure. */
-  .admin-top { display: grid; grid-template-columns: 1fr auto 1fr; }
+  /* Menu | logo | empty: equal outer columns keep the logo centred on the bar. */
+  .admin-top { display: grid; grid-template-columns: 1fr auto 1fr; padding: 0 12px; }
   .admin-top .admin-top__menu { justify-self: start; }
   .admin-top__brand { display: block; }
-  .admin-top .admin-top__view { justify-self: end; margin-left: 0; }
+  .admin-content { padding: 18px 16px 48px; }
 }
 
 /* ---------- account picker ---------- */
