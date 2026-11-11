@@ -152,7 +152,7 @@ function FloorPanel({
         <div className="today-legend" role="list" aria-label="Timeline key">
           <span className="today-legend-item" role="listitem">
             <i className="today-swatch today-swatch--live" aria-hidden="true" />
-            In use at the reader
+            In use now
           </span>
           <span className="today-legend-item" role="listitem">
             <i className="today-swatch today-swatch--booked" aria-hidden="true" />
