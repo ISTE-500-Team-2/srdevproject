@@ -7,7 +7,7 @@ import { Skeleton, SkeletonGroup } from '../../components/Skeleton';
 import { usePageWidth } from '../../components/admin/pageWidth';
 import { shortDate } from '../../lib/display';
 import type { Reservation } from '../../lib/contracts';
-import { bookingBlock, dayKey, formatTime, localHour, machineStatus, timeWindow } from '../../lib/today';
+import { bookingBlock, dayKey, formatTime, localHour, machineStatus, mergeBookings, previousDay, timeWindow } from '../../lib/today';
 import { equipmentRate, equipmentTime, maintenanceReasons, type EquipmentDetail, type ManagedEquipment } from '../../lib/equipmentMaintenance';
 import { useDayBookings } from './useDayBookings';
 
@@ -204,18 +204,6 @@ function MachinePanel({ row, win, now, zone }: { row: Row; win: Window; now: num
 }
 
 /** The day before a YYYY-MM-DD day. */
-function previousDay(day: string) {
-  const date = new Date(`${day}T12:00:00Z`);
-  date.setUTCDate(date.getUTCDate() - 1);
-  return date.toISOString().slice(0, 10);
-}
-
-/** Bookings from both lists, each once, in start order. */
-function mergeBookings(...lists: Reservation[][]) {
-  const byId = new Map(lists.flat().map(b => [b.id, b]));
-  return [...byId.values()].sort((a, b) => Date.parse(a.startTime) - Date.parse(b.startTime));
-}
-
 /** The element's content width, kept current as the window or sidebar changes. */
 /** Marks where the selected row meets the panel, so the panel's edge opens there and the two share one outline. */
 function useJoin(key: string | undefined) {

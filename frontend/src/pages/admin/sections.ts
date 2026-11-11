@@ -58,7 +58,7 @@ export const adminGroups: { label: string; sections: AdminSection[] }[] = [
     label: "Operations",
     sections: [
       { path: "equipment", label: "Equipment", icon: Wrench, component: EquipmentManagementPage, legacyTab: "equipment" },
-      { path: "reservations", label: "Reservations", icon: CalendarRange, component: StaffReservations, legacyTab: "reservations" },
+      { path: "reservations", label: "Reservations", icon: CalendarRange, component: StaffReservations, legacyTab: "reservations", width: "wide" },
       { path: "studios", label: "Studios", icon: DoorOpen, component: StaffStudios, legacyTab: "studios" },
       { path: "access", label: "Reader access", icon: Nfc, component: AccessManagementPage, legacyTab: "access" },
       { path: "service-notices", label: "Service notices", icon: Megaphone, component: ServiceNotices, legacyTab: "service-notices", width: "narrow" },
