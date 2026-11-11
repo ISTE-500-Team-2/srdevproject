@@ -42,11 +42,12 @@ test('approved free access refreshes records after server verification', async (
  await waitFor(() => expect(props.onSaved).toHaveBeenCalledOnce());
  expect(api).toHaveBeenCalledWith('/admin/users/42/purchase', expect.objectContaining({ body: expect.objectContaining({ freeMembership: true, amountCents: 0 }) }));
 });
-test('unconfigured Stripe disables card checkout; manual issuance offers only collected or waived payments', () => {
+test('unconfigured Stripe starts on recording an outside payment, offering only collected or waived payments', () => {
  state.enabled = false; render(<AssistedPurchase {...props} />);
- fireEvent.change(screen.getByLabelText('Plan to purchase'), { target: { value: '7' } });
- expect((screen.getByRole('button', { name: 'Continue to Stripe' }) as HTMLButtonElement).disabled).toBe(true);
- fireEvent.change(screen.getByLabelText('How will the member pay?'), { target: { value: 'external' } });
+ // Card checkout can't be used here, so staff land on the form that works.
+ expect((screen.getByLabelText('How will the member pay?') as HTMLSelectElement).value).toBe('external');
+ expect(screen.queryByRole('button', { name: 'Continue to Stripe' })).toBeNull();
+ expect(screen.getByText(/Card checkout isn’t set up here/)).toBeTruthy();
  expect(screen.queryByRole('option', { name: 'Pending' })).toBeNull();
  expect(screen.getByRole('option', { name: 'Paid externally' })).toBeTruthy();
  expect(screen.getByRole('option', { name: 'Waived (zero amount)' })).toBeTruthy();

@@ -252,6 +252,57 @@ test("account status validates authority, reasons, revisions and self changes", 
   assert.equal((await member.get('/auth/session')).status,401);
 });
 
+test("member record: optional phone and note, staff-set conduct flag, and the requirements summary", async () => {
+  const admin=client(), member=client(), staff=client();
+  await admin.admin(); await member.register(); await staff.register();
+  const initial=(await person(admin,staff.id)).user;
+  assert.equal((await admin.post(`/admin/users/${staff.id}/role`,{role:'staff',revision:initial.revision,reason:'Test staff'})).status,200);
+  // Phone and the change-log note may be left blank; the log still gets a reason.
+  let target=(await person(admin,member.id)).user;
+  const profile=`/admin/users/${member.id}/profile`;
+  const saved=await staff.patch(profile,{firstName:'Casey',lastName:'Phone',phone:'',revision:target.revision});
+  assert.equal(saved.status,200,JSON.stringify(saved.body));
+  assert.equal(saved.body.data.phone,'');
+  const logged=await pool.query(`SELECT reason FROM app_staff_audit WHERE subject_id=$1 AND action='user.profile_updated' ORDER BY id DESC LIMIT 1`,[member.id]);
+  assert.equal(logged.rows[0].reason,'Name or phone updated');
+  target=(await person(admin,member.id)).user;
+  assert.equal((await staff.patch(profile,{firstName:'Casey',lastName:'Phone',phone:'5551234567',revision:target.revision,reason:'x'})).status,400,'a given note still needs 3 characters');
+  // Conduct flag: staff-only marker with a required reason, revision and self-change guard.
+  target=(await person(admin,member.id)).user;
+  const conduct=`/admin/users/${member.id}/conduct`;
+  assert.equal((await member.post(conduct,{flagged:true,revision:target.revision,reason:'Self flag'})).status,403);
+  assert.equal((await staff.post(conduct,{flagged:'yes',revision:target.revision,reason:'Bad input'})).status,400);
+  assert.equal((await staff.post(conduct,{flagged:true,revision:target.revision})).status,400);
+  assert.equal((await admin.post(`/admin/users/${admin.id}/conduct`,{flagged:true,revision:(await person(admin,admin.id)).user.revision,reason:'Self'})).body.error.code,'SELF_CHANGE_FORBIDDEN');
+  assert.equal((await staff.post(`/admin/users/${admin.id}/conduct`,{flagged:true,revision:(await person(admin,admin.id)).user.revision,reason:'Staff on admin'})).status,403);
+  const flagged=await staff.post(conduct,{flagged:true,revision:target.revision,reason:'Ignored shop rules twice'});
+  assert.equal(flagged.status,200,JSON.stringify(flagged.body));
+  assert.equal(flagged.body.data.conductFlag,true);
+  assert.equal((await staff.post(conduct,{flagged:false,revision:target.revision,reason:'Stale clear'})).body.error.code,'STALE_RECORD');
+  const audit=await pool.query(`SELECT reason FROM app_staff_audit WHERE subject_id=$1 AND action='user.conduct_flagged'`,[member.id]);
+  assert.equal(audit.rows[0].reason,'Ignored shop rules twice');
+  // Requirements: what gates the shop, read-only.
+  const path=`/admin/users/${member.id}/requirements`;
+  assert.equal((await member.get(path)).status,403);
+  const r=await staff.get(path);
+  assert.equal(r.status,200,JSON.stringify(r.body));
+  assert.equal(r.body.data.account,'active');
+  assert.equal(r.body.data.access,'active');
+  assert.equal(r.body.data.entitlement,null);
+  assert.ok(r.body.data.waivers.required>0);
+  assert.equal(r.body.data.waivers.signed,0);
+  assert.equal(r.body.data.cards.active,0);
+  assert.equal(r.body.data.minor,null);
+  assert.equal(r.body.data.training.required,r.body.data.training.missing.length);
+  await signPolicies(member);
+  const issued=await staff.post(`/admin/users/${member.id}/entitlements`,issueBody((await plan(admin)).id));
+  assert.equal(issued.status,201,JSON.stringify(issued.body));
+  const after=(await staff.get(path)).body.data;
+  assert.equal(after.waivers.signed,after.waivers.required);
+  assert.equal(after.entitlement.kind,'membership');
+  assert.equal((await staff.get('/admin/users/999999/requirements')).status,404);
+});
+
 test("concurrent administrators cannot suspend each other and leave no active administrator", async () => {
   const first=client(), second=client();
   await first.admin(); await second.register();

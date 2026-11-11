@@ -800,6 +800,31 @@ test('FR-001/035: staff and admins bulk manage reservations with audit trail',as
  assert.equal(auditCancel.rows[0].after_state.status,'cancelled');
 });
 
+test('FR-001/035: staff reservation list narrows to upcoming or past and searches member and equipment',async()=>{
+ const member=client(),staff=client();await member.demo();await staff.demo('admin');
+ await pool.query("UPDATE user_role SET roleid=(SELECT roleid FROM role WHERE role='staff') WHERE userid=$1",[staff.id]);
+ const eq=(await pool.query("INSERT INTO equipment(name,status) VALUES('Search fixture lathe','available') RETURNING equipmentid")).rows[0].equipmentid;
+ const insert=async(hoursFromNow:number,status:string)=>(await pool.query(`INSERT INTO reservation(userid,equipmentid,location,starttime,endtime,status,statusdesc)
+  VALUES($1,$2,'List fixture',(NOW()+$3*interval '1 hour') AT TIME ZONE 'UTC',(NOW()+($3+1)*interval '1 hour') AT TIME ZONE 'UTC',$4,'List fixture') RETURNING reservationid AS id`,
+  [member.id,eq,hoursFromNow,status])).rows[0].id as number;
+ const past=await insert(-30,'confirmed'),later=await insert(50,'confirmed'),sooner=await insert(5,'confirmed'),cancelled=await insert(20,'cancelled');
+ const ids=async(query:string)=>{
+  const res=await staff.agent.get(`/api/admin/reservations?equipmentId=${eq}&${query}`);
+  assert.equal(res.status,200,JSON.stringify(res.body));
+  return res.body.data.items.map((item:{id:number})=>item.id);
+ };
+ assert.deepEqual(await ids('when=upcoming'),[sooner,later],'upcoming: soonest first, no past or cancelled');
+ assert.deepEqual(await ids('when=upcoming&includeCancelled=true'),[sooner,cancelled,later]);
+ assert.deepEqual(await ids('when=past'),[past]);
+ assert.deepEqual(await ids(''),[later,cancelled,sooner,past],'without when the list is unchanged: newest first, every status');
+ assert.deepEqual(await ids('when=upcoming&search=fixture%20LATHE'),[sooner,later],'equipment name, any case');
+ const email=(await pool.query('SELECT email FROM "user" WHERE userid=$1',[member.id])).rows[0].email as string;
+ assert.deepEqual(await ids(`when=upcoming&search=${encodeURIComponent(email.slice(0,8))}`),[sooner,later],'member email');
+ assert.deepEqual(await ids('search=%25'),[],'a percent sign is matched literally, not as a wildcard');
+ const invalid=await staff.agent.get('/api/admin/reservations?when=soon');
+ assert.equal(invalid.status,400);
+});
+
 test('FR-001/035: staff reservation date filter uses application timezone day boundaries',async()=>{
  const member=client(),staff=client();await member.demo();await staff.demo('admin');
  await pool.query("UPDATE user_role SET roleid=(SELECT roleid FROM role WHERE role='staff') WHERE userid=$1",[staff.id]);
