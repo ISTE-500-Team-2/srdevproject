@@ -875,7 +875,7 @@ function CurrentPlan({
             </button>
           ) : null}
           <button type="button" className="today-button" onClick={() => open({ kind: "entitlement", item, entitlementKind: kind })}>
-            {kind === "membership" ? "Pause or end" : "Change status"}
+            {kind === "membership" ? "Change membership access" : "Change status"}
           </button>
         </div>
       ) : null}

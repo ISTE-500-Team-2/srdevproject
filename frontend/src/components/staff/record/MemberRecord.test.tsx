@@ -155,6 +155,28 @@ test("name and phone save with a blank phone and no note", async () => {
   );
 });
 
+test("suspending card membership access never promises to pause billing", async () => {
+  api.mockResolvedValue({});
+  state.detail.user = user({ status: "suspended" });
+  state.detail.memberships = [{
+    id: 1, userId: 14, planId: 3, status: "active", effectiveStatus: "active", revision: 2,
+    startsAt: "2026-11-08T20:35:00Z", endsAt: "2099-12-09T20:35:00Z",
+    plan: { name: "Monthly" }, reason: "", cardBilled: true,
+  }];
+  mount();
+  expect(screen.getByRole("button", { name: "Change membership access" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Suspend membership access" }));
+  const dialog = screen.getByRole("dialog", { name: "Monthly #1" });
+  expect(within(dialog).getByText(/does not pause or cancel card billing/)).toBeTruthy();
+  fireEvent.click(within(dialog).getByRole("radio", { name: /^Suspend access/ }));
+  fireEvent.change(within(dialog).getByLabelText("Reason"), { target: { value: "Account on hold" } });
+  fireEvent.submit(within(dialog).getByRole("form"));
+  await waitFor(() => expect(api).toHaveBeenCalledWith("/admin/users/14/entitlements/membership/1/status", {
+    method: "POST", body: { status: "suspended", revision: 2, reason: "Account on hold" },
+  }));
+  expect(await screen.findByText("The membership access is suspended. Card billing is unchanged.")).toBeTruthy();
+});
+
 test("conduct flag is set from the record with a reason", async () => {
   api.mockResolvedValue(user({ conductFlag: true, revision: 8 }));
   mount();

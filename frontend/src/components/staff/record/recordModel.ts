@@ -350,9 +350,9 @@ export function needs(input: {
       icon: "pause",
       title: days ? `On hold for ${days} ${days === 1 ? "day" : "days"}` : "On hold",
       detail: live.cardBilled
-        ? `${name}’s card membership keeps billing during the hold. Pause it too if the hold will last.`
-        : `${name}’s membership keeps running during the hold. Pause it too if the hold will last.`,
-      action: { kind: "entitlement", label: "Pause membership", item: live },
+        ? `${name}’s card membership keeps billing during the hold. Suspending membership access does not pause or cancel card billing.`
+        : `${name}’s membership keeps running during the hold. Suspending access does not extend its end date.`,
+      action: { kind: "entitlement", label: "Suspend membership access", item: live },
     });
   }
   if (req?.waivers.missing.length && p.status === "active")

@@ -139,8 +139,9 @@ test("needs lists only what a staff member can act on now", () => {
   // A month away is not a task, and someone who can't manage the account gets no buttons for it.
   expect(needs({ person: person(), req: req(), audit: [], memberships: [{ ...live, endsAt: "2026-12-09T20:35:00Z" }], payments: [pending], canManage: false, now: NOW })).toEqual([]);
   const hold = needs({ person: person({ status: "suspended" }), req: req(), audit: [], memberships: [{ ...live, cardBilled: true }], payments: [], canManage: true, now: NOW });
-  expect(hold[0]).toMatchObject({ id: "hold", action: { kind: "entitlement", label: "Pause membership" } });
+  expect(hold[0]).toMatchObject({ id: "hold", action: { kind: "entitlement", label: "Suspend membership access" } });
   expect(hold[0]!.detail).toMatch(/keeps billing/);
+  expect(hold[0]!.detail).toMatch(/does not pause or cancel card billing/);
 });
 
 test("current plan is the live one; everything else is earlier", () => {

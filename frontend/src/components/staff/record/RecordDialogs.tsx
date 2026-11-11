@@ -283,14 +283,19 @@ export function RecordDialogHost({
               }
               throw error;
             }
-            return status === "active" ? `The ${noun} is active.` : status === "suspended" ? `The ${noun} is paused.` : `The ${noun} has ended.`;
+            const message = status === "active" ? `The ${noun} access is active.` : status === "suspended" ? `The ${noun} access is suspended.` : `The ${noun} access has ended.`;
+            return item.cardBilled ? `${message} Card billing is unchanged.` : message;
           }}
         >
+          <p className="mr-dialog__lead">
+            This changes access only; it does not extend the end date or issue a refund.
+            {item.cardBilled ? " It does not pause or cancel card billing." : ""}
+          </p>
           <fieldset className="mr-options">
             <legend className="sr-only">{noun} status</legend>
             <Choice name="status" value="active" title="Active" help="Grants access until its end date." checked={item.status === "active"} />
-            <Choice name="status" value="suspended" title="Paused" help="Doesn’t grant access until you make it active again." checked={item.status === "suspended"} />
-            <Choice name="status" value="revoked" title="End it now" help={`Can’t be undone. Issue a new ${noun} to give access again.`} checked={false} tone="bad" />
+            <Choice name="status" value="suspended" title="Suspend access" help="Doesn’t grant access until you make it active again, within its original dates." checked={item.status === "suspended"} />
+            <Choice name="status" value="revoked" title="End access now" help={`Can’t be undone. Issue a new ${noun} to give access again.`} checked={false} tone="bad" />
           </fieldset>
           <Reason />
         </RecordDialog>
