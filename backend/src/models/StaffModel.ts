@@ -37,6 +37,11 @@ const personColumns = `u.userid AS id,u.firstname AS "firstName",u.lastname AS "
   u.profile_address AS address,u.contact_preferences AS "contactPreferences",
   COALESCE((SELECT json_agg(r.role ORDER BY r.role) FROM user_role ur JOIN role r USING(roleid) WHERE ur.userid=u.userid),'[]') AS roles`;
 
+export type PaymentFilters = { status?: string | null; from?: string | null; to?: string | null };
+export type PaymentSummary = { count: number; collected: string; pendingCount: number; pending: string; refunded: string };
+// $1 member, $2 status, $3/$4 recorded-at window (ISO instants); paymentdate is stored as UTC.
+const PAYMENT_FILTER = `($1::int IS NULL OR p.userid=$1) AND ($2::text IS NULL OR p.paymentstatus=$2)
+      AND ($3::timestamptz IS NULL OR p.paymentdate AT TIME ZONE 'UTC'>=$3) AND ($4::timestamptz IS NULL OR p.paymentdate AT TIME ZONE 'UTC'<$4)`;
 export class StaffModel {
   constructor(
     private db: Database,
@@ -342,12 +347,13 @@ export class StaffModel {
       )
     ).rows[0];
   }
-  async payments(userId: number | null, offset = 0) {
+  async payments(userId: number | null, offset = 0, filters: PaymentFilters = {}) {
     return (
       await this.db.query(
         `SELECT p.paymentid AS id,p.userid AS "userId",u.firstname || ' ' || u.lastname AS "memberName",
       p.membershipid AS "membershipId",d.dayid AS "dayPassId",p.price::text AS amount,p.paymentstatus AS status,p.method,p.reference,p.revision,
       p.paymentdate AT TIME ZONE 'UTC' AS "recordedAt",p.updated_at AS "updatedAt",
+      invoice.id AS "invoiceId",invoice.refund_status AS "refundStatus",
       COALESCE(m.plan_snapshot->>'name',d.plan_snapshot->>'name',t.tiername,
         CASE WHEN booking.reservationid IS NOT NULL THEN 'Equipment: '||machine.name||
           CASE WHEN booking.status='cancelled' AND p.paymentstatus='paid' THEN ' (cancelled; refund due)' ELSE '' END END,
@@ -360,10 +366,25 @@ export class StaffModel {
       LEFT JOIN reservation booking ON booking.payment_id=p.paymentid LEFT JOIN equipment machine ON machine.equipmentid=booking.equipmentid
       LEFT JOIN app_training_enrollment training ON training.payment_id=p.paymentid
       LEFT JOIN app_training_class class ON class.id=training.class_id
-      WHERE ($1::int IS NULL OR p.userid=$1) ORDER BY p.paymentid DESC LIMIT 51 OFFSET $2`,
-        [userId, offset],
+      LEFT JOIN LATERAL(SELECT id,refund_status FROM app_membership_invoice WHERE payment_id=p.paymentid ORDER BY period_start DESC LIMIT 1) invoice ON true
+      WHERE ${PAYMENT_FILTER} ORDER BY p.paymentid DESC LIMIT 51 OFFSET $5`,
+        [userId, filters.status ?? null, filters.from ?? null, filters.to ?? null, offset],
       )
     ).rows;
+  }
+  /** Totals for every payment matching the filters, not just the current page. */
+  async paymentSummary(userId: number | null, filters: PaymentFilters = {}) {
+    return (
+      await this.db.query(
+        `SELECT COUNT(*)::int AS count,
+      COALESCE(SUM(p.price) FILTER (WHERE p.paymentstatus='paid'),0)::text AS collected,
+      COUNT(*) FILTER (WHERE p.paymentstatus='pending')::int AS "pendingCount",
+      COALESCE(SUM(p.price) FILTER (WHERE p.paymentstatus='pending'),0)::text AS pending,
+      COALESCE(SUM(p.price) FILTER (WHERE p.paymentstatus='refunded'),0)::text AS refunded
+      FROM payment p WHERE ${PAYMENT_FILTER}`,
+        [userId, filters.status ?? null, filters.from ?? null, filters.to ?? null],
+      )
+    ).rows[0] as PaymentSummary;
   }
   async audit(
     actor: number | null,

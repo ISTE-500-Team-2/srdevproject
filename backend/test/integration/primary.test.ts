@@ -739,6 +739,50 @@ test("payment records are owner-scoped, transition-controlled, audited, and do n
   assert.equal(changed.actorId, admin.id);
 });
 
+test("staff payment list filters by status and time, and totals the whole filtered set", async () => {
+  const admin = client(),
+    user = client();
+  await admin.admin();
+  await user.register();
+  const p = await plan(admin);
+  const issued = await issue(admin, user, p.id);
+  // A second, older and still unpaid record for the same member.
+  const older = (
+    await pool.query(
+      `INSERT INTO payment(userid,price,paymentstatus,paymentdate,method,reference,note)
+       VALUES($1,20,'pending',(now() AT TIME ZONE 'UTC') - interval '40 days','unspecified','','Day pass at desk') RETURNING paymentid`,
+      [user.id],
+    )
+  ).rows[0].paymentid;
+  const paid = (await pool.query("SELECT price::text FROM payment WHERE paymentid=$1", [issued.paymentId])).rows[0].price;
+  const list = async (query: string) => {
+    const r = await admin.get(`/admin/payments?userId=${user.id}${query}`);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    return r.body.data;
+  };
+  const all = await list("");
+  assert.deepEqual(all.items.map((i: { id: number }) => i.id), [older, issued.paymentId]);
+  assert.equal(all.items[0].invoiceId, null);
+  assert.equal(all.items[0].refundStatus, null);
+  assert.deepEqual(all.summary, { count: 2, collected: paid, pendingCount: 1, pending: "20.00", refunded: "0" });
+  const pending = await list("&status=pending");
+  assert.deepEqual(pending.items.map((i: { id: number }) => i.id), [older]);
+  assert.equal(pending.summary.count, 1);
+  assert.equal(pending.summary.collected, "0");
+  const recent = await list(`&from=${new Date(Date.now() - 7 * 86400000).toISOString()}`);
+  assert.deepEqual(recent.items.map((i: { id: number }) => i.id), [issued.paymentId]);
+  assert.equal(recent.summary.pendingCount, 0);
+  const window = await list(`&from=${new Date(Date.now() - 60 * 86400000).toISOString()}&to=${new Date(Date.now() - 7 * 86400000).toISOString()}`);
+  assert.deepEqual(window.items.map((i: { id: number }) => i.id), [older]);
+  assert.equal((await admin.get("/admin/payments?status=lost")).status, 400);
+  assert.equal((await admin.get("/admin/payments?from=yesterday")).status, 400);
+  assert.equal(
+    (await admin.get(`/admin/payments?from=${new Date().toISOString()}&to=${new Date(Date.now() - 1000).toISOString()}`)).status,
+    400,
+  );
+  assert.equal((await user.get("/admin/payments")).status, 403);
+});
+
 test("new full-length policy versions require fresh agreement; old signatures remain and only admins publish", async () => {
   const admin = client(),
     user = client();

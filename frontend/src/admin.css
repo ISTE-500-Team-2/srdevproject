@@ -79,6 +79,14 @@
 .admin-side__who strong { overflow: hidden; font-size: var(--text-base-sm); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .admin-side__who span { color: #8b7163; font-size: var(--text-xs); }
 .admin-side__out { margin-left: auto; color: #8b7163; }
+/* Short laptop screens: tighten the nav so the account and sign-out stay on screen without scrolling. */
+@media (min-width: 901px) and (max-height: 980px) {
+  .admin-side { padding-top: 14px; padding-bottom: 12px; }
+  .admin-nav { margin-top: 6px; }
+  .admin-nav__group { margin-top: 8px; }
+  .admin-nav__item { min-height: 36px; }
+  .admin-side__me { padding-top: 10px; }
+}
 
 .admin-avatar {
   flex: none;

@@ -45,6 +45,7 @@ function waiverValidity(value: unknown) {
     throw new AppError(400, "INVALID_INPUT", "Waiver validity must be 1–3650 days.");
   return value as number;
 }
+const PAYMENT_STATUSES = ["pending", "paid", "void", "waived", "refunded"] as const;
 function optionalInstant(value: unknown) {
   if (value == null || value === "") return null;
   return instant(value);
@@ -250,15 +251,26 @@ export class StaffController {
   };
   payments = async (req: Request, res: Response) => {
     const offset = pageOffset(req.query.offset);
-    res.json({
-      data: page(
-        await this.model.payments(
-          req.query.userId == null ? null : positiveId(req.query.userId),
-          offset,
-        ),
-        offset,
-      ),
-    });
+    const userId = optionalPositiveId(req.query.userId, "User");
+    const filters = {
+      status:
+        req.query.status == null || req.query.status === ""
+          ? null
+          : oneOf(req.query.status, PAYMENT_STATUSES, "Payment status"),
+      from: optionalInstant(req.query.from),
+      to: optionalInstant(req.query.to),
+    };
+    if (filters.from && filters.to && filters.from > filters.to)
+      throw new AppError(
+        400,
+        "INVALID_INPUT",
+        "Payment start time must not be after the end time.",
+      );
+    const [rows, summary] = await Promise.all([
+      this.model.payments(userId, offset, filters),
+      this.model.paymentSummary(userId, filters),
+    ]);
+    res.json({ data: { ...page(rows, offset), summary } });
   };
   payment = async (req: Request, res: Response) => {
     const status = oneOf(

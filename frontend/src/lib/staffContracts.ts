@@ -59,6 +59,20 @@ export interface Payment {
   recordedAt: string;
   updatedAt: string;
   planName: string;
+  /** Set for card membership payments; the Stripe invoice a refund goes through. */
+  invoiceId?: string | null;
+  /** Stripe refund state for that invoice, once a refund has been asked for. */
+  refundStatus?: string | null;
+}
+export interface PaymentSummary {
+  count: number;
+  collected: string;
+  pendingCount: number;
+  pending: string;
+  refunded: string;
+}
+export interface PaymentPage extends Page<Payment> {
+  summary: PaymentSummary;
 }
 export interface Audit {
   id: string;

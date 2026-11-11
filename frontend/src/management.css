@@ -223,6 +223,15 @@
 .management-form .button {
   justify-self: start;
 }
+/* Money-moving or irreversible submits (card refunds). */
+.button.button--danger-action {
+  border-color: var(--hold-danger);
+  background: var(--hold-danger);
+  color: var(--hold-danger-ink);
+}
+.button.button--danger-action:hover:not(:disabled) {
+  filter: brightness(0.92);
+}
 .management-record {
   padding: 16px;
   border: 1px solid #deded8;

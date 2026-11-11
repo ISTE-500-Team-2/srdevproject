@@ -1,55 +1,192 @@
-import { useState } from "react";
-import { BillingRefunds } from "../components/BillingRefunds";
+import { useEffect, useRef, useState } from "react";
 import { MemberSelect } from "../components/MemberSelect";
-import { LoadState, Pager, PaymentList } from "../components/Management";
-import { PaymentEditor } from "../components/staff/PaymentControls";
-import type { Page, Payment } from "../lib/staffContracts";
+import { LoadState, Pager } from "../components/Management";
+import { paymentStatusName } from "../components/staff/PaymentControls";
+import { PaymentTable } from "../components/staff/PaymentTable";
+import { dollars } from "../lib/display";
+import type { PaymentPage } from "../lib/staffContracts";
 import { useApi } from "../lib/useApi";
+import "./payments.css";
+
+const periods = [
+  { value: "all", label: "All time" },
+  { value: "today", label: "Today" },
+  { value: "7d", label: "Last 7 days" },
+  { value: "30d", label: "Last 30 days" },
+  { value: "month", label: "This month" },
+] as const;
+type Period = (typeof periods)[number]["value"];
+
+/** Start of the period in the browser's local time, as an ISO instant. */
+function periodStart(period: Period) {
+  if (period === "all") return "";
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  if (period === "7d") start.setDate(start.getDate() - 6);
+  if (period === "30d") start.setDate(start.getDate() - 29);
+  if (period === "month") start.setDate(1);
+  return start.toISOString();
+}
 
 export function StaffPayments() {
   const [offset, setOffset] = useState(0),
-    [userId, setUserId] = useState("");
-  const payments = useApi<Page<Payment>>(
-    `/admin/payments?offset=${offset}${userId ? `&userId=${encodeURIComponent(userId)}` : ""}`,
-  );
+    [userId, setUserId] = useState(""),
+    [period, setPeriod] = useState<Period>("all"),
+    [from, setFrom] = useState(""),
+    [status, setStatus] = useState(""),
+    [open, setOpen] = useState<number | null>(null),
+    [notice, setNotice] = useState("");
+  const query = new URLSearchParams({ offset: String(offset) });
+  if (userId) query.set("userId", userId);
+  if (from) query.set("from", from);
+  if (status) query.set("status", status);
+  // Saving keeps the table on screen while it refreshes; a new filter or page loads fresh.
+  const payments = useApi<PaymentPage>(`/admin/payments?${query}`, { retainOnReload: true });
+  const filtered = Boolean(userId || from || status);
+  const refilter = (change: () => void) => {
+    change();
+    setOffset(0);
+    setOpen(null);
+    setNotice("");
+  };
+  const noticeRef = useRef<HTMLParagraphElement>(null),
+    refocus = useRef(false);
+  const done = (message: string) => {
+    setOpen(null);
+    setNotice(message);
+    refocus.current = true;
+    payments.reload();
+  };
+  const page = payments.data;
+  // If the saved payment left these results (or the table emptied), focus would fall to the page: keep it on the notice.
+  useEffect(() => {
+    if (!refocus.current || payments.refreshing) return;
+    refocus.current = false;
+    const active = document.activeElement;
+    if (!active || active === document.body || !active.isConnected) noticeRef.current?.focus();
+  }, [page, payments.refreshing]);
+  const summary = page?.summary;
+
   return (
-    <section>
-      <h2>Payment history</h2>
-      <BillingRefunds />
-      <p>
-        These records track payments taken at the front desk. Changing them doesn't charge or refund a card.
+    <section className="payments">
+      <p className="payments__intro">
+        Every payment: what members paid at the front desk and their card payments online.
       </p>
-      <div className="management-search">
-        {/* Picking a member filters straight away; Change clears it. */}
+      <div className="management-search payments__filters" role="group" aria-label="Filter payments">
         <MemberSelect
-          label="Filter by member"
+          label="Member"
           required={false}
           value={userId}
-          onChange={(id) => {
-            setUserId(id);
-            setOffset(0);
+          onChange={(id) => refilter(() => setUserId(id))}
+        />
+        <label>
+          Period
+          <select
+            value={period}
+            onChange={(e) => {
+              const next = e.target.value as Period;
+              refilter(() => {
+                setPeriod(next);
+                setFrom(periodStart(next));
+              });
+            }}
+          >
+            {periods.map((p) => (
+              <option key={p.value} value={p.value}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Status
+          <select value={status} onChange={(e) => refilter(() => setStatus(e.target.value))}>
+            <option value="">Any status</option>
+            {["pending", "paid", "refunded", "void", "waived"].map((s) => (
+              <option key={s} value={s}>
+                {paymentStatusName(s)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {summary ? (
+        <dl className="payments__summary" aria-label="Totals for these payments">
+          <div>
+            <dt>Collected</dt>
+            <dd>{dollars(summary.collected)}</dd>
+          </div>
+          <div className={summary.pendingCount ? "is-warn" : undefined}>
+            <dt>Awaiting payment</dt>
+            <dd>
+              {dollars(summary.pending)}
+              <small>
+                {summary.pendingCount} {summary.pendingCount === 1 ? "payment" : "payments"}
+              </small>
+            </dd>
+          </div>
+          <div>
+            <dt>Refunded</dt>
+            <dd>{dollars(summary.refunded)}</dd>
+          </div>
+          <div>
+            <dt>Payments</dt>
+            <dd>{summary.count}</dd>
+          </div>
+        </dl>
+      ) : null}
+
+      {/* Saving closes the editor, so the result is confirmed here. */}
+      <p role="status" ref={noticeRef} tabIndex={-1} className={notice ? "payments__notice" : "sr-only"}>
+        {notice}
+      </p>
+
+      <LoadState {...payments} loading={payments.loading && !page} />
+      {page ? (
+        page.items.length ? (
+          <PaymentTable
+            items={page.items}
+            caption={`Payments ${offset + 1}–${offset + page.items.length} of ${summary?.count ?? page.items.length}, newest first`}
+            open={open}
+            onOpen={(id) => {
+              setOpen(id);
+              if (id !== null) setNotice("");
+            }}
+            onChanged={done}
+          />
+        ) : (
+          <div className="payments__empty">
+            <p>{filtered ? "No payments match these filters." : "No payments yet."}</p>
+            {filtered ? (
+              <button
+                type="button"
+                className="button button--quiet"
+                onClick={() =>
+                  refilter(() => {
+                    setUserId("");
+                    setPeriod("all");
+                    setFrom("");
+                    setStatus("");
+                  })
+                }
+              >
+                Clear filters
+              </button>
+            ) : null}
+          </div>
+        )
+      ) : null}
+      {page ? (
+        <Pager
+          offset={offset}
+          nextOffset={page.nextOffset}
+          onChange={(next) => {
+            setOffset(next);
+            setOpen(null);
+            setNotice("");
           }}
         />
-      </div>
-      <LoadState {...payments} />
-      {payments.data ? (
-        <>
-          <PaymentList
-            page={payments.data}
-            actions={(p) => (
-              <PaymentEditor
-                key={`${p.id}-${p.revision}`}
-                payment={p}
-                onSaved={payments.reload}
-              />
-            )}
-          />
-          <Pager
-            offset={offset}
-            nextOffset={payments.data.nextOffset}
-            onChange={setOffset}
-          />
-        </>
       ) : null}
     </section>
   );

@@ -1,6 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import { errorMessage } from "../lib/api";
-import type { Audit, Entitlement, Page, Payment } from "../lib/staffContracts";
+import type { Audit, Entitlement } from "../lib/staffContracts";
 
 import { accessReasonLabel } from "../lib/accessReadiness";
 import { dateTime, dollars } from "../lib/display";
@@ -43,8 +43,8 @@ export function Field({
     </label>
   );
 }
-export function ReasonField() {
-  return <Field label="Reason for change" name="reason" maxLength={255} />;
+export function ReasonField({ label = "Reason for change" }: { label?: string }) {
+  return <Field label={label} name="reason" maxLength={255} />;
 }
 export function ActionForm({
   title,
@@ -53,6 +53,7 @@ export function ActionForm({
   children,
   disabled = false,
   submitDisabled = false,
+  danger = false,
 }: {
   title: string;
   submitLabel: string;
@@ -60,6 +61,8 @@ export function ActionForm({
   children: ReactNode;
   disabled?: boolean;
   submitDisabled?: boolean;
+  /** For actions that move money or can't be undone. */
+  danger?: boolean;
 }) {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
@@ -85,7 +88,7 @@ export function ActionForm({
       <h3>{title}</h3>
       <fieldset disabled={busy || disabled}>
         {children}
-        <button className="button button--primary" type="submit" disabled={submitDisabled}>
+        <button className={`button ${danger ? "button--danger-action" : "button--primary"}`} type="submit" disabled={submitDisabled}>
           {busy ? "Saving…" : submitLabel}
         </button>
       </fieldset>
@@ -189,41 +192,6 @@ export function EntitlementList({
         ))
       ) : (
         <p>No memberships or day passes have been issued.</p>
-      )}
-    </div>
-  );
-}
-export function PaymentList({
-  page,
-  actions,
-}: {
-  page: Page<Payment>;
-  actions?: (p: Payment) => ReactNode;
-}) {
-  return (
-    <div className="management-records">
-      {page.items.length ? (
-        page.items.map((p) => (
-          <article className="management-record" key={p.id}>
-            <div>
-              <h3>
-                Payment #{p.id} · {p.memberName}
-              </h3>
-              <strong>{dollars(p.amount)}</strong>
-            </div>
-            <p>
-              {p.planName} · <span className="status-label">{p.status}</span> ·{" "}
-              {p.method.replaceAll("_", " ")}
-            </p>
-            <p>
-              Recorded {dateTime(p.recordedAt)}
-              {p.reference ? ` · Reference: ${p.reference}` : ""}
-            </p>
-            {actions?.(p)}
-          </article>
-        ))
-      ) : (
-        <p>No payment records.</p>
       )}
     </div>
   );
