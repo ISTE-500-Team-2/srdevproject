@@ -367,6 +367,47 @@ test("class capacity is transactional, room conflicts preserved, and instructors
     .rows[0].count;
   assert.equal(Number(count), 1, "Attendance must not silently grant training");
 });
+test("classes never hold more than 15 people", async () => {
+  const room = (await pool.query(
+    "INSERT INTO room(name,location,status,capacity) VALUES('Large classroom','Fixture','available',30) RETURNING roomid",
+  )).rows[0].roomid;
+  const catalogId = (await pool.query("SELECT id FROM app_class_catalog ORDER BY id LIMIT 1")).rows[0].id;
+  const startsAt = Date.now() + 3 * 86400000;
+  const body = {
+    title: "Full workshop",
+    catalogId,
+    instructorId: adminId,
+    roomId: room,
+    startsAt: new Date(startsAt).toISOString(),
+    endsAt: new Date(startsAt + 3600000).toISOString(),
+    reason: "Capacity limit test",
+  };
+  const tooBig = await post("/classes", { ...body, capacity: 16 });
+  assert.equal(tooBig.status, 400);
+  assert.equal(tooBig.body.error.code, "CAPACITY_LIMIT");
+  const created = await post("/classes", { ...body, capacity: 15 });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const id = created.body.data.id;
+  await assert.rejects(
+    pool.query("UPDATE app_training_class SET capacity=16 WHERE id=$1", [id]),
+    "The database refuses a 16th seat even outside the API",
+  );
+  // Fill all 15 seats, then a 16th person is turned away.
+  await pool.query(
+    `WITH people AS (
+       INSERT INTO "user"(firstname,lastname,email,password,phone,status,statusdesc,registration_date)
+       SELECT 'Seat',n::text,'seat'||n||'-'||$2||'@example.invalid','x','0000000000','active','Capacity fixture',NOW() AT TIME ZONE 'UTC'
+       FROM generate_series(1,15) n RETURNING userid)
+     INSERT INTO app_training_enrollment(class_id,user_id) SELECT $1,userid FROM people`,
+    [id, randomUUID()],
+  );
+  const full = await memberPost(`/classes/${id}/enroll`, {});
+  assert.equal(full.status, 409, JSON.stringify(full.body));
+  assert.equal(full.body.error.code, "CLASS_FULL");
+  const seats = (await member.get(`/api/classes/${id}/member-roster`)).body.data;
+  assert.equal(seats.capacity, 15);
+  assert.equal(seats.seatsAvailable, 0);
+});
 test("real reports reconcile refunds, clip usage, export structured CSV/PDF and preserve immutable audit", async () => {
   await pool.query(
     `INSERT INTO payment(userid,price,paymentstatus,paymentdate,method) VALUES($1,100,'paid',NOW() AT TIME ZONE 'UTC','cash'),($1,20,'refunded',NOW() AT TIME ZONE 'UTC','card'),($1,999,'pending',NOW() AT TIME ZONE 'UTC','card')`,

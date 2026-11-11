@@ -96,9 +96,10 @@ export function reportRoutes(pool: Pool, tz: string) {
         ).rows;
         const classes = (
           await db.query(
-            `SELECT c.id,c.title,c.capacity,c.status,v.starttime AT TIME ZONE 'UTC' AS "startsAt",room.name AS room,
+            // Enrollment caps legacy larger classes at 15 seats; report the same limit.
+            `SELECT c.id,c.title,LEAST(c.capacity,15) AS capacity,c.status,v.starttime AT TIME ZONE 'UTC' AS "startsAt",room.name AS room,
  COUNT(e.user_id) FILTER(WHERE e.status IN ('enrolled','attended'))::int AS enrolled,COUNT(e.user_id) FILTER(WHERE e.status='attended')::int AS attended,
- 100.0*COUNT(e.user_id) FILTER(WHERE e.status IN ('enrolled','attended'))/c.capacity AS "filledPercent"
+ 100.0*COUNT(e.user_id) FILTER(WHERE e.status IN ('enrolled','attended'))/LEAST(c.capacity,15) AS "filledPercent"
  FROM app_training_class c JOIN reservation v ON v.reservationid=c.reservation_id JOIN room USING(roomid) LEFT JOIN app_training_enrollment e ON e.class_id=c.id
  WHERE v.starttime AT TIME ZONE 'UTC'>=$1 AND v.starttime AT TIME ZONE 'UTC'<$2 GROUP BY c.id,v.starttime,room.name ORDER BY v.starttime`,
             params.slice(0, 2),
