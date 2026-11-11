@@ -6,16 +6,32 @@ import { requirePermission } from './middleware/permissions.js';
 import { EquipmentMaintenanceService } from './services/EquipmentMaintenanceService.js';
 import { ReservationService } from './services/ReservationService.js';
 import { ReservationModel } from './models/ReservationModel.js';
+import { EquipmentCatalogService } from './services/EquipmentCatalogService.js';
 
 /** Mounted after requireStaff. Member/account-mode requests cannot enter here. */
 export function equipmentManagement(pool: Pool, timeZone: string) {
   const routes = Router();
   const equipment = new EquipmentMaintenanceService(pool, timeZone);
+  const catalog = new EquipmentCatalogService(pool, timeZone);
   const reservations = new ReservationService(pool, timeZone);
   const read = requirePermission(pool, 'equipment', 'read');
   const update = requirePermission(pool, 'equipment', 'update');
   const book = requirePermission(pool, 'reservation', 'update');
   routes.get('/admin/equipment', read, async (_req, res) => res.json({ data: await equipment.list() }));
+  routes.get('/admin/equipment/catalog-options', read, async (_req, res) => res.json({ data: {
+    canManage: authState(res).user.roles.includes('admin'),
+    categories: (await pool.query("SELECT DISTINCT trim(category) AS name FROM equipment WHERE category IS NOT NULL AND trim(category) <> '' ORDER BY name")).rows.map(row => row.name),
+    certifications: (await pool.query('SELECT certid AS id,name FROM certifications ORDER BY name')).rows,
+  } }));
+  routes.post('/admin/equipment', requirePermission(pool, 'equipment', 'create'), requireCsrf, async (req, res) => {
+    res.status(201).json({ data: await catalog.save(authState(res).user.id, null, req.body) });
+  });
+  routes.put('/admin/equipment/:id', update, requireCsrf, async (req, res) => {
+    res.json({ data: await catalog.save(authState(res).user.id, positiveId(req.params.id), req.body) });
+  });
+  routes.delete('/admin/equipment/:id', requirePermission(pool, 'equipment', 'delete'), requireCsrf, async (req, res) => {
+    res.json({ data: await catalog.save(authState(res).user.id, positiveId(req.params.id), req.body, true) });
+  });
   routes.get('/admin/equipment/:id', read, async (req, res) => res.json({ data: await equipment.detail(positiveId(req.params.id), authState(res).user) }));
   for (const action of ['outage', 'restore'] as const) routes.post(`/admin/equipment/:id/${action}`, update, requireCsrf, async (req, res) => {
     res.json({ data: await equipment.change(authState(res).user.id, positiveId(req.params.id), req.body, action === 'restore') });

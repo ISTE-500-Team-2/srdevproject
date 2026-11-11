@@ -12,6 +12,7 @@ export interface ManagedEquipment {
   activeReaderLeases?: number;
 }
 export interface EquipmentDetail extends ManagedEquipment {
+  certId?: number | null; waiverRequired?: boolean;
   history: Outage[]; checkedAt: string; timeZone: string; canManage: boolean; canReadBookings: boolean; canManageBookings: boolean;
   activeGrants: { readerId: string; expiresAt: string; members: string[] }[];
 }

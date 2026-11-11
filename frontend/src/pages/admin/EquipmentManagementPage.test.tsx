@@ -11,6 +11,7 @@ beforeEach(() => {
   machine = { id: 1, name: 'Phoebe', type: '3D printer', location: 'Print lab', certification: null, rate: 12, image: '/machine.webp', status: 'available', availabilityRevision: 1, outage: null,
     history: [], activeGrants: [], checkedAt: new Date().toISOString(), timeZone: 'America/New_York', canManage: true, canReadBookings: true, canManageBookings: true };
   api.mockImplementation((path: string) => {
+    if (path === '/admin/equipment/catalog-options') return Promise.resolve({ canManage: machine.canManage, categories: ['Laser', '3D printer'], certifications: [{ id: 3, name: 'Laser safety' }] });
     if (path === '/admin/equipment/1') return Promise.resolve(structuredClone(machine));
     if (path === '/admin/equipment') return Promise.resolve([structuredClone(machine)]);
     if (path.includes('/bookings')) return Promise.resolve({ items: [], nextOffset: null });
@@ -24,6 +25,52 @@ test('Equipment list links to a permanent machine detail', async () => {
   expect((await screen.findByRole('link', { name: /Phoebe/ })).getAttribute('href')).toBe('/admin/equipment/1');
   fireEvent.click(screen.getByRole('link', { name: /Phoebe/ }));
   expect(await screen.findByRole('heading', { name: 'Phoebe' })).toBeTruthy();
+});
+test('admins can add equipment from the board and edit rates in the equipment window', async () => {
+  mount('/admin/equipment');
+  fireEvent.click(await screen.findByRole('button', { name: 'Add equipment' }));
+  expect(await screen.findByRole('dialog', { name: 'Add equipment' })).toBeTruthy();
+  await screen.findByRole('option', { name: 'Laser' });
+  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'New laser' } });
+  fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'Laser' } });
+  fireEvent.change(screen.getByLabelText(/Hourly rate/), { target: { value: '18.50' } });
+  fireEvent.change(screen.getByLabelText('Required certification'), { target: { value: '3' } });
+  fireEvent.submit(screen.getByLabelText('Name').closest('form')!);
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/admin/equipment', expect.objectContaining({ method: 'POST', body: expect.objectContaining({ name: 'New laser', rate: 18.5, certId: 3 }) })));
+  cleanup(); mount();
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit equipment' }));
+  await screen.findByRole('option', { name: 'Laser safety' });
+  fireEvent.change(screen.getByLabelText(/Hourly rate/), { target: { value: '22.25' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/admin/equipment/1', expect.objectContaining({ method: 'PUT', body: expect.objectContaining({ rate: 22.25, expectedRevision: 1 }) })));
+});
+test('removal is inside edit and requires confirmation; server failures keep the window open', async () => {
+  mount(); fireEvent.click(await screen.findByRole('button', { name: 'Edit equipment' }));
+  await screen.findByRole('option', { name: 'Laser safety' });
+  fireEvent.click(screen.getByRole('button', { name: 'Remove equipment' }));
+  expect(api.mock.calls.some(([, options]) => options?.method === 'DELETE')).toBe(false);
+  api.mockRejectedValueOnce(new Error('Move or cancel upcoming bookings first.'));
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm removal' }));
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Move or cancel upcoming bookings first.');
+  expect(screen.getByRole('dialog', { name: 'Edit equipment' })).toBeTruthy();
+});
+test('category dropdown preserves its selection when toggling the new category field', async () => {
+  mount(); fireEvent.click(await screen.findByRole('button', { name: 'Edit equipment' }));
+  await screen.findByRole('option', { name: 'Laser' });
+  const category = screen.getByRole('combobox', { name: 'Category' }) as HTMLSelectElement;
+  expect(category.value).toBe('3D printer');
+  expect(screen.queryByLabelText('New category name')).toBeNull();
+  fireEvent.click(screen.getByRole('checkbox', { name: 'New category' }));
+  expect(category.disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText(/New category name/), { target: { value: 'Metalworking' } });
+  fireEvent.click(screen.getByRole('checkbox', { name: 'New category' }));
+  expect(category.disabled).toBe(false);
+  expect(category.value).toBe('3D printer');
+  expect(screen.queryByLabelText(/New category name/)).toBeNull();
+  fireEvent.click(screen.getByRole('checkbox', { name: 'New category' }));
+  expect((screen.getByLabelText(/New category name/) as HTMLInputElement).value).toBe('Metalworking');
+  fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/admin/equipment/1', expect.objectContaining({ method: 'PUT', body: expect.objectContaining({ type: 'Metalworking' }) })));
 });
 test('live-session hold preserves the form draft through failed and successful rechecks', async () => {
   machine.activeGrants = [{ readerId: 'printer', members: ['Jordan'], expiresAt: new Date(Date.now() + 5000).toISOString() }];

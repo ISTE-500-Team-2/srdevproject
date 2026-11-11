@@ -41,6 +41,28 @@ after(async () => { await pool.end(); if (created) await admin.query(`DROP DATAB
 function get(path: string, who = administrator) { return request(app).get('/api' + path).set('Authorization', 'Bearer ' + who.accessToken); }
 function post(path: string, body: unknown, who = administrator) { return request(app).post('/api' + path).set('Authorization', 'Bearer ' + who.accessToken).set('X-CSRF-Token', who.csrfToken).send(body); }
 const outage = { expectedRevision: 1, reason: 'repair', stopped: true, note: 'Staff-only spindle diagnosis' };
+test('catalog creation, edits and retirement are admin-only, versioned, and preserve history', async () => {
+  const fields = { name: 'Catalog test laser', type: 'Laser', location: 'Shop', image: '', rate: 18.5, certId: null, waiverRequired: true };
+  assert.equal((await post('/admin/equipment', fields, staff)).status, 403);
+  const created = await post('/admin/equipment', fields);
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const id = created.body.data.id;
+  const mutate = (method: 'put' | 'delete', body: unknown, who = administrator) => request(app)[method](`/api/admin/equipment/${id}`).set('Authorization', 'Bearer ' + who.accessToken).set('X-CSRF-Token', who.csrfToken).send(body);
+  assert.equal((await mutate('put', { ...fields, expectedRevision: 1 }, staff)).status, 403);
+  assert.equal((await mutate('put', { ...fields, rate: -1, expectedRevision: 1 })).status, 400);
+  assert.equal((await mutate('put', { ...fields, rate: 22.25, expectedRevision: 1 })).status, 200);
+  assert.equal((await mutate('put', { ...fields, expectedRevision: 1 })).status, 409);
+  assert.equal((await mutate('delete', { expectedRevision: 2 }, staff)).status, 403);
+  assert.equal((await request(app).delete(`/api/admin/equipment/${id}`).set('Authorization', 'Bearer ' + administrator.accessToken).send({ expectedRevision: 2 })).status, 403);
+  const reserved = await booking(id);
+  assert.equal((await mutate('delete', { expectedRevision: 2 })).status, 409);
+  await pool.query("UPDATE reservation SET status='cancelled' WHERE reservationid=$1", [reserved.id]);
+  assert.equal((await mutate('delete', { expectedRevision: 2 })).status, 200);
+  assert.equal((await get(`/admin/equipment/${id}`)).status, 404);
+  assert.equal((await get('/admin/equipment')).body.data.some((e: { id: number }) => e.id === id), false);
+  assert.equal((await pool.query('SELECT 1 FROM reservation WHERE reservationid=$1', [reserved.id])).rows.length, 1);
+  assert.equal((await pool.query('SELECT 1 FROM equipment WHERE equipmentid=$1', [id])).rows.length, 1);
+});
 async function machine(name = 'Maintenance machine', status = 'available') {
   return (await pool.query('INSERT INTO equipment(name,status,hourlyrate,waiverrequired) VALUES($1,$2,12,false) RETURNING equipmentid', [name, status])).rows[0].equipmentid as number;
 }
