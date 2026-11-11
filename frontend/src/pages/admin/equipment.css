@@ -68,21 +68,22 @@
 .eq-filter b { font-size: var(--text-lg); font-weight: 700; color: #3d2a20; }
 .eq-filter--booked b { color: #b0601c; }
 .eq-filter--down b { color: #b2462a; }
+.eq-filter b.is-zero { color: #a3938a; }
 .eq-filter[aria-pressed="true"] { background: #efe3d6; color: #3d2a20; box-shadow: inset 0 -2px 0 #c9822f; }
 .eq-notice { margin-bottom: 12px; }
 .eq-machine-panel .eq-notice { margin: 16px 0 0; }
 .eq-split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; align-items: start; }
-.eq-split--open { grid-template-columns: minmax(0, 1fr) minmax(440px, 520px); }
+/* The panel gives way first on a laptop, so the list keeps its one-line rows as long as it can. */
+.eq-split--open { grid-template-columns: minmax(0, 1fr) clamp(360px, 34%, 520px); }
 /* The rows respond to the list's own width, not the window's: see the container rules below. */
 .eq-board { container: eq-board / inline-size; border-top: 1px solid #d8cbbf; min-width: 0; }
 .eq-row { display: grid; grid-template-columns: minmax(200px, 1.2fr) 200px minmax(200px, 1.5fr) minmax(120px, .8fr) 64px 18px; align-items: center; gap: 20px; padding: 12px 14px; border-bottom: 1px solid #e3d8cc; color: inherit; text-decoration: none; }
 a.eq-row:hover { background: #fffaf3; }
-.eq-row[aria-current="true"] { background: #f6ece1; box-shadow: inset 3px 0 0 #c9822f; }
 .eq-row--head { padding-block: 10px; font-size: var(--text-2xs); font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: #80634f; }
 .eq-row--head > span { font-size: inherit; color: inherit; }
-.eq-row--head .eq-row__day { display: flex; gap: 10px; align-items: center; }
-.eq-row--head .eq-row__day > span:first-child { flex: none; }
-.eq-row--head .eq-ticks { flex: 1; margin: 0; }
+/* The ticks span the column's full width, as the strips below do, so each label sits over its hour. */
+.eq-row--head .eq-row__day { display: grid; gap: 2px; }
+.eq-row--head .eq-ticks { margin: 0; }
 .eq-row__name { display: flex; align-items: center; gap: 14px; min-width: 0; }
 .eq-row__name img { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; flex: none; background: #e9e0d7; }
 .eq-row__name > span { min-width: 0; display: grid; gap: 2px; }
@@ -98,6 +99,8 @@ a.eq-row:hover { background: #fffaf3; }
 .eq-pill--past { color: #8a7a6f; background: transparent; border-color: #ddd0c4; }
 .eq-day { position: relative; height: 24px; border-radius: 6px; background: #f3ece4; border: 1px solid #e3d8cc; overflow: hidden; }
 .eq-day--large { height: 40px; }
+/* Names in the large strip end in an ellipsis rather than a cut letter (a flex box cannot ellipsize). */
+.eq-day--large .eq-day__block { display: block; line-height: 32px; text-overflow: ellipsis; }
 .eq-day__block { position: absolute; top: 3px; bottom: 3px; border-radius: 4px; padding: 0 6px; display: flex; align-items: center; font-size: var(--text-2xs); font-weight: 600; white-space: nowrap; overflow: hidden; }
 .eq-day__block--conflict { border: 1.5px solid #b2462a; color: #b2462a; background: #fffdfa; }
 .eq-day__outage { position: absolute; inset: 0; background: repeating-linear-gradient(135deg, #f1d3c3 0 6px, transparent 6px 12px); }
@@ -113,7 +116,7 @@ a.eq-row:hover { background: #fffaf3; }
 .eq-workspace--board .eq-pill--use, .eq-workspace--board .eq-day__block--live { background: var(--eq-live-bg); color: var(--eq-live-fg); border-color: var(--eq-live-bg); }
 .eq-workspace--board .eq-day__block--booked, .eq-workspace--board .eq-day__block--class { background: var(--eq-book-bg); color: var(--eq-book-fg); box-shadow: inset 3px 0 0 var(--eq-book-edge); }
 .eq-workspace--board .eq-day__block--past { border: 1px dashed var(--eq-past); color: var(--eq-past-fg); background: transparent; }
-.eq-machine-panel { position: sticky; top: 84px; }
+.eq-mp-body { position: sticky; top: 84px; }
 .eq-mp-head { display: flex; gap: 16px; align-items: center; }
 .eq-mp-head img { width: 88px; height: 88px; border-radius: 10px; object-fit: cover; flex: none; }
 .eq-mp-head h2 { margin: 2px 0 8px; }
@@ -129,13 +132,15 @@ a.eq-row:hover { background: #fffaf3; }
 .eq-mp-bookings small { color: #756154; font-size: var(--text-sm); }
 .eq-mp-bookings li.is-done strong { color: #8a7a6f; font-weight: 500; }
 .eq-mp-actions { margin-top: 20px; }
-.eq-mp-actions .button { display: inline-flex; align-items: center; gap: 8px; }
+.eq-mp-actions .button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex: 1 1 auto; }
 @container eq-board (max-width: 1040px) {
   .eq-row { grid-template-columns: minmax(180px, 1.2fr) 190px minmax(160px, 1.3fr) 18px; }
   .eq-row__cert, .eq-row__rate { display: none; }
 }
-@container eq-board (max-width: 700px) {
+/* One-line rows need about 636px (four columns, three gaps, padding); narrower lists stack. */
+@container eq-board (max-width: 640px) {
   .eq-row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name status" "day day"; row-gap: 10px; padding-inline: 4px; }
+  .eq-split--open .eq-row { padding-inline: 12px; }
   .eq-row--head { display: none; }
   .eq-row__name { grid-area: name; }
   .eq-row__status { grid-area: status; justify-items: end; }
@@ -157,3 +162,33 @@ a.eq-row:hover { background: #fffaf3; }
 .eq-row--loading .eq-row__name > .skeleton-lines { flex: 1; gap: 6px; }
 .eq-row__rate .skeleton { margin-left: auto; }
 .eq-mp-bookings .skeleton-lines { gap: 6px; }
+/* Dark, tuned by hand: the compiled strip and pills land within a shade of the rows behind them.
+   The strip takes a light wash that follows the row beneath it, and each pill takes a tint of its own status color. */
+:root[data-theme="dark"] .eq-day:not(.eq-day--unknown) { background: rgba(255, 240, 225, 0.07); border-color: rgba(255, 232, 210, 0.26); }
+:root[data-theme="dark"] .eq-day--unknown { border-color: rgba(255, 232, 210, 0.26); }
+:root[data-theme="dark"] .eq-pill, :root[data-theme="dark"] .eq-pill--free { color: #a9e3b3; background: rgba(143, 220, 155, 0.12); border-color: rgba(143, 220, 155, 0.32); }
+:root[data-theme="dark"] .eq-pill--booked { color: #ffc98a; background: rgba(247, 150, 29, 0.14); border-color: rgba(247, 150, 29, 0.38); }
+:root[data-theme="dark"] .eq-pill--down { color: #f5b4a8; background: rgba(242, 144, 127, 0.14); border-color: rgba(242, 144, 127, 0.38); }
+:root[data-theme="dark"] .eq-pill--past { color: var(--ink-soft); background: transparent; border-color: rgba(255, 232, 210, 0.18); }
+/* The selected row and its panel share one copper outline (the selection accent, muted to
+   about 3:1 against the glass so it stands apart from the beige lines without shouting) over frosted glass: a light tint in light
+   mode, a dark one in dark mode, and a blur of the page behind. The row's outline opens on
+   the right, a bridge carries its top and bottom lines across the 24px gap, and the panel's
+   left edge is masked away between them (useJoin measures where). The row's glass sits on its
+   outline layer, not the row, so the bridge beside it blurs the same page. The panel stretches to the
+   list's full height so any row has an edge to join; its content stays sticky inside. */
+.eq-workspace--board { --eq-join-line: #c47f35; --eq-join-glass: rgba(255, 252, 247, 0.55); }
+:root[data-theme="dark"] .eq-workspace--board { --eq-join-line: #9c6630; --eq-join-glass: rgba(28, 21, 16, 0.55); }
+.eq-split { --eq-join-top: 0px; --eq-join-height: 0px; }
+.eq-split--open { align-items: stretch; }
+.eq-split--open .eq-board { position: relative; z-index: 1; padding-bottom: 12px; }
+.eq-workspace--board .eq-machine-panel {
+  border-color: var(--eq-join-line); background: var(--eq-join-glass); box-shadow: none; backdrop-filter: blur(14px);
+  mask: linear-gradient(#000 0 0), linear-gradient(#000 0 0) 0 var(--eq-join-top) / 1px var(--eq-join-height) no-repeat;
+  mask-composite: exclude;
+}
+.eq-row:has(+ .eq-row[aria-current="true"]) { border-bottom-color: transparent; }
+a.eq-row[aria-current="true"] { position: relative; border-bottom-color: transparent; border-radius: 10px 0 0 10px; background: transparent; }
+a.eq-row[aria-current="true"]::before, a.eq-row[aria-current="true"]::after { content: ""; position: absolute; top: -1px; bottom: -1px; z-index: -1; border: 1px solid var(--eq-join-line); background: var(--eq-join-glass); backdrop-filter: blur(14px); pointer-events: none; }
+a.eq-row[aria-current="true"]::before { left: 0; right: 0; border-right: 0; border-radius: inherit; }
+a.eq-row[aria-current="true"]::after { left: 100%; width: 24px; border-inline: 0; }

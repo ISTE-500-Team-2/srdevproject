@@ -72,7 +72,7 @@ test('each machine says what it is doing now and what comes next', async () => {
   expect((await row('Darth Vader')).textContent).toContain('Laser safety');
   expect((await row('Spock')).textContent).toMatch(/Out of service.*Repair · back/);
   expect((await row('Ross')).textContent).toMatch(/Booked until .*Jordan Ortiz/);
-  expect((await row('Kirk')).textContent).toContain('Nothing else booked today');
+  expect((await row('Kirk')).textContent).toContain('Nothing booked today');
   expect(within(await row('Darth Vader')).getByRole('img').getAttribute('aria-label')).toMatch(/Priya Shah, .* to /);
 });
 
@@ -125,6 +125,28 @@ test('“Booked today” keeps machines whose bookings have finished', async () 
   expect(screen.getAllByRole('link').map(l => l.textContent)).toEqual([expect.stringMatching(/^Kirk/)]);
 });
 
+test('a booking on a machine out of service reads as affected, not upcoming', async () => {
+  observedWidth = 1600;
+  bookings = [booking(21, 3, 0.5, 1, 'Morgan Diaz')];
+  mount();
+  await screen.findByRole('complementary', { name: 'Rachel details' }); // the split is open
+  fireEvent.click(await row('Spock'));
+  const panel = await screen.findByRole('complementary', { name: 'Spock details' });
+  expect(await within(panel).findByText('Affected by outage')).toBeTruthy();
+  expect(within(panel).queryByText('Upcoming')).toBeNull();
+});
+
+test('a 1280px laptop gets the side panel; anything narrower keeps the full page', async () => {
+  observedWidth = 972; // 1280 less the 252px sidebar and the workspace padding
+  mount();
+  expect(await screen.findByRole('complementary', { name: 'Rachel details' })).toBeTruthy();
+  cleanup();
+  observedWidth = 959;
+  mount();
+  expect((await row('Kirk')).getAttribute('aria-current')).toBeNull();
+  expect(screen.queryByRole('complementary')).toBeNull();
+});
+
 test('below the split width a row opens the machine page', async () => {
   mount();
   expect((await row('Kirk')).getAttribute('href')).toBe('/admin/equipment/5');
@@ -151,7 +173,7 @@ test('a refresh that fails after a good read stops vouching for the older schedu
   try {
     bookings = [];
     mount();
-    await waitFor(async () => expect((await row('Kirk')).textContent).toContain('Nothing else booked today'));
+    await waitFor(async () => expect((await row('Kirk')).textContent).toContain('Nothing booked today'));
     bookings = new Error('Server error');
     await act(() => vi.advanceTimersByTimeAsync(61000));
     await waitFor(async () => expect((await row('Kirk')).textContent).toMatch(/Not in use.*Bookings unavailable/));
@@ -173,7 +195,7 @@ test('a retry after a failed refresh keeps the schedule unknown until it succeed
   try {
     bookings = [];
     mount();
-    await waitFor(async () => expect((await row('Kirk')).textContent).toContain('Nothing else booked today'));
+    await waitFor(async () => expect((await row('Kirk')).textContent).toContain('Nothing booked today'));
     bookings = new Error('Server error');
     await act(() => vi.advanceTimersByTimeAsync(61000));
     await waitFor(async () => expect((await row('Kirk')).textContent).toContain('Bookings unavailable'));
@@ -183,7 +205,7 @@ test('a retry after a failed refresh keeps the schedule unknown until it succeed
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     await act(() => vi.advanceTimersByTimeAsync(10));
     expect((await row('Kirk')).textContent).toContain('Bookings unavailable');
-    expect((await row('Kirk')).textContent).not.toContain('Nothing else booked today');
+    expect((await row('Kirk')).textContent).not.toContain('Nothing booked today');
     answer([booking(41, 5, 1, 1, 'Sam Lee')]);
     await waitFor(async () => expect((await row('Kirk')).textContent).toMatch(/Next: Sam L\. at/));
     expect(screen.queryByText(/Today’s bookings could not be loaded/)).toBeNull();

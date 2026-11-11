@@ -46,7 +46,8 @@ test("status and phone copy for live, down, open, and no bookings", () => {
   expect(machineStatus([], now, zone, true, false).statusText).toBe("In use");
   expect(machineStatus([], now, zone, false, true).statusText).toBe("Out of service");
   expect(machineStatus([booking()], now - 7200000, zone, false, false)).toEqual({ statusText: "Open, next at 12:00 PM", nextText: "Next: Dana W. at 12:00" });
-  expect(machineStatus([], now, zone, false, false)).toEqual({ statusText: "Open", nextText: "Nothing else booked today" });
+  expect(machineStatus([], now, zone, false, false)).toEqual({ statusText: "Open", nextText: "Nothing booked today" });
+  expect(machineStatus([booking()], now + 7200000, zone, false, false).nextText).toBe("Nothing else booked today");
 });
 test("equipment bookings exclude cancellations and rooms and sort stably", () => {
   expect(equipmentBookings([{ ...booking(), status: "cancelled" }, { ...booking(), equipmentId: null, resourceType: "room" }, booking()])).toEqual([booking()]);

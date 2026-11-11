@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowUpRight, ChevronRight, Search, Wrench } from 'lucide-react';
 import { useApi } from '../../lib/useApi';
@@ -13,8 +13,9 @@ import { useDayBookings } from './useDayBookings';
 
 const refresh = { retainOnReload: true, refreshInterval: 15000 };
 const bookingRefresh = { retainOnReload: true, refreshInterval: 60000 };
-/** Below this width the list keeps the whole page and a row opens the machine's own page. */
-const SPLIT_WIDTH = 1360;
+/** Below this width the list keeps the whole page and a row opens the machine's own page.
+ *  960 is the workspace beside the sidebar on a 1280px laptop: a 360px panel and a list that stacks. */
+const SPLIT_WIDTH = 960;
 
 type Filter = 'all' | 'use' | 'booked' | 'down';
 type Window = ReturnType<typeof timeWindow>;
@@ -67,6 +68,7 @@ function BoardContent({ day, zone, now, machines }: { day: string; zone: string;
     event.preventDefault();
     setSelected(id);
   };
+  const board = useJoin(active && `${active.machine.id}:${visible.map(r => r.machine.id).join(',')}`);
   const filters: [Filter, string][] = [['all', 'All'], ['use', 'In use'], ['booked', 'Booked today'], ['down', 'Out of service']];
 
   return <div className="eq-workspace eq-workspace--board" ref={workspace}>
@@ -77,14 +79,14 @@ function BoardContent({ day, zone, now, machines }: { day: string; zone: string;
       <label className="eq-search"><Search aria-hidden="true" /><span className="sr-only">Find equipment</span><input placeholder="Find a machine…" value={search} onChange={e => setSearch(e.target.value)} /></label>
       <div className="eq-filters" role="group" aria-label="Show equipment">
         {filters.map(([key, label]) => <button key={key} type="button" className={`eq-filter eq-filter--${key}`} aria-pressed={filter === key} onClick={() => setFilter(key)}
-          disabled={key === 'booked' && schedule !== 'known'}><b>{machines.data && (key !== 'booked' || schedule === 'known') ? counts[key] : '–'}</b>{label}</button>)}
+          disabled={key === 'booked' && schedule !== 'known'}><b className={machines.data && counts[key] === 0 ? 'is-zero' : undefined}>{machines.data && (key !== 'booked' || schedule === 'known') ? counts[key] : '–'}</b>{label}</button>)}
       </div>
     </div>
     <LoadState loading={false} error={machines.error} reload={machines.reload} />
     {failed ? <div className="eq-notice"><LoadState loading={false} error={`Today’s bookings could not be loaded. ${failed.error}`} reload={failed.reload} /></div> : null}
     {machines.loading && <SkeletonGroup label="Loading equipment" className="eq-board"><BoardHead win={win} />{boardPlaceholders.map((widths, index) => <RowLoading key={index} widths={widths} />)}</SkeletonGroup>}
     {machines.data && <div className={`eq-split${active ? ' eq-split--open' : ''}`}>
-      <div className="eq-board">
+      <div className="eq-board" ref={board}>
         <BoardHead win={win} />
         {visible.map(row => <Link key={row.machine.id} to={`/admin/equipment/${row.machine.id}`} className="eq-row" onClick={choose(row.machine.id)} aria-current={active?.machine.id === row.machine.id ? 'true' : undefined}>
           <span className="eq-row__name"><img src={row.machine.image} alt="" /><span><strong>{row.machine.name}</strong><small>{row.machine.type} · {row.machine.location}</small></span></span>
@@ -93,7 +95,7 @@ function BoardContent({ day, zone, now, machines }: { day: string; zone: string;
             : <><span className={`eq-pill eq-pill--${row.tone}`}>{row.label}</span><small>{row.detail}</small></>}</span>
           <span className="eq-row__day"><DayStrip row={row} win={win} now={now} zone={zone} /></span>
           <span className="eq-row__cert">{row.machine.certification ?? <em>None</em>}</span>
-          <span className="eq-row__rate">{row.machine.rate === null ? '—' : `$${row.machine.rate.toFixed(Number.isInteger(row.machine.rate) ? 0 : 2)}/hr`}</span>
+          <span className="eq-row__rate">{row.machine.rate === null ? '—' : shortRate(row.machine.rate)}</span>
           <ChevronRight aria-hidden="true" className="eq-row__chev" />
         </Link>)}
         {!visible.length && <p className="eq-empty">No equipment matches this view.</p>}
@@ -155,6 +157,11 @@ function DayStrip({ row, win, now, zone, large }: { row: Row; win: Window; now: 
   </div>;
 }
 
+/** A rate per hour, with cents only when it has any: $12/hr, $15.50/hr. */
+function shortRate(rate: number) {
+  return `$${rate.toFixed(Number.isInteger(rate) ? 0 : 2)}/hr`;
+}
+
 function Ticks({ win }: { win: Window }) {
   return <span className="eq-ticks" aria-hidden="true">{win.ticks.map(t => <span key={t.fraction} style={{ left: `${t.fraction * 100}%` }}>{t.label}</span>)}</span>;
 }
@@ -163,11 +170,11 @@ function MachinePanel({ row, win, now, zone }: { row: Row; win: Window; now: num
   const detail = useApi<EquipmentDetail>(`/admin/equipment/${row.machine.id}`, refresh);
   const { machine } = row;
   const last = detail.data?.history[0];
-  return <aside className="eq-panel eq-machine-panel" aria-label={`${machine.name} details`}>
+  return <aside className="eq-panel eq-machine-panel" aria-label={`${machine.name} details`}><div className="eq-mp-body">
     <div className="eq-mp-head"><img src={machine.image} alt="" /><div><p className="eq-eyebrow">{machine.type} · {machine.location}</p><h2>{machine.name}</h2>{row.pending ? <Skeleton round width={96} height={27} /> : <span className={`eq-pill eq-pill--${row.tone}`}>{row.label}</span>}</div></div>
     <dl className="eq-facts">
-      <div><dt>Rate</dt><dd>{equipmentRate(machine.rate)}</dd></div>
-      <div><dt>Requires</dt><dd>{machine.certification ?? 'No training'}</dd></div>
+      <div><dt>Rate</dt><dd>{machine.rate === null ? equipmentRate(null) : shortRate(machine.rate)}</dd></div>
+      <div><dt>Requires</dt><dd>{machine.certification ?? 'None'}</dd></div>
       <div><dt>Last outage</dt><dd>{detail.data ? last ? new Intl.DateTimeFormat('en-US', { timeZone: zone, dateStyle: 'medium' }).format(new Date(last.startedAt)) : 'None recorded'
         : detail.error ? 'Unavailable' : <><Skeleton width="76%" height={14} /><span className="sr-only">Loading</span></>}</dd></div>
     </dl>
@@ -185,14 +192,15 @@ function MachinePanel({ row, win, now, zone }: { row: Row; win: Window; now: num
       const done = Date.parse(b.endTime) <= now, started = Date.parse(b.startTime) <= now;
       return <li key={b.id} className={done ? 'is-done' : undefined}>
         <span><strong>{formatTime(b.startTime, zone)} – {formatTime(b.endTime, zone)}</strong><small>{b.memberName}</small></span>
-        <span className={`eq-pill eq-pill--${done ? 'past' : started ? 'use' : 'booked'}`}>{done ? 'Done' : started ? 'Now' : 'Upcoming'}</span>
+        {/* An outage overrides the booking, as the strip's conflict block shows. */}
+        <span className={`eq-pill eq-pill--${done ? 'past' : row.down ? 'down' : started ? 'use' : 'booked'}`}>{done ? 'Done' : row.down ? 'Affected by outage' : started ? 'Now' : 'Upcoming'}</span>
       </li>;
     })}</ul> : <p className="eq-muted">Nothing booked today.</p>}
     <div className="eq-actions eq-mp-actions">
       <Link className="button button--primary" to={`/admin/equipment/${machine.id}`}>Open machine <ArrowUpRight aria-hidden="true" /></Link>
       {detail.data?.canManage && <Link className="button button--quiet" to={`/admin/equipment/${machine.id}`} state={{ editAvailability: true }}><Wrench aria-hidden="true" />{row.down ? 'Return to service' : 'Take out of service'}</Link>}
     </div>
-  </aside>;
+  </div></aside>;
 }
 
 /** The day before a YYYY-MM-DD day. */
@@ -209,6 +217,28 @@ function mergeBookings(...lists: Reservation[][]) {
 }
 
 /** The element's content width, kept current as the window or sidebar changes. */
+/** Marks where the selected row meets the panel, so the panel's edge opens there and the two share one outline. */
+function useJoin(key: string | undefined) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const board = ref.current, split = board?.parentElement;
+    if (!board || !split || key === undefined) return;
+    const measure = () => {
+      const row = board.querySelector<HTMLElement>('a.eq-row[aria-current="true"]');
+      if (!row) return;
+      // The row's outline runs 1px above it and ends with its bottom edge; the gap is what lies between.
+      split.style.setProperty('--eq-join-top', `${board.clientTop + row.offsetTop}px`);
+      split.style.setProperty('--eq-join-height', `${row.offsetHeight - 1}px`);
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(board);
+    return () => observer.disconnect();
+  }, [key]);
+  return ref;
+}
+
 function useWidth() {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
