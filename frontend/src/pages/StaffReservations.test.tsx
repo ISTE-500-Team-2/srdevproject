@@ -199,3 +199,19 @@ test("the editor counts the next day's bookings, so a late start can't run into 
   expect((screen.getByRole("button", { name: "1 hour" }) as HTMLButtonElement).disabled).toBe(false);
   expect((screen.getByRole("button", { name: "11:00 PM, taken" }) as HTMLButtonElement).disabled).toBe(true);
 });
+
+test("when a day's times can't be loaded, the editor says so and can retry", async () => {
+  const original = api.getMockImplementation()!;
+  let down = true;
+  api.mockImplementation((path: string, options?: unknown) =>
+    path === "/admin/reservations?date=2026-11-04" && down ? Promise.reject(new Error("Service unavailable.")) : original(path, options),
+  );
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "New reservation" }));
+  const alert = await screen.findByText(/Times for this day could not be loaded\. Service unavailable\./);
+  expect((screen.getByRole("button", { name: "10:00 PM" }) as HTMLButtonElement).disabled).toBe(true);
+  down = false;
+  fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+  await waitFor(() => expect((screen.getByRole("button", { name: "10:00 PM" }) as HTMLButtonElement).disabled).toBe(false));
+  expect(screen.queryByText(/could not be loaded/)).toBeNull();
+});

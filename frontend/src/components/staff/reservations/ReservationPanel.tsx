@@ -303,13 +303,19 @@ export function ReservationEditor({
   const machine = machines.find((m) => String(m.id) === equipmentId);
   const down = !!machine && machine.status !== "available";
 
-  // The day before and after too: a booking can run past midnight either way, up to 24 hours.
+  // A booking can run past midnight either way, and a 24-hour one that starts late can end two days
+  // later when a daylight-saving change shortens the next day. Read every day it could touch.
   const dayBookings = useDayBookings(day, refresh);
   const eveBookings = useDayBookings(previousDay(day), refresh);
   const nextBookings = useDayBookings(addDays(day, 1), refresh);
-  const loadingDay = !!(dayBookings.state ?? eveBookings.state ?? nextBookings.state);
+  const lastBookings = useDayBookings(addDays(day, 2), refresh);
+  const reads = [eveBookings, dayBookings, nextBookings, lastBookings];
+  // Until every read succeeds the times can't be trusted: show the failure with a retry.
+  const readFailure = reads.map((r) => r.failed ?? (r.state?.error ? { error: r.state.error, reload: r.state.reload } : undefined)).find(Boolean);
+  const loadingDay = !readFailure && reads.some((r) => r.state);
+  const timesUnknown = loadingDay || !!readFailure;
   const dayStart = localHour(day, 0, zone), dayEnd = localHour(day, 24, zone);
-  const machineBookings = mergeBookings(dayBookings.bookings, eveBookings.bookings, nextBookings.bookings).filter((b) => String(b.equipmentId) === equipmentId);
+  const machineBookings = mergeBookings(...reads.map((r) => r.bookings)).filter((b) => String(b.equipmentId) === equipmentId);
   const own = machineBookings.filter((b) => Date.parse(b.endTime) > dayStart && Date.parse(b.startTime) < dayEnd);
   const slots = startSlots(day, zone, now, machineBookings, editing?.id);
   const slot = start === null ? undefined : slots.find((s) => s.at === start);
@@ -318,7 +324,7 @@ export function ReservationEditor({
   const quote = useApi<EquipmentPrice | null>(equipmentId ? `/equipment/${equipmentId}/quote?hours=${hours}` : null);
   const unchanged =
     !!editing && String(editing.equipmentId) === equipmentId && Date.parse(editing.startTime) === start && reservationHours(editing) === hours;
-  const ready = !!userId && !!machine && !down && start !== null && fits && !loadingDay && !!quote.data && !quote.loading && !unchanged;
+  const ready = !!userId && !!machine && !down && start !== null && fits && !timesUnknown && !!quote.data && !quote.loading && !unchanged;
 
   // Another day keeps the same time of day.
   const chooseDay = (next: string) => {
@@ -427,7 +433,18 @@ export function ReservationEditor({
         ) : null}
         <fieldset className="res-editor__group">
           <legend>Start time</legend>
-          {loadingDay ? <p className="res-panel__muted" role="status">Loading times…</p> : null}
+          {readFailure ? (
+            <p className="form-error" role="alert">
+              Times for this day could not be loaded. {readFailure.error}{" "}
+              <button type="button" onClick={readFailure.reload}>
+                Retry
+              </button>
+            </p>
+          ) : loadingDay ? (
+            <p className="res-panel__muted" role="status">
+              Loading times…
+            </p>
+          ) : null}
           {!slots.length ? <p className="res-panel__muted">No start times left on this day.</p> : null}
           {groups.map((g) =>
             g.slots.length ? (
@@ -439,7 +456,7 @@ export function ReservationEditor({
                     type="button"
                     className="res-chip"
                     aria-pressed={s.at === start}
-                    disabled={!s.free || down || loadingDay}
+                    disabled={!s.free || down || timesUnknown}
                     aria-label={`${formatTime(s.at, zone)}${s.free ? "" : ", taken"}`}
                     onClick={() => setStart(s.at)}
                   >
@@ -449,7 +466,7 @@ export function ReservationEditor({
               </div>
             ) : null,
           )}
-          {start !== null && !loadingDay && !down && !slot?.free ? <small className="res-editor__bad">That start is taken. Choose another time.</small> : null}
+          {start !== null && !timesUnknown && !down && !slot?.free ? <small className="res-editor__bad">That start is taken. Choose another time.</small> : null}
         </fieldset>
         <fieldset className="res-editor__group">
           <legend>Length</legend>
@@ -507,6 +524,7 @@ export function ReservationEditor({
       {dayBookings.loaders}
       {eveBookings.loaders}
       {nextBookings.loaders}
+      {lastBookings.loaders}
     </div>
   );
 }

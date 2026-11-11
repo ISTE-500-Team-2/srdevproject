@@ -94,3 +94,9 @@ test("a booking just after midnight limits a late start the evening before", () 
   expect(lengthsFrom(at("2026-11-12T03:00:00Z"), [midnight])).toEqual([1]); // 10 PM: 11 PM ends 1 h before midnight
   expect(lengthsFrom(at("2026-11-12T04:00:00Z"), [midnight])).toEqual([]); // 11 PM: an hour reaches midnight
 });
+
+test("a 24-hour booking across the spring change ends two calendar days later", () => {
+  // 11:30 PM EST Mar 13, 2027 + 24 h = 12:30 AM EDT Mar 15, because Mar 14 has 23 hours.
+  const midnight = booking(3, "2027-03-15T04:00:00Z", "2027-03-15T05:00:00Z");
+  expect(lengthsFrom(at("2027-03-14T04:30:00Z"), [midnight])).toHaveLength(23);
+});
