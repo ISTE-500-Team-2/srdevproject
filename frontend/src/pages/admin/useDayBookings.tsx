@@ -55,6 +55,8 @@ export function useDayBookings(day: string, refresh: Refresh) {
   const loaders = day
     ? offsets.map((offset) => <BookingPage key={offset} day={day} offset={offset} refresh={refresh} receive={receive} />)
     : null;
-  return { bookings, state, failed, loaders };
+  // Re-reads every page in place, keeping the current bookings on screen meanwhile.
+  const reload = () => offsets.forEach((offset) => pages[offset]?.reload());
+  return { bookings, state, failed, loaders, reload };
 }
 
