@@ -215,3 +215,29 @@ test("when a day's times can't be loaded, the editor says so and can retry", asy
   await waitFor(() => expect((screen.getByRole("button", { name: "10:00 PM" }) as HTMLButtonElement).disabled).toBe(false));
   expect(screen.queryByText(/could not be loaded/)).toBeNull();
 });
+
+test("a save that finishes after staff opened something else doesn't replace it", async () => {
+  const original = api.getMockImplementation()!;
+  let finish: (value: Reservation) => void = () => {};
+  api.mockImplementation((path: string, options?: { method?: string }) =>
+    path === "/reservations" && options?.method === "POST"
+      ? new Promise<Reservation>((resolve) => { finish = resolve; })
+      : original(path, options),
+  );
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "New reservation" }));
+  fireEvent.click(screen.getByRole("button", { name: "Pick Jordan Member" }));
+  const onePm = (await screen.findByRole("button", { name: "1:00 PM" })) as HTMLButtonElement;
+  await waitFor(() => expect(onePm.disabled).toBe(false));
+  fireEvent.click(onePm);
+  const book = screen.getByRole("button", { name: "Book" }) as HTMLButtonElement;
+  await waitFor(() => expect(book.disabled).toBe(false));
+  fireEvent.click(book);
+  // Staff opens the existing reservation while the booking is still saving.
+  fireEvent.click(screen.getByRole("button", { name: /Jordan Member, 10:00 AM/ }));
+  expect(screen.getByRole("heading", { name: "Laser cutter, 10:00 AM–12:00 PM" })).toBeTruthy();
+  await act(async () => finish({ ...reservation, id: 31, startTime: "2026-11-03T18:00:00Z", endTime: "2026-11-03T19:00:00Z" }));
+  expect(await screen.findByText("Booked Laser cutter for Jordan Member, 1:00–2:00 PM.")).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Laser cutter, 10:00 AM–12:00 PM" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "Laser cutter, 1:00–2:00 PM" })).toBeNull();
+});

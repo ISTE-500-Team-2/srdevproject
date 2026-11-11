@@ -70,6 +70,9 @@ function Workspace({ zone, now }: { zone: string; now: number }) {
   const [panel, setPanel] = useState<Panel>({ kind: "needs" });
   const [toast, setToast] = useState<string | null>(null);
   const opened = useRef(0);
+  // The panel on screen now, so a save that finishes after staff moved on leaves their new panel alone.
+  const currentPanel = useRef(panel);
+  currentPanel.current = panel;
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -341,9 +344,10 @@ function Workspace({ zone, now }: { zone: string; now: number }) {
                     ? `Booked ${r.equipmentName} for ${r.memberName ?? `member #${r.userId}`}, ${when}.`
                     : `Moved to ${r.equipmentName} ${onDay(dayKey(Date.parse(r.startTime), zone))}, ${when}.`,
                 );
+                reloadAll();
+                if (currentPanel.current !== panel) return;
                 if (view === "schedule") setDay(dayKey(Date.parse(r.startTime), zone));
                 open(r);
-                reloadAll();
               }}
             />
           )}
