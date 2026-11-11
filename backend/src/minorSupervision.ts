@@ -23,9 +23,8 @@ export class MinorSupervision {
   async requireLinkedSponsor(id: number) {
     if (!await this.isMinor(id)) return null;
     const sponsor = (await this.db.query(`SELECT s.adult_id AS id FROM app_minor_sponsor s
-      JOIN "user" u ON u.userid=s.adult_id WHERE s.minor_id=$1
-      AND u.dob IS NOT NULL AND u.dob::date<=((now() AT TIME ZONE $2)::date-INTERVAL '18 years')::date
-      AND u.status='active' AND u.accessstatus='active' FOR SHARE OF s,u`,[id,this.zone])).rows[0];
+      JOIN "user" u ON u.userid=s.adult_id WHERE s.minor_id=$1 AND ${adultSql(2)}
+      FOR SHARE OF s,u`,[id,this.zone])).rows[0];
     if (!sponsor) throw new AppError(403,'SPONSOR_REQUIRED','Link an active sponsoring adult before enrolling.');
     return sponsor;
   }

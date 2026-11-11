@@ -115,9 +115,9 @@ test('advance class enrollment records the linked sponsor without requiring a cu
  const start=Date.now()+86400000;
  const created=await post(admin,'/classes',{title:'Family class',catalogId:catalog,instructorId:admin.user.id,roomId:classroom,capacity:15,startsAt:new Date(start).toISOString(),endsAt:new Date(start+3600000).toISOString(),reason:'Building eligibility test'});
  assert.equal(created.status,201,JSON.stringify(created.body));
- assert.equal((await post(admin,`/admin/users/${adult.user.id}/supervision/check-in`,{reason:'Adult at first building'})).status,200);
  const path=`/classes/${created.body.data.id}/enroll`;
  await post(adult,'/me/visit/check-out');
+ assert.equal((await pool.query('SELECT 1 FROM app_facility_visit WHERE user_id=$1 AND checked_out_at IS NULL',[adult.user.id])).rowCount,0,'the sponsor is away at signup');
  await pool.query("UPDATE \"user\" SET accessstatus='suspended' WHERE userid=$1",[adult.user.id]);
  try {
   const denied=await post(minor,path);assert.equal(denied.status,403);assert.equal(denied.body.error.code,'SPONSOR_REQUIRED');
