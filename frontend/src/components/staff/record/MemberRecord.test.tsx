@@ -220,3 +220,27 @@ test("a minor shows the sponsor and the tag; check-in waits for the adult", () =
   expect((screen.getByRole("button", { name: "Check in" }) as HTMLButtonElement).disabled).toBe(true);
   expect(within(screen.getByRole("region", { name: "Sponsoring adult" })).getByText("Not checked in")).toBeTruthy();
 });
+
+test("a card changed by someone else reloads the record and won't retry on the old revision", async () => {
+  const { ApiError } = await import("../../../lib/api");
+  state.cards = [{ id: 31, label: "Blue key card", active: true, revision: 4, last4: "4F21", assignedAt: "2026-10-02T19:40:00Z", assignedBy: "Alex Demo", lastUsedAt: null, lastReader: null }];
+  mount();
+  api.mockRejectedValueOnce(new ApiError(409, "STALE_RECORD", "Card changed"));
+  fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+  const dialog = screen.getByRole("dialog", { name: "Revoke Blue key card?" });
+  fireEvent.change(within(dialog).getByLabelText("Reason"), { target: { value: "Lost card" } });
+  fireEvent.submit(within(dialog).getByRole("form"));
+  expect(await within(dialog).findByRole("alert")).toHaveProperty("textContent", expect.stringMatching(/This card changed since you opened it/));
+  expect(reload).toHaveBeenCalled();
+  expect((within(dialog).getByRole("button", { name: "Revoke card" }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+test("every earlier membership or pass can be reached, not just the first five", () => {
+  const pass = (id: number) => ({ id, userId: 14, planId: 2, status: "active", effectiveStatus: "scheduled", revision: 1, validDate: `2099-01-0${id}`, plan: { name: "Day pass" }, reason: "" });
+  // One upcoming pass is shown as the current plan; the other six are listed under Earlier.
+  state.detail = { ...state.detail, passes: [1, 2, 3, 4, 5, 6, 7].map(pass) };
+  mount();
+  expect(screen.getAllByRole("button", { name: /^Change Day pass #/ })).toHaveLength(5);
+  fireEvent.click(screen.getByRole("button", { name: /Show all 6/ }));
+  expect(screen.getAllByRole("button", { name: /^Change Day pass #/ })).toHaveLength(6);
+});

@@ -28,6 +28,9 @@ export type DialogState =
   | { kind: "endSupervision"; override: { id: number; resourceName: string } }
   | { kind: "sponsor" };
 
+/** Thrown when the record changed under an open dialog: the dialog stops offering a retry on old data. */
+class StaleDialog extends Error {}
+
 /** A compact dialog around one form. `onSubmit` returns the sentence the toast shows. */
 function RecordDialog({
   title,
@@ -51,16 +54,18 @@ function RecordDialog({
   children: ReactNode;
 }) {
   const [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [stale, setStale] = useState(false);
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (busy || submitDisabled) return;
+    if (busy || submitDisabled || stale) return;
     setBusy(true);
     setError("");
     try {
       onDone(await onSubmit(new FormData(event.currentTarget)));
     } catch (err) {
       setError(errorMessage(err));
+      if (err instanceof StaleDialog) setStale(true);
       setBusy(false);
     }
   };
@@ -77,7 +82,7 @@ function RecordDialog({
           </p>
         ) : null}
         <div className="mr-dialog__actions">
-          <button className={`button ${danger ? "button--danger-action" : "button--primary"}`} type="submit" disabled={busy || submitDisabled}>
+          <button className={`button ${danger ? "button--danger-action" : "button--primary"}`} type="submit" disabled={busy || submitDisabled || stale}>
             {busy ? "Saving…" : submitLabel}
           </button>
           <button className="button button--quiet" type="button" onClick={onClose} disabled={busy}>
@@ -263,10 +268,18 @@ export function RecordDialogHost({
           submitLabel="Save"
           onSubmit={async (f) => {
             const status = String(f.get("status"));
-            await api(`/admin/users/${id}/entitlements/${dialog.entitlementKind}/${item.id}/status`, {
-              method: "POST",
-              body: { status, revision: item.revision, reason: f.get("reason") },
-            });
+            try {
+              await api(`/admin/users/${id}/entitlements/${dialog.entitlementKind}/${item.id}/status`, {
+                method: "POST",
+                body: { status, revision: item.revision, reason: f.get("reason") },
+              });
+            } catch (error) {
+              if (error instanceof ApiError && error.status === 409) {
+                onConflict();
+                throw new StaleDialog(`This ${noun} changed since you opened it. The latest is loaded; close this and check it before trying again.`);
+              }
+              throw error;
+            }
             return status === "active" ? `The ${noun} is active.` : status === "suspended" ? `The ${noun} is paused.` : `The ${noun} has ended.`;
           }}
         >
@@ -319,10 +332,18 @@ export function RecordDialogHost({
           submitLabel={revoke ? "Revoke card" : "Reactivate card"}
           danger={revoke}
           onSubmit={async (f) => {
-            await api(`/admin/access/cards/${card.id}/${dialog.action}`, {
-              method: "POST",
-              body: { expectedRevision: card.revision, reason: f.get("reason") },
-            });
+            try {
+              await api(`/admin/access/cards/${card.id}/${dialog.action}`, {
+                method: "POST",
+                body: { expectedRevision: card.revision, reason: f.get("reason") },
+              });
+            } catch (error) {
+              // Someone else changed this card: load the latest and have staff look before trying again.
+              onConflict();
+              if (error instanceof ApiError && error.status === 409)
+                throw new StaleDialog("This card changed since you opened it. The latest is loaded; close this and check the card before trying again.");
+              throw error;
+            }
             return revoke ? `${card.label} revoked.` : `${card.label} reactivated.`;
           }}
         >

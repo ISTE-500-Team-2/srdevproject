@@ -121,8 +121,8 @@ export function MemberRecord({
   const detail = useApi<MemberDetail>(`/admin/users/${id}`, { retainOnReload: true, refreshInterval: 3000 });
   const req = useApi<MemberRequirements>(`/admin/users/${id}/requirements`, { retainOnReload: true, refreshInterval: 10000 });
   const supervision = useApi<SupervisionSummary>(`/admin/users/${id}/supervision`, { retainOnReload: true, refreshInterval: 15000 });
-  const cards = useApi<NfcCard[]>(`/admin/access/cards?userId=${id}`, { retainOnReload: true });
-  const overrides = useApi<Override[]>(`/admin/access/overrides?userId=${id}`, { retainOnReload: true });
+  const cards = useApi<NfcCard[]>(`/admin/access/cards?userId=${id}`, { retainOnReload: true, refreshInterval: 15000 });
+  const overrides = useApi<Override[]>(`/admin/access/overrides?userId=${id}`, { retainOnReload: true, refreshInterval: 15000 });
   // Adopt a committed write's revision before the refresh lands, so a second save isn't stale.
   const [confirmed, setConfirmed] = useState<Person | null>(null);
   const [dialog, setDialog] = useState<DialogState | null>(null);
@@ -130,6 +130,7 @@ export function MemberRecord({
   const [actionError, setActionError] = useState("");
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState<"all" | ActivityRow["type"]>("all");
+  const [allEarlier, setAllEarlier] = useState(false);
   useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(null), 6000);
@@ -237,6 +238,8 @@ export function MemberRecord({
           actionError={actionError}
           filter={filter}
           setFilter={setFilter}
+          allEarlier={allEarlier}
+          showAllEarlier={() => setAllEarlier(true)}
           viewAs={viewAs}
           open={setDialog}
           visitAction={visitAction}
@@ -276,6 +279,8 @@ function Body({
   actionError,
   filter,
   setFilter,
+  allEarlier,
+  showAllEarlier,
   viewAs,
   open,
   visitAction,
@@ -295,6 +300,8 @@ function Body({
   actionError: string;
   filter: "all" | ActivityRow["type"];
   setFilter: (f: "all" | ActivityRow["type"]) => void;
+  allEarlier: boolean;
+  showAllEarlier: () => void;
   viewAs?: ViewAs;
   open: (d: DialogState) => void;
   visitAction: (a: "check-in" | "check-out") => void;
@@ -454,7 +461,7 @@ function Body({
             {earlier.length ? (
               <>
                 <p className="mr-sub-head">Earlier</p>
-                {earlier.slice(0, 5).map(({ item, kind }) => (
+                {(allEarlier ? earlier : earlier.slice(0, 5)).map(({ item, kind }) => (
                   <Row
                     key={`${kind}-${item.id}`}
                     icon="receipt"
@@ -476,7 +483,13 @@ function Body({
                     }
                   />
                 ))}
-                {earlier.length > 5 ? <p className="mr-more">{earlier.length - 5} older not shown.</p> : null}
+                {!allEarlier && earlier.length > 5 ? (
+                  <p className="mr-more">
+                    <button type="button" className="today-link" onClick={showAllEarlier}>
+                      Show all {earlier.length} <ChevronRight aria-hidden="true" />
+                    </button>
+                  </p>
+                ) : null}
               </>
             ) : null}
           </section>
