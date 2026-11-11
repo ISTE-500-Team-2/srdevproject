@@ -125,6 +125,7 @@ test("staff React flow creates a plan, issues access/payment, survives reload, s
       { timeout: 20000 },
     ),
   );
+  await user.click(await screen.findByRole("button", { name: "Sell or record a payment" }, { timeout: 20000 }));
   await user.selectOptions(await screen.findByLabelText("How will the member pay?"), "external");
   const issue = await screen.findByRole(
     "form",
@@ -153,7 +154,7 @@ test("staff React flow creates a plan, issues access/payment, survives reload, s
   );
   await user.click(within(issue).getByRole("button", { name: "Record payment and issue access" }));
   await screen.findByText(
-    "Access issued and payment record saved.",
+    "Access issued and the payment recorded.",
     {},
     { timeout: 20000 },
   );
@@ -186,24 +187,21 @@ test("staff React flow creates a plan, issues access/payment, survives reload, s
   );
   await screen.findByRole(
     "heading",
-    { name: /Recent payment records/ },
+    { name: "Payments" },
     { timeout: 20000 },
   );
   expect(screen.getAllByText(/UI-RECEIPT/).length).toBeGreaterThan(0);
-  await user.click(screen.getByText("Change facility access"));
-  const access = screen.getByRole("form", { name: "Facility access control" });
-  await user.selectOptions(
-    within(access).getByLabelText("Facility access"),
-    "suspended",
-  );
+  await user.click(screen.getByRole("button", { name: "Change facility access" }));
+  const access = screen.getByRole("form", { name: "Facility access" });
+  await user.click(within(access).getByRole("radio", { name: /^Suspended/ }));
   await user.type(
-    within(access).getByLabelText("Reason for change"),
+    within(access).getByLabelText("Reason"),
     "Temporary UI access hold",
   );
   await user.click(
-    within(access).getByRole("button", { name: "Save facility access" }),
+    within(access).getByRole("button", { name: "Save access" }),
   );
-  await screen.findByText("Facility access updated.", {}, { timeout: 20000 });
+  await screen.findByText(/facility access is suspended/, {}, { timeout: 20000 });
 
   cleanup();
   expect((await direct("/auth/login", { email, password })).status).toBe(403);
@@ -221,19 +219,20 @@ test("staff React flow creates a plan, issues access/payment, survives reload, s
   expect((await direct('/auth/demo',{role:'admin'})).status).toBe(200);
   mount('/admin/members');
   await user.click(await screen.findByRole('button',{name:/Taylor UI Member/},{timeout:20000}));
-  await user.click(await screen.findByText('Change account status'));
+  const words:Record<string,RegExp>={suspended:/^On hold/,inactive:/^Closed/,active:/^Active/};
   for (const status of ['suspended','inactive','active']) {
-    const account = await screen.findByRole('form',{name:'Account status control'});
-    await user.selectOptions(within(account).getByLabelText('Account status'),status);
-    await user.type(within(account).getByLabelText('Reason for change'),'Private account review');
-    await user.click(within(account).getByRole('button',{name:'Save account status'}));
-    await screen.findByText('Account status updated.',{},{timeout:20000});
+    await user.click(await screen.findByRole('button',{name:'Change account status'},{timeout:20000}));
+    const account = await screen.findByRole('form',{name:'Account status'});
+    await user.click(within(account).getByRole('radio',{name:words[status]}));
+    await user.type(within(account).getByLabelText('Reason'),'Private account review');
+    await user.click(within(account).getByRole('button',{name:'Save status'}));
+    await waitFor(()=>expect(screen.queryByRole('form',{name:'Account status'})).toBeNull(),{timeout:20000});
     await waitFor(async()=>{
       const row = (await bridge.pool.query('SELECT status FROM "user" WHERE userid=$1',[id])).rows[0];
       expect(row.status).toBe(status);
     });
-    const saved = await screen.findByText((_, element) => element?.tagName === 'P' && element.textContent === 'Account note: Private account review');
-    expect(saved).toBeTruthy();
+    // While the account is blocked, the record quotes the reason in the verdict and the Account panel.
+    if (status !== 'active') expect((await screen.findAllByText(/Private account review/,{},{timeout:20000})).length).toBeGreaterThan(0);
   }
   const retained = (await bridge.pool.query('SELECT accessstatus FROM "user" WHERE userid=$1',[id])).rows[0];
   expect(retained.accessstatus).toBe('suspended');

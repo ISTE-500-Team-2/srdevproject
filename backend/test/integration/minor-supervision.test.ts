@@ -53,8 +53,10 @@ test('both visitors need their own access; adult presence gates minor bookings a
  const body={roomId:room,startTime:new Date(base+3600000).toISOString(),endTime:new Date(base+7200000).toISOString()};
  assert.equal((await post(minor,'/reservations',body)).body.error.code,'SPONSOR_REQUIRED');
  assert.equal((await post(admin,`${root()}/check-in`,{reason:'Minor arrived'})).status,403);
- const r=await post(admin,`/admin/users/${adult.user.id}/supervision/check-in`,{reason:'Adult physically present'});
+ // A desk check-in needs no note; the change log still records one.
+ const r=await post(admin,`/admin/users/${adult.user.id}/supervision/check-in`,{});
  assert.equal(r.status,200,JSON.stringify(r.body));
+ assert.equal((await pool.query(`SELECT reason FROM app_staff_audit WHERE subject_id=$1 AND action='visit.check-in' ORDER BY id DESC LIMIT 1`,[adult.user.id])).rows[0].reason,'Checked in at the front desk');
  assert.equal((await post(admin,`${root()}/check-in`,{reason:'Arrived together'})).status,200);
  // Use exactly whole-hour duration, independent of successive clock reads.
  body.endTime=new Date(new Date(body.startTime).getTime()+3600000).toISOString();

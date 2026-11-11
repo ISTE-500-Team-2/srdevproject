@@ -29,13 +29,24 @@ export class ReservationModel {
       )
     ).rows;
   }
+  /**
+   * Staff reservation list, newest first. `when` narrows to reservations that have not
+   * ended (soonest first) or have ended; `search` matches member name or email and the
+   * equipment or room name. Cancelled reservations are left out only when asked.
+   */
   async listAll(filters: {
     date?: string;
     userId?: number | null;
     equipmentId?: number | null;
     offset?: number;
+    when?: 'upcoming' | 'past' | null;
+    search?: string | null;
+    includeCancelled?: boolean;
   }) {
     const date = filters.date?.trim() || null;
+    const search = filters.search?.trim()
+      ? `%${filters.search.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`
+      : null;
     return (
       await this.db.query(
         `SELECT ${selection} FROM reservation r ${joins}
@@ -45,13 +56,23 @@ export class ReservationModel {
           ))
           AND ($2::int IS NULL OR r.userid=$2)
           AND ($3::int IS NULL OR r.equipmentid=$3)
-        ORDER BY r.starttime DESC,r.reservationid DESC LIMIT 51 OFFSET $4`,
+          AND ($6::text IS NULL
+            OR ($6='upcoming' AND r.endtime > clock_timestamp() AT TIME ZONE 'UTC')
+            OR ($6='past' AND r.endtime <= clock_timestamp() AT TIME ZONE 'UTC'))
+          AND ($7::text IS NULL OR u.firstname || ' ' || u.lastname ILIKE $7 OR u.email ILIKE $7
+            OR COALESCE(e.name,room.name) ILIKE $7)
+          AND ($8::boolean OR r.status <> 'cancelled')
+        ORDER BY CASE WHEN $6='upcoming' THEN r.starttime END ASC,
+          r.starttime DESC,r.reservationid DESC LIMIT 51 OFFSET $4`,
         [
           date,
           filters.userId ?? null,
           filters.equipmentId ?? null,
           filters.offset ?? 0,
           this.timeZone,
+          filters.when ?? null,
+          search,
+          filters.includeCancelled ?? true,
         ],
       )
     ).rows;

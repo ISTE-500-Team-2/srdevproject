@@ -4,12 +4,14 @@ import { AppError, positiveId, textField } from "../domain.js";
 import { authState } from "../middleware/auth.js";
 import { COMPLIANCE_EXPORT_LIMIT, StaffModel } from "../models/StaffModel.js";
 import { StaffService } from "../services/StaffService.js";
+import { memberRequirements } from "../memberRequirements.js";
 import {
   instant,
   issueInput,
   oneOf,
   pageOffset,
   paymentMethod,
+  optionalReasonField,
   planInput,
   reasonField,
   revisionField,
@@ -64,7 +66,7 @@ export class StaffController {
   private service: StaffService;
   constructor(
     private pool: Pool,
-    timeZone: string,
+    private timeZone: string,
   ) {
     this.model = new StaffModel(pool, timeZone);
     this.service = new StaffService(pool, timeZone);
@@ -136,11 +138,29 @@ export class StaffController {
         positiveId(req.params.id),
         textField(req.body.firstName, "First name", 50),
         textField(req.body.lastName, "Last name", 50),
-        textField(req.body.phone, "Phone", 15),
+        // A blank phone clears it: not every member gives one.
+        textField(req.body.phone ?? "", "Phone", 15, 0),
+        revisionField(req.body.revision),
+        optionalReasonField(req.body.reason, "Name or phone updated"),
+      ),
+    });
+  };
+  conduct = async (req: Request, res: Response) => {
+    if (typeof req.body.flagged !== "boolean")
+      throw new AppError(400, "INVALID_INPUT", "Choose whether the conduct flag is on.");
+    res.json({
+      data: await this.service.conduct(
+        authState(res).user.id,
+        positiveId(req.params.id),
+        req.body.flagged,
         revisionField(req.body.revision),
         reasonField(req.body.reason),
       ),
     });
+  };
+  requirements = async (req: Request, res: Response) => {
+    res.set("Cache-Control", "no-store");
+    res.json({ data: await memberRequirements(this.pool, this.timeZone, positiveId(req.params.id)) });
   };
   accountStatus = async (req: Request, res: Response) => {
     res.json({ data: await this.service.accountStatus(

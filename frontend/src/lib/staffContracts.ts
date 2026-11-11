@@ -1,3 +1,4 @@
+import type { FacilityVisit } from "./contracts";
 export interface Page<T> {
   items: T[];
   nextOffset: number | null;
@@ -176,4 +177,18 @@ export interface ComplianceReport {
     waivers: ComplianceOption[];
     certifications: ComplianceOption[];
   };
+}
+/** GET /admin/users/:id/requirements: what gates the shop for this member now. Advisory; readers recheck. */
+export interface MemberRequirements {
+  account: string;
+  access: Person["accessStatus"];
+  entitlement:
+    | { kind: "membership"; name: string; endsAt: string }
+    | { kind: "day_pass"; name: string; validDate: string }
+    | null;
+  waivers: { required: number; signed: number; missing: string[]; lastSignedAt: string | null };
+  training: { required: number; held: number; missing: string[] };
+  cards: { active: number };
+  minor: { sponsorName: string | null; sponsorHere: boolean } | null;
+  visit: FacilityVisit | null;
 }

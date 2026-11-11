@@ -185,6 +185,19 @@ export class StaffService {
       return after;
     });
   }
+  /** A staff-only marker. It never blocks access by itself; facility access does that. */
+  conduct(actorId: number, id: number, flagged: boolean, revision: number, reason: string) {
+    return this.write(actorId, false, "user_access", "update", async (model, actor) => {
+      if (actorId === id)
+        throw new AppError(409, "SELF_CHANGE_FORBIDDEN", "Another administrator must change your conduct flag.");
+      const before = await this.target(model, actor, id);
+      this.expectRevision(before.revision, revision);
+      const after = await model.conduct(id, flagged, revision);
+      if (!after) throw conflict();
+      await model.audit(actorId, id, flagged ? "user.conduct_flagged" : "user.conduct_cleared", "user", id, reason, before, after);
+      return after;
+    });
+  }
   access(
     actorId: number,
     id: number,

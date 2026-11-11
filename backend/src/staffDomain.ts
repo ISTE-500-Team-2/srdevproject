@@ -72,6 +72,11 @@ export function instant(value: unknown): string {
 export function reasonField(value: unknown) {
   return textField(value, "Reason", 255, 3);
 }
+/** A note for the change log that staff may leave blank; blank falls back to `fallback`. */
+export function optionalReasonField(value: unknown, fallback: string) {
+  if (value == null || (typeof value === "string" && !value.trim())) return fallback;
+  return reasonField(value);
+}
 export function revisionField(value: unknown) {
   return positiveId(value, "revision");
 }

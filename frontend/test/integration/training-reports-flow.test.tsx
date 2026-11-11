@@ -208,13 +208,14 @@ test("staff card assignment, revocation and timed override UI save audited recor
     )
   ).rows[0].equipmentid;
   await user.click(screen.getByRole("link", {name:"Jordan’s member record"}));
-  const form = await screen.findByRole("form", {name:"Create supervised access"});
-  await waitFor(()=>expect(within(form).getByLabelText("Equipment or room").querySelector(`option[value="equipment:${equipment}"]`)).toBeTruthy());
-  await user.selectOptions(within(form).getByLabelText("Equipment or room"), `equipment:${equipment}`);
-  await user.selectOptions(within(form).getByLabelText("Duration"), "10");
+  await user.click(await screen.findByRole("button", {name:"Start"}, {timeout:20000}));
+  const form = await screen.findByRole("form", {name:"Start supervised use"});
+  await waitFor(()=>expect(within(form).getByLabelText("Machine or room").querySelector(`option[value="equipment:${equipment}"]`)).toBeTruthy());
+  await user.selectOptions(within(form).getByLabelText("Machine or room"), `equipment:${equipment}`);
+  await user.selectOptions(within(form).getByLabelText("How long"), "10");
   await user.type(within(form).getByLabelText("Reason"), "Supervised operation");
-  await user.click(within(form).getByRole("button", {name:"Create supervised access"}));
-  await screen.findByText(/Supervised access created for Jordan/);
+  await user.click(within(form).getByRole("button", {name:"Start"}));
+  await screen.findByText(/Jordan can use .+ for 10 minutes while you watch/, {}, {timeout:20000});
   const card = (
     await bridge.pool.query(
       "SELECT active FROM app_access_card WHERE label='UI test card'",
