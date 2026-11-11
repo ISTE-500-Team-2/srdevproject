@@ -5,7 +5,7 @@ import { TodayPage } from "./TodayPage";
 import { usePageWidth } from "../../components/admin/pageWidth";
 
 // Pages that already render their own top-level heading.
-const ownHeading = new Set(["access", "reports", "studios", "equipment"]);
+const ownHeading = new Set(["access", "reports", "studios", "equipment", "analytics"]);
 
 /** One workspace section under /admin/<path>. */
 export function AdminSectionPage({ section }: { section: AdminSection }) {

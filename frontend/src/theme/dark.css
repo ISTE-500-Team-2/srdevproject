@@ -573,19 +573,13 @@
 }
 
 /* ---------- Charts ---------- */
-:root[data-theme='dark'] .revenue-bars__paid {
-  background: var(--dk-copper);
-}
-
-:root[data-theme='dark'] .revenue-bars__refund {
-  background: #c97a70;
-}
-
-:root[data-theme='dark'] .revenue-bars__tip {
-  border: 1px solid var(--border);
-  background: var(--surface-raised);
-  color: var(--ink);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+:root[data-theme='dark'] .analytics-dashboard {
+  /* Checked against the card surface: the two stay distinct with color blindness too. */
+  --chart-net: #c47520;
+  --chart-visits: #cf62ad;
+  --chart-joined: #6b8fd6;
+  --chart-cancelled: #b8862a;
+  --chart-surface: var(--dk-card);
 }
 
 :root[data-theme='dark'] .chart-gridline {
