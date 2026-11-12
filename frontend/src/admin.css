@@ -395,18 +395,9 @@ button.admin-nav__item { width: 100%; border: 0; background: transparent; text-a
 }
 
 
-/* All workspace tabs share Equipment's page rhythm and full-width inset. */
+/* All workspace tabs share Equipment's page rhythm; the group label shares its eyebrow (equipment.css). */
 .admin-section.management-page { gap: 26px; }
 .admin-section .admin-page-heading { margin: 0; }
-.admin-section .admin-page-eyebrow {
-  margin: 0 0 6px;
-  color: #80634f;
-  font-size: var(--text-2xs);
-  font-weight: 600;
-  letter-spacing: .12em;
-  line-height: 1.5;
-  text-transform: uppercase;
-}
 .admin-section .admin-title,
 .admin-section .nfc-page > header h1 {
   margin: 4px 0 8px;
