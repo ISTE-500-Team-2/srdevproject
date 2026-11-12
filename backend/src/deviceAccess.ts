@@ -221,12 +221,12 @@ export function deviceDecision(
       // unique index. Roll back the loser, including any enrollment changes.
       if (!saved) throw new AppError(409, 'REPLAYED_EVENT', 'Use a fresh event ID.');
       if (verdict.allowed && body.checkIn === true && body.renewal !== true) {
-        await new MinorSupervision(db,timeZone).startVisit(card.user_id,verdict.buildingId ?? 1);
+        await new MinorSupervision(db,timeZone).startVisit(card!.user_id,verdict.buildingId ?? 1);
         await db.query(
           `INSERT INTO check_in(userid,roomid,location,buildingid,equipmentid,reservationid,checkintime,status,statusdesc)
           VALUES($1,$2,$3,$4,$5,$6,NOW() AT TIME ZONE 'UTC','approved','Authenticated NFC eligibility decision')`,
           [
-            card.user_id,
+            card!.user_id,
             reader.kind === "room" ? reader.resourceId : null,
             reader.id,
             verdict.buildingId,
