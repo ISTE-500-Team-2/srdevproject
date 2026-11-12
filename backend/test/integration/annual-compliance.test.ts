@@ -71,10 +71,14 @@ test('upgrade dates legacy signatures from signing and preserves shorter deadlin
   const legacyGrant=(await db.query(`INSERT INTO user_certifications(usercertid,userid,certid,status,trained_at)
     SELECT COALESCE(MAX(usercertid),0)+1,$1,$2,'active',NOW()-INTERVAL '400 days' FROM user_certifications RETURNING usercertid`,[member.id,legacyCert])).rows[0].usercertid;
   const old=(await db.query('SELECT expires_at FROM user_waiver WHERE userid=$1 AND waiverid=$2 AND approval=true',[member.id,policyId])).rows[0].expires_at;
+  const undatedPolicy=(await db.query(`INSERT INTO waiver(name,version,description,effectivedate) VALUES('Undated legacy','v1','Legacy wording.',NOW() AT TIME ZONE 'UTC') RETURNING waiverid`)).rows[0].waiverid;
+  const undated=(await db.query('INSERT INTO user_waiver(userid,waiverid,signdate,approval) VALUES($1,$2,NULL,true) RETURNING userwaiverid',[member.id,undatedPolicy])).rows[0].userwaiverid;
   await db.query(await readFile(new URL('../../../database/migrations/038_annual_compliance.sql',import.meta.url),'utf8'));
   const row=(await db.query(`SELECT expires_at,signdate AT TIME ZONE 'UTC' AS signed FROM user_waiver WHERE userwaiverid=$1`,[legacy])).rows[0];
   assert.equal(row.expires_at.getTime()-row.signed.getTime(),365*86400000);assert.ok(row.expires_at<new Date());
   assert.equal((await db.query('SELECT expires_at FROM user_waiver WHERE userid=$1 AND waiverid=$2 AND approval=true',[member.id,policyId])).rows[0].expires_at.getTime(),old.getTime());
+  const undatedExpiry=(await db.query('SELECT expires_at FROM user_waiver WHERE userwaiverid=$1',[undated])).rows[0].expires_at;
+  assert.ok(Math.abs(undatedExpiry.getTime()-(Date.now()+365*86400000))<60_000,'an undated signature no longer lasts forever');
   const training=(await db.query(`SELECT renewaldate AT TIME ZONE 'UTC' AS expires,trained_at FROM user_certifications WHERE usercertid=$1`,[legacyGrant])).rows[0];
   assert.equal(training.expires.getTime()-training.trained_at.getTime(),365*86400000);assert.ok(training.expires<new Date());
   assert.equal((await db.query('SELECT COUNT(*)::int AS n FROM certifications WHERE validity_days IS DISTINCT FROM 365')).rows[0].n,0);

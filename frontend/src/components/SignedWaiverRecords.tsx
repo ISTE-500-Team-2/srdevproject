@@ -47,7 +47,7 @@ export function SignedWaiverRecords({
     <section className="panel management-panel">
       <h2>Signed waiver copies</h2>
       <p>
-        Each waiver expires 1 year (365 days) after the individual member signs it. Signing again starts a new 365-day period. A policy update may require signing again sooner. Download a copy of each signed waiver below.
+        Each waiver expires 1 year (365 days) after the individual member signs it. A policy update may require signing again sooner. Download a copy of each signed waiver below.
       </p>
       <LoadState {...records} />
       {error ? <p role="alert">{error}</p> : null}

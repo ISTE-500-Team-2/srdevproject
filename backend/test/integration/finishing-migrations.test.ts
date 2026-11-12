@@ -70,7 +70,9 @@ test("additive finishing migrations preserve legacy training, database contents,
       .rows[0];
     for (const [key, value] of Object.entries(original))
       if (!['renewaldate','revision'].includes(key)) assert.deepEqual(updated[key], value);
-    assert.ok(Math.abs(updated.renewaldate.getTime()-(Date.now()+365*86400000))<60_000);
+    // renewaldate holds UTC wall-clock time without a zone; node-postgres reads it as local time.
+    const renewal = updated.renewaldate.getTime() - updated.renewaldate.getTimezoneOffset() * 60000;
+    assert.ok(Math.abs(renewal-(Date.now()+365*86400000))<60_000);
     assert.equal(updated.approved_by, null);
     assert.equal(updated.trained_at, null);
     assert.equal(updated.revision, 2);
