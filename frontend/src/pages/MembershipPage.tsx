@@ -17,6 +17,25 @@ import "./membership.css";
 const CONFIRM_WINDOW_MS = 60_000;
 
 type Result = Record<string, unknown>;
+type Message = { text: string; error?: boolean };
+
+/**
+ * Describes a day-pass cancellation from what the server actually reported.
+ * Card refunds can still be in flight or fail, and the pass is only cancelled
+ * once the refund succeeds, so only claim cancellation when it happened.
+ */
+function passCancelMessage(r: Result): string | Message {
+  if (r.manualRefundRequired) return "Day pass cancelled. Ask staff at the front desk for your refund.";
+  if (r.cancelled === true || r.refundStatus === "succeeded") return "Day pass cancelled.";
+  if (r.refundStatus === "pending" || r.refundStatus === "requires_action")
+    return "Your day pass cancellation is waiting on the refund. We'll email you when it's done.";
+  if (r.refundStatus === "failed" || r.refundStatus === "canceled")
+    return {
+      text: "We couldn't refund this day pass, so it is still active. Please ask staff at the front desk.",
+      error: true,
+    };
+  return "We couldn't confirm your day pass cancellation. Refresh this page to see its status, or ask staff at the front desk.";
+}
 
 export function MembershipPage() {
   const [params, setParams] = useSearchParams();
@@ -28,7 +47,7 @@ export function MembershipPage() {
   const passes = useApi<BillingPass[]>("/me/billing/passes", poll);
   const plans = useApi<Plan[]>("/plans");
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null);
+  const [message, setMessage] = useState<Message | null>(null);
   const started = useRef(Date.now());
 
   const refreshAll = useCallback(() => {
@@ -91,10 +110,13 @@ export function MembershipPage() {
 
   /** Posts an action and reports the outcome in the page message. */
   const run = useCallback(
-    async (path: string, body: unknown, done: (result: Result) => string) => {
+    async (path: string, body: unknown, done: (result: Result) => string | Message) => {
       try {
         const result = await post(path, body);
-        if (!(result.checkoutUrl ?? result.url)) setMessage({ text: done(result) });
+        if (!(result.checkoutUrl ?? result.url)) {
+          const outcome = done(result);
+          setMessage(typeof outcome === "string" ? { text: outcome } : outcome);
+        }
       } catch (e) {
         setMessage({ text: errorMessage(e), error: true });
       }
@@ -105,13 +127,7 @@ export function MembershipPage() {
   const act = useCallback(
     (path: string) =>
       run(path, {}, (r) => {
-        if (path.includes("/passes/")) {
-          if (r.manualRefundRequired)
-            return "Day pass cancelled. Ask staff at the front desk for your refund.";
-          if (r.refundStatus && r.refundStatus !== "succeeded")
-            return "Day pass cancelled. Your refund is on its way.";
-          return "Day pass cancelled.";
-        }
+        if (path.includes("/passes/")) return passCancelMessage(r);
         if (path.includes("/memberships/"))
           return "Membership cancelled. Your last day is shown below.";
         const record = billing.data?.records.find((b) => path.includes(b.id));
