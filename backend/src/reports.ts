@@ -214,21 +214,10 @@ export function reportRoutes(pool: Pool, tz: string) {
             },
             ...data.notes.map((note) => ({ section: "method", note })),
           ];
-          for (const section of [
-            "revenue",
-            "equipment",
-            "patterns",
-            "classes",
-            "rooms",
-            "live",
-            "usage",
-            "memberships",
-          ] as const)
+          for (const section of EXPORT_ROW_SECTIONS)
             for (const row of data[section]) records.push({ section, ...row });
-          records.push(
-            { section: "active", ...data.active },
-            { section: "compliance", ...data.compliance },
-          );
+          for (const section of EXPORT_SUMMARY_SECTIONS)
+            records.push({ section, ...data[section] });
           for (const [cohort, metrics] of Object.entries(
             data.notifications.cohorts,
           ))
@@ -271,6 +260,19 @@ export function reportRoutes(pool: Pool, tz: string) {
   );
   return r;
 }
+// CSV and PDF exports list the same sections in the same order.
+// Row sections hold arrays of records; summary sections hold one record each.
+const EXPORT_ROW_SECTIONS = [
+  "revenue",
+  "equipment",
+  "patterns",
+  "classes",
+  "rooms",
+  "live",
+  "usage",
+  "memberships",
+] as const;
+const EXPORT_SUMMARY_SECTIONS = ["active", "compliance"] as const;
 function csvCell(s: string) {
   const safe = /^[=+@\-\t\r]/.test(s) ? "'" + s : s;
   return '"' + safe.replaceAll('"', '""') + '"';
@@ -280,22 +282,13 @@ function reportLines(d: any): string[][] {
     ["Report", `${d.from} through ${d.to}`, d.timeZone, d.generatedAt],
     ...d.notes.map((x: string) => ["Method", x]),
   ];
-  for (const section of [
-    "revenue",
-    "equipment",
-    "patterns",
-    "classes",
-    "rooms",
-    "live",
-    "usage",
-    "memberships",
-  ])
+  for (const section of EXPORT_ROW_SECTIONS)
     for (const row of d[section])
       rows.push([
         section,
         ...Object.entries(row).map(([k, v]) => `${k}: ${v ?? "not recorded"}`),
       ]);
-  for (const section of ["active", "compliance"])
+  for (const section of EXPORT_SUMMARY_SECTIONS)
     rows.push([
       section,
       ...Object.entries(d[section]).map(([k, v]) => `${k}: ${v}`),
