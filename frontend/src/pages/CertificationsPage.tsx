@@ -68,8 +68,10 @@ const day = (value: string) => shortDate(value, true);
 
 /**
  * Joins your certification records, the equipment that needs them and the
- * scheduled training classes into one list. Records match classes by id;
- * equipment only carries the certification name.
+ * scheduled training classes into one list, keyed by certification id. Two
+ * certifications that share a name stay separate. Only equipment without a
+ * `certId` falls back to its certification name: it joins the one entry with
+ * that name, or stands alone when there is none or the name is ambiguous.
  */
 function certificationItems(
   records: Certification[],
@@ -77,18 +79,33 @@ function certificationItems(
   classes: ClassRecord[],
   now = Date.now(),
 ): CertItem[] {
-  const entries = new Map<string, { name: string; id: number | null; record: Certification | null }>();
-  for (const record of records) entries.set(norm(record.name), { name: record.name, id: record.id, record });
+  type Entry = { name: string; id: number | null; record: Certification | null };
+  const entries = new Map<string, Entry>();
+  const add = (key: string, entry: Entry) => {
+    if (!entries.has(key)) entries.set(key, entry);
+  };
+  for (const record of records) add(`id:${record.id}`, { name: record.name, id: record.id, record });
   for (const item of equipment)
-    if (item.certification && !entries.has(norm(item.certification)))
-      entries.set(norm(item.certification), { name: item.certification, id: null, record: null });
+    if (item.certId != null && item.certification)
+      add(`id:${item.certId}`, { name: item.certification, id: item.certId, record: null });
   for (const c of classes)
-    if (c.certificationId !== null && !isCancelled(c) && !hasStarted(c, now) && !entries.has(norm(c.certificationName)))
-      entries.set(norm(c.certificationName), { name: c.certificationName, id: c.certificationId, record: null });
+    if (c.certificationId !== null && !isCancelled(c) && !hasStarted(c, now))
+      add(`id:${c.certificationId}`, { name: c.certificationName, id: c.certificationId, record: null });
+  /** Entry key for each piece of equipment that only carries a certification name. */
+  const byName = new Map<number, string>();
+  for (const item of equipment) {
+    if (item.certId != null || !item.certification) continue;
+    const named = [...entries].filter(([, entry]) => norm(entry.name) === norm(item.certification!));
+    const key = named.length === 1 ? named[0]![0] : `name:${norm(item.certification)}`;
+    add(key, { name: item.certification, id: null, record: null });
+    byName.set(item.id, key);
+  }
 
   return [...entries].map(([key, { name, id, record }]) => {
     const matches = classes.filter(
-      (c) => c.certificationId !== null && (c.certificationId === id || norm(c.certificationName) === key),
+      (c) =>
+        c.certificationId !== null &&
+        (id !== null ? c.certificationId === id : norm(c.certificationName) === norm(name)),
     );
     const upcoming = matches.filter((c) => !isCancelled(c) && !hasStarted(c, now)).sort(byStart);
     const registered = upcoming.find((c) => c.myStatus === 'enrolled') ?? null;
@@ -126,7 +143,8 @@ function certificationItems(
       state,
       equipment: equipment.filter(
         (item) =>
-          (item.certification && norm(item.certification) === key) || !!record?.equipmentIds?.includes(item.id),
+          (item.certId != null ? item.certId === id : byName.get(item.id) === key) ||
+          !!record?.equipmentIds?.includes(item.id),
       ),
       next: registered ?? upcoming[0] ?? null,
       trained,
