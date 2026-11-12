@@ -93,12 +93,12 @@ function client() {
     },
     refresh: () => agent.post('/api/auth/refresh').set('X-CSRF-Token',csrf).send({}),
     get: (path: string) => agent.get("/api" + path),
-    post: (path: string, body: unknown = {}) =>
+    post: (path: string, body: string | object = {}) =>
       agent
         .post("/api" + path)
         .set("X-CSRF-Token", csrf)
         .send(body),
-    patch: (path: string, body: unknown) =>
+    patch: (path: string, body: string | object) =>
       agent
         .patch("/api" + path)
         .set("X-CSRF-Token", csrf)
@@ -157,7 +157,7 @@ async function issue(admin: Client, user: Client, planId: number) {
   return r.body.data;
 }
 /** Members check in at a reader; the web check-in is staff at the desk, in the member's open account. */
-async function deskCheckIn(staff: Client, member: Client, body: unknown) {
+async function deskCheckIn(staff: Client, member: Client, body: string | object) {
   const opened = await staff.post("/admin/account-mode", { userId: member.id });
   assert.equal(opened.status, 200, JSON.stringify(opened.body));
   staff.adoptCsrf(opened.body.data.csrfToken);
@@ -168,7 +168,7 @@ async function deskCheckIn(staff: Client, member: Client, body: unknown) {
   return response;
 }
 const outcome = (r: request.Response) => [r.status, r.body.error?.code ?? null];
-async function assertMemberCheckInRefused(member: Client, body: unknown) {
+async function assertMemberCheckInRefused(member: Client, body: string | object) {
   assert.deepEqual(outcome(await member.post("/me/check-ins", body)), [403, "CHECK_IN_AT_READER"]);
 }
 async function currentRoomBooking(user: Client) {

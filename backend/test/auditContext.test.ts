@@ -14,7 +14,7 @@ test('concurrent audit queries isolate identity and release connections after co
     };
   } } as unknown as Pool);
   await Promise.all([11,22].map(actorId => auditContext.run({actorId}, () => pool.query('UPDATE example SET active=true'))));
-  assert.deepEqual(connections.map(c => c.statements[1][1]), [['11'],['22']]);
+  assert.deepEqual(connections.map(c => c.statements[1]![1]), [['11'],['22']]);
   for (const c of connections) {
     assert.equal(c.statements.at(-1)![0], 'COMMIT');
     assert.equal(c.released, true);

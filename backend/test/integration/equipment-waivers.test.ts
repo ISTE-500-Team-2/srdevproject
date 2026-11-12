@@ -15,7 +15,11 @@ import {equipmentWaiverName, waiverAcceptance} from '../helpers/waiver.js';
 const database = 'arbor_equipment_waivers_' + randomBytes(6).toString('hex') + '_mvc_test';
 const owner = new Pool(), pool = new Pool({database});
 const provider = new StudioStripe({key: 'sk_test_waivers_fake', webhookSecret: 'whsec_waivers_fake', origin: 'http://localhost:8080'});
-const service = new ReservationService(pool, 'America/New_York', provider);
+// ReservationService.create returns a loosely typed row union; tests read id/status from it.
+type CreatedReservation = {id: number; status: string; [column: string]: any};
+type TypedReservations = Omit<ReservationService, 'create'> & {create(...args: Parameters<ReservationService['create']>): Promise<CreatedReservation>};
+const reservations = (...args: ConstructorParameters<typeof ReservationService>) => new ReservationService(...args) as unknown as TypedReservations;
+const service = reservations(pool, 'America/New_York', provider);
 const billing = new EquipmentBilling(pool, provider);
 const sessions = new Map<string, any>();
 let member: number, admin: number, equipment: number, counter = 0, creates = 0, created = false;

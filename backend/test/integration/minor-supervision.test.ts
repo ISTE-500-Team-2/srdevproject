@@ -306,7 +306,7 @@ test('sponsor requests limit date-of-birth guessing per target email and per adu
   const monthly=await askAs(real,'target@example.invalid','2011-06-07');assert.equal(monthly.status,429,'15 misses in 30 days lock the email for every adult');
   for (let n=0;n<5;n++) assert.equal((await ask(`nobody${n}@example.invalid`,'2011-01-01')).status,404);
   const capped=await ask('elsewhere@example.invalid','2011-01-01');assert.equal(capped.status,429,'ten attempts per adult per day');
- } finally {await new Promise<void>(r=>{server2.close(r);server2.closeAllConnections();});}
+ } finally {await new Promise<Error|undefined>(r=>{server2.close(r);server2.closeAllConnections();});}
 });
 
 test('sponsor requests run on a single-connection pool and still record matched details after a 409',async()=>{
@@ -316,7 +316,7 @@ test('sponsor requests run on a single-connection pool and still record matched 
  const server3=app3.listen(0,'127.0.0.1');await new Promise<void>(resolve=>server3.once('listening',resolve));
  try {
   const password='GoodPassword123!',ids:Record<string,number>={};
-  for (const [email,dob] of [['single.parent@example.invalid','1979-04-04'],['single.kid@example.invalid','2013-05-05']]) {
+  for (const [email,dob] of [['single.parent@example.invalid','1979-04-04'],['single.kid@example.invalid','2013-05-05']] as const) {
    ids[email]=(await pool.query(`INSERT INTO "user"(firstname,lastname,email,password,phone,dob,status,email_confirmed)
     VALUES('Single','Pool',$1,$2,'1112223333',$3,'active',true) RETURNING userid`,[email,await hashPassword(password),dob])).rows[0].userid;
    await pool.query("INSERT INTO user_role(userid,roleid) SELECT $1,roleid FROM role WHERE role='member'",[ids[email]]);
@@ -328,7 +328,7 @@ test('sponsor requests run on a single-connection pool and still record matched 
   const pending=await ask();assert.equal(pending.status,409,JSON.stringify(pending.body));assert.equal(pending.body.error.code,'REQUEST_PENDING');
   assert.deepEqual((await pool.query('SELECT matched FROM app_minor_sponsor_attempt WHERE adult_id=$1 ORDER BY id',[ids['single.parent@example.invalid']])).rows.map(r=>r.matched),
    [true,true],'a rolled-back 409 still counts as a match, not a miss');
- } finally {await new Promise<void>(r=>{server3.close(r);server3.closeAllConnections();});await single.end();}
+ } finally {await new Promise<Error|undefined>(r=>{server3.close(r);server3.closeAllConnections();});await single.end();}
 });
 
 // Review regressions share one linked, entitled adult/minor pair; each starts with the adult checked in.

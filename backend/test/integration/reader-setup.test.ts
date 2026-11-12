@@ -61,7 +61,7 @@ function get(path = "/admin/access/reader-setup", auth = token) {
     .get("/api" + path)
     .set("Authorization", "Bearer " + auth);
 }
-function post(path: string, body: unknown, auth = token, csrfValue = csrf) {
+function post(path: string, body: string | object, auth = token, csrfValue = csrf) {
   return request(app)
     .post("/api" + path)
     .set("Authorization", "Bearer " + auth)
