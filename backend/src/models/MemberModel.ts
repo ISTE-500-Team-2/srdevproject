@@ -1,5 +1,6 @@
 import { MinorSupervision } from "../minorSupervision.js";
 import type { Database } from '../db.js';
+import { DEFAULT_BUILDING_ID } from '../facility.js';
 
 export class MemberModel {
   constructor(private db: Database, private timeZone = "America/New_York") {}
@@ -60,7 +61,7 @@ export class MemberModel {
       RETURNING checkinid AS id,location,checkintime AT TIME ZONE 'UTC' AS "checkedInAt"`,
       [userId, roomId, location,buildingId,equipmentId,reservationId],
     );
-    await new MinorSupervision(this.db,this.timeZone).startVisit(userId,buildingId ?? 1);
+    await new MinorSupervision(this.db,this.timeZone).startVisit(userId,buildingId ?? DEFAULT_BUILDING_ID);
     return rows[0]!;
   }
 }

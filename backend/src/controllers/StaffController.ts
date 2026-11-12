@@ -18,13 +18,11 @@ import {
   validatePaymentMethod,
 } from "../staffDomain.js";
 import { annualValidity } from "../annualValidity.js";
+import { page } from "../pagination.js";
 
-export function page<T>(rows: T[], offset: number) {
-  return {
-    items: rows.slice(0, 50),
-    nextOffset: rows.length > 50 ? offset + 50 : null,
-  };
-}
+// MemberController imports page from here; keep that path working.
+export { page };
+
 function optionalPositiveId(value: unknown, name: string) {
   if (value == null || value === "") return null;
   return positiveId(value, name);

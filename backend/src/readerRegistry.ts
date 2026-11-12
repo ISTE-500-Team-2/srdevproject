@@ -7,6 +7,7 @@ import {
 import type { Pool } from "pg";
 import type { Database } from "./db.js";
 import { AppError } from "./domain.js";
+import { DEFAULT_BUILDING_ID } from "./facility.js";
 
 export interface Reader {
   id: string;
@@ -108,7 +109,7 @@ export class ReaderRegistry {
       await this.pool.query(
         `INSERT INTO app_access_reader(id,name,kind,resource_id,secret_encrypted)
         VALUES($1,$1,$2,$3,$4) ON CONFLICT(id) DO NOTHING`,
-        [r.id, r.kind, r.resourceId ?? 1, this.encrypt(r.secret)],
+        [r.id, r.kind, r.resourceId ?? DEFAULT_BUILDING_ID, this.encrypt(r.secret)],
       );
     }
   }
