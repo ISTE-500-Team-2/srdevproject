@@ -19,6 +19,19 @@ export class MinorSupervision {
     return (await this.db.query(`SELECT dob IS NOT NULL AND dob::date>((now() AT TIME ZONE $2)::date-INTERVAL '18 years')::date AS minor
       FROM "user" WHERE userid=$1`, [id,this.zone])).rows[0]?.minor === true;
   }
+  /** The linked sponsor when they are an active adult, which is all advance class enrollment needs. */
+  async linkedSponsor(id: number, lock = false) {
+    return (await this.db.query<{ id: number }>(`SELECT s.adult_id AS id FROM app_minor_sponsor s
+      JOIN "user" u ON u.userid=s.adult_id WHERE s.minor_id=$1 AND ${adultSql(2)}
+      ${lock ? 'FOR SHARE OF s,u' : ''}`,[id,this.zone])).rows[0] ?? null;
+  }
+  /** Advance class enrollment needs a valid link; arrival still checks adult presence. */
+  async requireLinkedSponsor(id: number) {
+    if (!await this.isMinor(id)) return null;
+    const sponsor = await this.linkedSponsor(id, true);
+    if (!sponsor) throw new AppError(403,'SPONSOR_REQUIRED','Link an active sponsoring adult before enrolling.');
+    return sponsor;
+  }
   /** Shared lock serializes booking/access with adult checkout and sponsor reassignment. */
   async requireSponsor(id: number, buildingId?: number) {
     if (!await this.isMinor(id)) return null;
@@ -34,7 +47,7 @@ export class MinorSupervision {
     if (!sponsor) throw new AppError(403,'SPONSOR_REQUIRED','Your sponsoring adult must be linked, checked in and remain in this building. Ask staff to check you in together.');
     const eligibility = new EligibilityModel(this.db,this.zone);
     const entitled = await eligibility.entitlement(sponsor.id,new Date());
-    const waivers = await eligibility.waivers(sponsor.id);
+    const waivers = await eligibility.waivers(sponsor.id, 'facility');
     if ((!entitled.membership && !entitled.dayPass) || !waivers.length || waivers.some(w=>!w.signed))
       throw new AppError(403,'SPONSOR_INELIGIBLE','Your sponsoring adult needs current access and signed policies.');
     return sponsor;
@@ -90,7 +103,9 @@ export class MinorSupervision {
     const pendingRequests=(await this.db.query(`SELECT r.id::int AS id,u.firstname||' '||u.lastname AS "adultName",r.created_at AS "createdAt"
       FROM app_minor_sponsor_request r JOIN "user" u ON u.userid=r.adult_id
       WHERE r.minor_id=$1 AND r.status='pending' ORDER BY r.created_at,r.id`,[id])).rows;
-    return {isMinor:minor,marker:minor?'Under 18':null,sponsor,visit,pendingRequests};
+    // Lets the member see before registering that a class signup would be refused.
+    const sponsorEligible=minor && sponsor ? !!await this.linkedSponsor(id) : false;
+    return {isMinor:minor,marker:minor?'Under 18':null,sponsor,sponsorEligible,visit,pendingRequests};
   }
   async isAdult(id:number) {
     return !!(await this.db.query(`SELECT 1 FROM "user" WHERE userid=$1 AND ${adultSql(2)}`,[id,this.zone])).rowCount;
@@ -285,7 +300,7 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
       if (action==='check-in' && !(await db.query('SELECT userid FROM "user" WHERE userid=$1 AND status=\'active\' AND accessstatus=\'active\' FOR SHARE',[id])).rowCount)
         throw new AppError(403,'ACCESS_BLOCKED','This account does not have access.');
       if (action==='check-in') {
-        const model=new EligibilityModel(db,zone),entitlement=await model.entitlement(id,new Date()),waivers=await model.waivers(id);
+        const model=new EligibilityModel(db,zone),entitlement=await model.entitlement(id,new Date()),waivers=await model.waivers(id,'facility');
         if (!entitlement.membership && !entitlement.dayPass) throw new AppError(403,'MEMBERSHIP_REQUIRED','Each visitor needs a membership or day pass.');
         if (!waivers.length || waivers.some(w=>!w.signed)) throw new AppError(403,'WAIVER_REQUIRED','Sign current required policies first.');
         const building=positiveId(req.body.buildingId ?? 1);
