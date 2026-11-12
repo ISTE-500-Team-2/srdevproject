@@ -76,7 +76,7 @@ test("FR-032: an administrator previews the email and its reach before it goes t
     }),
   );
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  expect(screen.getByRole("status").textContent).toContain("Sent to 214 people.");
+  expect(screen.getByRole("status").textContent).toContain("Email queued for 214 people.");
   expect(reload).toHaveBeenCalled();
 });
 
@@ -101,9 +101,11 @@ test("FR-032: an offline reader shows how long, who was told, and where to check
   const now = screen.getByRole("region", { name: "Happening now" });
   expect(now.textContent).toContain("Offline 42 min · last seen 11:15 AM");
   expect(now.textContent).toContain("Dropped out 4 times in the last 24 hours.");
-  expect(now.textContent).toContain("Emailed 6 staff");
-  expect(now.textContent).toContain("Emailed 214 people");
-  expect(now.textContent).toContain("Sent by Sam Rivera · 2 h 02 min ago");
+  expect(now.textContent).toContain("Email queued for 6 staff");
+  expect(now.textContent).toContain("Email queued for 214 people");
+  expect(now.textContent).toContain("Posted by Sam Rivera · 2 h 02 min ago");
+  // The count is what was queued, so nothing on the card claims the email arrived.
+  expect(now.textContent).not.toMatch(/Emailed|Sent/);
   expect(within(now).getByRole("link", { name: "Check reader" }).getAttribute("href")).toBe("/admin/access?view=readers");
   // Only the announcement can be marked fixed; the reader clears itself.
   expect(within(now).getAllByRole("button", { name: /^Mark fixed/ })).toHaveLength(1);
@@ -124,7 +126,7 @@ test("FR-032: marking an announcement fixed sends what was fixed to everyone", a
   await waitFor(() =>
     expect(api).toHaveBeenCalledWith("/admin/service-notices/4/resolve", { method: "POST", body: { message: "Fan replaced" } }),
   );
-  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Told everyone it's fixed."));
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Marked fixed. Email queued for everyone."));
 });
 
 test("FR-032: staff can see notices but only administrators can send them", () => {
@@ -165,6 +167,29 @@ test("FR-032: a reader's drop-outs on one day share a history row that expands t
   expect(rows[3]!.textContent).toContain("2 h 05 min");
   expect(rows[3]!.textContent).toContain("“HVAC is fixed.”");
   expect(screen.getByText("4 notices in the past 30 days")).toBeTruthy();
+});
+
+test("FR-032: a reader's same-day drop-outs stay in one row when other notices fall between them", () => {
+  const laser: ServiceNotice = { ...offline, readerId: "laser", readerName: "Laser door", summary: "Laser door has stopped reporting in." };
+  mount({
+    items: [
+      drop(23, "2026-11-05T15:30:00Z", "2026-11-05T15:32:00Z"),
+      { ...laser, id: 22, openedAt: "2026-11-05T15:10:00Z", resolvedAt: "2026-11-05T15:11:00Z", recentDrops: null },
+      { ...announcement, id: 21, openedAt: "2026-11-05T14:50:00Z", resolvedAt: "2026-11-05T14:55:00Z" },
+      drop(20, "2026-11-05T14:32:00Z", "2026-11-05T14:36:00Z"),
+    ],
+    total: 4,
+  });
+  const table = screen.getByRole("region", { name: "Past notices" });
+  expect(within(table).getAllByRole("button", { name: "C3 Mini" })).toHaveLength(1);
+  const rows = [...table.querySelectorAll("tbody > tr:not(.notices-detail)")];
+  expect(rows.map((row) => row.querySelector("td")!.textContent)).toEqual([
+    expect.stringContaining("2 drop-outs"),
+    expect.stringContaining("Laser door"),
+    expect.stringContaining("The laser cutter is out of service."),
+  ]);
+  expect(rows[0]!.textContent).toContain("9:32 AM");
+  expect(rows[0]!.textContent).toContain("6 min");
 });
 
 test("FR-032: changing a history filter asks for that period and source from the first page", () => {

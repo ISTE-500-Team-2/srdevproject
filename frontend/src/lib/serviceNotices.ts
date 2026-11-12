@@ -7,7 +7,7 @@ export interface ServiceNotice {
   summary: string;
   openedAt: string;
   resolvedAt: string | null;
-  /** People the notice actually emailed (active, not opted out). Null when it predates counting. */
+  /** Emails queued for the notice (active accounts, not opted out); not a delivery count. Null when it predates counting. */
   recipients: number | null;
   /** What members were told when it was fixed. */
   resolution: string | null;
@@ -62,19 +62,23 @@ export type HistoryRow =
   | { kind: "staff"; key: string; notice: ServiceNotice }
   | { kind: "reader"; key: string; readerId: string; label: string; drops: ServiceNotice[] };
 
-/** Groups a newest-first page of past notices; a reader's drops on the same day share a row. */
+/**
+ * Groups a newest-first page of past notices. A reader's drops on the same facility
+ * day share one row, even when other readers or announcements fall between them;
+ * rows keep the order of their newest notice.
+ */
 export function historyRows(items: ServiceNotice[], timeZone: string): HistoryRow[] {
   const rows: HistoryRow[] = [];
-  let last: { readerId: string; day: string; row: Extract<HistoryRow, { kind: "reader" }> } | null = null;
+  const groups = new Map<string, Extract<HistoryRow, { kind: "reader" }>>();
   for (const notice of items) {
     if (notice.source === "staff" || !notice.readerId) {
       rows.push({ kind: "staff", key: `staff-${notice.id}`, notice });
-      last = null;
       continue;
     }
-    const day = dayKey(Date.parse(notice.openedAt), timeZone);
-    if (last && last.readerId === notice.readerId && last.day === day) {
-      last.row.drops.push(notice);
+    const group = `${notice.readerId}\u0000${dayKey(Date.parse(notice.openedAt), timeZone)}`;
+    const existing = groups.get(group);
+    if (existing) {
+      existing.drops.push(notice);
       continue;
     }
     const row: Extract<HistoryRow, { kind: "reader" }> = {
@@ -84,8 +88,8 @@ export function historyRows(items: ServiceNotice[], timeZone: string): HistoryRo
       label: readerLabel(notice),
       drops: [notice],
     };
+    groups.set(group, row);
     rows.push(row);
-    last = { readerId: notice.readerId, day, row };
   }
   return rows;
 }

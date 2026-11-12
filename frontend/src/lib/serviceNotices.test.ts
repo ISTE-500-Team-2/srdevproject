@@ -20,22 +20,24 @@ test("a removed reader is still named from its notice", () => {
   expect(readerLabel(notice({ readerName: null }))).toBe("Shop door");
 });
 
-test("one reader's drops on the same facility day share a row; other readers, days and announcements split it", () => {
+test("one reader's drops on the same facility day share a row, even with other notices between them", () => {
   const rows = historyRows(
     [
       notice({ id: 6, openedAt: "2026-11-06T04:30:00Z" }), // 11:30 PM Nov 5 in New York
       notice({ id: 5, openedAt: "2026-11-05T15:00:00Z" }),
       notice({ id: 4, openedAt: "2026-11-05T14:00:00Z", readerId: "r2", readerName: "Laser" }),
       notice({ id: 3, openedAt: "2026-11-05T13:00:00Z" }),
+      notice({ id: 9, source: "staff", readerId: null, openedAt: "2026-11-05T12:30:00Z" }),
+      notice({ id: 8, openedAt: "2026-11-05T12:00:00Z" }),
       notice({ id: 2, openedAt: "2026-11-04T13:00:00Z" }),
       notice({ id: 1, source: "staff", readerId: null, openedAt: "2026-11-04T12:00:00Z" }),
     ],
     "America/New_York",
   );
   expect(rows.map((row) => (row.kind === "reader" ? row.drops.map((d) => d.id) : `staff ${row.notice.id}`))).toEqual([
-    [6, 5],
+    [6, 5, 3, 8],
     [4],
-    [3],
+    "staff 9",
     [2],
     "staff 1",
   ]);

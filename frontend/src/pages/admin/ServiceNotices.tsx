@@ -102,7 +102,7 @@ export function ServiceNotices() {
             onClose={() => setComposing(false)}
             onSent={(recipients) => {
               setComposing(false);
-              setToast(recipients === null ? "Sent to everyone." : `Sent to ${people(recipients, "person")}.`);
+              setToast(recipients === null ? "Email queued for everyone." : `Email queued for ${people(recipients, "person")}.`);
               notices.reload();
             }}
           />
@@ -111,7 +111,7 @@ export function ServiceNotices() {
             onClose={() => setResolving(null)}
             onSent={() => {
               setResolving(null);
-              setToast("Told everyone it's fixed.");
+              setToast("Marked fixed. Email queued for everyone.");
               notices.reload();
             }}
           />
@@ -211,7 +211,7 @@ function ReaderAlert({ notice, now, zone }: { notice: ServiceNotice; now: number
         <div className="notices-chips">
           <span className="notices-chip">
             <ShieldCheck aria-hidden="true" />
-            {notice.recipients === null ? "Emailed staff" : `Emailed ${people(notice.recipients, "staff")}`}
+            {notice.recipients === null ? "Email queued for staff" : `Email queued for ${people(notice.recipients, "staff")}`}
           </span>
           <span className="notices-chip">
             <RefreshCw aria-hidden="true" />
@@ -251,10 +251,10 @@ function Announcement({
         <div className="notices-chips">
           <span className="notices-chip notices-chip--everyone">
             <Users aria-hidden="true" />
-            {notice.recipients === null ? "Emailed everyone" : `Emailed ${people(notice.recipients, "person")}`}
+            {notice.recipients === null ? "Email queued for everyone" : `Email queued for ${people(notice.recipients, "person")}`}
           </span>
           <span className="notices-chip">
-            Sent{notice.openedBy ? ` by ${notice.openedBy}` : ""} · {durationLabel(openFor(notice, now))} ago
+            Posted{notice.openedBy ? ` by ${notice.openedBy}` : ""} · {durationLabel(openFor(notice, now))} ago
           </span>
         </div>
       </div>
@@ -333,7 +333,7 @@ function HistoryPanel({
             <thead>
               <tr>
                 <th scope="col">Problem</th>
-                <th scope="col">Who was told</th>
+                <th scope="col">Audience</th>
                 <th scope="col">Opened</th>
                 <th scope="col">Down for</th>
                 <th scope="col">Resolved</th>
@@ -442,7 +442,7 @@ function HistoryLine({ row, zone, open, onToggle }: { row: HistoryRow; zone: str
             <>
               <p className="notices-message">
                 <b>Announced</b> “{row.notice.summary}”
-                {row.notice.openedBy ? ` · sent by ${row.notice.openedBy}` : ""}
+                {row.notice.openedBy ? ` · posted by ${row.notice.openedBy}` : ""}
               </p>
               <p className="notices-message">
                 <b>Fixed</b> {row.notice.resolution ? `“${row.notice.resolution}”` : "No message was recorded."}
