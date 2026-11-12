@@ -12,44 +12,15 @@ import {
   isWorkshop,
   monthLabel,
   registrationPrice,
-  seatsLeft,
   timeRange,
   WORKSHOP_LABEL,
   type ClassRecord,
   type WorkshopTemplate,
 } from "./classData";
 import { cents, shortDate } from "../../lib/display";
+import { registrationAction, sponsorReason, type Eligibility } from "./registrationAction";
 
-/**
- * Whether the member can register. A member under 18 also needs a linked sponsoring
- * adult with an active account ("no-sponsor" when none is linked, "sponsor-inactive"
- * when the linked adult cannot sponsor right now).
- */
-export type Eligibility = "eligible" | "ineligible" | "no-sponsor" | "sponsor-inactive" | "sponsor-unknown" | "unknown";
-
-const sponsorBlock = {
-  "no-sponsor": {
-    title: "Link a sponsor to sign up",
-    body: "You’re under 18. A parent or guardian sends a sponsor request from their account; accept it on your Home page, then register here.",
-    reason: "Link a sponsoring adult to sign up",
-  },
-  "sponsor-inactive": {
-    title: "Your sponsor can’t sign you up",
-    body: "You’re under 18, and your sponsoring adult’s account isn’t active right now. Ask them or staff at the front desk to sort it out, then register here.",
-    reason: "Your sponsoring adult’s account isn’t active",
-  },
-  // Until the sponsor check answers, a minor can't be told they may register.
-  "sponsor-unknown": {
-    title: "Checking your sponsor",
-    body: "You’re under 18, so your sponsoring adult is confirmed before you can register.",
-    reason: "Checking your sponsoring adult",
-  },
-} as const;
-/** Why a minor cannot register, or null when supervision is not what stands in the way. */
-export const sponsorReason = (eligibility: Eligibility) =>
-  eligibility === "no-sponsor" || eligibility === "sponsor-inactive" || eligibility === "sponsor-unknown"
-    ? sponsorBlock[eligibility]
-    : null;
+export { sponsorReason, type Eligibility } from "./registrationAction";
 
 type Props = {
   classes: ClassRecord[];
@@ -345,11 +316,11 @@ function ClassRow({
 }: Props & { c: ClassRecord }) {
   const cancelled = isCancelled(c);
   const registered = c.myStatus === "enrolled";
-  const full = seatsLeft(c) === 0;
   const holds = c.certificationId !== null && certified.has(c.certificationId);
-  const busy = busyId === c.id;
   const price = registrationPrice(c, holds);
-  const blocked = sponsorReason(eligibility);
+  const action = registrationAction({ c, eligibility, certified: holds, busy: busyId === c.id });
+  // Neither registered nor full: a Register button or the membership link.
+  const offered = action.kind === "register" || action.kind === "needs-pass";
   return (
     <li className={`class-row${registered && !cancelled ? " class-row--mine" : ""}${cancelled ? " class-row--cancelled" : ""}`}>
       <DateRail value={c.startsAt} faded={cancelled} />
@@ -404,27 +375,27 @@ function ClassRow({
         <>
           <SeatMeter capacity={c.capacity} enrolled={c.enrolled} />
           <div className="class-row__actions">
-            {registered ? (
+            {action.kind === "registered" ? (
               <button type="button" className="button button--quiet" aria-label={`Details for ${c.title}`} onClick={() => onDetails(c)}>
                 Details
               </button>
-            ) : full ? (
+            ) : action.kind === "full" ? (
               <button type="button" className="button button--quiet" disabled>
                 Class full
               </button>
-            ) : eligibility === "ineligible" ? (
+            ) : action.kind === "needs-pass" ? (
               <Link className="button button--quiet" to="/membership">
                 Membership or day pass needed
               </Link>
             ) : (
               <button
                 type="button"
-                className={`button ${holds || blocked ? "button--quiet" : "button--primary"}`}
-                disabled={busy || price.trainingFee === null || !!blocked}
-                aria-label={blocked ? `Register for ${c.title}: ${blocked.reason.toLowerCase()}` : `Register for ${c.title}`}
+                className={`button ${holds || action.blocked ? "button--quiet" : "button--primary"}`}
+                disabled={action.disabled}
+                aria-label={action.blocked ? `Register for ${c.title}: ${action.blocked.reason.toLowerCase()}` : `Register for ${c.title}`}
                 onClick={() => onRegister(c)}
               >
-                {c.myStatus === "cancelled" ? "Register again" : "Register"}
+                {action.again ? "Register again" : "Register"}
               </button>
             )}
             {registered ? null : (
@@ -432,9 +403,9 @@ function ClassRow({
                 Details
               </button>
             )}
-            {!registered && !full && blocked ? <small>{blocked.reason}</small> : null}
+            {action.kind === "register" && action.blocked ? <small>{action.blocked.reason}</small> : null}
             {!registered && c.myStatus === "cancelled" ? <small>You withdrew earlier</small> : null}
-            {!registered && holds && !full ? <small>Good for a refresher</small> : null}
+            {offered && holds ? <small>Good for a refresher</small> : null}
           </div>
         </>
       )}
