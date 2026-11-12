@@ -1,5 +1,6 @@
 import {quote} from './pricing.js';
 import {cancellationBoundary} from './policy.js';
+import {refundTransition} from './refundTransition.js';
 import {randomUUID} from 'node:crypto';
 import type {Pool} from 'pg';
 import type Stripe from 'stripe';
@@ -204,8 +205,7 @@ export class MembershipBilling {
     if(!r) return;
     if(f.amount!==r.amount_cents||f.currency!=='usd') throw new AppError(409,'RECONCILE_REQUIRED','Refund does not match the original invoice payment.');
     const failed=['failed','canceled'].includes(f.status??'');
-    if(r.refund_status==='succeeded' && !(r.refund_id===f.id && failed)) return;
-    if(r.refund_id===f.id && (r.refund_status===f.status || ['failed','canceled'].includes(r.refund_status)&&f.status==='pending')) return;
+    if(refundTransition({refundId:r.refund_id,refundStatus:r.refund_status},f)==='skip') return;
     await db.query('UPDATE app_membership_invoice SET refund_id=$2,refund_status=$3 WHERE id=$1',[r.id,f.id,f.status]);
     if(f.status==='succeeded') {
       await db.query("UPDATE payment SET paymentstatus='refunded',updated_at=now(),revision=revision+1 WHERE paymentid=$1",[r.payment_id]);
