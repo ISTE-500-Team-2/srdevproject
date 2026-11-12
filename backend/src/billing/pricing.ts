@@ -3,7 +3,7 @@ import {transaction,type Database} from '../db.js';
 import {AppError,positiveId,textField} from '../domain.js';
 import {calendarDate} from '../staffDomain.js';
 import {StaffModel,type Plan} from '../models/StaffModel.js';
-import {StudioService} from '../studios/service.js';
+import {requireActor} from '../accountPolicy.js';
 export async function quote(db:Database,userid:number,plan:Plan,through:string) {
  const policy=(await db.query('SELECT * FROM app_billing_price WHERE tierid=$1 FOR SHARE',[plan.id])).rows[0];
  const user=(await db.query('SELECT is_student FROM "user" WHERE userid=$1 FOR SHARE',[userid])).rows[0];
@@ -20,7 +20,7 @@ export class BillingPricing {
  async offers(userid:number,date?:string) {
   const through=(await this.pool.query("SELECT to_char(now()+interval '1 month','YYYY-MM-DD') AS date")).rows[0].date;
   return transaction(this.pool,async db=>{
-   await new StudioService(this.pool).actor(db,userid);
+   await requireActor(db,userid);
    const plans=await new StaffModel(db).plans(true);
    return Promise.all(plans.filter(p=>p.kind==='day_pass'||p.months===1).map(async p=>({...p,...await quote(db,userid,p,p.kind==='day_pass'&&date?calendarDate(date):through)})));
   });
@@ -29,7 +29,7 @@ export class BillingPricing {
   const reason=textField(body.reason,'Reason',255,3),student=body.studentCents;
   if(student!==null&&(!Number.isSafeInteger(student)||student<0||student>10000000||student>0&&student<50)||typeof body.partnerFree!=='boolean') throw new AppError(400,'INVALID_PRICE','Provide a valid student price or null and a free-access setting.');
   return transaction(this.pool,async db=>{
-   await new StudioService(this.pool).actor(db,actor,true,true);
+   await requireActor(db,actor,{staff:true,admin:true});
    const plan=await new StaffModel(db).plan(id,true);
    if(!plan)throw new AppError(404,'NOT_FOUND','Plan not found.');
    if(student!==null&&student>Math.round(Number(plan.price)*100))throw new AppError(400,'INVALID_PRICE','A student rate cannot exceed the standard price.');
@@ -44,7 +44,7 @@ export class BillingPricing {
  async verifyPartner(actor:number,userid:number,body:any) {
   const reference=textField(body.reference,'Approved school/verification reference',255,3),until=calendarDate(body.validUntil);
   return transaction(this.pool,async db=>{
-   await new StudioService(this.pool).actor(db,actor,true);
+   await requireActor(db,actor,{staff:true});
    if(!await new StaffModel(db).person(positiveId(userid),true))throw new AppError(404,'NOT_FOUND','Member not found.');
    await db.query(`INSERT INTO app_partner_eligibility(userid,reference,valid_until,verified_by) VALUES($1,$2,$3,$4)
     ON CONFLICT(userid) DO UPDATE SET reference=$2,valid_until=$3,verified_by=$4,verified_at=now()`,[userid,reference,until,actor]);

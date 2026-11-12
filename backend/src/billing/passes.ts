@@ -6,7 +6,8 @@ import {AppError,positiveId} from '../domain.js';
 import {calendarDate} from '../staffDomain.js';
 import {StaffModel} from '../models/StaffModel.js';
 import {AccessService} from '../services/AccessService.js';
-import {StudioService} from '../studios/service.js';
+import {requireActor} from '../accountPolicy.js';
+import {businessToday} from '../businessDate.js';
 import {StudioStripe} from '../studios/stripe.js';
 import {enqueueNotification} from '../notifications/store.js';
 import {quote} from './pricing.js';
@@ -64,9 +65,9 @@ export class PassBilling {
   const date=calendarDate(body.validDate),id=positiveId(body.planId);
   const row=await transaction(this.pool,async db=>{
    await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,userid]);
-   const user=await new StudioService(this.pool).actor(db,userid),model=new StaffModel(db);
+   const user=await requireActor(db,userid),model=new StaffModel(db);
    await new AccessService(db,this.zone).assertWaivers(userid);
-   if(date<new StudioService(this.pool,this.zone).today())throw new AppError(400,'INVALID_DATE','Choose today or a future date.');
+   if(date<businessToday(this.zone))throw new AppError(400,'INVALID_DATE','Choose today or a future date.');
    const plan=await model.plan(id,true);
    if(!plan?.active||plan.kind!=='day_pass')throw new AppError(400,'INVALID_PLAN','Choose an active day-pass plan.');
    const offer=await quote(db,userid,plan,date);
@@ -105,7 +106,7 @@ export class PassBilling {
  async freeMembership(userid:number,body:any){
   return transaction(this.pool,async db=>{
    await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,userid]);
-   await new StudioService(this.pool).actor(db,userid);
+   await requireActor(db,userid);
    await new AccessService(db,this.zone).assertWaivers(userid);
    const model=new StaffModel(db),plan=await model.plan(positiveId(body.planId),true);
    if(!plan?.active||plan.kind!=='membership'||plan.months!==1)throw new AppError(400,'INVALID_PLAN','Choose an active monthly plan.');

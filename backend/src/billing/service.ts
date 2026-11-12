@@ -6,7 +6,7 @@ import type {Pool} from 'pg';
 import type Stripe from 'stripe';
 import {transaction, type Database} from '../db.js';
 import {AppError, positiveId, textField} from '../domain.js';
-import {StudioService} from '../studios/service.js';
+import {requireActor} from '../accountPolicy.js';
 import {StudioStripe} from '../studios/stripe.js';
 import {StaffModel, type Plan} from '../models/StaffModel.js';
 interface BillingRecord {id:string;userid:number;tierid:number;plan_snapshot:Plan;amount_cents:number;checkout_id:string|null;subscription_id:string|null;customer_id:string|null;status:string;created_at:Date;}
@@ -31,7 +31,7 @@ export class MembershipBilling {
     if(body.autoRenewConsent !== true) throw new AppError(400,'CONSENT_REQUIRED','Agree to monthly automatic renewal before continuing.');
     const row=await transaction(this.pool,async db=>{
       await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,userid]);
-      const user=await new StudioService(this.pool).actor(db,userid);
+      const user=await requireActor(db,userid);
       const plan=await new StaffModel(db).plan(planId,true);
       if(!plan?.active || plan.kind!=='membership' || plan.months!==1)
         throw new AppError(400,'MONTHLY_PLAN_REQUIRED','Choose an active one-month membership plan.');
@@ -167,7 +167,7 @@ export class MembershipBilling {
       payload:{amount:(row.amount_cents/100).toFixed(2),currency:'USD',reference:invoice.id,paymentId:payment,method:'Card (test mode)',membershipName:row.plan_snapshot.name,startsAt:from.toISOString(),endsAt:to.toISOString()}});
   }
   async invoices(actor:number) {
-    await new StudioService(this.pool).actor(this.pool,actor,true);
+    await requireActor(this.pool,actor,{staff:true});
     return (await this.pool.query(`SELECT i.id,b.userid AS "userId",b.plan_snapshot->>'name' AS "planName",
       b.amount_cents AS "amountCents",i.period_start AS "periodStart",i.period_end AS "periodEnd",
       i.refund_status AS "refundStatus" FROM app_membership_invoice i JOIN app_membership_billing b ON b.id=i.billing_id
@@ -176,7 +176,7 @@ export class MembershipBilling {
   async refund(actor:number,id:string,reason:unknown) {
     const explanation=textField(reason,'Refund reason',255,3),sdk=this.provider().sdk;
     return transaction(this.pool,async db=>{
-      await new StudioService(this.pool).actor(db,actor,true);
+      await requireActor(db,actor,{staff:true});
       const r=(await db.query(`SELECT i.*,b.userid,b.amount_cents FROM app_membership_invoice i
         JOIN app_membership_billing b ON b.id=i.billing_id WHERE i.id=$1 FOR UPDATE OF i`,[id])).rows[0];
       if(!r) throw new AppError(404,'NOT_FOUND','Invoice not found.');

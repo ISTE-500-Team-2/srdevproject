@@ -3,12 +3,13 @@ import type { Pool } from "pg";
 import type Stripe from "stripe";
 import { transaction, type Database } from "../db.js";
 import { AppError, positiveId, textField } from "../domain.js";
-import { UserModel } from "../models/UserModel.js";
 import { PermissionModel } from "../models/PermissionModel.js";
 import { enqueueNotification } from "../notifications/store.js";
 import { monthlyWindow, refundDue, integer } from "./domain.js";
 import { StudioStripe } from "./stripe.js";
 import { DEFAULT_BUILDING_ID } from "../facility.js";
+import { requireActor } from "../accountPolicy.js";
+import { businessToday } from "../businessDate.js";
 
 export class StudioService {
   constructor(
@@ -16,41 +17,6 @@ export class StudioService {
     readonly zone = "America/New_York",
     readonly stripe?: StudioStripe,
   ) {}
-  today() {
-    return new Intl.DateTimeFormat("en-CA", {
-      timeZone: this.zone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(new Date());
-  }
-  async actor(db: Database, id: number, staff = false, admin = false) {
-    await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR SHARE', [id]);
-    const user = await new UserModel(db, this.zone).findById(id);
-    if (!user || user.status !== "active" || user.accessStatus !== "active")
-      throw new AppError(
-        403,
-        "ACCESS_DENIED",
-        "Your account cannot perform this action.",
-      );
-    if (
-      staff &&
-      (!user.roles.some((r) => ["admin", "staff", "super-admin"].includes(r)) ||
-        !(await new PermissionModel(db).allows(user, "payment", "update")))
-    )
-      throw new AppError(
-        403,
-        "STAFF_REQUIRED",
-        "Payment-management permission is required.",
-      );
-    if (admin && !user.roles.some((r) => ["admin", "super-admin"].includes(r)))
-      throw new AppError(
-        403,
-        "ADMIN_REQUIRED",
-        "Administrator permission is required.",
-      );
-    return user;
-  }
   async event(
     db: Database,
     r: any,
@@ -120,7 +86,7 @@ export class StudioService {
   }
   async staffList(id: number) {
     return transaction(this.pool, async (db) => {
-      await this.actor(db, id, true);
+      await requireActor(db, id, { staff: true, zone: this.zone });
       return (
         await db.query(
           `SELECT r.*,s.name,u.email,u.firstname||' '||u.lastname AS member_name FROM app_studio_rental r JOIN app_studio s ON s.id=r.studio_id JOIN "user" u ON u.userid=r.userid ORDER BY r.created_at DESC LIMIT 200`,
@@ -130,7 +96,7 @@ export class StudioService {
   }
   async configure(actor: number, id: number, body: any) {
     return transaction(this.pool, async (db) => {
-      await this.actor(db, actor, false, true);
+      await requireActor(db, actor, { admin: true, zone: this.zone });
       if (
         !["full_before_start", "no_refunds"].includes(
           body.cancellationPolicy,
@@ -163,7 +129,7 @@ export class StudioService {
     });
   }
   async create(userid: number, body: any) {
-    const { start, end } = monthlyWindow(body.startDate, this.today());
+    const { start, end } = monthlyWindow(body.startDate, businessToday(this.zone));
     const studioId = positiveId(body.studioId);
     if (
       typeof body.requestKey !== "string" ||
@@ -188,7 +154,7 @@ export class StudioService {
     let rental;
     try {
       rental = await transaction(this.pool, async (db) => {
-        const user = await this.actor(db, userid);
+        const user = await requireActor(db, userid, { zone: this.zone });
         if (!(await new PermissionModel(db).allows(user,"reservation","create",userid))) throw new AppError(403,"PERMISSION_DENIED","Reservation permission is required.");
         if (user.roles.some((r) => r.toLowerCase() === "instructor"))
           throw new AppError(
@@ -309,7 +275,7 @@ export class StudioService {
   }
   async manualPay(actor: number, id: number, reference: unknown) {
     return transaction(this.pool, async (db) => {
-      await this.actor(db, actor, true);
+      await requireActor(db, actor, { staff: true, zone: this.zone });
       const r = (
         await db.query(
           "SELECT * FROM app_studio_rental WHERE id=$1 FOR UPDATE",
@@ -384,7 +350,7 @@ export class StudioService {
         );
     }
     const result = await transaction(this.pool, async (db) => {
-      const user = await this.actor(db, userid);
+      const user = await requireActor(db, userid, { zone: this.zone });
       if (!(await new PermissionModel(db).allows(user,"reservation","update",userid))) throw new AppError(403,"PERMISSION_DENIED","Cancellation permission is required.");
       let r = (
         await db.query(
@@ -396,14 +362,14 @@ export class StudioService {
       if (r.status === "cancelled" || r.status === "expired") return r;
       // End dates are exclusive: from ends_on the month is over, so there is
       // nothing left to free up or refund.
-      if (this.today() >= r.ends_on)
+      if (businessToday(this.zone) >= r.ends_on)
         throw new AppError(
           409,
           "RENTAL_ENDED",
           "This rental has already ended, so it can't be cancelled.",
         );
       const refund =
-        r.payment_status === "paid" ? refundDue(r, this.today()) : 0;
+        r.payment_status === "paid" ? refundDue(r, businessToday(this.zone)) : 0;
       const result = (
         await db.query(
           "UPDATE app_studio_rental SET status='cancelled',refund_cents=$2,payment_status=CASE WHEN $2>0 THEN 'refund_pending' ELSE payment_status END WHERE id=$1 RETURNING *",
@@ -531,7 +497,7 @@ export class StudioService {
   }
   async manualRefund(actor: number, id: number, reference: unknown) {
     return transaction(this.pool, async (db) => {
-      await this.actor(db, actor, true);
+      await requireActor(db, actor, { staff: true, zone: this.zone });
       const ref = textField(
         reference,
         "Original-method refund reference",
