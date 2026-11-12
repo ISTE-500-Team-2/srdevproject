@@ -141,12 +141,34 @@ test('a minor whose linked sponsor is inactive is told so; an active sponsor let
   expect(screen.getByRole('heading', { name: 'Your sponsor can’t sign you up' })).toBeTruthy();
   expect(screen.queryByRole('link', { name: 'Link a sponsor' })).toBeNull();
   expect((screen.getByRole('button', { name: /^Register for Safety 5: your sponsoring adult/ }) as HTMLButtonElement).disabled).toBe(true);
-  cleanup();
+  // Staff restore the sponsor while the page stays open; the next refresh picks it up.
   supervision = { ...supervision, sponsorEligible: true };
-  await mount();
-  expect(screen.getByText('You can register')).toBeTruthy();
+  await act(async () => { vi.advanceTimersByTime(15000); });
+  expect(await screen.findByText('You can register')).toBeTruthy();
   await click('Register for Safety 5');
   expect(calls('/classes/5/enroll', 'POST')).toHaveLength(1);
+});
+
+test('a minor stays blocked while the sponsor check fails, with a retry', async () => {
+  auth.user = { id: 31, roles: ['member'], isMinor: true };
+  const base = vi.mocked(api).getMockImplementation()!;
+  let fail = true;
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path === '/me/supervision' && fail) throw new ApiError(503, 'UNAVAILABLE', 'Sponsor check failed.');
+    return base(path, options);
+  });
+  supervision = { isMinor: true, marker: 'Under 18', sponsor: { id: 7, name: 'Dana Reyes', revision: 1 }, sponsorEligible: true, visit: null, pendingRequests: [] };
+  await mount();
+  expect(screen.getByRole('heading', { name: 'Checking your sponsor' })).toBeTruthy();
+  expect((screen.getByRole('button', { name: /^Register for Safety 5: checking your sponsoring adult/ }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByRole('alert').textContent).toContain('Sponsor check failed.');
+  await act(async () => { fireEvent.click(screen.getAllByRole('button', { name: 'Details for Safety 5' })[0]!); });
+  const dialog = screen.getByRole('dialog');
+  expect((within(dialog).getByRole('button', { name: /Register/ }) as HTMLButtonElement).disabled).toBe(true);
+  expect(within(dialog).getByText('Checking your sponsoring adult')).toBeTruthy();
+  fail = false;
+  await act(async () => { fireEvent.click(screen.getAllByRole('button', { name: 'Retry' })[0]!); });
+  expect(await screen.findByText('You can register')).toBeTruthy();
 });
 
 test('registering for required training shows and submits the one-time $20 fee', async () => {

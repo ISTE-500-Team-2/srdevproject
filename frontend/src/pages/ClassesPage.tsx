@@ -75,7 +75,7 @@ export function ClassesPage() {
   const overview = useApi<{ entitlement: { membership: unknown; dayPass: unknown } }>(user && !manager ? "/me/overview" : null);
   const certifications = useApi<Certification[]>(user && !manager ? "/me/certifications" : null);
   // Members under 18 also need an active sponsoring adult linked, as enrollment checks.
-  const supervision = useApi<SupervisionSummary>(user?.isMinor && !manager ? "/me/supervision" : null);
+  const supervision = useApi<SupervisionSummary>(user?.isMinor && !manager ? "/me/supervision" : null, { retainOnReload: true });
   // Staff pick workshops in the Schedule class dialog; members see unscheduled ones as cards.
   const workshops = useApi<WorkshopTemplate[]>(user && !manager ? "/classes/catalog" : null);
 
@@ -129,6 +129,7 @@ export function ClassesPage() {
   const refreshAll = () => {
     classes.reload();
     certifications.reload();
+    supervision.reload();
     setRefreshToken((t) => t + 1);
   };
   // Restarting a request that is still running would abort it, so a slow list never finished.
@@ -138,6 +139,8 @@ export function ClassesPage() {
     const refresh = () => {
       if (!classesBusy.current && !hasUnsavedEdits && busyId === null && document.visibilityState !== "hidden") {
         classes.reload();
+        // A sponsor's link or account can change while this page stays open.
+        supervision.reload();
         setRefreshToken((t) => t + 1);
       }
     };
@@ -149,7 +152,7 @@ export function ClassesPage() {
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [classes.reload, hasUnsavedEdits, busyId]);
+  }, [classes.reload, supervision.reload, hasUnsavedEdits, busyId]);
 
   async function act(c: ClassRecord, action: "enroll" | "withdraw") {
     setBusyId(c.id);
@@ -181,7 +184,9 @@ export function ClassesPage() {
       </section>
     );
 
-  const eligibility: Eligibility = !overview.data
+  const eligibility: Eligibility = user.isMinor && !manager && !supervision.data
+    ? "sponsor-unknown"
+    : !overview.data
     ? "unknown"
     : !overview.data.entitlement.membership && !overview.data.entitlement.dayPass
       ? "ineligible"
@@ -202,6 +207,7 @@ export function ClassesPage() {
   return (
     <section className="classes-page page-enter">
       {classes.loading || classes.error ? <LoadState {...classes} /> : null}
+      {supervision.error && !supervision.data ? <LoadState loading={false} error={supervision.error} reload={supervision.reload} /> : null}
       {classes.data ? (
         manager ? (
           <ClassSchedule

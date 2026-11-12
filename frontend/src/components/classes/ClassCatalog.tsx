@@ -25,7 +25,7 @@ import { cents, shortDate } from "../../lib/display";
  * adult with an active account ("no-sponsor" when none is linked, "sponsor-inactive"
  * when the linked adult cannot sponsor right now).
  */
-export type Eligibility = "eligible" | "ineligible" | "no-sponsor" | "sponsor-inactive" | "unknown";
+export type Eligibility = "eligible" | "ineligible" | "no-sponsor" | "sponsor-inactive" | "sponsor-unknown" | "unknown";
 
 const sponsorBlock = {
   "no-sponsor": {
@@ -38,10 +38,18 @@ const sponsorBlock = {
     body: "You’re under 18, and your sponsoring adult’s account isn’t active right now. Ask them or staff at the front desk to sort it out, then register here.",
     reason: "Your sponsoring adult’s account isn’t active",
   },
+  // Until the sponsor check answers, a minor can't be told they may register.
+  "sponsor-unknown": {
+    title: "Checking your sponsor",
+    body: "You’re under 18, so your sponsoring adult is confirmed before you can register.",
+    reason: "Checking your sponsoring adult",
+  },
 } as const;
 /** Why a minor cannot register, or null when supervision is not what stands in the way. */
 export const sponsorReason = (eligibility: Eligibility) =>
-  eligibility === "no-sponsor" || eligibility === "sponsor-inactive" ? sponsorBlock[eligibility] : null;
+  eligibility === "no-sponsor" || eligibility === "sponsor-inactive" || eligibility === "sponsor-unknown"
+    ? sponsorBlock[eligibility]
+    : null;
 
 type Props = {
   classes: ClassRecord[];
