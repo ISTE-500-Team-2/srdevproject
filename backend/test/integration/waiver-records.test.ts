@@ -13,8 +13,8 @@ let created=false;let app:ReturnType<typeof createApp>;
 let member:{id:number;token:string;csrf:string};let administrator:typeof member;let policyId:number;let signatureId:number;
 async function login(role:string){const r=await request(app).post('/api/auth/demo').send({role});assert.equal(r.status,200);return {id:r.body.data.user.id,token:r.body.data.accessToken,csrf:r.body.data.csrfToken};}
 function get(path:string,actor=member){return request(app).get('/api'+path).set('Authorization','Bearer '+actor.token);}
-function post(path:string,body:unknown,actor=member){return request(app).post('/api'+path).set('Authorization','Bearer '+actor.token).set('X-CSRF-Token',actor.csrf).send(body);}
-function patch(path:string,body:unknown,actor=administrator){return request(app).patch('/api'+path).set('Authorization','Bearer '+actor.token).set('X-CSRF-Token',actor.csrf).send(body);}
+function post(path:string,body:string | object,actor=member){return request(app).post('/api'+path).set('Authorization','Bearer '+actor.token).set('X-CSRF-Token',actor.csrf).send(body);}
+function patch(path:string,body:string | object,actor=administrator){return request(app).patch('/api'+path).set('Authorization','Bearer '+actor.token).set('X-CSRF-Token',actor.csrf).send(body);}
 before(async()=>{
  if(!process.env.PGHOST||process.env.DATABASE_URL)throw new Error('Use explicit isolated PostgreSQL settings');
  await adminPool.query(`CREATE DATABASE "${database}"`);created=true;await initializeDemo(pool);

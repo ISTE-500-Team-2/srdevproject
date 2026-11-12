@@ -39,7 +39,7 @@ before(async () => {
 });
 after(async () => { await pool.end(); if (created) await admin.query(`DROP DATABASE "${database}"`); await admin.end(); });
 function get(path: string, who = administrator) { return request(app).get('/api' + path).set('Authorization', 'Bearer ' + who.accessToken); }
-function post(path: string, body: unknown, who = administrator) { return request(app).post('/api' + path).set('Authorization', 'Bearer ' + who.accessToken).set('X-CSRF-Token', who.csrfToken).send(body); }
+function post(path: string, body: string | object, who = administrator) { return request(app).post('/api' + path).set('Authorization', 'Bearer ' + who.accessToken).set('X-CSRF-Token', who.csrfToken).send(body); }
 const outage = { expectedRevision: 1, reason: 'repair', stopped: true, note: 'Staff-only spindle diagnosis' };
 test('catalog creation, edits and retirement are admin-only, versioned, and preserve history', async () => {
   const fields = { name: 'Catalog test laser', type: 'Laser', location: 'Shop', image: '', rate: 18.5, certId: null, waiverRequired: true };
@@ -47,7 +47,7 @@ test('catalog creation, edits and retirement are admin-only, versioned, and pres
   const created = await post('/admin/equipment', fields);
   assert.equal(created.status, 201, JSON.stringify(created.body));
   const id = created.body.data.id;
-  const mutate = (method: 'put' | 'delete', body: unknown, who = administrator) => request(app)[method](`/api/admin/equipment/${id}`).set('Authorization', 'Bearer ' + who.accessToken).set('X-CSRF-Token', who.csrfToken).send(body);
+  const mutate = (method: 'put' | 'delete', body: string | object, who = administrator) => request(app)[method](`/api/admin/equipment/${id}`).set('Authorization', 'Bearer ' + who.accessToken).set('X-CSRF-Token', who.csrfToken).send(body);
   assert.equal((await mutate('put', { ...fields, expectedRevision: 1 }, staff)).status, 403);
   assert.equal((await mutate('put', { ...fields, rate: -1, expectedRevision: 1 })).status, 400);
   assert.equal((await mutate('put', { ...fields, rate: 22.25, expectedRevision: 1 })).status, 200);

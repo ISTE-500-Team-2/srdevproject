@@ -47,7 +47,7 @@ test("dashboard refund recovery trusts successful original-intent full refund, n
  ]}}) as any;
  provider.sdk.refunds.create = (async () => {throw Error('must not issue duplicate')}) as any;
  const found = await provider.refund({id:1,payment_intent:'pi_original',refund_cents:200});
- assert.equal(found.id,'re_dashboard');assert.equal(found.metadata.studioRentalId,'1');
+ assert.equal(found.id,'re_dashboard');assert.equal(found.metadata!.studioRentalId,'1');
 });
 
 test('restricted test keys are accepted; live keys are rejected',async()=>{

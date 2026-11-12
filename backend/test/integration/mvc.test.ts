@@ -108,13 +108,13 @@ function client() {
     adoptCsrf(token: string) {
       csrf = token;
     },
-    post(path: string, body: unknown = {}) {
+    post(path: string, body: string | object = {}) {
       return agent
         .post('/api' + path)
         .set('X-CSRF-Token', csrf)
         .send(body);
     },
-    patch(path: string, body: unknown) {
+    patch(path: string, body: string | object) {
       return agent
         .patch('/api' + path)
         .set('X-CSRF-Token', csrf)
@@ -124,7 +124,7 @@ function client() {
 }
 type Client = ReturnType<typeof client>;
 /** Members check in at a reader; the web check-in is staff at the desk, in the member's open account. */
-async function deskCheckIn(staff: Client, member: Client, body: unknown) {
+async function deskCheckIn(staff: Client, member: Client, body: string | object) {
   const opened = await staff.post('/admin/account-mode', { userId: member.id });
   assert.equal(opened.status, 200, JSON.stringify(opened.body));
   staff.adoptCsrf(opened.body.data.csrfToken);
@@ -134,7 +134,7 @@ async function deskCheckIn(staff: Client, member: Client, body: unknown) {
   staff.adoptCsrf(closed.body.data.csrfToken);
   return response;
 }
-async function assertMemberCheckInRefused(member: Client, body: unknown) {
+async function assertMemberCheckInRefused(member: Client, body: string | object) {
   const own = await member.post('/me/check-ins', body);
   assert.equal(own.status, 403, JSON.stringify(own.body));
   assert.equal(own.body.error.code, 'CHECK_IN_AT_READER');
@@ -186,7 +186,7 @@ test('registration, DB session recovery, profile persistence and logout', async 
   const { email, password, res } = await user.register();
   assert.equal(res.body.data.user.role, 'member');
   assert.equal('password' in res.body.data.user, false);
-  const cookie = res.headers['set-cookie']?.find((c:string)=>c.startsWith('arbor_refresh=')) ?? '';
+  const cookie = (res.headers['set-cookie'] as unknown as string[] | undefined)?.find((c:string)=>c.startsWith('arbor_refresh=')) ?? '';
   assert.ok(cookie.includes('HttpOnly'));
   assert.ok(cookie.includes('SameSite=Lax'));
   const stored = await pool.query(

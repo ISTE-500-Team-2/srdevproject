@@ -82,8 +82,8 @@ test('manual cash cancellation requests staff refund without fabricating a compl
  const pass=await model.createPass(member,p,'2030-06-01',admin,'Cash sale fixture');
  const payment=await model.createPayment(member,null,'15.00','paid','cash','CASH-42','Cash received',admin);await model.linkPassPayment(pass,payment);
  await assert.rejects(service.cancel(admin,'manual:'+pass),{code:'NOT_FOUND'});
- assert.equal((await service.cancel(member,'manual:'+pass)).manualRefundRequired,true);
- assert.equal((await service.cancel(member,'manual:'+pass)).manualRefundRequired,true);
+ assert.equal((await service.cancel(member,'manual:'+pass) as {manualRefundRequired?: boolean}).manualRefundRequired,true);
+ assert.equal((await service.cancel(member,'manual:'+pass) as {manualRefundRequired?: boolean}).manualRefundRequired,true);
  assert.equal((await pool.query('SELECT paymentstatus FROM payment WHERE paymentid=$1',[payment])).rows[0].paymentstatus,'paid');
  assert.equal((await pool.query("SELECT * FROM app_staff_audit WHERE action='daypass.cancelled' AND entity_id=$1",[pass])).rowCount,1);
 });
