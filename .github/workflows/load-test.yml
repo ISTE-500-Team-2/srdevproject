@@ -1,0 +1,58 @@
+name: Load and sustained access testing
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Load profile (500 members; concurrency 25, 50 and 100)
+        type: choice
+        options: [acceptance, soak]
+        default: acceptance
+      duration:
+        description: Sustained traffic duration in seconds (1 to 3600)
+        default: '60'
+        required: true
+permissions:
+  contents: read
+jobs:
+  performance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    services:
+      postgres:
+        image: postgres:16.14-bookworm@sha256:64154d0babcb1741988719e703419af0382b19953706149f9872fbd0f438efa8
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGDATABASE: postgres
+      LOAD_PROFILE: ${{ inputs.profile }}
+      LOAD_DURATION: ${{ inputs.duration }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --prefix backend
+      - run: npm run build --prefix backend
+      - name: Exercise isolated peak and sustained access
+        shell: bash
+        run: |
+          [[ "$LOAD_DURATION" =~ ^[0-9]{1,4}$ ]]
+          (( 10#$LOAD_DURATION >= 1 && 10#$LOAD_DURATION <= 3600 ))
+          npm run test:load --prefix backend -- --profile "$LOAD_PROFILE" --duration "$LOAD_DURATION" --output ../.local/load-results/acceptance.json
+      - name: Retain results including failed thresholds
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: load-acceptance-results
+          path: .local/load-results/acceptance.json
+          if-no-files-found: ignore
+          retention-days: 30

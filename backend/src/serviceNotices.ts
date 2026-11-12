@@ -5,6 +5,7 @@ import { AppError, positiveId, textField } from "./domain.js";
 import { authState, requireCsrf } from "./middleware/auth.js";
 import { StaffModel } from "./models/StaffModel.js";
 import { enqueueNotification } from "./notifications/store.js";
+import { readerLastSeen, readerPresenceJoin } from './readerRegistry.js';
 
 // Readers report in far more often than this, so a brief network blip stays quiet.
 const READER_SILENT_AFTER = "5 minutes";
@@ -26,8 +27,8 @@ export async function checkReaderHealth(pool: Pool) {
   await transaction(pool, async (db) => {
     await db.query("SELECT pg_advisory_xact_lock(hashtext('arbor-service-health'))");
     const opened = (await db.query<{ id: number; reader_id: string; name: string }>(`WITH silent AS (
-        SELECT r.id,r.name FROM app_access_reader r
-        WHERE r.enabled AND r.last_seen_at<NOW()-INTERVAL '${READER_SILENT_AFTER}'
+        SELECT r.id,r.name FROM app_access_reader r ${readerPresenceJoin}
+        WHERE r.enabled AND ${readerLastSeen}<NOW()-INTERVAL '${READER_SILENT_AFTER}'
           AND NOT EXISTS(SELECT 1 FROM app_reader_setup_job j WHERE j.reader_id=r.id AND j.status<>'complete')
           AND NOT EXISTS(SELECT 1 FROM app_service_notice n WHERE n.reader_id=r.id AND n.resolved_at IS NULL)
       ), created AS (
@@ -35,10 +36,11 @@ export async function checkReaderHealth(pool: Pool) {
         SELECT 'reader',id,name||' has stopped reporting in.' FROM silent RETURNING id,reader_id
       ) SELECT c.id,c.reader_id,s.name FROM created c JOIN silent s ON s.id=c.reader_id`)).rows;
     const closed = (await db.query<{ id: number; reader_id: string; name: string | null; online: boolean }>(`WITH cleared AS (
-        SELECT n.id,n.reader_id,r.name,r.enabled AND r.last_seen_at>=NOW()-INTERVAL '${READER_SILENT_AFTER}' AS online
+        SELECT n.id,n.reader_id,r.name,r.enabled AND ${readerLastSeen}>=NOW()-INTERVAL '${READER_SILENT_AFTER}' AS online
         FROM app_service_notice n LEFT JOIN app_access_reader r ON r.id=n.reader_id
+        ${readerPresenceJoin}
         WHERE n.reader_id IS NOT NULL AND n.resolved_at IS NULL
-          AND (r.id IS NULL OR NOT r.enabled OR r.last_seen_at>=NOW()-INTERVAL '${READER_SILENT_AFTER}')
+          AND (r.id IS NULL OR NOT r.enabled OR ${readerLastSeen}>=NOW()-INTERVAL '${READER_SILENT_AFTER}')
       ), updated AS (
         UPDATE app_service_notice n SET resolved_at=NOW() FROM cleared c WHERE n.id=c.id RETURNING n.id
       ) SELECT c.id,c.reader_id,c.name,COALESCE(c.online,false) AS online FROM cleared c JOIN updated u ON u.id=c.id`)).rows;
