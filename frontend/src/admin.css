@@ -424,3 +424,8 @@ button.admin-nav__item { width: 100%; border: 0; background: transparent; text-a
   background: #fffdfa;
 }
 .admin-section .staff-directory__search input { color: var(--ink); }
+/* Keep a visible focus ring now that the box replaces the underline. */
+.admin-section .staff-directory__search:focus-within {
+  border-color: var(--orange);
+  box-shadow: 0 0 0 3px rgba(247, 150, 29, 0.25);
+}
