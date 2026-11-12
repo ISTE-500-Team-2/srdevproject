@@ -138,10 +138,14 @@ export class EquipmentBilling {
         if (session.id !== row.checkout_id || session.metadata?.equipmentReservationId !== String(row.reservation_id))
           throw new AppError(400, 'PAYMENT_MISMATCH', 'Equipment checkout identity mismatch.');
         await this.apply(session);
-      } catch {
+      } catch (error) {
         // Keep the hold during provider outages; browsing stays available and a
-        // later read or signed callback can finish verification safely.
-        console.error('Equipment payment reconciliation deferred', {reservationId: row.reservation_id});
+        // later read or signed callback can finish verification safely. Log only the
+        // error class and PostgreSQL SQLSTATE or Stripe error type, never messages or bodies.
+        const safe = (value: unknown) => typeof value === 'string' && /^[A-Za-z0-9_]{1,64}$/.test(value) ? value : undefined;
+        const detail = typeof error === 'object' && error !== null ? error as { code?: unknown; type?: unknown } : undefined;
+        console.error('Equipment payment reconciliation deferred', {reservationId: row.reservation_id, stage: 'equipment_reconcile',
+          error: safe(detail?.constructor?.name) ?? typeof error, code: safe(detail?.code), type: safe(detail?.type)});
       }
     }));
   }

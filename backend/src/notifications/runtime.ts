@@ -7,6 +7,13 @@ import { runNotificationBatch, NotificationSendError } from './worker.js';
 import { scheduleExpirationNotifications } from './scheduler.js';
 import { checkReaderHealth } from '../serviceNotices.js';
 
+/** Error class plus PostgreSQL SQLSTATE or Stripe error type; never a message or payload. */
+function errorIdentifier(error: unknown) {
+  const safe = (value: unknown) => typeof value === 'string' && /^[A-Za-z0-9_]{1,64}$/.test(value) ? value : undefined;
+  const object = typeof error === 'object' && error !== null ? error as { code?: unknown; type?: unknown } : undefined;
+  return { error: safe(object?.constructor?.name) ?? typeof error, code: safe(object?.code), type: safe(object?.type) };
+}
+
 /** A single local tick at a time; database leases coordinate multiple processes. */
 export function startNotificationRuntime(pool: Pool, config?: NotificationConfig) {
   // Pending registration data expires even in local environments with email delivery disabled.
@@ -16,17 +23,21 @@ export function startNotificationRuntime(pool: Pool, config?: NotificationConfig
   let lastScan = 0;
   const tick = () => {
     if (stopped || pending) return;
+    let stage = 'prune_registrations';
     pending = (async () => {
       await pruneRegistrations(pool);
       if (!config || !transport) return;
       // Initial scan plus daily scan. Dispatch still runs once per configured interval.
       if (Date.now() - lastScan >= 24 * 60 * 60 * 1000) {
+        stage = 'schedule_expirations';
         await scheduleExpirationNotifications(pool);
         lastScan = Date.now();
       }
+      stage = 'dispatch_batch';
       await runNotificationBatch(pool, async job => {
+        let content: ReturnType<typeof renderNotification>;
         try {
-          const content = renderNotification(job.kind as NotificationKind, {...job.payload, timeZone: job.timeZone}, {
+          content = renderNotification(job.kind as NotificationKind, {...job.payload, timeZone: job.timeZone}, {
             recipientEmail: job.email,
             recipientName: job.firstName,
             senderName: config.senderName,
@@ -34,6 +45,12 @@ export function startNotificationRuntime(pool: Pool, config?: NotificationConfig
             postalAddress: config.postalAddress,
             preferencesUrl: `${config.appOrigin}/profile`,
           });
+        } catch {
+          // Rendering happens before any provider request, and the same stored
+          // payload would fail again, so this is a definite non-retryable failure.
+          throw new NotificationSendError('Notification could not be rendered', { retryable: false, reason: 'render_failed' });
+        }
+        try {
           return await transport.send({ recipientEmail: job.email, recipientName: job.firstName, ...content });
         } catch (error) {
           if (error instanceof NotificationTransportError)
@@ -45,10 +62,11 @@ export function startNotificationRuntime(pool: Pool, config?: NotificationConfig
           throw error;
         }
       });
+      stage = 'reader_health';
       await checkReaderHealth(pool);
-    })().catch(() => {
+    })().catch(error => {
       // Never log payloads, credentials, recipient addresses or provider response bodies.
-      console.error('Notification worker tick failed; retrying on the next interval');
+      console.error('Notification worker tick failed; retrying on the next interval', { stage, ...errorIdentifier(error) });
     }).finally(() => { pending = undefined; });
   };
   const timer = setInterval(tick, config?.intervalMs ?? 60_000);

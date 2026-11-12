@@ -166,27 +166,34 @@ export class MemberController {
       const values = form && signature
         ? { ...form.values, ...serverWaiverValues(waiver.description, { memberId: userId, signerName, waiverVersion: waiver.version, signedAt: new Date(signature.signedAt), timeZone: this.timeZone }) }
         : null;
-      if (signature)
+      if (signature) {
+        const payload = {
+          waiverId: id,
+          waiverName: waiver.name,
+          waiverVersion: waiver.version,
+          waiverText: waiver.description,
+          signature: form && signatureField ? `${form.values[signatureField.key]} (electronic agreement)` : `${signerName} (electronic agreement)`,
+          signedAt: new Date(signature.signedAt).toISOString(),
+          ...(form && values ? {
+            formValues: values,
+            guardianConsent: form.guardianConsent,
+            completedWaiverText: completedWaiverText(waiver.description, values, form.guardianConsent),
+            memberId: userId,
+            methodOfAcceptance: 'Electronic',
+          } : {}),
+        };
+        // The signed copy is a durable record, kept apart from the notification queue.
+        await db.query(
+          "INSERT INTO app_signed_waiver_copy(userwaiverid,userid,payload) VALUES($1,$2,$3::jsonb) ON CONFLICT(userwaiverid) DO NOTHING",
+          [signature.id, userId, JSON.stringify(payload)],
+        );
         await enqueueNotification(db, {
           userId,
           kind: "waiver_signed",
           dedupeKey: `waiver-signed:${signature.id}`,
-          payload: {
-            waiverId: id,
-            waiverName: waiver.name,
-            waiverVersion: waiver.version,
-            waiverText: waiver.description,
-            signature: form && signatureField ? `${form.values[signatureField.key]} (electronic agreement)` : `${signerName} (electronic agreement)`,
-            signedAt: new Date(signature.signedAt).toISOString(),
-            ...(form && values ? {
-              formValues: values,
-              guardianConsent: form.guardianConsent,
-              completedWaiverText: completedWaiverText(waiver.description, values, form.guardianConsent),
-              memberId: userId,
-              methodOfAcceptance: 'Electronic',
-            } : {}),
-          },
+          payload,
         });
+      }
       // Keep the scheduler's existing horizon. Short-lived signatures can expire
       // before its next daily scan, so queue those reminders when signing.
       if (signature?.expiresAt && new Date(signature.expiresAt).getTime() <= Date.now() + EXPIRATION_LOOKAHEAD_DAYS * 86_400_000) {

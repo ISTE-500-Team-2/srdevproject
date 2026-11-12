@@ -23,16 +23,19 @@ export class WaiverRecordsService {
   async list(actorId:number,userId:number):Promise<SignedWaiverRecord[]> {
     await this.authorize(this.pool,actorId,userId);
     return (await this.pool.query<SignedWaiverRecord>(`SELECT uw.userwaiverid AS id,uw.waiverid AS "waiverId",
-      COALESCE(o.payload->>'waiverName',w.name) AS name,COALESCE(o.payload->>'waiverVersion',w.version) AS version,
+      COALESCE(COALESCE(c.payload,o.payload)->>'waiverName',w.name) AS name,COALESCE(COALESCE(c.payload,o.payload)->>'waiverVersion',w.version) AS version,
       uw.signdate AT TIME ZONE 'UTC' AS "signedAt",uw.expires_at AS "expiresAt",uw.approval AS approved,
-      (o.id IS NOT NULL AND o.payload ?& ARRAY['waiverName','waiverVersion','waiverText','signature','signedAt']) AS "copyAvailable"
+      COALESCE(COALESCE(c.payload,o.payload) ?& ARRAY['waiverName','waiverVersion','waiverText','signature','signedAt'],false) AS "copyAvailable"
       FROM user_waiver uw JOIN waiver w USING(waiverid)
+      LEFT JOIN app_signed_waiver_copy c ON c.userwaiverid=uw.userwaiverid AND c.userid=uw.userid
       LEFT JOIN app_notification_outbox o ON o.dedupe_key='waiver-signed:'||uw.userwaiverid AND o.userid=uw.userid AND o.kind='waiver_signed'
       WHERE uw.userid=$1 ORDER BY uw.signdate DESC,uw.userwaiverid DESC LIMIT 200`,[userId])).rows;
   }
   async copy(actorId:number,userId:number,signatureId:number) {
     await this.authorize(this.pool,actorId,userId);
-    const row=(await this.pool.query(`SELECT o.payload FROM user_waiver uw
+    // The durable signed copy comes first; older signatures fall back to the notice queue.
+    const row=(await this.pool.query(`SELECT COALESCE(c.payload,o.payload) AS payload FROM user_waiver uw
+      LEFT JOIN app_signed_waiver_copy c ON c.userwaiverid=uw.userwaiverid AND c.userid=uw.userid
       LEFT JOIN app_notification_outbox o ON o.dedupe_key='waiver-signed:'||uw.userwaiverid AND o.userid=uw.userid AND o.kind='waiver_signed'
       WHERE uw.userid=$1 AND uw.userwaiverid=$2`,[userId,signatureId])).rows[0];
     if(!row)throw new AppError(404,'NOT_FOUND','Signed waiver not found.');

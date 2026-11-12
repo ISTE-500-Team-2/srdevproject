@@ -124,8 +124,3 @@ export async function notificationMetrics(
     },
   };
 }
-export async function recordDeliveryEvent(db: Database, input: {eventKey:string; messageId:string; type:string; occurredAt:Date}): Promise<void> {
-  await db.query(`INSERT INTO app_notification_delivery_event(event_key,outbox_id,event_type,occurred_at)
-    SELECT $1,id,$3,$4 FROM app_notification_outbox WHERE provider_message_id=$2
-    ON CONFLICT(event_key) DO NOTHING`,[input.eventKey,input.messageId,input.type,input.occurredAt]);
-}
