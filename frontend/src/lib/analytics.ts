@@ -1,4 +1,4 @@
-import type { Report } from "../pages/ReportsPage";
+import type { Report } from "./reportContracts";
 export type RevenuePeriod = "daily" | "weekly" | "monthly";
 export type RevenuePoint = {
   period: string;
