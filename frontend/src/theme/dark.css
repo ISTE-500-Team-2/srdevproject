@@ -607,3 +607,28 @@
 :root[data-theme='dark'] .admin-side__label {
   color: var(--bronze);
 }
+
+/* Service notices: the email preview keeps the inbox's light paper in both themes. */
+:root[data-theme='dark'] .notices-email { border-color: #e3d9d0; background: #fffdfa; color: #24150e; }
+:root[data-theme='dark'] .notices-email p { color: #3d2e25; }
+:root[data-theme='dark'] .notices-email .notices-email__heading,
+:root[data-theme='dark'] .notices-email dd { color: #24150e; }
+:root[data-theme='dark'] .notices-email__top,
+:root[data-theme='dark'] .notices-email dt { color: #685d57; }
+:root[data-theme='dark'] .notices-email__status { background: #ffecd0; color: #8a4b00; }
+:root[data-theme='dark'] .notices-email dl { border-top-color: #ece3da; }
+:root[data-theme='dark'] .notices-pill--down {
+  background: var(--hold-danger-bg);
+  color: var(--hold-danger-text);
+  box-shadow: inset 0 0 0 1px rgba(242, 144, 127, 0.35);
+}
+:root[data-theme='dark'] .notices-chip { background: var(--dk-well); box-shadow: inset 0 0 0 1px var(--dk-hairline); color: var(--ink-soft); }
+:root[data-theme='dark'] .notices-chip--everyone,
+:root[data-theme='dark'] .notices-steps span.is-on,
+:root[data-theme='dark'] .notices-reach {
+  background: #3a2611;
+  box-shadow: inset 0 0 0 1px rgba(247, 150, 29, 0.3);
+  color: #ffc98a;
+}
+:root[data-theme='dark'] .notices-steps span { background: var(--dk-well); }
+:root[data-theme='dark'] .notices-flaky { color: #ffc98a; }

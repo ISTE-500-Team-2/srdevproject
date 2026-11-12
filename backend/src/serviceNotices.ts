@@ -3,6 +3,8 @@ import type { Pool } from "pg";
 import { transaction, type Database } from "./db.js";
 import { AppError, positiveId, textField } from "./domain.js";
 import { authState, requireCsrf } from "./middleware/auth.js";
+import { oneOf, optionalReasonField, pageOffset } from "./staffDomain.js";
+import { page } from "./controllers/StaffController.js";
 import { StaffModel } from "./models/StaffModel.js";
 import { enqueueNotification } from "./notifications/store.js";
 
@@ -14,6 +16,10 @@ const staffAudience = async (db: Database) =>
     WHERE u.status='active' AND r.role IN ('staff','admin')`)).rows.map((row) => row.userid);
 const everyone = async (db: Database) =>
   (await db.query<{ userid: number }>(`SELECT userid FROM "user" WHERE status='active'`)).rows.map((row) => row.userid);
+/** Of these accounts, how many will actually get the email: active and not opted out. */
+const reachable = async (db: Database, audience: number[]) =>
+  (await db.query<{ count: number }>(`SELECT COUNT(*)::int AS count FROM "user" u LEFT JOIN app_notification_preferences p USING(userid)
+    WHERE u.userid=ANY($1::int[]) AND u.status='active' AND COALESCE(p.enabled,true)`, [audience])).rows[0]?.count ?? 0;
 
 async function notify(db: Database, audience: number[], kind: "system_issue" | "service_restored", noticeId: number, payload: object) {
   for (const userId of audience)
@@ -46,6 +52,11 @@ export async function checkReaderHealth(pool: Pool) {
     const restored = closed.filter((notice) => notice.online);
     if (!opened.length && !restored.length) return;
     const audience = await staffAudience(db);
+    if (opened.length)
+      await db.query("UPDATE app_service_notice SET recipients=$2 WHERE id=ANY($1::int[])", [
+        opened.map((notice) => notice.id),
+        await reachable(db, audience),
+      ]);
     for (const notice of opened)
       await notify(db, audience, "system_issue", notice.id, {
         readerId: notice.reader_id,
@@ -63,6 +74,17 @@ export async function checkReaderHealth(pool: Pool) {
 }
 
 const columns = `n.id,n.source,n.reader_id AS "readerId",n.summary,n.opened_at AS "openedAt",n.resolved_at AS "resolvedAt"`;
+// What the staff page shows: who opened and fixed each notice, how many people it
+// reached, and for card readers their current state and how often they dropped out.
+const detail = `${columns},n.recipients,n.resolution,
+  NULLIF(TRIM(COALESCE(ob.firstname,'') || ' ' || COALESCE(ob.lastname,'')),'') AS "openedBy",
+  NULLIF(TRIM(COALESCE(rb.firstname,'') || ' ' || COALESCE(rb.lastname,'')),'') AS "resolvedBy",
+  r.name AS "readerName",r.last_seen_at AS "readerLastSeenAt",
+  CASE WHEN n.reader_id IS NULL THEN NULL ELSE (SELECT COUNT(*)::int FROM app_service_notice d
+    WHERE d.reader_id=n.reader_id AND d.opened_at>NOW()-INTERVAL '24 hours') END AS "recentDrops"`;
+const detailFrom = `app_service_notice n LEFT JOIN "user" ob ON ob.userid=n.opened_by
+  LEFT JOIN "user" rb ON rb.userid=n.resolved_by LEFT JOIN app_access_reader r ON r.id=n.reader_id`;
+const periods = { "7d": "7 days", "30d": "30 days", all: null } as const;
 
 export function serviceNoticeRoutes(pool: Pool) {
   const router = Router();
@@ -73,22 +95,46 @@ export function serviceNoticeRoutes(pool: Pool) {
       throw new AppError(403, "ADMIN_REQUIRED", "Administrator permission is required.");
     return user;
   };
-  router.get("/admin/service-notices", async (_req, res) => {
+  /** Open notices first, then a page of past ones filtered by when they opened and where they came from. */
+  router.get("/admin/service-notices", async (req, res) => {
+    const period = periods[oneOf(req.query.period ?? "all", ["7d", "30d", "all"] as const, "period")];
+    const source = req.query.source ? oneOf(req.query.source, ["reader", "staff"] as const, "source") : null;
+    const offset = pageOffset(req.query.offset);
+    const [open, history] = await Promise.all([
+      pool.query(`SELECT ${detail} FROM ${detailFrom} WHERE n.resolved_at IS NULL ORDER BY n.opened_at DESC,n.id DESC`),
+      pool.query(
+        `SELECT ${detail},COUNT(*) OVER()::int AS total FROM ${detailFrom}
+         WHERE n.resolved_at IS NOT NULL AND ($1::interval IS NULL OR n.opened_at>=NOW()-$1::interval)
+           AND ($2::text IS NULL OR n.source=$2)
+         ORDER BY n.opened_at DESC,n.id DESC LIMIT 51 OFFSET $3`,
+        [period, source, offset],
+      ),
+    ]);
+    const total = history.rows[0]?.total ?? (offset ? null : 0);
     res.json({
-      data: (await pool.query(`SELECT ${columns} FROM app_service_notice n ORDER BY n.resolved_at IS NULL DESC,n.opened_at DESC,n.id DESC LIMIT 50`)).rows,
+      data: {
+        open: open.rows,
+        ...page(history.rows.map(({ total: _total, ...row }) => row), offset),
+        total,
+      },
     });
+  });
+  /** How many people an announcement would reach right now. */
+  router.get("/admin/service-notices/audience", async (_req, res) => {
+    res.json({ data: { recipients: await reachable(pool, await everyone(pool)) } });
   });
   router.post("/admin/service-notices", requireCsrf, async (req, res) => {
     const user = administrator(res);
     const summary = textField(req.body.summary, "Summary", 500, 5),
-      reason = textField(req.body.reason, "Reason", 500);
+      reason = optionalReasonField(req.body.reason, "Told members about a service problem");
     const data = await transaction(pool, async (db) => {
+      const audience = await everyone(db);
       const notice = (await db.query(
-        `INSERT INTO app_service_notice AS n(source,summary,opened_by) VALUES('staff',$1,$2) RETURNING ${columns}`,
-        [summary, user.id],
+        `INSERT INTO app_service_notice AS n(source,summary,opened_by,recipients) VALUES('staff',$1,$2,$3) RETURNING ${columns},n.recipients`,
+        [summary, user.id, await reachable(db, audience)],
       )).rows[0];
       await new StaffModel(db).audit(user.id, null, "service_notice.opened", "app_service_notice", notice.id, reason, null, notice);
-      await notify(db, await everyone(db), "system_issue", notice.id, { reason: summary });
+      await notify(db, audience, "system_issue", notice.id, { reason: summary });
       return notice;
     });
     res.status(201).json({ data });
@@ -96,19 +142,20 @@ export function serviceNoticeRoutes(pool: Pool) {
   router.post("/admin/service-notices/:id/resolve", requireCsrf, async (req, res) => {
     const user = administrator(res);
     const id = positiveId(req.params.id),
-      reason = textField(req.body.reason, "Reason", 500);
+      message = textField(req.body.message, "What was fixed", 500),
+      reason = optionalReasonField(req.body.reason, message.slice(0, 255));
     const data = await transaction(pool, async (db) => {
-      const before = (await db.query(`SELECT ${columns} FROM app_service_notice n WHERE n.id=$1 FOR UPDATE`, [id])).rows[0];
+      const before = (await db.query(`SELECT ${columns},n.resolution FROM app_service_notice n WHERE n.id=$1 FOR UPDATE`, [id])).rows[0];
       if (!before) throw new AppError(404, "NOT_FOUND", "Service notice not found.");
       if (before.resolvedAt) throw new AppError(409, "ALREADY_RESOLVED", "This notice was already resolved.");
       if (before.source !== "staff")
         throw new AppError(409, "AUTOMATIC_NOTICE", "This notice clears itself when the reader reconnects.");
       const after = (await db.query(
-        `UPDATE app_service_notice AS n SET resolved_at=NOW(),resolved_by=$2 WHERE n.id=$1 RETURNING ${columns}`,
-        [id, user.id],
+        `UPDATE app_service_notice AS n SET resolved_at=NOW(),resolved_by=$2,resolution=$3 WHERE n.id=$1 RETURNING ${columns},n.resolution`,
+        [id, user.id, message],
       )).rows[0];
       await new StaffModel(db).audit(user.id, null, "service_notice.resolved", "app_service_notice", id, reason, before, after);
-      await notify(db, await everyone(db), "service_restored", id, { reason });
+      await notify(db, await everyone(db), "service_restored", id, { reason: message });
       return after;
     });
     res.json({ data });

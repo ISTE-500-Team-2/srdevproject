@@ -23,7 +23,7 @@ test('each section keeps its own page width: the members table is wide, forms st
   expect(width()).toBe('wide');
   cleanup();
   render(<Shell path="service-notices" />);
-  expect(width()).toBe('narrow');
+  expect(width()).toBe('standard');
   cleanup();
   render(<Shell path="change-log" />);
   expect(width()).toBe('standard');

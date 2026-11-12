@@ -1,0 +1,105 @@
+/* Staff Service notices. The panels reuse Today's classes (today.css) and the shared
+   status pills; this file adds the header, chips, history table and send dialog. */
+.notices { display: grid; gap: 20px; }
+
+.notices-head { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px 20px; }
+.notices-head > div { flex: 1 1 360px; }
+.notices-verdict { display: flex; align-items: center; gap: 9px; color: var(--ink); font-size: var(--text-base); font-weight: 600; }
+.notices-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--orange); box-shadow: 0 0 0 4px rgba(247, 150, 29, 0.18); }
+.notices-dot--ok { background: #2f8a45; box-shadow: 0 0 0 4px rgba(47, 138, 69, 0.16); }
+.notices .notices-sub { margin-top: 4px; color: var(--ink-soft); font-size: var(--text-base-sm); }
+.notices-compose { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; white-space: nowrap; }
+.notices-compose svg { width: 17px; height: 17px; }
+.notices-admin-only { color: var(--ink-soft); font-size: var(--text-sm); }
+
+/* Happening now */
+.notices-item { grid-template-columns: 34px minmax(0, 1fr) auto; align-items: start; }
+.notices-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; overflow-wrap: anywhere; }
+.notices-pill--down { background: #fbe4df; color: #9c2f24; }
+.notices .notices-flaky { display: flex; align-items: flex-start; gap: 7px; margin-top: 7px; color: #8a4b00; font-size: var(--text-sm); font-weight: 600; }
+.notices-flaky svg { flex: none; width: 15px; height: 15px; margin-top: 1px; }
+.notices-action { margin-top: 0; }
+.notices-action svg { width: 16px; height: 16px; }
+
+.notices-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.notices-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: #f3ece6;
+  color: var(--ink-soft);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.notices-chip svg { width: 13px; height: 13px; }
+.notices-chip--everyone { background: var(--orange-soft); color: #6b3d05; }
+
+/* History */
+.notices-history-head { flex-wrap: wrap; }
+.notices-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+/* Same field look as the other staff filters (management.css). */
+.notices-filters select { min-height: 40px; border: 1px solid #bcbcb4; border-radius: 7px; padding: 0 10px; background: #fff; color: #242423; font: inherit; font-size: var(--text-sm); }
+.notices-table table { width: 100%; min-width: 680px; border-collapse: collapse; font-size: var(--text-base-sm); line-height: 1.45; }
+.notices-table :is(th, td) { padding: 12px 16px; border-top: 1px solid var(--today-line); text-align: left; vertical-align: top; }
+.notices-table thead th { background: rgba(239, 233, 228, 0.6); color: var(--ink-soft); font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
+.notices-table :is(th, td):first-child { padding-left: 20px; }
+.notices-table td small { display: block; margin-top: 2px; color: var(--ink-soft); font-size: var(--text-sm); }
+.notices-table tbody tr:not(.notices-detail) { cursor: pointer; }
+.notices-table tbody tr:not(.notices-detail):hover > td { background: rgba(247, 150, 29, 0.04); }
+.notices-table tr.is-open > td,
+.notices-table tr.notices-detail > td { background: rgba(247, 150, 29, 0.07); }
+.notices-table tr.notices-detail > td { border-top: 0; padding-top: 0; }
+.notices-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.notices-toggle {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 4px;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.notices-toggle svg { flex: none; width: 16px; height: 16px; margin-top: 2px; color: var(--muted); transition: transform 0.15s; }
+.notices-toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
+.notices-toggle:hover { text-decoration: underline; }
+.notices-table td:first-child > small { padding-left: 20px; }
+.notices-drops { display: grid; grid-template-columns: max-content max-content; gap: 4px 20px; margin: 0; padding: 0 0 4px 20px; list-style: none; color: var(--ink-soft); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.notices-drops li { display: contents; }
+.notices-drops b { color: var(--ink); font-weight: 600; }
+.notices .notices-message { margin: 0 0 6px 20px; border-left: 3px solid var(--border); padding: 3px 0 3px 12px; color: var(--ink-soft); font-size: var(--text-sm); }
+.notices-message b { margin-right: 6px; color: var(--ink); }
+.notices-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; color: var(--ink-soft); font-size: var(--text-sm); }
+.notices-foot .management-pager { margin: 0; }
+
+/* Send dialog */
+.notices-dialog { display: grid; gap: 14px; }
+.notices-dialog small { color: var(--muted); font-weight: 500; }
+.notices-steps { display: flex; gap: 6px; margin: 0; font-size: var(--text-xs); font-weight: 600; color: var(--muted); }
+.notices-steps span { border-radius: 999px; padding: 2px 9px; background: #f3ece6; }
+.notices-steps span.is-on { background: var(--orange-soft); color: #6b3d05; }
+.notices-quote { margin: 0; border-left: 3px solid var(--orange); padding: 2px 0 2px 12px; color: var(--ink); }
+.notices-reach { display: flex; align-items: center; gap: 10px; margin: 0; border-radius: 10px; padding: 10px 12px; background: var(--orange-soft); color: #6b3d05; font-size: var(--text-base-sm); font-weight: 600; }
+.notices-reach svg { flex: none; width: 18px; height: 18px; }
+
+/* The email keeps its own light paper in both themes, as it arrives in an inbox. */
+.notices-email { display: grid; gap: 8px; margin: 0; border: 1px solid #e3d9d0; border-radius: 12px; padding: 16px 18px; background: #fffdfa; color: #24150e; }
+.notices-email p { margin: 0; color: #3d2e25; font-size: var(--text-base-sm); }
+.notices-email .notices-email__heading { color: #24150e; font-size: var(--text-lg); font-weight: 700; }
+.notices-email__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #685d57; font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.notices-email__status { border-radius: 999px; padding: 2px 9px; background: #ffecd0; color: #8a4b00; letter-spacing: 0; text-transform: none; }
+.notices-email dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 4px 0 0; border-top: 1px solid #ece3da; padding-top: 10px; font-size: var(--text-base-sm); }
+.notices-email dt { color: #685d57; font-weight: 600; }
+.notices-email dd { margin: 0; color: #24150e; overflow-wrap: anywhere; }
+
+@media (max-width: 640px) {
+  .notices-item { grid-template-columns: 34px minmax(0, 1fr); }
+  .notices-action { grid-column: 2; justify-self: start; }
+  .notices-filters { margin-left: 0; }
+}

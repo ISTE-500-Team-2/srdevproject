@@ -317,6 +317,8 @@ test('FR-032: an enabled reader going silent alerts staff once and recovery tell
  await pool.query(`UPDATE app_access_reader SET last_seen_at=NOW()-INTERVAL '10 minutes' WHERE id=$1`,[id]);
  await checkReaderHealth(pool);
  assert.equal((await emails('system_issue',administrator.id)).filter(m=>m.payload.readerId===id).length,2);
+ const listed=(await get('/admin/service-notices',administrator)).body.data.open.find((n:any)=>n.readerId===id);
+ assert.equal(listed.readerName,'Reader '+id);assert.equal(listed.recentDrops,2);assert.ok(listed.recipients>=2);assert.ok(listed.readerLastSeenAt);
  await pool.query('UPDATE app_access_reader SET enabled=false WHERE id=$1',[id]);
  const restored=(await emails('service_restored',administrator.id)).length;
  await checkReaderHealth(pool);
@@ -330,19 +332,46 @@ test('FR-032: readers that are healthy, disabled or never connected raise nothin
  assert.equal((await pool.query('SELECT 1 FROM app_service_notice WHERE reader_id=ANY($1)',[[healthy,off,never]])).rowCount,0);
 });
 test('FR-032: an administrator can notify everyone about any issue and then the fix',async()=>{
+ const audience=await get('/admin/service-notices/audience',administrator);
+ assert.equal(audience.status,200);
+ const reachable=(await pool.query(`SELECT COUNT(*)::int AS n FROM "user" u LEFT JOIN app_notification_preferences p USING(userid)
+  WHERE u.status='active' AND COALESCE(p.enabled,true)`)).rows[0].n;
+ assert.equal(audience.body.data.recipients,reachable);
  const opened=await post('/admin/service-notices',{summary:'The north door reader is down for repair.',reason:'Reported by front desk'},administrator);
  assert.equal(opened.status,201);
  const id=opened.body.data.id;
+ assert.equal(opened.body.data.recipients,reachable);
  const issue=(await emails('system_issue',member.id)).filter(m=>m.payload.noticeId===id);
  assert.equal(issue.length,1);assert.match(issue[0].payload.reason,/north door/);
  assert.equal((await emails('system_issue',staffId)).filter(m=>m.payload.noticeId===id).length,1);
  const open=await get('/admin/service-notices',administrator);
- assert.equal(open.status,200);assert.ok(open.body.data.some((n:any)=>n.id===id&&n.resolvedAt===null&&n.source==='staff'));
- const resolved=await post(`/admin/service-notices/${id}/resolve`,{reason:'Reader replaced'},administrator);
+ assert.equal(open.status,200);
+ const listed=open.body.data.open.find((n:any)=>n.id===id);
+ assert.ok(listed);assert.equal(listed.source,'staff');assert.equal(listed.resolvedAt,null);
+ assert.ok(listed.openedBy);assert.equal(listed.recipients,reachable);assert.equal(listed.recentDrops,null);
+ assert.ok(!open.body.data.items.some((n:any)=>n.id===id));
+ assert.equal((await post(`/admin/service-notices/${id}/resolve`,{},administrator)).status,400);
+ const resolved=await post(`/admin/service-notices/${id}/resolve`,{message:'Reader replaced, the north door works again.'},administrator);
  assert.equal(resolved.status,200);
- assert.equal((await emails('service_restored',member.id)).filter(m=>m.payload.noticeId===id).length,1);
- assert.equal((await post(`/admin/service-notices/${id}/resolve`,{reason:'Reader replaced'},administrator)).status,409);
+ const restored=(await emails('service_restored',member.id)).filter(m=>m.payload.noticeId===id);
+ assert.equal(restored.length,1);assert.match(restored[0].payload.reason,/Reader replaced/);
+ assert.equal((await post(`/admin/service-notices/${id}/resolve`,{message:'Reader replaced'},administrator)).status,409);
  assert.equal((await pool.query(`SELECT 1 FROM app_staff_audit WHERE action='service_notice.opened' AND entity_id=$1`,[id])).rowCount,1);
+ // With no change-log note the member message is the reason on record.
+ assert.equal((await pool.query(`SELECT reason FROM app_staff_audit WHERE action='service_notice.resolved' AND entity_id=$1`,[id])).rows[0].reason,'Reader replaced, the north door works again.');
+ const past=await get('/admin/service-notices?period=7d&source=staff',administrator);
+ assert.equal(past.status,200);
+ const done=past.body.data.items.find((n:any)=>n.id===id);
+ assert.ok(done);assert.equal(done.resolution,'Reader replaced, the north door works again.');assert.equal(done.resolvedBy,done.openedBy);
+ assert.ok(past.body.data.total>=1);
+ assert.ok(!(await get('/admin/service-notices?source=reader',administrator)).body.data.items.some((n:any)=>n.id===id));
+});
+test('FR-032: an announcement needs no change-log note; filters reject unknown values',async()=>{
+ const opened=await post('/admin/service-notices',{summary:'The shop closes at 3 PM today.'},administrator);
+ assert.equal(opened.status,201);
+ assert.equal((await pool.query(`SELECT reason FROM app_staff_audit WHERE action='service_notice.opened' AND entity_id=$1`,[opened.body.data.id])).rows[0].reason,'Told members about a service problem');
+ assert.equal((await get('/admin/service-notices?period=year',administrator)).status,400);
+ assert.equal((await get('/admin/service-notices?source=email',administrator)).status,400);
 });
 test('FR-032: only administrators can send notices, and an empty notice is refused',async()=>{
  assert.equal((await post('/admin/service-notices',{summary:'Member attempting a broadcast',reason:'No'},member)).status,403);

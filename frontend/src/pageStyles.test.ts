@@ -57,6 +57,7 @@ const SHIPPED_ORDER = [
   'pages/payments.css',
   'components/staff/record/memberRecord.css',
   'components/staff/reservations/reservations.css',
+  'pages/admin/serviceNotices.css',
 ];
 
 test('page styles keep their shipped order, ahead of the app and the global sheets', () => {
