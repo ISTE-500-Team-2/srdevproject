@@ -120,10 +120,12 @@ test('advance class enrollment records the linked sponsor without requiring a cu
  assert.equal((await pool.query('SELECT 1 FROM app_facility_visit WHERE user_id=$1 AND checked_out_at IS NULL',[adult.user.id])).rowCount,0,'the sponsor is away at signup');
  await pool.query("UPDATE \"user\" SET accessstatus='suspended' WHERE userid=$1",[adult.user.id]);
  try {
+  assert.equal((await get(minor,'/me/supervision')).body.data.sponsorEligible,false,'the class page can warn before signup');
   const denied=await post(minor,path);assert.equal(denied.status,403);assert.equal(denied.body.error.code,'SPONSOR_REQUIRED');
  } finally {
   await pool.query("UPDATE \"user\" SET accessstatus='active' WHERE userid=$1",[adult.user.id]);
  }
+ assert.equal((await get(minor,'/me/supervision')).body.data.sponsorEligible,true);
  const enrolled=await post(minor,path);assert.equal(enrolled.status,200,JSON.stringify(enrolled.body));
  assert.equal((await pool.query('SELECT sponsor_id FROM app_training_enrollment WHERE class_id=$1 AND user_id=$2',[created.body.data.id,minor.user.id])).rows[0].sponsor_id,adult.user.id);
 });

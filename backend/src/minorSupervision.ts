@@ -19,12 +19,16 @@ export class MinorSupervision {
     return (await this.db.query(`SELECT dob IS NOT NULL AND dob::date>((now() AT TIME ZONE $2)::date-INTERVAL '18 years')::date AS minor
       FROM "user" WHERE userid=$1`, [id,this.zone])).rows[0]?.minor === true;
   }
+  /** The linked sponsor when they are an active adult, which is all advance class enrollment needs. */
+  async linkedSponsor(id: number, lock = false) {
+    return (await this.db.query<{ id: number }>(`SELECT s.adult_id AS id FROM app_minor_sponsor s
+      JOIN "user" u ON u.userid=s.adult_id WHERE s.minor_id=$1 AND ${adultSql(2)}
+      ${lock ? 'FOR SHARE OF s,u' : ''}`,[id,this.zone])).rows[0] ?? null;
+  }
   /** Advance class enrollment needs a valid link; arrival still checks adult presence. */
   async requireLinkedSponsor(id: number) {
     if (!await this.isMinor(id)) return null;
-    const sponsor = (await this.db.query(`SELECT s.adult_id AS id FROM app_minor_sponsor s
-      JOIN "user" u ON u.userid=s.adult_id WHERE s.minor_id=$1 AND ${adultSql(2)}
-      FOR SHARE OF s,u`,[id,this.zone])).rows[0];
+    const sponsor = await this.linkedSponsor(id, true);
     if (!sponsor) throw new AppError(403,'SPONSOR_REQUIRED','Link an active sponsoring adult before enrolling.');
     return sponsor;
   }
@@ -99,7 +103,9 @@ export class MinorSupervision {
     const pendingRequests=(await this.db.query(`SELECT r.id::int AS id,u.firstname||' '||u.lastname AS "adultName",r.created_at AS "createdAt"
       FROM app_minor_sponsor_request r JOIN "user" u ON u.userid=r.adult_id
       WHERE r.minor_id=$1 AND r.status='pending' ORDER BY r.created_at,r.id`,[id])).rows;
-    return {isMinor:minor,marker:minor?'Under 18':null,sponsor,visit,pendingRequests};
+    // Lets the member see before registering that a class signup would be refused.
+    const sponsorEligible=minor && sponsor ? !!await this.linkedSponsor(id) : false;
+    return {isMinor:minor,marker:minor?'Under 18':null,sponsor,sponsorEligible,visit,pendingRequests};
   }
   async isAdult(id:number) {
     return !!(await this.db.query(`SELECT 1 FROM "user" WHERE userid=$1 AND ${adultSql(2)}`,[id,this.zone])).rowCount;

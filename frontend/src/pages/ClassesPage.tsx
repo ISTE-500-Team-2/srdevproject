@@ -6,7 +6,7 @@ import { useApi } from "../lib/useApi";
 import { LoadState } from "../components/Management";
 import { Toast } from "../components/Toast";
 import { shortDate, timeOnly } from "../lib/display";
-import type { Certification } from "../lib/contracts";
+import type { Certification, SupervisionSummary } from "../lib/contracts";
 import { ClassCatalog, type Eligibility } from "../components/classes/ClassCatalog";
 import { ClassDetail } from "../components/classes/ClassDetail";
 import { ClassSchedule } from "../components/classes/ClassSchedule";
@@ -74,6 +74,8 @@ export function ClassesPage() {
   // entitlement check the enroll endpoint applies.
   const overview = useApi<{ entitlement: { membership: unknown; dayPass: unknown } }>(user && !manager ? "/me/overview" : null);
   const certifications = useApi<Certification[]>(user && !manager ? "/me/certifications" : null);
+  // Members under 18 also need an active sponsoring adult linked, as enrollment checks.
+  const supervision = useApi<SupervisionSummary>(user?.isMinor && !manager ? "/me/supervision" : null);
   // Staff pick workshops in the Schedule class dialog; members see unscheduled ones as cards.
   const workshops = useApi<WorkshopTemplate[]>(user && !manager ? "/classes/catalog" : null);
 
@@ -179,11 +181,19 @@ export function ClassesPage() {
       </section>
     );
 
-  const eligibility: Eligibility = overview.data
-    ? overview.data.entitlement.membership || overview.data.entitlement.dayPass
-      ? "eligible"
-      : "ineligible"
-    : "unknown";
+  const eligibility: Eligibility = !overview.data
+    ? "unknown"
+    : !overview.data.entitlement.membership && !overview.data.entitlement.dayPass
+      ? "ineligible"
+      : !user.isMinor
+        ? "eligible"
+        : !supervision.data
+          ? "unknown"
+          : supervision.data.sponsorEligible
+            ? "eligible"
+            : supervision.data.sponsor
+              ? "sponsor-inactive"
+              : "no-sponsor";
   const certified = new Set((certifications.data ?? []).filter((c) => c.valid).map((c) => c.id));
   const detail = find(detailId);
   const rosterClass = find(rosterId);

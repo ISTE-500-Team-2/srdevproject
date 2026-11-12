@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { ClassesPage } from './ClassesPage';
 import { api, ApiError } from '../lib/api';
 
-const auth = vi.hoisted(() => ({ user: { id: 1, roles: ['admin'] as string[] } }));
+const auth = vi.hoisted(() => ({ user: { id: 1, roles: ['admin'] } as { id: number; roles: string[]; isMinor?: boolean } }));
 vi.mock('../context/AuthContext', () => ({ useAuth: () => auth }));
 // jsdom has no ResizeObserver; the hold-to-cancel button measures itself.
 globalThis.ResizeObserver ??= class {
@@ -21,6 +21,7 @@ type Person = { userId: number; name: string; email: string; status: string };
 let people: Person[];
 let denyRoster = false, failFor: number | null = null, entitled = true, scheduleError: ApiError | null = null;
 let certified = false;
+let supervision: Record<string, unknown> | null = null;
 const course = (id: number, offsetHours: number, extra: Record<string, unknown> = {}) => ({
   id, title: `Safety ${id}`, certificationId: 7, certificationName: 'Laser cutting', instructorId: 1, instructor: 'Morgan Reyes',
   capacity: 3, enrolled: 2, status: 'scheduled', revision: 4, roomId: 2, roomName: 'Training Room',
@@ -42,6 +43,7 @@ beforeEach(() => {
   auth.user = { id: 1, roles: ['admin'] };
   denyRoster = false; failFor = null; entitled = true; scheduleError = null;
   certified = false;
+  supervision = null;
   people = [
     { userId: 11, name: 'First Member', email: 'first@example.invalid', status: 'enrolled' },
     { userId: 12, name: 'Second Member', email: 'second@example.invalid', status: 'enrolled' },
@@ -66,6 +68,7 @@ beforeEach(() => {
     }
     if (path.endsWith('/member-roster')) return { items: [{ name: 'First M.' }], capacity: 3, enrolled: 2, seatsAvailable: 1 } as never;
     if (path === '/me/overview') return { entitlement: { membership: entitled ? { id: 1 } : null, dayPass: null } } as never;
+    if (path === '/me/supervision') return supervision as never;
     if (path === '/me/certifications') return (certified ? [{ id: 7, valid: true }] : []) as never;
     if (path === '/classes/catalog') return workshopCatalog as never;
     if (path === '/training/catalog') return [{ id: 7, name: 'Laser cutting', validityDays: 365 }] as never;
@@ -112,6 +115,38 @@ test('member without membership or day pass is sent to membership instead of a f
   await mount();
   expect(screen.queryByRole('button', { name: 'Register for Safety 5' })).toBeNull();
   expect(screen.getByRole('link', { name: 'Membership or day pass needed' }).getAttribute('href')).toBe('/membership');
+});
+
+test('a minor without a sponsoring adult sees why Register is off and where to link one', async () => {
+  auth.user = { id: 31, roles: ['member'], isMinor: true };
+  supervision = { isMinor: true, marker: 'Under 18', sponsor: null, sponsorEligible: false, visit: null, pendingRequests: [] };
+  await mount();
+  const register = screen.getByRole('button', { name: 'Register for Safety 5: link a sponsoring adult to sign up' }) as HTMLButtonElement;
+  expect(register.disabled).toBe(true);
+  expect(screen.getByText('Link a sponsoring adult to sign up')).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'Link a sponsor to sign up' })).toBeTruthy();
+  expect(screen.getByRole('link', { name: 'Link a sponsor' }).getAttribute('href')).toBe('/');
+  expect(screen.queryByText('You can register')).toBeNull();
+  await click('Details for Safety 5');
+  const dialog = screen.getByRole('dialog');
+  expect((within(dialog).getByRole('button', { name: 'Register for class' }) as HTMLButtonElement).disabled).toBe(true);
+  expect(within(dialog).getByText('Link a sponsoring adult to sign up')).toBeTruthy();
+  expect(calls('/classes/5/enroll', 'POST')).toHaveLength(0);
+});
+
+test('a minor whose linked sponsor is inactive is told so; an active sponsor lets them register', async () => {
+  auth.user = { id: 31, roles: ['member'], isMinor: true };
+  supervision = { isMinor: true, marker: 'Under 18', sponsor: { id: 7, name: 'Dana Reyes', revision: 1 }, sponsorEligible: false, visit: null, pendingRequests: [] };
+  await mount();
+  expect(screen.getByRole('heading', { name: 'Your sponsor can’t sign you up' })).toBeTruthy();
+  expect(screen.queryByRole('link', { name: 'Link a sponsor' })).toBeNull();
+  expect((screen.getByRole('button', { name: /^Register for Safety 5: your sponsoring adult/ }) as HTMLButtonElement).disabled).toBe(true);
+  cleanup();
+  supervision = { ...supervision, sponsorEligible: true };
+  await mount();
+  expect(screen.getByText('You can register')).toBeTruthy();
+  await click('Register for Safety 5');
+  expect(calls('/classes/5/enroll', 'POST')).toHaveLength(1);
 });
 
 test('registering for required training shows and submits the one-time $20 fee', async () => {
