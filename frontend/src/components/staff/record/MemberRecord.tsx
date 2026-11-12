@@ -90,6 +90,18 @@ const initials = (p: Pick<Person, "firstName" | "lastName">) => `${p.firstName[0
 const day = (value: string) => shortDate(value).replace(/^\w+, /, "");
 
 /**
+ * A resource's latest failed read, kept until a read succeeds: a retry clears `error`
+ * at once while the older data stays on screen, which would hide the failure meanwhile.
+ */
+function useFailure(result: { data: unknown; error: string }) {
+  const [failure, setFailure] = useState<{ error: string; data: unknown } | null>(null);
+  useEffect(() => {
+    if (result.error) setFailure({ error: result.error, data: result.data });
+  }, [result.error, result.data]);
+  return result.error || (failure && result.data !== null && failure.data === result.data ? failure.error : "");
+}
+
+/**
  * A member's whole record in the staff side panel: whether they can use the
  * shop right now and the next thing to do, then their membership, history and
  * payments beside what needs attention, their card and account settings.
@@ -123,6 +135,17 @@ export function MemberRecord({
   const supervision = useApi<SupervisionSummary>(`/admin/users/${id}/supervision`, { retainOnReload: true, refreshInterval: 15000 });
   const cards = useApi<NfcCard[]>(`/admin/access/cards?userId=${id}`, { retainOnReload: true, refreshInterval: 15000 });
   const overrides = useApi<Override[]>(`/admin/access/overrides?userId=${id}`, { retainOnReload: true, refreshInterval: 15000 });
+  // A failed refresh keeps the older record on screen; the verdict says so instead of
+  // passing it off as current. Before the record loads, its own error shows instead.
+  const failures = [
+    { result: detail, error: useFailure(detail) },
+    { result: req, error: useFailure(req) },
+    { result: supervision, error: useFailure(supervision) },
+    { result: overrides, error: useFailure(overrides) },
+  ].filter((failure) => failure.error && (failure.result !== detail || detail.data));
+  const stale = failures.length
+    ? { error: failures[0].error, reload: () => failures.forEach((failure) => failure.result.reload()) }
+    : undefined;
   // Adopt a committed write's revision before the refresh lands, so a second save isn't stale.
   const [confirmed, setConfirmed] = useState<Person | null>(null);
   const [dialog, setDialog] = useState<DialogState | null>(null);
@@ -231,6 +254,7 @@ export function MemberRecord({
           cards={cards.data}
           cardsError={cards.error}
           overrides={overrides.data}
+          stale={stale}
           canManage={canManage}
           isAdmin={isAdmin}
           self={self}
@@ -272,6 +296,7 @@ function Body({
   cards,
   cardsError,
   overrides,
+  stale,
   canManage,
   isAdmin,
   self,
@@ -293,6 +318,7 @@ function Body({
   cards: NfcCard[] | null;
   cardsError: string;
   overrides: Override[] | null;
+  stale?: { error: string; reload: () => void };
   canManage: boolean;
   isAdmin: boolean;
   self: boolean;
@@ -409,6 +435,14 @@ function Body({
             </button>
           ) : null}
         </div>
+        {stale ? (
+          <p role="status" className="form-error mr-verdict__stale">
+            Part of this record could not be refreshed, so it may be out of date. {stale.error}{" "}
+            <button type="button" className="today-link" onClick={stale.reload}>
+              Reload
+            </button>
+          </p>
+        ) : null}
         {actionError || viewAs?.error ? (
           <p role="alert" className="form-error mr-verdict__error">
             {actionError || viewAs?.error}
