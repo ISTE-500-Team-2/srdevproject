@@ -570,7 +570,7 @@ export function AnalyticsDashboardPage() {
   return (
     <section className="analytics-dashboard management-page">
       <header className="analytics-head">
-        <h1 className="admin-title">Analytics</h1>
+        <div><p className="admin-page-eyebrow">Records</p><h1 className="admin-title">Analytics</h1></div>
         <div className="analytics-controls">
           <label className="analytics-range">
             <CalendarDays aria-hidden="true" />

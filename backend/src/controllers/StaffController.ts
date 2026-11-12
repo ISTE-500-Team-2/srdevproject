@@ -338,6 +338,10 @@ export class StaffController {
       ),
     });
   };
+  /** Every action ever recorded, independent of the current filters and page. */
+  auditActions = async (_req: Request, res: Response) => {
+    res.json({ data: await this.model.auditActions() });
+  };
   policies = async (_req: Request, res: Response) => {
     res.json({ data: await this.model.policies() });
   };

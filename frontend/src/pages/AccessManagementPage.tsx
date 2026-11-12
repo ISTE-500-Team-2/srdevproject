@@ -37,8 +37,9 @@ export function AccessManagementPage() {
     detail.data?.user.id === Number(member) ? detail.data.user : undefined;
   return (
     <section className="management-page nfc-page">
-      <header>
-        <h1>Reader access</h1>
+      <header className="admin-page-heading">
+        <p className="admin-page-eyebrow">Operations</p>
+        <h1 className="admin-title">Reader access</h1>
         <p>Assign NFC cards, manage readers, and investigate card taps.</p>
       </header>
       <nav className="nfc-nav" aria-label="Reader access sections">

@@ -422,6 +422,12 @@ export class StaffModel {
       ],
     );
   }
+  async auditActions(): Promise<string[]> {
+    const result = await this.db.query<{ action: string }>(
+      "SELECT DISTINCT action FROM app_staff_audit ORDER BY action",
+    );
+    return result.rows.map((row) => row.action);
+  }
   async audits(
     filters: {
       userId?: number | null;
