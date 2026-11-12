@@ -75,26 +75,25 @@ test('waiver text and approval evidence survive accidental closing until discard
   expect(api).not.toHaveBeenCalled();
 });
 
-const publishWith = async (days?: string) => {
+const publish = async () => {
   vi.mocked(useApi).mockImplementation(path => ({ data: path === '/admin/policies' ? [current] : { summary: { userCount: 5 }, waiverBreakdown: [] }, loading: false, refreshing: false, error: '', reload: vi.fn() }));
   vi.mocked(api).mockResolvedValue({} as never);
   render(<StaffPolicies />);
   fireEvent.click(screen.getByRole('button', { name: 'Publish new version' }));
   const dialog = screen.getByRole('dialog');
-  if (days !== undefined) fireEvent.change(within(dialog).getByLabelText('Valid for (days)'), { target: { value: days } });
+  // The annual rule is shown as a fact, not a locked field that looks editable.
+  expect(within(dialog).getByRole('group', { name: 'Renewal' }).textContent).toContain('each signature lasts 365 days from the day the member signs');
+  expect(within(dialog).queryByRole('spinbutton', { name: /Valid/ })).toBeNull();
   fireEvent.change(within(dialog).getByLabelText(/Approval/), { target: { value: 'Board vote' } });
   fireEvent.change(within(dialog).getByLabelText(/Reason/), { target: { value: 'Annual update' } });
-  fireEvent.submit(within(dialog).getByLabelText('Valid for (days)').closest('form')!);
+  fireEvent.submit(within(dialog).getByLabelText(/Reason/).closest('form')!);
   await waitFor(() => expect(api).toHaveBeenCalled());
-  return vi.mocked(api).mock.calls[0]![1] as { body: { validityDays: number | null } };
+  return vi.mocked(api).mock.calls[0]![1] as { body: Record<string, unknown> };
 };
 
-test('B-015: a waiver can be published with a duration in days', async () => {
-  expect((await publishWith('365')).body.validityDays).toBe(365);
-});
-
-test('B-015: annual validity cannot be removed when publishing', async () => {
-  expect((await publishWith()).body.validityDays).toBe(365);
+test('B-015: publishing leaves the annual signature period to the server', async () => {
+  const { body } = await publish();
+  expect('validityDays' in body).toBe(false);
 });
 
 test('administrators can publish an equipment waiver without making it a day-pass prerequisite', async () => {

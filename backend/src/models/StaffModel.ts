@@ -2,6 +2,7 @@ import { auditContext } from "../auditContext.js";
 import type { Database } from "../db.js";
 import type { PlanInput } from "../staffDomain.js";
 import type { PolicyScope } from "../staffDomain.js";
+import { ANNUAL_VALIDITY_DAYS } from '../annualValidity.js';
 
 export interface Plan extends PlanInput {
   id: number;
@@ -495,7 +496,7 @@ export class StaffModel {
     effectiveAt: string,
     approvalReference: string,
     actorId: number,
-    validityDays: number | null = 365,
+    validityDays: number = ANNUAL_VALIDITY_DAYS,
     scope: PolicyScope = 'facility',
   ) {
     return (

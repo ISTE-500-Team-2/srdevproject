@@ -57,7 +57,7 @@ test("in-person training, expiry, renewal concurrency, revocation and durable au
   const course = {
     name: "Printer safety",
     description: "Observed equipment training",
-    validityDays: 30,
+    validityDays: 365,
     equipmentIds: [],
     reason: "Approved safety policy",
   };
@@ -156,7 +156,7 @@ test("instructor can approve but not configure; existing permission denies survi
   const c = r.body.data.csrfToken;
   r = await member.post("/api/training/catalog").set("X-CSRF-Token", c).send({
     name: "Unauthorized",
-    validityDays: 30,
+    validityDays: 365,
     equipmentIds: [],
     reason: "test",
   });

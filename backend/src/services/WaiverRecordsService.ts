@@ -6,6 +6,7 @@ import { StaffModel } from '../models/StaffModel.js';
 import { PermissionModel } from '../models/PermissionModel.js';
 import { enqueueNotification, getNotificationPreferences } from '../notifications/store.js';
 import { reminderDates } from '../notifications/scheduler.js';
+import {ANNUAL_VALIDITY_MS} from '../annualValidity.js';
 
 export interface SignedWaiverRecord {
   id:number;waiverId:number;name:string;version:string;signedAt:Date;expiresAt:Date|null;approved:boolean;copyAvailable:boolean;
@@ -55,7 +56,7 @@ export class WaiverRecordsService {
       const previous=row.expiresAt ? new Date(row.expiresAt).toISOString():null;
       if(previous!==expectedExpiry)throw new AppError(409,'STALE_RECORD','This expiration changed. Reload before saving.');
       if(expiresAt && new Date(expiresAt)<=new Date(row.signedAt))throw new AppError(400,'INVALID_EXPIRY','Expiration must be after the recorded signing time.');
-      const annualExpiry=new Date(new Date(row.signedAt).getTime()+365*86400000).toISOString();
+      const annualExpiry=new Date(new Date(row.signedAt).getTime()+ANNUAL_VALIDITY_MS).toISOString();
       if(expiresAt===null)expiresAt=annualExpiry;
       if(new Date(expiresAt)>new Date(annualExpiry))throw new AppError(400,'INVALID_EXPIRY','Waivers cannot remain valid for more than 1 year after signing.');
       if(previous===expiresAt)return {expiresAt:previous};

@@ -93,10 +93,10 @@ const grant=async(userId:number,certid:number,trainedAt:Date|null)=>(await pool.
   SELECT COALESCE(MAX(usercertid),0)+1,$1,$2,'active',$3 FROM user_certifications RETURNING usercertid`,[userId,certid,trainedAt])).rows[0].usercertid as number;
 const renewal=async(id:number)=>(await pool.query(`SELECT renewaldate AT TIME ZONE 'UTC' AS at FROM user_certifications WHERE usercertid=$1`,[id])).rows[0].at as Date|null;
 
-test('B-014: setting a validity period dates older certifications from their training date',async()=>{
+test('B-014: saving a certification dates older records from their training date',async()=>{
  const c=await cert(),id=await grant(await freshUser('Legacy'),c.certid,new Date(Date.now()-10*DAY));
  assert.ok((await report()).compliance.trainingWithoutExpiry>=1);
- const saved=await patch(`/training/catalog/${c.certid}`,{name:'Validity set '+c.certid,description:'',validityDays:100,equipmentIds:[],expectedRevision:c.revision,reason:'Sponsor approved validity'},administrator);
+ const saved=await patch(`/training/catalog/${c.certid}`,{name:'Validity set '+c.certid,description:'',equipmentIds:[],expectedRevision:c.revision,reason:'Sponsor approved validity'},administrator);
  assert.equal(saved.status,200);
  const at=await renewal(id);
  assert.ok(at);assert.ok(Math.abs(at.getTime()-(Date.now()+355*DAY))<60_000);
@@ -155,12 +155,17 @@ test('B-015: omitted or legacy validity is normalized to annual expiration',asyn
  const published=await post('/admin/policies',policyBody(name),administrator);
  assert.equal(published.status,201);assert.equal(published.body.data.validityDays,365);
  assert.equal((await post(`/me/waivers/${published.body.data.id}/sign`,{accepted:true},member)).status,200);
- assert.ok((await pool.query('SELECT expires_at FROM user_waiver WHERE userid=$1 AND waiverid=$2',[member.id,published.body.data.id])).rows[0].expires_at);
- for(const validityDays of [0,-1,3651,'soon',1.5])
+ const stored=(await pool.query('SELECT expires_at FROM user_waiver WHERE userid=$1 AND waiverid=$2',[member.id,published.body.data.id])).rows[0].expires_at as Date;
+ assert.ok(stored);
+ // Members see the same expiry the booking check enforces.
+ const listed=(await get('/me/waivers',member)).body.data.find((w:{id:number})=>w.id===published.body.data.id);
+ assert.equal(listed.signed,true);assert.equal(new Date(listed.expiresAt).getTime(),stored.getTime());
+ assert.ok(Math.abs(new Date(listed.expiresAt).getTime()-new Date(listed.signedAt).getTime()-365*DAY)<60_000);
+ for(const validityDays of [1,30,0,-1,3651,'soon',1.5])
   assert.equal((await post('/admin/policies',policyBody(name+validityDays,{validityDays}),administrator)).status,400,String(validityDays));
 });
 test('B-015/BR-010: annual waiver reminders enter the scheduling window near expiration',async()=>{
- const published=await post('/admin/policies',policyBody('One-day '+randomBytes(3).toString('hex'),{validityDays:1}),administrator);
+ const published=await post('/admin/policies',policyBody('Annual '+randomBytes(3).toString('hex')),administrator);
  assert.equal(published.status,201);
  const id=published.body.data.id;
  assert.equal((await post(`/me/waivers/${id}/sign`,{accepted:true},member)).status,200);

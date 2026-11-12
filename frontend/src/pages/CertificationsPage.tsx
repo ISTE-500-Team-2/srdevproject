@@ -290,19 +290,33 @@ function CertRow({ item }: { item: CertItem }) {
   );
 }
 
+/** A signature this close to running out is flagged so members are not surprised at the door. */
+const EXPIRY_WARNING_DAYS = 30;
+
 function waiverPill(item: Waiver) {
   const terms = item.name === 'Terms of Service';
-  if (item.signed)
+  if (item.signed) {
+    const left = item.expiresAt ? Math.ceil((new Date(item.expiresAt).getTime() - Date.now()) / 86_400_000) : null;
+    if (item.expiresAt && left !== null && left <= EXPIRY_WARNING_DAYS)
+      return (
+        <span className="status-pill status-pill--warn">
+          <Clock3 aria-hidden="true" />
+          Expires {day(item.expiresAt)}
+        </span>
+      );
     return (
       <span className="status-pill status-pill--ok">
         <CheckCircle2 aria-hidden="true" />
-        {terms ? 'Completed' : 'Signed'}
+        {item.expiresAt ? `Valid until ${day(item.expiresAt)}` : terms ? 'Completed' : 'Signed'}
       </span>
     );
+  }
   return (
     <span className="status-pill status-pill--warn">
       <AlertTriangle aria-hidden="true" />
-      {item.expiredSignature ? 'Signature expired' : item.outdatedSignature ? 'New version' : 'Needs signature'}
+      {item.expiredSignature
+        ? item.expiresAt ? `Expired ${day(item.expiresAt)}` : 'Signature expired'
+        : item.outdatedSignature ? 'New version' : 'Needs signature'}
     </span>
   );
 }
@@ -491,7 +505,7 @@ export function CertificationsPage() {
               ) : null}
             </div>
             <p className="certs-waivers__lead">
-              Required before you book equipment. Each waiver expires 1 year (365 days) after you sign it. Signing again starts a new 365-day period. A policy update may require you to sign again sooner.
+              Required before you book equipment. Each signature lasts 1 year (365 days) from the day you sign. A policy update may require you to sign again sooner.
             </p>
             {waivers.loading ? <p role="status">Loading policies…</p> : null}
             {waivers.error ? <ErrorLine error={waivers.error} reload={waivers.reload} /> : null}
@@ -512,7 +526,7 @@ export function CertificationsPage() {
                         <span>
                           {item.signed
                             ? item.signedAt
-                              ? day(item.signedAt)
+                              ? item.expiresAt ? `Signed ${day(item.signedAt)}` : day(item.signedAt)
                               : 'Date unavailable'
                             : `Version ${item.version}`}
                         </span>

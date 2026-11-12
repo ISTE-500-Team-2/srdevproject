@@ -47,6 +47,8 @@ test('publication and certification issuance use annual validity even with legac
  assert.equal(published.status,201,JSON.stringify(published.body));assert.equal(published.body.data.validityDays,365);
  const course=await post('/training/catalog',{name:'Annual safety',description:'In-person safety',validityDays:null,equipmentIds:[],reason:'Annual compliance'},administrator);
  assert.equal(course.status,201,JSON.stringify(course.body));assert.equal(course.body.data.validityDays,365);
+ const shorter=await post('/training/catalog',{name:'Monthly safety',description:'In-person safety',validityDays:30,equipmentIds:[],reason:'Annual compliance'},administrator);
+ assert.equal(shorter.status,400,'a different period is refused, not silently replaced');
  const trained=new Date(Date.now()-86400000);
  const grant=await post(`/training/users/${member.id}/certifications/${course.body.data.id}`,{trainedAt:trained.toISOString(),source:'equipment',verifiedInPerson:true,verificationReference:'Observed demonstration',reason:'Training completed'},administrator);
  assert.equal(grant.status,201,JSON.stringify(grant.body));
