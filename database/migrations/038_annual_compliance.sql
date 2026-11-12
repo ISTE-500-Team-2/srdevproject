@@ -12,8 +12,10 @@ ALTER TABLE certifications ADD CONSTRAINT certification_annual_validity CHECK(va
 UPDATE user_waiver SET expires_at=LEAST(expires_at,(signdate+INTERVAL '365 days') AT TIME ZONE 'UTC')
 WHERE signdate IS NOT NULL AND (expires_at IS NULL OR expires_at>(signdate+INTERVAL '365 days') AT TIME ZONE 'UTC');
 -- A signature with no recorded date gets at most a year from now, like training with no recorded date below.
-UPDATE user_waiver SET expires_at=NOW()+INTERVAL '365 days'
-WHERE signdate IS NULL AND (expires_at IS NULL OR expires_at>NOW()+INTERVAL '365 days');
+-- Its start is kept on the row so staff expiry edits can count from it; the runtime role cannot read app_migration.
+ALTER TABLE user_waiver ADD COLUMN undated_valid_from TIMESTAMPTZ;
+UPDATE user_waiver SET undated_valid_from=NOW(),expires_at=LEAST(expires_at,NOW()+INTERVAL '365 days')
+WHERE signdate IS NULL;
 UPDATE user_certifications SET
   renewaldate=LEAST(renewaldate,(COALESCE(trained_at,approved_at,NOW()) AT TIME ZONE 'UTC')+INTERVAL '365 days'),
   revision=revision+1
