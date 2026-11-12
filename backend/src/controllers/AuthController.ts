@@ -17,6 +17,7 @@ import {
   passwordField,
   publicUser,
   textField,
+  type UserView,
 } from '../domain.js';
 import {
   hashPassword,
@@ -69,7 +70,7 @@ export class AuthController {
   }
   private respond(
     res: Response,
-    session: {token:string;refreshToken:string;csrfToken:string;ttl:number;user:unknown;persistent:boolean},
+    session: {token:string;refreshToken:string;csrfToken:string;ttl:number;user:UserView;persistent:boolean},
     notification?: NotificationTemplate,
   ) {
     res.set('Cache-Control','no-store');
@@ -77,7 +78,7 @@ export class AuthController {
     res.cookie(cookieName,session.refreshToken,{httpOnly:true,secure:this.config.secureCookies,sameSite:'lax',path:'/api',...(session.persistent ? {maxAge:(this.config.refreshTokenSeconds ?? 30*86400)*1000} : {})});
     res.json({
       data: {
-        user: publicUser(session.user as ReturnType<typeof authState>["user"]),
+        user: publicUser(session.user),
         csrfToken: session.csrfToken,
         accessToken: session.token,
         expiresIn: session.ttl / 1000,
