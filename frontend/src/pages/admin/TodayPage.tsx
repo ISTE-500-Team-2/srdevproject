@@ -71,7 +71,13 @@ function TodayContent({ config, now, day }: { config: Result<{ timeZone: string 
   const studios = useApi<{ studios: Studio[] }>("/studios", refresh);
   const rentals = useApi<Rental[]>("/studio-management/rentals", refresh);
   const compliance = useApi<ComplianceReport>("/admin/compliance?userStatus=active&attention=true", refresh);
-  const { bookings, state: bookingState, loaders } = useDayBookings(day, refresh);
+  const { bookings, state: bookingState, failed: bookingsFailed, loaders, reload: reloadBookings } = useDayBookings(day, refresh);
+  // A failed background refresh keeps the older data on screen, so the panels would not
+  // show it; say so once, without hiding anything. A booking page with no data at all
+  // already shows its error in the panels.
+  const stale = [config, report, equipment, studios, rentals, compliance].filter((result) => result.error && result.data);
+  const bookingsStale = bookingsFailed && !bookingState?.error ? bookingsFailed : undefined;
+  const staleError = stale[0]?.error ?? bookingsStale?.error;
 
   const live = new Set(
     report.data?.live
@@ -95,6 +101,22 @@ function TodayContent({ config, now, day }: { config: Result<{ timeZone: string 
         {date && <p className="today-date">{date}</p>}
         {summary && <p className="today-summary">{summary}</p>}
       </header>
+      {staleError ? (
+        <div className="today-stale">
+          <p role="status" className="form-error">
+            Some of today’s information could not be refreshed and may be out of date. {staleError}{" "}
+            <button
+              type="button"
+              onClick={() => {
+                stale.forEach((result) => result.reload());
+                if (bookingsStale) reloadBookings();
+              }}
+            >
+              Reload
+            </button>
+          </p>
+        </div>
+      ) : null}
       <div className="today-grid">
         <div className="today-col">
           <FloorPanel
