@@ -9,6 +9,7 @@ import { StudioStripe } from '../studios/stripe.js';
 import { EquipmentModel } from '../models/EquipmentModel.js';
 import { AccessService } from '../services/AccessService.js';
 import type { Database } from '../db.js';
+import { errorIdentifier } from '../logSafety.js';
 
 /** Server-priced equipment holds. Only canonical paid Stripe state confirms a booking. */
 export class EquipmentBilling {
@@ -142,10 +143,8 @@ export class EquipmentBilling {
         // Keep the hold during provider outages; browsing stays available and a
         // later read or signed callback can finish verification safely. Log only the
         // error class and PostgreSQL SQLSTATE or Stripe error type, never messages or bodies.
-        const safe = (value: unknown) => typeof value === 'string' && /^[A-Za-z0-9_]{1,64}$/.test(value) ? value : undefined;
-        const detail = typeof error === 'object' && error !== null ? error as { code?: unknown; type?: unknown } : undefined;
         console.error('Equipment payment reconciliation deferred', {reservationId: row.reservation_id, stage: 'equipment_reconcile',
-          error: safe(detail?.constructor?.name) ?? typeof error, code: safe(detail?.code), type: safe(detail?.type)});
+          ...errorIdentifier(error)});
       }
     }));
   }

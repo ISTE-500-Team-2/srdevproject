@@ -12,6 +12,3 @@ export const roleLabel = (person: { roles: string[] }) =>
 /** Accounts staff may not open: they would carry staff, instructor or admin permissions. */
 export const isProtectedAccount = (person: { roles: string[] }) =>
   person.roles.some((role) => role === "admin" || role === "staff" || role === "instructor");
-
-// Recent-account storage lives in lib; re-exported for existing imports.
-export { forgetRecentAccounts, recentAccounts, rememberAccount, type RecentAccount } from "../../lib/recentAccounts";

@@ -20,9 +20,6 @@ import {
 import { annualValidity } from "../annualValidity.js";
 import { page } from "../pagination.js";
 
-// MemberController imports page from here; keep that path working.
-export { page };
-
 function optionalPositiveId(value: unknown, name: string) {
   if (value == null || value === "") return null;
   return positiveId(value, name);

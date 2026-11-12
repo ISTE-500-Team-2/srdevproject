@@ -5,7 +5,6 @@ import { useApi } from "../lib/useApi";
 import { LoadState } from "../components/Management";
 import { dollars, dateTime, zonedDay } from "../lib/display";
 import type { Report } from "../lib/reportContracts";
-export type { Report } from "../lib/reportContracts";
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
 export function ComplianceSummary({ compliance: c }: { compliance: Report["compliance"] }) {

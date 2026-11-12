@@ -12,7 +12,7 @@ import { useApi } from "../lib/useApi";
 import { addDays, dayKey, localHour, mergeBookings, previousDay } from "../lib/today";
 import { dayLabel, timeRange } from "../lib/reservationSchedule";
 import { useDayBookings } from "./admin/useDayBookings";
-import type { Report } from "./ReportsPage";
+import type { Report } from "../lib/reportContracts";
 
 const refresh = { retainOnReload: true, refreshInterval: 60000 };
 const positive = (value: string | null) => (Number(value) > 0 ? Number(value) : null);

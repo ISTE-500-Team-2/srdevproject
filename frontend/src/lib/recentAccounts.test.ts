@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { forgetRecentAccounts, recentAccounts, rememberAccount } from "./recentAccounts";
-import * as people from "../components/admin/people";
 
 const key = "collaboratory.recentAccounts";
 beforeEach(() => localStorage.clear());
@@ -23,10 +22,4 @@ test("a storage failure never throws from remembering or forgetting", () => {
   expect(() => forgetRecentAccounts()).not.toThrow();
   vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new DOMException("Denied", "SecurityError"); });
   expect(recentAccounts()).toEqual([]);
-});
-
-test("the admin people module still re-exports the storage helpers", () => {
-  expect(people.rememberAccount).toBe(rememberAccount);
-  expect(people.recentAccounts).toBe(recentAccounts);
-  expect(people.forgetRecentAccounts).toBe(forgetRecentAccounts);
 });

@@ -137,6 +137,21 @@ test("a failed background refresh keeps every panel's data and offers one reload
   expect(api.mock.calls.filter(([p]) => p === "/equipment").length).toBeGreaterThan(before + 1);
   expect(screen.getByRole("link", { name: "Lathe" })).toBeTruthy();
 });
+test("the stale notice stays up while a retry is still running", async () => {
+  mount();
+  expect(await screen.findByRole("link", { name: "Lathe" })).toBeTruthy();
+  fail = "/equipment";
+  await act(async () => { fireEvent.focus(window); });
+  const stale = await screen.findByText(/Some of today’s information could not be refreshed/);
+  // The retry never settles; useApi clears its error while it runs.
+  fail = "";
+  const original = api.getMockImplementation()!;
+  api.mockImplementation((path: string) => path === "/equipment" ? new Promise(() => {}) : original(path));
+  await act(async () => { fireEvent.click(within(stale).getByRole("button", { name: "Reload" })); });
+  expect(screen.getByText(/Some of today’s information could not be refreshed/).textContent).toContain("Equipment request failed");
+  expect(screen.getByRole("link", { name: "Lathe" })).toBeTruthy();
+});
+
 test("a failed bookings refresh is reported while the bookings stay on the floor", async () => {
   const original = api.getMockImplementation()!;
   let bookingsFail = false;

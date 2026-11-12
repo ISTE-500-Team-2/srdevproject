@@ -10,7 +10,7 @@ import { EligibilityModel } from "../models/EligibilityModel.js";
 import { AccessService, type AccessTarget } from "../services/AccessService.js";
 import { MemberModel } from "../models/MemberModel.js";
 import { StaffModel } from "../models/StaffModel.js";
-import { page } from "./StaffController.js";
+import { page } from "../pagination.js";
 import { oneOf, pageOffset } from "../staffDomain.js";
 import { completedWaiverText, serverWaiverValues, validateWaiverFields, waiverFormFields } from "../waiverForms.js";
 

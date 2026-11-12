@@ -6,13 +6,8 @@ import { renderNotification, type NotificationKind } from './templates.js';
 import { runNotificationBatch, NotificationSendError } from './worker.js';
 import { scheduleExpirationNotifications } from './scheduler.js';
 import { checkReaderHealth } from '../serviceNotices.js';
+import { errorIdentifier } from '../logSafety.js';
 
-/** Error class plus PostgreSQL SQLSTATE or Stripe error type; never a message or payload. */
-function errorIdentifier(error: unknown) {
-  const safe = (value: unknown) => typeof value === 'string' && /^[A-Za-z0-9_]{1,64}$/.test(value) ? value : undefined;
-  const object = typeof error === 'object' && error !== null ? error as { code?: unknown; type?: unknown } : undefined;
-  return { error: safe(object?.constructor?.name) ?? typeof error, code: safe(object?.code), type: safe(object?.type) };
-}
 
 /** A single local tick at a time; database leases coordinate multiple processes. */
 export function startNotificationRuntime(pool: Pool, config?: NotificationConfig) {

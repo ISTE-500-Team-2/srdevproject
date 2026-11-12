@@ -29,8 +29,9 @@ import {
   type NeedsYouItem,
 } from "../../lib/today";
 import { useApi } from "../../lib/useApi";
+import { useFailure } from "../../lib/useFailure";
 import { useDayBookings } from "./useDayBookings";
-import type { Report } from "../ReportsPage";
+import type { Report } from "../../lib/reportContracts";
 import "./today.css";
 
 const refresh = { retainOnReload: true, refreshInterval: 60000 };
@@ -75,7 +76,15 @@ function TodayContent({ config, now, day }: { config: Result<{ timeZone: string 
   // A failed background refresh keeps the older data on screen, so the panels would not
   // show it; say so once, without hiding anything. A booking page with no data at all
   // already shows its error in the panels.
-  const stale = [config, report, equipment, studios, rentals, compliance].filter((result) => result.error && result.data);
+  // Errors are latched until fresh data arrives, so the notice stays up while a retry runs.
+  const stale = [
+    { result: config, error: useFailure(config) },
+    { result: report, error: useFailure(report) },
+    { result: equipment, error: useFailure(equipment) },
+    { result: studios, error: useFailure(studios) },
+    { result: rentals, error: useFailure(rentals) },
+    { result: compliance, error: useFailure(compliance) },
+  ].filter((entry) => entry.error && entry.result.data);
   const bookingsStale = bookingsFailed && !bookingState?.error ? bookingsFailed : undefined;
   const staleError = stale[0]?.error ?? bookingsStale?.error;
 
@@ -108,7 +117,7 @@ function TodayContent({ config, now, day }: { config: Result<{ timeZone: string 
             <button
               type="button"
               onClick={() => {
-                stale.forEach((result) => result.reload());
+                stale.forEach((entry) => entry.result.reload());
                 if (bookingsStale) reloadBookings();
               }}
             >
