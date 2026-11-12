@@ -45,30 +45,46 @@ test('admins can add equipment from the board and edit rates in the equipment wi
   // Phoebe shows the stock picture; an edit must not save that placeholder as her image.
   await waitFor(() => expect(api).toHaveBeenCalledWith('/admin/equipment/1', expect.objectContaining({ method: 'PUT', body: expect.objectContaining({ rate: 22.25, image: '', waiverRequired: false, expectedRevision: 1 }) })));
 });
-test('removal is inside edit and requires confirmation; server failures keep the window open', async () => {
+test('removal lists what is in the way and stays locked until it is resolved', async () => {
+  let blockers = { sessions: [] as unknown[], bookings: [{ id: 41, member: 'Jordan Rivera', startTime: '2026-11-14T19:00:00Z', endTime: '2026-11-14T21:00:00Z' }] };
+  const base = api.getMockImplementation()!;
+  api.mockImplementation((path: string, options?: unknown) => path === '/admin/equipment/1/removal-blockers' ? Promise.resolve(structuredClone(blockers)) : base(path, options));
   mount(); fireEvent.click(await screen.findByRole('button', { name: 'Edit equipment' }));
   await screen.findByRole('option', { name: 'Laser safety' });
   fireEvent.click(screen.getByRole('button', { name: 'Remove equipment' }));
+  expect(await screen.findByText('Resolve this first')).toBeTruthy();
+  expect(screen.getByText(/Nov 14, 2026, 2:00 PM · Jordan Rivera/)).toBeTruthy();
+  expect(screen.getByRole('link', { name: /Open bookings/ }).getAttribute('href')).toBe('/admin/reservations?equipmentId=1');
+  expect((screen.getByRole('button', { name: 'Confirm removal' }) as HTMLButtonElement).disabled).toBe(true);
+  // Once cleared, a server refusal (a booking made meanwhile) keeps the window open and reloads the list.
+  fireEvent.click(screen.getByRole('button', { name: 'Keep equipment' }));
+  blockers = { sessions: [], bookings: [] };
+  fireEvent.click(screen.getByRole('button', { name: 'Remove equipment' }));
+  const confirm = await screen.findByRole('button', { name: 'Confirm removal' }) as HTMLButtonElement;
+  await waitFor(() => expect(confirm.disabled).toBe(false));
+  expect(screen.queryByText('Resolve this first')).toBeNull();
   expect(api.mock.calls.some(([, options]) => options?.method === 'DELETE')).toBe(false);
   api.mockRejectedValueOnce(new Error('Move or cancel upcoming bookings first.'));
-  fireEvent.click(screen.getByRole('button', { name: 'Confirm removal' }));
+  fireEvent.click(confirm);
   expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Move or cancel upcoming bookings first.');
   expect(screen.getByRole('dialog', { name: 'Edit equipment' })).toBeTruthy();
 });
-test('category dropdown preserves its selection when toggling the new category field', async () => {
+test('a new category is typed in place, required, and saved by name', async () => {
   mount(); fireEvent.click(await screen.findByRole('button', { name: 'Edit equipment' }));
   await screen.findByRole('option', { name: 'Laser' });
   const category = screen.getByRole('combobox', { name: 'Category' }) as HTMLSelectElement;
   expect(category.value).toBe('3D printer');
   expect(screen.queryByLabelText('New category name')).toBeNull();
-  fireEvent.click(screen.getByRole('checkbox', { name: 'New category' }));
-  expect(category.disabled).toBe(true);
-  fireEvent.change(screen.getByLabelText(/New category name/), { target: { value: 'Metalworking' } });
-  fireEvent.click(screen.getByRole('checkbox', { name: 'New category' }));
-  expect(category.disabled).toBe(false);
-  expect(category.value).toBe('3D printer');
+  fireEvent.change(category, { target: { value: '__new__' } });
+  const name = screen.getByLabelText(/New category name/) as HTMLInputElement;
+  fireEvent.change(name, { target: { value: '   ' } });
+  fireEvent.submit(name.closest('form')!);
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Type a name for the new category.');
+  expect(api.mock.calls.some(([, options]) => options?.method === 'PUT')).toBe(false);
+  fireEvent.change(name, { target: { value: 'Metalworking' } });
+  fireEvent.change(category, { target: { value: 'Laser' } });
   expect(screen.queryByLabelText(/New category name/)).toBeNull();
-  fireEvent.click(screen.getByRole('checkbox', { name: 'New category' }));
+  fireEvent.change(category, { target: { value: '__new__' } });
   expect((screen.getByLabelText(/New category name/) as HTMLInputElement).value).toBe('Metalworking');
   fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
   await waitFor(() => expect(api).toHaveBeenCalledWith('/admin/equipment/1', expect.objectContaining({ method: 'PUT', body: expect.objectContaining({ type: 'Metalworking' }) })));

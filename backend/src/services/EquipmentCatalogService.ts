@@ -25,6 +25,17 @@ export function equipmentFields(input: Record<string, unknown>) {
 
 type Action = 'create' | 'update' | 'delete';
 
+/** What keeps a machine in the catalog: live reader sessions, and bookings that haven't ended. */
+export async function removalBlockers(db: Database, id: number) {
+  const sessions = await activeEquipmentGrants(db, id);
+  const bookings = (await db.query(`SELECT r.reservationid AS id,u.firstname || ' ' || u.lastname AS member,
+      r.starttime AT TIME ZONE 'UTC' AS "startTime",r.endtime AT TIME ZONE 'UTC' AS "endTime"
+    FROM reservation r LEFT JOIN "user" u ON u.userid=r.userid
+    WHERE r.equipmentid=$1 AND r.status IN ('pending','confirmed') AND r.endtime>clock_timestamp() AT TIME ZONE 'UTC'
+    ORDER BY r.starttime,r.reservationid LIMIT 20`, [id])).rows;
+  return { sessions, bookings };
+}
+
 export class EquipmentCatalogService {
   constructor(private pool: Pool, private timeZone: string) {}
 
@@ -36,6 +47,14 @@ export class EquipmentCatalogService {
         WHERE category IS NOT NULL AND trim(category) <> '' ORDER BY name`)).rows.map(row => row.name),
       certifications: (await this.pool.query('SELECT certid AS id,name FROM certifications ORDER BY name')).rows,
     };
+  }
+
+  /** Shown before removal so the administrator knows what to resolve first. */
+  async blockers(id: number) {
+    if (!(await this.pool.query(`SELECT 1 FROM equipment e WHERE e.equipmentid=$1
+      AND NOT EXISTS(SELECT 1 FROM app_equipment_retirement r WHERE r.equipment_id=e.equipmentid)`, [id])).rows.length)
+      throw new AppError(404, 'NOT_FOUND', 'Equipment not found.');
+    return removalBlockers(this.pool, id);
   }
 
   async save(actorId: number, id: number | null, input: Record<string, unknown>) {
@@ -58,12 +77,11 @@ export class EquipmentCatalogService {
   async remove(actorId: number, id: number, input: Record<string, unknown>) {
     return transaction(this.pool, async db => {
       const before = await this.authorize(db, actorId, 'delete', id, input);
-      if ((await activeEquipmentGrants(db, id)).length)
-        throw new AppError(409, 'EQUIPMENT_IN_USE', 'Wait for active reader sessions to end before removing equipment.');
       // Booking creation locks the equipment row too, so none can slip in after this check.
-      const bookings = await db.query(`SELECT 1 FROM reservation WHERE equipmentid=$1 AND status IN ('pending','confirmed')
-        AND endtime>clock_timestamp() AT TIME ZONE 'UTC' LIMIT 1`, [id]);
-      if (bookings.rows.length)
+      const { sessions, bookings } = await removalBlockers(db, id);
+      if (sessions.length)
+        throw new AppError(409, 'EQUIPMENT_IN_USE', 'Wait for active reader sessions to end before removing equipment.');
+      if (bookings.length)
         throw new AppError(409, 'UPCOMING_BOOKINGS', 'Move or cancel current and upcoming bookings before removing this equipment.');
       await db.query(`INSERT INTO app_equipment_retirement(equipment_id,reason) VALUES($1,'Removed by an administrator from the staff workspace')`, [id]);
       await db.query(`UPDATE equipment SET status='unavailable',availability_revision=availability_revision+1 WHERE equipmentid=$1`, [id]);

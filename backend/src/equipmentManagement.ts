@@ -25,6 +25,9 @@ export function equipmentManagement(pool: Pool, timeZone: string) {
   routes.put('/admin/equipment/:id', update, requireCsrf, async (req, res) => {
     res.json({ data: await catalog.save(authState(res).user.id, positiveId(req.params.id), req.body) });
   });
+  routes.get('/admin/equipment/:id/removal-blockers', requirePermission(pool, 'equipment', 'delete'), async (req, res) => {
+    res.json({ data: await catalog.blockers(positiveId(req.params.id)) });
+  });
   routes.delete('/admin/equipment/:id', requirePermission(pool, 'equipment', 'delete'), requireCsrf, async (req, res) => {
     res.json({ data: await catalog.remove(authState(res).user.id, positiveId(req.params.id), req.body) });
   });
