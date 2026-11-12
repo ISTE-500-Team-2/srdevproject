@@ -17,6 +17,7 @@ import {
   revisionField,
   validatePaymentMethod,
 } from "../staffDomain.js";
+import { annualValidity } from "../annualValidity.js";
 
 export function page<T>(rows: T[], offset: number) {
   return {
@@ -40,12 +41,6 @@ function optionalAuditAction(value: unknown) {
   if (!/^[a-z][a-z0-9_.-]*$/.test(action))
     throw new AppError(400, "INVALID_INPUT", "Audit action is invalid.");
   return action;
-}
-function waiverValidity(value: unknown) {
-  if (value == null || value === "") return null;
-  if (!Number.isInteger(value) || (value as number) < 1 || (value as number) > 3650)
-    throw new AppError(400, "INVALID_INPUT", "Waiver validity must be 1–3650 days.");
-  return value as number;
 }
 const PAYMENT_STATUSES = ["pending", "paid", "void", "waived", "refunded"] as const;
 function optionalInstant(value: unknown) {
@@ -423,7 +418,7 @@ export class StaffController {
           500,
           3,
         ),
-        validityDays: waiverValidity(req.body.validityDays),
+        validityDays: annualValidity(req.body.validityDays, "Waivers"),
         reason: reasonField(req.body.reason),
       }),
     });

@@ -85,42 +85,42 @@ test('B-013: the report names bookable machines with no training requirement',as
  assert.ok(names.includes(name));assert.ok(!names.includes(off));
 });
 
-async function cert(validityDays:number|null){
+async function cert(){
  return (await pool.query(`INSERT INTO certifications(certid,name,description,effectivedate,validity_days)
-  SELECT COALESCE(MAX(certid),0)+1,$1,'Fixture',NOW() AT TIME ZONE 'UTC',$2 FROM certifications RETURNING certid,revision`,['Gap cert '+randomBytes(3).toString('hex'),validityDays])).rows[0];
+  SELECT COALESCE(MAX(certid),0)+1,$1,'Fixture',NOW() AT TIME ZONE 'UTC',$2 FROM certifications RETURNING certid,revision`,['Gap cert '+randomBytes(3).toString('hex'),365])).rows[0];
 }
 const grant=async(userId:number,certid:number,trainedAt:Date|null)=>(await pool.query(`INSERT INTO user_certifications(usercertid,userid,certid,status,trained_at)
   SELECT COALESCE(MAX(usercertid),0)+1,$1,$2,'active',$3 FROM user_certifications RETURNING usercertid`,[userId,certid,trainedAt])).rows[0].usercertid as number;
 const renewal=async(id:number)=>(await pool.query(`SELECT renewaldate AT TIME ZONE 'UTC' AS at FROM user_certifications WHERE usercertid=$1`,[id])).rows[0].at as Date|null;
 
-test('B-014: setting a validity period dates older certifications from their training date',async()=>{
- const c=await cert(null),id=await grant(await freshUser('Legacy'),c.certid,new Date(Date.now()-10*DAY));
+test('B-014: saving a certification dates older records from their training date',async()=>{
+ const c=await cert(),id=await grant(await freshUser('Legacy'),c.certid,new Date(Date.now()-10*DAY));
  assert.ok((await report()).compliance.trainingWithoutExpiry>=1);
- const saved=await patch(`/training/catalog/${c.certid}`,{name:'Validity set '+c.certid,description:'',validityDays:100,equipmentIds:[],expectedRevision:c.revision,reason:'Sponsor approved validity'},administrator);
+ const saved=await patch(`/training/catalog/${c.certid}`,{name:'Validity set '+c.certid,description:'',equipmentIds:[],expectedRevision:c.revision,reason:'Sponsor approved validity'},administrator);
  assert.equal(saved.status,200);
  const at=await renewal(id);
- assert.ok(at);assert.ok(Math.abs(at.getTime()-(Date.now()+90*DAY))<60_000);
+ assert.ok(at);assert.ok(Math.abs(at.getTime()-(Date.now()+355*DAY))<60_000);
 });
 
 test('B-014: the backfill starts the clock today when no training date was recorded and leaves dated records alone',async()=>{
- const c=await cert(30),undated=await grant(await freshUser('Undated'),c.certid,null);
+ const c=await cert(),undated=await grant(await freshUser('Undated'),c.certid,null);
  const datedUser=await freshUser('Dated'),dated=await grant(datedUser,c.certid,new Date());
  const fixed=new Date('2040-01-01T00:00:00Z');
  await pool.query(`UPDATE user_certifications SET renewaldate=$2 AT TIME ZONE 'UTC' WHERE usercertid=$1`,[dated,fixed]);
  await pool.query('SELECT app_backfill_certification_expiry($1)',[c.certid]);
  const at=await renewal(undated);
- assert.ok(at);assert.ok(Math.abs(at.getTime()-(Date.now()+30*DAY))<60_000);
+ assert.ok(at);assert.ok(Math.abs(at.getTime()-(Date.now()+365*DAY))<60_000);
  assert.equal((await renewal(dated))!.getTime(),fixed.getTime());
 });
 test('B-014: backfill uses the same elapsed-day validity as training issuance across database time zones',async()=>{
- const trained=new Date('2026-10-28T12:00:00Z'),c=await cert(30),id=await grant(await freshUser('DstBackfill'),c.certid,trained);
+ const trained=new Date('2026-10-28T12:00:00Z'),c=await cert(),id=await grant(await freshUser('DstBackfill'),c.certid,trained);
  const db=await pool.connect();
  try{
   await db.query('BEGIN');
   await db.query("SET LOCAL TIME ZONE 'America/New_York'");
   await db.query('SELECT app_backfill_certification_expiry($1)',[c.certid]);
   const expiry=(await db.query(`SELECT renewaldate AT TIME ZONE 'UTC' AS expires FROM user_certifications WHERE usercertid=$1`,[id])).rows[0].expires;
-  assert.equal(expiry.getTime(),trained.getTime()+30*DAY);
+  assert.equal(expiry.getTime(),trained.getTime()+365*DAY);
  }finally{await db.query('ROLLBACK');db.release();}
 });
 
@@ -140,7 +140,7 @@ test('B-015: signature validity lasts the configured elapsed days regardless of 
  try{
   await db.query('BEGIN');
   await db.query("SET LOCAL TIME ZONE 'America/New_York'");
-  for(const days of [90,180,270]){
+  for(const days of [365]){
    const waiver=(await db.query(`INSERT INTO waiver(name,version,description,validity_days) VALUES($1,'v1','Timezone fixture',$2) RETURNING waiverid`,['Timezone '+days,days])).rows[0].waiverid;
    const signed=await new MemberModel(db).signWaiver(member.id,waiver);
    assert.ok(signed);
@@ -150,21 +150,29 @@ test('B-015: signature validity lasts the configured elapsed days regardless of 
  }finally{await db.query('ROLLBACK');db.release();}
 });
 
-test('B-015: a waiver with no duration does not invent an expiry, and bad durations are refused',async()=>{
+test('B-015: omitted or legacy validity is normalized to annual expiration',async()=>{
  const name='Open waiver '+randomBytes(3).toString('hex');
  const published=await post('/admin/policies',policyBody(name),administrator);
- assert.equal(published.status,201);assert.equal(published.body.data.validityDays,null);
+ assert.equal(published.status,201);assert.equal(published.body.data.validityDays,365);
  assert.equal((await post(`/me/waivers/${published.body.data.id}/sign`,{accepted:true},member)).status,200);
- assert.equal((await pool.query('SELECT expires_at FROM user_waiver WHERE userid=$1 AND waiverid=$2',[member.id,published.body.data.id])).rows[0].expires_at,null);
- for(const validityDays of [0,-1,3651,'soon',1.5])
+ const stored=(await pool.query('SELECT expires_at FROM user_waiver WHERE userid=$1 AND waiverid=$2',[member.id,published.body.data.id])).rows[0].expires_at as Date;
+ assert.ok(stored);
+ // Members see the same expiry the booking check enforces.
+ const listed=(await get('/me/waivers',member)).body.data.find((w:{id:number})=>w.id===published.body.data.id);
+ assert.equal(listed.signed,true);assert.equal(new Date(listed.expiresAt).getTime(),stored.getTime());
+ assert.ok(Math.abs(new Date(listed.expiresAt).getTime()-new Date(listed.signedAt).getTime()-365*DAY)<60_000);
+ for(const validityDays of [1,30,0,-1,3651,'soon',1.5])
   assert.equal((await post('/admin/policies',policyBody(name+validityDays,{validityDays}),administrator)).status,400,String(validityDays));
 });
-test('B-015/BR-010: signing a one-day waiver queues its short-notice reminder before the next daily scan',async()=>{
- const published=await post('/admin/policies',policyBody('One-day '+randomBytes(3).toString('hex'),{validityDays:1}),administrator);
+test('B-015/BR-010: annual waiver reminders enter the scheduling window near expiration',async()=>{
+ const published=await post('/admin/policies',policyBody('Annual '+randomBytes(3).toString('hex')),administrator);
  assert.equal(published.status,201);
  const id=published.body.data.id;
  assert.equal((await post(`/me/waivers/${id}/sign`,{accepted:true},member)).status,200);
  const signature=(await pool.query('SELECT userwaiverid,expires_at FROM user_waiver WHERE userid=$1 AND waiverid=$2 AND approval=true',[member.id,id])).rows[0];
+ await pool.query("UPDATE user_waiver SET expires_at=NOW()+INTERVAL '1 day' WHERE userwaiverid=$1",[signature.userwaiverid]);
+ signature.expires_at=(await pool.query('SELECT expires_at FROM user_waiver WHERE userwaiverid=$1',[signature.userwaiverid])).rows[0].expires_at;
+ await scheduleExpirationNotifications(pool);
  const reminders=async()=>(await emails('waiver_expiring',member.id)).filter(m=>m.payload.sourceId===signature.userwaiverid);
  const queued=await reminders();
  assert.equal(queued.length,1);
@@ -186,7 +194,7 @@ test('B-016: the report counts signatures with no retained copy',async()=>{
 
 test('BR-010: a short-notice grant is still sent but cannot count as a missed week of notice',async()=>{
  const now=new Date();
- const c=await cert(3),userId=await freshUser('ShortNotice'),id=await grant(userId,c.certid,now);
+ const c=await cert(),userId=await freshUser('ShortNotice'),id=await grant(userId,c.certid,now);
  await pool.query(`UPDATE user_certifications SET approved_at=$2,renewaldate=$3 AT TIME ZONE 'UTC' WHERE usercertid=$1`,[id,now,new Date(now.getTime()+3*DAY)]);
  await scheduleExpirationNotifications(pool,now);
  const sent=await emails('certification_expiring',userId);
@@ -196,7 +204,7 @@ test('BR-010: a short-notice grant is still sent but cannot count as a missed we
 
 test('BR-010: a record granted in time still counts when the reminder runs late',async()=>{
  const now=new Date();
- const c=await cert(90),userId=await freshUser('LateScan'),id=await grant(userId,c.certid,new Date(now.getTime()-87*DAY));
+ const c=await cert(),userId=await freshUser('LateScan'),id=await grant(userId,c.certid,new Date(now.getTime()-87*DAY));
  await pool.query(`UPDATE user_certifications SET approved_at=$2,renewaldate=$3 AT TIME ZONE 'UTC' WHERE usercertid=$1`,[id,new Date(now.getTime()-87*DAY),new Date(now.getTime()+3*DAY)]);
  await scheduleExpirationNotifications(pool,now);
  assert.equal((await emails('certification_expiring',userId))[0].counts_for_sla,true);
@@ -343,11 +351,11 @@ test('FR-032: only administrators can send notices, and an empty notice is refus
 });
 
 test('B-014: an old approval date with no training date starts the clock today, not in the past',async()=>{
- const c=await cert(30),id=await grant(await freshUser('ApprovedOnly'),c.certid,null);
+ const c=await cert(),id=await grant(await freshUser('ApprovedOnly'),c.certid,null);
  await pool.query('UPDATE user_certifications SET approved_at=$2 WHERE usercertid=$1',[id,new Date(Date.now()-400*DAY)]);
  await pool.query('SELECT app_backfill_certification_expiry($1)',[c.certid]);
  const at=await renewal(id);
- assert.ok(at);assert.ok(Math.abs(at.getTime()-(Date.now()+30*DAY))<60_000);
+ assert.ok(at);assert.ok(Math.abs(at.getTime()-(Date.now()+365*DAY))<60_000);
 });
 test('FR-057: cancelling an older membership with no saved plan details still names the plan',async()=>{
  const userId=await freshUser('NoSnapshot');await grantRole(userId,'member');

@@ -50,7 +50,8 @@ test("staff training UI configures approved expiry, records actual instructor tr
   const user = userEvent.setup();
   await user.click(await screen.findByRole("button", { name: "New certification" }));
   await user.type(await screen.findByLabelText("Name"), "UI printer safety");
-  await user.type(screen.getByLabelText("Validity in days (optional)"), "90");
+  expect(screen.getByRole('group', { name: 'Renewal' }).textContent).toContain('1 year from each member’s training date');
+  expect(screen.queryByLabelText(/Validity in days/)).toBeNull();
   await user.type(screen.getByLabelText('One-time training fee ($)'), '0');
   await user.type(screen.getByLabelText('Find equipment'), 'Darth');
   await user.click(await screen.findByRole('checkbox',{name:/Darth Vader/}));
@@ -138,7 +139,7 @@ test('staff schedules a class using named certification, instructor and room sel
   await bridge.pool.query("INSERT INTO user_role(userid,roleid) SELECT $1,roleid FROM role WHERE role='instructor' ON CONFLICT DO NOTHING",[admin]);
   // This test owns its course instead of depending on the training editor test.
   const course=await api<{id:number}>('/training/catalog',{method:'POST',body:{
-    name:'UI class safety',description:'Class scheduling fixture',validityDays:90,
+    name:'UI class safety',description:'Class scheduling fixture',validityDays:365,
     trainingMinutes:60,trainingFeeCents:0,equipmentIds:[],reason:'Isolated class scheduling fixture',
   }});
   const cert=course.id;

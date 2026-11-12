@@ -38,6 +38,10 @@ test('catalog errors stay inside the editor with its draft and allow retry', asy
   render(<TrainingPage />);
   fireEvent.click(await screen.findByRole('button', { name: 'Configure Laser safety' }));
   const dialog = screen.getByRole('dialog');
+  // The annual rule is shown as a fact, not a locked field that looks editable.
+  expect(within(dialog).getByRole('group', { name: 'Renewal' }).textContent).toContain('1 year from each member’s training date');
+  expect(within(dialog).getByText('Training can still be revoked.')).toBeTruthy();
+  expect(within(dialog).queryByRole('spinbutton', { name: /Validity/ })).toBeNull();
   fireEvent.change(within(dialog).getByLabelText('Training duration (minutes)'), {target:{value:'60'}});
   fireEvent.change(within(dialog).getByLabelText('One-time training fee ($)'), {target:{value:'20.00'}});
   fireEvent.change(within(dialog).getByLabelText('Policy approval/reference'), { target: { value: 'Approved policy' } });
@@ -48,6 +52,7 @@ test('catalog errors stay inside the editor with its draft and allow retry', asy
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   expect(writes()).toHaveLength(2);
   expect(writes()[1]![1]?.body).toMatchObject({trainingMinutes:60,trainingFeeCents:2000});
+  expect(writes()[1]![1]?.body).not.toHaveProperty('validityDays');
 });
 
 test('training approval errors stay inside the dialog without clearing entered evidence', async () => {

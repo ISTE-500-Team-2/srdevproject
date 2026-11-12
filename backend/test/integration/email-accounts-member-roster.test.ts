@@ -104,7 +104,7 @@ test('member roster shows only first name/last initial and current seats; withdr
   instructor=(await request(app).post('/api/auth/demo').send({role:'member'})).body.data;
   assert(!instructor.user.roles.some((role:string)=>['admin','staff'].includes(role)));
   otherInstructor=(await request(app).post('/api/auth/login').send({email:'other.instructor@example.invalid',password:'OtherInstructor!'})).body.data;
-  const cert=(await pool.query("INSERT INTO certifications(certid,name,validity_days) SELECT COALESCE(MAX(certid),0)+1,'Private roster safety',30 FROM certifications RETURNING certid")).rows[0].certid;
+  const cert=(await pool.query("INSERT INTO certifications(certid,name,validity_days) SELECT COALESCE(MAX(certid),0)+1,'Private roster safety',365 FROM certifications RETURNING certid")).rows[0].certid;
   const room=(await pool.query("SELECT roomid FROM room WHERE status='available' AND capacity>=2 LIMIT 1")).rows[0].roomid;
   const starts=new Date(Date.now()+86400000),ends=new Date(starts.getTime()+3600000);
   const c=await request(app).post('/api/classes').set('Authorization','Bearer '+admin.accessToken).set('X-CSRF-Token',admin.csrfToken).send({title:'Privacy regression class',certificationId:cert,instructorId,roomId:room,capacity:2,startsAt:starts.toISOString(),endsAt:ends.toISOString(),reason:'Isolated regression fixture'});

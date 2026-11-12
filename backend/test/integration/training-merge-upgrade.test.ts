@@ -16,7 +16,7 @@ test('upgrading main preserves configured training fees and durations and later 
     await owner.query(`CREATE DATABASE "${database}"`); created = true;
     const branchMigrations = new Set([
       '031_policy_scope.sql', '032_training_pricing.sql',
-      '033_training_enrollment_pricing.sql', '035_merge_training_requirements.sql',
+      '033_training_enrollment_pricing.sql', '035_merge_training_requirements.sql', '038_annual_compliance.sql',
     ]);
     await transaction(pool, async db => {
       await db.query(await readFile(path.join(repositoryRoot, 'ddl/collaboratory-db-create.sql'), 'utf8'));
@@ -33,7 +33,7 @@ test('upgrading main preserves configured training fees and durations and later 
     const checksums = (await pool.query('SELECT name,checksum FROM app_migration ORDER BY name')).rows;
     await migrate(pool);
     const course = (await pool.query('SELECT training_minutes,training_fee_cents,validity_days FROM certifications WHERE certid=999')).rows[0];
-    assert.deepEqual(course, { training_minutes: 90, training_fee_cents: 4500, validity_days: 180 });
+    assert.deepEqual(course, { training_minutes: 90, training_fee_cents: 4500, validity_days: 365 });
     for (const entry of checksums)
       assert.equal((await pool.query('SELECT checksum FROM app_migration WHERE name=$1', [entry.name])).rows[0].checksum, entry.checksum);
     await pool.query('UPDATE certifications SET training_minutes=120,training_fee_cents=5000 WHERE certid=999');

@@ -532,7 +532,7 @@ export class StaffService {
       description: string;
       effectiveAt: string;
       approvalReference: string;
-      validityDays: number | null;
+      validityDays: number;
       reason: string;
       scope?: PolicyScope;
     },

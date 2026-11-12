@@ -69,6 +69,22 @@ test('waivers that need a signature come first with a count, signed ones show th
  expect(within(todo).getByRole('button',{name:'Review and agree'}).className).toContain('button--primary');
 });
 
+test('signed waivers show when they run out and warn in the last 30 days; expired ones show when',()=>{
+ mount({waivers:[
+  waiver({id:1,name:'Shop waiver',signed:true,signedAt:'2026-02-03T12:00:00Z',expiresAt:inDays(200),expiredSignature:false}),
+  waiver({id:3,name:'Laser waiver',signed:true,signedAt:'2026-02-03T12:00:00Z',expiresAt:inDays(10),expiredSignature:false}),
+  waiver({id:4,name:'CNC waiver',expiresAt:'2026-10-30T12:00:00Z'}),
+ ]});
+ const ok = row('Shop waiver');
+ expect(within(ok).getByText(/^Valid until /).className).toContain('status-pill--ok');
+ expect(within(ok).getByText(/Signed .*Feb 3, 2026/)).toBeTruthy();
+ expect(within(row('Laser waiver')).getByText(/^Expires /).className).toContain('status-pill--warn');
+ const expired = row('CNC waiver');
+ expect(within(expired).getByText(/^Expired .*Oct 30, 2026/)).toBeTruthy();
+ expect(within(expired).getByText('Version v2')).toBeTruthy();
+ expect(within(expired).getByText(/Last signed: v2/)).toBeTruthy();
+});
+
 test('all signed waivers say so and link to signed form copies',()=>{
  mount({waivers:[waiver({signed:true,signedAt:'2026-02-03T12:00:00Z',expiredSignature:false,formFields:[{key:'name'}]})]});
  expect(screen.getByText('All signed')).toBeTruthy();

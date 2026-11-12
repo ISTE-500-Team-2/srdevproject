@@ -81,5 +81,5 @@ test('catalog cleanup is preview-first, idempotent, hides only obsolete entries 
  assert.equal((await pool.query('SELECT count(*)::int n FROM app_training_requirement WHERE duration_minutes=60 AND fee_cents=2000')).rows[0].n,3);
  const configured=await request(server).get('/api/training/catalog').set('Authorization','Bearer '+admin.accessToken);
  assert.ok(configured.body.data.filter((c:any)=>['CNC Training','Metal Lathe Training','Wood Lathe Training'].includes(c.name)).every((c:any)=>c.trainingFeeCents===2000&&c.trainingMinutes===60));
- assert.ok((await pool.query("SELECT validity_days FROM certifications WHERE name IN ('CNC Training','Metal Lathe Training','Wood Lathe Training')")).rows.every(r=>r.validity_days===null),'No expiry policy was invented');
+ assert.ok((await pool.query("SELECT validity_days FROM certifications WHERE name IN ('CNC Training','Metal Lathe Training','Wood Lathe Training')")).rows.every(r=>r.validity_days===365),'Annual expiry policy applies to every certification');
 });
