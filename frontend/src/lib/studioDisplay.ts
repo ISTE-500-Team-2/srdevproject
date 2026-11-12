@@ -1,4 +1,5 @@
 import type { Studio } from "./studioContracts";
+import { addCalendarDays as addDays } from "./calendarDate";
 
 export const money = (c: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
@@ -28,11 +29,7 @@ export function nextMonth(s: string) {
 }
 
 /** Shifts a YYYY-MM-DD date by whole days without local-timezone drift. */
-export function addDays(s: string, days: number) {
-  const d = new Date(s + "T00:00:00Z");
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
+export { addDays };
 
 /** Formats a YYYY-MM-DD calendar date, e.g. "Mon, Nov 2, 2026". */
 export function calendarDate(
