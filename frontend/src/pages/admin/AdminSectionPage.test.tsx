@@ -18,11 +18,10 @@ function Shell({ path }: { path: string }) {
 }
 const width = () => screen.getByTestId('main').getAttribute('data-width');
 
-test('each section keeps its own page width: the members table is wide, other pages keep the standard cap', () => {
+test('each section keeps its own page width: the members table is wide, forms stay narrow', () => {
   render(<Shell path="members" />);
   expect(width()).toBe('wide');
   cleanup();
-  // Service notices was rebuilt (#126) as a status list like Payments, so it uses the standard width.
   render(<Shell path="service-notices" />);
   expect(width()).toBe('standard');
   cleanup();
