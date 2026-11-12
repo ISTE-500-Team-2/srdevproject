@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useLocation, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ArrowUpRight, Check, Wrench } from 'lucide-react';
 import { useApi } from '../../lib/useApi';
 import { LoadState } from '../../components/Management';
@@ -7,6 +7,7 @@ import { shortDate, zonedDay } from '../../lib/display';
 import { equipmentRate, equipmentTime, maintenanceReasons, type EquipmentDetail } from '../../lib/equipmentMaintenance';
 import { AvailabilityForm, EquipmentBookings } from './EquipmentWorkflows';
 import { EquipmentBoard } from './EquipmentBoard';
+import { EquipmentEditor } from './EquipmentEditor';
 import './equipment.css';
 
 const refresh = { retainOnReload: true, refreshInterval: 15000 };
@@ -18,6 +19,8 @@ function EquipmentDetailPage({ id }: { id: string }) {
   const result = useApi<EquipmentDetail>(`/admin/equipment/${id}`, refresh);
   // The equipment board's "Take out of service" arrives with the form already open.
   const location = useLocation();
+  const navigate = useNavigate();
+  const [editingDetails, setEditingDetails] = useState(() => !!(location.state as { editDetails?: boolean } | null)?.editDetails);
   const [editing, setEditing] = useState(() => !!(location.state as { editAvailability?: boolean } | null)?.editAvailability);
   const [message, setMessage] = useState('');
   const [bookingRevision, setBookingRevision] = useState(0);
@@ -28,7 +31,9 @@ function EquipmentDetailPage({ id }: { id: string }) {
     <LoadState {...result} />
     {message && <p className="eq-success" role="status"><Check aria-hidden="true" />{message}</p>}
     {machine && <>
+      {editingDetails && machine.canManage && <EquipmentEditor initial={machine} onClose={() => setEditingDetails(false)} onSaved={(_id, removed) => { setEditingDetails(false); if (removed) navigate('/admin/equipment', { replace: true }); else { setMessage('Equipment details updated.'); changed(); } }} />}
       <header className="eq-detail-head"><img src={machine.image} alt="" /><div><p className="eq-eyebrow">{machine.type} · {machine.location}</p><h1 className="admin-title">{machine.name}</h1><p>{equipmentRate(machine.rate)}{machine.certification ? ` · ${machine.certification} certification` : ''}</p></div></header>
+      {machine.canManage && <div className="eq-actions"><button className="button button--quiet" onClick={() => setEditingDetails(true)}>Edit equipment</button></div>}
       <div className="eq-detail-grid"><div className="eq-detail-main">
         <section className={`eq-panel eq-availability${machine.status !== 'available' ? ' eq-availability--down' : ''}`} aria-label="Availability">
           <div className="eq-section-head"><div><p className="eq-eyebrow">Availability</p><h2>{machine.status !== 'available' ? 'Out of service' : machine.activeGrants.length ? 'In use' : 'Ready to book'}</h2></div><Wrench aria-hidden="true" /></div>

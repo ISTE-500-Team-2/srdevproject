@@ -193,3 +193,20 @@ a.eq-row[aria-current="true"] { position: relative; border-bottom-color: transpa
 a.eq-row[aria-current="true"]::before, a.eq-row[aria-current="true"]::after { content: ""; position: absolute; top: -1px; bottom: -1px; z-index: -1; border: 1px solid var(--eq-join-line); background: var(--eq-join-glass); backdrop-filter: blur(14px); pointer-events: none; }
 a.eq-row[aria-current="true"]::before { left: 0; right: 0; border-right: 0; border-radius: inherit; }
 a.eq-row[aria-current="true"]::after { left: 100%; width: 24px; border-inline: 0; }
+
+/* Remove equipment: what stays, and anything that has to be resolved first. */
+.eq-remove { display: grid; gap: 14px; }
+.eq-remove h3, .eq-remove p { margin: 0; }
+.eq-remove > p { color: var(--ink-soft); }
+.eq-remove .eq-remove__kept { display: flex; align-items: center; gap: 8px; font-size: var(--text-base-sm); font-weight: 600; color: var(--status-done); }
+.eq-remove__kept svg { width: 16px; height: 16px; }
+.eq-blockers { display: grid; gap: 10px; border: 1px solid var(--border); border-left: 3px solid var(--status-error); border-radius: var(--radius-small); background: var(--surface-sunken); padding: 14px 16px; }
+.eq-blockers h4 { margin: 0; font-size: var(--text-base-sm); font-weight: 700; color: var(--status-error); }
+.eq-blockers ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.eq-blockers li { display: flex; align-items: center; gap: 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-raised); padding: 10px 12px; }
+.eq-blockers li > svg { width: 18px; height: 18px; flex: none; color: var(--bronze); }
+.eq-blockers li > span { display: grid; flex: 1; gap: 1px; font-size: var(--text-base-sm); }
+.eq-blockers li small { color: var(--ink-soft); font-size: var(--text-sm); }
+.eq-blockers li .button { min-height: 36px; padding: 6px 12px; font-size: var(--text-sm); white-space: nowrap; }
+.eq-blockers li .button svg { width: 14px; height: 14px; }
+.eq-blockers > p { color: var(--ink-soft); font-size: var(--text-sm); }
