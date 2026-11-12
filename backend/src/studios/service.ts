@@ -10,6 +10,7 @@ import { StudioStripe } from "./stripe.js";
 import { DEFAULT_BUILDING_ID } from "../facility.js";
 import { requireActor } from "../accountPolicy.js";
 import { businessToday } from "../businessDate.js";
+import { studioRefundDecision, studioRefundState } from "./refundDecision.js";
 
 export class StudioService {
   constructor(
@@ -604,22 +605,31 @@ export class StudioService {
   }
   async applyRefund(db: Database, f: Stripe.Refund) {
     if (!f.metadata?.studioRentalId || f.currency !== "usd") return;
-    const r = (
+    // A refund for another payment, rental or amount is ignored.
+    const rental = (
       await db.query(
-        "UPDATE app_studio_rental SET refund_id=$2,payment_status=$3 WHERE payment_intent=$1 AND status='cancelled' AND refund_cents=$4 AND id=$5 AND (payment_status IN ('refund_pending','refund_failed') OR (payment_status='refunded' AND refund_id=$2 AND $3='refund_failed')) AND NOT(payment_status='refund_failed' AND $3='refund_pending') AND (payment_status IS DISTINCT FROM $3 OR refund_id IS DISTINCT FROM $2) RETURNING *",
+        "SELECT * FROM app_studio_rental WHERE payment_intent=$1 AND status='cancelled' AND refund_cents=$2 AND id=$3 FOR UPDATE",
         [
           typeof f.payment_intent === "string"
             ? f.payment_intent
             : f.payment_intent?.id,
-          f.id,
-          f.status === "succeeded"
-            ? "refunded"
-            : ["failed","canceled"].includes(f.status ?? "")
-              ? "refund_failed"
-              : "refund_pending",
           f.amount,
           Number(f.metadata.studioRentalId),
         ],
+      )
+    ).rows[0];
+    if (
+      !rental ||
+      studioRefundDecision(
+        { paymentStatus: rental.payment_status, refundId: rental.refund_id },
+        f,
+      ) === "skip"
+    )
+      return;
+    const r = (
+      await db.query(
+        "UPDATE app_studio_rental SET refund_id=$2,payment_status=$3 WHERE id=$1 RETURNING *",
+        [rental.id, f.id, studioRefundState(f.status)],
       )
     ).rows[0];
     if (r) {
