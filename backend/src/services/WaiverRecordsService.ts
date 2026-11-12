@@ -50,14 +50,14 @@ export class WaiverRecordsService {
       await db.query("SELECT pg_advisory_xact_lock(hashtext('arbor-staff-writes'))");
       await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR SHARE',[actorId]);
       await this.authorize(db,actorId,userId,true);
-      const row=(await db.query(`SELECT uw.userwaiverid AS id,uw.signdate AT TIME ZONE 'UTC' AS "signedAt",uw.expires_at AS "expiresAt",uw.approval,w.name
+      // An undated legacy signature counts its year from the annual-compliance upgrade, which recorded that start on the row.
+      const row=(await db.query(`SELECT uw.userwaiverid AS id,COALESCE(uw.signdate AT TIME ZONE 'UTC',uw.undated_valid_from) AS "startedAt",
+        uw.expires_at AS "expiresAt",uw.approval,w.name
         FROM user_waiver uw JOIN waiver w USING(waiverid) WHERE uw.userid=$1 AND uw.userwaiverid=$2 FOR UPDATE OF uw`,[userId,signatureId])).rows[0];
       if(!row)throw new AppError(404,'NOT_FOUND','Signed waiver not found.');
       const previous=row.expiresAt ? new Date(row.expiresAt).toISOString():null;
       if(previous!==expectedExpiry)throw new AppError(409,'STALE_RECORD','This expiration changed. Reload before saving.');
-      // An undated legacy signature got a year from the annual-compliance upgrade (migration 038), so that is its start.
-      const startedAt:Date|undefined=row.signedAt ?? (await db.query<{applied_at:Date}>(
-        "SELECT applied_at FROM app_migration WHERE name='038_annual_compliance.sql'")).rows[0]?.applied_at;
+      const startedAt:Date|null=row.startedAt;
       if(!startedAt)throw new AppError(409,'UNDATED_SIGNATURE','This legacy signature has no signing date. Ask the member to sign again.');
       if(expiresAt && new Date(expiresAt)<=new Date(startedAt))throw new AppError(400,'INVALID_EXPIRY','Expiration must be after the recorded signing time.');
       const annualExpiry=new Date(new Date(startedAt).getTime()+ANNUAL_VALIDITY_MS).toISOString();
