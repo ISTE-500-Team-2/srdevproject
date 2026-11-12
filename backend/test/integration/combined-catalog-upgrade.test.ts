@@ -41,6 +41,8 @@ test('combined migrations upgrade the previous schema without rewriting paid mem
     };}
     const before=await history(),checksums=(await pool.query('SELECT name,checksum FROM app_migration ORDER BY name')).rows;
     await migrate(pool);
+    // signdate holds UTC wall-clock time without a zone; node-postgres reads it as local time.
+    for(const signature of before.signatures){const signed=new Date(signature.signdate);signature.expires_at=new Date(signed.getTime()-signed.getTimezoneOffset()*60000+365*86400000);}
     assert.deepEqual(await history(),before);
     for(const entry of checksums)assert.equal((await pool.query('SELECT checksum FROM app_migration WHERE name=$1',[entry.name])).rows[0].checksum,entry.checksum);
     assert.equal((await model.plan(plan.id))!.active,false);

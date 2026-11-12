@@ -16,7 +16,7 @@ beforeAll(async()=>{
   const admin=await post('/auth/demo',{role:'admin'});
   memberId=(await bridge.pool.query(`SELECT userid FROM "user" WHERE email='demo.member@collaboratory.invalid'`)).rows[0].userid;
   await bridge.pool.query("INSERT INTO user_role(userid,roleid) SELECT $1,roleid FROM role WHERE role='instructor' ON CONFLICT DO NOTHING",[admin.user.id]);
-  const course=await post('/training/catalog',{name:'Roster UI safety',description:'Isolated test',validityDays:30,equipmentIds:[],reason:'Regression fixture'},admin.csrfToken);
+  const course=await post('/training/catalog',{name:'Roster UI safety',description:'Isolated test',validityDays:365,equipmentIds:[],reason:'Regression fixture'},admin.csrfToken);
   const room=(await bridge.pool.query("SELECT roomid FROM room WHERE status='available' AND capacity>=2 LIMIT 1")).rows[0].roomid;
   const start=Date.now()+86400000;
   const c=await post('/classes',{title:'Privacy-safe orientation',certificationId:course.id,instructorId:admin.user.id,roomId:room,capacity:2,startsAt:new Date(start).toISOString(),endsAt:new Date(start+3600000).toISOString(),reason:'Regression fixture'},admin.csrfToken);

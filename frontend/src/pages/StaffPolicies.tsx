@@ -1,4 +1,4 @@
-import { Archive, Check, Clock, Eye, FileText, History, Pencil, Plus, TriangleAlert, Upload } from "lucide-react";
+import { Archive, Check, Clock, Eye, FileText, History, Pencil, Plus, RefreshCw, TriangleAlert, Upload } from "lucide-react";
 import { useRef, useState, type FormEvent } from "react";
 import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
@@ -61,7 +61,6 @@ function PublishPanel({
   const [effectiveAt, setEffectiveAt] = useState(tomorrowMorning);
   const [version, setVersion] = useState(() => suggestVersion(latest?.version, tomorrowMorning().slice(0, 10)));
   const [text, setText] = useState(latest?.description ?? "");
-  const [validityDays, setValidityDays] = useState(latest?.validityDays ? String(latest.validityDays) : "");
   const [name, setName] = useState(waiver?.name ?? "");
   const [scope, setScope] = useState<Policy['scope']>(latest?.scope ?? 'facility');
   const [tab, setTab] = useState<"edit" | "preview">("edit");
@@ -117,7 +116,6 @@ function PublishPanel({
           description: text,
           effectiveAt: new Date(effectiveAt).toISOString(),
           approvalReference: form.get("approvalReference"),
-          validityDays: validityDays.trim() ? Number(validityDays) : null,
           reason: form.get("reason"),
         },
       });
@@ -219,12 +217,9 @@ function PublishPanel({
                 : "PDF, Word (.docx) or text files. Review the extracted wording before publishing. Only the text is saved, not the file."}
           </small>
         </div>
-        <div className="cw-hinted">
-          <label className="cw-field">
-            <span>Valid for (days)</span>
-            <input type="number" min={1} max={3650} step={1} value={validityDays} onChange={(e) => setValidityDays(e.target.value)} placeholder="Leave blank if it doesn't expire" />
-          </label>
-          <small>Each signature expires this many days after signing, and members must sign again.</small>
+        <div className="cw-field" role="group" aria-labelledby="waiver-renewal">
+          <span id="waiver-renewal">Renewal</span>
+          <p className="cw-fact"><RefreshCw aria-hidden="true" /><span><b>Every year</b> — each signature lasts 365 days from the day the member signs</span></p>
         </div>
         <div className="cw-two">
           <div className="cw-hinted">
@@ -355,7 +350,7 @@ export function StaffPolicies() {
   return (
     <section className="cw-section">
       <div className="cw-row">
-        <p className="cw-muted">Facility policies are required for day passes and check-in. Equipment waivers apply when booking or using equipment that requires them.</p>
+        <p className="cw-muted">Facility policies are required for day passes and check-in. Equipment waivers apply when booking or using equipment that requires them. Each member’s signature lasts 1 year (365 days) from the day they sign. A policy update may require signing again sooner.</p>
         {isAdmin ? (
           <button type="button" className="button button--primary cw-small" onClick={() => setPublishing({ waiver: null })}>
             <Plus aria-hidden="true" /> New waiver

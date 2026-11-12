@@ -98,6 +98,8 @@ export interface Waiver {
   signedVersionId: number | null;
   outdatedSignature: boolean;
   expiredSignature: boolean;
+  /** When the current signature runs out, or when the last one of this version did; null if it never expires. */
+  expiresAt?: string | null;
 }
 export interface WaiverFormField {
   key: string;

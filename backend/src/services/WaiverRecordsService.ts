@@ -6,6 +6,7 @@ import { StaffModel } from '../models/StaffModel.js';
 import { PermissionModel } from '../models/PermissionModel.js';
 import { enqueueNotification, getNotificationPreferences } from '../notifications/store.js';
 import { reminderDates } from '../notifications/scheduler.js';
+import {ANNUAL_VALIDITY_MS} from '../annualValidity.js';
 
 export interface SignedWaiverRecord {
   id:number;waiverId:number;name:string;version:string;signedAt:Date;expiresAt:Date|null;approved:boolean;copyAvailable:boolean;
@@ -54,7 +55,14 @@ export class WaiverRecordsService {
       if(!row)throw new AppError(404,'NOT_FOUND','Signed waiver not found.');
       const previous=row.expiresAt ? new Date(row.expiresAt).toISOString():null;
       if(previous!==expectedExpiry)throw new AppError(409,'STALE_RECORD','This expiration changed. Reload before saving.');
-      if(expiresAt && new Date(expiresAt)<=new Date(row.signedAt))throw new AppError(400,'INVALID_EXPIRY','Expiration must be after the recorded signing time.');
+      // An undated legacy signature got a year from the annual-compliance upgrade (migration 038), so that is its start.
+      const startedAt:Date|undefined=row.signedAt ?? (await db.query<{applied_at:Date}>(
+        "SELECT applied_at FROM app_migration WHERE name='038_annual_compliance.sql'")).rows[0]?.applied_at;
+      if(!startedAt)throw new AppError(409,'UNDATED_SIGNATURE','This legacy signature has no signing date. Ask the member to sign again.');
+      if(expiresAt && new Date(expiresAt)<=new Date(startedAt))throw new AppError(400,'INVALID_EXPIRY','Expiration must be after the recorded signing time.');
+      const annualExpiry=new Date(new Date(startedAt).getTime()+ANNUAL_VALIDITY_MS).toISOString();
+      if(expiresAt===null)expiresAt=annualExpiry;
+      if(new Date(expiresAt)>new Date(annualExpiry))throw new AppError(400,'INVALID_EXPIRY','Waivers cannot remain valid for more than 1 year after signing.');
       if(previous===expiresAt)return {expiresAt:previous};
       await db.query('UPDATE user_waiver SET expires_at=$3 WHERE userid=$1 AND userwaiverid=$2',[userId,signatureId,expiresAt]);
       await new StaffModel(db).audit(actorId,userId,'waiver_expiry_updated','user_waiver',signatureId,reason,{expiresAt:previous},{expiresAt});

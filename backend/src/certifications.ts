@@ -7,6 +7,7 @@ import { PermissionModel } from "./models/PermissionModel.js";
 import { UserModel } from "./models/UserModel.js";
 import { StaffModel } from "./models/StaffModel.js";
 import { scheduleExpirationNotifications } from "./notifications/scheduler.js";
+import { annualValidity } from "./annualValidity.js";
 
 const definition = `c.certid AS id,c.name,c.description,c.validity_days AS "validityDays",c.revision,
  c.training_fee_cents AS "trainingFeeCents",c.training_minutes AS "trainingMinutes",
@@ -94,13 +95,7 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
           255,
           0,
         );
-      const days = req.body.validityDays === null ? null : positiveId(req.body.validityDays, "Validity days");
-      if (days !== null && days > 3650)
-        throw new AppError(
-          400,
-          "INVALID_INPUT",
-          "Validity must be 1–3650 days.",
-        );
+      const days = annualValidity(req.body.validityDays, "Certifications");
       const reason = textField(req.body.reason, "Approval/reference", 500);
       const pricing = trainingPricing(req.body);
       const equipmentIds = equipmentList(req.body.equipmentIds);
@@ -152,13 +147,7 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
           "STALE_RECORD",
           "Refresh the certification before editing.",
         );
-      const days = req.body.validityDays === null ? null : positiveId(req.body.validityDays, "Validity days");
-      if (days !== null && days > 3650)
-        throw new AppError(
-          400,
-          "INVALID_INPUT",
-          "Validity must be 1–3650 days.",
-        );
+      const days = annualValidity(req.body.validityDays, "Certifications");
       const name = textField(req.body.name, "Name", 100),
         description = textField(
           req.body.description ?? "",

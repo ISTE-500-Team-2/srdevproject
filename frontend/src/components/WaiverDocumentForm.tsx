@@ -59,6 +59,7 @@ export function WaiverDocumentForm({ waiver, user, busy, onSubmit, children }: {
       <div className="waiver-document__intro">
         <h3>Review and complete your agreement</h3>
         <p>Read the agreement, complete the required fields, then type your full name to sign. Your signature must match your account name{signerName ? `: ${signerName}` : ''}.</p>
+        <p>This waiver is valid for 1 year (365 days) from the date you sign it. A policy update may require you to sign again sooner.</p>
         <p>Details labelled “Recorded automatically” are supplied from your account or recorded when you sign.</p>
       </div>
       {waiver.description.split(/\r?\n/).map((line, lineNumber) => {
