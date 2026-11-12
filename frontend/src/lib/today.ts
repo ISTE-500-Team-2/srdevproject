@@ -2,6 +2,7 @@ import type { LiveEquipment, Reservation } from "./contracts";
 import type { ComplianceReport } from "./staffContracts";
 import type { Rental, Studio } from "./studioContracts";
 import { needsStaff } from "./studioDesk";
+import { addCalendarDays as addDays } from "./calendarDate";
 
 const HOUR = 3_600_000;
 export function dayKey(now: number, timeZone: string) {
@@ -25,11 +26,7 @@ export function localHour(day: string, hour: number, timeZone: string) {
   return instant;
 }
 /** `day` (YYYY-MM-DD) moved by `by` calendar days. */
-export function addDays(day: string, by: number) {
-  const date = new Date(`${day}T12:00:00Z`);
-  date.setUTCDate(date.getUTCDate() + by);
-  return date.toISOString().slice(0, 10);
-}
+export { addDays };
 export const previousDay = (day: string) => addDays(day, -1);
 /** Bookings from both lists, each once, in start order. */
 export function mergeBookings(...lists: Reservation[][]) {

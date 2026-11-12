@@ -168,6 +168,25 @@ test('an expired certification comes first and links to the next matching class'
  expect(screen.getByText('1 of 2 current')).toBeTruthy();
 });
 
+test('two certifications with the same name but different ids stay separate',()=>{
+ mount({
+  certifications:[{id:2,name:'CNC Training',status:'active',valid:true,renewalDate:inDays(200),equipmentIds:[]}],
+  // Equipment carries the certification id, so each machine joins its own certification.
+  equipment:[{...cnc,certId:2},{...cnc,id:9,name:'Ross',certId:5}],
+  classes:[klass({certificationId:5,title:'CNC for the new router'})],
+ });
+ const [held, earn] = screen.getAllByRole('heading',{name:'CNC Training'}).map(h=>h.closest('li')!);
+ expect(screen.getByRole('region',{name:'Your certifications'}).contains(held)).toBe(true);
+ expect(within(held).getByText('Current')).toBeTruthy();
+ expect(within(held).getByText('Joey')).toBeTruthy();
+ expect(within(held).queryByText(/Ross/)).toBeNull();
+ expect(within(held).queryByText('CNC for the new router')).toBeNull();
+ expect(screen.getByRole('region',{name:'Earn a certification'}).contains(earn)).toBe(true);
+ expect(within(earn).getByText('Not yet')).toBeTruthy();
+ expect(within(earn).getByText('Ross')).toBeTruthy();
+ expect(within(earn).getByText('CNC for the new router')).toBeTruthy();
+});
+
 test('revoked certifications are flagged for retraining',()=>{
  mount({certifications:[{id:2,name:'CNC Training',status:'revoked',valid:false,renewalDate:inDays(100),equipmentIds:[]}]});
  const cert = row('CNC Training');

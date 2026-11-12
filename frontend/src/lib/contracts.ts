@@ -51,6 +51,8 @@ export interface LiveEquipment extends Omit<Equipment, 'rate'> {
   status: string;
   outages?: { reason: string; expectedBack: string | null; startedAt: string; endedAt: string | null }[];
   waiverRequired: boolean;
+  /** The required certification's id; null when the equipment needs none. */
+  certId?: number | null;
   certification: string | null;
   location: string;
   canReserve: boolean;

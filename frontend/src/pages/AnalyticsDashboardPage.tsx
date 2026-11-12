@@ -27,7 +27,7 @@ import {
   type RevenuePeriod,
   type RevenuePoint,
 } from "../lib/analytics";
-import type { Report } from "./ReportsPage";
+import type { Report } from "../lib/reportContracts";
 import "../assets/css/analyticsDashboard.css";
 
 type Range = { from: string; to: string; period: RevenuePeriod };

@@ -1,4 +1,5 @@
-import type { Report } from "../pages/ReportsPage";
+import type { Report } from "./reportContracts";
+import { addCalendarDays as shiftDay } from "./calendarDate";
 export type RevenuePeriod = "daily" | "weekly" | "monthly";
 export type RevenuePoint = {
   period: string;
@@ -8,11 +9,8 @@ export type RevenuePoint = {
   receipts: number;
 };
 const day = (date: Date) => date.toISOString().slice(0, 10);
-export function shiftDay(value: string, days: number) {
-  const date = new Date(value + "T00:00:00Z");
-  date.setUTCDate(date.getUTCDate() + days);
-  return day(date);
-}
+/** A YYYY-MM-DD date moved by whole days; see addCalendarDays. */
+export { shiftDay };
 function bucketStart(value: string, period: RevenuePeriod) {
   const date = new Date(value + "T00:00:00Z");
   if (period === "weekly")
