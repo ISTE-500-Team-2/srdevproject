@@ -194,7 +194,7 @@ export function EquipmentPage() {
               <div className="reservation-card__image"><img src={machines[0]!.image} alt="" /></div>
               <div className="reservation-card__rule" />
               <div className="reservation-card__title"><h2>{type}</h2></div>
-              <p className="equipment-card__names">{machines.map(item => item.name).join(' \u00b7 ')}</p>
+              <p className="equipment-card__names">{machines.slice(0, 3).map(item => item.name).join(' \u00b7 ')}{machines.length > 3 ? `… + ${machines.length - 3} more` : ''}</p>
             </button>
           ))}
         </div>}

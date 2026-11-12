@@ -41,6 +41,39 @@ after(async () => { await pool.end(); if (created) await admin.query(`DROP DATAB
 function get(path: string, who = administrator) { return request(app).get('/api' + path).set('Authorization', 'Bearer ' + who.accessToken); }
 function post(path: string, body: unknown, who = administrator) { return request(app).post('/api' + path).set('Authorization', 'Bearer ' + who.accessToken).set('X-CSRF-Token', who.csrfToken).send(body); }
 const outage = { expectedRevision: 1, reason: 'repair', stopped: true, note: 'Staff-only spindle diagnosis' };
+test('catalog creation, edits and retirement are admin-only, versioned, and preserve history', async () => {
+  const fields = { name: 'Catalog test laser', type: 'Laser', location: 'Shop', image: '', rate: 18.5, certId: null, waiverRequired: true };
+  assert.equal((await post('/admin/equipment', fields, staff)).status, 403);
+  const created = await post('/admin/equipment', fields);
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const id = created.body.data.id;
+  const mutate = (method: 'put' | 'delete', body: unknown, who = administrator) => request(app)[method](`/api/admin/equipment/${id}`).set('Authorization', 'Bearer ' + who.accessToken).set('X-CSRF-Token', who.csrfToken).send(body);
+  assert.equal((await mutate('put', { ...fields, expectedRevision: 1 }, staff)).status, 403);
+  assert.equal((await mutate('put', { ...fields, rate: -1, expectedRevision: 1 })).status, 400);
+  assert.equal((await mutate('put', { ...fields, rate: 22.25, expectedRevision: 1 })).status, 200);
+  const edited = (await get(`/admin/equipment/${id}`)).body.data;
+  assert.equal(edited.rate, 22.25);
+  assert.equal(edited.imagePath, null, 'the stock picture is a display fallback, not a stored image');
+  assert.equal((await mutate('put', { ...fields, expectedRevision: 1 })).status, 409);
+  assert.equal((await mutate('delete', { expectedRevision: 2 }, staff)).status, 403);
+  assert.equal((await request(app).delete(`/api/admin/equipment/${id}`).set('Authorization', 'Bearer ' + administrator.accessToken).send({ expectedRevision: 2 })).status, 403);
+  const reserved = await booking(id);
+  assert.equal((await get(`/admin/equipment/${id}/removal-blockers`, staff)).status, 403);
+  const blockers = (await get(`/admin/equipment/${id}/removal-blockers`)).body.data;
+  assert.deepEqual(blockers.sessions, []);
+  assert.deepEqual(blockers.bookings.map((b: { id: number }) => b.id), [reserved.id], 'the remove window lists what is in the way');
+  assert.match(blockers.bookings[0].member, /\S+ \S+/);
+  assert.ok(Date.parse(blockers.bookings[0].startTime) > Date.now());
+  assert.equal((await mutate('delete', { expectedRevision: 2 })).status, 409);
+  await pool.query("UPDATE reservation SET status='cancelled' WHERE reservationid=$1", [reserved.id]);
+  assert.deepEqual((await get(`/admin/equipment/${id}/removal-blockers`)).body.data, { sessions: [], bookings: [] });
+  assert.equal((await mutate('delete', { expectedRevision: 2 })).status, 200);
+  assert.equal((await get(`/admin/equipment/${id}`)).status, 404);
+  assert.equal((await get(`/admin/equipment/${id}/removal-blockers`)).status, 404);
+  assert.equal((await get('/admin/equipment')).body.data.some((e: { id: number }) => e.id === id), false);
+  assert.equal((await pool.query('SELECT 1 FROM reservation WHERE reservationid=$1', [reserved.id])).rows.length, 1);
+  assert.equal((await pool.query('SELECT 1 FROM equipment WHERE equipmentid=$1', [id])).rows.length, 1);
+});
 async function machine(name = 'Maintenance machine', status = 'available') {
   return (await pool.query('INSERT INTO equipment(name,status,hourlyrate,waiverrequired) VALUES($1,$2,12,false) RETURNING equipmentid', [name, status])).rows[0].equipmentid as number;
 }
@@ -92,6 +125,16 @@ test('outage and restoration are audited, private, manual, and leave bookings an
   const audits = (await pool.query("SELECT action,actor_id,after_state FROM app_staff_audit WHERE entity_type='equipment' AND entity_id=$1 AND source='application' ORDER BY id", [id])).rows;
   assert.equal(audits.length, 2); assert.ok(audits.every(a => a.actor_id === administrator.user.id));
   assert.equal(audits[0].after_state.status, 'maintenance');
+});
+test('a live reader session blocks removal and is listed with who is using the machine', async () => {
+  const id = await machine('Session machine');
+  await pool.query(`INSERT INTO app_device_access_event(reader_id,request_id,user_id,target_kind,target_id,allowed,reason,expires_at)
+    VALUES('bench-reader',$1,$2,'equipment',$3,true,'ELIGIBLE',clock_timestamp()+INTERVAL '10 minutes')`, [randomUUID(), member.user.id, id]);
+  const { sessions, bookings } = (await get(`/admin/equipment/${id}/removal-blockers`)).body.data;
+  assert.equal(bookings.length, 0);
+  assert.equal(sessions.length, 1); assert.equal(sessions[0].readerId, 'bench-reader'); assert.equal(sessions[0].members.length, 1);
+  const removed = await request(app).delete(`/api/admin/equipment/${id}`).set('Authorization', 'Bearer ' + administrator.accessToken).set('X-CSRF-Token', administrator.csrfToken).send({ expectedRevision: 1 });
+  assert.equal(removed.status, 409); assert.equal(removed.body.error.code, 'EQUIPMENT_IN_USE');
 });
 test('legacy unavailable equipment can be returned to service', async () => {
   const id = await machine('Legacy', 'unavailable');
