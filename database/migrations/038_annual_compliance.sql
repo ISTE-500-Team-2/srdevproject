@@ -11,8 +11,9 @@ ALTER TABLE certifications ADD CONSTRAINT certification_annual_validity CHECK(va
 -- Preserve earlier explicit deadlines and immutable signed document copies.
 UPDATE user_waiver SET expires_at=LEAST(expires_at,(signdate+INTERVAL '365 days') AT TIME ZONE 'UTC')
 WHERE signdate IS NOT NULL AND (expires_at IS NULL OR expires_at>(signdate+INTERVAL '365 days') AT TIME ZONE 'UTC');
--- A signature with no recorded date gets a year from now, like training with no recorded date below.
-UPDATE user_waiver SET expires_at=NOW()+INTERVAL '365 days' WHERE signdate IS NULL AND expires_at IS NULL;
+-- A signature with no recorded date gets at most a year from now, like training with no recorded date below.
+UPDATE user_waiver SET expires_at=NOW()+INTERVAL '365 days'
+WHERE signdate IS NULL AND (expires_at IS NULL OR expires_at>NOW()+INTERVAL '365 days');
 UPDATE user_certifications SET
   renewaldate=LEAST(renewaldate,(COALESCE(trained_at,approved_at,NOW()) AT TIME ZONE 'UTC')+INTERVAL '365 days'),
   revision=revision+1
