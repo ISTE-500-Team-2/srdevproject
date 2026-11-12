@@ -90,3 +90,19 @@ test('administrative expiry cannot extend a signature beyond its annual deadline
  const response=await patch(`/admin/users/${member.id}/signed-waivers/${row.userwaiverid}/expiry`,{expiresAt:new Date(Date.now()+400*86400000).toISOString(),expectedExpiry:row.expires_at.toISOString(),reason:'Attempt to extend deadline'});
  assert.equal(response.status,400);assert.equal(response.body.error.code,'INVALID_EXPIRY');
 });
+
+test('an undated legacy signature keeps a year from the upgrade when staff edit or clear its expiry',async()=>{
+ const upgraded=(await pool.query("SELECT applied_at FROM app_migration WHERE name='038_annual_compliance.sql'")).rows[0].applied_at as Date;
+ const deadline=new Date(upgraded.getTime()+365*86400000);
+ const undatedPolicy=(await pool.query(`INSERT INTO waiver(name,version,description,effectivedate) VALUES('Undated editor','v1','Legacy wording.',NOW() AT TIME ZONE 'UTC') RETURNING waiverid`)).rows[0].waiverid;
+ const id=(await pool.query('INSERT INTO user_waiver(userid,waiverid,signdate,approval,expires_at) VALUES($1,$2,NULL,true,$3) RETURNING userwaiverid',[member.id,undatedPolicy,deadline])).rows[0].userwaiverid;
+ const path=`/admin/users/${member.id}/signed-waivers/${id}/expiry`;
+ const expiry=async()=>(await pool.query('SELECT expires_at FROM user_waiver WHERE userwaiverid=$1',[id])).rows[0].expires_at as Date;
+ const sooner=new Date(Date.now()+30*86400000);
+ const shortened=await patch(path,{expiresAt:sooner.toISOString(),expectedExpiry:deadline.toISOString(),reason:'Shorter deadline agreed'});
+ assert.equal(shortened.status,200,JSON.stringify(shortened.body));
+ assert.equal((await expiry()).getTime(),sooner.getTime());
+ const cleared=await patch(path,{expiresAt:null,expectedExpiry:sooner.toISOString(),reason:'Back to the annual deadline'});
+ assert.equal(cleared.status,200,JSON.stringify(cleared.body));
+ assert.equal((await expiry()).getTime(),deadline.getTime(),'clearing restores a year from the upgrade, not 1971');
+});
