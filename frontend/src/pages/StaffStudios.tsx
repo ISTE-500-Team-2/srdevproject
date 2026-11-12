@@ -41,6 +41,7 @@ export function StaffStudios() {
   if (!timeZone || !list || !records)
     return (
       <section className="studio-desk" aria-labelledby="studio-desk-title">
+        <p className="admin-page-eyebrow">Operations</p>
         <h1 id="studio-desk-title" className="admin-title">Studios</h1>
         {waiting ? <LoadState loading={waiting.loading} error={waiting.error} reload={waiting.reload} /> : null}
       </section>
@@ -59,6 +60,7 @@ export function StaffStudios() {
     <section className="studio-desk" aria-labelledby="studio-desk-title">
       <div className="studio-desk__head">
         <div>
+          <p className="admin-page-eyebrow">Operations</p>
           <h1 id="studio-desk-title" className="admin-title">Studios</h1>
           <p className="studio-desk__summary">
             <span><i className="desk-dot desk-dot--rented" />{summary.rented} rented now</span>

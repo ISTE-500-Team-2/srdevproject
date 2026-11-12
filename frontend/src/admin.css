@@ -394,3 +394,38 @@ button.admin-nav__item { width: 100%; border: 0; background: transparent; text-a
   .account-heads .account-heads__action { margin-left: 32px; }
 }
 
+
+/* All workspace tabs share Equipment's page rhythm; the group label shares its eyebrow (equipment.css). */
+.admin-section.management-page { gap: 26px; }
+.admin-section .admin-page-heading { margin: 0; }
+.admin-section .admin-title,
+.admin-section .nfc-page > header h1 {
+  margin: 4px 0 8px;
+  font-family: 'Black Ops One', sans-serif;
+  font-size: var(--text-admin-title);
+  font-weight: 400;
+  letter-spacing: .015em;
+  line-height: 1;
+}
+.admin-section .admin-page-heading > p:last-child:not(.admin-page-eyebrow) {
+  margin: 0;
+  color: #756154;
+  font-size: var(--text-base);
+  line-height: 1.5;
+}
+.admin-section .staff-directory__head h2,
+.admin-section .management-grid h2,
+.admin-section .management-panel h2 { font-size: var(--text-2xl); font-weight: 600; }
+.admin-section .staff-directory__search {
+  min-height: 44px;
+  border: 1px solid #cdbfb2;
+  border-radius: 7px;
+  padding: 10px 12px;
+  background: #fffdfa;
+}
+.admin-section .staff-directory__search input { color: var(--ink); }
+/* Keep a visible focus ring now that the box replaces the underline. */
+.admin-section .staff-directory__search:focus-within {
+  border-color: var(--orange);
+  box-shadow: 0 0 0 3px rgba(247, 150, 29, 0.25);
+}
