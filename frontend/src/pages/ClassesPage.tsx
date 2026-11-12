@@ -126,10 +126,13 @@ export function ClassesPage() {
     Object.values(cancelReasons).some((reason) => reason.trim()) ||
     Object.values(drafts).some((d) => Object.keys(d.statuses).length > 0 || d.note.trim());
 
+  // Restarting a sponsor check that is still running would abort it, so a slow one never answered.
+  const supervisionBusy = useRef(false);
+  supervisionBusy.current = supervision.loading || supervision.refreshing;
   const refreshAll = () => {
     classes.reload();
     certifications.reload();
-    supervision.reload();
+    if (!supervisionBusy.current) supervision.reload();
     setRefreshToken((t) => t + 1);
   };
   // Restarting a request that is still running would abort it, so a slow list never finished.
@@ -140,7 +143,7 @@ export function ClassesPage() {
       if (!classesBusy.current && !hasUnsavedEdits && busyId === null && document.visibilityState !== "hidden") {
         classes.reload();
         // A sponsor's link or account can change while this page stays open.
-        supervision.reload();
+        if (!supervisionBusy.current) supervision.reload();
         setRefreshToken((t) => t + 1);
       }
     };
@@ -184,21 +187,24 @@ export function ClassesPage() {
       </section>
     );
 
-  const eligibility: Eligibility = user.isMinor && !manager && !supervision.data
-    ? "sponsor-unknown"
-    : !overview.data
-    ? "unknown"
-    : !overview.data.entitlement.membership && !overview.data.entitlement.dayPass
-      ? "ineligible"
-      : !user.isMinor
-        ? "eligible"
-        : !supervision.data
-          ? "unknown"
-          : supervision.data.sponsorEligible
-            ? "eligible"
-            : supervision.data.sponsor
-              ? "sponsor-inactive"
-              : "no-sponsor";
+  // A known sponsor problem blocks a minor even while the membership check is pending.
+  const sponsorState: Eligibility | null =
+    !user.isMinor || manager
+      ? null
+      : !supervision.data
+        ? "sponsor-unknown"
+        : supervision.data.sponsorEligible
+          ? null
+          : supervision.data.sponsor
+            ? "sponsor-inactive"
+            : "no-sponsor";
+  const eligibility: Eligibility =
+    sponsorState ??
+    (!overview.data
+      ? "unknown"
+      : !overview.data.entitlement.membership && !overview.data.entitlement.dayPass
+        ? "ineligible"
+        : "eligible");
   const certified = new Set((certifications.data ?? []).filter((c) => c.valid).map((c) => c.id));
   const detail = find(detailId);
   const rosterClass = find(rosterId);

@@ -171,6 +171,35 @@ test('a minor stays blocked while the sponsor check fails, with a retry', async 
   expect(await screen.findByText('You can register')).toBeTruthy();
 });
 
+test('a known sponsor problem still blocks a minor while the membership check fails', async () => {
+  auth.user = { id: 31, roles: ['member'], isMinor: true };
+  const base = vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path === '/me/overview') throw new ApiError(503, 'UNAVAILABLE', 'Overview failed.');
+    return base(path, options);
+  });
+  supervision = { isMinor: true, marker: 'Under 18', sponsor: null, sponsorEligible: false, visit: null, pendingRequests: [] };
+  await mount();
+  expect((screen.getByRole('button', { name: /^Register for Safety 5: link a sponsoring adult/ }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByRole('heading', { name: 'Link a sponsor to sign up' })).toBeTruthy();
+});
+
+test('a slow sponsor check is not restarted by the page refresh', async () => {
+  auth.user = { id: 31, roles: ['member'], isMinor: true };
+  const base = vi.mocked(api).getMockImplementation()!;
+  let answer: ((value: unknown) => void) | null = null;
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path === '/me/supervision') return new Promise(resolve => { answer = resolve; }) as never;
+    return base(path, options);
+  });
+  await mount();
+  expect(screen.getByRole('heading', { name: 'Checking your sponsor' })).toBeTruthy();
+  await act(async () => { vi.advanceTimersByTime(16000); });
+  expect(calls('/me/supervision')).toHaveLength(1);
+  await act(async () => { answer!({ isMinor: true, marker: 'Under 18', sponsor: { id: 7, name: 'Dana Reyes', revision: 1 }, sponsorEligible: true, visit: null, pendingRequests: [] }); });
+  expect(await screen.findByText('You can register')).toBeTruthy();
+});
+
 test('registering for required training shows and submits the one-time $20 fee', async () => {
   auth.user = { id: 30, roles: ['member'] };
   classes = [course(5, 48, { trainingFeeCents: 2000 })];
