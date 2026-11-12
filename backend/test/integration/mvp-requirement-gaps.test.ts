@@ -192,6 +192,16 @@ test('B-016: the report counts signatures with no retained copy',async()=>{
  assert.equal((await report()).compliance.signaturesWithoutCopy,before+1);
 });
 
+test('B-016: a copy kept only in signed-waiver storage is not counted as missing',async()=>{
+ const before=(await report()).compliance.signaturesWithoutCopy;
+ const w=(await pool.query(`INSERT INTO waiver(name,version,description,effectivedate) VALUES($1,'v1','Stored wording for this fixture',NOW() AT TIME ZONE 'UTC') RETURNING waiverid`,['Stored '+randomBytes(3).toString('hex')])).rows[0].waiverid;
+ const userId=await freshUser('StoredSigner');
+ const sig=(await pool.query(`INSERT INTO user_waiver(userid,waiverid,signdate,approval) VALUES($1,$2,NOW() AT TIME ZONE 'UTC',true) RETURNING userwaiverid`,[userId,w])).rows[0].userwaiverid;
+ await pool.query(`INSERT INTO app_signed_waiver_copy(userwaiverid,userid,payload) VALUES($1,$2,$3::jsonb)`,
+  [sig,userId,JSON.stringify({waiverName:'Stored',waiverVersion:'v1',waiverText:'Stored wording for this fixture',signature:'Stored Signer (electronic agreement)',signedAt:new Date().toISOString()})]);
+ assert.equal((await report()).compliance.signaturesWithoutCopy,before);
+});
+
 test('BR-010: a short-notice grant is still sent but cannot count as a missed week of notice',async()=>{
  const now=new Date();
  const c=await cert(),userId=await freshUser('ShortNotice'),id=await grant(userId,c.certid,now);

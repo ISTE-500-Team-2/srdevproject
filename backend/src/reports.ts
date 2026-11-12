@@ -151,7 +151,10 @@ export function reportRoutes(pool: Pool, tz: string) {
             (SELECT COUNT(*)::int FROM user_certifications WHERE status='active' AND renewaldate IS NULL) AS "trainingWithoutExpiry",
             (SELECT COUNT(*)::int FROM user_membership um JOIN "user" mu USING(userid) WHERE um.status='active' AND mu.status='active'
               AND um.startdate<=NOW() AT TIME ZONE 'UTC' AND um.end_date>NOW() AT TIME ZONE 'UTC') AS "activeMemberships",
-            (SELECT COUNT(*)::int FROM user_waiver uw WHERE uw.approval=true AND NOT EXISTS(SELECT 1 FROM app_notification_outbox o
+            (SELECT COUNT(*)::int FROM user_waiver uw WHERE uw.approval=true AND NOT EXISTS(SELECT 1 FROM app_signed_waiver_copy c
+              WHERE c.userwaiverid=uw.userwaiverid AND c.userid=uw.userid
+                AND c.payload ?& ARRAY['waiverName','waiverVersion','waiverText','signature','signedAt'])
+              AND NOT EXISTS(SELECT 1 FROM app_notification_outbox o
               WHERE o.dedupe_key='waiver-signed:'||uw.userwaiverid AND o.userid=uw.userid AND o.kind='waiver_signed'
                 AND o.payload ?& ARRAY['waiverName','waiverVersion','waiverText','signature','signedAt'])) AS "signaturesWithoutCopy",
             (SELECT COALESCE(json_agg(name ORDER BY name),'[]') FROM equipment WHERE certid IS NULL AND status='available') AS "machinesWithoutTraining"
