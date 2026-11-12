@@ -182,6 +182,7 @@ test("audit records are immutable and searchable by user, action and time range"
   await admin.admin();
   await member.register();
   assert.equal((await member.get('/admin/audit')).status, 403);
+  assert.equal((await member.get('/admin/audit/actions')).status, 403);
   const from = new Date(Date.now() - 1000).toISOString();
   const before = (await person(admin, member.id)).user;
   const changed = await admin.post(`/admin/users/${member.id}/role`, {
@@ -209,6 +210,9 @@ test("audit records are immutable and searchable by user, action and time range"
   assert.equal('after' in record, false);
   assert.equal('reason' in record, false);
   assert.equal((await admin.get('/admin/audit?from=invalid')).status, 400);
+  const actions = (await admin.get('/admin/audit/actions')).body.data as string[];
+  assert.ok(actions.includes("user.role_changed"));
+  assert.equal(new Set(actions).size, actions.length);
   await assert.rejects(pool.query('TRUNCATE app_staff_audit'), /Audit records are immutable/);
   const automatic = await pool.query("SELECT actor_id FROM app_staff_audit WHERE action='user_role.insert' AND actor_id=$1", [admin.id]);
   assert.ok(automatic.rowCount! > 0);

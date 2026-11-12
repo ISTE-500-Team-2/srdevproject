@@ -10,7 +10,7 @@ import { Modal } from "../components/Modal";
 import HoldButton from "../components/reactbits/HoldButton";
 import { cents, localInput, shortDate } from "../lib/display";
 import type { ComplianceReport } from "../lib/staffContracts";
-import { Check, Pencil, Plus, TriangleAlert } from "lucide-react";
+import { Check, Pencil, Plus, RefreshCw, TriangleAlert } from "lucide-react";
 import "./certwaiver.css";
 type Course = {
   id: number;
@@ -117,7 +117,6 @@ function TrainingWorkspace({
           body: {
             name: f.get("name"),
             description: f.get("description"),
-            validityDays: String(f.get("days")).trim() ? Number(f.get("days")) : null,
             trainingMinutes: Number(f.get('minutes')),
             trainingFeeCents: String(f.get('fee')).trim() ? Math.round(Number(f.get('fee')) * 100) : null,
             equipmentIds,
@@ -326,12 +325,10 @@ function TrainingWorkspace({
               <span>Description</span>
               <textarea name="description" maxLength={255} rows={3} defaultValue={editing.description} />
             </label>
-            <div className="cw-hinted">
-              <label className="cw-field">
-                <span>Validity in days (optional)</span>
-                <input name="days" type="number" min={1} max={3650} defaultValue={editing.validityDays ?? ""} />
-              </label>
-              <small>Leave blank for no scheduled expiry. Training can still be revoked.</small>
+            <div className="cw-field" role="group" aria-labelledby="certification-renewal">
+              <span id="certification-renewal">Renewal</span>
+              <p className="cw-fact"><RefreshCw aria-hidden="true" /><span><b>1 year</b> from each member’s training date</span></p>
+              <small>Training can still be revoked.</small>
             </div>
             <div className="cw-two">
               <label className="cw-field"><span>Training duration (minutes)</span><input name="minutes" type="number" min={1} max={480} required defaultValue={editing.trainingMinutes ?? 60} /></label>

@@ -49,6 +49,10 @@ test('staff/CSRF/consent and adult age are enforced without banning minor accoun
  assert.equal((await post(admin,root(),body)).status,409,'stale writes fail');
 });
 test('both visitors need their own access; adult presence gates minor bookings and is attached to them',async()=>{
+ // A supervising adult is not operating equipment. Their unsigned equipment
+ // agreement must not block either visitor's facility arrival or the minor's booking.
+ await pool.query(`DELETE FROM user_waiver WHERE userid=$1 AND waiverid IN
+  (SELECT waiverid FROM waiver WHERE policy_scope='equipment')`,[adult.user.id]);
  const base=Date.now();
  const body={roomId:room,startTime:new Date(base+3600000).toISOString(),endTime:new Date(base+7200000).toISOString()};
  assert.equal((await post(minor,'/reservations',body)).body.error.code,'SPONSOR_REQUIRED');
@@ -103,7 +107,7 @@ test('non-admin staff cannot change protected staff/admin supervision or visits'
   await pool.query("DELETE FROM user_role WHERE userid=ANY($1::int[]) AND roleid=(SELECT roleid FROM role WHERE role='staff')",[[adult.user.id,minor.user.id]]);
  }
 });
-test('a class requires the sponsor in its own building and records the sponsor without granting certification',async()=>{
+test('advance class enrollment records the linked sponsor without requiring a current visit',async()=>{
  const other=(await pool.query("INSERT INTO building(name) VALUES('Family second building') RETURNING buildingid")).rows[0].buildingid;
  const classroom=(await pool.query("INSERT INTO room(name,location,status,capacity,buildingid) VALUES('Family classroom','Fixture','available',15,$1) RETURNING roomid",[other])).rows[0].roomid;
  await pool.query("INSERT INTO user_role(userid,roleid) SELECT $1,roleid FROM role WHERE role='instructor' ON CONFLICT DO NOTHING",[admin.user.id]);
@@ -111,10 +115,17 @@ test('a class requires the sponsor in its own building and records the sponsor w
  const start=Date.now()+86400000;
  const created=await post(admin,'/classes',{title:'Family class',catalogId:catalog,instructorId:admin.user.id,roomId:classroom,capacity:15,startsAt:new Date(start).toISOString(),endsAt:new Date(start+3600000).toISOString(),reason:'Building eligibility test'});
  assert.equal(created.status,201,JSON.stringify(created.body));
- assert.equal((await post(admin,`/admin/users/${adult.user.id}/supervision/check-in`,{reason:'Adult at first building'})).status,200);
  const path=`/classes/${created.body.data.id}/enroll`;
- const denied=await post(minor,path);assert.equal(denied.status,403);assert.equal(denied.body.error.code,'SPONSOR_REQUIRED');
- assert.equal((await post(admin,`/admin/users/${adult.user.id}/supervision/check-in`,{buildingId:other,reason:'Adult arrived at second building'})).status,200);
+ await post(adult,'/me/visit/check-out');
+ assert.equal((await pool.query('SELECT 1 FROM app_facility_visit WHERE user_id=$1 AND checked_out_at IS NULL',[adult.user.id])).rowCount,0,'the sponsor is away at signup');
+ await pool.query("UPDATE \"user\" SET accessstatus='suspended' WHERE userid=$1",[adult.user.id]);
+ try {
+  assert.equal((await get(minor,'/me/supervision')).body.data.sponsorEligible,false,'the class page can warn before signup');
+  const denied=await post(minor,path);assert.equal(denied.status,403);assert.equal(denied.body.error.code,'SPONSOR_REQUIRED');
+ } finally {
+  await pool.query("UPDATE \"user\" SET accessstatus='active' WHERE userid=$1",[adult.user.id]);
+ }
+ assert.equal((await get(minor,'/me/supervision')).body.data.sponsorEligible,true);
  const enrolled=await post(minor,path);assert.equal(enrolled.status,200,JSON.stringify(enrolled.body));
  assert.equal((await pool.query('SELECT sponsor_id FROM app_training_enrollment WHERE class_id=$1 AND user_id=$2',[created.body.data.id,minor.user.id])).rows[0].sponsor_id,adult.user.id);
 });

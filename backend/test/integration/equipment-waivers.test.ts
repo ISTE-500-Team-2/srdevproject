@@ -22,7 +22,9 @@ let member: number, admin: number, equipment: number, counter = 0, creates = 0, 
 let server: Server;
 let memberAgent: ReturnType<typeof request.agent>, adminAgent: ReturnType<typeof request.agent>;
 const booking = (extra = {}) => {
-  const start = new Date(Date.UTC(2030, 1, 1 + counter++, 15));
+  const start = new Date();
+  start.setUTCDate(start.getUTCDate() + 2 + counter++);
+  start.setUTCHours(15, 0, 0, 0);
   return {equipmentId: equipment, startTime: start.toISOString(), endTime: new Date(+start + 3600000).toISOString(),
     requestKey: randomUUID(), amountCents: 2800, ...extra};
 };

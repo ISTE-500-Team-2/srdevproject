@@ -162,7 +162,7 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
       // Lock the member row before sponsor rows (the enrollment FK needs it anyway),
       // matching sponsor link/unlink order: user, then sponsor.
       await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR SHARE',[user.id]);
-      const sponsor=await new MinorSupervision(db,tz).requireSponsor(user.id,c.building_id);
+      const sponsor=await new MinorSupervision(db,tz).requireLinkedSponsor(user.id);
       const before = (
         await db.query(
           "SELECT * FROM app_training_enrollment WHERE class_id=$1 AND user_id=$2",

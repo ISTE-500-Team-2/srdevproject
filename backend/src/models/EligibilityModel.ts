@@ -40,6 +40,7 @@ export class EligibilityModel {
       signedVersionId: number | null;
       outdatedSignature: boolean;
       expiredSignature: boolean;
+      expiresAt: Date | null;
     }>(
       `
       WITH current_waivers AS (
@@ -54,9 +55,12 @@ export class EligibilityModel {
              previous_sig.waiverid AS "signedVersionId",
              current_sig.userwaiverid IS NULL AND COALESCE(previous_sig.waiverid <> w.waiverid,false) AS "outdatedSignature",
              current_sig.userwaiverid IS NULL AND COALESCE(previous_sig.waiverid = w.waiverid
-               AND (previous_sig.expires_at <= NOW() OR previous_sig.expires_at < $3::timestamptz),false) AS "expiredSignature"
+               AND (previous_sig.expires_at <= NOW() OR previous_sig.expires_at < $3::timestamptz),false) AS "expiredSignature",
+             -- The current signature's end, or when the last signature of this same version ran out.
+             CASE WHEN current_sig.userwaiverid IS NOT NULL THEN current_sig.expires_at
+                  WHEN previous_sig.waiverid = w.waiverid THEN previous_sig.expires_at END AS "expiresAt"
       FROM current_waivers w LEFT JOIN LATERAL (
-        SELECT userwaiverid,signdate FROM user_waiver WHERE userid=$1 AND waiverid=w.waiverid AND approval=true
+        SELECT userwaiverid,signdate,expires_at FROM user_waiver WHERE userid=$1 AND waiverid=w.waiverid AND approval=true
           AND (expires_at IS NULL OR (expires_at>NOW() AND ($3::timestamptz IS NULL OR expires_at >= $3::timestamptz)))
         ORDER BY signdate DESC LIMIT 1
       ) current_sig ON true LEFT JOIN LATERAL (

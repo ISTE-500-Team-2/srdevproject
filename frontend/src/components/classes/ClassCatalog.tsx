@@ -20,7 +20,36 @@ import {
 } from "./classData";
 import { cents, shortDate } from "../../lib/display";
 
-export type Eligibility = "eligible" | "ineligible" | "unknown";
+/**
+ * Whether the member can register. A member under 18 also needs a linked sponsoring
+ * adult with an active account ("no-sponsor" when none is linked, "sponsor-inactive"
+ * when the linked adult cannot sponsor right now).
+ */
+export type Eligibility = "eligible" | "ineligible" | "no-sponsor" | "sponsor-inactive" | "sponsor-unknown" | "unknown";
+
+const sponsorBlock = {
+  "no-sponsor": {
+    title: "Link a sponsor to sign up",
+    body: "You’re under 18. A parent or guardian sends a sponsor request from their account; accept it on your Home page, then register here.",
+    reason: "Link a sponsoring adult to sign up",
+  },
+  "sponsor-inactive": {
+    title: "Your sponsor can’t sign you up",
+    body: "You’re under 18, and your sponsoring adult’s account isn’t active right now. Ask them or staff at the front desk to sort it out, then register here.",
+    reason: "Your sponsoring adult’s account isn’t active",
+  },
+  // Until the sponsor check answers, a minor can't be told they may register.
+  "sponsor-unknown": {
+    title: "Checking your sponsor",
+    body: "You’re under 18, so your sponsoring adult is confirmed before you can register.",
+    reason: "Checking your sponsoring adult",
+  },
+} as const;
+/** Why a minor cannot register, or null when supervision is not what stands in the way. */
+export const sponsorReason = (eligibility: Eligibility) =>
+  eligibility === "no-sponsor" || eligibility === "sponsor-inactive" || eligibility === "sponsor-unknown"
+    ? sponsorBlock[eligibility]
+    : null;
 
 type Props = {
   classes: ClassRecord[];
@@ -39,6 +68,7 @@ type Props = {
 
 export function ClassCatalog(props: Props) {
   const { classes, eligibility, teaching, workshops, onWithdraw, onRoster, busyId } = props;
+  const sponsor = sponsorReason(eligibility);
   const [query, setQuery] = useState("");
   const [certification, setCertification] = useState<string | null>(null);
   const upcoming = useMemo(() => classes.filter((c) => !hasStarted(c)).sort(byStart), [classes]);
@@ -167,6 +197,22 @@ export function ClassCatalog(props: Props) {
         </div>
 
         <aside className="classes-aside">
+          {sponsor ? (
+            <section className="panel classes-aside__panel classes-aside__panel--first classes-access classes-access--ineligible" aria-labelledby="classes-sponsor">
+              <span className="classes-access__icon" aria-hidden="true">
+                <Lock />
+              </span>
+              <div>
+                <h2 id="classes-sponsor">{sponsor.title}</h2>
+                <p>{sponsor.body}</p>
+                {eligibility === "no-sponsor" ? (
+                  <Link className="button button--quiet button--small" to="/">
+                    Link a sponsor
+                  </Link>
+                ) : null}
+              </div>
+            </section>
+          ) : null}
           {mine.length || past.length ? (
             <section className="panel classes-aside__panel classes-aside__panel--first" aria-labelledby="your-classes">
               <h2 id="your-classes">Your classes</h2>
@@ -261,7 +307,7 @@ export function ClassCatalog(props: Props) {
             </ol>
           </section>
 
-          {eligibility !== "unknown" ? (
+          {eligibility !== "unknown" && !sponsor ? (
             <section className={`panel classes-aside__panel classes-access classes-access--${eligibility}`}>
               <span className="classes-access__icon" aria-hidden="true">
                 {eligibility === "eligible" ? <Check /> : <Lock />}
@@ -303,6 +349,7 @@ function ClassRow({
   const holds = c.certificationId !== null && certified.has(c.certificationId);
   const busy = busyId === c.id;
   const price = registrationPrice(c, holds);
+  const blocked = sponsorReason(eligibility);
   return (
     <li className={`class-row${registered && !cancelled ? " class-row--mine" : ""}${cancelled ? " class-row--cancelled" : ""}`}>
       <DateRail value={c.startsAt} faded={cancelled} />
@@ -372,9 +419,9 @@ function ClassRow({
             ) : (
               <button
                 type="button"
-                className={`button ${holds ? "button--quiet" : "button--primary"}`}
-                disabled={busy || price.trainingFee === null}
-                aria-label={`Register for ${c.title}`}
+                className={`button ${holds || blocked ? "button--quiet" : "button--primary"}`}
+                disabled={busy || price.trainingFee === null || !!blocked}
+                aria-label={blocked ? `Register for ${c.title}: ${blocked.reason.toLowerCase()}` : `Register for ${c.title}`}
                 onClick={() => onRegister(c)}
               >
                 {c.myStatus === "cancelled" ? "Register again" : "Register"}
@@ -385,6 +432,7 @@ function ClassRow({
                 Details
               </button>
             )}
+            {!registered && !full && blocked ? <small>{blocked.reason}</small> : null}
             {!registered && c.myStatus === "cancelled" ? <small>You withdrew earlier</small> : null}
             {!registered && holds && !full ? <small>Good for a refresher</small> : null}
           </div>

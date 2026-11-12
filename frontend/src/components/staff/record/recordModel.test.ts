@@ -72,7 +72,7 @@ describe("verdict", () => {
     const v = verdict({
       person: person({ firstName: "Riley" }),
       req: req({ minor: { sponsorName: "Sam Chen", sponsorHere: true } }),
-      supervision: { isMinor: true, marker: "Under 18", sponsor: { id: 5, name: "Sam Chen", revision: 1 }, visit: { id: 1, buildingId: 1, checkedInAt: "2026-11-10T21:10:00Z", sponsorId: 5 } },
+      supervision: { isMinor: true, marker: "Under 18", sponsor: { id: 5, name: "Sam Chen", revision: 1 }, sponsorEligible: true, visit: { id: 1, buildingId: 1, checkedInAt: "2026-11-10T21:10:00Z", sponsorId: 5 } },
       audit: [],
       now: NOW,
     });

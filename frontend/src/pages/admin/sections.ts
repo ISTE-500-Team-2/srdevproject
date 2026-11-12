@@ -44,7 +44,7 @@ export const adminGroups: { label: string; sections: AdminSection[] }[] = [
   {
     label: "People",
     sections: [
-      { path: "members", label: "Members", icon: Users, component: StaffUsers, legacyTab: "members" },
+      { path: "members", label: "Members", icon: Users, component: StaffUsers, legacyTab: "members", width: "wide" },
       {
         path: "certifications",
         label: "Certifications & waivers",

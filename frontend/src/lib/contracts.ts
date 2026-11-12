@@ -98,6 +98,8 @@ export interface Waiver {
   signedVersionId: number | null;
   outdatedSignature: boolean;
   expiredSignature: boolean;
+  /** When the current signature runs out, or when the last one of this version did; null if it never expires. */
+  expiresAt?: string | null;
 }
 export interface WaiverFormField {
   key: string;
@@ -147,6 +149,8 @@ export interface SupervisionSummary {
   isMinor: boolean;
   marker: 'Under 18' | null;
   sponsor: { id: number; name: string; revision: number; email?: string } | null;
+  /** True when the linked sponsor is an active adult, so the minor can register for classes. */
+  sponsorEligible: boolean;
   visit: FacilityVisit | null;
   /** Adults asking this minor to accept them as sponsor (own summary only). */
   pendingRequests?: SponsorRequest[];

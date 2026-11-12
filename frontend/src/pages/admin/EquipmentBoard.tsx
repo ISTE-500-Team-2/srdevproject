@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { ArrowUpRight, ChevronRight, Search, Wrench } from 'lucide-react';
 import { useApi } from '../../lib/useApi';
 import { LoadState } from '../../components/Management';
@@ -10,6 +10,7 @@ import type { Reservation } from '../../lib/contracts';
 import { bookingBlock, dayKey, formatTime, localHour, machineStatus, mergeBookings, previousDay, timeWindow } from '../../lib/today';
 import { equipmentRate, equipmentTime, maintenanceReasons, type EquipmentDetail, type ManagedEquipment } from '../../lib/equipmentMaintenance';
 import { useDayBookings } from './useDayBookings';
+import { EquipmentEditor, type CatalogOptions } from './EquipmentEditor';
 
 const refresh = { retainOnReload: true, refreshInterval: 15000 };
 const bookingRefresh = { retainOnReload: true, refreshInterval: 60000 };
@@ -42,6 +43,9 @@ export function EquipmentBoard() {
 }
 
 function BoardContent({ day, zone, now, machines }: { day: string; zone: string; now: number; machines: ReturnType<typeof useApi<ManagedEquipment[]>> }) {
+  const catalog = useApi<CatalogOptions>('/admin/equipment/catalog-options');
+  const [adding, setAdding] = useState(false);
+  const navigate = useNavigate();
   // The bookings list matches by start date, so a booking running past midnight is
   // in yesterday's list: read both and keep what reaches into today.
   const today = useDayBookings(day, bookingRefresh);
@@ -74,7 +78,8 @@ function BoardContent({ day, zone, now, machines }: { day: string; zone: string;
   return <div className="eq-workspace eq-workspace--board" ref={workspace}>
     {today.loaders}
     {yesterday.loaders}
-    <header className="eq-heading"><div><p className="eq-eyebrow">Operations</p><h1 className="admin-title">Equipment</h1><p>Keep the shop ready for what’s next.</p></div></header>
+    <header className="eq-heading"><div><p className="eq-eyebrow">Operations</p><h1 className="admin-title">Equipment</h1><p>Keep the shop ready for what’s next.</p></div>{catalog.data?.canManage && <button className="button button--primary" onClick={() => setAdding(true)}>Add equipment</button>}</header>
+    {adding && <EquipmentEditor onClose={() => setAdding(false)} onSaved={id => { setAdding(false); machines.reload(); navigate(`/admin/equipment/${id}`); }} />}
     <div className="eq-toolbar">
       <label className="eq-search"><Search aria-hidden="true" /><span className="sr-only">Find equipment</span><input placeholder="Find a machine…" value={search} onChange={e => setSearch(e.target.value)} /></label>
       <div className="eq-filters" role="group" aria-label="Show equipment">
@@ -198,6 +203,7 @@ function MachinePanel({ row, win, now, zone }: { row: Row; win: Window; now: num
     })}</ul> : <p className="eq-muted">Nothing booked today.</p>}
     <div className="eq-actions eq-mp-actions">
       <Link className="button button--primary" to={`/admin/equipment/${machine.id}`}>Open machine <ArrowUpRight aria-hidden="true" /></Link>
+      {detail.data?.canManage && <Link className="button button--quiet" to={`/admin/equipment/${machine.id}`} state={{ editDetails: true }}>Edit equipment</Link>}
       {detail.data?.canManage && <Link className="button button--quiet" to={`/admin/equipment/${machine.id}`} state={{ editAvailability: true }}><Wrench aria-hidden="true" />{row.down ? 'Return to service' : 'Take out of service'}</Link>}
     </div>
   </div></aside>;

@@ -49,7 +49,10 @@ export class EquipmentMaintenanceService {
         JOIN "user" s ON s.userid=o.started_by LEFT JOIN "user" r ON r.userid=o.ended_by
         WHERE o.equipment_id=$1 ORDER BY o.started_at DESC,o.id DESC LIMIT 20`, [id])).rows;
       const permission = new PermissionModel(db);
-      return { ...machine, rate: machine.rate === null ? null : Number(machine.rate),
+      // `image` falls back to a stock picture; the editor needs the stored value so
+      // saving other fields never writes that placeholder into the record.
+      const imagePath = (await db.query<{ imagepath: string | null }>('SELECT imagepath FROM equipment WHERE equipmentid=$1', [id])).rows[0]?.imagepath ?? null;
+      return { ...machine, imagePath, rate: machine.rate === null ? null : Number(machine.rate),
         outage: history.find(o => !o.endedAt) ?? null, history,
         activeGrants: await activeEquipmentGrants(db, id), checkedAt: new Date().toISOString(), timeZone: this.timeZone,
         canManage: user.roles.includes('admin') && await permission.allows(user, 'equipment', 'update'),

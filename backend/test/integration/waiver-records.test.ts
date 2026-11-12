@@ -82,24 +82,27 @@ test('legacy signatures truthfully report unavailable copies',async()=>{
  const legacy=(await pool.query(`INSERT INTO user_waiver(userid,waiverid,signdate,approval) VALUES($1,$2,NOW() AT TIME ZONE 'UTC',false) RETURNING userwaiverid`,[member.id,policyId])).rows[0].userwaiverid;
  const copy=await get(`/me/signed-waivers/${legacy}/copy`);assert.equal(copy.status,409);assert.equal(copy.body.error.code,'SIGNED_COPY_UNAVAILABLE');
 });
+const expiryOf=async(id:number)=>(await pool.query('SELECT expires_at FROM user_waiver WHERE userwaiverid=$1',[id])).rows[0].expires_at?.toISOString() ?? null;
+
 test('only admin can set expiry with reason, CSRF and optimistic concurrency; edit is audited',async()=>{
  const path=`/admin/users/${member.id}/signed-waivers/${signatureId}/expiry`;
  const expiry=new Date(Date.now()+20*86400000).toISOString();
- const body={expiresAt:expiry,expectedExpiry:null,reason:'Approved policy expiration date'};
+ const annual=await expiryOf(signatureId);
+ const body={expiresAt:expiry,expectedExpiry:annual,reason:'Approved policy expiration date'};
  assert.equal((await patch(path,body,member)).status,403);
  assert.equal((await request(app).patch('/api'+path).set('Authorization','Bearer '+administrator.token).send(body)).status,403);
  assert.equal((await patch(path,{...body,reason:''})).status,400);
  assert.equal((await patch(path,body)).status,200);
  assert.equal((await patch(path,{...body,expiresAt:new Date(Date.now()+21*86400000).toISOString()})).status,409);
  const audit=(await pool.query("SELECT actor_id,before_state,after_state FROM app_staff_audit WHERE action='waiver_expiry_updated' AND entity_id=$1",[signatureId])).rows[0];
- assert.equal(audit.actor_id,administrator.id);assert.equal(audit.before_state.expiresAt,null);assert.equal(audit.after_state.expiresAt,expiry);
+ assert.equal(audit.actor_id,administrator.id);assert.equal(audit.before_state.expiresAt,annual);assert.equal(audit.after_state.expiresAt,expiry);
  assert.equal((await patch(path,{expiresAt:null,expectedExpiry:expiry,reason:'Expiration withdrawn by sponsor'})).status,200);
- assert.equal((await pool.query('SELECT expires_at FROM user_waiver WHERE userwaiverid=$1',[signatureId])).rows[0].expires_at,null);
+ assert.equal(await expiryOf(signatureId),annual);
 });
 test('expired agreements no longer satisfy access and can be re-signed without destroying historical copy',async()=>{
  await pool.query("UPDATE user_waiver SET signdate=(NOW()-INTERVAL '2 days') AT TIME ZONE 'UTC' WHERE userwaiverid=$1",[signatureId]);
  const expiry=new Date(Date.now()-86400000).toISOString();
- assert.equal((await patch(`/admin/users/${member.id}/signed-waivers/${signatureId}/expiry`,{expiresAt:expiry,expectedExpiry:null,reason:'Recorded actual expired agreement'})).status,200);
+ assert.equal((await patch(`/admin/users/${member.id}/signed-waivers/${signatureId}/expiry`,{expiresAt:expiry,expectedExpiry:await expiryOf(signatureId),reason:'Recorded actual expired agreement'})).status,200);
  const waivers=await get('/me/waivers');assert.equal(waivers.body.data.find((w:any)=>w.id===policyId).signed,false);
  assert.equal((await post(`/me/waivers/${policyId}/sign`,{accepted:true})).status,200);
  const rows=(await pool.query('SELECT userwaiverid,approval FROM user_waiver WHERE userid=$1 AND waiverid=$2 ORDER BY userwaiverid',[member.id,policyId])).rows;
@@ -111,7 +114,8 @@ test('restoring an explicit expiration revives its canceled reminder without dup
  const active=(await pool.query('SELECT userwaiverid FROM user_waiver WHERE userid=$1 AND waiverid=$2 AND approval=true',[member.id,policyId])).rows[0].userwaiverid;
  const path=`/admin/users/${member.id}/signed-waivers/${active}/expiry`;
  const expiry=new Date(Date.now()+25*86400000).toISOString();
- for(const [expiresAt,expectedExpiry] of [[expiry,null],[null,expiry],[expiry,null]])
+ const annual=await expiryOf(active);
+ for(const [expiresAt,expectedExpiry] of [[expiry,annual],[null,expiry],[expiry,annual]])
    assert.equal((await patch(path,{expiresAt,expectedExpiry,reason:'Sponsor corrected explicit expiry'})).status,200);
  const rows=(await pool.query("SELECT status,counts_for_sla FROM app_notification_outbox WHERE dedupe_key=$1",[`waiver-expiring:${active}:${expiry}`])).rows;
  assert.equal(rows.length,1);assert.equal(rows[0].status,'pending');assert.equal(rows[0].counts_for_sla,true);
@@ -123,10 +127,10 @@ test('restoring a short-notice waiver expiry keeps its reminder outside the week
  const path=`/admin/users/${member.id}/signed-waivers/${signature}/expiry`;
  const expiry=new Date(Date.now()+3*86400000).toISOString();
  const reminder=async()=>(await pool.query('SELECT status,counts_for_sla FROM app_notification_outbox WHERE dedupe_key=$1',[`waiver-expiring:${signature}:${expiry}`])).rows;
- assert.equal((await patch(path,{expiresAt:expiry,expectedExpiry:null,reason:'Recorded short-notice expiration'})).status,200);
+ assert.equal((await patch(path,{expiresAt:expiry,expectedExpiry:await expiryOf(signature),reason:'Recorded short-notice expiration'})).status,200);
  assert.equal((await reminder())[0].counts_for_sla,false);
  assert.equal((await patch(path,{expiresAt:null,expectedExpiry:expiry,reason:'Withdraw expiration'})).status,200);
- assert.equal((await patch(path,{expiresAt:expiry,expectedExpiry:null,reason:'Restore expiration'})).status,200);
+ assert.equal((await patch(path,{expiresAt:expiry,expectedExpiry:await expiryOf(signature),reason:'Restore expiration'})).status,200);
  const rows=await reminder();
  assert.equal(rows.length,1);assert.equal(rows[0].status,'pending');assert.equal(rows[0].counts_for_sla,false);
 });
