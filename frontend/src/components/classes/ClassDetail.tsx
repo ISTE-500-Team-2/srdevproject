@@ -6,7 +6,7 @@ import { SeatMeter } from "./ClassBits";
 import { classPhoto, hasStarted, isCancelled, longDate, registrationPrice, seatsLeft, timeRange, type ClassRecord, type MemberRoster, type WorkshopTemplate } from "./classData";
 import { useApi } from "../../lib/useApi";
 import { cents } from '../../lib/display';
-import type { Eligibility } from "./ClassCatalog";
+import { sponsorReason, type Eligibility } from "./ClassCatalog";
 
 export function ClassDetail({
   c,
@@ -43,6 +43,7 @@ export function ClassDetail({
   const counts = participants.data ?? { capacity: c.capacity, enrolled: c.enrolled };
   const registered = c.myStatus === "enrolled";
   const price = registered ? { trainingFee: c.myTrainingFeeCents ?? 0 } : registrationPrice(c, certified);
+  const blocked = sponsorReason(eligibility);
   return (
     <Modal open title={c.title} onClose={onClose}>
       <div className="class-detail" role="region" aria-label={`${c.title} details`}>
@@ -117,7 +118,7 @@ export function ClassDetail({
       </div>
       {open ? (
         <div className="class-dialog-actions">
-          <span>You can withdraw any time before it starts</span>
+          <span>{!registered && blocked ? blocked.reason : "You can withdraw any time before it starts"}</span>
           <button type="button" className="button button--quiet" onClick={onClose}>
             Close
           </button>
@@ -134,7 +135,7 @@ export function ClassDetail({
               See memberships &amp; day passes
             </Link>
           ) : (
-            <button type="button" className="button button--primary" disabled={busy || price.trainingFee === null} onClick={() => onRegister(c)}>
+            <button type="button" className="button button--primary" disabled={busy || price.trainingFee === null || !!blocked} onClick={() => onRegister(c)}>
               {c.myStatus === "cancelled" ? "Register again" : "Register for class"}
             </button>
           )}

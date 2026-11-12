@@ -6,7 +6,7 @@ import { useApi } from "../lib/useApi";
 import { LoadState } from "../components/Management";
 import { Toast } from "../components/Toast";
 import { shortDate, timeOnly } from "../lib/display";
-import type { Certification } from "../lib/contracts";
+import type { Certification, SupervisionSummary } from "../lib/contracts";
 import { ClassCatalog, type Eligibility } from "../components/classes/ClassCatalog";
 import { ClassDetail } from "../components/classes/ClassDetail";
 import { ClassSchedule } from "../components/classes/ClassSchedule";
@@ -74,6 +74,8 @@ export function ClassesPage() {
   // entitlement check the enroll endpoint applies.
   const overview = useApi<{ entitlement: { membership: unknown; dayPass: unknown } }>(user && !manager ? "/me/overview" : null);
   const certifications = useApi<Certification[]>(user && !manager ? "/me/certifications" : null);
+  // Members under 18 also need an active sponsoring adult linked, as enrollment checks.
+  const supervision = useApi<SupervisionSummary>(user?.isMinor && !manager ? "/me/supervision" : null, { retainOnReload: true });
   // Staff pick workshops in the Schedule class dialog; members see unscheduled ones as cards.
   const workshops = useApi<WorkshopTemplate[]>(user && !manager ? "/classes/catalog" : null);
 
@@ -124,9 +126,13 @@ export function ClassesPage() {
     Object.values(cancelReasons).some((reason) => reason.trim()) ||
     Object.values(drafts).some((d) => Object.keys(d.statuses).length > 0 || d.note.trim());
 
+  // Restarting a sponsor check that is still running would abort it, so a slow one never answered.
+  const supervisionBusy = useRef(false);
+  supervisionBusy.current = supervision.loading || supervision.refreshing;
   const refreshAll = () => {
     classes.reload();
     certifications.reload();
+    if (!supervisionBusy.current) supervision.reload();
     setRefreshToken((t) => t + 1);
   };
   // Restarting a request that is still running would abort it, so a slow list never finished.
@@ -136,6 +142,8 @@ export function ClassesPage() {
     const refresh = () => {
       if (!classesBusy.current && !hasUnsavedEdits && busyId === null && document.visibilityState !== "hidden") {
         classes.reload();
+        // A sponsor's link or account can change while this page stays open.
+        if (!supervisionBusy.current) supervision.reload();
         setRefreshToken((t) => t + 1);
       }
     };
@@ -147,7 +155,7 @@ export function ClassesPage() {
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [classes.reload, hasUnsavedEdits, busyId]);
+  }, [classes.reload, supervision.reload, hasUnsavedEdits, busyId]);
 
   async function act(c: ClassRecord, action: "enroll" | "withdraw") {
     setBusyId(c.id);
@@ -179,11 +187,24 @@ export function ClassesPage() {
       </section>
     );
 
-  const eligibility: Eligibility = overview.data
-    ? overview.data.entitlement.membership || overview.data.entitlement.dayPass
-      ? "eligible"
-      : "ineligible"
-    : "unknown";
+  // A known sponsor problem blocks a minor even while the membership check is pending.
+  const sponsorState: Eligibility | null =
+    !user.isMinor || manager
+      ? null
+      : !supervision.data
+        ? "sponsor-unknown"
+        : supervision.data.sponsorEligible
+          ? null
+          : supervision.data.sponsor
+            ? "sponsor-inactive"
+            : "no-sponsor";
+  const eligibility: Eligibility =
+    sponsorState ??
+    (!overview.data
+      ? "unknown"
+      : !overview.data.entitlement.membership && !overview.data.entitlement.dayPass
+        ? "ineligible"
+        : "eligible");
   const certified = new Set((certifications.data ?? []).filter((c) => c.valid).map((c) => c.id));
   const detail = find(detailId);
   const rosterClass = find(rosterId);
@@ -192,6 +213,7 @@ export function ClassesPage() {
   return (
     <section className="classes-page page-enter">
       {classes.loading || classes.error ? <LoadState {...classes} /> : null}
+      {supervision.error && !supervision.data ? <LoadState loading={false} error={supervision.error} reload={supervision.reload} /> : null}
       {classes.data ? (
         manager ? (
           <ClassSchedule

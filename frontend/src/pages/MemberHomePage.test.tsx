@@ -41,10 +41,10 @@ const overview = (o: Partial<Overview> = {}): Overview => ({
 });
 const visit = { id: 9, buildingId: 1, buildingName: 'Main shop', checkedInAt: '2026-11-02T19:14:00Z', sponsorId: 7 };
 const minorSummary = (o: Partial<SupervisionSummary> = {}): SupervisionSummary => ({
-  isMinor: true, marker: 'Under 18', sponsor: { id: 7, name: 'Dana Reyes', revision: 1 }, visit: null, pendingRequests: [], ...o,
+  isMinor: true, marker: 'Under 18', sponsor: { id: 7, name: 'Dana Reyes', revision: 1 }, sponsorEligible: true, visit: null, pendingRequests: [], ...o,
 });
 const adultSummary = (o: Partial<SupervisionSummary> = {}): SupervisionSummary => ({
-  isMinor: false, marker: null, sponsor: null, visit: null, pendingRequests: [], ...o,
+  isMinor: false, marker: null, sponsor: null, sponsorEligible: false, visit: null, pendingRequests: [], ...o,
 });
 
 function mount(routes: Record<string, unknown | (() => unknown)>) {
