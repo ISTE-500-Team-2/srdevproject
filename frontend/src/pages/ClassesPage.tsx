@@ -35,13 +35,20 @@ const hhmm = (value: string) => {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 };
 
-/** Counts roster entries still "registered" on past classes the user can see rosters for. */
+/**
+ * Counts roster entries still "registered" on past classes the user can see
+ * rosters for. A class whose roster could not be read is listed in `failed`
+ * (not counted as zero), and `retry` reads every roster again.
+ */
 function usePendingAttendance(candidates: ClassRecord[], refreshToken: number) {
   const [pending, setPending] = useState<Record<number, number>>({});
+  const [failed, setFailed] = useState<number[]>([]);
+  const [retryToken, setRetryToken] = useState(0);
   const key = candidates.map((c) => c.id).join(",");
   useEffect(() => {
     if (!key) {
       setPending({});
+      setFailed([]);
       return;
     }
     let stale = false;
@@ -49,19 +56,21 @@ function usePendingAttendance(candidates: ClassRecord[], refreshToken: number) {
       key.split(",").map(async (id) => {
         try {
           const roster = await api<RosterPerson[]>(`/classes/${id}/roster`);
-          return [Number(id), roster.filter((p) => p.status === "enrolled").length] as const;
+          return { id: Number(id), count: roster.filter((p) => p.status === "enrolled").length };
         } catch {
-          return null;
+          return { id: Number(id), count: null };
         }
       }),
     ).then((rows) => {
-      if (!stale) setPending(Object.fromEntries(rows.filter((row) => row !== null)));
+      if (stale) return;
+      setPending(Object.fromEntries(rows.flatMap(({ id, count }) => (count === null ? [] : [[id, count]]))));
+      setFailed(rows.filter(({ count }) => count === null).map(({ id }) => id));
     });
     return () => {
       stale = true;
     };
-  }, [key, refreshToken]);
-  return pending;
+  }, [key, refreshToken, retryToken]);
+  return { pending, failed, retry: () => setRetryToken((t) => t + 1) };
 }
 
 export function ClassesPage() {
@@ -119,7 +128,8 @@ export function ClassesPage() {
       ),
     [all, manager, user?.id],
   );
-  const pending = usePendingAttendance(attendanceCandidates, refreshToken);
+  const attendance = usePendingAttendance(attendanceCandidates, refreshToken);
+  const pending = attendance.pending;
 
   const hasUnsavedEdits =
     scheduleDirty ||
@@ -214,6 +224,15 @@ export function ClassesPage() {
     <section className="classes-page page-enter">
       {classes.loading || classes.error ? <LoadState {...classes} /> : null}
       {supervision.error && !supervision.data ? <LoadState loading={false} error={supervision.error} reload={supervision.reload} /> : null}
+      {classes.data && manager && attendance.failed.length ? (
+        <p role="alert" className="form-error">
+          Attendance unavailable for{" "}
+          {attendance.failed.map((id) => find(id)?.title ?? `class ${id}`).join(", ")}.{" "}
+          <button type="button" onClick={attendance.retry}>
+            Retry attendance
+          </button>
+        </p>
+      ) : null}
       {classes.data ? (
         manager ? (
           <ClassSchedule
