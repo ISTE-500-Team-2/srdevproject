@@ -325,7 +325,15 @@ export function RecordDialogHost({
     case "refund":
       return (
         <Modal open width="compact" title={`Refund ${dollars(dialog.payment.amount)}`} onClose={onClose} className="mr-dialog">
-          <CardRefund payment={dialog.payment} onRefunded={(status) => onDone(status === "succeeded" ? `Refunded ${dollars(dialog.payment.amount)}.` : `Refund of ${dollars(dialog.payment.amount)} started.`)} />
+          <CardRefund payment={dialog.payment} onRefunded={(status) =>
+              onDone(
+                status === "succeeded"
+                  ? `Refunded ${dollars(dialog.payment.amount)}.`
+                  : status === "pending" || status === "requires_action"
+                    ? `Refund of ${dollars(dialog.payment.amount)} is on its way.`
+                    : `Stripe didn't complete the refund of ${dollars(dialog.payment.amount)}. Check it in Stripe.`,
+              )
+            } />
         </Modal>
       );
     case "assign":

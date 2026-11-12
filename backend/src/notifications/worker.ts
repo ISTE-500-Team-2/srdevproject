@@ -8,7 +8,7 @@ export interface PendingNotification {
 }
 /** Only explicit provider rejection known not to have accepted mail may retry. */
 export class NotificationSendError extends Error {
-  constructor(message:string,public options:{retryable:boolean;ambiguous?:boolean;retryAfterMs?:number}) {super(message);}
+  constructor(message:string,public options:{retryable:boolean;ambiguous?:boolean;retryAfterMs?:number;reason?:'render_failed'}) {super(message);}
 }
 export async function runNotificationBatch(pool:Pool,send:(notification:PendingNotification)=>Promise<{messageId:string}>,options:{batchSize?:number;maxAttempts?:number;now?:Date}={}) {
   const result={accepted:0,suppressed:0,failed:0,uncertain:0,retried:0,obsolete:0};
@@ -39,6 +39,9 @@ export async function runNotificationBatch(pool:Pool,send:(notification:PendingN
     const finish=async(status:string,error?:string)=>{
       await pool.query(`UPDATE app_notification_outbox SET status=$2,lease_until=NULL,last_error=$3,counts_for_sla=CASE WHEN $2 IN ('suppressed','obsolete') AND deadline_at>=$4 THEN false ELSE counts_for_sla END,updated_at=NOW() WHERE id=$1 AND status='sending'`,[row.id,status,error??null,clock()]);
     };
+    // Set immediately before the provider call. Anything thrown earlier (a database
+    // error in the eligibility checks, for example) never reached the provider.
+    let dispatched=false;
     try {
       // Confirmation jobs can belong to a temporary request instead of an active member.
       if (row.registrationId) {
@@ -66,6 +69,7 @@ export async function runNotificationBatch(pool:Pool,send:(notification:PendingN
       if(typeof row.payload.expiresAt==='string' && new Date(row.payload.expiresAt)<=clock()) {
         await finish('failed','expired_before_dispatch');result.failed++;continue;
       }
+      dispatched=true;
       const response=await send(row);
       if(!response.messageId)throw new NotificationSendError('Provider response missing message id',{retryable:false,ambiguous:true});
       await pool.query(`UPDATE app_notification_outbox SET status='accepted',accepted_at=$2,provider_message_id=$3,lease_until=NULL,last_error=NULL,updated_at=NOW() WHERE id=$1 AND status IN ('sending','uncertain')`,[row.id,clock(),response.messageId]);
@@ -79,12 +83,21 @@ export async function runNotificationBatch(pool:Pool,send:(notification:PendingN
         ON CONFLICT(userid) DO UPDATE SET enabled=false,updated_at=NOW()`,[row.userId,response.messageId]);
     }catch(error) {
       // Never persist raw provider responses, URLs or message contents.
+      if(!dispatched) {
+        // Nothing reached the provider, so a bounded retry cannot duplicate mail.
+        if(row.attempts<maxAttempts) {
+          const delay=Math.min(86400,30*2**(row.attempts-1));
+          await pool.query(`UPDATE app_notification_outbox SET status='pending',due_at=$2::timestamptz+($3*INTERVAL '1 second'),lease_until=NULL,last_error='preflight_failed',updated_at=NOW() WHERE id=$1 AND status='sending'`,[row.id,clock(),delay]);
+          result.retried++;
+        } else {await finish('failed','preflight_failed');result.failed++;}
+        continue;
+      }
       const known=error instanceof NotificationSendError;
       if(known && !error.options.ambiguous && error.options.retryable && row.attempts<maxAttempts) {
         const delay=Math.min(86400,Math.max(30*2**(row.attempts-1),(error.options.retryAfterMs??0)/1000));
         await pool.query(`UPDATE app_notification_outbox SET status='pending',due_at=$2::timestamptz+($3*INTERVAL '1 second'),lease_until=NULL,last_error='provider_rejected_retryable',updated_at=NOW() WHERE id=$1 AND status='sending'`,[row.id,clock(),delay]);
         result.retried++;
-      } else if(known && !error.options.ambiguous) {await finish('failed','provider_rejected');result.failed++;}
+      } else if(known && !error.options.ambiguous) {await finish('failed',error.options.reason??'provider_rejected');result.failed++;}
       else {await finish('uncertain','provider_acceptance_unknown');result.uncertain++;}
     }
   }

@@ -21,7 +21,7 @@ async function login(role:string):Promise<Actor> {
 function get(path:string, actor=admin) {
   return request(app).get('/api'+path).set('Authorization','Bearer '+actor.token);
 }
-function post(path:string, body:unknown, actor=admin) {
+function post(path:string, body:string | object, actor=admin) {
   return request(app).post('/api'+path).set('Authorization','Bearer '+actor.token)
     .set('X-CSRF-Token',actor.csrf).send(body);
 }

@@ -9,7 +9,7 @@ const { api, reload, state, actor } = vi.hoisted(() => ({
   api: vi.fn(),
   reload: vi.fn(),
   actor: { id: 2, roles: ["admin"] as string[] },
-  state: { detail: null as unknown as MemberDetail, req: null as unknown as MemberRequirements, supervision: null as unknown, cards: [] as unknown[] },
+  state: { detail: null as unknown as MemberDetail, req: null as unknown as MemberRequirements, supervision: null as unknown, cards: [] as unknown[], errors: {} as Record<string, string>, overrides: [] as unknown[] },
 }));
 vi.mock("../../../lib/api", () => ({
   api,
@@ -33,11 +33,20 @@ vi.mock("../../../lib/useApi", () => ({
             : path.startsWith("/admin/access/cards")
               ? state.cards
               : path.startsWith("/admin/access/overrides")
-                ? []
+                ? state.overrides
                 : path.startsWith("/admin/users/")
                   ? state.detail
                   : null;
-    return { data, loading: false, refreshing: false, error: "", reload };
+    const kind = path?.endsWith("/requirements")
+      ? "requirements"
+      : path?.endsWith("/supervision")
+        ? "supervision"
+        : path?.startsWith("/admin/access/cards")
+          ? "cards"
+          : path?.startsWith("/admin/access/overrides")
+            ? "overrides"
+            : "detail";
+    return { data, loading: false, refreshing: false, error: path === null ? "" : (state.errors[kind] ?? ""), reload };
   },
 }));
 vi.mock("../../../context/AuthContext", () => ({ useAuth: () => ({ user: actor }) }));
@@ -83,6 +92,7 @@ beforeEach(() => {
   };
   state.supervision = { isMinor: false, marker: null, sponsor: null, visit: null };
   state.cards = [];
+  state.errors = {};
 });
 afterEach(() => {
   cleanup();
@@ -280,4 +290,65 @@ test("a status save that lost a race says so, and the next save uses the fresh r
   expect(await within(dialog).findByRole("alert")).toHaveProperty("textContent", expect.stringMatching(/^Someone else changed this account just now/));
   expect(reload).toHaveBeenCalled();
   expect((within(dialog).getByRole("button", { name: "Save status" }) as HTMLButtonElement).disabled).toBe(false);
+});
+
+test("a failed refresh of any record part keeps the record and says it may be out of date", () => {
+  for (const kind of ["detail", "requirements", "supervision", "overrides"]) {
+    state.errors = { [kind]: `${kind} request failed` };
+    mount();
+    const verdict = screen.getByRole("region", { name: "Cleared for the shop" });
+    const stale = within(verdict).getByRole("status");
+    expect(stale.textContent).toContain("Part of this record could not be refreshed, so it may be out of date.");
+    expect(stale.textContent).toContain(`${kind} request failed`);
+    // The record and its verdict stay as they were.
+    expect(within(verdict).getByRole("button", { name: "Check in" })).toBeTruthy();
+    expect(screen.getByRole("list", { name: "Requirements" })).toBeTruthy();
+    cleanup();
+  }
+});
+
+test("Reload re-reads only the parts that failed", () => {
+  state.errors = { requirements: "Requirements request failed", overrides: "Overrides request failed" };
+  mount();
+  const stale = within(screen.getByRole("region", { name: "Cleared for the shop" })).getByRole("status");
+  expect(stale.textContent).toContain("Requirements request failed");
+  fireEvent.click(within(stale).getByRole("button", { name: "Reload" }));
+  expect(reload).toHaveBeenCalledTimes(2);
+});
+
+test("a fresh record shows no stale notice, and a card error stays with the cards", () => {
+  mount();
+  expect(within(screen.getByRole("region", { name: "Cleared for the shop" })).queryByRole("status")).toBeNull();
+  cleanup();
+  state.errors = { cards: "Cards request failed" };
+  mount();
+  expect(screen.queryByText(/could not be refreshed/)).toBeNull();
+  expect(screen.getByText("Cards request failed")).toBeTruthy();
+});
+
+test("a record that never loaded shows its own error, not the stale notice", () => {
+  state.detail = null as unknown as MemberDetail;
+  state.errors = { detail: "Detail request failed" };
+  mount();
+  expect(screen.getByRole("alert").textContent).toContain("Detail request failed");
+  expect(screen.queryByText(/could not be refreshed/)).toBeNull();
+});
+
+test("the notice stays while a retry is in flight and clears once a read succeeds", () => {
+  const element = () => (
+    <MemoryRouter>
+      <MemberRecord id={14} name="Casey Demo" plans={[]} timeZone="America/New_York" onChanged={reload} onClose={() => {}} />
+    </MemoryRouter>
+  );
+  state.errors = { requirements: "Requirements request failed" };
+  const view = render(element());
+  expect(screen.getByText(/could not be refreshed/)).toBeTruthy();
+  // A retry clears the error at once while the older requirements stay on screen.
+  state.errors = {};
+  view.rerender(element());
+  expect(screen.getByText(/could not be refreshed/).textContent).toContain("Requirements request failed");
+  // A successful read brings new data, which ends the failure.
+  state.req = { ...state.req };
+  view.rerender(element());
+  expect(screen.queryByText(/could not be refreshed/)).toBeNull();
 });

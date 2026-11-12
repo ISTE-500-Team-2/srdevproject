@@ -3,7 +3,6 @@ import {
   CircleUserRound,
   CreditCard,
   LogOut,
-  Menu,
   Search,
   Settings,
   X,
@@ -44,10 +43,11 @@ const cardNavStyle = {
   "--cn-logo": "34px",
 } as CSSProperties;
 
+// Pages the header search finds. The desktop links leave out Membership so
+// they clear the centred logo; it lives in the account menu (and on phones,
+// where this header is hidden, in CardNav).
 const navItems: { label: string; to: string; desktop?: boolean }[] = [
   { label: "Home", to: "/" },
-  // Mobile only, so the desktop links clear the centred logo. On desktop,
-  // Membership lives in the account menu.
   { label: "Membership", to: "/membership", desktop: false },
   { label: "Equipment", to: "/equipment" },
   { label: "Studios", to: "/studios" },
@@ -63,7 +63,7 @@ export function Header() {
   // const visibleNavItems = hasStaffWorkspace
   //   ? [...navItems, { label: "Staff workspace", to: "/admin" }]
   //   : navItems;
-  const visibleNavItems = navItems;
+  const visibleNavItems = navItems.filter((item) => item.desktop !== false);
   // The account menu says where the account stands. Staff without a plan of
   // their own see no pill rather than an invitation to join.
   const membershipStatus =
@@ -76,7 +76,6 @@ export function Header() {
           : null;
   const [error, setError] = useState("");
   const navigate = useNavigate();
-  const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -178,46 +177,17 @@ export function Header() {
         }}
       />
       <header className="site-header">
-        <button
-          className="icon-button site-header__mobile-toggle"
-          onClick={() => setMobileOpen((value) => !value)}
-          aria-label={mobileOpen ? "Close navigation" : "Open navigation"}
-          aria-expanded={mobileOpen}
-        >
-          {mobileOpen ? <X aria-hidden="true" /> : <Menu aria-hidden="true" />}
-        </button>
-
-        <nav
-          className={`site-nav ${mobileOpen ? "site-nav--open" : ""}`}
-          aria-label="Primary navigation"
-        >
+        <nav className="site-nav" aria-label="Primary navigation">
           {visibleNavItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               end={item.to === "/"}
-              onClick={() => setMobileOpen(false)}
-              className={({ isActive }) =>
-                [
-                  "site-nav__link",
-                  isActive ? "is-active" : "",
-                  item.desktop === false ? "mobile-only" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")
-              }
+              className={({ isActive }) => (isActive ? "site-nav__link is-active" : "site-nav__link")}
             >
               {item.label}
             </NavLink>
           ))}
-
-          {hasStaffWorkspace ? (
-            <NavLink className={({ isActive }) =>
-                isActive ? "site-nav__link is-active mobile-only" : "site-nav__link mobile-only"
-              } to="/admin">
-              Staff workspace
-            </NavLink>
-          ) : null}
         </nav>
 
         <NavLink

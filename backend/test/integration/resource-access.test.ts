@@ -47,14 +47,14 @@ before(async () => {
     [userId,createHmac('sha256',hashKey).update(uid).digest('hex'),'Access test card']);
 });
 after(async () => { await pool.end(); if(created) await admin.query(`DROP DATABASE "${database}"`); await admin.end(); });
-function post(path: string, body: unknown) {
+function post(path: string, body: string | object) {
   return request(app).post('/api'+path).set('Authorization','Bearer '+token).set('X-CSRF-Token',csrf).send(body);
 }
-function staffPost(path: string, body: unknown = {}) {
+function staffPost(path: string, body: string | object = {}) {
   return request(app).post('/api'+path).set('Authorization','Bearer '+staffToken).set('X-CSRF-Token',staffCsrf).send(body);
 }
 /** Members check in at a reader; the web check-in is staff at the desk, in the member's open account. */
-async function deskCheckIn(body: unknown) {
+async function deskCheckIn(body: string | object) {
   const opened = await staffPost('/admin/account-mode',{userId});
   assert.equal(opened.status,200,JSON.stringify(opened.body));
   staffCsrf = opened.body.data.csrfToken;

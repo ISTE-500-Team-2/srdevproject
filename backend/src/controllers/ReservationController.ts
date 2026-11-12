@@ -10,6 +10,7 @@ import { authState } from "../middleware/auth.js";
 import { ReservationModel } from "../models/ReservationModel.js";
 import { ReservationService } from "../services/ReservationService.js";
 import { cancelReservationPayment } from '../equipmentPricing.js';
+import { page } from "../pagination.js";
 
 export class ReservationController {
   constructor(
@@ -89,10 +90,7 @@ export class ReservationController {
       includeCancelled: when === null || req.query.includeCancelled === "true",
     });
     res.json({
-      data: {
-        items: rows.slice(0, 50),
-        nextOffset: rows.length > 50 ? offset + 50 : null,
-      },
+      data: page(rows, offset),
     });
   };
   create = async (req: Request, res: Response) => {

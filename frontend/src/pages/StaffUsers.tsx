@@ -1,7 +1,8 @@
 import { Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { isProtectedAccount, rememberAccount } from "../components/admin/people";
+import { isProtectedAccount } from "../components/admin/people";
+import { rememberAccount } from "../lib/recentAccounts";
 import { useAuth } from "../context/AuthContext";
 import { errorMessage } from "../lib/api";
 import { LoadState, Pager } from "../components/Management";

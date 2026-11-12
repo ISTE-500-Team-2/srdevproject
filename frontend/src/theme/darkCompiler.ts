@@ -86,7 +86,7 @@ export function formatColor({ r, g, b, a }: Rgba): string {
   return `rgba(${r}, ${g}, ${b}, ${+a.toFixed(3)})`;
 }
 
-const luminance = ({ r, g, b }: Rgba) => 0.2126 * toLinear(r / 255) + 0.7152 * toLinear(g / 255) + 0.0722 * toLinear(b / 255);
+export const luminance = ({ r, g, b }: Rgba) => 0.2126 * toLinear(r / 255) + 0.7152 * toLinear(g / 255) + 0.0722 * toLinear(b / 255);
 export const contrast = (x: Rgba, y: Rgba) => {
   const [a, b] = [luminance(x), luminance(y)].sort((p, q) => q - p);
   return (a! + 0.05) / (b! + 0.05);
