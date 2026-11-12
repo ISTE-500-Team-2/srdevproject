@@ -23,6 +23,7 @@ import {
 } from "./readerRegistry.js";
 import { readerManagement } from "./readerManagement.js";
 import { accessCards } from "./accessCards.js";
+import { DEFAULT_BUILDING_ID } from "./facility.js";
 export type { Reader, DeviceConfig } from "./readerRegistry.js";
 export function readDeviceConfig(): DeviceConfig | undefined {
   if (!process.env.ACCESS_READERS_JSON && !process.env.ACCESS_CARD_HASH_KEY)
@@ -221,7 +222,7 @@ export function deviceDecision(
       // unique index. Roll back the loser, including any enrollment changes.
       if (!saved) throw new AppError(409, 'REPLAYED_EVENT', 'Use a fresh event ID.');
       if (verdict.allowed && body.checkIn === true && body.renewal !== true) {
-        await new MinorSupervision(db,timeZone).startVisit(card!.user_id,verdict.buildingId ?? 1);
+        await new MinorSupervision(db,timeZone).startVisit(card!.user_id,verdict.buildingId ?? DEFAULT_BUILDING_ID);
         await db.query(
           `INSERT INTO check_in(userid,roomid,location,buildingid,equipmentid,reservationid,checkintime,status,statusdesc)
           VALUES($1,$2,$3,$4,$5,$6,NOW() AT TIME ZONE 'UTC','approved','Authenticated NFC eligibility decision')`,

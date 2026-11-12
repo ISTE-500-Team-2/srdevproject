@@ -3,6 +3,7 @@ import type { Database } from "../db.js";
 import { AppError } from "../domain.js";
 import { UserModel } from "../models/UserModel.js";
 import { AccessService, type AccessTarget } from "./AccessService.js";
+import { DEFAULT_BUILDING_ID } from "../facility.js";
 
 // No credentials here: staff previews and signed device decisions share this exact evaluator.
 export interface ReaderTarget {
@@ -25,7 +26,7 @@ export async function evaluateReaderAccess(db: Database, tz: string, r: ReaderTa
   if (r.kind !== 'building' && (!Number.isInteger(r.resourceId) || r.resourceId! <= 0))
     return deny('RESOURCE_UNAVAILABLE');
   const now = new Date();
-  const target: AccessTarget = r.kind === 'building' ? {buildingId:r.resourceId ?? 1}
+  const target: AccessTarget = r.kind === 'building' ? {buildingId:r.resourceId ?? DEFAULT_BUILDING_ID}
     : r.kind === 'room' ? {roomId:r.resourceId} : {equipmentId:r.resourceId};
   let grant: Awaited<ReturnType<AccessService['accessForTarget']>>;
   try {

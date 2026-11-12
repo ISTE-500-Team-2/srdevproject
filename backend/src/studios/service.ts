@@ -8,6 +8,7 @@ import { PermissionModel } from "../models/PermissionModel.js";
 import { enqueueNotification } from "../notifications/store.js";
 import { monthlyWindow, refundDue, integer } from "./domain.js";
 import { StudioStripe } from "./stripe.js";
+import { DEFAULT_BUILDING_ID } from "../facility.js";
 
 export class StudioService {
   constructor(
@@ -225,8 +226,8 @@ export class StudioService {
           return old;
         }
         // After the replay lookup: retrying a created rental must not need the adult still present.
-        // Studios are all in the main building (1) until studios carry their own building.
-        await new MinorSupervision(db,this.zone).requireSponsor(userid,1);
+        // Studios are all in the main building until studios carry their own building.
+        await new MinorSupervision(db,this.zone).requireSponsor(userid,DEFAULT_BUILDING_ID);
         const studio = (
           await db.query("SELECT * FROM app_studio WHERE id=$1 FOR UPDATE", [
             studioId,
