@@ -3,19 +3,23 @@
 from __future__ import annotations
 import argparse
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
 import hashlib
 import hmac
 import json
-import math
 from pathlib import Path
 import re
 import signal
+import sys
 import threading
 import time
 from urllib.parse import urlsplit
 import urllib.request
-import uuid
+
+if not __package__:
+    # Run directly as a script: make the sibling reader modules importable.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from signed_decision import (DECISION_PATH, ProtocolError, canonical_json, decision_outcome, exchange,
+                             expiry_remaining, heartbeat_mode, lease_seconds, read_bounded)
 
 
 class BridgeError(Exception):
@@ -39,15 +43,22 @@ def open_request(request, timeout):
     return urllib.request.build_opener(NoRedirect()).open(request, timeout=timeout)
 
 
-def body_json(value):
-    return json.dumps(value, separators=(',', ':'), ensure_ascii=True).encode()
+body_json = canonical_json
 
 
 def read_response(response):
-    raw = response.read(16385)
-    if len(raw) > 16384:
-        raise BridgeError('response_too_large')
-    return raw
+    try:
+        return read_bounded(response)
+    except ProtocolError as error:
+        raise BridgeError(error.code) from error
+
+
+def canonical(check, data, code=None):
+    """Apply a shared response check, reporting failure as this client's BridgeError."""
+    try:
+        return check(data)
+    except ProtocolError as error:
+        raise BridgeError(code or 'backend_' + error.code) from error
 
 
 class ReaderClient:
@@ -114,47 +125,25 @@ class BackendClient:
         self.reader_id, self.secret, self.opener = reader_id, secret, opener
         self.check_in = check_in
 
+    def signed(self, payload, invalid):
+        try:
+            return exchange(self.opener, self.url + DECISION_PATH, self.reader_id, self.secret, payload)
+        except ProtocolError as error:
+            raise BridgeError(error.code if error.code == 'response_too_large' else invalid) from error
+
     def health(self):
         # Reachable HTTP health is not proof that this reader is authenticated.
         # The signed idle heartbeat also updates production's last_seen_at and
         # reads staff-controlled enrollment/disable mode, without inventing taps.
-        event = str(uuid.uuid4())
-        body = body_json({'action': 'heartbeat', 'eventId': event})
-        stamp = str(int(time.time() * 1000))
-        signature = hmac.new(self.secret.encode(), stamp.encode() + b'\n' + body, hashlib.sha256).hexdigest()
-        request = urllib.request.Request(self.url + '/api/devices/decision', data=body, headers={
-            'Content-Type': 'application/json', 'X-Reader-ID': self.reader_id,
-            'X-Reader-Timestamp': stamp, 'X-Reader-Signature': signature}, method='POST')
-        started = time.monotonic()
-        with self.opener(request, timeout=1.8) as response:
-            data = json.loads(read_response(response)).get('data', {})
-        if (time.monotonic() - started >= 1.8 or data.get('eventId') != event
-                or data.get('readerId') != self.reader_id or data.get('allowed') is not False
-                or data.get('reason') != 'HEARTBEAT' or data.get('leaseSeconds') != 0
-                or data.get('mode') not in ('access', 'enroll', 'disabled')):
-            raise BridgeError('backend_heartbeat_invalid')
-        return data['mode'] != 'disabled'
+        data, _started, _received = self.signed({'action': 'heartbeat'}, 'backend_heartbeat_invalid')
+        return canonical(heartbeat_mode, data, 'backend_heartbeat_invalid') != 'disabled'
 
     def decide(self, uid):
         if not isinstance(uid, str) or not re.fullmatch('(?:[A-Fa-f0-9]{8}|[A-Fa-f0-9]{14}|[A-Fa-f0-9]{20})', re.sub('[: -]', '', uid)):
             raise BridgeError('invalid_uid')
-        event = str(uuid.uuid4())
-        body = body_json({'uid': uid, 'eventId': event, 'checkIn': self.check_in})
-        stamp = str(int(time.time() * 1000))
-        signature = hmac.new(self.secret.encode(), stamp.encode() + b'\n' + body, hashlib.sha256).hexdigest()
-        request = urllib.request.Request(self.url + '/api/devices/decision', data=body, headers={
-            'Content-Type': 'application/json', 'X-Reader-ID': self.reader_id,
-            'X-Reader-Timestamp': stamp, 'X-Reader-Signature': signature}, method='POST')
-        started = time.monotonic()
-        with self.opener(request, timeout=1.8) as response:
-            data = json.loads(read_response(response)).get('data', {})
-        now = time.monotonic()
-        if now - started >= 1.8 or data.get('eventId') != event or data.get('readerId') != self.reader_id or type(data.get('allowed')) is not bool:
-            raise BridgeError('backend_decision_invalid')
-        reason = data.get('reason', 'UNKNOWN')
-        if not isinstance(reason, str) or len(reason) > 100:
-            raise BridgeError('backend_reason_invalid')
-        result = {'allowed': data['allowed'], 'reason': reason, 'eventId': event, 'decisionId': data.get('decisionId'), 'uidFingerprint': hashlib.sha256(re.sub('[: -]', '', uid).upper().encode()).hexdigest()}
+        data, started, now = self.signed({'uid': uid, 'checkIn': self.check_in}, 'backend_decision_invalid')
+        allowed, reason = canonical(decision_outcome, data)
+        result = {'allowed': allowed, 'reason': reason, 'eventId': data['eventId'], 'decisionId': data.get('decisionId'), 'uidFingerprint': hashlib.sha256(re.sub('[: -]', '', uid).upper().encode()).hexdigest()}
         if result['allowed']:
             if self.check_in:
                 member = data.get('member')
@@ -162,13 +151,11 @@ class BackendClient:
                     raise BridgeError('backend_identity_invalid')
                 result['member'] = {key: member[key] for key in ('id','name','email','membership','dayPass')}
                 result['checkInRequested'] = True
-            lease = data.get('leaseSeconds')
-            if type(lease) not in (int, float) or not math.isfinite(lease) or not 0 < lease <= 5:
+            # Unlike the relay client's clamp, the gateway rejects any lease outside (0, 5].
+            lease = canonical(lease_seconds, data)
+            if not 0 < lease <= 5:
                 raise BridgeError('backend_lease_invalid')
-            expiry = datetime.fromisoformat(data['expiresAt'].replace('Z', '+00:00'))
-            if expiry.tzinfo is None:
-                raise BridgeError('backend_expiry_invalid')
-            wall_remaining = (expiry - datetime.now(timezone.utc)).total_seconds()
+            wall_remaining = canonical(expiry_remaining, data)
             # Subtract the entire round trip conservatively, independent of clock skew.
             result['valid_until'] = min(started + lease, now + wall_remaining)
             if result['valid_until'] <= now:

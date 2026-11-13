@@ -14,7 +14,15 @@ import ssl
 import threading
 import time
 
-from .reader_bridge import BackendClient, body_json, write_status
+from signed_decision import TRANSPORT_FAULTS
+from .reader_bridge import BackendClient, BridgeError, body_json, write_status
+
+EXPECTED_FAULTS = (BridgeError, *TRANSPORT_FAULTS)
+
+
+def report_fault(stage, error):
+    # Class and stage only: never the UID, member identity, keys or reply text.
+    print(json.dumps({'gatewayFault': type(error).__name__, 'stage': stage}), flush=True)
 
 
 class PollProtocol:
@@ -63,8 +71,11 @@ class PollProtocol:
             if now >= self.health_at:
                 try:
                     self.healthy = self.backend.health()
-                except Exception:
+                except EXPECTED_FAULTS:
                     self.healthy = False
+                except Exception as error:
+                    self.healthy = False
+                    report_fault('health', error)
                 self.health_at = time.monotonic() + 10
             reason = 'ready' if self.healthy else 'backend_unavailable'
             reply = {k: v[k] for k in ('session', 'nonce', 'counter')}
@@ -94,7 +105,10 @@ class PollProtocol:
                         command['grant_ms'] = min(2000, remaining)
                     reply['command'] = command
                     reason = result['reason']
-                except Exception:
+                except Exception as error:
+                    # Fail closed either way; the reader sees the same reply.
+                    if not isinstance(error, EXPECTED_FAULTS):
+                        report_fault('decision', error)
                     reply['ready'] = self.healthy = False
                     self.health_at = 0
                     reason = 'authorization_failed'
