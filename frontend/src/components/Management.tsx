@@ -1,5 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import { errorMessage } from "../lib/api";
+import { editingFormRef } from "../lib/editingForms";
 import type { Audit, Entitlement } from "../lib/staffContracts";
 
 import { accessReasonLabel } from "../lib/accessReadiness";
@@ -84,7 +85,7 @@ export function ActionForm({
     }
   };
   return (
-    <form onSubmit={submit} className="management-form" aria-label={title}>
+    <form ref={editingFormRef} onSubmit={submit} className="management-form" aria-label={title}>
       <h3>{title}</h3>
       <fieldset disabled={busy || disabled}>
         {children}

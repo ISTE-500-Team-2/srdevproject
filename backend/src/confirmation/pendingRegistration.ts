@@ -34,7 +34,7 @@ export async function sendRegistrationConfirmation(db: Database, id: number, ori
 export async function stageRegistration(db: Database, input: RegistrationInput, origin: string) {
   await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,30))', [input.email]);
   if ((await db.query('SELECT 1 FROM "user" WHERE lower(email)=$1', [input.email])).rows.length)
-    throw new AppError(409, 'EMAIL_ALREADY_REGISTERED', 'An account with that email address already exists.');
+    throw new AppError(409, 'EMAIL_ALREADY_REGISTERED', 'An account with that email address already exists.', 'email');
   const row = (await db.query(`INSERT INTO app_pending_registration(email,first_name,last_name,phone,dob,password_hash,time_zone)
     VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(email) DO NOTHING RETURNING id`,
     [input.email,input.firstName,input.lastName,input.phone,input.dob,input.password,input.timeZone])).rows[0];

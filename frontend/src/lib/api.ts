@@ -3,6 +3,8 @@ export class ApiError extends Error {
     public status: number,
     public code: string,
     message: string,
+    /** The invalid request-body property, when the server names one. */
+    public field?: string,
   ) {
     super(message);
   }
@@ -14,42 +16,71 @@ let csrfToken: string | null = null;
 export function setCsrfToken(value: string | null) {
   csrfToken = value;
 }
-export async function api<T>(
+// Sign-in, recovery and public config requests work without a session: they
+// never renew it first or retry after a 401.
+const SESSIONLESS = new Set(['/auth/login','/auth/register','/auth/confirm','/auth/confirmation','/auth/password-reset','/auth/password-reset/check','/auth/password-reset/confirm','/auth/demo','/auth/csrf','/auth/refresh','/config']);
+const FAILED = 'The request could not be completed.';
+
+/**
+ * The one authenticated transport behind api() and apiText(): renews a missing
+ * access token first, sends the bearer token, cookies and, for mutations, the
+ * JSON body and CSRF token, and after a 401 renews once and retries. The caller
+ * decodes the response.
+ */
+async function send(
   path: string,
-  options: { method?: string; body?: unknown; signal?: AbortSignal } = {},
-): Promise<T> {
-  const authEntry = ['/auth/login','/auth/register','/auth/confirm','/auth/confirmation','/auth/password-reset','/auth/password-reset/check','/auth/password-reset/confirm','/auth/demo','/auth/csrf','/auth/refresh','/config'].includes(path);
-  if (!accessToken && !authEntry) await renew();
-  const method = options.method ?? 'GET';
+  { method = 'GET', body, signal, accept }: { method?: string; body?: unknown; signal?: AbortSignal; accept: string },
+): Promise<Response> {
+  const sessionless = SESSIONLESS.has(path);
+  if (!accessToken && !sessionless) await renew();
   const mutation = !['GET', 'HEAD'].includes(method);
   const perform = () => fetch('/api' + path, {
     method,
     credentials: 'include',
-    signal: options.signal,
+    signal,
     headers: {
-      Accept: 'application/json',
+      Accept: accept,
       ...(accessToken ? {Authorization: `Bearer ${accessToken}`} : {}),
       ...(mutation ? { 'Content-Type': 'application/json' } : {}),
       ...(mutation && csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
     },
-    ...(mutation ? { body: JSON.stringify(options.body ?? {}) } : {}),
+    ...(mutation ? { body: JSON.stringify(body ?? {}) } : {}),
   });
   let response = await perform();
-  if (response.status === 401 && !authEntry) {
+  if (response.status === 401 && !sessionless) {
     await renew();
     response = await perform();
   }
+  return response;
+}
+
+type ErrorBody = { error?: { code?: string; message?: string; field?: unknown } } | null | undefined;
+
+/**
+ * The ApiError for a failed response, from the server's `{error}` body when it
+ * sent one. A 401 that survived renewal outside /auth/ ends the session.
+ */
+function failure(response: Response, path: string, payload: ErrorBody, fallback: string) {
+  if (response.status === 401 && !path.startsWith('/auth/'))
+    window.dispatchEvent(new Event('session-expired'));
+  const error = payload?.error;
+  return new ApiError(
+    response.status,
+    error?.code ?? 'REQUEST_FAILED',
+    error?.message ?? fallback,
+    typeof error?.field === 'string' ? error.field : undefined,
+  );
+}
+
+/** A JSON request. Resolves to the body's `data`; 204 resolves to undefined. */
+export async function api<T>(
+  path: string,
+  options: { method?: string; body?: unknown; signal?: AbortSignal } = {},
+): Promise<T> {
+  const response = await send(path, { ...options, accept: 'application/json' });
   if (response.status === 204) return undefined as T;
   const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    if (response.status === 401 && !path.startsWith('/auth/'))
-      window.dispatchEvent(new Event('session-expired'));
-    throw new ApiError(
-      response.status,
-      payload?.error?.code ?? 'REQUEST_FAILED',
-      payload?.error?.message ?? 'The request could not be completed.',
-    );
-  }
+  if (!response.ok) throw failure(response, path, payload, FAILED);
   if (!payload || !('data' in payload))
     throw new Error('The server returned an unexpected response.');
   if (payload.data?.accessToken) {
@@ -58,25 +89,18 @@ export async function api<T>(
   }
   return payload.data as T;
 }
+
+/**
+ * A text (CSV) download. Errors come back as the usual JSON `{error}` body;
+ * any other error body is shown as sent.
+ */
 export async function apiText(path: string): Promise<string> {
-  if (!accessToken) await renew();
-  const perform = () =>
-    fetch("/api" + path, {
-      credentials: "include",
-      headers: {
-        Accept: "text/csv",
-        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-      },
-    });
-  let response = await perform();
-  if (response.status === 401) {
-    await renew();
-    response = await perform();
-  }
+  const response = await send(path, { accept: 'text/csv' });
   const text = await response.text();
   if (!response.ok) {
-    if (response.status === 401) window.dispatchEvent(new Event("session-expired"));
-    throw new ApiError(response.status, "REQUEST_FAILED", text || "The request could not be completed.");
+    let payload: ErrorBody = null;
+    try { payload = JSON.parse(text); } catch { /* not JSON: show the text */ }
+    throw failure(response, path, payload, text || FAILED);
   }
   return text;
 }

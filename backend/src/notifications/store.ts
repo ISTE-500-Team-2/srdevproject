@@ -1,15 +1,18 @@
 import type { Database } from '../db.js';
 import { AppError } from '../domain.js';
+import { reminderDates, validTimeZone } from './reminderTiming.js';
+import type { NotificationKind, NotificationPayloads } from './templates.js';
 
 export interface NotificationPreferences { enabled: boolean; timeZone: string }
-export interface NotificationInput {
-  userId: number; kind: string; dedupeKey: string; dueAt?: Date; deadlineAt?: Date; countsForSla?: boolean;
-  payload: Record<string, unknown>;
+/** A known kind's payload is typed by that kind. A kind only known at run time
+ * (a plain string) takes any payload; the worker checks it before rendering. */
+export interface NotificationInput<K extends string = NotificationKind> {
+  userId: number; kind: K; dedupeKey: string; dueAt?: Date; deadlineAt?: Date; countsForSla?: boolean;
+  payload: K extends NotificationKind ? NotificationPayloads[K] : Record<string, unknown>;
 }
-export function validTimeZone(value: unknown): value is string {
-  if (typeof value !== 'string' || !value || value.length > 100) return false;
-  try { new Intl.DateTimeFormat('en-US', { timeZone: value }).format(); return true; } catch { return false; }
-}
+/** Literal kinds must be known kinds, so a misspelt kind does not compile. */
+type CheckedKind<K extends string> = string extends K ? K : K extends NotificationKind ? K : never;
+export { validTimeZone };
 export async function getNotificationPreferences(db: Database, userId: number): Promise<NotificationPreferences> {
   const { rows } = await db.query<NotificationPreferences>(`SELECT COALESCE(p.enabled,true) AS enabled,
     COALESCE(p.time_zone,'America/New_York') AS "timeZone" FROM "user" u
@@ -26,13 +29,17 @@ export async function updateNotificationPreferences(db: Database, userId: number
   // Opting back in never resurrects notices that were intentionally suppressed.
   if (!preferences.enabled) await db.query(`UPDATE app_notification_outbox SET status='suppressed',counts_for_sla=(counts_for_sla AND deadline_at<NOW()),updated_at=NOW()
     WHERE userid=$1 AND status='pending' AND kind NOT IN ('password_reset','password_changed')`,[userId]);
-  if (preferences.enabled) await db.query(`UPDATE app_notification_outbox SET due_at=LEAST(
-    (((payload->>'expiresAt')::timestamptz AT TIME ZONE $2)::date-8+TIME '09:00') AT TIME ZONE $2,
-    deadline_at-INTERVAL '1 hour'),updated_at=NOW()
-    WHERE userid=$1 AND status='pending' AND attempts=0 AND payload ? 'sourceType' AND payload ? 'expiresAt'`,[userId,preferences.timeZone]);
+  // Unsent expiration reminders move to the new zone's send time, computed exactly as when first queued.
+  if (preferences.enabled) {
+    const { rows } = await db.query<{ id: number; expiresAt: string }>(`SELECT id,payload->>'expiresAt' AS "expiresAt" FROM app_notification_outbox
+      WHERE userid=$1 AND status='pending' AND attempts=0 AND payload ? 'sourceType' AND payload ? 'expiresAt' ORDER BY id FOR UPDATE`,[userId]);
+    for (const row of rows)
+      await db.query(`UPDATE app_notification_outbox SET due_at=$2,updated_at=NOW() WHERE id=$1 AND status='pending' AND attempts=0`,
+        [row.id,reminderDates(new Date(row.expiresAt),preferences.timeZone).dueAt]);
+  }
   return preferences;
 }
-export async function enqueueNotification(db: Database, input: NotificationInput): Promise<void> {
+export async function enqueueNotification<K extends string>(db: Database, input: NotificationInput<K> & { kind: CheckedKind<K> }): Promise<void> {
   if (!input.kind || !input.dedupeKey) throw new Error('Notification kind and dedupe key are required');
   const dueAt = input.dueAt ?? new Date();
   // Event notices have a measurable five-minute dispatch target, not a promised delivery SLA.

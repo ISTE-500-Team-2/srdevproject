@@ -30,7 +30,7 @@ import {
 } from "../../lib/today";
 import { useApi } from "../../lib/useApi";
 import { useFailure } from "../../lib/useFailure";
-import { useDayBookings } from "./useDayBookings";
+import { useDayBookings } from "../../lib/useDayBookings";
 import type { Report } from "../../lib/reportContracts";
 import "./today.css";
 
@@ -281,7 +281,7 @@ function FloorPanel({
   );
 }
 
-const studioStateText = { rented: "Rented", held: "Held, awaiting payment", open: "Available" };
+const studioStateText = { rented: "Rented", held: "Held, awaiting payment", open: "Available", off: "Not offered to members" };
 function StudiosPanel({
   state,
   studios,

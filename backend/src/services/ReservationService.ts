@@ -7,16 +7,165 @@ import { UserModel } from "../models/UserModel.js";
 import { PermissionModel } from "../models/PermissionModel.js";
 import { enqueueNotification } from "../notifications/store.js";
 import type { Pool } from "pg";
-import { transaction } from "../db.js";
+import { transaction, type Database } from "../db.js";
 import { AppError, positiveId, reservationWindow } from "../domain.js";
 import { EquipmentModel } from "../models/EquipmentModel.js";
 import {
   ReservationModel,
   RESERVATION_COOLDOWN_MINUTES,
+  type ReservationRecord,
+  type ReservationResource,
 } from "../models/ReservationModel.js";
 import { RoomModel } from "../models/RoomModel.js";
 import { AccessService } from "./AccessService.js";
 import { equipmentPrice, reviewEquipmentPrice, saveReservationPrice, cancelReservationPayment } from '../equipmentPricing.js';
+
+/** Whole hours in a reservation window; reservationWindow already caps it at 24. */
+function bookedHours(start: Date, end: Date): number {
+  if ((end.getTime() - start.getTime()) % 3_600_000 !== 0)
+    throw new AppError(
+      400,
+      "HOURLY_DURATION_REQUIRED",
+      "Book a whole number of hours (1-24).",
+    );
+  return (end.getTime() - start.getTime()) / 3_600_000;
+}
+
+/** The resource a booking will hold, locked, available and usable by the booked member. */
+type BookableResource =
+  | { kind: "equipment"; id: number; name: string; location: string; rate: string | null; waiverId: number | null }
+  | { kind: "room"; id: number; name: string; location: string; waiverId: null };
+
+/**
+ * Availability and eligibility, shared by create and update. Locks the resource row
+ * FOR UPDATE; callers take their earlier locks first, so lock order stays in the caller.
+ */
+async function lockBookableResource(
+  db: Database,
+  access: AccessService,
+  resource: ReservationResource,
+  memberId: number,
+  end: Date,
+): Promise<BookableResource> {
+  if (resource.equipmentId !== undefined) {
+    const equipment = await new EquipmentModel(db).findForUpdate(
+      resource.equipmentId,
+    );
+    if (!equipment)
+      throw new AppError(404, "NOT_FOUND", "Equipment not found.");
+    if (equipment.status !== "available")
+      throw new AppError(
+        409,
+        "EQUIPMENT_UNAVAILABLE",
+        "This equipment is not available for reservations.",
+      );
+    const waivers = await access.assertEquipmentRequirements(memberId, equipment, end);
+    return {
+      kind: "equipment",
+      id: equipment.id,
+      name: equipment.name,
+      location: equipment.location,
+      rate: equipment.rate,
+      waiverId: waivers[0]?.id ?? null,
+    };
+  }
+  const room = await new RoomModel(db).findForUpdate(resource.roomId);
+  if (!room) throw new AppError(404, "NOT_FOUND", "Room not found.");
+  if (room.status !== "available")
+    throw new AppError(
+      409,
+      "ROOM_UNAVAILABLE",
+      "This room is not available for reservations.",
+    );
+  return { kind: "room", id: room.id, name: room.name, location: room.location, waiverId: null };
+}
+
+/** Overlap and cooldown, shared by create and update; an update excludes its own booking. */
+async function assertResourceFree(
+  model: ReservationModel,
+  resource: BookableResource,
+  memberId: number,
+  start: Date,
+  end: Date,
+  excludeReservationId: number | null,
+) {
+  if (resource.kind === "equipment") {
+    if (await model.overlaps(resource.id, start, end, excludeReservationId))
+      throw new AppError(
+        409,
+        "RESERVATION_CONFLICT",
+        "That equipment is already reserved for part of this time.",
+      );
+    if (await model.equipmentCooldown(resource.id, start, end, excludeReservationId))
+      throw new AppError(
+        409,
+        "RESERVATION_COOLDOWN",
+        `Leave at least ${RESERVATION_COOLDOWN_MINUTES} minutes between reservations for the same equipment, including other members' bookings.`,
+      );
+    return;
+  }
+  if (await model.roomOverlaps(resource.id, start, end, excludeReservationId))
+    throw new AppError(
+      409,
+      "RESERVATION_CONFLICT",
+      "That room is already reserved for part of this time.",
+    );
+  if (await model.roomCooldown(memberId, resource.id, start, end, excludeReservationId))
+    throw new AppError(
+      409,
+      "RESERVATION_COOLDOWN",
+      `Leave at least ${RESERVATION_COOLDOWN_MINUTES} minutes between your reservations for the same room.`,
+    );
+}
+
+/**
+ * Create-only bound, checked before conflicts: the locked rate must exist and give an
+ * amount Stripe can collect, and a client-supplied amount must match it. For a
+ * NUMERIC(10,2) rate this amount equals equipmentPrice's totalCents for the same row.
+ */
+function assertOnlinePayable(rate: string | null, hours: number, clientAmountCents: unknown) {
+  if (rate === null)
+    throw new AppError(409, 'RATE_NOT_SET', 'The hourly rate has not been set. Please contact staff.');
+  const amountCents = Math.round(Number(rate) * 100) * hours;
+  if (!Number.isSafeInteger(amountCents) || amountCents < 0 || amountCents > 99_999_999 || amountCents > 0 && amountCents < 50)
+    throw new AppError(409, 'INVALID_RATE', 'This rate cannot be paid online. Please contact staff.');
+  if (clientAmountCents !== undefined && clientAmountCents !== amountCents)
+    throw new AppError(409, 'PRICE_CHANGED', 'The equipment rate changed. Review the updated total and try again.');
+}
+
+/** Effects every cancellation applies after its own guarded status change succeeded. */
+async function applyCancellation(
+  db: Database,
+  actorId: number,
+  memberId: number,
+  action: string,
+  reason: string,
+  before: ReservationRecord | null,
+  result: ReservationRecord,
+) {
+  await cancelReservationPayment(db, result.id);
+  await new StaffModel(db).audit(
+    actorId,
+    memberId,
+    action,
+    "reservation",
+    result.id,
+    reason,
+    before,
+    result,
+  );
+  await enqueueNotification(db, {
+    userId: memberId,
+    kind: "reservation_cancelled",
+    dedupeKey: `reservation-cancelled:${result.id}`,
+    payload: {
+      reservationId: result.id,
+      resourceName: result.equipmentName,
+      startsAt: new Date(result.startTime).toISOString(),
+      endsAt: new Date(result.endTime).toISOString(),
+    },
+  });
+}
 
 export class ReservationService {
   constructor(
@@ -48,20 +197,15 @@ export class ReservationService {
         "Choose exactly one equipment item or room.",
       );
 
-    const equipmentId = hasEquipment
-      ? positiveId(input.equipmentId, "Equipment")
-      : null;
-    const roomId = hasRoom ? positiveId(input.roomId, "Room") : null;
+    const resourceRef: ReservationResource = hasEquipment
+      ? { equipmentId: positiveId(input.equipmentId, "Equipment") }
+      : { roomId: positiveId(input.roomId, "Room") };
+    const equipmentId = resourceRef.equipmentId ?? null;
+    const roomId = resourceRef.roomId ?? null;
     const { start, end } = reservationWindow(input.startTime, input.endTime);
     const targetId =
       input.userId == null ? userId : positiveId(input.userId, "Member");
-
-    if ((end.getTime() - start.getTime()) % 3_600_000 !== 0)
-      throw new AppError(
-        400,
-        "HOURLY_DURATION_REQUIRED",
-        "Book a whole number of hours (1-24).",
-      );
+    const hours = bookedHours(start, end);
 
     const requestKey = input.requestKey ?? randomUUID();
     if (typeof requestKey !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestKey))
@@ -121,87 +265,18 @@ export class ReservationService {
       await new MinorSupervision(db,this.timeZone).requireSponsor(targetId,familyBuilding?.buildingid);
 
       const model = new ReservationModel(db);
-      let waiverId: number | null = null;
-      let location: string;
-      let resourceName: string;
-      let hourlyCents = 0;
-      let amountCents = 0;
-      const hours = (end.getTime() - start.getTime()) / 3_600_000;
       let stripeCheckout = false;
 
-      if (equipmentId) {
-        const equipment = await new EquipmentModel(db).findForUpdate(
-          equipmentId,
-        );
-        if (!equipment)
-          throw new AppError(404, "NOT_FOUND", "Equipment not found.");
-        if (equipment.status !== "available")
-          throw new AppError(
-            409,
-            "EQUIPMENT_UNAVAILABLE",
-            "This equipment is not available for reservations.",
-          );
-        const waivers = await access.assertEquipmentRequirements(targetId, equipment, end);
-        waiverId = waivers[0]?.id ?? null;
-        location = equipment.location;
-        resourceName = equipment.name;
-        if (equipment.rate === null)
-          throw new AppError(409, 'RATE_NOT_SET', 'The hourly rate has not been set. Please contact staff.');
-        hourlyCents = Math.round(Number(equipment.rate) * 100);
-        amountCents = hourlyCents * hours;
-        if (!Number.isSafeInteger(amountCents) || amountCents < 0 || amountCents > 99_999_999 || amountCents > 0 && amountCents < 50)
-          throw new AppError(409, 'INVALID_RATE', 'This rate cannot be paid online. Please contact staff.');
-        if (input.amountCents !== undefined && input.amountCents !== amountCents)
-          throw new AppError(409, 'PRICE_CHANGED', 'The equipment rate changed. Review the updated total and try again.');
+      const resource = await lockBookableResource(db, access, resourceRef, targetId, end);
+      if (resource.kind === "equipment")
+        assertOnlinePayable(resource.rate, hours, input.amountCents);
+      await assertResourceFree(model, resource, targetId, start, end, null);
 
-        if (await model.overlaps(equipmentId, start, end))
-          throw new AppError(
-            409,
-            "RESERVATION_CONFLICT",
-            "That equipment is already reserved for part of this time.",
-          );
-        if (await model.equipmentCooldown(equipmentId, start, end))
-          throw new AppError(
-            409,
-            "RESERVATION_COOLDOWN",
-            `Leave at least ${RESERVATION_COOLDOWN_MINUTES} minutes between reservations for the same equipment, including other members' bookings.`,
-          );
-      } else {
-        const room = await new RoomModel(db).findForUpdate(roomId!);
-        if (!room) throw new AppError(404, "NOT_FOUND", "Room not found.");
-        if (room.status !== "available")
-          throw new AppError(
-            409,
-            "ROOM_UNAVAILABLE",
-            "This room is not available for reservations.",
-          );
-
-        location = room.location;
-        resourceName = room.name;
-
-        if (await model.roomOverlaps(room.id, start, end))
-          throw new AppError(
-            409,
-            "RESERVATION_CONFLICT",
-            "That room is already reserved for part of this time.",
-          );
-        if (await model.roomCooldown(targetId, room.id, start, end))
-          throw new AppError(
-            409,
-            "RESERVATION_COOLDOWN",
-            `Leave at least ${RESERVATION_COOLDOWN_MINUTES} minutes between your reservations for the same room.`,
-          );
-      }
-
-      const price = equipmentId ? await equipmentPrice(db, equipmentId, hours) : null;
-      if (equipmentId) {
-        reviewEquipmentPrice(price, input.expectedPrice);
-        if (price) amountCents = price.totalCents;
-        if (input.amountCents !== undefined && input.amountCents !== amountCents)
-          throw new AppError(409, 'PRICE_CHANGED', 'The equipment rate changed. Review the updated total and try again.');
-        if (!Number.isSafeInteger(amountCents) || amountCents < 0 || amountCents > 99_999_999 || amountCents > 0 && amountCents < 50)
-          throw new AppError(409, 'INVALID_RATE', 'This rate cannot be paid online. Please contact staff.');
-      }
+      // The one price this booking stores, bills and checks out with. The rate is
+      // non-null here (checked above under the row lock), so equipment always has one.
+      const price = resource.kind === "equipment" ? await equipmentPrice(db, resource.id, hours) : null;
+      if (resource.kind === "equipment") reviewEquipmentPrice(price, input.expectedPrice);
+      const amountCents = price?.totalCents ?? 0;
       if (amountCents > 0) {
         stripeCheckout = !!this.stripe;
         if (stripeCheckout) {
@@ -213,22 +288,22 @@ export class ReservationService {
         }
       }
       let reservation = await model.create({
+        ...resourceRef,
         userId: targetId,
-        equipmentId: equipmentId ?? undefined,
-        roomId: roomId ?? undefined,
-        waiverId,
-        location,
+        waiverId: resource.waiverId,
+        location: resource.location,
         start,
         end,
         status: stripeCheckout ? 'pending' : 'confirmed',
       });
       if (equipmentId) {
-        await saveReservationPrice(db, reservation.id, targetId, userId, price, resourceName);
+        await saveReservationPrice(db, reservation.id, targetId, userId, price, resource.name);
         reservation = (await model.find(reservation.id))!;
       }
-      if (stripeCheckout) await db.query(`INSERT INTO app_equipment_checkout
+      // Stripe line items and amount come from the same price as the stored snapshot.
+      if (stripeCheckout && price) await db.query(`INSERT INTO app_equipment_checkout
         (reservation_id,payer_id,request_key,hourly_cents,hours,amount_cents,equipment_name) VALUES($1,$2,$3,$4,$5,$6,$7)`,
-        [reservation.id, userId, requestKey, hourlyCents, hours, amountCents, resourceName]);
+        [reservation.id, userId, requestKey, price.hourlyRateCents, price.hours, price.totalCents, resource.name]);
 
       await new MinorSupervision(db,this.timeZone).recordBooking(targetId,reservation.id);
       await new StaffModel(db).audit(
@@ -249,7 +324,7 @@ export class ReservationService {
         dedupeKey: `reservation-created:${reservation.id}`,
         payload: {
           reservationId: reservation.id,
-          resourceName,
+          resourceName: resource.name,
           startsAt: start.toISOString(),
           endsAt: end.toISOString(),
         },
@@ -298,7 +373,7 @@ export class ReservationService {
       const before = await model.find(reservationId, true);
       if (!before)
         throw new AppError(404, "NOT_FOUND", "Reservation not found.");
-      if (!["confirmed", "pending"].includes(before.status))
+      if (before.status !== "confirmed" && before.status !== "pending")
         throw new AppError(
           409,
           "INVALID_STATUS",
@@ -366,17 +441,15 @@ export class ReservationService {
           "INVALID_INPUT",
           "Choose exactly one equipment item or room.",
         );
+      const resourceRef: ReservationResource = equipmentId
+        ? { equipmentId }
+        : { roomId: roomId! };
 
       const { start, end } = reservationWindow(
         input.startTime ?? new Date(before.startTime).toISOString(),
         input.endTime ?? new Date(before.endTime).toISOString(),
       );
-      if ((end.getTime() - start.getTime()) % 3_600_000 !== 0)
-        throw new AppError(
-          400,
-          "HOURLY_DURATION_REQUIRED",
-          "Book a whole number of hours (1-24).",
-        );
+      const hours = bookedHours(start, end);
 
       await access.assertActiveUser(targetId);
       await access.assertEntitlement(targetId, start, end);
@@ -388,75 +461,18 @@ export class ReservationService {
       const keepSponsorLink = targetId !== actorId && targetId === before.userId;
       if (!keepSponsorLink) await new MinorSupervision(db,this.timeZone).requireSponsor(targetId,familyBuilding?.buildingid);
 
-      let waiverId: number | null = null;
-      let location: string;
-      let resourceName: string;
+      const resource = await lockBookableResource(db, access, resourceRef, targetId, end);
+      await assertResourceFree(model, resource, targetId, start, end, reservationId);
 
-      if (equipmentId) {
-        const equipment = await new EquipmentModel(db).findForUpdate(
-          equipmentId,
-        );
-        if (!equipment)
-          throw new AppError(404, "NOT_FOUND", "Equipment not found.");
-        if (equipment.status !== "available")
-          throw new AppError(
-            409,
-            "EQUIPMENT_UNAVAILABLE",
-            "This equipment is not available for reservations.",
-          );
-        const waivers = await access.assertEquipmentRequirements(targetId, equipment, end);
-        waiverId = waivers[0]?.id ?? null;
-        location = equipment.location;
-        resourceName = equipment.name;
-        if (await model.overlaps(equipmentId, start, end, reservationId))
-          throw new AppError(
-            409,
-            "RESERVATION_CONFLICT",
-            "That equipment is already reserved for part of this time.",
-          );
-        if (
-          await model.equipmentCooldown(equipmentId, start, end, reservationId)
-        )
-          throw new AppError(
-            409,
-            "RESERVATION_COOLDOWN",
-            `Leave at least ${RESERVATION_COOLDOWN_MINUTES} minutes between reservations for the same equipment, including other members' bookings.`,
-          );
-      } else {
-        const room = await new RoomModel(db).findForUpdate(roomId!);
-        if (!room) throw new AppError(404, "NOT_FOUND", "Room not found.");
-        if (room.status !== "available")
-          throw new AppError(
-            409,
-            "ROOM_UNAVAILABLE",
-            "This room is not available for reservations.",
-          );
-        location = room.location;
-        resourceName = room.name;
-        if (await model.roomOverlaps(room.id, start, end, reservationId))
-          throw new AppError(
-            409,
-            "RESERVATION_CONFLICT",
-            "That room is already reserved for part of this time.",
-          );
-        if (
-          await model.roomCooldown(targetId, room.id, start, end, reservationId)
-        )
-          throw new AppError(
-            409,
-            "RESERVATION_COOLDOWN",
-            `Leave at least ${RESERVATION_COOLDOWN_MINUTES} minutes between your reservations for the same room.`,
-          );
-      }
-
-      const price = equipmentId ? await equipmentPrice(db, equipmentId, (end.getTime()-start.getTime())/3600000) : null;
-      if (!maintenance?.preview && equipmentId) reviewEquipmentPrice(price, input.expectedPrice);
+      // Unlike create, an update keeps an unpriced legacy booking (null price).
+      const price = resource.kind === "equipment" ? await equipmentPrice(db, resource.id, hours) : null;
+      if (!maintenance?.preview && resource.kind === "equipment") reviewEquipmentPrice(price, input.expectedPrice);
       if (maintenance) {
         const target = await new EquipmentModel(db).findForUpdate(equipmentId!);
         const rate = target!.rate === null ? null : Number(target!.rate);
         const source = (await db.query('SELECT hourlyrate FROM equipment WHERE equipmentid=$1', [maintenance.sourceEquipmentId])).rows[0];
         if (maintenance.preview) return {
-          reservationId, expectedRevision, equipmentId, equipmentName: resourceName,
+          reservationId, expectedRevision, equipmentId, equipmentName: resource.name,
           startTime: start.toISOString(), endTime: end.toISOString(),
           oldRate: source.hourlyrate === null ? null : Number(source.hourlyrate), rate, priceSnapshot: price,
         };
@@ -465,18 +481,17 @@ export class ReservationService {
       }
 
       let reservation = await model.update(reservationId, {
+        ...resourceRef,
         userId: targetId,
-        equipmentId: equipmentId ?? undefined,
-        roomId: roomId ?? undefined,
-        waiverId,
-        location,
+        waiverId: resource.waiverId,
+        location: resource.location,
         start,
         end,
       });
       if (!reservation)
         throw new AppError(404, "NOT_FOUND", "Reservation not found.");
       if (equipmentId || before.paymentId) {
-        await saveReservationPrice(db, reservationId, targetId, actorId, price, resourceName);
+        await saveReservationPrice(db, reservationId, targetId, actorId, price, resource.name);
         reservation = (await model.find(reservationId))!;
       }
       if (!keepSponsorLink) await new MinorSupervision(db,this.timeZone).recordBooking(targetId,reservation.id);
@@ -496,13 +511,69 @@ export class ReservationService {
         dedupeKey: `reservation-updated:${reservation.id}:${reservation.revision}`,
         payload: {
           reservationId: reservation.id,
-          resourceName,
+          resourceName: resource.name,
           startsAt: start.toISOString(),
           endsAt: end.toISOString(),
         },
       });
       return reservation;
     });
+  }
+
+  /**
+   * Member cancellation of their own booking with at least 24 hours notice. One guarded
+   * UPDATE decides eligibility; staff cancellation (cancelAny) has its own checks.
+   */
+  async cancel(userId: number, reservationId: number) {
+    const result = await transaction(this.pool, async (db) => {
+      if (
+        (
+          await db.query(
+            "SELECT c.id FROM app_training_class c JOIN reservation v ON v.reservationid=c.reservation_id WHERE c.reservation_id=$1 AND v.userid=$2",
+            [reservationId, userId],
+          )
+        ).rowCount
+      )
+        throw new AppError(
+          409,
+          "CLASS_WORKFLOW_REQUIRED",
+          "Cancel this training through Classes.",
+        );
+      const result = await new ReservationModel(db).cancel(reservationId, userId);
+      if (!result) {
+        const existing = await db.query(
+          "SELECT status,starttime FROM reservation WHERE reservationid=$1 AND userid=$2",
+          [reservationId, userId],
+        );
+        if (
+          existing.rows[0] &&
+          ["confirmed", "pending"].includes(existing.rows[0].status)
+        )
+          throw new AppError(
+            409,
+            "CANCELLATION_NOTICE_REQUIRED",
+            "Equipment cancellations require at least 24 hours notice. Contact staff.",
+          );
+        return null;
+      }
+      await applyCancellation(
+        db,
+        userId,
+        userId,
+        "reservation.cancelled",
+        "Member cancellation with at least 24 hours notice",
+        null,
+        result,
+      );
+      return result;
+    });
+    if (!result)
+      throw new AppError(
+        404,
+        "NOT_FOUND",
+        "No cancellable reservation was found for this account.",
+      );
+    return result;
   }
 
   async cancelAny(actorId: number, reservationId: number, maintenance?: { sourceEquipmentId: number; expectedRevision: unknown }) {
@@ -562,28 +633,15 @@ export class ReservationService {
           "INVALID_STATUS",
           "Only active reservations can be cancelled.",
         );
-      await cancelReservationPayment(db, reservationId);
-      await new StaffModel(db).audit(
+      await applyCancellation(
+        db,
         actorId,
         before.userId,
         "reservation.override.cancelled",
-        "reservation",
-        result.id,
         "Staff reservation override",
         before,
         result,
       );
-      await enqueueNotification(db, {
-        userId: before.userId,
-        kind: "reservation_cancelled",
-        dedupeKey: `reservation-cancelled:${result.id}`,
-        payload: {
-          reservationId: result.id,
-          resourceName: result.equipmentName,
-          startsAt: new Date(result.startTime).toISOString(),
-          endsAt: new Date(result.endTime).toISOString(),
-        },
-      });
       return result;
     });
   }

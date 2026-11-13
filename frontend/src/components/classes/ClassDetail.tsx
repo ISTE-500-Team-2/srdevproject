@@ -3,10 +3,10 @@ import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Modal } from "../Modal";
 import { SeatMeter } from "./ClassBits";
-import { classPhoto, hasStarted, isCancelled, longDate, registrationPrice, seatsLeft, timeRange, type ClassRecord, type MemberRoster, type WorkshopTemplate } from "./classData";
+import { classPhoto, hasStarted, isCancelled, longDate, registrationPrice, timeRange, type ClassRecord, type MemberRoster, type WorkshopTemplate } from "./classData";
 import { useApi } from "../../lib/useApi";
 import { cents } from '../../lib/display';
-import { sponsorReason, type Eligibility } from "./ClassCatalog";
+import { registrationAction, type Eligibility } from "./registrationAction";
 
 export function ClassDetail({
   c,
@@ -43,7 +43,7 @@ export function ClassDetail({
   const counts = participants.data ?? { capacity: c.capacity, enrolled: c.enrolled };
   const registered = c.myStatus === "enrolled";
   const price = registered ? { trainingFee: c.myTrainingFeeCents ?? 0 } : registrationPrice(c, certified);
-  const blocked = sponsorReason(eligibility);
+  const action = registrationAction({ c, eligibility, certified, busy, seats: counts });
   return (
     <Modal open title={c.title} onClose={onClose}>
       <div className="class-detail" role="region" aria-label={`${c.title} details`}>
@@ -118,25 +118,25 @@ export function ClassDetail({
       </div>
       {open ? (
         <div className="class-dialog-actions">
-          <span>{!registered && blocked ? blocked.reason : "You can withdraw any time before it starts"}</span>
+          <span>{action.kind !== "registered" && action.blocked ? action.blocked.reason : "You can withdraw any time before it starts"}</span>
           <button type="button" className="button button--quiet" onClick={onClose}>
             Close
           </button>
-          {registered ? (
+          {action.kind === "registered" ? (
             <button type="button" className="button button--quiet" disabled={busy} onClick={() => onWithdraw(c)}>
               Withdraw
             </button>
-          ) : seatsLeft(counts) === 0 ? (
+          ) : action.kind === "full" ? (
             <button type="button" className="button button--quiet" disabled>
               Class full
             </button>
-          ) : eligibility === "ineligible" ? (
+          ) : action.kind === "needs-pass" ? (
             <Link className="button button--primary" to="/membership">
               See memberships &amp; day passes
             </Link>
           ) : (
-            <button type="button" className="button button--primary" disabled={busy || price.trainingFee === null || !!blocked} onClick={() => onRegister(c)}>
-              {c.myStatus === "cancelled" ? "Register again" : "Register for class"}
+            <button type="button" className="button button--primary" disabled={action.disabled} onClick={() => onRegister(c)}>
+              {action.again ? "Register again" : "Register for class"}
             </button>
           )}
         </div>

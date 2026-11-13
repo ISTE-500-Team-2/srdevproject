@@ -128,7 +128,7 @@ export function createApp(
     if (error instanceof AppError) {
       res
         .status(error.status)
-        .json({ error: { code: error.code, message: error.message } });
+        .json({ error: { code: error.code, message: error.message, ...(error.field ? { field: error.field } : {}) } });
       return;
     }
     if (error?.code === '23505') {

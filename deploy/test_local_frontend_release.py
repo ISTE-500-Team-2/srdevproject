@@ -86,6 +86,10 @@ class LocalGateTests(unittest.TestCase):
                         local.MAC_WORKFLOW_BLOB if any(a.endswith(':.github/workflows/dev-setup.yml') for a in args) else SHA)
             with patch.object(local.ops, 'output', side_effect=output):
                 self.assertTrue(local.baseline_green(root, SHA, checks, runs))
+                # A workflow added to the controller's shared list is required here too.
+                extra = local.ops.MAIN_PUSH_WORKFLOWS + ('.github/workflows/new-required.yml',)
+                with patch.object(local.ops, 'MAIN_PUSH_WORKFLOWS', extra):
+                    self.assertFalse(local.baseline_green(root, SHA, checks, runs))
                 for name in local.ops.REQUIRED:
                     bad = [{**c, 'conclusion': 'failure', 'status': 'completed'} if c['name'] == name else c for c in checks]
                     self.assertFalse(local.baseline_green(root, SHA, bad, runs), name)
@@ -95,6 +99,16 @@ class LocalGateTests(unittest.TestCase):
                     self.assertFalse(local.baseline_green(root, SHA, checks, bad))
                 (directory / 'local-missing-key.log').write_text('changed')
                 self.assertFalse(local.baseline_green(root, SHA, checks, runs))
+
+    def test_release_refuses_an_older_controller_module_before_any_change(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            older = type('OlderAutoRelease', (), {})()
+            with patch.object(local, 'ops', older), \
+                 patch.object(local.sys, 'argv', ['local_frontend_release.py', '--root', str(root), '--sha', SHA]):
+                with self.assertRaisesRegex(RuntimeError, 'matching auto_release.py'):
+                    local.main()
+            self.assertEqual(list(root.iterdir()), [])
 
     def test_scoped_checkout_never_builds_or_executes_a_changed_dockerfile(self):
         with tempfile.TemporaryDirectory() as temporary:

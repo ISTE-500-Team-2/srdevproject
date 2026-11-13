@@ -16,7 +16,7 @@ beforeEach(() => {
     if (path.startsWith("/admin/reports?")) return Promise.resolve({ checkedInTodayCount: 7, checkedInToday: people, live: [{ kind: "equipment", resourceId: 1, activeReaderLeases: 2 }, { kind: "room", resourceId: 2, activeReaderLeases: 1 }], classes: [{ id: 1, title: "Woodworking", startsAt: "2026-10-28T10:30:00Z", capacity: 8, enrolled: 6 }] });
     if (path === "/equipment") return Promise.resolve([{ id: 1, name: "Lathe", type: "Wood", status: "available", image: "" }]);
     if (path.startsWith("/admin/reservations?")) return Promise.resolve({ items: [], nextOffset: null });
-    if (path === "/studios") return Promise.resolve({ studios: [{ id: 1, name: "Studio A", size: "Small", availability: [{ starts_on: "2026-10-01", ends_on: "2026-11-01", status: "confirmed", hold_until: "" }] }, { id: 2, name: "Studio B", size: "Large", availability: [] }] });
+    if (path === "/studios") return Promise.resolve({ studios: [{ id: 1, name: "Studio A", size: "Small", availability: [{ starts_on: "2026-10-01", ends_on: "2026-11-01", status: "confirmed", hold_until: "" }] }, { id: 2, name: "Studio B", size: "Large", monthly_cents: 50000, policy_confirmed: true, availability: [] }, { id: 3, name: "Studio C", size: "Medium", monthly_cents: null, policy_confirmed: false, availability: [] }] });
     if (path === "/studio-management/rentals") return Promise.resolve([{ id: 1, name: "Studio A", email: "artist@example.test", status: "confirmed", starts_on: "2026-10-01", ends_on: "2026-11-01" }]);
     if (path.startsWith("/admin/compliance?")) return Promise.resolve({ summary: { userCount: 7, waiverCompliantUsers: 7, certificationCompliantUsers: 7 } });
     return Promise.reject(new Error(`Unexpected endpoint: ${path}`));
@@ -47,8 +47,10 @@ test("renders header counts from reports and times in the configured zone", asyn
   expect(screen.getAllByText("1:00 PM")).toHaveLength(6);
   expect(api.mock.calls.some(([p]) => p === "/admin/reports?period=daily&from=2026-10-28&to=2026-10-28")).toBe(true);
   expect(await screen.findByText("In use")).toBeTruthy();
-  expect(await screen.findByText("1 of 2 rented")).toBeTruthy();
+  expect(await screen.findByText("1 of 3 rented")).toBeTruthy();
   expect(screen.getByText("Available")).toBeTruthy();
+  // A studio members can't book yet is not shown as available.
+  expect(screen.getByText("Not offered to members")).toBeTruthy();
   // Renters' contact details never show on the dashboard.
   expect(screen.queryByText("artist@example.test")).toBeNull();
 });

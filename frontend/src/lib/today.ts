@@ -1,7 +1,7 @@
 import type { LiveEquipment, Reservation } from "./contracts";
 import type { ComplianceReport } from "./staffContracts";
 import type { Rental, Studio } from "./studioContracts";
-import { needsStaff } from "./studioDesk";
+import { needsStaff, studioNow } from "./studioDesk";
 import { addCalendarDays as addDays } from "./calendarDate";
 
 const HOUR = 3_600_000;
@@ -90,13 +90,12 @@ export function groupMachines(machines: LiveEquipment[]) {
   const types = [...new Set(machines.map(m => m.type))];
   return types.flatMap(type => { const group = machines.filter(m => m.type === type); return group.map((m, i) => ({ ...m, lastOfType: i === group.length - 1 })); });
 }
-/** Every active studio and whether it is rented, held (awaiting payment) or open today. Rental end dates are exclusive. */
+/**
+ * Every active studio and where it stands today, by the Studios desk's rule: rented, held (awaiting
+ * payment), open, or off when its rate or terms are not confirmed, so members can't book it.
+ */
 export function studioOccupancy(studios: Studio[], day: string) {
-  return studios.map(studio => {
-    const today = studio.availability.filter(r => r.starts_on <= day && r.ends_on > day);
-    const state: "rented" | "held" | "open" = today.some(r => r.status === "confirmed") ? "rented" : today.some(r => r.status === "pending") ? "held" : "open";
-    return { id: studio.id, name: studio.name, size: studio.size, state };
-  });
+  return studios.map(studio => ({ id: studio.id, name: studio.name, size: studio.size, state: studioNow(studio, day).state }));
 }
 /** Same rule as the Studios page's Needs you list. */
 export function studioPaymentsToRecord(rentals: Rental[]) {

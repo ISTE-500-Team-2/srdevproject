@@ -30,8 +30,9 @@ class Tests(unittest.TestCase):
             body = json.loads(req.data)
             self.assertEqual(body['action'], 'heartbeat')
             self.assertNotIn('uid', body)
-            return Response({'eventId': body['eventId'], 'readerId': 'test',
-                'mode': 'enroll', 'allowed': False, 'enrollmentExpiresAt': '2026-10-28T20:32:00Z'})
+            return Response({'eventId': body['eventId'], 'readerId': 'test', 'mode': 'enroll',
+                'allowed': False, 'reason': 'HEARTBEAT', 'expiresAt': None, 'leaseSeconds': 0,
+                'enrollmentExpiresAt': '2026-10-28T20:32:00Z'})
         result = AccessClient('https://example.invalid', 'test', 'x'*32, opener).status()
         self.assertEqual(result['mode'], 'enroll')
 
@@ -105,7 +106,7 @@ class Tests(unittest.TestCase):
             body=json.loads(req.data)
             return Response({'eventId':body['eventId'],'readerId':'test','allowed':True,'leaseSeconds':1.5,
                 'expiresAt':(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat()})
-        with patch('access_client.time.monotonic',side_effect=[10,11]):
+        with patch('signed_decision.time.monotonic',side_effect=[10,11]):
             self.assertEqual(AccessClient('https://example.invalid','test','x'*32,opener).decide('01020304'),.5)
     def test_outage_and_restart_cannot_restore_a_previous_grant(self):
         states=[];relay=RelayLease(states.append);relay.apply(5)

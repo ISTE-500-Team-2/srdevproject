@@ -60,6 +60,8 @@ export class AppError extends Error {
     public status: number,
     public code: string,
     message: string,
+    /** The request-body property the error is about, when a form can point at it. */
+    public field?: string,
   ) {
     super(message);
   }

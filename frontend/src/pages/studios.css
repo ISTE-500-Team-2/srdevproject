@@ -79,7 +79,7 @@
   opacity: 0.85;
 }
 
-/* Size cards reuse the reservation card anatomy. */
+/* Size cards reuse the reservation card anatomy. This sheet owns the studio grid and its breakpoints. */
 .studio-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -565,8 +565,12 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+@media (max-width: 760px) {
+  .studio-grid {
+    grid-template-columns: 1fr;
+  }
+}
 @media (max-width: 720px) {
-  .studio-grid,
   .studio-booking__cols {
     grid-template-columns: 1fr;
   }

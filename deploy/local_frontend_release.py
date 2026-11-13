@@ -104,11 +104,8 @@ def validate_receipt(receipt, directory, sha, tree, now=None):
 
 
 def candidate_failures(checks, sha):
-    latest = {}
-    for c in checks:
-        if c.get('head_sha') == sha and c.get('app', {}).get('slug') == 'github-actions':
-            if c['name'] not in latest or c['id'] > latest[c['name']]['id']:
-                latest[c['name']] = c
+    """Any concluded, non-successful latest check on the candidate blocks it."""
+    latest = ops.latest_checks(sha, checks)
     return any(c.get('conclusion') not in (None, 'success') for c in latest.values())
 
 
@@ -117,11 +114,7 @@ def baseline_green(root, sha, checks, runs):
         return True
     # The owner may run the queued hosted Mac lane on the actual Mac instead.
     # This replaces ONLY that lane, not failures or any application/Docker gate.
-    latest = {}
-    for c in checks:
-        if c.get('head_sha') == sha and c.get('app', {}).get('slug') == 'github-actions':
-            if c['name'] not in latest or c['id'] > latest[c['name']]['id']:
-                latest[c['name']] = c
+    latest = ops.latest_checks(sha, checks)
     mac = 'launcher-unit (macos-latest)'
     if latest.get(mac, {}).get('conclusion') not in (None, 'success'):
         return False
@@ -131,10 +124,10 @@ def baseline_green(root, sha, checks, runs):
     if any(c['name'] != mac and (c.get('status') != 'completed' or c.get('conclusion') != 'success')
            for c in latest.values()):
         return False
-    for path in ('.github/workflows/mvc-verify.yml', '.github/workflows/dev-setup.yml', '.github/workflows/sponsor-hosting.yml'):
-        matches = [r for r in runs if r.get('head_sha') == sha and r.get('head_branch') == 'main'
-                   and r.get('event') == 'push' and r.get('path') == path]
-        run = max(matches, key=lambda r: r['id']) if matches else {}
+    for path in ops.MAIN_PUSH_WORKFLOWS:
+        run = ops.latest_main_push_run(sha, runs, path)
+        # Only the launcher workflow may still be running (its Mac lane); it
+        # must exist and must not have concluded unsuccessfully.
         if path.endswith('dev-setup.yml'):
             if not run or run.get('conclusion') not in (None, 'success'):
                 return False
@@ -280,6 +273,10 @@ def main():
     parser.add_argument('--rehearse', action='store_true', help='Validate gates without changing running apps')
     parser.add_argument('--redeploy', action='store_true', help='Owner benchmark of the already-live revision')
     args = parser.parse_args()
+    if not all(hasattr(ops, name) for name in ('latest_checks', 'latest_main_push_run', 'MAIN_PUSH_WORKFLOWS')):
+        # Fail before any change: an older auto_release.py would otherwise stop a
+        # release at its promotion gate, after the standby and backups.
+        raise RuntimeError('Install the matching auto_release.py beside this script; no changes made')
     if args.local_github:
         from local_github_api import read_local_status
         ops.api = read_local_status  # This invocation only; no credentials or GitHub status changes.

@@ -12,6 +12,7 @@ vi.mock("../components/MemberSelect", () => ({ MemberSelect: () => <div>Member f
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
+  vi.useRealTimers();
 });
 
 const base = {
@@ -43,7 +44,7 @@ const mount = (items: Payment[]) => {
 test("saving a payment keeps the table on screen and confirms on the page", async () => {
   vi.mocked(api).mockResolvedValue({} as never);
   mount([desk, card]);
-  expect(vi.mocked(useApi).mock.calls[0]?.[1]).toEqual({ retainOnReload: true });
+  expect(vi.mocked(useApi).mock.calls.find(([path]) => path?.startsWith("/admin/payments"))?.[1]).toEqual({ retainOnReload: true });
   fireEvent.click(screen.getByRole("button", { name: "Update payment #212 for Jordan Lee" }));
   const form = screen.getByRole("form", { name: "Update payment #212" });
   fireEvent.change(within(form).getByLabelText("Payment method"), { target: { value: "cash" } });
@@ -98,11 +99,42 @@ test("filters reach the request and the totals cover the filtered set", () => {
   expect(screen.getByText("Awaiting payment").nextElementSibling?.textContent).toContain("$45.00");
   fireEvent.change(screen.getByLabelText("Status"), { target: { value: "pending" } });
   expect(vi.mocked(useApi).mock.lastCall?.[0]).toBe("/admin/payments?offset=0&status=pending");
-  fireEvent.change(screen.getByLabelText("Period"), { target: { value: "today" } });
-  const path = new URL(vi.mocked(useApi).mock.lastCall?.[0] as string, "http://x");
-  const from = new Date(path.searchParams.get("from") ?? "");
-  expect(from.getHours()).toBe(0);
-  expect(from.toDateString()).toBe(new Date().toDateString());
+});
+
+/** Payments at `now`, with /config answering `config` (a zone, still loading, or failed). */
+function mountAt(now: string, config: { timeZone: string } | "loading" | "failed") {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(now));
+  const data: PaymentPage = { items: [], nextOffset: null, summary: { count: 0, collected: "0", pendingCount: 0, pending: "0", refunded: "0" } };
+  vi.mocked(useApi).mockImplementation(((path: string) =>
+    path === "/config"
+      ? { data: typeof config === "object" ? config : null, loading: config === "loading", refreshing: false, error: config === "failed" ? "Offline" : "", reload }
+      : { data, loading: false, refreshing: false, error: "", reload }) as never);
+  render(<StaffPayments />);
+}
+const fromFor = (period: string) => {
+  fireEvent.change(screen.getByLabelText("Period"), { target: { value: period } });
+  return new URL(vi.mocked(useApi).mock.lastCall?.[0] as string, "http://x").searchParams.get("from");
+};
+
+test("periods start at midnight in the facility's time zone, not the browser's", () => {
+  // 03:00 UTC on Nov 11 is already 4 pm on Nov 11 in Auckland (UTC+13).
+  mountAt("2026-11-11T03:00:00Z", { timeZone: "Pacific/Auckland" });
+  expect(fromFor("today")).toBe("2026-11-10T11:00:00.000Z");
+  expect(fromFor("7d")).toBe("2026-11-04T11:00:00.000Z");
+  expect(fromFor("30d")).toBe("2026-10-12T11:00:00.000Z");
+  expect(fromFor("month")).toBe("2026-10-31T11:00:00.000Z");
+  expect(fromFor("all")).toBeNull();
+});
+
+test("the period filter waits for the facility zone, and falls back to New York when it can't be read", () => {
+  mountAt("2026-11-11T03:00:00Z", "loading");
+  expect((screen.getByLabelText("Period") as HTMLSelectElement).disabled).toBe(true);
+  cleanup();
+  mountAt("2026-11-11T03:00:00Z", "failed");
+  expect((screen.getByLabelText("Period") as HTMLSelectElement).disabled).toBe(false);
+  // Still Nov 10 in New York (UTC-5).
+  expect(fromFor("today")).toBe("2026-11-10T05:00:00.000Z");
 });
 
 test("when a saved payment leaves the filtered results, focus lands on the confirmation", async () => {

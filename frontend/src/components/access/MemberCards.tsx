@@ -1,5 +1,6 @@
 import { useId, useState, type FormEvent } from "react";
 import { api, ApiError, errorMessage } from "../../lib/api";
+import { editingFormRef } from "../../lib/editingForms";
 import { dateTime } from "../../lib/display";
 import { useApi } from "../../lib/useApi";
 import { useCardScan } from "../../lib/useCardScan";
@@ -197,7 +198,7 @@ export function MemberCards({
         width="compact"
       >
         {action ? (
-          <form className="management-form" onSubmit={changeCard}>
+          <form ref={editingFormRef} className="management-form" onSubmit={changeCard}>
             <p>
               {action.kind === "revoke"
                 ? `This card will stop granting access for ${memberName}.`
@@ -351,6 +352,7 @@ export function AssignCard({
       {enabled && (manual || scan.scan?.status === "captured") ? (
         <form
           key={formKey}
+          ref={editingFormRef}
           className="management-form"
           aria-label={`Confirm NFC card for ${memberName}`}
           onSubmit={assign}

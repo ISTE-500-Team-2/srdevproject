@@ -6,7 +6,7 @@ hardware may be paired; network advertisements are discovery hints only.
 """
 from __future__ import annotations
 import argparse
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 import hashlib
 import hmac
 import json
@@ -23,15 +23,23 @@ import uuid
 from access_client import AccessClient
 from setup_discovery import NetworkDiscovery
 from setup_usb import SetupError, USBProvisioner, private_json, usb_devices, validated_nvs
+from signed_decision import TRANSPORT_FAULTS
 from wireless.reader_bridge import base_url
+
+
+def report_fault(stage,error):
+    # Class and stage only: messages may carry paths, SSIDs or response text.
+    print(json.dumps({'setupFault':type(error).__name__,'stage':stage}),flush=True)
 
 
 class Task:
     def __init__(self,future):self.future=future
     def is_alive(self):return not self.future.done()
     def join(self,timeout=None):
-        try:self.future.result(timeout=timeout)
-        except Exception:pass
+        # Never raises; a failed task is logged instead of silently discarded.
+        wait([self.future],timeout=timeout)
+        if self.future.done() and not self.future.cancelled() and self.future.exception() is not None:
+            report_fault('task',self.future.exception())
 
 
 class GatewayClient:
@@ -238,20 +246,29 @@ class Agent:
     def run(self):
         self.network.start()
         scan=threading.Thread(target=self.scan_network,daemon=True);scan.start()
-        previous=None
+        previous=None;fault=None
         try:
             while not self.stop.is_set():
+                stage='usb'
                 try:
                     devices=usb_devices()
                     with self.lock:
                         reports=[{k:v for k,v in d.items() if k!='path'}|self.metadata.get(key,{}) for key,d in devices.items()]
                         reports+=list(self.network_devices)
                         updates=list(self.updates.values())
+                    stage='poll'
                     jobs=self.client.poll(reports,updates)
+                    stage='jobs'
                     self.handle(jobs,devices)
-                    status='connected'
-                except Exception:
+                    status='connected';fault=None
+                except TRANSPORT_FAULTS:
                     status='gateway_unavailable'
+                except Exception as error:
+                    # Still fail closed and keep polling, but do not disguise an
+                    # internal defect as an ordinary gateway outage.
+                    status='gateway_unavailable'
+                    if fault!=(stage,type(error)):
+                        report_fault(stage,error);fault=(stage,type(error))
                 if status!=previous:
                     print(json.dumps({'setupService':status}),flush=True);previous=status
                 self.stop.wait(2)
