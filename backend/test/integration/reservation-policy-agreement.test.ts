@@ -19,7 +19,7 @@ const zone = 'America/New_York';
 const provider = new StudioStripe({ key: 'sk_test_policy_fake', webhookSecret: 'whsec_policy_fake', origin: 'http://localhost:8080' });
 const checkouts: Stripe.Checkout.SessionCreateParams[] = [];
 const hour = 3_600_000;
-let created = false, member = 0, admin = 0;
+let created = false, member = 0, admin = 0, memberToken = '', memberCsrf = '';
 let app: ReturnType<typeof createApp>;
 let day = 0;
 
@@ -72,6 +72,8 @@ before(async () => {
   const login = await request(app).post('/api/auth/demo').send({ role: 'member' });
   assert.equal(login.status, 200, login.text);
   member = login.body.data.user.id;
+  memberToken = login.body.data.accessToken;
+  memberCsrf = login.body.data.csrfToken;
   const staff = await request(app).post('/api/auth/demo').send({ role: 'admin' });
   assert.equal(staff.status, 200, staff.text);
   admin = staff.body.data.user.id;
@@ -167,4 +169,49 @@ test('create checks its payable bound before conflicts and the supported range a
   assert.equal(legacy.priceSnapshot, null);
   const cheap = await update(booking.id, { equipmentId: tiny, expectedRevision: legacy.revision });
   assert.equal((cheap.priceSnapshot as { totalCents: number }).totalCents, 25);
+});
+
+test('member and staff cancellation share payment, audit and notification effects', async () => {
+  const machine = await equipment('7.00');
+  const cancel = (id: number) => request(app).post(`/api/reservations/${id}/cancel`)
+    .set('Authorization', 'Bearer ' + memberToken).set('X-CSRF-Token', memberCsrf).send({});
+  const effects = async (id: number) => ({
+    payment: (await pool.query('SELECT p.paymentstatus FROM payment p JOIN reservation r ON r.payment_id=p.paymentid WHERE r.reservationid=$1', [id])).rows[0].paymentstatus,
+    audit: (await pool.query('SELECT action,actor_id,subject_id,reason,before_state FROM app_staff_audit WHERE entity_id=$1 AND action LIKE $2', [id, 'reservation%cancelled'])).rows,
+    notice: (await pool.query('SELECT userid,payload FROM app_notification_outbox WHERE dedupe_key=$1', [`reservation-cancelled:${id}`])).rows,
+  });
+
+  const mine = await create(plain(), member, { equipmentId: machine, ...slot(), expectedPrice: await equipmentPrice(pool, machine, 1) });
+  assert.equal((await effects(mine.id)).payment, 'pending');
+  const cancelled = await cancel(mine.id);
+  assert.equal(cancelled.status, 200, cancelled.text);
+  assert.equal(cancelled.body.data.status, 'cancelled');
+  const memberEffects = await effects(mine.id);
+  assert.equal(memberEffects.payment, 'void');
+  assert.deepEqual(memberEffects.audit.map(row => [row.action, row.actor_id, row.subject_id, row.reason, row.before_state]),
+    [['reservation.cancelled', member, member, 'Member cancellation with at least 24 hours notice', null]]);
+  assert.equal(memberEffects.notice.length, 1);
+  assert.equal(memberEffects.notice[0].userid, member);
+
+  const theirs = await create(plain(), member, { equipmentId: machine, ...slot(), expectedPrice: await equipmentPrice(pool, machine, 1) });
+  await plain().cancelAny(admin, theirs.id);
+  const staffEffects = await effects(theirs.id);
+  assert.equal(staffEffects.payment, 'void');
+  assert.deepEqual(staffEffects.audit.map(row => [row.action, row.actor_id, row.subject_id, row.reason]),
+    [['reservation.override.cancelled', admin, member, 'Staff reservation override']]);
+  assert.equal(staffEffects.notice[0].userid, member);
+  assert.deepEqual(Object.keys(staffEffects.notice[0].payload).sort(), Object.keys(memberEffects.notice[0].payload).sort());
+
+  // Unchanged member responses: nothing left to cancel, and short notice.
+  const again = await cancel(mine.id);
+  assert.deepEqual([again.status, again.body.error.code, again.body.error.message],
+    [404, 'NOT_FOUND', 'No cancellable reservation was found for this account.']);
+  const soon = new Date(Date.now() + 2 * hour);
+  const close = (await pool.query(`INSERT INTO reservation(userid,equipmentid,location,starttime,endtime,status)
+    VALUES($1,$2,'Policy lab',$3::timestamptz AT TIME ZONE 'UTC',$4::timestamptz AT TIME ZONE 'UTC','confirmed') RETURNING reservationid`,
+  [member, machine, soon, new Date(soon.getTime() + hour)])).rows[0].reservationid;
+  const late = await cancel(close);
+  assert.deepEqual([late.status, late.body.error.code, late.body.error.message],
+    [409, 'CANCELLATION_NOTICE_REQUIRED', 'Equipment cancellations require at least 24 hours notice. Contact staff.']);
+  assert.equal((await pool.query('SELECT status FROM reservation WHERE reservationid=$1', [close])).rows[0].status, 'confirmed');
 });

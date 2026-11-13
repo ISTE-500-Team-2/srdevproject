@@ -13,6 +13,7 @@ import { EquipmentModel } from "../models/EquipmentModel.js";
 import {
   ReservationModel,
   RESERVATION_COOLDOWN_MINUTES,
+  type ReservationRecord,
   type ReservationResource,
 } from "../models/ReservationModel.js";
 import { RoomModel } from "../models/RoomModel.js";
@@ -130,6 +131,40 @@ function assertOnlinePayable(rate: string | null, hours: number, clientAmountCen
     throw new AppError(409, 'INVALID_RATE', 'This rate cannot be paid online. Please contact staff.');
   if (clientAmountCents !== undefined && clientAmountCents !== amountCents)
     throw new AppError(409, 'PRICE_CHANGED', 'The equipment rate changed. Review the updated total and try again.');
+}
+
+/** Effects every cancellation applies after its own guarded status change succeeded. */
+async function applyCancellation(
+  db: Database,
+  actorId: number,
+  memberId: number,
+  action: string,
+  reason: string,
+  before: ReservationRecord | null,
+  result: ReservationRecord,
+) {
+  await cancelReservationPayment(db, result.id);
+  await new StaffModel(db).audit(
+    actorId,
+    memberId,
+    action,
+    "reservation",
+    result.id,
+    reason,
+    before,
+    result,
+  );
+  await enqueueNotification(db, {
+    userId: memberId,
+    kind: "reservation_cancelled",
+    dedupeKey: `reservation-cancelled:${result.id}`,
+    payload: {
+      reservationId: result.id,
+      resourceName: result.equipmentName,
+      startsAt: new Date(result.startTime).toISOString(),
+      endsAt: new Date(result.endTime).toISOString(),
+    },
+  });
 }
 
 export class ReservationService {
@@ -485,6 +520,62 @@ export class ReservationService {
     });
   }
 
+  /**
+   * Member cancellation of their own booking with at least 24 hours notice. One guarded
+   * UPDATE decides eligibility; staff cancellation (cancelAny) has its own checks.
+   */
+  async cancel(userId: number, reservationId: number) {
+    const result = await transaction(this.pool, async (db) => {
+      if (
+        (
+          await db.query(
+            "SELECT c.id FROM app_training_class c JOIN reservation v ON v.reservationid=c.reservation_id WHERE c.reservation_id=$1 AND v.userid=$2",
+            [reservationId, userId],
+          )
+        ).rowCount
+      )
+        throw new AppError(
+          409,
+          "CLASS_WORKFLOW_REQUIRED",
+          "Cancel this training through Classes.",
+        );
+      const result = await new ReservationModel(db).cancel(reservationId, userId);
+      if (!result) {
+        const existing = await db.query(
+          "SELECT status,starttime FROM reservation WHERE reservationid=$1 AND userid=$2",
+          [reservationId, userId],
+        );
+        if (
+          existing.rows[0] &&
+          ["confirmed", "pending"].includes(existing.rows[0].status)
+        )
+          throw new AppError(
+            409,
+            "CANCELLATION_NOTICE_REQUIRED",
+            "Equipment cancellations require at least 24 hours notice. Contact staff.",
+          );
+        return null;
+      }
+      await applyCancellation(
+        db,
+        userId,
+        userId,
+        "reservation.cancelled",
+        "Member cancellation with at least 24 hours notice",
+        null,
+        result,
+      );
+      return result;
+    });
+    if (!result)
+      throw new AppError(
+        404,
+        "NOT_FOUND",
+        "No cancellable reservation was found for this account.",
+      );
+    return result;
+  }
+
   async cancelAny(actorId: number, reservationId: number, maintenance?: { sourceEquipmentId: number; expectedRevision: unknown }) {
     return transaction(this.pool, async (db) => {
       const access = new AccessService(db, this.timeZone);
@@ -542,28 +633,15 @@ export class ReservationService {
           "INVALID_STATUS",
           "Only active reservations can be cancelled.",
         );
-      await cancelReservationPayment(db, reservationId);
-      await new StaffModel(db).audit(
+      await applyCancellation(
+        db,
         actorId,
         before.userId,
         "reservation.override.cancelled",
-        "reservation",
-        result.id,
         "Staff reservation override",
         before,
         result,
       );
-      await enqueueNotification(db, {
-        userId: before.userId,
-        kind: "reservation_cancelled",
-        dedupeKey: `reservation-cancelled:${result.id}`,
-        payload: {
-          reservationId: result.id,
-          resourceName: result.equipmentName,
-          startsAt: new Date(result.startTime).toISOString(),
-          endsAt: new Date(result.endTime).toISOString(),
-        },
-      });
       return result;
     });
   }
