@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import hashlib
 import hmac
+import http.client
 import json
 import math
 import time
@@ -19,6 +20,9 @@ DECISION_PATH = '/api/devices/decision'
 DEADLINE_SECONDS = 1.8
 MAX_RESPONSE_BYTES = 16384
 MODES = ('access', 'enroll', 'disabled')
+# Expected network, TLS, HTTP and malformed-response failures. Anything else is
+# an internal fault: callers still fail closed, but log its class and stage.
+TRANSPORT_FAULTS = (OSError, ValueError, http.client.HTTPException)
 
 
 class ProtocolError(ValueError):
