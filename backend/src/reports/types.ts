@@ -1,4 +1,5 @@
 import type { membershipTrends } from "../membershipReports.js";
+import type { CheckInOrigin } from "../models/checkInOrigin.js";
 import type { notificationMetrics } from "../notifications/store.js";
 
 export type ReportPeriod = "daily" | "weekly" | "monthly";
@@ -84,7 +85,7 @@ export interface CheckedInPerson {
   name: string;
   location: string;
   at: Date;
-  method: "nfc" | "portal";
+  method: CheckInOrigin;
 }
 
 export interface ReportData {

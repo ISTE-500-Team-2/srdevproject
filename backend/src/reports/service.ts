@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import { transaction } from "../db.js";
 import { AppError } from "../domain.js";
+import { checkInOriginSql } from "../models/checkInOrigin.js";
 import {
   membershipTrends,
   membershipReportNotes,
@@ -157,7 +158,7 @@ export function loadReport(
       await db.query<CheckedInPerson & { total: number }>(
         `SELECT latest.*,COUNT(*) OVER()::int AS total FROM (
  SELECT DISTINCT ON (i.userid) i.userid AS "userId",u.firstname || ' ' || u.lastname AS name,i.location,
- i.checkintime AT TIME ZONE 'UTC' AS at,CASE WHEN i.statusdesc ILIKE '%NFC%' THEN 'nfc' ELSE 'portal' END AS method
+ i.checkintime AT TIME ZONE 'UTC' AS at,${checkInOriginSql("i")} AS method
  FROM check_in i JOIN "user" u USING(userid)
  WHERE i.status='approved' AND i.checkintime AT TIME ZONE 'UTC'>=date_trunc('day',NOW() AT TIME ZONE $1) AT TIME ZONE $1
  ORDER BY i.userid,i.checkintime DESC,i.checkinid DESC

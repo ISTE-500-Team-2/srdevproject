@@ -1,5 +1,6 @@
 import { MinorSupervision } from "../minorSupervision.js";
 import type { Database } from '../db.js';
+import { checkInOriginSql } from "./checkInOrigin.js";
 import { DEFAULT_BUILDING_ID } from '../facility.js';
 
 export class MemberModel {
@@ -44,10 +45,8 @@ export class MemberModel {
   async recentCheckIns(userId: number) {
     return (
       await this.db.query(
-        // Reader check-ins are recorded with an NFC status description
-        // (see deviceAccess.ts); everything else came from the member portal.
         `SELECT checkinid AS id,location,checkintime AT TIME ZONE 'UTC' AS "checkedInAt",
-        CASE WHEN statusdesc ILIKE '%NFC%' THEN 'nfc' ELSE 'portal' END AS method
+        ${checkInOriginSql("check_in")} AS method
       FROM check_in WHERE userid=$1 ORDER BY checkintime DESC LIMIT 5`,
         [userId],
       )
@@ -56,8 +55,8 @@ export class MemberModel {
   async createCheckIn(userId: number, location: string, roomId: number | null = null,
     buildingId: number | null = null, equipmentId: number | null = null, reservationId: number | null = null) {
     const { rows } = await this.db.query(
-      `INSERT INTO check_in (userid,roomid,location,buildingid,equipmentid,reservationid,checkintime,status,statusdesc)
-      VALUES ($1,$2,$3,$4,$5,$6,NOW() AT TIME ZONE 'UTC','approved','Eligibility verified by member portal')
+      `INSERT INTO check_in (userid,roomid,location,buildingid,equipmentid,reservationid,checkintime,status,statusdesc,origin)
+      VALUES ($1,$2,$3,$4,$5,$6,NOW() AT TIME ZONE 'UTC','approved','Eligibility verified by member portal','portal')
       RETURNING checkinid AS id,location,checkintime AT TIME ZONE 'UTC' AS "checkedInAt"`,
       [userId, roomId, location,buildingId,equipmentId,reservationId],
     );
