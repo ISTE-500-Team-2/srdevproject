@@ -1,6 +1,7 @@
 import {quote} from './pricing.js';
 import {cancellationBoundary} from './policy.js';
 import {refundTransition} from './refundTransition.js';
+import {isCheckoutSessionEvent,isInvoiceEvent,isRefundEvent,isSubscriptionEvent} from './stripeEvents.js';
 import {randomUUID} from 'node:crypto';
 import type {Pool} from 'pg';
 import type Stripe from 'stripe';
@@ -9,7 +10,12 @@ import {AppError, positiveId, textField} from '../domain.js';
 import {requireActor} from '../accountPolicy.js';
 import {StudioStripe} from '../studios/stripe.js';
 import {StaffModel, type Plan} from '../models/StaffModel.js';
-interface BillingRecord {id:string;userid:number;tierid:number;plan_snapshot:Plan;amount_cents:number;checkout_id:string|null;subscription_id:string|null;customer_id:string|null;status:string;created_at:Date;}
+interface BillingRecord {id:string;userid:number;tierid:number;plan_snapshot:Plan;amount_cents:number;checkout_id:string|null;subscription_id:string|null;customer_id:string|null;status:string;created_at:Date;cancellation_effective_at:Date|null;}
+/** An app_membership_invoice row joined with its billing record's member and amount. */
+interface InvoiceRecord {id:string;billing_id:string;membership_id:number;payment_id:number;period_start:Date;period_end:Date;
+  payment_intent:string|null;refund_id:string|null;refund_status:string|null;userid:number;amount_cents:number;}
+/** Monthly membership checkout request; each field is validated by MembershipBilling.checkout. */
+export interface MembershipCheckoutRequest {[field:string]:unknown;planId?:unknown;autoRenewConsent?:unknown;expectedRevision?:unknown;pricingRevision?:unknown;amountCents?:unknown;}
 import {enqueueNotification} from '../notifications/store.js';
 
 const objectId = (v: string | {id:string} | null | undefined) => typeof v === 'string' ? v : v?.id;
@@ -25,7 +31,7 @@ export class MembershipBilling {
       cancel_at_period_end AS "cancelAtPeriodEnd",current_period_end AS "currentPeriodEnd",
       cancellation_effective_at AS "cancellationEffectiveAt",cancellation_confirmed AS "cancellationConfirmed",amount_cents AS "amountCents" FROM app_membership_billing WHERE userid=$1 ORDER BY created_at DESC LIMIT 100`,[userid])).rows;
   }
-  async checkout(userid:number, body:any) {
+  async checkout(userid:number, body:MembershipCheckoutRequest) {
     const returnPath = `/checkout-return?member=${userid}`;
     const provider=this.provider(), planId=positiveId(body.planId);
     if(body.autoRenewConsent !== true) throw new AppError(400,'CONSENT_REQUIRED','Agree to monthly automatic renewal before continuing.');
@@ -36,12 +42,12 @@ export class MembershipBilling {
       if(!plan?.active || plan.kind!=='membership' || plan.months!==1)
         throw new AppError(400,'MONTHLY_PLAN_REQUIRED','Choose an active one-month membership plan.');
       if(plan.revision!==body.expectedRevision) throw new AppError(409,'PRICE_CHANGED','Refresh and review the current monthly price.');
-      const through=(await db.query("SELECT to_char(now()+interval '1 month','YYYY-MM-DD') AS date")).rows[0].date;
+      const through=(await db.query<{date:string}>("SELECT to_char(now()+interval '1 month','YYYY-MM-DD') AS date")).rows[0]!.date;
       const offer=await quote(db,userid,plan,through),amount=offer.amountCents;
       if(offer.pricingRevision && (body.pricingRevision!==offer.pricingRevision||body.amountCents!==amount))
         throw new AppError(409,'PRICE_CHANGED','Refresh and review your eligible monthly price.');
       if(!Number.isSafeInteger(amount)||amount<50||amount>10000000) throw new AppError(400,'INVALID_PRICE','Staff must configure a supported monthly rate.');
-      const old=(await db.query("SELECT * FROM app_membership_billing WHERE userid=$1 AND status NOT IN ('canceled','incomplete_expired','expired') FOR UPDATE",[userid])).rows[0];
+      const old=(await db.query<BillingRecord>("SELECT * FROM app_membership_billing WHERE userid=$1 AND status NOT IN ('canceled','incomplete_expired','expired') FOR UPDATE",[userid])).rows[0];
       if(old) {
         if(old.status!=='pending'||old.tierid!==planId||old.amount_cents!==amount)
           throw new AppError(409,'BILLING_EXISTS','An active membership or checkout already exists. Manage it before starting another.');
@@ -49,8 +55,8 @@ export class MembershipBilling {
       }
       const existing=await db.query("SELECT membershipid FROM user_membership WHERE userid=$1 AND status IN ('active','suspended') AND end_date>NOW() AT TIME ZONE 'UTC'",[userid]);
       if(existing.rowCount) throw new AppError(409,'MEMBERSHIP_EXISTS','Contact staff before replacing an existing membership. No automatic billing was started.');
-      const r=(await db.query(`INSERT INTO app_membership_billing(id,userid,tierid,plan_snapshot,amount_cents)
-        VALUES($1,$2,$3,$4,$5) RETURNING *`,[randomUUID(),userid,planId,JSON.stringify({...plan,price:(amount/100).toFixed(2),priceBasis:offer.basis}),amount])).rows[0];
+      const r=(await db.query<BillingRecord>(`INSERT INTO app_membership_billing(id,userid,tierid,plan_snapshot,amount_cents)
+        VALUES($1,$2,$3,$4,$5) RETURNING *`,[randomUUID(),userid,planId,JSON.stringify({...plan,price:(amount/100).toFixed(2),priceBasis:offer.basis}),amount])).rows[0]!;
       return {...r,email:user.email};
     });
     // Stable server-owned ID makes retries safe; an unresolved checkout is never
@@ -78,17 +84,18 @@ export class MembershipBilling {
   }
   async cancel(userid:number,id:string) {
     const provider=this.provider();
-    const row=(await this.pool.query('SELECT * FROM app_membership_billing WHERE id::text=$1 AND userid=$2',[id,userid])).rows[0];
+    const row=(await this.pool.query<BillingRecord>('SELECT * FROM app_membership_billing WHERE id::text=$1 AND userid=$2',[id,userid])).rows[0];
     if(!row) throw new AppError(404,'NOT_FOUND','Membership billing record not found.');
     if(terminal.has(row.status)) return;
     if(row.subscription_id) {
+      const subscriptionId=row.subscription_id;
       // Save a stable cancellation intent before the network request. A timeout
       // can then retry the exact same provider operation without moving the date.
       const effective=await transaction(this.pool,async db=>{
-        await db.query("SELECT pg_advisory_xact_lock(hashtext('membership-stripe'),hashtext($1))",[row.subscription_id]);
-        const current=(await db.query('SELECT * FROM app_membership_billing WHERE id=$1 FOR UPDATE',[row.id])).rows[0];
+        await db.query("SELECT pg_advisory_xact_lock(hashtext('membership-stripe'),hashtext($1))",[subscriptionId]);
+        const current=(await db.query<BillingRecord>('SELECT * FROM app_membership_billing WHERE id=$1 FOR UPDATE',[row.id])).rows[0]!;
         if(current.cancellation_effective_at)return Math.floor(new Date(current.cancellation_effective_at).getTime()/1000);
-        const canonical=await provider.sdk.subscriptions.retrieve(row.subscription_id);
+        const canonical=await provider.sdk.subscriptions.retrieve(subscriptionId);
         if(canonical.livemode)throw new AppError(400,'LIVE_PAYMENT_FORBIDDEN','Test subscriptions only.');
         const requested=Math.floor(Date.now()/1000);
         const date=cancellationBoundary(canonical.items.data[0]!.current_period_end,canonical.billing_cycle_anchor,requested);
@@ -96,8 +103,8 @@ export class MembershipBilling {
         return date;
       });
       await transaction(this.pool,async db=>{
-        await db.query("SELECT pg_advisory_xact_lock(hashtext('membership-stripe'),hashtext($1))",[row.subscription_id]);
-        const sub=await provider.sdk.subscriptions.update(row.subscription_id,{cancel_at:effective,proration_behavior:'none'},
+        await db.query("SELECT pg_advisory_xact_lock(hashtext('membership-stripe'),hashtext($1))",[subscriptionId]);
+        const sub=await provider.sdk.subscriptions.update(subscriptionId,{cancel_at:effective,proration_behavior:'none'},
           {idempotencyKey:'membership-cancel:'+row.id});
         await this.syncSubscription(db,sub);
         await enqueueNotification(db,{userId:userid,kind:'membership_cancelled',dedupeKey:'membership-cancel:'+row.id,
@@ -112,7 +119,7 @@ export class MembershipBilling {
   }
   async portal(userid:number,id:string) {
     const p=this.provider();
-    const r=(await this.pool.query('SELECT customer_id FROM app_membership_billing WHERE id::text=$1 AND userid=$2',[id,userid])).rows[0];
+    const r=(await this.pool.query<{customer_id:string|null}>('SELECT customer_id FROM app_membership_billing WHERE id::text=$1 AND userid=$2',[id,userid])).rows[0];
     if(!r?.customer_id) throw new AppError(404,'NOT_FOUND','A verified billing account is required.');
     // Never expose the account's default portal cancellation settings: cancellation
     // must go through the application's 30-day notice policy.
@@ -142,7 +149,7 @@ export class MembershipBilling {
     // an immutable paid period; a failed renewal cannot extend the previous one.
     return {...r,subscription_id:sub.id,customer_id:customer};
   }
-  async invoicePaid(db:Database, invoice:Stripe.Invoice, row:any) {
+  async invoicePaid(db:Database, invoice:Stripe.Invoice, row:BillingRecord) {
     if(invoice.livemode||invoice.status!=='paid'||invoice.currency!=='usd'||
        objectId(invoice.customer)!==row.customer_id||objectId(invoice.parent?.subscription_details?.subscription)!==row.subscription_id||invoice.amount_paid!==row.amount_cents||
        !['subscription_create','subscription_cycle'].includes(invoice.billing_reason??''))
@@ -177,7 +184,7 @@ export class MembershipBilling {
     const explanation=textField(reason,'Refund reason',255,3),sdk=this.provider().sdk;
     return transaction(this.pool,async db=>{
       await requireActor(db,actor,{staff:true});
-      const r=(await db.query(`SELECT i.*,b.userid,b.amount_cents FROM app_membership_invoice i
+      const r=(await db.query<InvoiceRecord>(`SELECT i.*,b.userid,b.amount_cents FROM app_membership_invoice i
         JOIN app_membership_billing b ON b.id=i.billing_id WHERE i.id=$1 FOR UPDATE OF i`,[id])).rows[0];
       if(!r) throw new AppError(404,'NOT_FOUND','Invoice not found.');
       if(r.refund_status==='succeeded') return {status:'succeeded'};
@@ -186,7 +193,7 @@ export class MembershipBilling {
         const p=payments.data[0];
         if(payments.has_more||payments.data.length!==1||!p||p.livemode||p.currency!=='usd'||p.amount_paid!==r.amount_cents||p.payment.type!=='payment_intent')
           throw new AppError(409,'RECONCILE_REQUIRED','Invoice needs original-payment reconciliation in Stripe.');
-        r.payment_intent=objectId(p.payment.payment_intent);
+        r.payment_intent=objectId(p.payment.payment_intent)??null;
         if(!r.payment_intent) throw new AppError(409,'RECONCILE_REQUIRED','Original payment is missing.');
         await db.query('UPDATE app_membership_invoice SET payment_intent=$2 WHERE id=$1',[id,r.payment_intent]);
       }
@@ -200,7 +207,7 @@ export class MembershipBilling {
     });
   }
   async applyRefund(db:Database,f:Stripe.Refund) {
-    const r=(await db.query(`SELECT i.*,b.userid,b.amount_cents FROM app_membership_invoice i
+    const r=(await db.query<InvoiceRecord>(`SELECT i.*,b.userid,b.amount_cents FROM app_membership_invoice i
       JOIN app_membership_billing b ON b.id=i.billing_id WHERE i.payment_intent=$1 FOR UPDATE OF i`,[objectId(f.payment_intent)])).rows[0];
     if(!r) return;
     if(f.amount!==r.amount_cents||f.currency!=='usd') throw new AppError(409,'RECONCILE_REQUIRED','Refund does not match the original invoice payment.');
@@ -225,13 +232,13 @@ export class MembershipBilling {
     const sdk=this.provider().sdk,pi=objectId(obj.payment_intent);
     if(!pi)throw new AppError(400,'PAYMENT_MISMATCH','Refund payment intent missing.');
     await db.query("SELECT pg_advisory_xact_lock(hashtext('membership-refund'),hashtext($1))",[pi]);
-    let record=(await db.query('SELECT id FROM app_membership_invoice WHERE payment_intent=$1 FOR UPDATE',[pi])).rows[0];
+    let record=(await db.query<{id:string}>('SELECT id FROM app_membership_invoice WHERE payment_intent=$1 FOR UPDATE',[pi])).rows[0];
     if(!record) {
       const linked=await sdk.invoicePayments.list({payment:{type:'payment_intent',payment_intent:pi},status:'paid',limit:100});
       if(linked.has_more)throw new AppError(409,'RECONCILE_REQUIRED','Invoice payment mapping needs reconciliation.');
       for(const payment of linked.data) {
         const invoiceId=objectId(payment.invoice);
-        const r=(await db.query(`SELECT i.*,b.amount_cents FROM app_membership_invoice i JOIN app_membership_billing b ON b.id=i.billing_id WHERE i.id=$1 FOR UPDATE OF i`,[invoiceId])).rows[0];
+        const r=(await db.query<Omit<InvoiceRecord,'userid'>>(`SELECT i.*,b.amount_cents FROM app_membership_invoice i JOIN app_membership_billing b ON b.id=i.billing_id WHERE i.id=$1 FOR UPDATE OF i`,[invoiceId])).rows[0];
         if(!r)continue;
         if(linked.data.length!==1||payment.livemode||payment.currency!=='usd'||payment.amount_paid!==r.amount_cents||payment.payment.type!=='payment_intent'||objectId(payment.payment.payment_intent)!==pi||r.payment_intent&&r.payment_intent!==pi)
           throw new AppError(409,'RECONCILE_REQUIRED','Refund invoice mapping does not match its original payment.');
@@ -271,9 +278,8 @@ export class MembershipBilling {
         const s=event.data.object as Stripe.Checkout.Session;
         await db.query("UPDATE app_membership_billing SET status='expired' WHERE checkout_id=$1 AND status='pending' AND subscription_id IS NULL",[s.id]);return;
       }
-      const obj=event.data.object as any;
-      if(['refund.created','refund.updated','refund.failed'].includes(event.type)){await this.refundEvent(db,obj);return;}
-      const sid=event.type.startsWith('customer.subscription.') ? obj.id : event.type.startsWith('invoice.') ? objectId(obj.parent?.subscription_details?.subscription) : event.type.startsWith('checkout.session.') ? objectId(obj.subscription) : undefined;
+      if(isRefundEvent(event)){await this.refundEvent(db,event.data.object);return;}
+      const sid=isSubscriptionEvent(event) ? event.data.object.id : isInvoiceEvent(event) ? objectId(event.data.object.parent?.subscription_details?.subscription) : isCheckoutSessionEvent(event) ? objectId(event.data.object.subscription) : undefined;
       if(!sid) return;
       // Retrieve authoritative current state so late/out-of-order events cannot
       // re-enable auto-renew after cancellation.
@@ -281,11 +287,11 @@ export class MembershipBilling {
       const sub=await sdk.subscriptions.retrieve(sid);
       const row=await this.syncSubscription(db,sub);
       if(!row) return;
-      if(event.type==='invoice.paid') await this.invoicePaid(db,await sdk.invoices.retrieve(obj.id),row);
-      if(event.type==='invoice.payment_failed') await enqueueNotification(db,{userId:row.userid,kind:'payment_failed',dedupeKey:'membership-failed:'+obj.id,
-        payload:{reference:obj.id,membershipName:row.plan_snapshot.name,instructions:'Update your payment method in Membership & passes. Access is not extended until payment succeeds.'}});
-      if(event.type==='invoice.upcoming') await enqueueNotification(db,{userId:row.userid,kind:'membership_renewal',dedupeKey:`membership-renewal:${row.id}:${obj.period_end}`,
-        payload:{membershipName:row.plan_snapshot.name,amount:(row.amount_cents/100).toFixed(2),currency:'USD',renewsAt:new Date(obj.period_end*1000).toISOString()}});
+      if(event.type==='invoice.paid') await this.invoicePaid(db,await sdk.invoices.retrieve(event.data.object.id),row);
+      if(event.type==='invoice.payment_failed') await enqueueNotification(db,{userId:row.userid,kind:'payment_failed',dedupeKey:'membership-failed:'+event.data.object.id,
+        payload:{reference:event.data.object.id,membershipName:row.plan_snapshot.name,instructions:'Update your payment method in Membership & passes. Access is not extended until payment succeeds.'}});
+      if(event.type==='invoice.upcoming') await enqueueNotification(db,{userId:row.userid,kind:'membership_renewal',dedupeKey:`membership-renewal:${row.id}:${event.data.object.period_end}`,
+        payload:{membershipName:row.plan_snapshot.name,amount:(row.amount_cents/100).toFixed(2),currency:'USD',renewsAt:new Date(event.data.object.period_end*1000).toISOString()}});
     });
   }
 }
