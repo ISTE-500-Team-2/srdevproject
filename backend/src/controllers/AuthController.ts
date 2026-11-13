@@ -16,7 +16,6 @@ import {
   passwordField,
   publicUser,
   textField,
-  type UserView,
 } from '../domain.js';
 import {
   hashPassword,
@@ -25,7 +24,7 @@ import {
 } from '../passwords.js';
 import { UserModel } from '../models/UserModel.js';
 import { accountModeView } from "../accountMode.js";
-import { SessionModel } from '../models/SessionModel.js';
+import { SessionModel, type IssuedSession } from '../models/SessionModel.js';
 import { authState, cookieName, refreshToken } from '../middleware/auth.js';
 import { renderNotificationTemplate, type NotificationTemplate } from '../notifications.js';
 
@@ -82,7 +81,7 @@ export class AuthController {
   }
   private respond(
     res: Response,
-    session: {token:string;refreshToken:string;csrfToken:string;ttl:number;user:UserView;persistent:boolean},
+    session: IssuedSession,
     notification?: NotificationTemplate,
   ) {
     res.set('Cache-Control','no-store');
