@@ -4,6 +4,7 @@ import { api, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
 import { LoadState } from "../components/Management";
 import { dollars, dateTime, zonedDay } from "../lib/display";
+import { useFacilityZone } from "../lib/facilityZone";
 import type { Report } from "../lib/reportContracts";
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
@@ -32,7 +33,24 @@ export function ComplianceSummary({ compliance: c }: { compliance: Report["compl
 }
 
 export function ReportsPage() {
-  const today = zonedDay("America/New_York");
+  // The default dates are today in the facility's zone, so the report waits for it.
+  const zone = useFacilityZone();
+  return (
+    <section className="management-page">
+      <header className="admin-page-heading">
+        <p className="admin-page-eyebrow">Records</p>
+        <h1 className="admin-title">Reports</h1>
+        <p>
+          Saved receipts, reservations, training attendance, and authenticated
+          reader activity. Refreshes every 30 seconds.
+        </p>
+      </header>
+      {zone ? <ReportsView today={zonedDay(zone)} /> : <LoadState loading error="" reload={() => undefined} />}
+    </section>
+  );
+}
+
+function ReportsView({ today }: { today: string }) {
   const [query, setQuery] = useState(`from=${today}&to=${today}&period=daily`),
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false);
@@ -80,15 +98,7 @@ export function ReportsPage() {
   }
   const d = report.data;
   return (
-    <section className="management-page">
-      <header className="admin-page-heading">
-        <p className="admin-page-eyebrow">Records</p>
-        <h1 className="admin-title">Reports</h1>
-        <p>
-          Saved receipts, reservations, training attendance, and authenticated
-          reader activity. Refreshes every 30 seconds.
-        </p>
-      </header>
+    <>
       <form className="management-search" onSubmit={filter}>
         <label>
           From
@@ -128,6 +138,7 @@ export function ReportsPage() {
       <LoadState {...report} />
       {d ? (
         <>
+          {/* When the report was made, in the viewer's own clock. */}
           <p>
             Generated {dateTime(d.generatedAt)} · Reporting timezone:{" "}
             {d.timeZone}
@@ -387,6 +398,6 @@ export function ReportsPage() {
           </details>
         </>
       ) : null}
-    </section>
+    </>
   );
 }

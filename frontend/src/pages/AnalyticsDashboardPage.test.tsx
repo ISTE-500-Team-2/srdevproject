@@ -36,6 +36,7 @@ function serve(current: Record<string, unknown>, previous: Record<string, unknow
     ['/admin/reports?from=2026-09-12&to=2026-10-11&period=daily', { ...previous, from: '2026-09-12', to: '2026-10-11', period: 'daily' }],
   ]);
   vi.mocked(useApi).mockImplementation((url) => {
+    if (url === '/config') return state({ timeZone: 'America/New_York' });
     const key = requestKey(String(url));
     if (!fixtures.has(key)) throw new Error(`Unexpected request: ${key}`);
     return state(fixtures.get(key));
@@ -262,4 +263,38 @@ test('members: an empty period says so instead of drawing empty bars', () => {
   const card = screen.getByText('Members by week').closest('article')!;
   expect(card.textContent).toContain('Nobody joined or cancelled in this period.');
   expect(within(card).queryByRole('region')).toBeNull();
+});
+
+/** The page at `now` with /config answering `config`; every report request is recorded and answered with `report`. */
+function serveZone(now: string, config: { timeZone: string } | 'loading' | 'failed', answer: unknown = null) {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(now));
+  vi.mocked(useApi).mockImplementation((url) => url === '/config'
+    ? { data: typeof config === 'object' ? config : null, loading: config === 'loading', refreshing: false, error: config === 'failed' ? 'Offline' : '', reload: vi.fn() }
+    : state(answer));
+  render(<AnalyticsDashboardPage />);
+}
+const reportRequests = () => requested().filter((key) => key.startsWith('/admin/reports'));
+
+test('no report is requested until the facility zone is known', () => {
+  serveZone('2026-11-11T03:00:00Z', 'loading');
+  expect(screen.getByRole('heading', { name: 'Analytics' })).toBeTruthy();
+  expect(screen.getByRole('status').textContent).toBe('Loading records…');
+  expect(reportRequests()).toEqual([]);
+});
+
+test('ranges are days in the facility zone from /config, and class times are shown in it', () => {
+  // 03:00 UTC on Nov 11 is still Nov 10 in New York but already Nov 11 in Auckland.
+  const classes = [{ id: 1, title: 'Morning class', capacity: 10, enrolled: 5, attended: 4, filledPercent: '50', status: 'scheduled', startsAt: '2026-11-10T20:00:00Z' }];
+  serveZone('2026-11-11T03:00:00Z', { timeZone: 'Pacific/Auckland' }, report({ from: '2026-10-13', to: '2026-11-11', classes, timeZone: 'Pacific/Auckland' }));
+  expect(reportRequests()).toContain('/admin/reports?from=2026-10-13&to=2026-11-11&period=weekly');
+  expect(reportRequests().filter((key) => key.includes('to=2026-11-10&period=weekly'))).toEqual([]);
+  expect(screen.getByText(/Morning class/).closest('li')!.textContent).toContain('Nov 11');
+  fireEvent.change(screen.getByLabelText('Date range'), { target: { value: 'custom' } });
+  expect((screen.getByLabelText('Through') as HTMLInputElement).max).toBe('2026-11-11');
+});
+
+test('when /config cannot be read, ranges fall back to New York days', () => {
+  serveZone('2026-11-11T03:00:00Z', 'failed');
+  expect(reportRequests()).toContain('/admin/reports?from=2026-10-12&to=2026-11-10&period=weekly');
 });
