@@ -2,7 +2,8 @@ import type { Request, Response } from "express";
 import type { Pool } from "pg";
 import { AppError, positiveId, textField } from "../domain.js";
 import { authState } from "../middleware/auth.js";
-import { COMPLIANCE_EXPORT_LIMIT, StaffModel } from "../models/StaffModel.js";
+import { AUDIT_VIEWS_LIST, COMPLIANCE_EXPORT_LIMIT, StaffModel } from "../models/StaffModel.js";
+import { auditChanges } from "../auditChanges.js";
 import { StaffService } from "../services/StaffService.js";
 import { memberRequirements } from "../memberRequirements.js";
 import {
@@ -41,6 +42,15 @@ function optionalAuditAction(value: unknown) {
   if (!/^[a-z][a-z0-9_.-]*$/.test(action))
     throw new AppError(400, "INVALID_INPUT", "Audit action is invalid.");
   return action;
+}
+/** A comma-separated list of actions, as the change log's area filter sends them. */
+function optionalAuditActions(value: unknown) {
+  if (value == null) return null;
+  if (typeof value !== "string" || value.length > 8000)
+    throw new AppError(400, "INVALID_INPUT", "Audit actions are invalid.");
+  const actions = [...new Set(value.split(",").map((item) => item.trim()).filter(Boolean))];
+  if (actions.length > 300) throw new AppError(400, "INVALID_INPUT", "Choose fewer audit actions.");
+  return actions.map((action) => optionalAuditAction(action)!);
 }
 const PAYMENT_STATUSES = ["pending", "paid", "void", "waived", "refunded"] as const;
 function optionalInstant(value: unknown) {
@@ -317,20 +327,47 @@ export class StaffController {
         "INVALID_INPUT",
         "Audit start time must not be after the end time.",
       );
+    const view =
+      req.query.view == null || req.query.view === ""
+        ? null
+        : oneOf(req.query.view, AUDIT_VIEWS_LIST, "Audit view");
+    const filters = {
+      userId: optionalPositiveId(req.query.userId, "User"),
+      actorId: optionalPositiveId(req.query.actorId, "Actor"),
+      action: optionalAuditAction(req.query.action),
+      actions: optionalAuditActions(req.query.actions),
+      search:
+        req.query.search == null || req.query.search === ""
+          ? null
+          : textField(req.query.search, "Search", 100, 0),
+      from,
+      to,
+      view,
+    };
+    // An area filter that matched no recorded action leaves nothing to find.
+    if (filters.actions?.length === 0)
+      return void res.json({
+        data: { items: [], nextOffset: null, ...(view ? { counts: { staff: 0, taps: 0, database: 0 } } : {}) },
+      });
+    const [rows, counts] = await Promise.all([
+      this.model.audits(filters, offset),
+      // Totals cost a second query, so only the change log (which asks for a view) gets them.
+      view ? this.model.auditCounts(filters) : null,
+    ]);
+    res.json({ data: { ...page(rows, offset), ...(counts ? { counts } : {}) } });
+  };
+  /** One record in full: its reason, what changed, and what was saved with it. */
+  auditRecord = async (req: Request, res: Response) => {
+    const found = await this.model.auditRecord(positiveId(req.params.id, "Audit record"));
+    if (!found) throw new AppError(404, "NOT_FOUND", "That change log record does not exist.");
+    const { before, after, ...record } = found.record;
     res.json({
-      data: page(
-        await this.model.audits(
-          {
-            userId: optionalPositiveId(req.query.userId, "User"),
-            actorId: optionalPositiveId(req.query.actorId, "Actor"),
-            action: optionalAuditAction(req.query.action),
-            from,
-            to,
-          },
-          offset,
-        ),
-        offset,
-      ),
+      data: {
+        ...record,
+        changes: auditChanges(before, after),
+        related: found.related,
+        relatedCount: found.relatedCount,
+      },
     });
   };
   /** Every action ever recorded, independent of the current filters and page. */
