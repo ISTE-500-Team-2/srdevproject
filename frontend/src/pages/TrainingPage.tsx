@@ -1,41 +1,17 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { MemberSelect } from "../components/MemberSelect";
+import { useState } from "react";
 import type { LiveEquipment } from "../lib/contracts";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { api, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
-import { LoadState } from "../components/Management";
-import { Modal } from "../components/Modal";
-import HoldButton from "../components/reactbits/HoldButton";
-import { cents, localInput, shortDate } from "../lib/display";
 import type { ComplianceReport } from "../lib/staffContracts";
-import { Check, Pencil, Plus, RefreshCw, TriangleAlert } from "lucide-react";
+import { Plus } from "lucide-react";
+import { CertificationCatalog } from "./training/CertificationCatalog";
+import { CourseEditorDialog } from "./training/CourseEditorDialog";
+import { MemberTrainingRecords } from "./training/MemberTrainingRecords";
+import { RecordTrainingDialog } from "./training/RecordTrainingDialog";
+import { RevokeTrainingDialog } from "./training/RevokeTrainingDialog";
+import type { Course, CourseEditor, SaveOutcome, TrainingRecord, TrainingTarget } from "./training/trainingTypes";
 import "./certwaiver.css";
-type Course = {
-  id: number;
-  name: string;
-  description: string;
-  validityDays: number | null;
-  revision: number;
-  equipmentIds: number[];
-  trainingFeeCents: number | null;
-  trainingMinutes: number;
-  endsAt?: string | null;
-};
-type Record = {
-  id: number;
-  certificationId: number;
-  name: string;
-  status: string;
-  valid: boolean;
-  revision: number;
-  expiresAt: string | null;
-  trainedAt: string | null;
-  revokedAt?: string | null;
-  instructorName: string | null;
-  trainingMinutes?: number | null;
-};
 export function TrainingPage({ embedded = false }: { embedded?: boolean }) {
   const { user } = useAuth();
   const roles = user?.roles ?? [];
@@ -58,6 +34,11 @@ export function TrainingPage({ embedded = false }: { embedded?: boolean }) {
     />
   );
 }
+/**
+ * Training administration. Each workflow (certification editor, recording training,
+ * revoking it) owns its busy and error state; the page only refreshes the shared reads
+ * and confirms a save.
+ */
 function TrainingWorkspace({
   canConfigure,
   canApprove,
@@ -69,101 +50,21 @@ function TrainingWorkspace({
 }) {
   const catalog = useApi<Course[]>("/training/catalog");
   const equipment = useApi<LiveEquipment[]>("/equipment");
-  const [equipmentSearch, setEquipmentSearch] = useState("");
-  const [equipmentIds, setEquipmentIds] = useState<number[]>([]);
   const [memberId, setMemberId] = useState("");
-  const [selectedMember, setSelectedMember] = useState("");
-  const records = useApi<Record[]>(
-    selectedMember ? `/training/users/${selectedMember}` : null,
-  );
-  const [editing, setEditing] = useState<Course | null>(null);
-  const [catalogDirty, setCatalogDirty] = useState(false);
-  useEffect(() => {
-    setEquipmentIds(editing?.equipmentIds ?? []);
-    setEquipmentSearch("");
-    setCatalogDirty(false);
-  }, [editing]);
-  const [renewing, setRenewing] = useState<Record | null>(null);
-  const [revoking, setRevoking] = useState<Record | null>(null);
-  const [revokeReason, setRevokeReason] = useState("");
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  async function run(work: () => Promise<unknown>) {
-    setBusy(true);
-    setMessage("");
-    setError("");
-    try {
-      await work();
-      catalog.reload();
-      if (selectedMember) records.reload();
-      setMessage("Training records saved.");
-      return true;
-    } catch (e) {
-      setError(errorMessage(e));
-      return false;
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function saveCourse(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const f = new FormData(e.currentTarget);
-    await run(async () => {
-      await api(
-        editing?.id ? `/training/catalog/${editing.id}` : "/training/catalog",
-        {
-          method: editing?.id ? "PATCH" : "POST",
-          body: {
-            name: f.get("name"),
-            description: f.get("description"),
-            trainingMinutes: Number(f.get('minutes')),
-            trainingFeeCents: String(f.get('fee')).trim() ? Math.round(Number(f.get('fee')) * 100) : null,
-            equipmentIds,
-            reason: f.get("reason"),
-            ...(editing?.id ? { expectedRevision: editing.revision } : {}),
-          },
-        },
-      );
-      setEditing(null);
-      setEquipmentIds([]);
-    });
-  }
-  async function approve(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const f = new FormData(e.currentTarget);
-    await run(async () => {
-      await api(
-        `/training/users/${selectedMember}/certifications/${f.get("certId")}`,
-        {
-          method: "POST",
-          body: {
-            trainedAt: new Date(String(f.get("trainedAt"))).toISOString(),
-            trainingMinutes: Number(f.get('completedMinutes')),
-            source: f.get("source"),
-            verifiedInPerson: f.get("verified") === "on",
-            verificationReference: f.get("reference"),
-            reason: f.get("reason"),
-            ...(records.data?.find(
-              (r) => r.certificationId === Number(f.get("certId")),
-            )
-              ? {
-                  expectedRevision: records.data!.find(
-                    (r) => r.certificationId === Number(f.get("certId")),
-                  )!.revision,
-                }
-              : {}),
-          },
-        },
-      );
-      setRenewing(null);
-    });
-  }
+  const records = useApi<TrainingRecord[]>(memberId ? `/training/users/${memberId}` : null);
   const stats = useApi<ComplianceReport>(canConfigure ? "/admin/compliance?userStatus=active" : null);
-  const certified = new Map((stats.data?.certificationBreakdown ?? []).map((c) => [c.id, c]));
-  const equipmentName = (id: number) => equipment.data?.find((e) => e.id === id)?.name ?? "Equipment";
-  const current = selectedMember ? records.data ?? [] : [];
-  const untrained = (catalog.data ?? []).filter((c) => !current.some((r) => r.certificationId === c.id));
+  const [editor, setEditor] = useState<CourseEditor | null>(null);
+  const [recording, setRecording] = useState<TrainingTarget | null>(null);
+  const [revoking, setRevoking] = useState<TrainingRecord | null>(null);
+  const [message, setMessage] = useState("");
+  const outcome: SaveOutcome = {
+    started: () => setMessage(""),
+    saved: () => {
+      catalog.reload();
+      if (memberId) records.reload();
+      setMessage("Training records saved.");
+    },
+  };
 
   return (
     <div className={embedded ? "cw-section" : "management-page page-enter cw-section"}>
@@ -171,7 +72,7 @@ function TrainingWorkspace({
       <div className="cw-row">
         <p className="cw-muted">Training members must complete before they can use linked equipment.</p>
         {canConfigure ? (
-          <button type="button" className="button button--primary cw-small" onClick={() => { setError(""); setEditing({ id: 0 } as Course); }}>
+          <button type="button" className="button button--primary cw-small" onClick={() => setEditor({ mode: "new" })}>
             <Plus aria-hidden="true" /> New certification
           </button>
         ) : null}
@@ -181,288 +82,52 @@ function TrainingWorkspace({
           {message}
         </p>
       ) : null}
-      <LoadState {...catalog} loading={catalog.loading && !catalog.data} />
-      {catalog.data && !catalog.data.length ? (
-        <p className="cw-muted">No certifications yet.{canConfigure ? " Add one to link training to equipment." : ""}</p>
-      ) : null}
-      <div className="cw-certs">
-        {catalog.data?.map((c) => {
-          const n = certified.get(c.id);
-          return (
-            <article className="cw-cert" key={c.id}>
-              <div className="cw-cert__top">
-                <h3>{c.name}</h3>
-                {n ? (
-                  <span className={`cw-tag cw-tag--${n.compliant ? "green" : "grey"}`}>{n.compliant} certified</span>
-                ) : null}
-              </div>
-              {c.trainingMinutes != null && c.trainingFeeCents != null ? (
-                <p className="cw-muted">{c.trainingMinutes} minutes · {cents(c.trainingFeeCents)} training fee</p>
-              ) : null}
-              {c.validityDays ? (
-                <small className="cw-muted">Renew every {c.validityDays} days</small>
-              ) : (
-                <small className="cw-muted">Valid until revoked{c.endsAt ? ' or the certification ends' : ''}</small>
-              )}
-              <p>{c.trainingMinutes ?? 60} minutes of training · {c.trainingFeeCents == null ? 'Training fee not configured' : `${cents(c.trainingFeeCents)} one-time fee when registering for training`}</p>
-              <div className="cw-cert__equipment">
-                {c.equipmentIds.length ? (
-                  c.equipmentIds.map((id) => (
-                    <span className="cw-tag cw-tag--grey" key={id}>
-                      {equipmentName(id)}
-                    </span>
-                  ))
-                ) : (
-                  <small className="cw-muted">No equipment linked</small>
-                )}
-              </div>
-              <div className="cw-cert__foot">
-                <small className="cw-muted">
-                  {n ? (n.expiring ? `${n.expiring} expiring soon` : n.compliant ? "All current" : "No one trained yet") : ""}
-                </small>
-                {canConfigure ? (
-                  <button type="button" className="button button--quiet cw-small" onClick={() => { setError(""); setEditing(c); }} aria-label={`Configure ${c.name}`}>
-                    <Pencil aria-hidden="true" /> Edit
-                  </button>
-                ) : null}
-              </div>
-            </article>
-          );
-        })}
-      </div>
+      <CertificationCatalog
+        catalog={catalog}
+        equipment={equipment.data}
+        compliance={stats.data}
+        canConfigure={canConfigure}
+        onEdit={(course) => setEditor({ mode: "edit", course })}
+      />
+      <MemberTrainingRecords
+        memberId={memberId}
+        onMember={(id) => {
+          setMemberId(id);
+          setRecording(null);
+          setRevoking(null);
+        }}
+        records={records}
+        catalog={catalog.data}
+        canApprove={canApprove}
+        canConfigure={canConfigure}
+        onRecord={setRecording}
+        onRevoke={setRevoking}
+      />
 
-      <section className="cw-records" aria-labelledby="records-title">
-        <div className="cw-row">
-          <h3 id="records-title">Member training records</h3>
-        </div>
-        <MemberSelect
-          value={memberId}
-          onChange={(id) => {
-            setMemberId(id);
-            setSelectedMember(id);
-            setRenewing(null);
-            setRevoking(null);
-            setError("");
-          }}
+      {editor ? (
+        <CourseEditorDialog
+          key={editor.mode === "edit" ? editor.course.id : "new"}
+          editor={editor}
+          equipment={equipment}
+          outcome={outcome}
+          onClose={() => setEditor(null)}
         />
-        {selectedMember ? (
-          <>
-            <LoadState {...records} loading={records.loading && !records.data} />
-            <ul className="cw-recs">
-              {current.map((r) => (
-                <li key={r.id}>
-                  <div>
-                    <b>{r.name}</b>
-                    <small>
-                      {r.trainedAt ? `Trained ${shortDate(r.trainedAt, true)}` : "Training date not recorded"}
-                      {r.instructorName ? ` by ${r.instructorName}` : ""}
-                      {r.trainingMinutes ? ` · ${r.trainingMinutes} minutes verified` : ''}
-                    </small>
-                    {r.status === "revoked" && r.revokedAt ? (
-                      <small>Revoked {shortDate(r.revokedAt, true)}. New in-person training is needed before approving again.</small>
-                    ) : null}
-                  </div>
-                  <div>
-                    <span className={`cw-tag cw-tag--${r.valid ? "green" : r.status === "revoked" ? "red" : "amber"}`}>
-                      {r.valid ? "Current" : "Not current"} · {r.status}
-                    </span>
-                    <small>{r.expiresAt ? `${r.valid ? "Expires" : "Expired"} ${shortDate(r.expiresAt, true)}` : "No expiry recorded"}</small>
-                  </div>
-                  <div className="cw-recs__actions">
-                    {canApprove ? (
-                      <button type="button" className="button button--quiet cw-small" onClick={() => { setError(""); setRenewing(r); }}>
-                        {r.valid ? "Renew" : "Record new training"}
-                      </button>
-                    ) : null}
-                    {canConfigure && r.status === "active" ? (
-                      <button type="button" className="button cw-danger cw-small" onClick={() => { setError(""); setRevokeReason(""); setRevoking(r); }}>
-                        Revoke
-                      </button>
-                    ) : null}
-                  </div>
-                </li>
-              ))}
-              {records.data
-                ? untrained.map((c) => (
-                    <li key={`new-${c.id}`}>
-                      <div>
-                        <b>{c.name}</b>
-                        <small>Not trained</small>
-                      </div>
-                      <div />
-                      <div className="cw-recs__actions">
-                        {canApprove ? (
-                          <button
-                            type="button"
-                            className="button button--primary cw-small"
-                            aria-label={`Record ${c.name} training`}
-                            onClick={() => { setError(""); setRenewing({ certificationId: c.id, name: c.name } as Record); }}
-                          >
-                            <Check aria-hidden="true" /> Record training
-                          </button>
-                        ) : null}
-                      </div>
-                    </li>
-                  ))
-                : null}
-            </ul>
-            {!canApprove ? <p className="cw-muted">An authorized instructor must verify and approve completed training.</p> : null}
-          </>
-        ) : (
-          <p className="cw-muted">Pick a member to see their training.</p>
-        )}
-      </section>
-
-      {editing ? (
-        <Modal open width="panel" title={editing.id ? `Edit ${editing.name}` : "New certification"} dirty={catalogDirty} dismissible={!busy} onClose={() => setEditing(null)}>
-          {(requestClose) => <form className="cw-form" key={editing.id} onChangeCapture={() => setCatalogDirty(true)} onSubmit={saveCourse}>
-            {error ? <p className="form-error" role="alert">{error}</p> : null}
-            <label className="cw-field">
-              <span>Name</span>
-              <input name="name" required maxLength={100} defaultValue={editing.name} />
-            </label>
-            <label className="cw-field">
-              <span>Description</span>
-              <textarea name="description" maxLength={255} rows={3} defaultValue={editing.description} />
-            </label>
-            <div className="cw-field" role="group" aria-labelledby="certification-renewal">
-              <span id="certification-renewal">Renewal</span>
-              <p className="cw-fact"><RefreshCw aria-hidden="true" /><span><b>1 year</b> from each member’s training date</span></p>
-              <small>Training can still be revoked.</small>
-            </div>
-            <div className="cw-two">
-              <label className="cw-field"><span>Training duration (minutes)</span><input name="minutes" type="number" min={1} max={480} required defaultValue={editing.trainingMinutes ?? 60} /></label>
-              <label className="cw-field"><span>One-time training fee ($)</span><input name="fee" type="number" min={0} max={100000} step="0.01" defaultValue={editing.trainingFeeCents == null ? '' : (editing.trainingFeeCents/100).toFixed(2)} /></label>
-            </div>
-            <p className="cw-muted">This is the total price of the training session, paid once per equipment certification. There is no extra course fee. Previously paid or completed training is not charged again. Equipment bookings only charge the hourly rate. Enter 0 for no training fee; leave blank to pause new training registration until priced.</p>
-            <fieldset className="cw-field cw-equipment">
-              <legend>Equipment covered by this certification</legend>
-              <label className="cw-field">
-                <span>Find equipment</span>
-                <input type="search" value={equipmentSearch} onChange={(e) => setEquipmentSearch(e.target.value)} />
-              </label>
-              <LoadState {...equipment} />
-              <div className="cw-equipment__list">
-                {equipment.data
-                  ?.filter((item) => (item.name + " " + item.location).toLowerCase().includes(equipmentSearch.toLowerCase()))
-                  .map((item) => (
-                    <label key={item.id}>
-                      <input
-                        type="checkbox"
-                        checked={equipmentIds.includes(item.id)}
-                        disabled={!!editing.equipmentIds?.includes(item.id) || !!(item.certification && item.certification !== editing.name)}
-                        onChange={(e) =>
-                          setEquipmentIds((ids) => (e.target.checked ? [...ids, item.id] : ids.filter((id) => id !== item.id)))
-                        }
-                      />{" "}
-                      {item.name} — {item.location}
-                    </label>
-                  ))}
-              </div>
-              <small>
-                {equipmentIds.length} selected. Each machine can require one certification. Equipment linked to another
-                certification cannot be reassigned here. Existing links are kept and cannot be unchecked.
-              </small>
-            </fieldset>
-            <label className="cw-field">
-              <span>Policy approval/reference</span>
-              <input name="reason" required maxLength={500} />
-            </label>
-            <div className="cw-form__actions">
-              <button type="button" className="button button--quiet" onClick={requestClose} disabled={busy}>
-                Cancel
-              </button>
-              <button className="button button--primary" disabled={busy || equipment.loading || !!equipment.error}>
-                Save certification
-              </button>
-            </div>
-          </form>}
-        </Modal>
       ) : null}
 
-      {renewing ? (
-        <Modal open width="panel" title={`Record training: ${renewing.name}`} onClose={() => setRenewing(null)}>
-          <form className="cw-form" key={renewing.certificationId} onSubmit={approve}>
-            {error ? <p className="form-error" role="alert">{error}</p> : null}
-            <input type="hidden" name="certId" value={renewing.certificationId} />
-            <label className="cw-field">
-              <span>Actual training date/time</span>
-              <input name="trainedAt" type="datetime-local" required max={localInput()} />
-            </label>
-            <label className="cw-field">
-              <span>Training source</span>
-              <select name="source">
-                <option value="equipment">Equipment training</option>
-                <option value="external">External training verified in person</option>
-              </select>
-            </label>
-            <label className="cw-field"><span>Completed training (minutes)</span><input name="completedMinutes" type="number" required min={catalog.data?.find(c=>c.id===renewing.certificationId)?.trainingMinutes ?? 60} max={480} defaultValue={catalog.data?.find(c=>c.id===renewing.certificationId)?.trainingMinutes ?? 60} /></label>
-            <label className="cw-field">
-              <span>Verification reference</span>
-              <input name="reference" required maxLength={500} placeholder="e.g. Observed safe demonstration" />
-            </label>
-            <label className="cw-field">
-              <span>Reason</span>
-              <input name="reason" required maxLength={500} />
-            </label>
-            <label className="cw-check">
-              <input name="verified" type="checkbox" required /> I conducted or verified this training in person.
-            </label>
-            <p className="cw-muted">Approval records your signed-in identity. Self-certification isn't allowed.</p>
-            <div className="cw-form__actions">
-              <button type="button" className="button button--quiet" onClick={() => setRenewing(null)}>
-                Cancel
-              </button>
-              <button className="button button--primary" disabled={busy}>
-                Approve training
-              </button>
-            </div>
-          </form>
-        </Modal>
+      {recording ? (
+        <RecordTrainingDialog
+          key={recording.certificationId}
+          memberId={memberId}
+          target={recording}
+          records={records.data}
+          minutes={catalog.data?.find((c) => c.id === recording.certificationId)?.trainingMinutes ?? 60}
+          outcome={outcome}
+          onClose={() => setRecording(null)}
+        />
       ) : null}
 
       {revoking ? (
-        <Modal open width="compact" title={`Revoke ${revoking.name}?`} onClose={() => setRevoking(null)}>
-          <div className="cw-form">
-            {error ? <p className="form-error" role="alert">{error}</p> : null}
-            <p>The member loses access to linked equipment until new in-person training is recorded.</p>
-            <label className="cw-field">
-              <span>Revocation/retraining reason</span>
-              <input value={revokeReason} onChange={(e) => setRevokeReason(e.target.value)} required maxLength={500} />
-            </label>
-            <div className="cw-form__actions">
-              <button type="button" className="button button--quiet" onClick={() => setRevoking(null)}>
-                Keep it
-              </button>
-              <HoldButton
-                className="site-hold-button"
-                disabled={busy || !revokeReason.trim()}
-                holdTime={1200}
-                radius={9}
-                backgroundColor="var(--hold-danger-bg)"
-                fillColor="var(--hold-danger)"
-                textColor="var(--hold-danger-text)"
-                fillTextColor="var(--hold-danger-ink)"
-                doneLabel="Revoking…"
-                onHold={() => {
-                  const r = revoking;
-                  void run(() =>
-                    api(`/training/users/${selectedMember}/certifications/${r.certificationId}/revoke`, {
-                      method: "POST",
-                      body: { expectedRevision: r.revision, reason: revokeReason },
-                    }),
-                  ).then((saved) => {
-                    if (!saved) return;
-                    setRevoking(null);
-                    setRevokeReason("");
-                  });
-                }}
-              >
-                Hold to revoke {revoking.name}
-              </HoldButton>
-            </div>
-          </div>
-        </Modal>
+        <RevokeTrainingDialog key={revoking.id} memberId={memberId} record={revoking} outcome={outcome} onClose={() => setRevoking(null)} />
       ) : null}
     </div>
   );
