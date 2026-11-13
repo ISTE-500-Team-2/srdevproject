@@ -42,7 +42,11 @@ export const daysBetween = (a: string, b: string) =>
 export type Slot = Studio["availability"][number];
 export type StudioState = "rented" | "held" | "open" | "off";
 
-/** Where a studio stands today. Rental end dates are exclusive. */
+/**
+ * Where a studio stands today: the one operational-state rule for the Studios desk and Today.
+ * A rental today wins; otherwise it is open if members can book it (bookable) and off if not.
+ * Rental end dates are exclusive.
+ */
 export function studioNow(s: Studio, today: string) {
   const slots = [...s.availability].sort((a, b) => a.starts_on.localeCompare(b.starts_on));
   const current = slots.find((r) => dateOnly(r.starts_on) <= today && dateOnly(r.ends_on) > today);

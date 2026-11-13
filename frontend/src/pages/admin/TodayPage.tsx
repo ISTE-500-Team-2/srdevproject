@@ -281,7 +281,7 @@ function FloorPanel({
   );
 }
 
-const studioStateText = { rented: "Rented", held: "Held, awaiting payment", open: "Available" };
+const studioStateText = { rented: "Rented", held: "Held, awaiting payment", open: "Available", off: "Not offered to members" };
 function StudiosPanel({
   state,
   studios,

@@ -36,8 +36,18 @@ const EMPTY_SIGNUP = {
 };
 type SignupField = keyof typeof EMPTY_SIGNUP;
 
-// Sends a server error back to the step that holds the field it names.
-const stepForError = (message: string) =>
+// The step that holds each signup request field.
+const SIGNUP_FIELD_STEP: Record<SignupField, number> = {
+  firstName: 1,
+  lastName: 1,
+  dob: 1,
+  email: 2,
+  phone: 2,
+  password: 3,
+};
+
+// Servers that name no field: judge by the message's wording.
+const stepForMessage = (message: string) =>
   /password/i.test(message)
     ? 3
     : /email|phone/i.test(message)
@@ -45,6 +55,15 @@ const stepForError = (message: string) =>
       : /name|birth|age/i.test(message)
         ? 1
         : null;
+
+// Sends a server error back to the step that holds the field it names. A field
+// with no step (such as the time zone) leaves the visitor where they are.
+const stepForError = (err: unknown, message: string) =>
+  err instanceof ApiError && err.field !== undefined
+    ? Object.hasOwn(SIGNUP_FIELD_STEP, err.field)
+      ? SIGNUP_FIELD_STEP[err.field as SignupField]
+      : null
+    : stepForMessage(message);
 
 export function LoginPage() {
   const { login, loginAs, register, demoLogin, loading } = useAuth();
@@ -147,7 +166,7 @@ export function LoginPage() {
     } catch (err) {
       const message = errorMessage(err);
       setError(message);
-      setSignupStep((current) => stepForError(message) ?? current);
+      setSignupStep((current) => stepForError(err, message) ?? current);
     } finally {
       registering.current = false;
       setBusy(false);
