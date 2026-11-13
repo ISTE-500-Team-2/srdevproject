@@ -5,12 +5,17 @@ import { readConfig } from './config.js';
 import { createApp } from './app.js';
 import { startNotificationRuntime } from './notifications/runtime.js';
 import { startPolicyRuntime } from './policyLifecycle.js';
+import { EquipmentBilling } from './billing/equipment.js';
+import { startEquipmentReconciliation } from './equipmentReconciliation.js';
+import { StudioStripe } from './studios/stripe.js';
 
 const config = readConfig();
 const pool = createPool();
 await pool.query('SELECT 1 FROM app_session LIMIT 1');
 const notifications = startNotificationRuntime(pool, config.notifications);
 const policies = startPolicyRuntime(pool);
+const equipmentPayments = startEquipmentReconciliation(new EquipmentBilling(pool,
+  config.studioStripe ? new StudioStripe(config.studioStripe) : undefined, config.timeZone));
 const frontend = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../frontend/dist',
@@ -27,6 +32,6 @@ const server = createApp(pool, config, frontend).listen(
 );
 for (const signal of ['SIGINT', 'SIGTERM'])
   process.on(signal, () => {
-    server.close(() => void Promise.all([notifications.stop(), policies.stop()]).then(() => pool.end()).finally(() => process.exit(0)));
+    server.close(() => void Promise.all([notifications.stop(), policies.stop(), equipmentPayments.stop()]).then(() => pool.end()).finally(() => process.exit(0)));
     setTimeout(() => process.exit(1), 10000).unref();
   });
