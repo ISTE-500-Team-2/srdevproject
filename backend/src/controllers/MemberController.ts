@@ -1,5 +1,3 @@
-import { enqueueNotification, getNotificationPreferences } from "../notifications/store.js";
-import { EXPIRATION_LOOKAHEAD_DAYS, reminderDates } from "../notifications/scheduler.js";
 import type { Request, Response } from "express";
 import type { Pool } from "pg";
 import { transaction } from "../db.js";
@@ -12,7 +10,8 @@ import { MemberModel } from "../models/MemberModel.js";
 import { StaffModel } from "../models/StaffModel.js";
 import { page } from "../pagination.js";
 import { oneOf, pageOffset } from "../staffDomain.js";
-import { completedWaiverText, participantSignatureField, serverWaiverValues, validateWaiverFields, waiverFormFields, waiverFormLines } from "../waiverForms.js";
+import { WaiverSigningService } from "../services/WaiverSigningService.js";
+import { waiverFormLines } from "../waiverForms.js";
 
 export class MemberController {
   constructor(
@@ -118,101 +117,8 @@ export class MemberController {
   };
   signWaiver = async (req: Request, res: Response) => {
     const id = positiveId(req.params.id);
-    const userId = authState(res).user.id;
-    const signerName = `${authState(res).user.firstName} ${authState(res).user.lastName}`;
-    if (req.body.accepted !== true)
-      throw new AppError(
-        400,
-        "CONSENT_REQUIRED",
-        "Explicit agreement is required.",
-      );
-    const waivers = await new EligibilityModel(
-      this.pool,
-      this.timeZone,
-    ).waivers(userId);
-    if (!waivers.some((w) => w.id === id))
-      throw new AppError(
-        404,
-        "NOT_FOUND",
-        "This is not a current required waiver.",
-      );
-    await transaction(this.pool, async (db) => {
-      // Snapshot the signed version in the same transaction as its signature.
-      const waiver = (
-        await db.query(
-          "SELECT name,version,description FROM waiver WHERE waiverid=$1 FOR SHARE",
-          [id],
-        )
-      ).rows[0];
-      const form = validateWaiverFields(waiver.description ?? '', req.body.formValues, req.body.guardianConsent, signerName);
-      const signatureField = participantSignatureField(waiverFormFields(waiver.description ?? ''));
-      const signature = await new MemberModel(db).signWaiver(userId, id);
-      if (signature)
-        await new StaffModel(db, this.timeZone).audit(
-          userId,
-          userId,
-          "waiver.signed",
-          "waiver",
-          id,
-          "Explicit electronic agreement",
-          null,
-          {
-            signatureId: signature.id,
-            signedAt: signature.signedAt,
-            version: waiver.version,
-          },
-        );
-      // Identity, version and signing time are recorded by the server, not the form.
-      const values = form && signature
-        ? { ...form.values, ...serverWaiverValues(waiver.description, { memberId: userId, signerName, waiverVersion: waiver.version, signedAt: new Date(signature.signedAt), timeZone: this.timeZone }) }
-        : null;
-      if (signature) {
-        const payload = {
-          waiverId: id,
-          waiverName: waiver.name,
-          waiverVersion: waiver.version,
-          waiverText: waiver.description,
-          signature: form && signatureField ? `${form.values[signatureField.key]} (electronic agreement)` : `${signerName} (electronic agreement)`,
-          signedAt: new Date(signature.signedAt).toISOString(),
-          ...(form && values ? {
-            formValues: values,
-            guardianConsent: form.guardianConsent,
-            completedWaiverText: completedWaiverText(waiver.description, values, form.guardianConsent),
-            memberId: userId,
-            methodOfAcceptance: 'Electronic',
-          } : {}),
-        };
-        // The signed copy is a durable record, kept apart from the notification queue.
-        await db.query(
-          "INSERT INTO app_signed_waiver_copy(userwaiverid,userid,payload) VALUES($1,$2,$3::jsonb) ON CONFLICT(userwaiverid) DO NOTHING",
-          [signature.id, userId, JSON.stringify(payload)],
-        );
-        await enqueueNotification(db, {
-          userId,
-          kind: "waiver_signed",
-          dedupeKey: `waiver-signed:${signature.id}`,
-          payload,
-        });
-      }
-      // Keep the scheduler's existing horizon. Short-lived signatures can expire
-      // before its next daily scan, so queue those reminders when signing.
-      if (signature?.expiresAt && new Date(signature.expiresAt).getTime() <= Date.now() + EXPIRATION_LOOKAHEAD_DAYS * 86_400_000) {
-        const prefs = await getNotificationPreferences(db, userId);
-        const expiry = new Date(signature.expiresAt), dates = reminderDates(expiry, prefs.timeZone);
-        await enqueueNotification(db, {
-          userId,
-          kind: "waiver_expiring",
-          dedupeKey: `waiver-expiring:${signature.id}:${expiry.toISOString()}`,
-          ...dates,
-          countsForSla: new Date(signature.signedAt) < dates.deadlineAt,
-          payload: { sourceType: "waiver", sourceId: signature.id, expiresAt: expiry.toISOString(), name: waiver.name },
-        });
-      }
-    });
     res.json({
-      data: await new EligibilityModel(this.pool, this.timeZone).waivers(
-        userId,
-      ),
+      data: await new WaiverSigningService(this.pool, this.timeZone).sign(authState(res).user, id, req.body),
     });
   };
   overview = async (req: Request, res: Response) => {
