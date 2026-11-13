@@ -77,13 +77,3 @@
 .certifications-table td:first-child {
   overflow-wrap: anywhere;
 }
-.waiver-name-cell {
-  min-width: 12rem;
-  align-items: flex-start;
-  flex-direction: column;
-  gap: 8px;
-}
-.waiver-name-cell .button {
-  white-space: normal;
-  text-align: left;
-}
