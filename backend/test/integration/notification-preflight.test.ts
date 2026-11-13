@@ -75,8 +75,10 @@ test('errors after the provider call keep the uncertain classification',async()=
 
 test('a template that cannot render fails permanently without contacting the provider',async()=>{
   await reset();
-  // A signed-waiver notice without its required text cannot be rendered.
-  await enqueueNotification(pool,{userId,kind:'waiver_signed',dedupeKey:'unrenderable',payload:{waiverName:'Incomplete'}});
+  // A signed-waiver notice without its required text cannot be rendered. Typed callers
+  // cannot queue one, so queue it the way a kind known only at run time is queued.
+  const kind:string='waiver_signed';
+  await enqueueNotification(pool,{userId,kind,dedupeKey:'unrenderable',payload:{waiverName:'Incomplete'}});
   const realFetch=globalThis.fetch;let fetches=0;
   globalThis.fetch=(async()=>{fetches++;throw new Error('provider must not be contacted');}) as typeof fetch;
   try {
@@ -86,6 +88,27 @@ test('a template that cannot render fails permanently without contacting the pro
   } finally {globalThis.fetch=realFetch;}
   const row=await outbox('unrenderable');
   assert.equal(row.status,'failed');assert.equal(row.last_error,'render_failed');
+  assert.equal(fetches,0);
+});
+
+test('a stored job whose details would render blank fails permanently as unrenderable',async()=>{
+  await reset();
+  // Typed callers cannot queue an object where an email detail belongs; a stored row can still hold one.
+  await enqueueNotification(pool,{userId,kind:'reservation_created',dedupeKey:'malformed',payload:{}});
+  await pool.query(`UPDATE app_notification_outbox SET payload='{"resourceName":{"name":"Laser"}}' WHERE dedupe_key='malformed'`);
+  await pool.query(`INSERT INTO app_notification_outbox(userid,kind,dedupe_key,payload,due_at,deadline_at)
+    VALUES($1,'reservation_creatd','unknown-kind','{}',NOW(),NOW()+INTERVAL '5 minutes')`,[userId]);
+  const realFetch=globalThis.fetch;let fetches=0;
+  globalThis.fetch=(async()=>{fetches++;throw new Error('provider must not be contacted');}) as typeof fetch;
+  try {
+    const runtime=startNotificationRuntime(pool,{apiKey:'test-key',senderEmail:'sender@example.com',senderName:'Test Studio',
+      replyToEmail:'reply@example.com',postalAddress:'1 Test Road',appOrigin:'http://localhost:8080',intervalMs:3600000});
+    await runtime.stop();
+  } finally {globalThis.fetch=realFetch;}
+  for(const key of ['malformed','unknown-kind']) {
+    const row=await outbox(key);
+    assert.equal(row.status,'failed',key);assert.equal(row.last_error,'render_failed',key);
+  }
   assert.equal(fetches,0);
 });
 
