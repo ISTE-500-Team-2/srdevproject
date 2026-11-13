@@ -92,7 +92,6 @@ export class StudioService {
       )
     ).rows;
   }
-  // Callers read mine() and staffList() rows without narrowing, so those results stay untyped.
   async mine(id: number) {
     return (
       await this.pool.query<NamedStudioRentalRow>(

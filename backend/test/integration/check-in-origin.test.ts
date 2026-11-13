@@ -48,7 +48,7 @@ const today = async () => {
   return r.body.data.checkedInToday as { userId: number; location: string; method: string }[];
 };
 
-test('migration 040 backfills reader check-ins once and leaves other rows to the fallback', async () => {
+test('migration 040 leaves existing rows to the fallback without rewriting them', async () => {
   const sql = await readFile(path.join(repositoryRoot, 'database/migrations/040_check_in_origin.sql'), 'utf8');
   // Recreate the pre-040 table shape and replay the migration against legacy rows.
   await pool.query('ALTER TABLE check_in DROP COLUMN origin');
@@ -64,9 +64,9 @@ test('migration 040 backfills reader check-ins once and leaves other rows to the
       [member.user.id, location, statusdesc])).rows[0].checkinid);
     const auditsBefore = Number((await pool.query("SELECT COUNT(*) FROM app_staff_audit WHERE action='check_in.update'")).rows[0].count);
     await pool.query(sql);
-    assert.deepEqual(await origins(legacy), ['nfc', 'nfc', null, null]);
+    assert.deepEqual(await origins(legacy), [null, null, null, null]);
     const auditsAfter = Number((await pool.query("SELECT COUNT(*) FROM app_staff_audit WHERE action='check_in.update'")).rows[0].count);
-    assert.equal(auditsAfter - auditsBefore, 2, 'only the backfilled reader rows are rewritten');
+    assert.equal(auditsAfter - auditsBefore, 0, 'no existing check-in is rewritten');
     const recent = await new MemberModel(pool).recentCheckIns(member.user.id);
     assert.deepEqual(Object.fromEntries(recent.map(row => [row.location, row.method])),
       { 'Front door': 'nfc', 'Side door': 'nfc', Portal: 'portal', Desk: 'portal' });

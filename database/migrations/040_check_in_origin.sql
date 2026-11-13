@@ -5,7 +5,5 @@
 -- (backend/src/models/checkInOrigin.ts).
 ALTER TABLE check_in ADD COLUMN origin TEXT
   CONSTRAINT app_check_in_origin CHECK (origin IN ('nfc','portal'));
-
--- Backfill once from the old rule. Only reader rows change (every other row
--- already reads as 'portal'), because each updated row writes an audit event.
-UPDATE check_in SET origin='nfc' WHERE statusdesc ILIKE '%NFC%';
+-- Existing rows are not backfilled: the fallback already classifies them, and an
+-- UPDATE would hold this table's lock while writing one audit row per check-in.

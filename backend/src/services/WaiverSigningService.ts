@@ -26,7 +26,8 @@ export class WaiverSigningService {
       // Snapshot the signed version in the same transaction as its signature.
       const waiver = (await db.query<{ name: string; version: string; description: string | null }>(
         'SELECT name,version,description FROM waiver WHERE waiverid=$1 FOR SHARE', [waiverId])).rows[0];
-      // Checked under the version lock, so the waiver cannot be superseded before the signature is written.
+      // Checked under the row lock, so the waiver cannot be retired before the signature is written.
+      // Publishing a newer version inserts a new row and is not blocked, as before.
       const current = await new EligibilityModel(db, this.timeZone).waivers(userId);
       if (!waiver || !current.some((w) => w.id === waiverId))
         throw new AppError(404, 'NOT_FOUND', 'This is not a current required waiver.');

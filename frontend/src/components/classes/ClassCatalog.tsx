@@ -20,8 +20,6 @@ import {
 import { cents, shortDate } from "../../lib/display";
 import { registrationAction, sponsorReason, type Eligibility } from "./registrationAction";
 
-export { sponsorReason, type Eligibility } from "./registrationAction";
-
 type Props = {
   classes: ClassRecord[];
   eligibility: Eligibility;
