@@ -30,6 +30,16 @@ import { SessionModel } from '../models/SessionModel.js';
 import { authState, cookieName, refreshToken } from '../middleware/auth.js';
 import { renderNotificationTemplate, type NotificationTemplate } from '../notifications.js';
 
+/** Signup errors name the request-body property they are about, so the form can show that step. */
+function signupField<T>(field: string, read: () => T): T {
+  try {
+    return read();
+  } catch (error) {
+    if (error instanceof AppError) error.field = field;
+    throw error;
+  }
+}
+
 export class AuthController {
   private dummyHash = hashPassword(randomBytes(32).toString('hex'));
   constructor(
@@ -143,15 +153,15 @@ export class AuthController {
   };
   register = async (req: Request, res: Response) => {
     const timeZone = req.body.timeZone ?? this.config.timeZone;
-    if (!validTimeZone(timeZone)) throw new AppError(400,'INVALID_INPUT','Choose a valid IANA time zone.');
+    if (!validTimeZone(timeZone)) throw new AppError(400,'INVALID_INPUT','Choose a valid IANA time zone.','timeZone');
     const input = {
-      firstName: textField(req.body.firstName, 'First name', 50),
-      lastName: textField(req.body.lastName, 'Last name', 50),
-      phone: textField(req.body.phone, 'Phone', 15),
+      firstName: signupField('firstName', () => textField(req.body.firstName, 'First name', 50)),
+      lastName: signupField('lastName', () => textField(req.body.lastName, 'Last name', 50)),
+      phone: signupField('phone', () => textField(req.body.phone, 'Phone', 15)),
       // The shared validator uses the same address identity rules as login and recovery.
-      email: emailField(req.body.email),
-      dob: dateOfBirthField(req.body.dob),
-      password: await hashPassword(newPasswordField(req.body.password)),
+      email: signupField('email', () => emailField(req.body.email)),
+      dob: signupField('dob', () => dateOfBirthField(req.body.dob)),
+      password: await hashPassword(signupField('password', () => newPasswordField(req.body.password))),
     };
     // Public registrations remain temporary requests until an inbox token is consumed.
     await pruneRegistrations(this.pool);
@@ -170,6 +180,7 @@ export class AuthController {
           409,
           'EMAIL_ALREADY_REGISTERED',
           'An account with that email address already exists.',
+          'email',
         );
       }
 
