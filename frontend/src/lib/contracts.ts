@@ -92,6 +92,8 @@ export interface Waiver {
   description: string;
   scope: 'facility' | 'equipment';
   formFields?: WaiverFormField[];
+  /** How each description line is laid out, by line number. Older servers omit it. */
+  formLines?: WaiverLineKind[];
   /** The account holder's name; a form signature has to match it. */
   signerName?: string;
   signed: boolean;
@@ -103,12 +105,20 @@ export interface Waiver {
   /** When the current signature runs out, or when the last one of this version did; null if it never expires. */
   expiresAt?: string | null;
 }
+export type WaiverLineKind = 'acceptance-method' | 'heading' | 'text';
+/** What a blank means, independent of its label's wording. */
+export type WaiverFieldSemantic =
+  | 'participant-name' | 'waiver-version' | 'accepted-at' | 'member-id' | 'staff-witness'
+  | 'signature' | 'date-of-birth' | 'signing-date' | 'emergency-contact-name' | 'relationship'
+  | 'emergency-contact-phone' | 'guardian-name' | 'other';
 export interface WaiverFormField {
   key: string;
   label: string;
   line: number;
   type: 'text' | 'date' | 'datetime-local' | 'email' | 'tel';
   section: 'participant' | 'guardian' | 'administrative';
+  /** Absent from older servers; the form then reads the label. */
+  semantic?: WaiverFieldSemantic;
   /** 'server' fields (identity, version, signing time) are filled in when the waiver is signed. */
   source: 'member' | 'server';
   required: boolean;

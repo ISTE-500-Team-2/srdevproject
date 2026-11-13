@@ -12,7 +12,7 @@ import { MemberModel } from "../models/MemberModel.js";
 import { StaffModel } from "../models/StaffModel.js";
 import { page } from "../pagination.js";
 import { oneOf, pageOffset } from "../staffDomain.js";
-import { completedWaiverText, serverWaiverValues, validateWaiverFields, waiverFormFields } from "../waiverForms.js";
+import { completedWaiverText, participantSignatureField, serverWaiverValues, validateWaiverFields, waiverFormFields, waiverFormLines } from "../waiverForms.js";
 
 export class MemberController {
   constructor(
@@ -113,8 +113,8 @@ export class MemberController {
     const signerName = `${user.firstName} ${user.lastName}`;
     const scope = req.query.scope === undefined ? undefined : oneOf(req.query.scope, ['facility', 'equipment'] as const, 'Policy applicability');
     const waivers = await new EligibilityModel(this.pool, this.timeZone).waivers(user.id, scope);
-    // The form shows whose name the signature has to match.
-    res.json({ data: waivers.map((waiver) => ({ ...waiver, signerName })) });
+    // The form shows whose name the signature has to match, laid out by line kind.
+    res.json({ data: waivers.map((waiver) => ({ ...waiver, formLines: waiverFormLines(waiver.description), signerName })) });
   };
   signWaiver = async (req: Request, res: Response) => {
     const id = positiveId(req.params.id);
@@ -145,7 +145,7 @@ export class MemberController {
         )
       ).rows[0];
       const form = validateWaiverFields(waiver.description ?? '', req.body.formValues, req.body.guardianConsent, signerName);
-      const signatureField = waiverFormFields(waiver.description ?? '').find(field => field.section === 'participant' && /signature/i.test(field.label));
+      const signatureField = participantSignatureField(waiverFormFields(waiver.description ?? ''));
       const signature = await new MemberModel(db).signWaiver(userId, id);
       if (signature)
         await new StaffModel(db, this.timeZone).audit(
