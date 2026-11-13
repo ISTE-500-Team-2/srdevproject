@@ -7,7 +7,7 @@ import { api, errorMessage } from "../../../lib/api";
 import type { EquipmentPrice, LiveEquipment, Reservation } from "../../../lib/contracts";
 import { cents } from "../../../lib/display";
 import { useApi } from "../../../lib/useApi";
-import { addDays, formatTime, localHour, mergeBookings, previousDay, timeWindow } from "../../../lib/today";
+import { addDays, formatTime, localHour, timeWindow } from "../../../lib/today";
 import {
   bookedCents,
   canChange,
@@ -23,7 +23,7 @@ import {
   startSlots,
   timeRange,
 } from "../../../lib/reservationSchedule";
-import { useDayBookings } from "../../../pages/admin/useDayBookings";
+import { useBookingsAround } from "../../../lib/useDayBookings";
 
 const HOUR = 3_600_000;
 const refresh = { retainOnReload: true, refreshInterval: 60000 };
@@ -305,19 +305,11 @@ export function ReservationEditor({
   const machine = machines.find((m) => String(m.id) === equipmentId);
   const down = !!machine && machine.status !== "available";
 
-  // A booking can run past midnight either way, and a 24-hour one that starts late can end two days
-  // later when a daylight-saving change shortens the next day. Read every day it could touch.
-  const dayBookings = useDayBookings(day, refresh);
-  const eveBookings = useDayBookings(previousDay(day), refresh);
-  const nextBookings = useDayBookings(addDays(day, 1), refresh);
-  const lastBookings = useDayBookings(addDays(day, 2), refresh);
-  const reads = [eveBookings, dayBookings, nextBookings, lastBookings];
-  // Until every read succeeds the times can't be trusted: show the failure with a retry.
-  const readFailure = reads.map((r) => r.failed ?? (r.state?.error ? { error: r.state.error, reload: r.state.reload } : undefined)).find(Boolean);
-  const loadingDay = !readFailure && reads.some((r) => r.state);
+  // Every day a booking could touch. Until every read succeeds the times can't be trusted: show the failure with a retry.
+  const { bookings, failure: readFailure, loading: loadingDay, loaders } = useBookingsAround(day, refresh);
   const timesUnknown = loadingDay || !!readFailure;
   const dayStart = localHour(day, 0, zone), dayEnd = localHour(day, 24, zone);
-  const machineBookings = mergeBookings(...reads.map((r) => r.bookings)).filter((b) => String(b.equipmentId) === equipmentId);
+  const machineBookings = bookings.filter((b) => String(b.equipmentId) === equipmentId);
   const own = machineBookings.filter((b) => Date.parse(b.endTime) > dayStart && Date.parse(b.startTime) < dayEnd);
   const slots = startSlots(day, zone, now, machineBookings, editing?.id);
   const slot = start === null ? undefined : slots.find((s) => s.at === start);
@@ -524,10 +516,7 @@ export function ReservationEditor({
           </button>
         </div>
       </form>
-      {dayBookings.loaders}
-      {eveBookings.loaders}
-      {nextBookings.loaders}
-      {lastBookings.loaders}
+      {loaders}
     </div>
   );
 }

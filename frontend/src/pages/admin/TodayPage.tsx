@@ -30,7 +30,7 @@ import {
 } from "../../lib/today";
 import { useApi } from "../../lib/useApi";
 import { useFailure } from "../../lib/useFailure";
-import { useDayBookings } from "./useDayBookings";
+import { useDayBookings } from "../../lib/useDayBookings";
 import type { Report } from "../../lib/reportContracts";
 import "./today.css";
 

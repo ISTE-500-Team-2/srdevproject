@@ -3,7 +3,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { errorMessage } from "../../lib/api";
-import { adminGroups } from "../../pages/admin/sections";
+import { adminNavGroups } from "./adminNavigation";
 import { AccountPicker } from "./AccountPicker";
 import { Modal } from "../Modal";
 import { AppearanceControl } from "../AppearanceControl";
@@ -59,7 +59,7 @@ export function AdminShell() {
           <CalendarDays aria-hidden="true" />
           Today
         </NavLink>
-        {adminGroups.map((group) => (
+        {adminNavGroups.map((group) => (
           <div className="admin-nav__group" key={group.label} role="group" aria-label={group.label}>
             <span className="admin-nav__group-label" aria-hidden="true">
               {group.label}
