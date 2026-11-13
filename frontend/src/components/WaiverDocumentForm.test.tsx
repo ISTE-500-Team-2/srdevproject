@@ -54,3 +54,40 @@ test('guardian fields appear and become required only when consent is selected',
   fireEvent.click(screen.getByRole('checkbox', { name: 'Include parent or legal guardian consent' }));
   expect(guardian.value).toBe('Taylor Guardian');
 });
+
+test('semantic ids and line kinds decide behaviour when the server sends them', () => {
+  // Labels reworded so none of the legacy label patterns match.
+  const reworded: WaiverFormField[] = [
+    { key: 'name', label: 'Nom du participant', line: 0, type: 'text', section: 'participant', semantic: 'participant-name', source: 'server', required: true, maxLength: 200 },
+    { key: 'born', label: 'Né le', line: 1, type: 'date', section: 'participant', semantic: 'date-of-birth', source: 'member', required: true, maxLength: 200 },
+    { key: 'sign', label: 'Paraphe', line: 2, type: 'text', section: 'participant', semantic: 'signature', source: 'member', required: true, maxLength: 200 },
+    { key: 'sos', label: 'Téléphone', line: 3, type: 'tel', section: 'participant', semantic: 'emergency-contact-phone', source: 'member', required: true, maxLength: 40 },
+    { key: 'id', label: 'Identifiant', line: 5, type: 'text', section: 'administrative', semantic: 'member-id', source: 'server', required: true, maxLength: 200 },
+    // A label that looks like a signature but is not one.
+    { key: 'note', label: 'Signature notes', line: 6, type: 'text', section: 'participant', semantic: 'other', source: 'member', required: true, maxLength: 200 },
+  ];
+  const description = ['Nom du participant: ____', 'Né le: ____', 'Paraphe: ____', 'Téléphone: ____', 'Section A', 'Identifiant: ____', 'Signature notes: ____', 'Acceptation'].join('\n');
+  const { container } = render(<WaiverDocumentForm user={user} busy={false} onSubmit={vi.fn()}
+    waiver={{ ...waiver, description, formFields: reworded, formLines: ['text', 'text', 'text', 'text', 'heading', 'text', 'text', 'acceptance-method'] }}>
+    <button>Record agreement</button>
+  </WaiverDocumentForm>);
+  const outputs = [...container.querySelectorAll('output')].map(output => output.textContent);
+  expect(outputs).toEqual(['Jordan Demo', '1']);
+  const born = screen.getByLabelText('Né le (required)') as HTMLInputElement;
+  expect([born.value, born.autocomplete, born.max]).toEqual(['', 'bday', expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/)]);
+  expect((screen.getByLabelText('Paraphe (required)') as HTMLInputElement).placeholder).toBe('Jordan Demo');
+  expect((screen.getByLabelText('Téléphone (required)') as HTMLInputElement).autocomplete).toBe('off');
+  expect((screen.getByLabelText('Signature notes (required)') as HTMLInputElement).placeholder).toBe('');
+  expect(screen.getByRole('heading', { name: 'Section A' })).toBeTruthy();
+  expect(screen.getByRole('group', { name: 'Method of Acceptance' })).toBeTruthy();
+});
+
+test('without line kinds, headings and the acceptance method are recognised from the text as before', () => {
+  const description = ['1. Purpose', 'Plain terms.', 'Administrative Record', 'Method of Acceptance: ☐ Electronic ☐ In Person ☐ Other'].join('\n');
+  render(<WaiverDocumentForm user={user} busy={false} onSubmit={vi.fn()} waiver={{ ...waiver, description, formFields: [] }}>
+    <button>Record agreement</button>
+  </WaiverDocumentForm>);
+  expect(screen.getAllByRole('heading', { level: 3 }).map(h => h.textContent)).toEqual(['Review and complete your agreement', '1. Purpose', 'Administrative Record']);
+  expect(screen.getByText('Plain terms.')).toBeTruthy();
+  expect(screen.getByRole('group', { name: 'Method of Acceptance' })).toBeTruthy();
+});

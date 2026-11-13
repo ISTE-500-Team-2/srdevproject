@@ -1,6 +1,7 @@
 import { MinorSupervision } from "../minorSupervision.js";
 import type { Database } from "../db.js";
 import { AppError } from "../domain.js";
+import { accessStatusCode, entitlementCode, waiverCode } from "../eligibility.js";
 import { EligibilityModel } from "../models/EligibilityModel.js";
 import type { EquipmentRecord } from "../models/EquipmentModel.js";
 import type { PolicyScope } from "../staffDomain.js";
@@ -22,24 +23,25 @@ export class AccessService {
       'SELECT status,accessstatus FROM "user" WHERE userid=$1 FOR SHARE',[userId])).rows[0];
     if (user?.status !== 'active')
       throw new AppError(403,'ACCOUNT_INACTIVE','This account does not currently have access.');
-    if (user.accessstatus !== 'active')
+    if (accessStatusCode(user.accessstatus))
       throw new AppError(403,'ACCESS_BLOCKED','Facility access is suspended or revoked. Contact staff.');
   }
 
   async assertEntitlement(userId: number, start: Date, end = start) {
     const value = await this.eligibility.entitlement(userId,start,end);
-    if (!value.membership && !value.dayPass)
+    if (entitlementCode(value))
       throw new AppError(403,'MEMBERSHIP_REQUIRED','An active membership or valid day pass is required for this time.');
     return value;
   }
 
   async assertWaivers(userId: number, scope: PolicyScope = 'facility', through?: Date) {
     const waivers = await this.eligibility.waivers(userId, scope, through);
-    if (!waivers.length)
+    const code = waiverCode(waivers);
+    if (code === 'WAIVERS_NOT_CONFIGURED')
       throw new AppError(409,'WAIVERS_NOT_CONFIGURED',scope === 'equipment'
         ? 'Staff need to configure the required equipment waivers before this equipment can be used.'
         : 'Staff need to configure the required facility policies before access can be granted.');
-    if (waivers.some(w => !w.signed))
+    if (code === 'WAIVER_REQUIRED')
       throw new AppError(403,'WAIVER_REQUIRED',through
         ? `Sign all current required ${scope === 'equipment' ? 'equipment waivers' : 'facility policies'} first. They must remain valid through your reservation.`
         : `Sign all current required ${scope === 'equipment' ? 'equipment waivers' : 'facility policies'} first.`);

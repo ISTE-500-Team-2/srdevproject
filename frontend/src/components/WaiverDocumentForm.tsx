@@ -1,22 +1,35 @@
 import { useId, useState, type ReactNode } from 'react';
-import type { User, Waiver, WaiverFormField } from '../lib/contracts';
+import type { User, Waiver, WaiverFieldSemantic, WaiverFormField, WaiverLineKind } from '../lib/contracts';
 import { localInput } from '../lib/display';
 
+/** Whether a blank has this meaning. Fields from older servers carry no id, so their label decides. */
+const means = (field: WaiverFormField, semantic: WaiverFieldSemantic, legacyLabel: RegExp) =>
+  field.semantic ? field.semantic === semantic : legacyLabel.test(field.label);
+
+/** Older servers send no line kinds; the line's text decides. */
+const legacyLineKind = (line: string): WaiverLineKind =>
+  /^Method of Acceptance:/.test(line) ? 'acceptance-method'
+    : /^\d+\.\s|^Parent or Legal Guardian Consent$|^Administrative Record$/.test(line) ? 'heading' : 'text';
+
+// The id also covers labels like "Participant date of birth", which are plain text inputs.
+const isBirthDate = (field: WaiverFormField) => field.semantic
+  ? field.semantic === 'date-of-birth' && field.type === 'date' : /^date of birth$/i.test(field.label);
+
 function fieldGuidance(field: WaiverFormField, signerName: string) {
-  const label = field.label.toLowerCase();
   const guardian = field.section === 'guardian';
-  if (/signature/.test(label)) return {
+  if (means(field, 'signature', /signature/i)) return {
     hint: guardian ? 'Type the same full name entered in Parent/Guardian Name. This is your electronic signature.'
       : `Type ${signerName || 'your full account name'} to sign electronically. Use your full name, not initials.`,
     placeholder: guardian ? 'Parent or guardian’s full name' : signerName,
     autoComplete: 'off',
   };
-  if (/date of birth/.test(label)) return { hint: 'Enter the participant’s date of birth, not today’s date.', autoComplete: 'bday' };
-  if (/emergency contact name/.test(label)) return { hint: 'Who should we contact in an emergency? Enter their full name.', placeholder: 'Emergency contact’s full name', autoComplete: 'off' };
-  if (/relationship/.test(label)) return { hint: 'How is the parent or guardian related to the participant?', placeholder: 'For example: parent or legal guardian', autoComplete: 'off' };
-  if (field.type === 'tel') return { hint: guardian ? 'A phone number where the parent or guardian can be reached.' : /emergency/.test(label) ? 'A phone number where your emergency contact can be reached. Include the area code.' : 'Enter your phone number, including the area code.', placeholder: 'For example: (555) 010-1234', autoComplete: guardian ? 'section-guardian tel' : /emergency/.test(label) ? 'off' : 'section-participant tel' };
+  if (means(field, 'date-of-birth', /date of birth/i)) return { hint: 'Enter the participant’s date of birth, not today’s date.', autoComplete: 'bday' };
+  if (means(field, 'emergency-contact-name', /emergency contact name/i)) return { hint: 'Who should we contact in an emergency? Enter their full name.', placeholder: 'Emergency contact’s full name', autoComplete: 'off' };
+  if (means(field, 'relationship', /relationship/i)) return { hint: 'How is the parent or guardian related to the participant?', placeholder: 'For example: parent or legal guardian', autoComplete: 'off' };
+  const emergency = means(field, 'emergency-contact-phone', /emergency/i);
+  if (field.type === 'tel') return { hint: guardian ? 'A phone number where the parent or guardian can be reached.' : emergency ? 'A phone number where your emergency contact can be reached. Include the area code.' : 'Enter your phone number, including the area code.', placeholder: 'For example: (555) 010-1234', autoComplete: guardian ? 'section-guardian tel' : emergency ? 'off' : 'section-participant tel' };
   if (field.type === 'email') return { hint: guardian ? 'Enter the parent or guardian’s email address.' : 'Check the email address from your account and update it here if needed.', placeholder: 'name@example.com', autoComplete: guardian ? 'section-guardian email' : 'section-participant email' };
-  if (/guardian name/.test(label)) return { hint: 'Enter the full name of the parent or legal guardian who will sign.', placeholder: 'Parent or guardian’s full name', autoComplete: 'section-guardian name' };
+  if (means(field, 'guardian-name', /guardian name/i)) return { hint: 'Enter the full name of the parent or legal guardian who will sign.', placeholder: 'Parent or guardian’s full name', autoComplete: 'section-guardian name' };
   return { hint: 'Enter the information requested above.', autoComplete: 'off' };
 }
 
@@ -39,15 +52,15 @@ export function WaiverDocumentForm({ waiver, user, busy, onSubmit, children }: {
     .map(field => {
       let value = '';
       if (field.section !== 'guardian' && field.type === 'email') value = user?.email ?? '';
-      if (field.type === 'date' && !/^date of birth$/i.test(field.label)) value = today;
+      if (field.type === 'date' && !isBirthDate(field)) value = today;
       return [field.key, value];
     })));
   // What a server-filled field will say, shown read-only so members see the record.
-  const recorded = (label: string) =>
-    /^participant name$/i.test(label) ? signerName
-      : /^waiver version$/i.test(label) ? waiver.version
-      : /member id/i.test(label) && user ? String(user.id)
-      : /staff witness/i.test(label) ? 'Not applicable (electronic acceptance)'
+  const recorded = (field: WaiverFormField) =>
+    means(field, 'participant-name', /^participant name$/i) ? signerName
+      : means(field, 'waiver-version', /^waiver version$/i) ? waiver.version
+      : means(field, 'member-id', /member id/i) && user ? String(user.id)
+      : means(field, 'staff-witness', /staff witness/i) ? 'Not applicable (electronic acceptance)'
       : 'Recorded when you sign';
 
   return (
@@ -63,7 +76,8 @@ export function WaiverDocumentForm({ waiver, user, busy, onSubmit, children }: {
         <p>Details labelled “Recorded automatically” are supplied from your account or recorded when you sign.</p>
       </div>
       {waiver.description.split(/\r?\n/).map((line, lineNumber) => {
-        if (/^Method of Acceptance:/.test(line)) {
+        const kind = waiver.formLines?.[lineNumber] ?? legacyLineKind(line);
+        if (kind === 'acceptance-method') {
           return <fieldset key={lineNumber} className="waiver-acceptance-method" disabled>
             <legend>Method of Acceptance</legend>
             {['Electronic', 'In Person', 'Other'].map(method => (
@@ -76,7 +90,7 @@ export function WaiverDocumentForm({ waiver, user, busy, onSubmit, children }: {
         }
         const lineFields = fields.filter(field => field.line === lineNumber);
         if (!lineFields.length) {
-          if (/^\d+\.\s|^Parent or Legal Guardian Consent$|^Administrative Record$/.test(line)) return <h3 key={lineNumber}>{line}</h3>;
+          if (kind === 'heading') return <h3 key={lineNumber}>{line}</h3>;
           return line ? <p className="policy-text" key={lineNumber}>{line}</p> : null;
         }
         return <div key={lineNumber} className="waiver-document__fields">
@@ -97,7 +111,7 @@ export function WaiverDocumentForm({ waiver, user, busy, onSubmit, children }: {
             if (field.source === 'server')
               return <div key={field.key} hidden={isGuardian && !guardianConsent} className="waiver-document__recorded">
                 <label htmlFor={inputId}>{field.label} <small>Recorded automatically</small></label>
-                <output id={inputId}>{recorded(field.label)}</output>
+                <output id={inputId}>{recorded(field)}</output>
               </div>;
             const guidance = fieldGuidance(field, signerName);
             const displayLabel = isGuardian && /^(phone|email)$/i.test(field.label) ? `Parent/guardian ${field.label.toLowerCase()}` : field.label;
@@ -108,7 +122,7 @@ export function WaiverDocumentForm({ waiver, user, busy, onSubmit, children }: {
                   aria-describedby={`${inputId}-help`}
                   maxLength={field.maxLength} value={values[field.key] ?? ''}
                   disabled={busy || (isGuardian && !guardianConsent)}
-                  max={/^date of birth$/i.test(field.label) ? today : undefined}
+                  max={isBirthDate(field) ? today : undefined}
                   placeholder={guidance.placeholder}
                   autoComplete={guidance.autoComplete}
                   onChange={event => setValues(current => ({ ...current, [field.key]: event.target.value }))} />

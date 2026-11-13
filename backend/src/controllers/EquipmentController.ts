@@ -1,12 +1,12 @@
 import type { Request, Response } from "express";
 import type { Pool } from "pg";
-import { EquipmentBilling } from "../billing/equipment.js";
-import { StudioStripe, type StudioStripeConfig } from "../studios/stripe.js";
+import type { StudioStripeConfig } from "../studios/stripe.js";
 import { EquipmentModel } from "../models/EquipmentModel.js";
 import { EligibilityModel } from "../models/EligibilityModel.js";
 import { authState } from "../middleware/auth.js";
 import { positiveId } from '../domain.js';
 import { equipmentPrice } from '../equipmentPricing.js';
+import { equipmentEligibility, equipmentReasonText } from '../eligibility.js';
 
 export class EquipmentController {
   quote = async (req: Request, res: Response) => {
@@ -16,11 +16,12 @@ export class EquipmentController {
   constructor(
     private pool: Pool,
     private timeZone: string,
-    private stripeConfig?: StudioStripeConfig,
+    // Unused: expired checkout holds are released by the background job in
+    // equipmentReconciliation.ts, not by catalogue reads. The router still passes it.
+    _stripeConfig?: StudioStripeConfig,
   ) {}
   list = async (_req: Request, res: Response) => {
     const userId = authState(res).user.id;
-    await new EquipmentBilling(this.pool, this.stripeConfig ? new StudioStripe(this.stripeConfig) : undefined, this.timeZone).reconcile();
     const eligibility = new EligibilityModel(this.pool, this.timeZone);
     const [items, entitlement, facilityPolicies, equipmentWaivers] = await Promise.all([
       new EquipmentModel(this.pool).list(),
@@ -42,25 +43,18 @@ export class EquipmentController {
         const trainingRequired =
           !!item.certId &&
           !(await eligibility.certification(userId, item.certId, new Date()));
-        const reasons: string[] = [];
-        if (authState(res).user.roles.includes("instructor"))
-          reasons.push("Instructor accounts cannot create reservations");
-        if (authState(res).user.accessStatus !== "active")
-          reasons.push("Facility access is suspended or revoked");
-        if (item.status !== "available") {
-          const outage = outages.find(o => o.equipmentId === item.id && !o.endedAt);
-          const messages: Record<string, string> = { repair: 'Out of service for repair', maintenance: 'Out of service for maintenance', safety: 'Out of service for a safety check', other: 'Temporarily out of service' };
-          reasons.push(outage ? messages[outage.reason]! : 'Equipment unavailable');
-        }
-        if (!entitlement.membership && !entitlement.dayPass)
-          reasons.push("Membership or day pass required");
-        if (trainingRequired) reasons.push("Current certification required");
-        if (
-          item.waiverRequired &&
-          (!facilityPolicies.length || facilityPolicies.some(w => !w.signed) ||
-            !equipmentWaivers.length || equipmentWaivers.some(w => !w.signed))
-        )
-          reasons.push("Signed waivers required");
+        const reasonCodes = equipmentEligibility({
+          instructor: authState(res).user.roles.includes("instructor"),
+          accessStatus: authState(res).user.accessStatus,
+          available: item.status === "available",
+          entitlement,
+          certified: !trainingRequired,
+          waiverRequired: item.waiverRequired,
+          facilityWaivers: facilityPolicies,
+          equipmentWaivers,
+        });
+        const openOutage = outages.find(o => o.equipmentId === item.id && !o.endedAt);
+        const reasons = reasonCodes.map(code => equipmentReasonText(code, openOutage));
         return {
           id: item.id,
           name: item.name,
@@ -80,6 +74,7 @@ export class EquipmentController {
           availability: reasons.length
             ? reasons.join(" · ")
             : "Choose a time to check availability",
+          reasonCodes,
         };
       }),
     );

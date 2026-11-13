@@ -120,6 +120,30 @@ test('blocked: failed status with the fix link and no NFC hint', async () => {
   expect(screen.queryByText(/Tap your NFC tag/)).toBeNull();
 });
 
+test('the fix link follows the reason code, not the wording', async () => {
+  auth.user = dana;
+  mount({
+    '/me/overview': overview({ canCheckIn: false, reasons: ['Bitte unterschreiben Sie die Richtlinien.', 'Mitgliedschaft erforderlich.'],
+      reasonCodes: ['WAIVERS_NOT_CONFIGURED', 'MEMBERSHIP_REQUIRED'] }),
+    '/me/supervision': adultSummary(),
+  });
+  const card = await checkInCard();
+  expect(await within(card).findByText(/Mitgliedschaft erforderlich/)).toBeTruthy();
+  expect(within(card).getByRole('link', { name: 'Get a membership or pass' }).getAttribute('href')).toBe('/membership');
+  expect(within(card).queryByRole('link', { name: 'Review and sign' })).toBeNull();
+});
+
+test('a coded reason without a fix shows no link, even when its wording mentions waivers', async () => {
+  auth.user = dana;
+  mount({
+    '/me/overview': overview({ canCheckIn: false, reasons: ['Your sponsoring adult needs a signed waiver.'], reasonCodes: ['SPONSOR_INELIGIBLE'] }),
+    '/me/supervision': adultSummary(),
+  });
+  const card = await checkInCard();
+  expect(await within(card).findByText(/Your sponsoring adult needs a signed waiver/)).toBeTruthy();
+  expect(within(card).queryByRole('link', { name: 'Review and sign' })).toBeNull();
+});
+
 test('an adult supervising a checked-in minor sees them in the card and access band', async () => {
   auth.user = dana;
   const minors: SupervisedMinors = {
