@@ -1,6 +1,5 @@
 import type { Request, Response } from "express";
 import type { Pool } from "pg";
-import type { StudioStripeConfig } from "../studios/stripe.js";
 import { EquipmentModel } from "../models/EquipmentModel.js";
 import { EligibilityModel } from "../models/EligibilityModel.js";
 import { authState } from "../middleware/auth.js";
@@ -16,9 +15,6 @@ export class EquipmentController {
   constructor(
     private pool: Pool,
     private timeZone: string,
-    // Unused: expired checkout holds are released by the background job in
-    // equipmentReconciliation.ts, not by catalogue reads. The router still passes it.
-    _stripeConfig?: StudioStripeConfig,
   ) {}
   list = async (_req: Request, res: Response) => {
     const userId = authState(res).user.id;

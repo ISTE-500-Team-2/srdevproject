@@ -4,7 +4,7 @@ import { AppError } from '../domain.js';
 import { EligibilityModel } from '../models/EligibilityModel.js';
 import { MemberModel } from '../models/MemberModel.js';
 import { StaffModel } from '../models/StaffModel.js';
-import { queueEarlyExpiryReminder, queueWaiverSigned } from '../notifications/waiverNotices.js';
+import { queueEarlyExpiryReminder, queueUntextedWaiverSigned, queueWaiverSigned } from '../notifications/waiverNotices.js';
 import {
   completedWaiverText, participantSignatureField, serverWaiverValues, validateWaiverFields, waiverFormFields,
 } from '../waiverForms.js';
@@ -42,27 +42,30 @@ export class WaiverSigningService {
       const values = form
         ? { ...form.values, ...serverWaiverValues(description, { memberId: userId, signerName, waiverVersion: waiver.version, signedAt: new Date(signature.signedAt), timeZone: this.timeZone }) }
         : null;
-      const payload = {
+      const signed = {
         waiverId,
         waiverName: waiver.name,
         waiverVersion: waiver.version,
         waiverText: waiver.description,
         signature: form && signatureField ? `${form.values[signatureField.key]} (electronic agreement)` : `${signerName} (electronic agreement)`,
         signedAt: new Date(signature.signedAt).toISOString(),
-        ...(form && values ? {
-          formValues: values,
-          guardianConsent: form.guardianConsent,
-          completedWaiverText: completedWaiverText(description, values, form.guardianConsent),
-          memberId: userId,
-          methodOfAcceptance: 'Electronic',
-        } : {}),
       };
+      const formPart = form && values ? {
+        formValues: values,
+        guardianConsent: form.guardianConsent,
+        completedWaiverText: completedWaiverText(description, values, form.guardianConsent),
+        memberId: userId,
+        methodOfAcceptance: 'Electronic',
+      } : null;
+      const payload = formPart ? { ...signed, ...formPart } : signed;
       // The signed copy is a durable record, kept apart from the notification queue.
       await db.query(
         'INSERT INTO app_signed_waiver_copy(userwaiverid,userid,payload) VALUES($1,$2,$3::jsonb) ON CONFLICT(userwaiverid) DO NOTHING',
         [signature.id, userId, JSON.stringify(payload)],
       );
-      await queueWaiverSigned(db, userId, signature.id, payload);
+      if (formPart) await queueWaiverSigned(db, userId, signature.id, { ...signed, ...formPart });
+      else if (signed.waiverText !== null) await queueWaiverSigned(db, userId, signature.id, { ...signed, waiverText: signed.waiverText });
+      else await queueUntextedWaiverSigned(db, userId, signature.id, signed);
       await queueEarlyExpiryReminder(db, userId, waiver.name, signature.id, signature.signedAt, signature.expiresAt);
     });
     return new EligibilityModel(this.pool, this.timeZone).waivers(userId);

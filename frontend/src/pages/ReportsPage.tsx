@@ -371,7 +371,7 @@ function ReportsView({ today }: { today: string }) {
                 {d.classes.map((c) => (
                   <tr key={c.id}>
                     <td>{c.title}</td>
-                    <td>{dateTime(c.startsAt)}</td>
+                    <td>{dateTime(c.startsAt, d.timeZone)}</td>
                     <td>{c.status}</td>
                     <td className="table-number">
                       {c.enrolled} / {c.capacity}

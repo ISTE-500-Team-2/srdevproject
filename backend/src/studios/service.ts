@@ -44,7 +44,7 @@ export class StudioService {
   async notices(
     db: Database,
     r: WithRentalDates<StudioRentalRow> & { name?: string },
-    kind: string,
+    kind: "studio_reservation_confirmed" | "studio_reservation_cancelled",
   ) {
     const payload = {
       reservationId: r.id,
@@ -93,7 +93,7 @@ export class StudioService {
     ).rows;
   }
   // Callers read mine() and staffList() rows without narrowing, so those results stay untyped.
-  async mine(id: number): Promise<any[]> {
+  async mine(id: number) {
     return (
       await this.pool.query<NamedStudioRentalRow>(
         "SELECT r.*,s.name FROM app_studio_rental r JOIN app_studio s ON s.id=r.studio_id WHERE r.userid=$1 ORDER BY r.created_at DESC",
@@ -101,7 +101,7 @@ export class StudioService {
       )
     ).rows.map((r) => this.dates(r));
   }
-  async staffList(id: number): Promise<any[]> {
+  async staffList(id: number) {
     return transaction(this.pool, async (db) => {
       await requireActor(db, id, { staff: true, zone: this.zone });
       return (

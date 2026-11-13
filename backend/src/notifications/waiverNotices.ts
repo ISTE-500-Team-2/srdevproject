@@ -1,15 +1,22 @@
 import type { Database } from '../db.js';
 import { EXPIRATION_LOOKAHEAD_DAYS, reminderDates } from './scheduler.js';
 import { enqueueNotification, getNotificationPreferences } from './store.js';
+import type { NotificationPayloads } from './templates.js';
 
-/** Waiver-signing notices. The caller's transaction records the signature. */
-export async function queueWaiverSigned(db: Database, userId: number, signatureId: number, payload: Record<string, unknown>) {
-  await enqueueNotification(db, {
-    userId,
-    kind: 'waiver_signed',
-    dedupeKey: `waiver-signed:${signatureId}`,
-    payload,
-  });
+/** Waiver-signing notice. The caller's transaction records the signature. */
+export async function queueWaiverSigned(db: Database, userId: number, signatureId: number,
+  payload: NotificationPayloads['waiver_signed']) {
+  await enqueueNotification(db, { userId, kind: 'waiver_signed', dedupeKey: `waiver-signed:${signatureId}`, payload });
+}
+
+/**
+ * A legacy waiver with no agreement text and no form leaves the signed-copy email nothing to show.
+ * It is still queued, as it always was, and the worker records it as render_failed.
+ */
+export async function queueUntextedWaiverSigned(db: Database, userId: number, signatureId: number,
+  payload: Record<string, unknown>) {
+  const kind: string = 'waiver_signed';
+  await enqueueNotification(db, { userId, kind, dedupeKey: `waiver-signed:${signatureId}`, payload });
 }
 
 /**
