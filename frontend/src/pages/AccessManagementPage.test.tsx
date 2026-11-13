@@ -12,23 +12,33 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { AccessManagementPage } from "./AccessManagementPage";
 import { api, ApiError } from "../lib/api";
-import type { NfcCard } from "../lib/nfc";
+import type { AccessReadinessResult } from "../lib/accessReadiness";
+import type { CardAssignment, CardScan, NfcCard, ReaderSetup } from "../lib/nfc";
+import type { Person } from "../lib/staffContracts";
+import type { Tap } from "../components/access/TapHistory";
+import { mockApi } from "../testing/apiMock";
+import { staffPerson } from "../testing/fixtures";
 vi.mock("../lib/api", async (original) => ({
   ...(await original<typeof import("../lib/api")>()),
   api: vi.fn(),
 }));
-const jordan = {
+const jordan = staffPerson({
     id: 12,
     firstName: "Jordan",
     lastName: "Example",
     email: "jordan@example.invalid",
-  },
-  alex = {
+  }),
+  alex = staffPerson({
     id: 13,
     firstName: "Alex",
     lastName: "Example",
     email: "alex@example.invalid",
-  };
+  });
+// MemberSelect's search response (GET /training/members).
+type MemberSearch = {
+  items: { id: number; name: string; email: string }[];
+  hasMore: boolean;
+};
 const setup = {
   configured: true,
   timeZone: "America/New_York",
@@ -45,7 +55,7 @@ const setup = {
       lastSeenAt: new Date().toISOString(),
     },
   ],
-};
+} satisfies ReaderSetup;
 const card: NfcCard = {
   id: 1,
   label: "Blue card",
@@ -58,7 +68,7 @@ const card: NfcCard = {
   lastReader: null,
 };
 const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString();
-const taps = [
+const taps: Tap[] = [
   { id: 90, readerId: "front", readerName: "Front door", userId: 12, memberName: "Jordan Example", last4: "1234", allowed: false, reason: "WAIVER_REQUIRED", createdAt: minutesAgo(2) },
   { id: 89, readerId: "front", readerName: "Front door", userId: null, memberName: null, last4: "4F21", allowed: false, reason: "CARD_NOT_ASSIGNED", createdAt: minutesAgo(14) },
   { id: 88, readerId: "front", readerName: "Front door", userId: 13, memberName: "Alex Example", last4: "5678", allowed: true, reason: "ELIGIBLE", createdAt: minutesAgo(30) },
@@ -66,25 +76,30 @@ const taps = [
 ];
 let cards: Record<number, NfcCard[]>,
   configured: boolean,
-  mutation: (path: string, body: any) => Promise<unknown>;
+  mutation: (path: string, body: unknown) => Promise<unknown>;
 beforeEach(() => {
   cards = { 12: [], 13: [] };
   configured = true;
   mutation = async () => ({});
-  vi.mocked(api).mockImplementation(async (path, options) => {
+  mockApi(async (path, options) => {
     if (options?.method) return mutation(path, options.body);
     if (path.startsWith("/admin/access/events?")) {
       const denied = path.includes("result=denied");
-      return { items: taps.filter((t) => !denied || !t.allowed), nextBefore: null } as any;
+      return {
+        items: taps.filter((t) => !denied || !t.allowed),
+        nextBefore: null,
+      } satisfies { items: Tap[]; nextBefore: number | null };
     }
     if (path === "/admin/access/readers")
-      return { ...setup, configured } as any;
+      return { ...setup, configured } satisfies ReaderSetup;
     if (path.startsWith("/admin/users/") && !path.includes("access-readiness"))
-      return { user: path.endsWith("/12") ? jordan : alex } as any;
+      return { user: path.endsWith("/12") ? jordan : alex } satisfies {
+        user: Person;
+      };
     if (path.startsWith("/admin/access/cards?"))
       return cards[
         Number(new URLSearchParams(path.split("?")[1]).get("userId"))
-      ] as any;
+      ];
     if (path.includes("access-readiness"))
       return {
         userId: Number(path.split("/")[3]),
@@ -95,7 +110,7 @@ beforeEach(() => {
         cardAssigned: false,
         checkedAt: new Date().toISOString(),
         expiresAt: null,
-      } as any;
+      } satisfies AccessReadinessResult;
     if (path.startsWith("/training/members?"))
       return {
         items: [jordan, alex].map((p) => ({
@@ -104,7 +119,7 @@ beforeEach(() => {
           email: p.email,
         })),
         hasMore: false,
-      } as any;
+      } satisfies MemberSearch;
     if (path.startsWith("/admin/access/enrollments/"))
       return {
         id: "scan-one",
@@ -115,7 +130,7 @@ beforeEach(() => {
         last4: "7788",
         expiresAt: new Date(Date.now() + 120000).toISOString(),
         assignments: [],
-      } as any;
+      } satisfies CardScan;
     throw new Error("Unexpected path " + path);
   });
 });
@@ -237,7 +252,7 @@ test("revocation requires confirmation, stale errors reload cards and the retry 
           "This card changed. Review the latest cards.",
         );
       }
-      expect(body.expectedRevision).toBe(2);
+      expect(body).toHaveProperty("expectedRevision", 2);
       cards[12] = [{ ...card, revision: 3, active: false }];
     }
     return {};
@@ -291,7 +306,7 @@ test("tap capture is explicitly confirmed using a member-bound session and shows
         purpose: "assign",
         status: "waiting",
         expiresAt: new Date(Date.now() + 120000).toISOString(),
-      };
+      } satisfies CardScan;
     if (path === "/admin/access/cards")
       await new Promise<void>((resolve) => {
         finish = resolve;
@@ -333,14 +348,15 @@ test("tap capture is explicitly confirmed using a member-bound session and shows
   expect(await screen.findByText(/NFC card assigned to Jordan/)).toBeTruthy();
 });
 test("changing member cancels a captured scan and removes confirmation controls", async () => {
-  mutation = async () => ({
-    id: "scan-one",
-    readerId: "front",
-    userId: 12,
-    purpose: "assign",
-    status: "waiting",
-    expiresAt: new Date(Date.now() + 120000).toISOString(),
-  });
+  mutation = async () =>
+    ({
+      id: "scan-one",
+      readerId: "front",
+      userId: 12,
+      purpose: "assign",
+      status: "waiting",
+      expiresAt: new Date(Date.now() + 120000).toISOString(),
+    }) satisfies CardScan;
   mount();
   await userEvent.click(
     await screen.findByRole("button", { name: "Start card scan" }),
@@ -356,7 +372,7 @@ test("changing member cancels a captured scan and removes confirmation controls"
   expect(screen.queryByRole("button", { name: "Assign card" })).toBeNull();
 });
 test("a scan-start response arriving after the member changed is cancelled", async () => {
-  let complete: (value: any) => void = () => {};
+  let complete: (value: CardScan) => void = () => {};
   mutation = async (path) =>
     path === "/admin/access/enrollments"
       ? new Promise((resolve) => {
@@ -370,6 +386,9 @@ test("a scan-start response arriving after the member changed is cancelled", asy
   await userEvent.click(screen.getByRole("button", { name: "Change member" }));
   complete({
     id: "late-scan",
+    readerId: "front",
+    userId: 12,
+    purpose: "assign",
     status: "waiting",
     expiresAt: new Date(Date.now() + 120000).toISOString(),
   });
@@ -416,7 +435,7 @@ test("an unknown card's tap opens Find a card and looks that card up", async () 
   mutation = async (path, body) => {
     if (path === "/admin/access/cards/lookup") {
       expect(body).toEqual({ eventId: 89 });
-      return [];
+      return [] satisfies CardAssignment[];
     }
     return {};
   };

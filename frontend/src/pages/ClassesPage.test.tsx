@@ -4,6 +4,10 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { ClassesPage } from './ClassesPage';
 import { api, ApiError } from '../lib/api';
+import type { SupervisionSummary } from '../lib/contracts';
+import type { ClassRecord, Course, MemberRoster, Room, RosterPerson, WorkshopTemplate } from '../components/classes/classData';
+import { mockApi } from '../testing/apiMock';
+import { certification, overview } from '../testing/fixtures';
 
 const auth = vi.hoisted(() => ({ user: { id: 1, roles: ['admin'] } as { id: number; roles: string[]; isMinor?: boolean } }));
 vi.mock('../context/AuthContext', () => ({ useAuth: () => auth }));
@@ -17,20 +21,19 @@ globalThis.ResizeObserver ??= class {
 vi.mock('../lib/api', async importOriginal => ({ ...await importOriginal<typeof import('../lib/api')>(), api: vi.fn() }));
 
 const HOUR = 3600000;
-type Person = { userId: number; name: string; email: string; status: string };
-let people: Person[];
+let people: RosterPerson[];
 let denyRoster = false, failFor: number | null = null, entitled = true, scheduleError: ApiError | null = null;
 let certified = false;
-let supervision: Record<string, unknown> | null = null;
-const course = (id: number, offsetHours: number, extra: Record<string, unknown> = {}) => ({
+let supervision: SupervisionSummary | null = null;
+const course = (id: number, offsetHours: number, extra: Partial<ClassRecord> = {}): ClassRecord => ({
   id, title: `Safety ${id}`, certificationId: 7, certificationName: 'Laser cutting', instructorId: 1, instructor: 'Morgan Reyes',
   capacity: 3, enrolled: 2, status: 'scheduled', revision: 4, roomId: 2, roomName: 'Training Room',
   trainingFeeCents: 0,
   startsAt: new Date(Date.now() + offsetHours * HOUR).toISOString(), endsAt: new Date(Date.now() + (offsetHours + 2) * HOUR).toISOString(),
   myStatus: null, ...extra,
 });
-let classes: ReturnType<typeof course>[];
-const workshopCatalog = [
+let classes: ClassRecord[];
+const workshopCatalog: WorkshopTemplate[] = [
   { id: 1, title: 'Custom Epoxy Resin Platter', description: 'Design a statement platter.', capacity: 15 },
   { id: 2, title: 'Glow Up: Floral Resin Nightlight', description: 'Preserve real dried flowers.', capacity: 15 },
 ];
@@ -50,30 +53,32 @@ beforeEach(() => {
   ];
   // Safety 4 has started (attendance open); Safety 5 is upcoming.
   classes = [course(4, -1), course(5, 48)];
-  vi.mocked(api).mockImplementation(async (path, options) => {
+  mockApi(async (path, options) => {
     const body = options?.body as Record<string, unknown> | undefined;
     if (path.endsWith('/attendance')) {
       if (failFor === body?.userId) throw new ApiError(409, 'CONFLICT', 'Save failed; retry.');
       people = people.map(p => p.userId === body?.userId ? { ...p, status: String(body?.status) } : p);
-      return undefined as never;
+      return undefined;
     }
     if (path === '/classes' && options?.method === 'POST') {
       if (scheduleError) throw scheduleError;
-      return {} as never;
+      return {};
     }
-    if (path === '/classes') return classes as never;
+    if (path === '/classes') return classes;
     if (path.endsWith('/roster')) {
       if (denyRoster) throw new ApiError(403, 'FORBIDDEN', 'Roster access removed.');
-      return people as never;
+      return people;
     }
-    if (path.endsWith('/member-roster')) return { items: [{ name: 'First M.' }], capacity: 3, enrolled: 2, seatsAvailable: 1 } as never;
-    if (path === '/me/overview') return { entitlement: { membership: entitled ? { id: 1 } : null, dayPass: null } } as never;
-    if (path === '/me/supervision') return supervision as never;
-    if (path === '/me/certifications') return (certified ? [{ id: 7, valid: true }] : []) as never;
-    if (path === '/classes/catalog') return workshopCatalog as never;
-    if (path === '/training/catalog') return [{ id: 7, name: 'Laser cutting', validityDays: 365 }] as never;
-    if (path === '/rooms') return [{ id: 2, name: 'Training Room', location: 'Main floor', capacity: 18, status: 'available' }] as never;
-    return undefined as never;
+    if (path.endsWith('/member-roster')) return { items: [{ name: 'First M.' }], capacity: 3, enrolled: 2, seatsAvailable: 1 } satisfies MemberRoster;
+    if (path === '/me/overview') return overview({ entitlement: { membership: entitled, dayPass: false } });
+    if (path === '/me/supervision') return supervision;
+    if (path === '/me/certifications') return certified ? [certification({ id: 7, name: 'Laser cutting', valid: true })] : [];
+    if (path === '/classes/catalog') return workshopCatalog;
+    if (path === '/training/catalog') return [{ id: 7, name: 'Laser cutting', validityDays: 365 }] satisfies Course[];
+    if (path === '/rooms') return [{ id: 2, name: 'Training Room', location: 'Main floor', capacity: 18, status: 'available' }] satisfies Room[];
+    // Registering and cancelling reply with no body the page reads.
+    if (options?.method === 'POST' && /^\/classes\/\d+\/(enroll|cancel)$/.test(path)) return undefined;
+    throw new Error(`Unexpected request ${options?.method ?? 'GET'} ${path}`);
   });
 });
 afterEach(() => {
@@ -153,7 +158,7 @@ test('a minor stays blocked while the sponsor check fails, with a retry', async 
   auth.user = { id: 31, roles: ['member'], isMinor: true };
   const base = vi.mocked(api).getMockImplementation()!;
   let fail = true;
-  vi.mocked(api).mockImplementation(async (path, options) => {
+  mockApi(async (path, options) => {
     if (path === '/me/supervision' && fail) throw new ApiError(503, 'UNAVAILABLE', 'Sponsor check failed.');
     return base(path, options);
   });
@@ -174,7 +179,7 @@ test('a minor stays blocked while the sponsor check fails, with a retry', async 
 test('a known sponsor problem still blocks a minor while the membership check fails', async () => {
   auth.user = { id: 31, roles: ['member'], isMinor: true };
   const base = vi.mocked(api).getMockImplementation()!;
-  vi.mocked(api).mockImplementation(async (path, options) => {
+  mockApi(async (path, options) => {
     if (path === '/me/overview') throw new ApiError(503, 'UNAVAILABLE', 'Overview failed.');
     return base(path, options);
   });
@@ -187,9 +192,9 @@ test('a known sponsor problem still blocks a minor while the membership check fa
 test('a slow sponsor check is not restarted by the page refresh', async () => {
   auth.user = { id: 31, roles: ['member'], isMinor: true };
   const base = vi.mocked(api).getMockImplementation()!;
-  let answer: ((value: unknown) => void) | null = null;
-  vi.mocked(api).mockImplementation(async (path, options) => {
-    if (path === '/me/supervision') return new Promise(resolve => { answer = resolve; }) as never;
+  let answer: ((value: SupervisionSummary) => void) | null = null;
+  mockApi(async (path, options) => {
+    if (path === '/me/supervision') return new Promise<SupervisionSummary>(resolve => { answer = resolve; });
     return base(path, options);
   });
   await mount();
@@ -250,7 +255,7 @@ test('a roster that cannot be read is flagged as attendance unavailable, with a 
   classes = [course(4, -1), course(6, -3), course(5, 48)];
   let failing = true;
   const served = vi.mocked(api).getMockImplementation()!;
-  vi.mocked(api).mockImplementation(async (path, options) => {
+  mockApi(async (path, options) => {
     if (path === '/classes/6/roster' && failing) throw new ApiError(503, 'UNAVAILABLE', 'Try again later.');
     return served(path, options);
   });
@@ -447,8 +452,7 @@ test('staff schedule a creative workshop from the picker without a certification
 test('a slow class list is left to finish instead of being restarted by the next refresh', async () => {
   await mount();
   const original = vi.mocked(api).getMockImplementation()!;
-  vi.mocked(api).mockImplementation(((path: string, ...rest: unknown[]) =>
-    path === '/classes' ? new Promise(() => {}) : (original as (...a: unknown[]) => unknown)(path, ...rest)) as never);
+  mockApi((path, options) => path === '/classes' ? new Promise(() => {}) : original(path, options));
   const before = calls('/classes').length;
   await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
   expect(calls('/classes').length).toBe(before + 1);
