@@ -5,7 +5,7 @@ import { reminderDates } from './reminderTiming.js';
 export { reminderDates };
 
 export const EXPIRATION_LOOKAHEAD_DAYS=30;
-interface ExpirationSource {userId:number; sourceType:string;sourceId:number;expiresAt:Date;grantedAt:Date|null;name:string;timeZone:string}
+interface ExpirationSource {userId:number; sourceType:'certification'|'waiver'|'membership';sourceId:number;expiresAt:Date;grantedAt:Date|null;name:string;timeZone:string}
 export async function scheduleExpirationNotifications(db:Database,now=new Date()):Promise<number> {
   const {rows}=await db.query<ExpirationSource>(`WITH expirations AS (
     SELECT uc.userid, 'certification'::text AS source_type,uc.usercertid AS source_id,
@@ -24,7 +24,7 @@ export async function scheduleExpirationNotifications(db:Database,now=new Date()
   for(const row of rows) {
     const expiry=new Date(row.expiresAt);
     const dates=reminderDates(expiry,row.timeZone);
-    await enqueueNotification(db,{userId:row.userId,kind:`${row.sourceType}_expiring`,
+    await enqueueNotification(db,{userId:row.userId,kind:`${row.sourceType}_expiring` as const,
       dedupeKey:`${row.sourceType}-expiring:${row.sourceId}:${expiry.toISOString()}`,
       // Granted with under a week left: a week's notice was impossible, so send
       // it now but do not record it as a missed deadline.

@@ -1,12 +1,17 @@
 import type { Database } from '../db.js';
 import { AppError } from '../domain.js';
 import { reminderDates, validTimeZone } from './reminderTiming.js';
+import type { NotificationKind, NotificationPayloads } from './templates.js';
 
 export interface NotificationPreferences { enabled: boolean; timeZone: string }
-export interface NotificationInput {
-  userId: number; kind: string; dedupeKey: string; dueAt?: Date; deadlineAt?: Date; countsForSla?: boolean;
-  payload: Record<string, unknown>;
+/** A known kind's payload is typed by that kind. A kind only known at run time
+ * (a plain string) takes any payload; the worker checks it before rendering. */
+export interface NotificationInput<K extends string = NotificationKind> {
+  userId: number; kind: K; dedupeKey: string; dueAt?: Date; deadlineAt?: Date; countsForSla?: boolean;
+  payload: K extends NotificationKind ? NotificationPayloads[K] : Record<string, unknown>;
 }
+/** Literal kinds must be known kinds, so a misspelt kind does not compile. */
+type CheckedKind<K extends string> = string extends K ? K : K extends NotificationKind ? K : never;
 export { validTimeZone };
 export async function getNotificationPreferences(db: Database, userId: number): Promise<NotificationPreferences> {
   const { rows } = await db.query<NotificationPreferences>(`SELECT COALESCE(p.enabled,true) AS enabled,
@@ -34,7 +39,7 @@ export async function updateNotificationPreferences(db: Database, userId: number
   }
   return preferences;
 }
-export async function enqueueNotification(db: Database, input: NotificationInput): Promise<void> {
+export async function enqueueNotification<K extends string>(db: Database, input: NotificationInput<K> & { kind: CheckedKind<K> }): Promise<void> {
   if (!input.kind || !input.dedupeKey) throw new Error('Notification kind and dedupe key are required');
   const dueAt = input.dueAt ?? new Date();
   // Event notices have a measurable five-minute dispatch target, not a promised delivery SLA.
