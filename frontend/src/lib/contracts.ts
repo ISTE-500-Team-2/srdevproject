@@ -56,6 +56,8 @@ export interface LiveEquipment extends Omit<Equipment, 'rate'> {
   certification: string | null;
   location: string;
   canReserve: boolean;
+  /** One code per reason in `availability`, in the same order. Older servers omit it. */
+  reasonCodes?: string[];
 }
 export interface Reservation {
   amountCents?: number | null;
@@ -146,6 +148,8 @@ export interface Overview {
   checkInBuildingId: number | null;
   buildings: { id: number; name: string; status: string }[];
   reasons: string[];
+  /** reasonCodes[i] identifies reasons[i]. Older servers omit it. */
+  reasonCodes?: string[];
   recentCheckIns: { id: number; location: string; checkedInAt: string; method?: 'nfc' | 'portal' }[];
 }
 /** An open facility visit. Staff reads may omit the building name. */

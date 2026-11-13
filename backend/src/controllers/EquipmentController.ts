@@ -7,6 +7,7 @@ import { EligibilityModel } from "../models/EligibilityModel.js";
 import { authState } from "../middleware/auth.js";
 import { positiveId } from '../domain.js';
 import { equipmentPrice } from '../equipmentPricing.js';
+import { equipmentEligibility, equipmentReasonText } from '../eligibility.js';
 
 export class EquipmentController {
   quote = async (req: Request, res: Response) => {
@@ -42,25 +43,18 @@ export class EquipmentController {
         const trainingRequired =
           !!item.certId &&
           !(await eligibility.certification(userId, item.certId, new Date()));
-        const reasons: string[] = [];
-        if (authState(res).user.roles.includes("instructor"))
-          reasons.push("Instructor accounts cannot create reservations");
-        if (authState(res).user.accessStatus !== "active")
-          reasons.push("Facility access is suspended or revoked");
-        if (item.status !== "available") {
-          const outage = outages.find(o => o.equipmentId === item.id && !o.endedAt);
-          const messages: Record<string, string> = { repair: 'Out of service for repair', maintenance: 'Out of service for maintenance', safety: 'Out of service for a safety check', other: 'Temporarily out of service' };
-          reasons.push(outage ? messages[outage.reason]! : 'Equipment unavailable');
-        }
-        if (!entitlement.membership && !entitlement.dayPass)
-          reasons.push("Membership or day pass required");
-        if (trainingRequired) reasons.push("Current certification required");
-        if (
-          item.waiverRequired &&
-          (!facilityPolicies.length || facilityPolicies.some(w => !w.signed) ||
-            !equipmentWaivers.length || equipmentWaivers.some(w => !w.signed))
-        )
-          reasons.push("Signed waivers required");
+        const reasonCodes = equipmentEligibility({
+          instructor: authState(res).user.roles.includes("instructor"),
+          accessStatus: authState(res).user.accessStatus,
+          available: item.status === "available",
+          entitlement,
+          certified: !trainingRequired,
+          waiverRequired: item.waiverRequired,
+          facilityWaivers: facilityPolicies,
+          equipmentWaivers,
+        });
+        const openOutage = outages.find(o => o.equipmentId === item.id && !o.endedAt);
+        const reasons = reasonCodes.map(code => equipmentReasonText(code, openOutage));
         return {
           id: item.id,
           name: item.name,
@@ -80,6 +74,7 @@ export class EquipmentController {
           availability: reasons.length
             ? reasons.join(" · ")
             : "Choose a time to check availability",
+          reasonCodes,
         };
       }),
     );

@@ -11,6 +11,7 @@ import { StaffModel } from "../models/StaffModel.js";
 import { page } from "../pagination.js";
 import { oneOf, pageOffset } from "../staffDomain.js";
 import { WaiverSigningService } from "../services/WaiverSigningService.js";
+import { memberAccessEligibility, memberAccessReasonText } from "../eligibility.js";
 import { waiverFormLines } from "../waiverForms.js";
 
 export class MemberController {
@@ -141,23 +142,25 @@ export class MemberController {
           await access.accessForTarget(userId,{buildingId:context.buildingId ?? undefined});
           return {...context, failure:null};
         } catch (error) {
-          if (error instanceof AppError) return {...context, failure:error.message};
+          if (error instanceof AppError) return {...context, failure:{code:error.code, message:error.message}};
           throw error;
         }
       }),
       new MemberModel(this.pool).activeReservationCount(userId),
       new MemberModel(this.pool).recentCheckIns(userId),
     ]);
-    const reasons: string[] = [];
-    if (authState(res).user.accessStatus !== "active")
-      reasons.push("Facility access is suspended or revoked; contact staff");
-    if (!entitlement.membership && !entitlement.dayPass)
-      reasons.push("Active membership or day pass required");
-    if (!waivers.length)
-      reasons.push("Required policies have not been configured");
-    else if (waivers.some((w) => !w.signed))
-      reasons.push("Required policies and waivers need your signature");
-    if (checkInContext.failure && reasons.length === 0) reasons.push(checkInContext.failure);
+    // reasonCodes[i] identifies reasons[i]; a building check failure reports its AppError code.
+    const accessCodes = memberAccessEligibility({
+      accessStatus: authState(res).user.accessStatus,
+      entitlement,
+      facilityWaivers: waivers,
+    });
+    const reasons = accessCodes.map(memberAccessReasonText);
+    const reasonCodes: string[] = [...accessCodes];
+    if (checkInContext.failure && reasons.length === 0) {
+      reasons.push(checkInContext.failure.message);
+      reasonCodes.push(checkInContext.failure.code);
+    }
     res.json({
       data: {
         entitlement,
@@ -168,6 +171,7 @@ export class MemberController {
         checkInBuildingId: checkInContext.buildingId,
         buildings: checkInContext.buildings,
         reasons,
+        reasonCodes,
         recentCheckIns: checkIns,
       },
     });
