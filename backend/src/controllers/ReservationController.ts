@@ -1,15 +1,11 @@
 import { EquipmentBilling } from "../billing/equipment.js";
 import { StudioStripe, type StudioStripeConfig } from "../studios/stripe.js";
-import { StaffModel } from "../models/StaffModel.js";
-import { transaction } from "../db.js";
-import { enqueueNotification } from "../notifications/store.js";
 import type { Request, Response } from "express";
 import type { Pool } from "pg";
 import { AppError, positiveId, textField } from "../domain.js";
 import { authState } from "../middleware/auth.js";
 import { ReservationModel } from "../models/ReservationModel.js";
 import { ReservationService } from "../services/ReservationService.js";
-import { cancelReservationPayment } from '../equipmentPricing.js';
 import { page } from "../pagination.js";
 
 export class ReservationController {
@@ -119,72 +115,11 @@ export class ReservationController {
     });
   };
   cancel = async (req: Request, res: Response) => {
-    const userId = authState(res).user.id;
-    const result = await transaction(this.pool, async (db) => {
-      if (
-        (
-          await db.query(
-            "SELECT c.id FROM app_training_class c JOIN reservation v ON v.reservationid=c.reservation_id WHERE c.reservation_id=$1 AND v.userid=$2",
-            [positiveId(req.params.id), userId],
-          )
-        ).rowCount
-      )
-        throw new AppError(
-          409,
-          "CLASS_WORKFLOW_REQUIRED",
-          "Cancel this training through Classes.",
-        );
-      const result = await new ReservationModel(db).cancel(
+    res.json({
+      data: await new ReservationService(this.pool, this.timeZone).cancel(
+        authState(res).user.id,
         positiveId(req.params.id),
-        userId,
-      );
-      if (!result) {
-        const existing = await db.query(
-          "SELECT status,starttime FROM reservation WHERE reservationid=$1 AND userid=$2",
-          [positiveId(req.params.id), userId],
-        );
-        if (
-          existing.rows[0] &&
-          ["confirmed", "pending"].includes(existing.rows[0].status)
-        )
-          throw new AppError(
-            409,
-            "CANCELLATION_NOTICE_REQUIRED",
-            "Equipment cancellations require at least 24 hours notice. Contact staff.",
-          );
-      }
-      if (result) await cancelReservationPayment(db, result.id);
-      if (result)
-        await new StaffModel(db).audit(
-          userId,
-          userId,
-          "reservation.cancelled",
-          "reservation",
-          result.id,
-          "Member cancellation with at least 24 hours notice",
-          null,
-          result,
-        );
-      if (result)
-        await enqueueNotification(db, {
-          userId,
-          kind: "reservation_cancelled",
-          dedupeKey: `reservation-cancelled:${result.id}`,
-          payload: {
-            reservationId: result.id,
-            resourceName: result.equipmentName,
-            startsAt: new Date(result.startTime).toISOString(),
-            endsAt: new Date(result.endTime).toISOString(),
-          },
-        });
-      return result;
+      ),
     });
-    if (!result)
-      throw new AppError(
-        404,
-        "NOT_FOUND",
-        "No cancellable reservation was found for this account.",
-      );
-    res.json({ data: result });
   };
 }
