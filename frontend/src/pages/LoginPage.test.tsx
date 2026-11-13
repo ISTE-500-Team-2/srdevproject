@@ -98,6 +98,34 @@ test('Enter while a registration is pending does not register again', async () =
   expect(auth.register.mock.calls[0]![0].dob).toBe('2000-01-01');
 });
 
+// The visible step, by the first field it shows.
+const stepShown = (dialog: HTMLElement) =>
+  within(dialog).queryByLabelText('First name') ? 1
+    : within(dialog).queryByLabelText('Email') ? 2
+      : within(dialog).queryByLabelText('Password', { exact: false }) ? 3 : null;
+
+test.each([
+  // The server's field decides, whatever the wording says.
+  ['firstName', 'Check this detail.', 1],
+  ['dob', 'Check your email address.', 1],
+  ['email', 'That one is already taken.', 2],
+  ['phone', 'Choose a stronger password.', 2],
+  ['password', 'Enter your first name.', 3],
+  // A request field no step holds keeps the visitor on the last step.
+  ['timeZone', 'Enter your email.', 3],
+  // Without a field, the wording still picks the step.
+  [undefined, 'Enter your email.', 2],
+  [undefined, 'Enter your date of birth.', 1],
+  [undefined, 'Something went wrong.', 3],
+])('a signup error naming field %s with "%s" returns to step %i', async (field, message, step) => {
+  auth.register.mockRejectedValue(new ApiError(400, 'VALIDATION_ERROR', message, field));
+  const dialog = openSignup();
+  await fillToLastStep(dialog);
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Create account' }));
+  await within(dialog).findByText(message);
+  await waitFor(() => expect(stepShown(dialog)).toBe(step));
+});
+
 function ResetLocation() {
   const location = useLocation();
   return <output data-testid="reset-location">{JSON.stringify({ path: location.pathname, email: location.state?.email })}</output>;

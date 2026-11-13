@@ -3,6 +3,8 @@ export class ApiError extends Error {
     public status: number,
     public code: string,
     message: string,
+    /** The invalid request-body property, when the server names one. */
+    public field?: string,
   ) {
     super(message);
   }
@@ -52,7 +54,7 @@ async function send(
   return response;
 }
 
-type ErrorBody = { error?: { code?: string; message?: string } } | null | undefined;
+type ErrorBody = { error?: { code?: string; message?: string; field?: unknown } } | null | undefined;
 
 /**
  * The ApiError for a failed response, from the server's `{error}` body when it
@@ -66,6 +68,7 @@ function failure(response: Response, path: string, payload: ErrorBody, fallback:
     response.status,
     error?.code ?? 'REQUEST_FAILED',
     error?.message ?? fallback,
+    typeof error?.field === 'string' ? error.field : undefined,
   );
 }
 

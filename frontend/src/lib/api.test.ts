@@ -28,6 +28,19 @@ test('a signed-out visit stops at the CSRF lookup instead of calling refresh', a
 const error = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
 const authorization = (call: unknown[]) => (call[1] as RequestInit & { headers: Record<string, string> }).headers.Authorization;
 
+test('a JSON error body names the invalid field when the server sends one', async () => {
+  setAccessToken('token');
+  vi.stubGlobal('fetch', vi.fn()
+    .mockResolvedValueOnce(error(400, { error: { code: 'VALIDATION_ERROR', message: 'Enter an email.', field: 'email' } }))
+    .mockResolvedValueOnce(error(400, { error: { code: 'VALIDATION_ERROR', message: 'Enter an email.' } }))
+    .mockResolvedValueOnce(error(400, { error: { code: 'VALIDATION_ERROR', message: 'Enter an email.', field: 7 } })));
+  await expect(api('/auth/register', { method: 'POST' })).rejects.toMatchObject({
+    status: 400, code: 'VALIDATION_ERROR', message: 'Enter an email.', field: 'email',
+  });
+  await expect(api('/auth/register', { method: 'POST' })).rejects.toMatchObject({ field: undefined });
+  await expect(api('/auth/register', { method: 'POST' })).rejects.toMatchObject({ field: undefined });
+});
+
 test('a JSON error without a body keeps the generic failure', async () => {
   setAccessToken('token');
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('<html>', { status: 502 })));
