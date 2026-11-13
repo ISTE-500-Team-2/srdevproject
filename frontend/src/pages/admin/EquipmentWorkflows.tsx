@@ -2,6 +2,7 @@ import { useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, RefreshCw } from 'lucide-react';
 import { api, errorMessage } from '../../lib/api';
+import { editingFormRef } from '../../lib/editingForms';
 import { useApi } from '../../lib/useApi';
 import { Modal } from '../../components/Modal';
 import { LoadState } from '../../components/Management';
@@ -39,7 +40,7 @@ export function AvailabilityForm({ initial, onClose, onSaved }: { initial: Equip
     } catch (err) { setChecked(null); setError(errorMessage(err)); }
     finally { inFlight.current = false; setBusy(false); }
   };
-  return <form className="management-form eq-form" onSubmit={save}>
+  return <form ref={editingFormRef} className="management-form eq-form" onSubmit={save}>
     <h3>{restore ? 'Ready for members again?' : 'Take out of service'}</h3>
     <p>{restore ? 'New bookings and reader access will be available again.' : 'This immediately blocks new bookings and reader access.'} Existing bookings stay in place. No email is sent for this status change.</p>
     {!restore && <>

@@ -4,6 +4,7 @@ import { CalendarClock, CircleX, Clock, CreditCard, Plus, TriangleAlert, Wrench,
 import { MemberSelect } from "../../MemberSelect";
 import { EquipmentPriceBreakdown } from "../../EquipmentPriceBreakdown";
 import { api, errorMessage } from "../../../lib/api";
+import { editingFormRef } from "../../../lib/editingForms";
 import type { EquipmentPrice, LiveEquipment, Reservation } from "../../../lib/contracts";
 import { cents } from "../../../lib/display";
 import { useApi } from "../../../lib/useApi";
@@ -376,7 +377,7 @@ export function ReservationEditor({
         titleRef={titleRef}
       />
       {editing ? <p className="res-panel__sub">{editing.memberName ?? `Member #${editing.userId}`}</p> : null}
-      <form className="management-form res-editor" onSubmit={save} noValidate>
+      <form ref={editingFormRef} className="management-form res-editor" onSubmit={save} noValidate>
         {editing ? null : <MemberSelect value={userId} onChange={setUserId} />}
         <label className="form-field">
           Equipment

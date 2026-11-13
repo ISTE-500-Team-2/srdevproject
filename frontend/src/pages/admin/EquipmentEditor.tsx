@@ -2,6 +2,7 @@ import { useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowUpRight, CalendarDays, Check, Nfc } from 'lucide-react';
 import { api, errorMessage } from '../../lib/api';
+import { editingFormRef } from '../../lib/editingForms';
 import { useApi } from '../../lib/useApi';
 import { Modal } from '../../components/Modal';
 import { LoadState } from '../../components/Management';
@@ -59,7 +60,7 @@ export function EquipmentEditor({ initial: suppliedInitial, onClose, onSaved }: 
           {blockers.data.bookings.map(booking => <li key={booking.id}><CalendarDays aria-hidden="true" /><span><b>Booking #{booking.id}</b><small>{equipmentTime(booking.startTime, initial.timeZone)} · {booking.member ?? 'Member'}</small></span><Link className="button button--quiet" to={`/admin/reservations?equipmentId=${initial.id}`}>Open bookings<ArrowUpRight aria-hidden="true" /></Link></li>)}
         </ul><p>{[blockers.data.sessions.length ? 'Wait for the session to end' : '', blockers.data.bookings.length ? 'move or cancel the bookings' : ''].filter(Boolean).join(' and ').replace(/^m/, 'M')}, then come back to remove {initial.name}.</p></div>}
         <div className="eq-actions"><button className="button button--danger-action" disabled={busy || blocked} onClick={() => void save(true)}>{busy ? 'Removing…' : 'Confirm removal'}</button><button className="button button--quiet" disabled={busy} onClick={() => { setRemoving(false); setError(''); }}>Keep equipment</button></div>
-      </div> : <form className="management-form eq-form" onChange={() => setDirty(true)} onSubmit={(event: FormEvent) => { event.preventDefault(); void save(false); }}>
+      </div> : <form ref={editingFormRef} className="management-form eq-form" onChange={() => setDirty(true)} onSubmit={(event: FormEvent) => { event.preventDefault(); void save(false); }}>
         <label>Name<input required maxLength={100} value={name} disabled={busy} onChange={e => setName(e.target.value)} /></label>
         <label>Category<select required value={newCategory ? NEW_CATEGORY : type} disabled={busy || !options.data} onChange={e => { const value = e.target.value; setNewCategory(value === NEW_CATEGORY); if (value !== NEW_CATEGORY) setType(value); }}><option value="">Choose a category…</option>{categories.map(category => <option key={category} value={category}>{category}</option>)}<option value={NEW_CATEGORY}>+ New category…</option></select></label>
         {newCategory && <label>New category name<input required autoFocus maxLength={100} value={categoryName} disabled={busy} onChange={e => setCategoryName(e.target.value)} /><small>Other equipment can use this category after you save.</small></label>}

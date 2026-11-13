@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { api, errorMessage } from "../../lib/api";
+import { editingFormRef } from "../../lib/editingForms";
 import { dateTime } from "../../lib/display";
 import { useCardScan } from "../../lib/useCardScan";
 import { uidHelp, type CardAssignment, type ReaderSetup } from "../../lib/nfc";
@@ -98,7 +99,7 @@ export function CardLookup({
       {setup.configured && !scan.scan ? (
         <details>
           <summary>Look up a card ID manually</summary>
-          <form className="management-form" onSubmit={lookup}>
+          <form ref={editingFormRef} className="management-form" onSubmit={lookup}>
             <label>
               NFC card ID
               <input

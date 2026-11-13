@@ -1,5 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import { api, ApiError, errorMessage } from "../../../lib/api";
+import { editingFormRef } from "../../../lib/editingForms";
 import { dollars } from "../../../lib/display";
 import type { AccessResource, NfcCard, ReaderSetup } from "../../../lib/nfc";
 import type { SupervisionSummary } from "../../../lib/contracts";
@@ -73,8 +74,8 @@ function RecordDialog({
   };
   return (
     <Modal open width={wide ? "regular" : "compact"} title={title} onClose={() => !busy && onClose()} className="mr-dialog">
-      {/* management-form: the record's background refresh waits while this is being edited. */}
-      <form className="management-form mr-dialog__form" aria-label={title} onSubmit={submit}>
+      {/* editingFormRef: the record's background refresh waits while this is being edited. */}
+      <form ref={editingFormRef} className="management-form mr-dialog__form" aria-label={title} onSubmit={submit}>
         <fieldset className="mr-dialog__fields" disabled={busy}>
           {children}
         </fieldset>
