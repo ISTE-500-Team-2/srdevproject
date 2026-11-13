@@ -1,6 +1,6 @@
-import { consumeRegistration, pruneRegistrations, resendRegistration, stageRegistration } from '../confirmation/pendingRegistration.js';
-import { issueEmailConfirmation, consumeEmailConfirmation } from '../confirmation/emailConfirmation.js';
-import { issuePasswordReset, checkPasswordReset, consumePasswordReset } from '../confirmation/passwordReset.js';
+import { consumeRegistration, pruneRegistrations, stageRegistration } from '../confirmation/pendingRegistration.js';
+import { consumeEmailConfirmation } from '../confirmation/emailConfirmation.js';
+import { RecoveryService } from '../services/RecoveryService.js';
 import { auditContext } from '../auditContext.js';
 import { validTimeZone } from '../notifications/store.js';
 import { randomBytes } from 'node:crypto';
@@ -10,7 +10,6 @@ import type { AppConfig } from '../config.js';
 import { transaction } from '../db.js';
 import {
   AppError,
-  positiveId,
   dateOfBirthField,
   emailField,
   newPasswordField,
@@ -42,10 +41,13 @@ function signupField<T>(field: string, read: () => T): T {
 
 export class AuthController {
   private dummyHash = hashPassword(randomBytes(32).toString('hex'));
+  private recovery: RecoveryService;
   constructor(
     private pool: Pool,
     private config: AppConfig,
-  ) {}
+  ) {
+    this.recovery = new RecoveryService(pool, config, this.dummyHash);
+  }
   private async establish(
     req: Request,
     res: Response,
@@ -212,36 +214,7 @@ export class AuthController {
     const password=passwordField(req.body.password);
     // Corrected addresses use the same validation and identity rules as every other email flow.
     const newEmail=req.body.newEmail == null ? undefined : emailField(req.body.newEmail);
-    // A pending registration has no user ID; authenticate and resend its staged request first.
-    const pending = await transaction(this.pool, db => resendRegistration(db,email,password,newEmail,
-      this.config.notifications?.appOrigin ?? this.config.allowedOrigins[0]!)).catch(error => {
-        if (error?.code === '23505') return true;
-        throw error;
-      });
-    const account=await new UserModel(this.pool).credentials(email);
-    const valid=await verifyPassword(password,account?.password ?? await this.dummyHash);
-    if(!pending && account && valid && !account.emailConfirmed) {
-      try {
-        await transaction(this.pool,async db => {
-          const current=(await db.query('SELECT email_confirmed,status FROM "user" WHERE userid=$1 FOR UPDATE',[account.id])).rows[0];
-          if(!current || current.email_confirmed || !['active','pending'].includes(current.status))return;
-          const previous=(await db.query('SELECT created_at FROM app_email_confirmation WHERE userid=$1',[account.id])).rows[0];
-          if(previous && Date.now()-new Date(previous.created_at).getTime()<60000)
-            throw new AppError(429,'CONFIRMATION_RATE_LIMITED','Wait one minute before requesting another confirmation.');
-          if(newEmail) {
-            await db.query('UPDATE "user" SET email=$2,revision=revision+1 WHERE userid=$1',[account.id,newEmail]);
-            // A link sent to the old inbox must not confirm ownership of the new one.
-            await db.query('DELETE FROM app_password_reset WHERE userid=$1',[account.id]);
-            await db.query(`UPDATE app_notification_outbox SET status='obsolete',counts_for_sla=false,updated_at=NOW()
-              WHERE userid=$1 AND kind='password_reset' AND status='pending'`,[account.id]);
-          }
-          await issueEmailConfirmation(db,account.id,this.config.notifications?.appOrigin ?? this.config.allowedOrigins[0]!);
-        });
-      } catch(error) {
-        // Duplicate new address must not reveal another account's existence.
-        if(!(typeof error==='object' && error && 'code' in error && error.code==='23505'))throw error;
-      }
-    }
+    await this.recovery.resendConfirmation(email,password,newEmail);
     res.set('Cache-Control','no-store');
     res.status(202).json({data:{emailSendingEnabled:!!this.config.notifications,message:this.config.notifications
       ? 'If the supplied credentials match an unconfirmed account and notifications are enabled, a confirmation email has been queued for sending. Check your inbox and spam folder.'
@@ -249,52 +222,20 @@ export class AuthController {
   };
   passwordReset = async (req: Request, res: Response) => {
     const email = emailField(req.body.email);
-    // Every valid email performs the same bcrypt work, including unknown, inactive,
-    // and throttled accounts. Run it alongside the short database operation so the
-    // response does not have a fast account-existence branch.
-    const dummy = await this.dummyHash;
-    await Promise.all([
-      verifyPassword('password-reset-request', dummy),
-      transaction(this.pool, async db => {
-        const account = (await db.query('SELECT userid,status FROM "user" WHERE lower(email)=$1 FOR UPDATE', [email])).rows[0];
-        if (!account || account.status !== 'active') return;
-        const recent = await db.query(`SELECT 1 FROM app_password_reset
-          WHERE userid=$1 AND created_at>NOW()-INTERVAL '1 minute'`, [account.userid]);
-        if (recent.rows.length) return;
-        await issuePasswordReset(db, account.userid, this.config.notifications?.appOrigin ?? this.config.allowedOrigins[0]!);
-      }),
-    ]);
+    await this.recovery.requestPasswordReset(email);
     res.status(202).json({ data: { message: 'If an account uses this email, a reset link is on its way. It expires in 30 minutes.' } });
   };
   adminPasswordReset = async (req: Request, res: Response) => {
-    const actor = authState(res).user;
-    if (!actor.roles.includes('admin'))
-      throw new AppError(403, 'ADMIN_REQUIRED', 'Only administrators can send password reset emails.');
-    const id = positiveId(req.params.id);
-    await transaction(this.pool, async db => {
-      const account = (await db.query('SELECT userid,status FROM "user" WHERE userid=$1 FOR UPDATE', [id])).rows[0];
-      if (!account) throw new AppError(404, 'NOT_FOUND', 'That account no longer exists.');
-      if (account.status !== 'active')
-        throw new AppError(409, 'ACCOUNT_INACTIVE', 'Password resets are only available for active accounts.');
-      if (!this.config.notifications)
-        throw new AppError(503, 'EMAIL_DISABLED', 'Email delivery is disabled in this environment. No reset email was sent.');
-      const recent = await db.query(`SELECT 1 FROM app_password_reset
-        WHERE userid=$1 AND created_at>NOW()-INTERVAL '1 minute'`, [id]);
-      if (recent.rows.length)
-        throw new AppError(429, 'RESET_RECENT', 'A reset email was requested recently. Wait one minute before sending another.');
-      await issuePasswordReset(db, id, this.config.notifications.appOrigin);
-      await db.query(`INSERT INTO app_staff_audit(actor_id,subject_id,action,entity_type,entity_id,reason)
-        VALUES($1,$2,'user.password_reset_requested','user',$2,'Administrator requested a password reset email')`, [actor.id, id]);
-    });
+    await this.recovery.adminPasswordReset(authState(res).user, req.params.id);
     res.status(202).json({ data: { message: 'Password reset email queued. The link expires in 30 minutes.' } });
   };
   checkPasswordReset = async (req: Request, res: Response) => {
-    await checkPasswordReset(this.pool, req.body.token);
+    await this.recovery.checkPasswordReset(req.body.token);
     res.status(204).end();
   };
   confirmPasswordReset = async (req: Request, res: Response) => {
     const password = newPasswordField(req.body.password);
-    await transaction(this.pool, db => consumePasswordReset(db, req.body.token, password));
+    await this.recovery.completePasswordReset(req.body.token, password);
     res.status(204).end();
   };
   current = async (_req: Request, res: Response) => {
