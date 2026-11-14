@@ -588,7 +588,7 @@ small {
 
 .site-footer__grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(150px, 210px));
+  grid-template-columns: repeat(2, minmax(150px, 210px));
   gap: 44px;
 }
 
@@ -627,27 +627,6 @@ small {
 
 .site-footer__bottom p {
   margin: 0;
-}
-
-.site-footer__socials {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-.site-footer__socials a {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 6px;
-  color: white;
-  font-weight: 700;
-}
-
-.site-footer__socials svg {
-  width: 16px;
 }
 
 @keyframes popover-in {
