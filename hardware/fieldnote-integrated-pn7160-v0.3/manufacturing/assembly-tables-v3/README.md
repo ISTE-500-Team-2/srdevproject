@@ -1,0 +1,7 @@
+# PN7160 v0.3 assembly tables — engineering review, HOLD
+
+BOM-assembled-grouped.csv contains 78 fitted purchased references grouped into 42 exact MPNs. DNP-and-PCB-only.csv lists all 21 remaining native footprints separately: seven DNP parts plus the printed antenna and 13 copper testpads. No battery, battery connector, cell NTC or UART header is fitted in this first USB-powered batch; their footprints remain for future use.
+
+CPL-assembled-native.csv is filtered from KiCad's native position export on the frozen saved-fill board, retaining exactly those 78 fitted references. Units are mm; X is KiCad native X, Y is negated native Y, rotation is native KiCad rotation, and Side=top. The current native board has no separate drill/place origin (origin is 0,0); these coordinates therefore include the native +60/+50 mm drafting offsets. They are deliberately not the simplified +Y-down local coordinates in output/placement.csv. Fabrication/assembly exports must use this same native origin; PCBWay must confirm component orientation from the supplied native footprint/assembly drawing before placement.
+
+The local grouped BOM can combine differing descriptive value strings for the same exact MPN; no electrical value substitution is implied. Sourcing, component tape/overage, EP stencil/unfilled-via process, physical case fit, RF/power/current and firmware behavior are separate qualification gates. These are review files, not a released order package.

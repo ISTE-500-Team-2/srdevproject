@@ -1,0 +1,1268 @@
+{
+  "board": "Fieldnote interface board v0.1",
+  "status": "SCHEMATIC_CANDIDATE_NOT_LAID_OUT_NOT_TESTED",
+  "mates": "Fieldnote PN7160 v0.5 J6",
+  "parts": [
+    {
+      "ref": "J1",
+      "value": "FIELD 10P",
+      "fp": "JST_GH_SM10B",
+      "nets": {
+        "1": "VIN_RAW",
+        "2": "GND",
+        "3": "WG_D0",
+        "4": "WG_D1",
+        "5": "PANEL_LED",
+        "6": "PANEL_BZR",
+        "7": "RS485_A",
+        "8": "RS485_B",
+        "9": "TAMPER_OUT",
+        "10": "GND",
+        "MP": "GND"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "SM10B-GHS-TB(LF)(SN)",
+      "note": "Field pigtail: 1 +V (12/24 VDC), 2 GND, 3 D0, 4 D1, 5 LED in, 6 beeper in, 7 RS-485 A, 8 RS-485 B, 9 tamper out, 10 shield drain. JST GH rated 1 A/pin.",
+      "dnp": false,
+      "names": {
+        "1": "+V",
+        "2": "GND",
+        "3": "D0",
+        "4": "D1",
+        "5": "LED",
+        "6": "BZR",
+        "7": "A",
+        "8": "B",
+        "9": "TAMPER",
+        "10": "SHIELD",
+        "MP": "MP"
+      }
+    },
+    {
+      "ref": "F1",
+      "value": "PTC 0.5A hold >=60V",
+      "fp": "Fuse_1812",
+      "nets": {
+        "1": "VIN_RAW",
+        "2": "VIN_FUSED"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Power",
+      "mpn": "TBD",
+      "note": "Resettable fuse; protects panel reader-port wiring. Select a 1812 PTC rated >=60 V, ~0.5 A hold.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "D1",
+      "value": "SMAJ33A",
+      "fp": "D_SMA",
+      "nets": {
+        "1": "VIN_FUSED",
+        "2": "GND"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Power",
+      "mpn": "SMAJ33A",
+      "note": "Unidirectional TVS: surge clamp below LMR36510 66 V transient rating; forward-conducts on reverse polarity so F1 trips.",
+      "dnp": false,
+      "names": {
+        "1": "K",
+        "2": "A"
+      }
+    },
+    {
+      "ref": "D2",
+      "value": "SS16 60V 1A",
+      "fp": "D_SMA",
+      "nets": {
+        "1": "VIN_PROT",
+        "2": "VIN_FUSED"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Power",
+      "mpn": "SS16-E3/61T",
+      "note": "Series reverse-polarity Schottky.",
+      "dnp": false,
+      "names": {
+        "1": "K",
+        "2": "A"
+      }
+    },
+    {
+      "ref": "C1",
+      "value": "2.2uF 100V X7R",
+      "fp": "C_1210",
+      "nets": {
+        "1": "VIN_PROT",
+        "2": "GND"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Power",
+      "mpn": "GRM32ER72A225KA35L",
+      "note": "Buck input (TI Table 8-1: 2.2 uF + 220 nF).",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C2",
+      "value": "220nF 100V X7R",
+      "fp": "C_0805",
+      "nets": {
+        "1": "VIN_PROT",
+        "2": "GND"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Power",
+      "mpn": "TBD",
+      "note": "Buck high-frequency input bypass, at VIN/PGND pins.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "U1",
+      "value": "LMR36510ADDAR",
+      "fp": "TI_DDA0008J_HSOP8",
+      "nets": {
+        "1": "GND",
+        "2": "VIN_PROT",
+        "3": "BUCK_EN",
+        "4": "FIELD_PG",
+        "5": "BUCK_FB",
+        "6": "BUCK_VCC",
+        "7": "BUCK_BOOT",
+        "8": "SW_BUCK",
+        "9": "GND"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Power",
+      "mpn": "LMR36510ADDAR",
+      "note": "4.2-65 V, 1 A, 400 kHz PFM buck -> 5V_FIELD. Values from TI datasheet Table 8-1 (5 V, 400 kHz).",
+      "dnp": false,
+      "names": {
+        "1": "PGND",
+        "2": "VIN",
+        "3": "EN",
+        "4": "PG",
+        "5": "FB",
+        "6": "VCC",
+        "7": "BOOT",
+        "8": "SW",
+        "9": "PAD"
+      },
+      "pin_types": {
+        "1": "power_in",
+        "2": "power_in",
+        "3": "input",
+        "4": "open_collector",
+        "5": "input",
+        "6": "power_out",
+        "7": "passive",
+        "8": "output",
+        "9": "passive"
+      }
+    },
+    {
+      "ref": "R1",
+      "value": "432k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "VIN_PROT",
+        "2": "BUCK_EN"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Power",
+      "mpn": "RC0603FR-07432KL",
+      "note": "EN divider top: start 1.231 V x 5.32 = 6.55 V, stop about 5.96 V (110 mV hysteresis).",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R2",
+      "value": "100k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "BUCK_EN",
+        "2": "GND"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Power",
+      "mpn": "RC0603FR-07100KL",
+      "note": "EN divider bottom.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C3",
+      "value": "1uF 16V X7R",
+      "fp": "C_0603",
+      "nets": {
+        "1": "BUCK_VCC",
+        "2": "GND"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Power",
+      "mpn": "C0603C105K4RACTU",
+      "note": "VCC LDO capacitor (datasheet: 1 uF).",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C4",
+      "value": "100nF 50V X7R",
+      "fp": "C_0603",
+      "nets": {
+        "1": "BUCK_BOOT",
+        "2": "SW_BUCK"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Power",
+      "mpn": "CC0603KRX7R9BB104",
+      "note": "Bootstrap capacitor (datasheet: 100 nF BOOT-SW).",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "L1",
+      "value": "22uH",
+      "fp": "L_SRN6045TA",
+      "nets": {
+        "1": "SW_BUCK",
+        "2": "5V_FIELD"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Power",
+      "mpn": "SRN6045TA-220M",
+      "note": "22 uH per Table 8-1. Confirm Isat >= 1.5 A and DCR at selection.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C5",
+      "value": "22uF 10V X5R",
+      "fp": "C_0805",
+      "nets": {
+        "1": "5V_FIELD",
+        "2": "GND"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Power",
+      "mpn": "C0805C226M8PACTU",
+      "note": "Output 2 x 22 uF nominal per Table 8-1; verify effective capacitance at 5 V bias.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C6",
+      "value": "22uF 10V X5R",
+      "fp": "C_0805",
+      "nets": {
+        "1": "5V_FIELD",
+        "2": "GND"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Power",
+      "mpn": "C0805C226M8PACTU",
+      "note": "",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R3",
+      "value": "100k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "5V_FIELD",
+        "2": "BUCK_FB"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Power",
+      "mpn": "RC0603FR-07100KL",
+      "note": "RFBT (datasheet recommended 100k).",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R4",
+      "value": "24.9k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "BUCK_FB",
+        "2": "GND"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Power",
+      "mpn": "RC0603FR-0724K9L",
+      "note": "RFBB for 5.0 V (Vref 1.0 V).",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R5",
+      "value": "10k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "FIELD_PG",
+        "2": "5V_FIELD"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Power",
+      "mpn": "RC0603FR-0710KL",
+      "note": "PG pull-up from 5V_FIELD so no field power = no qualification. Reader R37 100k pulldown -> high level about 4.5 V (LVC/TCA inputs 5.5 V tolerant).",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "J2",
+      "value": "READER LINK 2x5 1.27",
+      "fp": "Socket_2x05_P1.27mm_SMD",
+      "nets": {
+        "1": "5V_FIELD",
+        "2": "5V_FIELD",
+        "3": "GND",
+        "4": "GND",
+        "5": "3V3",
+        "6": "FIELD_PG",
+        "7": "SDA",
+        "8": "SCL",
+        "9": "IO_INT",
+        "10": "PWR_SRC"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Link",
+      "mpn": "CLP-105-02-F-D",
+      "note": "Mates reader J6 (FTSH-105-01-F-DV-K). Pin numbers match J6 one-to-one. Stack height set by case.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2",
+        "3": "3",
+        "4": "4",
+        "5": "5",
+        "6": "6",
+        "7": "7",
+        "8": "8",
+        "9": "9",
+        "10": "10"
+      }
+    },
+    {
+      "ref": "C7",
+      "value": "10uF 16V X5R",
+      "fp": "C_0805",
+      "nets": {
+        "1": "3V3",
+        "2": "GND"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Link",
+      "mpn": "CL21A106KOCLRNC",
+      "note": "Local 3V3 bulk for RS-485 transmit and buzzer current.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R6",
+      "value": "10k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "IO_INT",
+        "2": "3V3"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Link",
+      "mpn": "RC0603FR-0710KL",
+      "note": "Pull-up for the coprocessor open-drain interrupt to reader IO0.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "U2",
+      "value": "STM32G031F6P6",
+      "fp": "TSSOP-20",
+      "nets": {
+        "1": "SDA",
+        "2": "TAMPER_SENSE",
+        "3": "BZR_SENSE",
+        "4": "3V3",
+        "5": "GND",
+        "6": "MCU_NRST",
+        "7": "LED_SENSE",
+        "8": "RS485_DE",
+        "9": "RS485_DI",
+        "10": "RS485_RO",
+        "11": "WG_D0_DRV",
+        "12": "WG_D1_DRV",
+        "13": "TAMPER_DRV",
+        "14": "BZR_N",
+        "15": "BZR_P",
+        "16": "IO_INT",
+        "17": "PWR_SRC",
+        "18": "SWDIO",
+        "19": "SWCLK",
+        "20": "SCL"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "STM32G031F6P6",
+      "note": "Interface coprocessor (replaces TCA9535 + SC16IS740 after review). I2C target to the reader (address 0x30, firmware). USART2 with hardware driver-enable (PA1 RTS_DE, PA2 TX, PA3 RX) for OSDP; timer-driven Wiegand; independent watchdog releases Wiegand/tamper/buzzer outputs (all default high-Z with gate pulldowns). OSDP Secure Channel stays on the ESP32 (keys never leave it). Bonded pads: pin 1 = PB7/PB8, pin 20 = PB3-PB6, pin 15 = PA8/PB0-PB2, pin 16 = PA9/PA11: keep the unused twins as inputs. Piezo BZ1 bridge-driven by TIM1_CH1 (PA8, pin 15) and TIM1_CH1N (PA7, pin 14) in complementary PWM at about 4 kHz: about 6.6 Vp-p across the transducer. I2C1 on PB6/PB7 and TIM1 on PA7/PA8 (AF2) to be confirmed in CubeMX. Factory programming over SWD (J3).",
+      "dnp": false,
+      "names": {
+        "1": "PB7/PB8",
+        "2": "PB9/PC14",
+        "3": "PC15",
+        "4": "VDD",
+        "5": "VSS",
+        "6": "PF2-NRST",
+        "7": "PA0",
+        "8": "PA1",
+        "9": "PA2",
+        "10": "PA3",
+        "11": "PA4",
+        "12": "PA5",
+        "13": "PA6",
+        "14": "PA7",
+        "15": "PA8/PB0-2",
+        "16": "PA9/PA11",
+        "17": "PA10/PA12",
+        "18": "PA13-SWDIO",
+        "19": "PA14-SWCLK",
+        "20": "PB3-6"
+      },
+      "pin_types": {
+        "4": "power_in",
+        "5": "power_in",
+        "1": "bidirectional",
+        "2": "bidirectional",
+        "3": "bidirectional",
+        "6": "bidirectional",
+        "7": "bidirectional",
+        "8": "bidirectional",
+        "9": "bidirectional",
+        "10": "bidirectional",
+        "11": "bidirectional",
+        "12": "bidirectional",
+        "13": "bidirectional",
+        "14": "bidirectional",
+        "15": "bidirectional",
+        "16": "bidirectional",
+        "17": "bidirectional",
+        "18": "bidirectional",
+        "19": "bidirectional",
+        "20": "bidirectional"
+      }
+    },
+    {
+      "ref": "C8",
+      "value": "100nF 50V X7R",
+      "fp": "C_0603",
+      "nets": {
+        "1": "3V3",
+        "2": "GND"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "CC0603KRX7R9BB104",
+      "note": "U2 VDD decoupling, at pin 4.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C9",
+      "value": "1uF 16V X7R",
+      "fp": "C_0603",
+      "nets": {
+        "1": "3V3",
+        "2": "GND"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "C0603C105K4RACTU",
+      "note": "U2 VDD bulk.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C10",
+      "value": "100nF 50V X7R",
+      "fp": "C_0603",
+      "nets": {
+        "1": "MCU_NRST",
+        "2": "GND"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "CC0603KRX7R9BB104",
+      "note": "NRST filter capacitor (ST recommends 100 nF).",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "J3",
+      "value": "SWD TC2030",
+      "fp": "TagConnect_TC2030_NL",
+      "nets": {
+        "1": "3V3",
+        "2": "SWDIO",
+        "3": "MCU_NRST",
+        "4": "SWCLK",
+        "5": "GND",
+        "6": null
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "PCB only",
+      "note": "Tag-Connect TC2030-NL SWD pads: 1 VCC, 2 SWDIO, 3 NRST, 4 SWCLK, 5 GND, 6 SWO (unused).",
+      "dnp": false,
+      "names": {
+        "1": "VCC",
+        "2": "SWDIO",
+        "3": "NRST",
+        "4": "SWCLK",
+        "5": "GND",
+        "6": "SWO"
+      }
+    },
+    {
+      "ref": "U4",
+      "value": "THVD1450DR",
+      "fp": "SOIC-8",
+      "nets": {
+        "1": "RS485_RO",
+        "2": "RS485_DE",
+        "3": "RS485_DE",
+        "4": "RS485_DI",
+        "5": "GND",
+        "6": "RS485_A",
+        "7": "RS485_B",
+        "8": "3V3"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "THVD1450DR",
+      "note": "3.3 V RS-485, +-18 kV IEC ESD, bus fail-safe receiver. ~RE tied to DE: half-duplex, receiver off while transmitting; DE driven by USART2 hardware.",
+      "dnp": false,
+      "names": {
+        "1": "R",
+        "2": "~RE",
+        "3": "DE",
+        "4": "D",
+        "5": "GND",
+        "6": "A",
+        "7": "B",
+        "8": "VCC"
+      },
+      "pin_types": {
+        "1": "output",
+        "2": "input",
+        "3": "input",
+        "4": "input",
+        "5": "power_in",
+        "6": "bidirectional",
+        "7": "bidirectional",
+        "8": "power_in"
+      }
+    },
+    {
+      "ref": "C12",
+      "value": "100nF 50V X7R",
+      "fp": "C_0603",
+      "nets": {
+        "1": "3V3",
+        "2": "GND"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "CC0603KRX7R9BB104",
+      "note": "U4 decoupling.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R8",
+      "value": "10k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "RS485_RO",
+        "2": "3V3"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "RC0603FR-0710KL",
+      "note": "Holds UART RX idle-high while the receiver is disabled during transmit.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "D3",
+      "value": "SM712",
+      "fp": "SOT-23",
+      "nets": {
+        "1": "RS485_A",
+        "2": "RS485_B",
+        "3": "GND"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "SM712.TCT",
+      "note": "Asymmetric -7/+12 V RS-485 line TVS.",
+      "dnp": false,
+      "names": {
+        "1": "IO1",
+        "2": "IO2",
+        "3": "GND"
+      }
+    },
+    {
+      "ref": "R9",
+      "value": "120R 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "RS485_A",
+        "2": "RS485_TERM"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "RC0603FR-07120RL",
+      "note": "Bus termination, enabled only by JP1 at the end of the line.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "JP1",
+      "value": "RS-485 TERM",
+      "fp": "SolderJumper_2_Open",
+      "nets": {
+        "1": "RS485_TERM",
+        "2": "RS485_B"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "PCB copper",
+      "note": "Open by default. Bridge only when this reader is the last device on the RS-485 line.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "Q1",
+      "value": "2N7002K",
+      "fp": "SOT-23",
+      "nets": {
+        "1": "WG_D0_DRV",
+        "2": "GND",
+        "3": "WG_D0"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "2N7002K-7",
+      "note": "Open-drain D0 pull-down; panel supplies the pull-up (usually 5 V, up to 12 V).",
+      "dnp": false,
+      "names": {
+        "1": "G",
+        "2": "S",
+        "3": "D"
+      }
+    },
+    {
+      "ref": "R10",
+      "value": "100k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "WG_D0_DRV",
+        "2": "GND"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "RC0603FR-07100KL",
+      "note": "Gate pulldown: line released (idle high) during reset, boot or watchdog.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "Q2",
+      "value": "2N7002K",
+      "fp": "SOT-23",
+      "nets": {
+        "1": "WG_D1_DRV",
+        "2": "GND",
+        "3": "WG_D1"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "2N7002K-7",
+      "note": "Open-drain D1 pull-down; panel supplies the pull-up (usually 5 V, up to 12 V).",
+      "dnp": false,
+      "names": {
+        "1": "G",
+        "2": "S",
+        "3": "D"
+      }
+    },
+    {
+      "ref": "R11",
+      "value": "100k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "WG_D1_DRV",
+        "2": "GND"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "RC0603FR-07100KL",
+      "note": "Gate pulldown: line released (idle high) during reset, boot or watchdog.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "D4",
+      "value": "PESD24VS2UT",
+      "fp": "SOT-23",
+      "nets": {
+        "1": "WG_D0",
+        "2": "WG_D1",
+        "3": "GND"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "PESD24VS2UT,215",
+      "note": "24 V standoff line clamp (was 15 V; review finding). Lines rated 24 V nominal maximum.",
+      "dnp": false,
+      "names": {
+        "1": "K1",
+        "2": "K2",
+        "3": "A"
+      }
+    },
+    {
+      "ref": "D5",
+      "value": "PESD24VS2UT",
+      "fp": "SOT-23",
+      "nets": {
+        "1": "PANEL_LED",
+        "2": "PANEL_BZR",
+        "3": "GND"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "PESD24VS2UT,215",
+      "note": "24 V standoff line clamp (was 15 V; review finding). Lines rated 24 V nominal maximum.",
+      "dnp": false,
+      "names": {
+        "1": "K1",
+        "2": "K2",
+        "3": "A"
+      }
+    },
+    {
+      "ref": "D6",
+      "value": "PESD24VS2UT",
+      "fp": "SOT-23",
+      "nets": {
+        "1": "TAMPER_OUT",
+        "2": null,
+        "3": "GND"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "PESD24VS2UT,215",
+      "note": "24 V standoff line clamp (was 15 V; review finding). Lines rated 24 V nominal maximum.",
+      "dnp": false,
+      "names": {
+        "1": "K1",
+        "2": "K2",
+        "3": "A"
+      }
+    },
+    {
+      "ref": "R12",
+      "value": "10k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "3V3",
+        "2": "LED_SENSE"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "RC0603FR-0710KL",
+      "note": "Pull-up: idle/high/undriven line reads high.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "D7",
+      "value": "1N4148W",
+      "fp": "D_SOD-123",
+      "nets": {
+        "1": "PANEL_LED",
+        "2": "LED_SENSE"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "1N4148W-7-F",
+      "note": "Blocking diode (cathode to panel line): panel sinking pulls the sense node to about 0.6 V (low); a line driven to 5-24 V, or an unpowered reader, reverse-biases it, so no current flows into 3V3. 75 V rating.",
+      "dnp": false,
+      "names": {
+        "1": "K",
+        "2": "A"
+      }
+    },
+    {
+      "ref": "R13",
+      "value": "10k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "3V3",
+        "2": "BZR_SENSE"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "RC0603FR-0710KL",
+      "note": "Pull-up: idle/high/undriven line reads high.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "D8",
+      "value": "1N4148W",
+      "fp": "D_SOD-123",
+      "nets": {
+        "1": "PANEL_BZR",
+        "2": "BZR_SENSE"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "1N4148W-7-F",
+      "note": "Blocking diode (cathode to panel line): panel sinking pulls the sense node to about 0.6 V (low); a line driven to 5-24 V, or an unpowered reader, reverse-biases it, so no current flows into 3V3. 75 V rating.",
+      "dnp": false,
+      "names": {
+        "1": "K",
+        "2": "A"
+      }
+    },
+    {
+      "ref": "R14",
+      "value": "1k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "TAMPER_DRV",
+        "2": "TAMPER_SW_IN"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "RC0603FR-071KL",
+      "note": "Series drive into the tamper switch.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "SW1",
+      "value": "TAMPER",
+      "fp": "SW_PTS810",
+      "nets": {
+        "1": "TAMPER_SW_IN",
+        "2": "TAMPER_GATE"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "PTS810 SJM 250 SMTR LFS",
+      "note": "Held closed by the back plate. In series with Q3 gate drive: opening the case opens the tamper output regardless of firmware state.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R17",
+      "value": "100k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "TAMPER_GATE",
+        "2": "GND"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "RC0603FR-07100KL",
+      "note": "Gate pulldown: tamper output open unless switch closed AND firmware drives normal.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R15",
+      "value": "10k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "TAMPER_GATE",
+        "2": "TAMPER_SENSE"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "RC0603FR-0710KL",
+      "note": "Lets firmware read the switch (gate high only when driven and closed).",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "Q3",
+      "value": "2N7002K",
+      "fp": "SOT-23",
+      "nets": {
+        "1": "TAMPER_GATE",
+        "2": "GND",
+        "3": "TAMPER_OUT"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "2N7002K-7",
+      "note": "Tamper output to panel: conducting = normal, open = tamper, no power or firmware fault.",
+      "dnp": false,
+      "names": {
+        "1": "G",
+        "2": "S",
+        "3": "D"
+      }
+    },
+    {
+      "ref": "BZ1",
+      "value": "PUI SMT-1240-S-HT",
+      "fp": "PUI_SMT-1240-S-HT",
+      "nets": {
+        "1": "BZR_P_R",
+        "2": "BZR_N_R"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "SMT-1240-S-HT",
+      "note": "12 x 12 x 2.8 mm SMD piezo (was a 12 mm x 9.5 mm-tall magnetic buzzer). 78 dBA min at 3 Vp-p, 4 kHz, about 1 mA, 15 nF, -40 to +105 C (PUI datasheet). Bridge drive gives about 6.6 Vp-p (estimated ~84 dBA; measure in the case). Put the side sound port at a case vent.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R18",
+      "value": "100R 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "BZR_P",
+        "2": "BZR_P_R"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "RC0603FR-07100RL",
+      "note": "Series resistor: limits charge current into the 15 nF piezo and isolates the MCU pin from shock-generated piezo voltage.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R19",
+      "value": "100R 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "BZR_N",
+        "2": "BZR_N_R"
+      },
+      "xy": [
+        0,
+        0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "RC0603FR-07100RL",
+      "note": "Series resistor, complementary leg.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    }
+  ]
+}

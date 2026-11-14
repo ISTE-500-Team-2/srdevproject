@@ -1,0 +1,354 @@
+{
+  "status": "REVIEW CANDIDATE - SOCKET MODEL / GEOMETRY UNVERIFIED - NO FABRICATION RELEASE",
+  "parts": [
+    {
+      "ref": "J1",
+      "value": "ESP32 30-pin socket pair - ASSUMED",
+      "fp": "ESP32_30_Socket_Pair_ASSUMED",
+      "names": {
+        "1": "5V",
+        "2": "GND",
+        "3": "GPIO13",
+        "4": "GPIO12",
+        "5": "GPIO14",
+        "6": "GPIO27",
+        "7": "GPIO26",
+        "8": "GPIO25",
+        "9": "GPIO33",
+        "10": "GPIO32",
+        "11": "GPIO35",
+        "12": "GPIO34",
+        "13": "GPIO39_VN",
+        "14": "GPIO36_VP",
+        "15": "EN",
+        "16": "3V3",
+        "17": "GND",
+        "18": "GPIO15",
+        "19": "GPIO2",
+        "20": "GPIO4",
+        "21": "GPIO16",
+        "22": "GPIO17",
+        "23": "GPIO5",
+        "24": "GPIO18",
+        "25": "GPIO19",
+        "26": "GPIO21",
+        "27": "GPIO3_RX0",
+        "28": "GPIO1_TX0",
+        "29": "GPIO22",
+        "30": "GPIO23"
+      },
+      "nets": {
+        "1": "VBUS_5V",
+        "2": "GND",
+        "3": null,
+        "4": null,
+        "5": null,
+        "6": null,
+        "7": null,
+        "8": null,
+        "9": null,
+        "10": null,
+        "11": null,
+        "12": null,
+        "13": null,
+        "14": null,
+        "15": null,
+        "16": "HOST_3V3",
+        "17": "GND",
+        "18": null,
+        "19": null,
+        "20": null,
+        "21": null,
+        "22": "NFC_SDA",
+        "23": null,
+        "24": null,
+        "25": null,
+        "26": null,
+        "27": null,
+        "28": null,
+        "29": "NFC_SCL",
+        "30": null
+      },
+      "xy": [
+        5,
+        5
+      ],
+      "sch": [
+        63.5,
+        73.66
+      ],
+      "dnp": false
+    },
+    {
+      "ref": "J2",
+      "value": "PN532 V3 I2C socket - ASSUMED",
+      "fp": "PN532_I2C_1x04_ASSUMED",
+      "names": {
+        "1": "GND",
+        "2": "VCC_5V",
+        "3": "SDA",
+        "4": "SCL"
+      },
+      "nets": {
+        "1": "GND",
+        "2": "VBUS_5V",
+        "3": "NFC_SDA",
+        "4": "NFC_SCL"
+      },
+      "xy": [
+        39,
+        20
+      ],
+      "sch": [
+        180.34,
+        55.88
+      ],
+      "dnp": false
+    },
+    {
+      "ref": "R1",
+      "value": "4.7k OPTIONAL DNP",
+      "fp": "R_0805",
+      "names": {
+        "1": "1",
+        "2": "2"
+      },
+      "nets": {
+        "1": "HOST_3V3",
+        "2": "NFC_SDA"
+      },
+      "xy": [
+        33.5,
+        23.5
+      ],
+      "sch": [
+        137.16,
+        93.98
+      ],
+      "dnp": true
+    },
+    {
+      "ref": "R2",
+      "value": "4.7k OPTIONAL DNP",
+      "fp": "R_0805",
+      "names": {
+        "1": "1",
+        "2": "2"
+      },
+      "nets": {
+        "1": "HOST_3V3",
+        "2": "NFC_SCL"
+      },
+      "xy": [
+        33.5,
+        29
+      ],
+      "sch": [
+        137.16,
+        119.38
+      ],
+      "dnp": true
+    },
+    {
+      "ref": "TP1",
+      "value": "VBUS_5V",
+      "fp": "TestPad",
+      "names": {
+        "1": "VBUS_5V"
+      },
+      "nets": {
+        "1": "VBUS_5V"
+      },
+      "xy": [
+        8,
+        10
+      ],
+      "sch": [
+        234.95,
+        58.42
+      ],
+      "dnp": false
+    },
+    {
+      "ref": "TP2",
+      "value": "GND",
+      "fp": "TestPad",
+      "names": {
+        "1": "GND"
+      },
+      "nets": {
+        "1": "GND"
+      },
+      "xy": [
+        26.4,
+        9
+      ],
+      "sch": [
+        234.95,
+        71.12
+      ],
+      "dnp": false
+    },
+    {
+      "ref": "TP3",
+      "value": "HOST_3V3",
+      "fp": "TestPad",
+      "names": {
+        "1": "HOST_3V3"
+      },
+      "nets": {
+        "1": "HOST_3V3"
+      },
+      "xy": [
+        29.4,
+        16.5
+      ],
+      "sch": [
+        234.95,
+        83.82
+      ],
+      "dnp": false
+    },
+    {
+      "ref": "TP4",
+      "value": "NFC_SDA",
+      "fp": "TestPad",
+      "names": {
+        "1": "NFC_SDA"
+      },
+      "nets": {
+        "1": "NFC_SDA"
+      },
+      "xy": [
+        30.3,
+        20.24
+      ],
+      "sch": [
+        234.95,
+        96.52
+      ],
+      "dnp": false
+    },
+    {
+      "ref": "TP5",
+      "value": "NFC_SCL",
+      "fp": "TestPad",
+      "names": {
+        "1": "NFC_SCL"
+      },
+      "nets": {
+        "1": "NFC_SCL"
+      },
+      "xy": [
+        29.5,
+        32
+      ],
+      "sch": [
+        234.95,
+        109.22
+      ],
+      "dnp": false
+    }
+  ],
+  "board_outline_mm": [
+    [
+      0,
+      0
+    ],
+    [
+      10,
+      0
+    ],
+    [
+      10,
+      7.5
+    ],
+    [
+      23,
+      7.5
+    ],
+    [
+      23,
+      0
+    ],
+    [
+      33,
+      0
+    ],
+    [
+      33,
+      17.5
+    ],
+    [
+      43,
+      17.5
+    ],
+    [
+      43,
+      32
+    ],
+    [
+      33,
+      32
+    ],
+    [
+      33,
+      44
+    ],
+    [
+      0,
+      44
+    ]
+  ],
+  "board_extent_mm": [
+    43,
+    44
+  ],
+  "layer_count": 2,
+  "thickness_mm": 1.6,
+  "module_envelopes": {
+    "esp32": [
+      4.18,
+      0,
+      28.68,
+      50.03
+    ],
+    "pn532": [
+      33,
+      8,
+      75.7,
+      48.4
+    ]
+  },
+  "assumptions": {
+    "esp32_model": "narrow original ESP32 30-pin clone, NOT confirmed",
+    "esp32_row_centers_mm": 22.86,
+    "esp32_pitch_mm": 2.54,
+    "pn532_pitch_mm": 2.54,
+    "pn532_connector_xy_mm": [
+      39,
+      20
+    ],
+    "sockets": "female vertical; matching male headers on module undersides",
+    "carrier_fits_existing_case": false
+  },
+  "firmware": {
+    "profile": "Fieldnote standalone I2C",
+    "SDA_GPIO": 17,
+    "SCL_GPIO": 22,
+    "frequency_Hz": 100000
+  },
+  "power": {
+    "source": "existing ESP32 USB",
+    "reader_supply_V": 5,
+    "host_gpio_V": 3.3,
+    "pullups": "R1/R2 DNP; optional 4.7k to HOST_3V3 only"
+  },
+  "release_gates": [
+    "Exact ESP32 board identity and pin order",
+    "ESP32 header pitch, row centers and USB datum",
+    "PN532 actual header pitch/order/location",
+    "Socket height, underside clearance and support/retention",
+    "Powered I2C levels, current, WiFi/NFC and closed-case range"
+  ]
+}

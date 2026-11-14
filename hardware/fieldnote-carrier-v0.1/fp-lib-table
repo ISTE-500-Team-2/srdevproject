@@ -1,0 +1,1 @@
+(fp_lib_table (lib (name "Carrier") (type "KiCad") (uri "${KIPRJMOD}/Carrier.pretty") (options "") (descr "Carrier candidate footprints; module dimensions unverified")))

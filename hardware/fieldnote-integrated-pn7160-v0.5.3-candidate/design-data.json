@@ -1,0 +1,3802 @@
+{
+  "parts": [
+    {
+      "ref": "J1",
+      "value": "USB-C USB 2.0",
+      "fp": "USB_C",
+      "nets": {
+        "A1": "GND",
+        "A12": "GND",
+        "B1": "GND",
+        "B12": "GND",
+        "S1": "GND",
+        "A4": "VBUS",
+        "A9": "VBUS",
+        "B4": "VBUS",
+        "B9": "VBUS",
+        "A5": "CC1",
+        "B5": "CC2",
+        "A6": "USB_DP",
+        "B6": "USB_DP",
+        "A7": "USB_DM",
+        "B7": "USB_DM",
+        "A8": null,
+        "B8": null
+      },
+      "xy": [
+        53.1,
+        0.2
+      ],
+      "angle": 180.0,
+      "group": "USB",
+      "mpn": "HRO TYPE-C-31-M-12",
+      "note": "5 V input and native ESP32 USB; no USB PD",
+      "dnp": false,
+      "names": {
+        "A1": "A1",
+        "A12": "A12",
+        "B1": "B1",
+        "B12": "B12",
+        "S1": "S1",
+        "A4": "A4",
+        "A9": "A9",
+        "B4": "B4",
+        "B9": "B9",
+        "A5": "A5",
+        "B5": "B5",
+        "A6": "A6",
+        "B6": "B6",
+        "A7": "A7",
+        "B7": "B7",
+        "A8": "A8",
+        "B8": "B8"
+      }
+    },
+    {
+      "ref": "U6",
+      "value": "TUSB320LAIRWBR",
+      "fp": "TUSB320_RWB12",
+      "nets": {
+        "1": "CC1",
+        "2": "CC2",
+        "3": "GND",
+        "4": "USB_VBUS_DET",
+        "5": null,
+        "6": null,
+        "7": "USB_LIMITED",
+        "8": null,
+        "9": null,
+        "10": "GND",
+        "11": "GND",
+        "12": "3V3"
+      },
+      "xy": [
+        43.0,
+        5.0
+      ],
+      "angle": 0.0,
+      "group": "USB",
+      "mpn": "TUSB320LAIRWBR",
+      "note": "Sink only, GPIO mode. Internal Rd includes dead-battery termination; no external 5.1k CC resistors. v0.5.3: CC1/CC2 protected by D8/D9 at J1.",
+      "dnp": false,
+      "names": {
+        "1": "CC1",
+        "2": "CC2",
+        "3": "PORT",
+        "4": "VBUS_DET",
+        "5": "ADDR",
+        "6": "OUT3",
+        "7": "OUT1",
+        "8": "OUT2",
+        "9": "ID",
+        "10": "GND",
+        "11": "EN_N",
+        "12": "VDD"
+      }
+    },
+    {
+      "ref": "R1",
+      "value": "887k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "VBUS",
+        "2": "USB_VBUS_DET"
+      },
+      "xy": [
+        43.0,
+        2.2
+      ],
+      "angle": 0.0,
+      "group": "USB",
+      "mpn": "RC0603FR-07887KL",
+      "note": "TI Rev D requires 855..920k at VBUS_DET",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R2",
+      "value": "10k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "SOURCE_QUALIFIED",
+        "2": "GND"
+      },
+      "xy": [
+        39.5,
+        8.5
+      ],
+      "angle": 0.0,
+      "group": "Power",
+      "mpn": "RC0603FR-0710KL",
+      "note": "10k pulldown on SOURCE_QUALIFIED / BQ EN2 (moved from USB_HIGH_CURRENT; same pose). Leakage screen must be redone with U11 Ioff.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C32",
+      "value": "100nF 50V X7R",
+      "fp": "C_0603",
+      "nets": {
+        "1": "3V3",
+        "2": "GND"
+      },
+      "xy": [
+        43.0,
+        7.5
+      ],
+      "angle": 0.0,
+      "group": "USB",
+      "mpn": "CC0603KRX7R9BB104",
+      "note": "U6 supply decoupling; OUT1 also pulled to 3V3",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "U7",
+      "value": "SN74LVC1G04DBVR",
+      "fp": "SOT23-5",
+      "nets": {
+        "1": null,
+        "2": "USB_LIMITED",
+        "3": "GND",
+        "4": "USB_HIGH_CURRENT",
+        "5": "3V3"
+      },
+      "xy": [
+        43.0,
+        11.5
+      ],
+      "angle": 0.0,
+      "group": "Power",
+      "mpn": "SN74LVC1G04DBVR",
+      "note": "Inverts TUSB320 open-drain OUT1. Output USB_HIGH_CURRENT now drives only U11 input C (OR term).",
+      "dnp": false,
+      "names": {
+        "1": "NC",
+        "2": "A",
+        "3": "GND",
+        "4": "Y",
+        "5": "VCC"
+      }
+    },
+    {
+      "ref": "C33",
+      "value": "100nF 50V X7R",
+      "fp": "C_0603",
+      "nets": {
+        "1": "3V3",
+        "2": "GND"
+      },
+      "xy": [
+        38.5,
+        11.5
+      ],
+      "angle": 0.0,
+      "group": "Power",
+      "mpn": "CC0603KRX7R9BB104",
+      "note": "",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "U5",
+      "value": "USBLC6-2SC6",
+      "fp": "SOT23-6",
+      "nets": {
+        "1": "USB_DM",
+        "2": "GND",
+        "3": "USB_DP",
+        "4": "USB_DP",
+        "5": "VBUS",
+        "6": "USB_DM"
+      },
+      "xy": [
+        53.0,
+        7.5
+      ],
+      "angle": 0.0,
+      "group": "USB",
+      "mpn": "USBLC6-2SC6",
+      "note": "Route through protection next to connector",
+      "dnp": false,
+      "names": {
+        "1": "DM",
+        "2": "GND",
+        "3": "DP",
+        "4": "DP",
+        "5": "VBUS",
+        "6": "DM"
+      }
+    },
+    {
+      "ref": "R3",
+      "value": "22R",
+      "fp": "R_0603",
+      "nets": {
+        "1": "USB_DM",
+        "2": "MCU_USB_DM"
+      },
+      "xy": [
+        45.75,
+        29.75
+      ],
+      "angle": 0.0,
+      "group": "MCU",
+      "mpn": "RC0603FR-0722RL",
+      "note": "",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R4",
+      "value": "22R",
+      "fp": "R_0603",
+      "nets": {
+        "1": "USB_DP",
+        "2": "MCU_USB_DP"
+      },
+      "xy": [
+        45.75,
+        31.5
+      ],
+      "angle": 0.0,
+      "group": "MCU",
+      "mpn": "RC0603FR-0722RL",
+      "note": "",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C1",
+      "value": "4.7uF 16V X5R",
+      "fp": "C_0805",
+      "nets": {
+        "1": "VIN_SEL",
+        "2": "GND"
+      },
+      "xy": [
+        62.5,
+        8.75
+      ],
+      "angle": 0.0,
+      "group": "Power",
+      "mpn": "CL21A475KOFNNNE",
+      "note": "BQ24074 IN local capacitor, now on VIN_SEL island after the USB/field mux. Existing pose and copper retained.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "U3",
+      "value": "BQ24074RGTR",
+      "fp": "BQ24074_RGT16",
+      "nets": {
+        "1": "BAT_TS",
+        "2": "BAT",
+        "3": "BAT",
+        "4": "GND",
+        "5": "SOURCE_QUALIFIED",
+        "6": "GND",
+        "7": "PGOOD_N",
+        "8": "GND",
+        "9": "CHG_N",
+        "10": "VSYS",
+        "11": "VSYS",
+        "12": "CHG_ILIM",
+        "13": "VIN_SEL",
+        "14": null,
+        "15": null,
+        "16": "CHG_ISET",
+        "17": "GND"
+      },
+      "xy": [
+        58.0,
+        8.8
+      ],
+      "angle": 0.0,
+      "group": "Power",
+      "mpn": "BQ24074RGTR",
+      "note": "Power path. IN now fed by U10 TPS2121 output VIN_SEL (USB VBUS or 5V_FIELD). TMR and ITERM open retain defaults.",
+      "dnp": false,
+      "names": {
+        "1": "TS",
+        "2": "BAT",
+        "3": "BAT",
+        "4": "CE_N",
+        "5": "EN2",
+        "6": "EN1",
+        "7": "PGOOD_N",
+        "8": "VSS",
+        "9": "CHG_N",
+        "10": "OUT",
+        "11": "OUT",
+        "12": "ILIM",
+        "13": "IN",
+        "14": "TMR",
+        "15": "ITERM",
+        "16": "ISET",
+        "17": "EP"
+      }
+    },
+    {
+      "ref": "R5",
+      "value": "8.66k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "CHG_ISET",
+        "2": "GND"
+      },
+      "xy": [
+        63.5,
+        4.2
+      ],
+      "angle": 0.0,
+      "group": "Power",
+      "mpn": "RC0603FR-078K66L",
+      "note": "About 103 mA nominal future charge; within TI ISET resistor range including tolerance. Battery/NTC DNP first batch.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R6",
+      "value": "1.62k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "CHG_ILIM",
+        "2": "GND"
+      },
+      "xy": [
+        61.5,
+        6.75
+      ],
+      "angle": 0.0,
+      "group": "Power",
+      "mpn": "RC0603FR-071K62L",
+      "note": "0.994A nominal; 0.917..1.073A for TI KILIM and resistor corners. EN1 always low.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R7",
+      "value": "10k",
+      "fp": "R_0603",
+      "nets": {
+        "1": "USB_LIMITED",
+        "2": "3V3"
+      },
+      "xy": [
+        39.5,
+        5.5
+      ],
+      "angle": 0.0,
+      "group": "USB",
+      "mpn": "RC0603FR-0710KL",
+      "note": "OUT1 high = default/unattached; low = 1.5A/3A. GPIO6 reads this directly.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R8",
+      "value": "10k",
+      "fp": "R_0603",
+      "nets": {
+        "1": "CHG_N",
+        "2": "3V3"
+      },
+      "xy": [
+        54.5,
+        12.0
+      ],
+      "angle": 0.0,
+      "group": "Power",
+      "mpn": "RC0603FR-0710KL",
+      "note": "",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R9",
+      "value": "10k",
+      "fp": "R_0603",
+      "nets": {
+        "1": "PGOOD_N",
+        "2": "3V3"
+      },
+      "xy": [
+        54.5,
+        13.75
+      ],
+      "angle": 0.0,
+      "group": "Power",
+      "mpn": "RC0603FR-0710KL",
+      "note": "",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C2",
+      "value": "10uF 16V X5R",
+      "fp": "C_0805",
+      "nets": {
+        "1": "BAT",
+        "2": "GND"
+      },
+      "xy": [
+        61.5,
+        11.5
+      ],
+      "angle": 0.0,
+      "group": "Power",
+      "mpn": "CL21A106KOCLRNC",
+      "note": "",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C3",
+      "value": "22uF 10V X5R",
+      "fp": "C_0805",
+      "nets": {
+        "1": "VSYS",
+        "2": "GND"
+      },
+      "xy": [
+        54.25,
+        16.0
+      ],
+      "angle": 0.0,
+      "group": "Power",
+      "mpn": "C0805C226M8PACTU",
+      "note": "",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "J2",
+      "value": "1S protected LiPo",
+      "fp": "JST_PH",
+      "nets": {
+        "1": "BAT",
+        "2": "GND"
+      },
+      "xy": [
+        63.0,
+        15.2
+      ],
+      "angle": -90.0,
+      "group": "Power",
+      "mpn": "S2B-PH-K-S(LF)(SN)",
+      "note": "DNP first assembly. Pin 1 BAT+; pin 2 GND. Verify mating battery cable polarity.",
+      "dnp": true,
+      "names": {
+        "1": "BAT+",
+        "2": "GND"
+      }
+    },
+    {
+      "ref": "J3",
+      "value": "CELL NTC 10k",
+      "fp": "Header_1x02",
+      "nets": {
+        "1": "BAT_TS",
+        "2": "GND"
+      },
+      "xy": [
+        48.8,
+        7.5
+      ],
+      "angle": 0.0,
+      "group": "Power",
+      "mpn": "",
+      "note": "DNP first assembly. External 10k NTC bonded to the battery. Open TS inhibits charging.",
+      "dnp": true,
+      "names": {
+        "1": "TS",
+        "2": "GND"
+      }
+    },
+    {
+      "ref": "U4",
+      "value": "TPS63031DSKR",
+      "fp": "TPS63031_DSK10",
+      "nets": {
+        "1": "3V3",
+        "2": "SW_L2",
+        "3": "GND",
+        "4": "SW_L1",
+        "5": "VSYS",
+        "6": "TPS_EN",
+        "7": "VSYS",
+        "8": "VSYS",
+        "9": "GND",
+        "10": "3V3",
+        "11": "GND"
+      },
+      "xy": [
+        56.8,
+        23.0
+      ],
+      "angle": 0.0,
+      "group": "Power",
+      "mpn": "TPS63031DSKR",
+      "note": "3.3 V buck-boost; PS/SYNC high for fixed-frequency operation",
+      "dnp": false,
+      "names": {
+        "1": "VOUT",
+        "2": "L2",
+        "3": "PGND",
+        "4": "L1",
+        "5": "VIN",
+        "6": "EN",
+        "7": "PS_SYNC",
+        "8": "VINA",
+        "9": "GND",
+        "10": "FB",
+        "11": "EP"
+      }
+    },
+    {
+      "ref": "L3",
+      "value": "1.5uH 20%",
+      "fp": "Coilcraft_LPS3015",
+      "nets": {
+        "1": "SW_L1",
+        "2": "SW_L2"
+      },
+      "xy": [
+        53.25,
+        22.7
+      ],
+      "angle": 90.0,
+      "group": "Power",
+      "mpn": "LPS3015-152MRC",
+      "note": "DCR max 0.100ohm; Isat 2.2A at 10% reduction; Irms 1.3A at 20C rise; height max 1.5mm",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C4",
+      "value": "22uF 10V X5R",
+      "fp": "C_0805",
+      "nets": {
+        "1": "VSYS",
+        "2": "GND"
+      },
+      "xy": [
+        54.5,
+        25.9
+      ],
+      "angle": 180.0,
+      "group": "Power",
+      "mpn": "C0805C226M8PACTU",
+      "note": "Guarded exact-part DC-bias screening: >=4.7uF effective input capacitance; typical curves require physical verification.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C5",
+      "value": "100nF 50V X7R",
+      "fp": "C_0603",
+      "nets": {
+        "1": "VSYS",
+        "2": "GND"
+      },
+      "xy": [
+        60.0,
+        20.5
+      ],
+      "angle": 0.0,
+      "group": "Power",
+      "mpn": "CC0603KRX7R9BB104",
+      "note": "",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C6",
+      "value": "22uF 10V X5R",
+      "fp": "C_0805",
+      "nets": {
+        "1": "3V3",
+        "2": "GND"
+      },
+      "xy": [
+        53.5,
+        19.5
+      ],
+      "angle": 180.0,
+      "group": "Power",
+      "mpn": "C0805C226M8PACTU",
+      "note": "Fitted single output capacitor; guarded effective-capacitance screening >=5.9uF. Conditional minimum/maximum-capacitance simulations pass; bench check required.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C7",
+      "value": "22uF 10V X5R",
+      "fp": "C_0805",
+      "nets": {
+        "1": "3V3",
+        "2": "GND"
+      },
+      "xy": [
+        60.0,
+        23.0
+      ],
+      "angle": 90.0,
+      "group": "Power",
+      "mpn": "C0805C226M8PACTU",
+      "note": "DNP minimum-cost first assembly; reserved second output capacitor. Requires R12=47k reset-delay remedy. Same exact MPN as C3/C4/C6 if later fitted.",
+      "dnp": true,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R10",
+      "value": "220k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "BAT",
+        "2": "IO_INT"
+      },
+      "xy": [
+        64.25,
+        21.25
+      ],
+      "angle": 90.0,
+      "group": "Power",
+      "mpn": "RC0603FR-07220KL",
+      "note": "DNP in v0.5: IO0 reclaimed as IO_INT (interface interrupt). Battery is DNP; a future battery gauge needs another path.",
+      "dnp": true,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R11",
+      "value": "100k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "IO_INT",
+        "2": "GND"
+      },
+      "xy": [
+        63.0,
+        24.15
+      ],
+      "angle": 0.0,
+      "group": "Power",
+      "mpn": "RC0603FR-07100KL",
+      "note": "DNP in v0.5: IO0 reclaimed as IO_INT (interface interrupt). Battery is DNP; a future battery gauge needs another path.",
+      "dnp": true,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C8",
+      "value": "100nF 50V X7R",
+      "fp": "C_0603",
+      "nets": {
+        "1": "IO_INT",
+        "2": "GND"
+      },
+      "xy": [
+        62.25,
+        25.75
+      ],
+      "angle": 0.0,
+      "group": "Power",
+      "mpn": "CC0603KRX7R9BB104",
+      "note": "DNP in v0.5: IO0 reclaimed as IO_INT (interface interrupt). Battery is DNP; a future battery gauge needs another path.",
+      "dnp": true,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R26",
+      "value": "150k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "VSYS",
+        "2": "TPS_EN"
+      },
+      "xy": [
+        52.0,
+        17.75
+      ],
+      "angle": 0.0,
+      "group": "Power",
+      "mpn": "RC0603FR-07150KL",
+      "note": "RC holds converter off while VSYS capacitors charge at USB100 current limit",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C36",
+      "value": "1uF 16V X7R",
+      "fp": "C_0603",
+      "nets": {
+        "1": "TPS_EN",
+        "2": "GND"
+      },
+      "xy": [
+        50.5,
+        20.0
+      ],
+      "angle": 90.0,
+      "group": "Power",
+      "mpn": "C0603C105K4RACTU",
+      "note": "Enable delay; screen effective capacitance 0.4..1.2uF at VSYS voltage",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "D4",
+      "value": "BAV199-7-F",
+      "fp": "SOT23",
+      "nets": {
+        "1": "TPS_EN",
+        "2": null,
+        "3": "VSYS"
+      },
+      "xy": [
+        47.5,
+        11.0
+      ],
+      "angle": 0.0,
+      "group": "Power",
+      "mpn": "BAV199-7-F",
+      "note": "First diode anode pin 1 TPS_EN, cathode/common pin 3 VSYS; pin 2 open. Low leakage preserves enable delay at high temperature.",
+      "dnp": false,
+      "names": {
+        "1": "A1",
+        "2": "K2_NC",
+        "3": "K1_A2"
+      }
+    },
+    {
+      "ref": "U1",
+      "value": "ESP32-C3-MINI-1-N4X",
+      "fp": "ESP32-C3-MINI-1",
+      "nets": {
+        "1": "GND",
+        "2": "GND",
+        "3": "3V3",
+        "4": null,
+        "5": "BOOT_IO2",
+        "6": "LED_BLUE",
+        "7": null,
+        "8": "ESP_EN",
+        "9": null,
+        "10": null,
+        "11": "GND",
+        "12": "IO_INT",
+        "13": "LED_GREEN",
+        "14": "GND",
+        "15": null,
+        "16": "LED_RED",
+        "17": null,
+        "18": "NFC_SDA",
+        "19": "NFC_SCL",
+        "20": "USB_LIMITED",
+        "21": "NFC_VEN",
+        "22": "BOOT_IO8",
+        "23": "BOOT_IO9",
+        "24": null,
+        "25": null,
+        "26": "MCU_USB_DM",
+        "27": "MCU_USB_DP",
+        "28": null,
+        "29": null,
+        "30": "MCU_NFC_IRQ",
+        "31": "UART_TX",
+        "32": null,
+        "33": null,
+        "34": null,
+        "35": null,
+        "36": "GND",
+        "37": "GND",
+        "38": "GND",
+        "39": "GND",
+        "40": "GND",
+        "41": "GND",
+        "42": "GND",
+        "43": "GND",
+        "44": "GND",
+        "45": "GND",
+        "46": "GND",
+        "47": "GND",
+        "48": "GND",
+        "49": "GND",
+        "50": "GND",
+        "51": "GND",
+        "52": "GND",
+        "53": "GND"
+      },
+      "xy": [
+        54.8,
+        35.8
+      ],
+      "angle": 180.0,
+      "group": "MCU",
+      "mpn": "ESP32-C3-MINI-1-N4X",
+      "note": "Recommended rev1.1 module; requires supported ESP-IDF/recompiled firmware. Antenna over PCB notch within case. PN7160 IRQ uses GPIO20; UART RX recovery needs R27 removed/R28 fitted. v0.5.1: IO8 drives the buzzer through C45 (LEDC 2-5 kHz only; a static level is silent); IO1/IO3/IO10 drive RGB G/B/R (active high PWM).",
+      "dnp": false,
+      "names": {
+        "1": "GND",
+        "2": "GND",
+        "3": "3V3",
+        "4": "NC",
+        "5": "IO2",
+        "6": "IO3",
+        "7": "NC",
+        "8": "EN",
+        "9": "NC",
+        "10": "NC",
+        "11": "GND",
+        "12": "IO0",
+        "13": "IO1",
+        "14": "GND",
+        "15": "NC",
+        "16": "IO10",
+        "17": "NC",
+        "18": "IO4",
+        "19": "IO5",
+        "20": "IO6",
+        "21": "IO7",
+        "22": "IO8",
+        "23": "IO9",
+        "24": "NC",
+        "25": "NC",
+        "26": "IO18_USB_DM",
+        "27": "IO19_USB_DP",
+        "28": "NC",
+        "29": "NC",
+        "30": "RXD0",
+        "31": "TXD0",
+        "32": "NC",
+        "33": "NC",
+        "34": "NC",
+        "35": "NC",
+        "36": "GND",
+        "37": "GND",
+        "38": "GND",
+        "39": "GND",
+        "40": "GND",
+        "41": "GND",
+        "42": "GND",
+        "43": "GND",
+        "44": "GND",
+        "45": "GND",
+        "46": "GND",
+        "47": "GND",
+        "48": "GND",
+        "49": "GND",
+        "50": "GND",
+        "51": "GND",
+        "52": "GND",
+        "53": "GND"
+      }
+    },
+    {
+      "ref": "R12",
+      "value": "47k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "ESP_RESET_RC",
+        "2": "POWER_PERMIT"
+      },
+      "xy": [
+        59.0,
+        26.5
+      ],
+      "angle": 0.0,
+      "group": "MCU",
+      "mpn": "RC0603FR-0747KL",
+      "note": "47k reset RC pullup to POWER_PERMIT. Empty-C9 cold delay starts after USB qualification; brief detach/replug may retain charge. No guaranteed BQ input-mode transition time.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C9",
+      "value": "1uF 16V X7R",
+      "fp": "C_0603",
+      "nets": {
+        "1": "ESP_RESET_RC",
+        "2": "GND"
+      },
+      "xy": [
+        63.25,
+        29.5
+      ],
+      "angle": 0.0,
+      "group": "MCU",
+      "mpn": "C0603C105K4RACTU",
+      "note": "Existing reset RC input capacitor. Manual RESET and recovery header affect this input, never push-pull gate output. v0.5.2: U12 discharges it through R46 on every 3V3 brownout, so the reset delay always re-arms.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R13",
+      "value": "10k",
+      "fp": "R_0603",
+      "nets": {
+        "1": "BOOT_IO2",
+        "2": "3V3"
+      },
+      "xy": [
+        39.5,
+        14.0
+      ],
+      "angle": 0.0,
+      "group": "MCU",
+      "mpn": "RC0603FR-0710KL",
+      "note": "",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R14",
+      "value": "10k",
+      "fp": "R_0603",
+      "nets": {
+        "1": "BOOT_IO8",
+        "2": "3V3"
+      },
+      "xy": [
+        63.25,
+        31.0
+      ],
+      "angle": 0.0,
+      "group": "MCU",
+      "mpn": "RC0603FR-0710KL",
+      "note": "GPIO8 strap pull-up, unchanged. v0.5.2: Q4 gate is no longer DC-connected to this net (C45 in series).",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R15",
+      "value": "10k",
+      "fp": "R_0603",
+      "nets": {
+        "1": "BOOT_IO9",
+        "2": "3V3"
+      },
+      "xy": [
+        63.25,
+        33.5
+      ],
+      "angle": 0.0,
+      "group": "MCU",
+      "mpn": "RC0603FR-0710KL",
+      "note": "",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "SW1",
+      "value": "RESET",
+      "fp": "TL3701",
+      "nets": {
+        "1": "ESP_RESET_RC",
+        "2": "ESP_RESET_RC",
+        "3": "GND",
+        "4": "GND"
+      },
+      "xy": [
+        34.75,
+        2.5
+      ],
+      "angle": 0.0,
+      "group": "MCU",
+      "mpn": "TL3701AF100QG",
+      "note": "",
+      "dnp": false,
+      "names": {
+        "1": "RESET_RC",
+        "2": "RESET_RC",
+        "3": "GND",
+        "4": "GND"
+      }
+    },
+    {
+      "ref": "SW2",
+      "value": "BOOT",
+      "fp": "TL3701",
+      "nets": {
+        "1": "BOOT_IO9",
+        "2": "BOOT_IO9",
+        "3": "GND",
+        "4": "GND"
+      },
+      "xy": [
+        39.0,
+        2.5
+      ],
+      "angle": 0.0,
+      "group": "MCU",
+      "mpn": "TL3701AF100QG",
+      "note": "",
+      "dnp": false,
+      "names": {
+        "1": "IO9",
+        "2": "IO9",
+        "3": "GND",
+        "4": "GND"
+      }
+    },
+    {
+      "ref": "C10",
+      "value": "10uF 16V X5R",
+      "fp": "C_0805",
+      "nets": {
+        "1": "3V3",
+        "2": "GND"
+      },
+      "xy": [
+        63.45,
+        35.75
+      ],
+      "angle": 0.0,
+      "group": "MCU",
+      "mpn": "CL21A106KOCLRNC",
+      "note": "",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C11",
+      "value": "100nF 50V X7R",
+      "fp": "C_0603",
+      "nets": {
+        "1": "3V3",
+        "2": "GND"
+      },
+      "xy": [
+        63.25,
+        37.65
+      ],
+      "angle": 0.0,
+      "group": "MCU",
+      "mpn": "CC0603KRX7R9BB104",
+      "note": "",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "J4",
+      "value": "UART recovery",
+      "fp": "Header_1x06",
+      "nets": {
+        "1": "GND",
+        "2": "3V3",
+        "3": "UART_TX",
+        "4": "UART_RX",
+        "5": "ESP_RESET_RC",
+        "6": "BOOT_IO9"
+      },
+      "xy": [
+        45.25,
+        8.5
+      ],
+      "angle": 90.0,
+      "group": "MCU",
+      "mpn": "",
+      "note": "DNP recovery header. Pin5 pulls ESP_RESET_RC only. Default USB permission required; service selector must cut default copper before bridging SERVICE side.",
+      "dnp": true,
+      "names": {
+        "1": "GND",
+        "2": "3V3",
+        "3": "TX",
+        "4": "RX",
+        "5": "RESET_RC",
+        "6": "BOOT"
+      }
+    },
+    {
+      "ref": "R16",
+      "value": "1k",
+      "fp": "R_0603",
+      "nets": {
+        "1": "LED_GREEN",
+        "2": "LEDG_GATE"
+      },
+      "xy": [
+        10.75,
+        7.5
+      ],
+      "angle": 0.0,
+      "group": "Indicators",
+      "mpn": "RC0603FR-071KL",
+      "note": "Gate resistor for the RGB green channel FET (was the LED current resistor).",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R17",
+      "value": "1k",
+      "fp": "R_0603",
+      "nets": {
+        "1": "LED_BLUE",
+        "2": "LEDB_GATE"
+      },
+      "xy": [
+        20.75,
+        7.5
+      ],
+      "angle": 0.0,
+      "group": "Indicators",
+      "mpn": "RC0603FR-071KL",
+      "note": "Gate resistor for the RGB blue channel FET (was the LED current resistor).",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R18",
+      "value": "1k",
+      "fp": "R_0603",
+      "nets": {
+        "1": "LED_RED",
+        "2": "LEDR_GATE"
+      },
+      "xy": [
+        30.75,
+        7.5
+      ],
+      "angle": 0.0,
+      "group": "Indicators",
+      "mpn": "RC0603FR-071KL",
+      "note": "Gate resistor for the RGB red channel FET (was the LED current resistor).",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "U2",
+      "value": "PN7160A1HN/C100E",
+      "fp": "PN7160_HVQFN40",
+      "nets": {
+        "1": "GND",
+        "2": "GND",
+        "3": "GND",
+        "4": "GND",
+        "5": "NFC_SDA",
+        "6": "3V3",
+        "7": "NFC_SCL",
+        "8": "NFC_IRQ",
+        "9": "GND",
+        "10": "NFC_VEN",
+        "11": null,
+        "12": "NFC_VBAT",
+        "13": "NFC_VBAT",
+        "14": "PN_TX_LDO",
+        "15": "NFC_RXN",
+        "16": "NFC_RXP",
+        "17": "NFC_VMID",
+        "18": "PN_TX_LDO",
+        "19": "NFC_TX2",
+        "20": "GND",
+        "21": "NFC_TX1",
+        "22": "PN_TX_LDO",
+        "23": null,
+        "24": null,
+        "25": null,
+        "26": "PN_1V8",
+        "27": "PN_1V8",
+        "28": "NFC_VBAT",
+        "29": "NFC_OSCOUT",
+        "30": "NFC_OSCIN",
+        "31": "PN_1V8",
+        "32": null,
+        "33": null,
+        "34": null,
+        "35": null,
+        "36": null,
+        "37": null,
+        "38": null,
+        "39": "GND",
+        "40": null,
+        "41": "GND"
+      },
+      "xy": [
+        42.5,
+        23.5
+      ],
+      "angle": 180.0,
+      "group": "NFC",
+      "mpn": "PN7160A1HN/C100E",
+      "note": "NCI I2C 0x28. CFG2: VBAT/VDDUP from filtered VSYS, PAD=3V3; internal 1V8/TXLDO outputs isolated. GPIO7 VEN, GPIO20 IRQ via R27. Reader-only ANT1/ANT2/VDDHF left open per NXP reference.",
+      "dnp": false,
+      "names": {
+        "1": "I2C_ADR0",
+        "2": "DWL_REQ",
+        "3": "I2C_ADR1",
+        "4": "VSS_PAD",
+        "5": "I2C_SDA",
+        "6": "VDD_PAD",
+        "7": "I2C_SCL",
+        "8": "IRQ",
+        "9": "VSS_A",
+        "10": "VEN",
+        "11": "IC_NC11",
+        "12": "VBAT2",
+        "13": "VDD_UP",
+        "14": "VDD_TX",
+        "15": "RXN",
+        "16": "RXP",
+        "17": "VDD_VMID",
+        "18": "TVDD_IN",
+        "19": "TX2",
+        "20": "VSS_TX",
+        "21": "TX1",
+        "22": "TVDD_IN2",
+        "23": "ANT1_NC",
+        "24": "ANT2_NC",
+        "25": "VDD_HF_NC",
+        "26": "VDD_A",
+        "27": "VDD",
+        "28": "VBAT",
+        "29": "XTAL2",
+        "30": "NFC_CLK_XTAL1",
+        "31": "VDD_D",
+        "32": "NC32",
+        "33": "NC33",
+        "34": "NC34",
+        "35": "NC35",
+        "36": "NC36",
+        "37": "DCDC_EN_NC",
+        "38": "IC_NC38",
+        "39": "WKUP_REQ",
+        "40": "CLK_REQ_NC",
+        "41": "EP"
+      },
+      "pin_types": {
+        "4": "power_in",
+        "6": "power_in",
+        "9": "power_in",
+        "12": "power_in",
+        "13": "power_in",
+        "18": "power_in",
+        "20": "power_in",
+        "22": "power_in",
+        "26": "power_in",
+        "28": "power_in",
+        "31": "power_in",
+        "41": "power_in",
+        "14": "power_out",
+        "17": "power_out",
+        "27": "power_out",
+        "1": "input",
+        "2": "input",
+        "3": "input",
+        "10": "input",
+        "15": "input",
+        "16": "input",
+        "30": "input",
+        "39": "input",
+        "8": "output",
+        "19": "output",
+        "21": "output",
+        "29": "output",
+        "5": "bidirectional",
+        "7": "input"
+      }
+    },
+    {
+      "ref": "FB1",
+      "value": "600R@100MHz 500mA",
+      "fp": "C_0603",
+      "nets": {
+        "1": "VSYS",
+        "2": "NFC_VBAT"
+      },
+      "xy": [
+        48.725,
+        13.95
+      ],
+      "angle": 180.0,
+      "group": "NFC",
+      "mpn": "BLM18AG601SN1D",
+      "note": "500mA ferrite bead. Manufacturer initial DCR maximum0.38ohm; post-qualification maximum0.48ohm. Variant hot/post-stress engineering screen uses0.60ohm, not a guaranteed85C specification.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C12",
+      "value": "4.7uF 16V X5R",
+      "fp": "C_0805",
+      "nets": {
+        "1": "NFC_VBAT",
+        "2": "GND"
+      },
+      "xy": [
+        37.65,
+        27.6
+      ],
+      "angle": -90.0,
+      "group": "NFC",
+      "mpn": "CL21A475KOFNNNE",
+      "note": "4.7uF at VBAT28; also connected to VBAT2 pin12. Check effective capacitance/rail drop.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C13",
+      "value": "100nF 50V X7R",
+      "fp": "C_0603",
+      "nets": {
+        "1": "NFC_VBAT",
+        "2": "GND"
+      },
+      "xy": [
+        47.8,
+        19.0
+      ],
+      "angle": 90.0,
+      "group": "NFC",
+      "mpn": "CC0603KRX7R9BB104",
+      "note": "Local 100nF at VBAT2 pin12.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C14",
+      "value": "4.7uF 16V X5R",
+      "fp": "C_0805",
+      "nets": {
+        "1": "NFC_VBAT",
+        "2": "GND"
+      },
+      "xy": [
+        44.225,
+        18.1
+      ],
+      "angle": 90.0,
+      "group": "NFC",
+      "mpn": "CL21A475KOFNNNE",
+      "note": "4.7uF at VDDUP pin13; filtered VSYS supply shared with VBAT per NXP CFG2.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C15",
+      "value": "2.2uF 10V X7R 10%",
+      "fp": "C_0603",
+      "nets": {
+        "1": "PN_1V8",
+        "2": "GND"
+      },
+      "xy": [
+        43.0,
+        28.9
+      ],
+      "angle": -90.0,
+      "group": "NFC",
+      "mpn": "CL10B225KP8NNNC",
+      "note": "2.2uF near DVDD31; internal1.8V output only. Effective DC-bias capacitance remains a qualification gate.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C16",
+      "value": "2.2uF 10V X7R 10%",
+      "fp": "C_0603",
+      "nets": {
+        "1": "PN_1V8",
+        "2": "GND"
+      },
+      "xy": [
+        37.15,
+        24.45
+      ],
+      "angle": 180.0,
+      "group": "NFC",
+      "mpn": "CL10B225KP8NNNC",
+      "note": "2.2uF near AVDD26; tied to VDD27/DVDD31. Effective DC-bias capacitance remains a qualification gate.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C17",
+      "value": "2.2uF 10V X7R 10%",
+      "fp": "C_0603",
+      "nets": {
+        "1": "PN_TX_LDO",
+        "2": "GND"
+      },
+      "xy": [
+        42.15,
+        17.85
+      ],
+      "angle": 90.0,
+      "group": "NFC",
+      "mpn": "CL10B225KP8NNNC",
+      "note": "2.2uF at TVDD_IN18; internalTXLDO output only. Effective DC-bias capacitance remains a qualification gate.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C18",
+      "value": "2.2uF 10V X7R 10%",
+      "fp": "C_0603",
+      "nets": {
+        "1": "PN_TX_LDO",
+        "2": "GND"
+      },
+      "xy": [
+        37.3,
+        22.8
+      ],
+      "angle": 180.0,
+      "group": "NFC",
+      "mpn": "CL10B225KP8NNNC",
+      "note": "Second2.2uF near TVDD_IN2 pin22; tied to VDDTX14/TVDD_IN18. Effective DC-bias capacitance remains a qualification gate.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C19",
+      "value": "1uF 16V X7R 10%",
+      "fp": "C_0603",
+      "nets": {
+        "1": "3V3",
+        "2": "GND"
+      },
+      "xy": [
+        47.2,
+        25.35
+      ],
+      "angle": -90.0,
+      "group": "NFC",
+      "mpn": "C0603C105K4RACTU",
+      "note": "1uF at VDDPAD6, same3V3 supply as ESP32 and I2C pullups.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R19",
+      "value": "100k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "NFC_VEN",
+        "2": "GND"
+      },
+      "xy": [
+        40.5,
+        35.5
+      ],
+      "angle": 90.0,
+      "group": "NFC",
+      "mpn": "RC0603FR-07100KL",
+      "note": "100k pulldown holds active-high VEN low during host reset; GPIO7 enables only after current qualification.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R20",
+      "value": "4.7k",
+      "fp": "R_0603",
+      "nets": {
+        "1": "NFC_SDA",
+        "2": "3V3"
+      },
+      "xy": [
+        45.5,
+        14.5
+      ],
+      "angle": 0.0,
+      "group": "NFC",
+      "mpn": "RC0603FR-074K7L",
+      "note": "",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R21",
+      "value": "4.7k",
+      "fp": "R_0603",
+      "nets": {
+        "1": "NFC_SCL",
+        "2": "3V3"
+      },
+      "xy": [
+        46.75,
+        16.5
+      ],
+      "angle": 0.0,
+      "group": "NFC",
+      "mpn": "RC0603FR-074K7L",
+      "note": "",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "Y1",
+      "value": "27.12MHz CL10pF",
+      "fp": "Crystal_2016",
+      "nets": {
+        "1": "NFC_OSCIN",
+        "2": "GND",
+        "3": "NFC_OSCOUT",
+        "4": "GND"
+      },
+      "xy": [
+        40.4,
+        28.75
+      ],
+      "angle": 180.0,
+      "group": "NFC",
+      "mpn": "NX2016SA-27.12MHZ-EXS00A-CS06346",
+      "note": "NXP AN14518 Table9 approved crystal. Provisional13pF branch capacitors; oscillator startup and frequency require physical validation.",
+      "dnp": false,
+      "names": {
+        "1": "XTAL1",
+        "2": "CASE",
+        "3": "XTAL2",
+        "4": "CASE"
+      }
+    },
+    {
+      "ref": "C22",
+      "value": "13pF C0G 50V 1%",
+      "fp": "C_0603",
+      "nets": {
+        "1": "NFC_OSCIN",
+        "2": "GND"
+      },
+      "xy": [
+        42.9,
+        31.95
+      ],
+      "angle": -90.0,
+      "group": "NFC",
+      "mpn": "CC0603FRNPO9BN130",
+      "note": "v0.5.3: YAGEO CC0603FRNPO9BN130 (LCSC C519488), 13 pF NP0 +-1 % 50 V 0603, replaces KEMET CBR06C130F5GAC (68 in stock). Same value, tolerance and dielectric. NXP AN14518 13 pF branch; oscillator start and frequency check on first boards.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C23",
+      "value": "13pF C0G 50V 1%",
+      "fp": "C_0603",
+      "nets": {
+        "1": "NFC_OSCOUT",
+        "2": "GND"
+      },
+      "xy": [
+        39.7,
+        32.0
+      ],
+      "angle": -90.0,
+      "group": "NFC",
+      "mpn": "CC0603FRNPO9BN130",
+      "note": "v0.5.3: YAGEO CC0603FRNPO9BN130 (LCSC C519488), 13 pF NP0 +-1 % 50 V 0603, replaces KEMET CBR06C130F5GAC (68 in stock). Same value, tolerance and dielectric. NXP AN14518 13 pF branch; oscillator start and frequency check on first boards.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "L1",
+      "value": "160nH 5%",
+      "fp": "L_0603",
+      "nets": {
+        "1": "NFC_TX1",
+        "2": "RF1_FILTER"
+      },
+      "xy": [
+        37.3,
+        21.1
+      ],
+      "angle": 180.0,
+      "group": "RF",
+      "mpn": "LQW18CNR16J00D",
+      "note": "LCSC C437367. L0 EMC inductor, Murata LQW18CN (NXP-named series, 1 A, DCR <= 0.1 ohm). v0.5.3: 160nH 5% per hardware/nfc-antenna-study/README.md section 7 (2026-11-13): asymmetric match for the FastHenry coil model (543.6 nH, 0.461 ohm incl. GND planes), Z(TX1-TX2) 11.1 - j0.3 ohm, ITVDD 207 mA nominal and bounded at about 233 mA (241 mA fast-driver corner) for any coil L; Q 18.8. Bound to the v0.5.2 RF geometry, which v0.5.3 keeps. Was 160nH 5% LQW18CAR16J00D. Physical check: PN7160 antenna self-test / TVDD current on the first board; re-tune table in the study.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "L2",
+      "value": "160nH 5%",
+      "fp": "L_0603",
+      "nets": {
+        "1": "NFC_TX2",
+        "2": "RF2_FILTER"
+      },
+      "xy": [
+        39.1,
+        18.3
+      ],
+      "angle": 90.0,
+      "group": "RF",
+      "mpn": "LQW18CNR16J00D",
+      "note": "LCSC C437367. L0 EMC inductor, Murata LQW18CN (NXP-named series, 1 A, DCR <= 0.1 ohm). v0.5.3: 160nH 5% per hardware/nfc-antenna-study/README.md section 7 (2026-11-13): asymmetric match for the FastHenry coil model (543.6 nH, 0.461 ohm incl. GND planes), Z(TX1-TX2) 11.1 - j0.3 ohm, ITVDD 207 mA nominal and bounded at about 233 mA (241 mA fast-driver corner) for any coil L; Q 18.8. Bound to the v0.5.2 RF geometry, which v0.5.3 keeps. Was 160nH 5% LQW18CAR16J00D. Physical check: PN7160 antenna self-test / TVDD current on the first board; re-tune table in the study.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C24",
+      "value": "330pF C0G 50V 1%",
+      "fp": "C_0603",
+      "nets": {
+        "1": "RF1_FILTER",
+        "2": "GND"
+      },
+      "xy": [
+        35.6,
+        18.7
+      ],
+      "angle": 90.0,
+      "group": "RF",
+      "mpn": "CC0603FRNPO9BN331",
+      "note": "LCSC C519562. C0 EMC shunt. v0.5.3: 330pF C0G 50V 1% per hardware/nfc-antenna-study/README.md section 7 (2026-11-13): asymmetric match for the FastHenry coil model (543.6 nH, 0.461 ohm incl. GND planes), Z(TX1-TX2) 11.1 - j0.3 ohm, ITVDD 207 mA nominal and bounded at about 233 mA (241 mA fast-driver corner) for any coil L; Q 18.8. Bound to the v0.5.2 RF geometry, which v0.5.3 keeps. Was 330pF C0G 50V 2% CC0603GRNPO9BN331. Physical check: PN7160 antenna self-test / TVDD current on the first board; re-tune table in the study.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C25",
+      "value": "330pF C0G 50V 1%",
+      "fp": "C_0603",
+      "nets": {
+        "1": "RF2_FILTER",
+        "2": "GND"
+      },
+      "xy": [
+        37.1,
+        15.8
+      ],
+      "angle": 180.0,
+      "group": "RF",
+      "mpn": "CC0603FRNPO9BN331",
+      "note": "LCSC C519562. C0 EMC shunt. v0.5.3: 330pF C0G 50V 1% per hardware/nfc-antenna-study/README.md section 7 (2026-11-13): asymmetric match for the FastHenry coil model (543.6 nH, 0.461 ohm incl. GND planes), Z(TX1-TX2) 11.1 - j0.3 ohm, ITVDD 207 mA nominal and bounded at about 233 mA (241 mA fast-driver corner) for any coil L; Q 18.8. Bound to the v0.5.2 RF geometry, which v0.5.3 keeps. Was 330pF C0G 50V 2% CC0603GRNPO9BN331. Physical check: PN7160 antenna self-test / TVDD current on the first board; re-tune table in the study.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C26",
+      "value": "120pF C0G 50V 1%",
+      "fp": "C_0603",
+      "nets": {
+        "1": "RF1_FILTER",
+        "2": "RF1_MATCH"
+      },
+      "xy": [
+        33.7,
+        21.1
+      ],
+      "angle": -90.0,
+      "group": "RF",
+      "mpn": "CC0603FRNPO9BN121",
+      "note": "LCSC C519498. C1 series match (|Z| knob). v0.5.3: 120pF C0G 50V 1% per hardware/nfc-antenna-study/README.md section 7 (2026-11-13): asymmetric match for the FastHenry coil model (543.6 nH, 0.461 ohm incl. GND planes), Z(TX1-TX2) 11.1 - j0.3 ohm, ITVDD 207 mA nominal and bounded at about 233 mA (241 mA fast-driver corner) for any coil L; Q 18.8. Bound to the v0.5.2 RF geometry, which v0.5.3 keeps. Was 130pF C0G 50V 2% CC0603GRNPO9BN131. Physical check: PN7160 antenna self-test / TVDD current on the first board; re-tune table in the study.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C27",
+      "value": "120pF C0G 50V 1%",
+      "fp": "C_0603",
+      "nets": {
+        "1": "RF2_FILTER",
+        "2": "RF2_MATCH"
+      },
+      "xy": [
+        34.4,
+        28.8
+      ],
+      "angle": -90.0,
+      "group": "RF",
+      "mpn": "CC0603FRNPO9BN121",
+      "note": "LCSC C519498. C1 series match (|Z| knob). v0.5.3: 120pF C0G 50V 1% per hardware/nfc-antenna-study/README.md section 7 (2026-11-13): asymmetric match for the FastHenry coil model (543.6 nH, 0.461 ohm incl. GND planes), Z(TX1-TX2) 11.1 - j0.3 ohm, ITVDD 207 mA nominal and bounded at about 233 mA (241 mA fast-driver corner) for any coil L; Q 18.8. Bound to the v0.5.2 RF geometry, which v0.5.3 keeps. Was 130pF C0G 50V 2% CC0603GRNPO9BN131. Physical check: PN7160 antenna self-test / TVDD current on the first board; re-tune table in the study.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C28",
+      "value": "330pF C0G 50V 1%",
+      "fp": "C_0603",
+      "nets": {
+        "1": "RF1_MATCH",
+        "2": "GND"
+      },
+      "xy": [
+        34.8,
+        24.2
+      ],
+      "angle": 90.0,
+      "group": "RF",
+      "mpn": "CC0603FRNPO9BN331",
+      "note": "LCSC C519562. C2 shunt match. v0.5.3: 330pF C0G 50V 1% per hardware/nfc-antenna-study/README.md section 7 (2026-11-13): asymmetric match for the FastHenry coil model (543.6 nH, 0.461 ohm incl. GND planes), Z(TX1-TX2) 11.1 - j0.3 ohm, ITVDD 207 mA nominal and bounded at about 233 mA (241 mA fast-driver corner) for any coil L; Q 18.8. Bound to the v0.5.2 RF geometry, which v0.5.3 keeps. Was 300pF C0G 50V 2% CC0603GRNPO9BN301. Physical check: PN7160 antenna self-test / TVDD current on the first board; re-tune table in the study.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C29",
+      "value": "330pF C0G 50V 1%",
+      "fp": "C_0603",
+      "nets": {
+        "1": "RF2_MATCH",
+        "2": "GND"
+      },
+      "xy": [
+        34.4,
+        32.4
+      ],
+      "angle": -90.0,
+      "group": "RF",
+      "mpn": "CC0603FRNPO9BN331",
+      "note": "LCSC C519562. C2 shunt match. v0.5.3: 330pF C0G 50V 1% per hardware/nfc-antenna-study/README.md section 7 (2026-11-13): asymmetric match for the FastHenry coil model (543.6 nH, 0.461 ohm incl. GND planes), Z(TX1-TX2) 11.1 - j0.3 ohm, ITVDD 207 mA nominal and bounded at about 233 mA (241 mA fast-driver corner) for any coil L; Q 18.8. Bound to the v0.5.2 RF geometry, which v0.5.3 keeps. Was 300pF C0G 50V 2% CC0603GRNPO9BN301. Physical check: PN7160 antenna self-test / TVDD current on the first board; re-tune table in the study.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R22",
+      "value": "1.0R 1% 0.5W",
+      "fp": "R_0805",
+      "nets": {
+        "1": "RF1_MATCH",
+        "2": "ANT_A"
+      },
+      "xy": [
+        36.9,
+        30.5
+      ],
+      "angle": 0.0,
+      "group": "RF",
+      "mpn": "CRCW08051R00FKEAHP",
+      "note": "LCSC C313850. RQ damping in series with the coil, 0.5 W pulse-proof. v0.5.3: 1.0R 1% 0.5W per hardware/nfc-antenna-study/README.md section 7 (2026-11-13): asymmetric match for the FastHenry coil model (543.6 nH, 0.461 ohm incl. GND planes), Z(TX1-TX2) 11.1 - j0.3 ohm, ITVDD 207 mA nominal and bounded at about 233 mA (241 mA fast-driver corner) for any coil L; Q 18.8. Bound to the v0.5.2 RF geometry, which v0.5.3 keeps. Was 1.3R 1% 0.5W CRCW08051R30FKEAHP. Physical check: PN7160 antenna self-test / TVDD current on the first board; re-tune table in the study.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R23",
+      "value": "1.0R 1% 0.5W",
+      "fp": "R_0805",
+      "nets": {
+        "1": "RF2_MATCH",
+        "2": "ANT_B"
+      },
+      "xy": [
+        37.2,
+        32.5
+      ],
+      "angle": 0.0,
+      "group": "RF",
+      "mpn": "CRCW08051R00FKEAHP",
+      "note": "LCSC C313850. RQ damping in series with the coil, 0.5 W pulse-proof. v0.5.3: 1.0R 1% 0.5W per hardware/nfc-antenna-study/README.md section 7 (2026-11-13): asymmetric match for the FastHenry coil model (543.6 nH, 0.461 ohm incl. GND planes), Z(TX1-TX2) 11.1 - j0.3 ohm, ITVDD 207 mA nominal and bounded at about 233 mA (241 mA fast-driver corner) for any coil L; Q 18.8. Bound to the v0.5.2 RF geometry, which v0.5.3 keeps. Was 1.3R 1% 0.5W CRCW08051R30FKEAHP. Physical check: PN7160 antenna self-test / TVDD current on the first board; re-tune table in the study.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R24",
+      "value": "2.2k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "RF1_FILTER",
+        "2": "RF_RXP_COUPLED"
+      },
+      "xy": [
+        34.825,
+        12.4
+      ],
+      "angle": 90.0,
+      "group": "RF",
+      "mpn": "RC0603FR-072K2L",
+      "note": "Differential receiverP EMC-node tap, AN13219 coilarea>800mm\u00b2 initial2.2k.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C30",
+      "value": "100nF 50V X7R",
+      "fp": "C_0603",
+      "nets": {
+        "1": "NFC_VMID",
+        "2": "GND"
+      },
+      "xy": [
+        40.625,
+        18.3
+      ],
+      "angle": 90.0,
+      "group": "RF",
+      "mpn": "CC0603KRX7R9BB104",
+      "note": "100nF at VMID17 only; differential RX uses AC coupling.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C31",
+      "value": "1nF X7R 50V 5%",
+      "fp": "C_0603",
+      "nets": {
+        "1": "RF_RXP_COUPLED",
+        "2": "NFC_RXP"
+      },
+      "xy": [
+        40.525,
+        15.55
+      ],
+      "angle": 0.0,
+      "group": "RF",
+      "mpn": "CC0603JRX7R9BB102",
+      "note": "1nF X7R 50V \u00b15% AC coupling to RXP16; matched to C37 at RXN15 per AN13219.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R25",
+      "value": "2.2k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "RF2_FILTER",
+        "2": "RF_RXN_COUPLED"
+      },
+      "xy": [
+        34.8,
+        15.65
+      ],
+      "angle": 90.0,
+      "group": "RF",
+      "mpn": "RC0603FR-072K2L",
+      "note": "Matched differential receiverN EMC-node tap; not antenna-side tap.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C34",
+      "value": "15pF C0G 50V 1%",
+      "fp": "C_0603",
+      "nets": {
+        "1": "RF1_MATCH",
+        "2": "GND"
+      },
+      "xy": [
+        34.4,
+        36.5
+      ],
+      "angle": 90.0,
+      "group": "RF",
+      "mpn": "CC0603FRNPO9BN150",
+      "note": "LCSC C519483. C2 trim, now FITTED (C2 = 345 pF). v0.5.3: 15pF C0G 50V 1% per hardware/nfc-antenna-study/README.md section 7 (2026-11-13): asymmetric match for the FastHenry coil model (543.6 nH, 0.461 ohm incl. GND planes), Z(TX1-TX2) 11.1 - j0.3 ohm, ITVDD 207 mA nominal and bounded at about 233 mA (241 mA fast-driver corner) for any coil L; Q 18.8. Bound to the v0.5.2 RF geometry, which v0.5.3 keeps. Was 47pF C0G 50V CC0603JRNPO9BN470 (DNP). Physical check: PN7160 antenna self-test / TVDD current on the first board; re-tune table in the study.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C35",
+      "value": "15pF C0G 50V 1%",
+      "fp": "C_0603",
+      "nets": {
+        "1": "RF2_MATCH",
+        "2": "GND"
+      },
+      "xy": [
+        37.9,
+        35.5
+      ],
+      "angle": 90.0,
+      "group": "RF",
+      "mpn": "CC0603FRNPO9BN150",
+      "note": "LCSC C519483. C2 trim, now FITTED (C2 = 345 pF). v0.5.3: 15pF C0G 50V 1% per hardware/nfc-antenna-study/README.md section 7 (2026-11-13): asymmetric match for the FastHenry coil model (543.6 nH, 0.461 ohm incl. GND planes), Z(TX1-TX2) 11.1 - j0.3 ohm, ITVDD 207 mA nominal and bounded at about 233 mA (241 mA fast-driver corner) for any coil L; Q 18.8. Bound to the v0.5.2 RF geometry, which v0.5.3 keeps. Was 47pF C0G 50V CC0603JRNPO9BN470 (DNP). Physical check: PN7160 antenna self-test / TVDD current on the first board; re-tune table in the study.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "ANT1",
+      "value": "3-turn PCB NFC loop",
+      "fp": "NFC_Loop",
+      "nets": {
+        "1": "ANT_A",
+        "2": "ANT_B"
+      },
+      "xy": [
+        0.0,
+        0.0
+      ],
+      "angle": 0.0,
+      "group": "RF",
+      "mpn": "PCB copper",
+      "note": "29.4 x 31 mm outer centerline; 0.8 mm trace / 0.5 mm gap; untuned",
+      "dnp": false,
+      "names": {
+        "1": "A",
+        "2": "B"
+      }
+    },
+    {
+      "ref": "TP1",
+      "value": "3V3",
+      "fp": "TestPoint",
+      "nets": {
+        "1": "3V3"
+      },
+      "xy": [
+        52.0,
+        26.9
+      ],
+      "angle": 0.0,
+      "group": "Test",
+      "mpn": "",
+      "note": "",
+      "dnp": false,
+      "names": {
+        "1": "3V3"
+      }
+    },
+    {
+      "ref": "TP2",
+      "value": "PN_1V8",
+      "fp": "TestPoint",
+      "nets": {
+        "1": "PN_1V8"
+      },
+      "xy": [
+        39.4,
+        37.8
+      ],
+      "angle": 0.0,
+      "group": "Test",
+      "mpn": "",
+      "note": "",
+      "dnp": false,
+      "names": {
+        "1": "PN_1V8"
+      }
+    },
+    {
+      "ref": "TP3",
+      "value": "NFC_IRQ",
+      "fp": "TestPoint",
+      "nets": {
+        "1": "NFC_IRQ"
+      },
+      "xy": [
+        49.1,
+        21.3
+      ],
+      "angle": 0.0,
+      "group": "Test",
+      "mpn": "",
+      "note": "",
+      "dnp": false,
+      "names": {
+        "1": "NFC_IRQ"
+      }
+    },
+    {
+      "ref": "TP4",
+      "value": "PN_TX_LDO",
+      "fp": "TestPoint",
+      "nets": {
+        "1": "PN_TX_LDO"
+      },
+      "xy": [
+        45.8,
+        37.6
+      ],
+      "angle": 0.0,
+      "group": "Test",
+      "mpn": "",
+      "note": "",
+      "dnp": false,
+      "names": {
+        "1": "PN_TX_LDO"
+      }
+    },
+    {
+      "ref": "TP5",
+      "value": "NFC_VEN",
+      "fp": "TestPoint",
+      "nets": {
+        "1": "NFC_VEN"
+      },
+      "xy": [
+        42.0,
+        37.8
+      ],
+      "angle": 0.0,
+      "group": "Test",
+      "mpn": "",
+      "note": "",
+      "dnp": false,
+      "names": {
+        "1": "NFC_VEN"
+      }
+    },
+    {
+      "ref": "TP6",
+      "value": "CHG_N",
+      "fp": "TestPoint",
+      "nets": {
+        "1": "CHG_N"
+      },
+      "xy": [
+        51.0,
+        14.0
+      ],
+      "angle": 0.0,
+      "group": "Test",
+      "mpn": "",
+      "note": "",
+      "dnp": false,
+      "names": {
+        "1": "CHG_N"
+      }
+    },
+    {
+      "ref": "TP7",
+      "value": "PGOOD_N",
+      "fp": "TestPoint",
+      "nets": {
+        "1": "PGOOD_N"
+      },
+      "xy": [
+        51.0,
+        16.0
+      ],
+      "angle": 0.0,
+      "group": "Test",
+      "mpn": "",
+      "note": "",
+      "dnp": false,
+      "names": {
+        "1": "PGOOD_N"
+      }
+    },
+    {
+      "ref": "TP8",
+      "value": "GND",
+      "fp": "TestPoint",
+      "nets": {
+        "1": "GND"
+      },
+      "xy": [
+        50.0,
+        23.0
+      ],
+      "angle": 0.0,
+      "group": "Test",
+      "mpn": "",
+      "note": "",
+      "dnp": false,
+      "names": {
+        "1": "GND"
+      }
+    },
+    {
+      "ref": "TP9",
+      "value": "USB_LIMITED",
+      "fp": "TestPoint",
+      "nets": {
+        "1": "USB_LIMITED"
+      },
+      "xy": [
+        46.5,
+        35.75
+      ],
+      "angle": 0.0,
+      "group": "Test",
+      "mpn": "",
+      "note": "",
+      "dnp": false,
+      "names": {
+        "1": "USB_LIMITED"
+      }
+    },
+    {
+      "ref": "TP10",
+      "value": "SOURCE_QUALIFIED",
+      "fp": "TestPoint",
+      "nets": {
+        "1": "SOURCE_QUALIFIED"
+      },
+      "xy": [
+        50.75,
+        26.8
+      ],
+      "angle": 0.0,
+      "group": "Test",
+      "mpn": "",
+      "note": "",
+      "dnp": false,
+      "names": {
+        "1": "USB_HIGH_CURRENT"
+      }
+    },
+    {
+      "ref": "TP11",
+      "value": "ANT_A",
+      "fp": "TestPoint",
+      "nets": {
+        "1": "ANT_A"
+      },
+      "xy": [
+        36.0,
+        26.8
+      ],
+      "angle": 0.0,
+      "group": "RF",
+      "mpn": "",
+      "note": "RF measurement pad: remove R22/R23 to isolate antenna for VNA measurement",
+      "dnp": false,
+      "names": {
+        "1": "ANT_A"
+      }
+    },
+    {
+      "ref": "TP12",
+      "value": "ANT_B",
+      "fp": "TestPoint",
+      "nets": {
+        "1": "ANT_B"
+      },
+      "xy": [
+        36.0,
+        28.1
+      ],
+      "angle": 0.0,
+      "group": "RF",
+      "mpn": "",
+      "note": "RF measurement pad: remove R22/R23 to isolate antenna for VNA measurement",
+      "dnp": false,
+      "names": {
+        "1": "ANT_B"
+      }
+    },
+    {
+      "ref": "TP13",
+      "value": "GND",
+      "fp": "TestPoint",
+      "nets": {
+        "1": "GND"
+      },
+      "xy": [
+        36.0,
+        35.9
+      ],
+      "angle": 0.0,
+      "group": "RF",
+      "mpn": "",
+      "note": "RF measurement pad: remove R22/R23 to isolate antenna for VNA measurement",
+      "dnp": false,
+      "names": {
+        "1": "GND"
+      }
+    },
+    {
+      "ref": "C37",
+      "value": "1nF X7R 50V 5%",
+      "fp": "C_0603",
+      "nets": {
+        "1": "RF_RXN_COUPLED",
+        "2": "NFC_RXN"
+      },
+      "xy": [
+        37.5,
+        18.1
+      ],
+      "angle": 90.0,
+      "group": "NFC",
+      "mpn": "CC0603JRX7R9BB102",
+      "note": "Matched1nF differentialN receiver AC coupling.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R27",
+      "value": "0R IRQ SERVICE LINK",
+      "fp": "R_0603",
+      "nets": {
+        "1": "NFC_IRQ",
+        "2": "MCU_NFC_IRQ"
+      },
+      "xy": [
+        43.0,
+        34.3
+      ],
+      "angle": 0.0,
+      "group": "NFC",
+      "mpn": "RC0603JR-070RL",
+      "note": "Fitted normal reader mode. Remove before fitting R28 UART RX recovery link.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R28",
+      "value": "0R UART SERVICE LINK",
+      "fp": "R_0603",
+      "nets": {
+        "1": "UART_RX",
+        "2": "MCU_NFC_IRQ"
+      },
+      "xy": [
+        43.0,
+        36.0
+      ],
+      "angle": 0.0,
+      "group": "NFC",
+      "mpn": "RC0603JR-070RL",
+      "note": "DNP normal mode. Fit only with R27 removed, VEN heldlow for ROM UART recovery.",
+      "dnp": true,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "U8",
+      "value": "SN74LVC1G97DBVR",
+      "fp": "TI_DBV0006A",
+      "nets": {
+        "1": "GND",
+        "2": "GND",
+        "3": "ESP_RESET_RC",
+        "4": "ESP_EN",
+        "5": "3V3",
+        "6": "POWER_PERMIT"
+      },
+      "xy": [
+        35.25,
+        6.75
+      ],
+      "angle": 0,
+      "group": "MCU",
+      "mpn": "SN74LVC1G97DBVR",
+      "note": "Schmitt AND: In1 grounded, Y=In0 AND In2. ESP32 permission precedes reset release only at valid logic supply. Neither arbitrary rail ramp nor full startup qualified.",
+      "dnp": false,
+      "names": {
+        "1": "In1",
+        "2": "GND",
+        "3": "In0_RESET_RC",
+        "4": "Y_CHIP_EN",
+        "5": "VCC",
+        "6": "In2_POWER_PERMIT"
+      },
+      "pin_types": {
+        "1": "input",
+        "2": "power_in",
+        "3": "input",
+        "4": "output",
+        "5": "power_in",
+        "6": "input"
+      }
+    },
+    {
+      "ref": "C38",
+      "value": "100nF 50V X7R",
+      "fp": "C_0603",
+      "nets": {
+        "1": "3V3",
+        "2": "GND"
+      },
+      "xy": [
+        36.25,
+        9.75
+      ],
+      "angle": 0,
+      "group": "MCU",
+      "mpn": "CC0603KRX7R9BB104",
+      "note": "Local U8 supply decoupling.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R29",
+      "value": "47k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "ESP_EN",
+        "2": "GND"
+      },
+      "xy": [
+        64.0,
+        27.5
+      ],
+      "angle": 0,
+      "group": "MCU",
+      "mpn": "RC0603FR-0747KL",
+      "note": "Pulldown at ESP32 CHIP_EN gate output; external/manual reset acts only on input RC.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R30",
+      "value": "47k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "POWER_PERMIT",
+        "2": "GND"
+      },
+      "xy": [
+        28.25,
+        7.5
+      ],
+      "angle": -90,
+      "group": "MCU",
+      "mpn": "RC0603FR-0747KL",
+      "note": "47k bounds two input leakages to0.478V with selector open at exact3V; default-low Schmitt gate permission; solder selector is mutually exclusive.",
+      "dnp": false,
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "JP1",
+      "value": "USB / SERVICE PERMIT",
+      "fp": "Permit_Selector_3_Bridged12",
+      "nets": {
+        "1": "SOURCE_QUALIFIED",
+        "2": "POWER_PERMIT",
+        "3": "3V3"
+      },
+      "xy": [
+        25.5,
+        7.25
+      ],
+      "angle": 0,
+      "group": "MCU",
+      "mpn": "PCB copper",
+      "note": "Default copper bridge1-2 selects qualified-source operation (good USB OR field power). CUT1-2 before soldering2-3 SERVICE. Never bridge both: U11 output would short 3V3.",
+      "dnp": false,
+      "names": {
+        "1": "SOURCE_QUALIFIED",
+        "2": "COMMON_PERMIT",
+        "3": "SERVICE_3V3"
+      }
+    },
+    {
+      "ref": "U10",
+      "value": "TPS2121RUXR",
+      "fp": "TI_RUX0012A",
+      "nets": {
+        "1": "VIN_SEL",
+        "2": "VBUS",
+        "3": "MUX_CP2",
+        "4": "GND",
+        "5": "GND",
+        "6": "MUX_PR1",
+        "7": "5V_FIELD",
+        "8": "VIN_SEL",
+        "9": "PWR_SRC",
+        "10": "MUX_ILM",
+        "11": "MUX_SS",
+        "12": "GND"
+      },
+      "xy": [
+        70.6,
+        5.0
+      ],
+      "angle": 0,
+      "group": "Power",
+      "mpn": "TPS2121RUXR",
+      "note": "USB/field priority mux. Field (IN1) wins whenever valid; USB (IN2) otherwise. Fast 5us switchover in XCOMP mode. Reverse-current blocking keeps field power off the USB host. OV1/OV2 unused (GND); BQ24074 retains its own input OVP.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "OUT",
+        "2": "IN2",
+        "3": "CP2",
+        "4": "OV2",
+        "5": "OV1",
+        "6": "PR1",
+        "7": "IN1",
+        "8": "OUT",
+        "9": "ST",
+        "10": "ILM",
+        "11": "SS",
+        "12": "GND"
+      },
+      "pin_types": {
+        "1": "power_out",
+        "2": "power_in",
+        "3": "input",
+        "4": "input",
+        "5": "input",
+        "6": "input",
+        "7": "power_in",
+        "8": "passive",
+        "9": "open_collector",
+        "10": "passive",
+        "11": "passive",
+        "12": "power_in"
+      }
+    },
+    {
+      "ref": "R31",
+      "value": "23.2k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "5V_FIELD",
+        "2": "MUX_PR1"
+      },
+      "xy": [
+        72.3,
+        7.9
+      ],
+      "angle": 180,
+      "group": "Power",
+      "mpn": "RC0603FR-0723K2L",
+      "note": "PR1 divider top: PR1 = 0.301 x 5V_FIELD (1.51 V at 5.0 V).",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R32",
+      "value": "10k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "MUX_PR1",
+        "2": "GND"
+      },
+      "xy": [
+        72.3,
+        9.6
+      ],
+      "angle": 0,
+      "group": "Power",
+      "mpn": "RC0603FR-0710KL",
+      "note": "PR1 divider bottom. Field keeps priority while PR1 > CP2: down to 4.14 V field at 5.00 V USB, 4.35 V at 5.25 V USB.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R33",
+      "value": "30.1k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "VBUS",
+        "2": "MUX_CP2"
+      },
+      "xy": [
+        68.4,
+        8.1
+      ],
+      "angle": 0,
+      "group": "Power",
+      "mpn": "RC0603FR-0730K1L",
+      "note": "CP2 divider top: CP2 = 0.249 x VBUS. CP2 >= VREF (fast-switchover XCOMP mode) for VBUS >= 4.41 V.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R34",
+      "value": "10k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "MUX_CP2",
+        "2": "GND"
+      },
+      "xy": [
+        68.4,
+        9.8
+      ],
+      "angle": 180,
+      "group": "Power",
+      "mpn": "RC0603FR-0710KL",
+      "note": "CP2 divider bottom.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R35",
+      "value": "59k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "MUX_ILM",
+        "2": "GND"
+      },
+      "xy": [
+        72.3,
+        1.7
+      ],
+      "angle": 0,
+      "group": "Power",
+      "mpn": "RC0603FR-0759KL",
+      "note": "TPS2121 current limit 65.2/59^0.861 = 1.95 A typ, above BQ24074 ILIM max 1.073 A.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C39",
+      "value": "100nF 50V X7R",
+      "fp": "C_0603",
+      "nets": {
+        "1": "MUX_SS",
+        "2": "GND"
+      },
+      "xy": [
+        69.2,
+        1.7
+      ],
+      "angle": 180,
+      "group": "Power",
+      "mpn": "CC0603KRX7R9BB104",
+      "note": "TPS2121 soft start, about 780 V/s at 5 V (datasheet Table 9-1).",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C40",
+      "value": "10uF 16V X5R",
+      "fp": "C_0805",
+      "nets": {
+        "1": "VIN_SEL",
+        "2": "GND"
+      },
+      "xy": [
+        67.0,
+        5.6
+      ],
+      "angle": 270,
+      "group": "Power",
+      "mpn": "CL21A106KOCLRNC",
+      "note": "Mux output bulk. With C1 about 14.7 uF nominal: 1 A x 5 us switchover dip about 0.34 V.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C41",
+      "value": "1uF 16V X7R",
+      "fp": "C_0603",
+      "nets": {
+        "1": "VBUS",
+        "2": "GND"
+      },
+      "xy": [
+        65.9,
+        1.9
+      ],
+      "angle": 0,
+      "group": "Power",
+      "mpn": "C0603C105K4RACTU",
+      "note": "TPS2121 IN2 (USB) local capacitor. USB VBUS total stays below 10 uF.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C42",
+      "value": "1uF 16V X7R",
+      "fp": "C_0603",
+      "nets": {
+        "1": "5V_FIELD",
+        "2": "GND"
+      },
+      "xy": [
+        73.1,
+        5.6
+      ],
+      "angle": 90,
+      "group": "Power",
+      "mpn": "C0603C105K4RACTU",
+      "note": "TPS2121 IN1 (field) local capacitor.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R36",
+      "value": "10k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "PWR_SRC",
+        "2": "3V3"
+      },
+      "xy": [
+        72.6,
+        18.7
+      ],
+      "angle": 270,
+      "group": "Power",
+      "mpn": "RC0603FR-0710KL",
+      "note": "ST pull-up (datasheet 6-20k). High = field/IN1 or no output, low = USB/IN2.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "JP2",
+      "value": "USB PRIORITY",
+      "fp": "SolderJumper_2_Open",
+      "nets": {
+        "1": "MUX_PR1",
+        "2": "GND"
+      },
+      "xy": [
+        71.9,
+        11.9
+      ],
+      "angle": 0,
+      "group": "Power",
+      "mpn": "PCB copper",
+      "note": "Open by default (field priority). Bridge for bench work to make USB win whenever valid; with USB absent the field input still powers the board.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "U11",
+      "value": "SN74LVC1G0832DBVR",
+      "fp": "TI_DBV0006A",
+      "nets": {
+        "1": "FIELD_PG",
+        "2": "GND",
+        "3": "PWR_SRC",
+        "4": "SOURCE_QUALIFIED",
+        "5": "3V3",
+        "6": "USB_HIGH_CURRENT"
+      },
+      "xy": [
+        68.4,
+        15.6
+      ],
+      "angle": 180,
+      "group": "Power",
+      "mpn": "SN74LVC1G0832DBVR",
+      "note": "AND-OR: SOURCE_QUALIFIED = (FIELD_PG AND PWR_SRC) OR USB_HIGH_CURRENT. Field qualifies only while U10 actually selects IN1 (ST high), so JP2/USB-priority on a weak USB port can no longer select BQ ILIM. TI SCES606: Y=(A.B)+C, inputs 5.5 V tolerant, Ioff.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "A",
+        "2": "GND",
+        "3": "B",
+        "4": "Y",
+        "5": "VCC",
+        "6": "C"
+      },
+      "pin_types": {
+        "1": "input",
+        "2": "power_in",
+        "3": "input",
+        "4": "output",
+        "5": "power_in",
+        "6": "input"
+      }
+    },
+    {
+      "ref": "C43",
+      "value": "100nF 50V X7R",
+      "fp": "C_0603",
+      "nets": {
+        "1": "3V3",
+        "2": "GND"
+      },
+      "xy": [
+        66.6,
+        18.6
+      ],
+      "angle": 180,
+      "group": "Power",
+      "mpn": "CC0603KRX7R9BB104",
+      "note": "U11 local decoupling.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R37",
+      "value": "100k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "FIELD_PG",
+        "2": "GND"
+      },
+      "xy": [
+        72.1,
+        15.6
+      ],
+      "angle": 180,
+      "group": "Interface",
+      "mpn": "RC0603FR-07100KL",
+      "note": "FIELD_PG pulldown. Pull-up lives on the interface board from 5V_FIELD, so an absent/unpowered field converter can never qualify a weak USB port.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "J6",
+      "value": "INTERFACE 2x5 1.27",
+      "fp": "Header_2x05_P1.27mm_THT",
+      "nets": {
+        "1": "5V_FIELD",
+        "2": "5V_FIELD",
+        "3": "GND",
+        "4": "GND",
+        "5": "3V3",
+        "6": "FIELD_PG",
+        "7": "NFC_SDA",
+        "8": "NFC_SCL",
+        "9": "IO_INT",
+        "10": "PWR_SRC"
+      },
+      "xy": [
+        69.8,
+        25.0
+      ],
+      "angle": 0,
+      "group": "Interface",
+      "mpn": "FTSH-105-01-L-D",
+      "note": "Board-to-board link to the interface daughterboard (field 12/24 V input, buck, OSDP, Wiegand, tamper, buzzer). Through-hole, body on the back side so the reader stays single-sided SMT. Mates with Samtec CLP-105-02 family; stack height set by case. Land is the KiCad generic 1.27 mm THT header - verify against Samtec drawing.",
+      "dnp": false,
+      "side": "B",
+      "names": {
+        "1": "5V_FIELD",
+        "2": "5V_FIELD",
+        "3": "GND",
+        "4": "GND",
+        "5": "3V3",
+        "6": "FIELD_PG",
+        "7": "SDA",
+        "8": "SCL",
+        "9": "IO_INT",
+        "10": "PWR_SRC"
+      }
+    },
+    {
+      "ref": "D5",
+      "value": "RGB XL-1615RGBC-RF",
+      "fp": "LED_RGB_1615_XL-1615RGBC",
+      "nets": {
+        "1": "LEDR_K",
+        "2": "VSYS",
+        "3": "LEDG_K",
+        "4": "LEDB_K"
+      },
+      "xy": [
+        20.7,
+        4.2
+      ],
+      "angle": 180,
+      "group": "Indicators",
+      "mpn": "XL-1615RGBC-RF",
+      "note": "LCSC C965840. 1.6x1.5x0.6 mm common anode, 20 mA abs max per die; Iv at 20 mA R 100-180, G 350-800, B 120-180 mcd. Centred on the middle light-guide site (case [22, 8]).",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "R_K",
+        "2": "A",
+        "3": "G_K",
+        "4": "B_K"
+      }
+    },
+    {
+      "ref": "Q1",
+      "value": "AO3400A",
+      "fp": "SOT23",
+      "nets": {
+        "1": "LEDG_GATE",
+        "2": "GND",
+        "3": "LEDG_D"
+      },
+      "xy": [
+        14.25,
+        6.25
+      ],
+      "angle": 0,
+      "group": "Indicators",
+      "mpn": "AO3400A",
+      "note": "LCSC C20917. Low-side switch for RGB G; Vgs(th) <= 1.45 V so 3.3 V gate drive saturates it.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "G",
+        "2": "S",
+        "3": "D"
+      }
+    },
+    {
+      "ref": "R39",
+      "value": "120R 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "LEDG_K",
+        "2": "LEDG_D"
+      },
+      "xy": [
+        18.05,
+        4.675
+      ],
+      "angle": 180,
+      "group": "Indicators",
+      "mpn": "RC0603FR-07120RL",
+      "note": "v0.5.3: RGB G current 15.99 mA worst case (Vf 2.6 V min, VSYS 4.5 V, -1 %), 11.7 mA typ; limit 16.9 mA at 45 C. Was 100R.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R41",
+      "value": "100k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "LEDG_GATE",
+        "2": "GND"
+      },
+      "xy": [
+        10.7,
+        5.5
+      ],
+      "angle": 180,
+      "group": "Indicators",
+      "mpn": "RC0603FR-07100KL",
+      "note": "Keeps RGB G dark while the GPIO is an input (reset/boot).",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "Q2",
+      "value": "AO3400A",
+      "fp": "SOT23",
+      "nets": {
+        "1": "LEDB_GATE",
+        "2": "GND",
+        "3": "LEDB_D"
+      },
+      "xy": [
+        10.2,
+        2.6
+      ],
+      "angle": 0,
+      "group": "Indicators",
+      "mpn": "AO3400A",
+      "note": "LCSC C20917. Low-side switch for RGB B; Vgs(th) <= 1.45 V so 3.3 V gate drive saturates it.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "G",
+        "2": "S",
+        "3": "D"
+      }
+    },
+    {
+      "ref": "R40",
+      "value": "120R 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "LEDB_K",
+        "2": "LEDB_D"
+      },
+      "xy": [
+        18.05,
+        2.6
+      ],
+      "angle": 180,
+      "group": "Indicators",
+      "mpn": "RC0603FR-07120RL",
+      "note": "v0.5.3: RGB B current 15.99 mA worst case (Vf 2.6 V min, VSYS 4.5 V, -1 %), 11.7 mA typ; limit 16.9 mA at 45 C. Was 100R.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R42",
+      "value": "100k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "LEDB_GATE",
+        "2": "GND"
+      },
+      "xy": [
+        7.4,
+        2.4
+      ],
+      "angle": 270,
+      "group": "Indicators",
+      "mpn": "RC0603FR-07100KL",
+      "note": "Keeps RGB B dark while the GPIO is an input (reset/boot).",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "Q3",
+      "value": "AO3400A",
+      "fp": "SOT23",
+      "nets": {
+        "1": "LEDR_GATE",
+        "2": "GND",
+        "3": "LEDR_D"
+      },
+      "xy": [
+        27.15,
+        4.15
+      ],
+      "angle": 180,
+      "group": "Indicators",
+      "mpn": "AO3400A",
+      "note": "LCSC C20917. Low-side switch for RGB R; Vgs(th) <= 1.45 V so 3.3 V gate drive saturates it.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "G",
+        "2": "S",
+        "3": "D"
+      }
+    },
+    {
+      "ref": "R38",
+      "value": "180R 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "LEDR_K",
+        "2": "LEDR_D"
+      },
+      "xy": [
+        23.55,
+        4.675
+      ],
+      "angle": 0,
+      "group": "Indicators",
+      "mpn": "RC0603FR-07180RL",
+      "note": "v0.5.3: RGB R current 15.15 mA worst case (Vf 1.8 V min, VSYS 4.5 V, -1 %), 12.8 mA typ; limit 16.9 mA = datasheet derating at 45 C (indoor case worst). Was 150R.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R43",
+      "value": "100k 1%",
+      "fp": "R_0603",
+      "nets": {
+        "1": "LEDR_GATE",
+        "2": "GND"
+      },
+      "xy": [
+        30.0,
+        4.2
+      ],
+      "angle": 90,
+      "group": "Indicators",
+      "mpn": "RC0603FR-07100KL",
+      "note": "Keeps RGB R dark while the GPIO is an input (reset/boot).",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "BZ1",
+      "value": "KLJ-4020",
+      "fp": "Buzzer_KLJ-4020",
+      "nets": {
+        "1": "BZR_P",
+        "2": "GND"
+      },
+      "xy": [
+        71.05,
+        33.75
+      ],
+      "angle": 0,
+      "group": "Indicators",
+      "mpn": "KLJ-4020",
+      "note": "LCSC C556936. Keliking 4x4x2 mm magnetic transducer, 12 ohm, rated 3 Vo-p, 73 dBA min at 10 cm / 4 kHz, 100 mA max mean. Alternate FUET-4020 (C391027), same land pattern, quieter. Needs a sound port in the front cover.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "+",
+        "2": "-"
+      }
+    },
+    {
+      "ref": "Q4",
+      "value": "AO3401A",
+      "fp": "SOT23",
+      "nets": {
+        "1": "BZR_GATE",
+        "2": "BZR_VDD",
+        "3": "BZR_P"
+      },
+      "xy": [
+        67.45,
+        28.35
+      ],
+      "angle": 270,
+      "group": "Indicators",
+      "mpn": "AO3401A",
+      "note": "LCSC C15127. High-side P-FET. v0.5.2: gate is AC-coupled from GPIO8 (C45) with R45 to the source and clamp D7, so only PWM edges turn it on; any static GPIO8 level leaves it off within about 32 ms worst case (simulated).",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "G",
+        "2": "S",
+        "3": "D"
+      }
+    },
+    {
+      "ref": "D6",
+      "value": "1N4148WS",
+      "fp": "SOD323",
+      "nets": {
+        "1": "BZR_P",
+        "2": "GND"
+      },
+      "xy": [
+        66.6,
+        32.97
+      ],
+      "angle": 270,
+      "group": "Indicators",
+      "mpn": "1N4148WS-7-F",
+      "note": "Flyback across the buzzer coil.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "K",
+        "2": "A"
+      }
+    },
+    {
+      "ref": "R44",
+      "value": "4.7R 1% 0.5W",
+      "fp": "R_0805",
+      "nets": {
+        "1": "3V3",
+        "2": "BZR_VDD"
+      },
+      "xy": [
+        71.85,
+        28.06
+      ],
+      "angle": 90,
+      "group": "Indicators",
+      "mpn": "CRCW08054R70FKEAHP",
+      "note": "Buzzer supply isolation with C44 (~50 us). 4.7R keeps the coil near its 3 V rating. v0.5.2: a stuck-low GPIO8 no longer holds DC in the coil (AC-coupled gate), so the 0.19 W fault case is gone. Any 0805 >= 0.25 W 4.7R is acceptable.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C44",
+      "value": "22uF 6.3V X5R",
+      "fp": "C_0603",
+      "nets": {
+        "1": "BZR_VDD",
+        "2": "GND"
+      },
+      "xy": [
+        70.07,
+        27.86
+      ],
+      "angle": 270,
+      "group": "Indicators",
+      "mpn": "CL10A226MQ8NRNC",
+      "note": "LCSC C59461. Buzzer reservoir: supplies the 4 kHz coil pulses locally (about 10 uF effective at 3 V). v0.5.2: moved >= 1.5 mm from the board edge.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C45",
+      "value": "100nF 16V X7R",
+      "fp": "C_0402",
+      "nets": {
+        "1": "BOOT_IO8",
+        "2": "BZR_GATE"
+      },
+      "xy": [
+        67.9,
+        30.83
+      ],
+      "angle": 0,
+      "group": "Indicators",
+      "mpn": "CL05B104KO5NNNC",
+      "note": "LCSC C1525. Buzzer gate coupling capacitor. With R45: tau 6.8 ms.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "R45",
+      "value": "68k 1%",
+      "fp": "R_0402",
+      "nets": {
+        "1": "BZR_GATE",
+        "2": "BZR_VDD"
+      },
+      "xy": [
+        70.0,
+        30.6
+      ],
+      "angle": 0,
+      "group": "Indicators",
+      "mpn": "0402WGF6802TCE",
+      "note": "LCSC C36871. Gate return to the Q4 source: Q4 is off 14 ms typ / 32 ms worst simulated corner after GPIO8 stops toggling.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "D7",
+      "value": "RB520S-30",
+      "fp": "SOD523",
+      "nets": {
+        "1": "BZR_VDD",
+        "2": "BZR_GATE"
+      },
+      "xy": [
+        72.25,
+        30.5
+      ],
+      "angle": 0,
+      "group": "Indicators",
+      "mpn": "RB520S-30",
+      "note": "LCSC C8522 (JSCJ). Gate clamp / DC restore: anode gate, cathode Q4 source. Low-Vf Schottky is required: a 1N4148 clamp leaves Q4 with only -2.39 V of gate drive at 2 kHz / 90 % (below the 2.5 V Rds(on) spec point).",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "K",
+        "2": "A"
+      }
+    },
+    {
+      "ref": "U12",
+      "value": "TLV803S",
+      "fp": "SOT23",
+      "nets": {
+        "1": "GND",
+        "2": "SUP_RESET_N",
+        "3": "3V3"
+      },
+      "xy": [
+        2.6,
+        3.0
+      ],
+      "angle": 180,
+      "group": "MCU",
+      "mpn": "TLV803SDBZR",
+      "note": "LCSC C132016. 3V3 supervisor, 2.93 V threshold, open drain, 200 ms typ delay. Pulls the reset RC node low (through R46), never ESP_EN: U8 drives ESP_EN push-pull.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "GND",
+        "2": "RESET_N",
+        "3": "VDD"
+      },
+      "pin_types": {
+        "1": "power_in",
+        "2": "open_collector",
+        "3": "power_in"
+      }
+    },
+    {
+      "ref": "R46",
+      "value": "1k 1%",
+      "fp": "R_0402",
+      "nets": {
+        "1": "SUP_RESET_N",
+        "2": "ESP_RESET_RC"
+      },
+      "xy": [
+        5.6,
+        2.05
+      ],
+      "angle": 0,
+      "group": "MCU",
+      "mpn": "0402WGF1001TCE",
+      "note": "LCSC C11702. Limits the C9 discharge current into the U12 open-drain output to 3.3 mA; low level 69 mV, discharge tau 1 ms.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "C46",
+      "value": "100nF 16V X7R",
+      "fp": "C_0402",
+      "nets": {
+        "1": "3V3",
+        "2": "GND"
+      },
+      "xy": [
+        2.6,
+        5.4
+      ],
+      "angle": 0,
+      "group": "MCU",
+      "mpn": "CL05B104KO5NNNC",
+      "note": "LCSC C1525. U12 supply bypass.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    },
+    {
+      "ref": "D8",
+      "value": "TPD1E05U06",
+      "fp": "TI_DPY0002A",
+      "nets": {
+        "1": "CC1",
+        "2": "GND"
+      },
+      "xy": [
+        46.7,
+        5.6
+      ],
+      "angle": 270,
+      "group": "USB",
+      "mpn": "TPD1E05U06DPYR",
+      "note": "LCSC C436349 (genuine TI; same-name clones exist - do not substitute). USB-C CC1 ESD at J1: VRWM 5.5 V, 0.42 pF typ, clamp 10 V @ 1 A TLP, IEC 61000-4-2 +-12 kV contact. GND pad on its own via to the In1 plane.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "IO",
+        "2": "GND"
+      }
+    },
+    {
+      "ref": "D9",
+      "value": "TPD1E05U06",
+      "fp": "TI_DPY0002A",
+      "nets": {
+        "1": "CC2",
+        "2": "GND"
+      },
+      "xy": [
+        47.3,
+        2.4
+      ],
+      "angle": 270,
+      "group": "USB",
+      "mpn": "TPD1E05U06DPYR",
+      "note": "LCSC C436349 (genuine TI; same-name clones exist - do not substitute). USB-C CC2 ESD at J1: VRWM 5.5 V, 0.42 pF typ, clamp 10 V @ 1 A TLP, IEC 61000-4-2 +-12 kV contact. GND pad on its own via to the In1 plane.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "IO",
+        "2": "GND"
+      }
+    },
+    {
+      "ref": "R47",
+      "value": "10k 1%",
+      "fp": "R_0402",
+      "nets": {
+        "1": "IO_INT",
+        "2": "3V3"
+      },
+      "xy": [
+        63.0,
+        22.4
+      ],
+      "angle": 90,
+      "group": "MCU",
+      "mpn": "0402WGF1002TCE",
+      "note": "LCSC C25744 (basic). IO_INT (GPIO0) pull-up: the shared open-drain interrupt no longer floats without the daughterboard. Parallel with the daughterboard pull-up is intended. GPIO0 is not an ESP32-C3 strapping pin. Do not fit if GPIO0 ever carries a 32 kHz crystal.",
+      "dnp": false,
+      "side": "F",
+      "names": {
+        "1": "1",
+        "2": "2"
+      }
+    }
+  ],
+  "outline": [
+    [
+      0,
+      0
+    ],
+    [
+      3,
+      0
+    ],
+    [
+      3,
+      1.6
+    ],
+    [
+      11.5,
+      1.6
+    ],
+    [
+      11.5,
+      0
+    ],
+    [
+      47,
+      0
+    ],
+    [
+      47,
+      -2
+    ],
+    [
+      60,
+      -2
+    ],
+    [
+      60,
+      0
+    ],
+    [
+      72.0,
+      0
+    ],
+    [
+      72.0,
+      37.0
+    ],
+    [
+      65.5,
+      37.0
+    ],
+    [
+      65.5,
+      45.2
+    ],
+    [
+      61.5,
+      45.2
+    ],
+    [
+      61.5,
+      38.7
+    ],
+    [
+      48.1,
+      38.7
+    ],
+    [
+      48.1,
+      45.2
+    ],
+    [
+      0,
+      45.2
+    ]
+  ],
+  "case_offset": [
+    1.3,
+    3.8
+  ],
+  "coil": [
+    [
+      32.4,
+      23.8
+    ],
+    [
+      32.4,
+      12
+    ],
+    [
+      3,
+      12
+    ],
+    [
+      3,
+      43
+    ],
+    [
+      32.4,
+      43
+    ],
+    [
+      32.4,
+      26.2
+    ],
+    [
+      31.1,
+      26.2
+    ],
+    [
+      31.1,
+      13.3
+    ],
+    [
+      4.3,
+      13.3
+    ],
+    [
+      4.3,
+      41.7
+    ],
+    [
+      31.1,
+      41.7
+    ],
+    [
+      31.1,
+      27.5
+    ],
+    [
+      29.8,
+      27.5
+    ],
+    [
+      29.8,
+      14.6
+    ],
+    [
+      5.6,
+      14.6
+    ],
+    [
+      5.6,
+      40.4
+    ],
+    [
+      29.8,
+      40.4
+    ],
+    [
+      29.8,
+      28.8
+    ]
+  ],
+  "variant": "PN7160 v0.5.3 candidate (v0.5.2 + hardware defect fixes + layout clean-up)",
+  "engineering_status": "HOLD_DESIGN_CANDIDATE_NOT_TESTED",
+  "nfc_profile": {
+    "mpn": "PN7160A1HN/C100E",
+    "i2c_address_7bit": 40,
+    "sda_gpio": 4,
+    "scl_gpio": 5,
+    "ven_gpio": 7,
+    "irq_gpio": 20,
+    "irq_active_high": true,
+    "power_config": "CFG2 without DC/DC: VBAT/VDDUP filteredVSYS; VDDPAD3V3",
+    "qualified_usb_txldo_v": 3.3,
+    "future_battery_profile": "Voltage-aware TXLDO setting required before future battery qualification.",
+    "uart_recovery": "RemoveR27, fitR28, holdVENlow. Neverfitboth."
+  },
+  "usb_boot_gate_profile": {
+    "gate_mpn": "SN74LVC1G97DBVR",
+    "truth": "CHIP_EN = ESP_RESET_RC AND POWER_PERMIT with In1=GND",
+    "normal_selector": "JP1 copper bridge1-2; USB_HIGH_CURRENT drives POWER_PERMIT",
+    "service_selector": "Cut1-2 completely before solder bridge2-3; never bridgeboth",
+    "R12_high_side": "POWER_PERMIT",
+    "physical_status": "NOT TESTED",
+    "future_battery": "Normal selector requires USB. Explicit service setting permits experimental battery boot but does not qualify battery charging, NFC TXLDO voltage profile, transient power, or protection.",
+    "cold_delay_scope": "Empty C9 and valid3V logic step only; retained C9 charge after brief detach may allow immediate release once permission returns.",
+    "BQ_mode_settling": "No guaranteed BQ EN2 transition bound established; full startup transient model has not completed."
+  },
+  "field_power_profile": {
+    "mux": "U10 TPS2121 IN1=5V_FIELD priority, IN2=USB VBUS, XCOMP fast switchover; JP2 bridge = USB priority",
+    "permission": "SOURCE_QUALIFIED = (FIELD_PG AND PWR_SRC) OR USB_HIGH_CURRENT (U11 SN74LVC1G0832) -> BQ EN2 and JP1.1",
+    "outline": "Grown 6.5 mm on the right edge (x 65.5 -> 72.0) for y 0..37; stops above the Wi-Fi antenna keepout (y >= 38.7). J2 battery connector loses edge access (battery unsupported in v0.5).",
+    "field_pg_qualification": "Pull-up from 5V_FIELD on interface board; R37 100k pulldown on main board",
+    "io0": "IO_INT shared open-drain interrupt; R10/R11/C8 DNP",
+    "startup_reanalysis_required": "C9/R12 reset delay with U11 propagation and TPS2121 tSET/soft start",
+    "physical_status": "NOT TESTED"
+  },
+  "v051_profile": {
+    "buzzer": "BZ1 KLJ-4020 on 3V3 via R44/C44, Q4 AO3401A high side. v0.5.2: gate AC-coupled from GPIO8 (C45 100nF, R45 68k to source, D7 clamp). Firmware: LEDC on GPIO8, 2-5 kHz, timed beeps; idle level does not matter.",
+    "rgb": "D5 XL-1615RGBC-RF common anode on VSYS; Q1/Q2/Q3 AO3400A low side on IO1 (G), IO3 (B), IO10 (R) via R16/R17/R18; 100k gate pulldowns.",
+    "board_outline": "unchanged from v0.5 (74.0 x 45.2 mm)",
+    "physical_status": "NOT TESTED"
+  },
+  "v052_profile": {
+    "buzzer_gate": "C45 100nF series, R45 68k gate-source, D7 RB520S-30 clamp. Stuck-low GPIO8: Q4 off in 14 ms typ, 32 ms worst simulated corner (sim/results.json).",
+    "supervisor": "U12 TLV803S 2.93 V open drain on 3V3 -> R46 1k -> ESP_RESET_RC (C9/R12/U8 In0). Release = 200 ms typ after 3V3 valid, then R12 x C9.",
+    "nfc_keepout": "NFC rule areas extended from x 1.5 to the left board edge; the grounded edge strip is gone on all four layers.",
+    "stackup": "4 layers, 1.6 mm FR-4, 1 oz outer, 0.5 oz inner (see README for the 5V_FIELD inner-layer current note).",
+    "board_outline": "v0.5.3: notch removed, convex corners rounded (74.0 x 45.2 mm unchanged).",
+    "physical_status": "NOT TESTED"
+  },
+  "v053_profile": {
+    "cc_esd": "D8 (CC1) / D9 (CC2) TPD1E05U06DPYR at J1.",
+    "io_int_pullup": "R47 10k to 3V3 on GPIO0 / IO_INT.",
+    "rgb_current": {
+      "T_case_C": 45.0,
+      "I_limit_mA": 16.9,
+      "VSYS_max": 4.5,
+      "channels": {
+        "R": {
+          "R_min_ohm": 161.4,
+          "R_E24": 180.0,
+          "I_worst_mA": 15.15,
+          "I_typ_mA": 12.8
+        },
+        "G": {
+          "R_min_ohm": 113.6,
+          "R_E24": 120.0,
+          "I_worst_mA": 15.99,
+          "I_typ_mA": 11.7
+        },
+        "B": {
+          "R_min_ohm": 113.6,
+          "R_E24": 120.0,
+          "I_worst_mA": 15.99,
+          "I_typ_mA": 11.7
+        }
+      }
+    },
+    "nfc_matching": "C24/C25 330 pF, C26/C27 120 pF, C28/C29 330 pF, C34/C35 15 pF fitted, R22/R23 1.0 R 0.5 W, L1/L2 LQW18CNR16J00D (nfc-antenna-study section 7).",
+    "crystal_caps": "C22/C23 YAGEO CC0603FRNPO9BN130.",
+    "board": "black solder mask, white silkscreen, ENIG; top-left case notch removed; 1 mm convex corner radius.",
+    "physical_status": "NOT TESTED"
+  }
+}

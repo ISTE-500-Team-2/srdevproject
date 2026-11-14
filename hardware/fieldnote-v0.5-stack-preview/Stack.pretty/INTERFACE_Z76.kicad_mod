@@ -1,0 +1,7 @@
+(footprint "INTERFACE_Z76" (version 20240108) (generator "pcbnew") (layer "F.Cu")
+  (descr "Visual only: Fieldnote interface board v0.1 STEP model stacked under the reader (assumed 6.0 mm board-to-board gap)")
+  (attr board_only exclude_from_pos_files exclude_from_bom)
+  (property "Reference" "STACK1" (at 0 0 0) (layer "F.Fab") (hide yes) (effects (font (size 1 1) (thickness 0.15))))
+  (property "Value" "INTERFACE_Z76" (at 0 0 0) (layer "F.Fab") (hide yes) (effects (font (size 1 1) (thickness 0.15))))
+  (model "/Users/maximusregent/Documents/ChatGPT/Senior Dev/hardware/fieldnote-interface-board-v0.1/output/3d/fieldnote-interface-v0.1.step" (offset (xyz 0 0 -7.6)) (scale (xyz 1 1 1)) (rotate (xyz 0 0 0)))
+)

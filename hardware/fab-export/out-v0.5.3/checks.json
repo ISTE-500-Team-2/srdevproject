@@ -1,0 +1,85 @@
+{
+  "board": "/Users/maximusregent/Documents/ChatGPT/Senior Dev/hardware/fieldnote-integrated-pn7160-v0.5.3-candidate/fieldnote.kicad_pcb",
+  "board_sha256": "200afafc5739c0ff028bbf5e4ac5cbdd6387b6d1bd80c1f6bd4134b442f18ac5",
+  "build": "usb",
+  "gerber_files": {
+    "fieldnote-B_Cu.gbl": "Copper,L4,Bot",
+    "fieldnote-B_Mask.gbs": "Soldermask,Bot",
+    "fieldnote-B_Paste.gbp": "Paste,Bot",
+    "fieldnote-B_Silkscreen.gbo": "Legend,Bot",
+    "fieldnote-Edge_Cuts.gm1": "Profile,NP",
+    "fieldnote-F_Cu.gtl": "Copper,L1,Top",
+    "fieldnote-F_Mask.gts": "Soldermask,Top",
+    "fieldnote-F_Paste.gtp": "Paste,Top",
+    "fieldnote-F_Silkscreen.gto": "Legend,Top",
+    "fieldnote-In1_Cu.g1": "Copper,L2,Inr",
+    "fieldnote-In2_Cu.g2": "Copper,L3,Inr"
+  },
+  "gerber_layer_count": 11,
+  "copper_layers_in_gerbers": 4,
+  "copper_layers_on_board": 4,
+  "expected_layers": 11,
+  "drill_hits_excellon": {
+    "pth": {
+      "0.200": 195,
+      "0.300": 63,
+      "0.500": 8,
+      "0.650": 10,
+      "0.750": 2,
+      "0.600": 4
+    },
+    "npth": {
+      "0.650": 2
+    }
+  },
+  "drill_hits_board": {
+    "pth": {
+      "0.200": 195,
+      "0.300": 63,
+      "0.600": 4,
+      "0.750": 2,
+      "0.500": 8,
+      "0.650": 10
+    },
+    "npth": {
+      "0.650": 2
+    }
+  },
+  "drill_hits_match": true,
+  "cpl_rows": 116,
+  "fitted_smt_parts": 116,
+  "cpl_matches_fitted_smt": true,
+  "bom_lines": 60,
+  "bom_designators": 116,
+  "bom_lines_without_lcsc": [],
+  "fitted_tht_not_in_cpl": [],
+  "unfitted": [
+    "ANT1",
+    "C7",
+    "C8",
+    "J2",
+    "J3",
+    "J4",
+    "J6",
+    "JP1",
+    "JP2",
+    "R10",
+    "R11",
+    "R28",
+    "TP1",
+    "TP2",
+    "TP3",
+    "TP4",
+    "TP5",
+    "TP6",
+    "TP7",
+    "TP8",
+    "TP9",
+    "TP10",
+    "TP11",
+    "TP12",
+    "TP13"
+  ],
+  "rotation_review": [],
+  "ok": true
+}

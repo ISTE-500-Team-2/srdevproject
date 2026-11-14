@@ -1,0 +1,1 @@
+(sym_lib_table (lib (name "Fieldnote") (type "KiCad") (uri "${KIPRJMOD}/Fieldnote.kicad_sym") (options "") (descr "Project circuit symbols")))
