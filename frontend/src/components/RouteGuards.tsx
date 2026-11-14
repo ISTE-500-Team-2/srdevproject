@@ -1,3 +1,6 @@
+// Client navigation guards refresh session state before admitting protected pages; the API
+// independently authorizes every request.
+
 import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';

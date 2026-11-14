@@ -1,3 +1,6 @@
+// Owns the email scheduler/worker lifecycle so startup and shutdown do not leave background work
+// unmanaged.
+
 import { pruneRegistrations } from '../confirmation/pendingRegistration.js';
 import type { Pool } from 'pg';
 import type { NotificationConfig } from './config.js';

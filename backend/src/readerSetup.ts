@@ -1,3 +1,6 @@
+// Coordinates expiring setup jobs between the staff wizard and authenticated gateways; polling
+// advances the persisted job state.
+
 import {
   createHmac,
   randomBytes,
@@ -46,6 +49,10 @@ const errors = new Set([
 const terminal = ["complete", "failed", "cancelled", "expired"];
 
 /** Dedicated gateway authentication, NOT a member cookie or an access-reader key. */
+/**
+ * Authenticate gateway reports and advance setup jobs under locks; completed verification must
+ * match the current reader configuration.
+ */
 export function readerSetupPoll(
   pool: Pool,
   registry: ReaderRegistry,

@@ -1,3 +1,5 @@
+// Displays the server's reservation quote; the browser does not decide the authoritative booking price.
+
 import type { EquipmentPrice } from '../lib/contracts';
 import './EquipmentPriceBreakdown.css';
 import { cents } from '../lib/display';

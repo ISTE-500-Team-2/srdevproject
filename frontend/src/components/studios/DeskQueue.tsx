@@ -1,3 +1,5 @@
+// Staff queue for studio payments and refund tasks that still require an operator action.
+
 import { useState } from "react";
 import { Banknote, CircleAlert, RotateCcw, Undo2 } from "lucide-react";
 import { errorMessage } from "../../lib/api";

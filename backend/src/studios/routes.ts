@@ -1,3 +1,5 @@
+// Studio rental HTTP routes and the Stripe callback adapter; the service owns rental/payment transitions.
+
 import { EquipmentBilling } from "../billing/equipment.js";
 import {PassBilling} from '../billing/passes.js';
 import {MembershipBilling} from '../billing/service.js';

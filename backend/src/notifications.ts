@@ -1,3 +1,6 @@
+// Named plain-text notification templates and variable interpolation; provider email rendering is
+// implemented separately in notifications/templates.ts.
+
 
 export type NotificationKey =
   | 'accountCreation'

@@ -1,3 +1,6 @@
+// Extracts supported form fields from policy text, validates submitted values and builds the
+// completed signature copy on the server.
+
 import { AppError, dateOfBirthField, emailField, textField } from './domain.js';
 
 export interface WaiverFormField {
@@ -92,6 +95,10 @@ export function validateWaiverFields(description: string, raw: unknown, guardian
 }
 
 /** Values for the server-filled fields, recorded at the moment of signing. */
+/**
+ * Supply identity/signing metadata from trusted server data rather than accepting browser overrides
+ * of those fields.
+ */
 export function serverWaiverValues(description: string, context: {
   memberId: number; signerName: string; waiverVersion: string; signedAt: Date; timeZone: string;
 }) {

@@ -1,3 +1,6 @@
+// Start-time picker exposes available slots while retaining keyboard navigation and the selected
+// booking duration.
+
 import { MonthCalendar } from "./MonthCalendar";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 

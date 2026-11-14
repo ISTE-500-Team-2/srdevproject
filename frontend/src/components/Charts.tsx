@@ -1,3 +1,6 @@
+// Reusable SVG line/bar charts with accessible labels; callers provide already-aggregated series
+// and display formatting.
+
 import { lineCoordinates } from "../lib/chartCoordinates";
 
 interface LineChartProps {

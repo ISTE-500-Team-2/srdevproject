@@ -1,3 +1,6 @@
+// Stores hashed access/refresh tokens and revocable sign-in families; refresh rotation detects
+// token reuse across concurrent requests.
+
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Database } from '../db.js';
 import { timingSafeEqual } from 'node:crypto';
@@ -13,6 +16,10 @@ export class SessionModel {
   constructor(private db: Database, key: Uint8Array, accessSeconds?: number, private refreshSeconds = rememberedLifetimeSeconds, private timeZone = "America/New_York") {
     this.jwt = new JwtTokens(key, accessSeconds);
   }
+  /**
+   * Start a revocable sign-in family; Remember me changes its maximum lifetime, not the short
+   * access-token lifetime.
+   */
   async create(userId: number, remember: boolean) {
     await this.db.query('SELECT userid FROM "user" WHERE userid=$1 FOR SHARE', [userId]);
     await this.db.query('DELETE FROM app_session WHERE expires_at<=NOW()');
@@ -32,6 +39,10 @@ export class SessionModel {
     await this.db.query('INSERT INTO app_session(token_hash,userid,csrf_token,expires_at,family_id) VALUES($1,$2,$3,$4,$5)',[tokenHash(token),userId,csrfToken,expiresAt,familyId]);
     return {token,refreshToken,csrfToken,ttl,user,persistent};
   }
+  /**
+   * Return CSRF only for an unconsumed refresh token in a live family; the cookie itself stays
+   * inaccessible to browser JavaScript.
+   */
   async refreshCsrf(refreshToken: string) {
     const {rows} = await this.db.query(`SELECT f.csrf_token AS "csrfToken" FROM app_refresh_token t JOIN app_refresh_family f ON f.id=t.family_id WHERE t.token_hash=$1 AND NOT t.consumed AND NOT f.revoked AND f.expires_at>NOW()`,[tokenHash(refreshToken)]);
     return rows[0]?.csrfToken as string | undefined;
@@ -59,9 +70,11 @@ export class SessionModel {
     await this.db.query('UPDATE app_refresh_token SET consumed=true WHERE token_hash=$1',[tokenHash(refreshToken)]);
     return this.issue(family.userid, family.id, family.csrf_token, family.persistent);
   }
+  /** Revoke the whole sign-in family so all access and refresh tokens derived from it stop working. */
   async revokeRefresh(refreshToken: string) {
     await this.db.query('UPDATE app_refresh_family SET revoked=true WHERE id=(SELECT family_id FROM app_refresh_token WHERE token_hash=$1)',[tokenHash(refreshToken)]);
   }
+  /** Accept a JWT only while its matching database session and refresh family are still valid. */
   async find(token: string) {
     const claims = await this.jwt.verify(token);
     if (!claims) return null;
@@ -77,6 +90,7 @@ export class SessionModel {
   async setActingAs(token: string, userId: number | null) {
     await this.db.query('UPDATE app_refresh_family SET acting_as_userid=$2 WHERE id=(SELECT family_id FROM app_session WHERE token_hash=$1)', [tokenHash(token), userId]);
   }
+  /** Sign out the entire family associated with this access token, including refresh successors. */
   async remove(token: string) {
     await this.db.query('UPDATE app_refresh_family SET revoked=true WHERE id=(SELECT family_id FROM app_session WHERE token_hash=$1)', [
       tokenHash(token),

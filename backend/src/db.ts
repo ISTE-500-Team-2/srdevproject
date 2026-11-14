@@ -1,3 +1,6 @@
+// Database connection limits and transaction ownership. Services pass the transaction client to
+// models so related writes commit together.
+
 import { Pool, type PoolClient, type QueryResultRow } from 'pg';
 import { auditContext } from './auditContext.js';
 
@@ -8,6 +11,10 @@ export interface Database {
   ): Promise<{ rows: T[]; rowCount: number | null }>;
 }
 
+/**
+ * Build a bounded pool from PG environment variables or DATABASE_URL; query and connection timeouts prevent
+ * indefinite request waits.
+ */
 export function createPool(): Pool {
   const configuredMax = process.env.ARBOR_DB_POOL_MAX ?? '10';
   if (!/^[1-9]\d?$/.test(configuredMax) || Number(configuredMax) > 30)
@@ -24,6 +31,10 @@ export function createPool(): Pool {
   });
 }
 
+/**
+ * Run related work on one connection, bind the audit actor locally, and always roll back on failure
+ * and release the client.
+ */
 export async function transaction<T>(
   pool: Pool,
   work: (client: PoolClient) => Promise<T>,

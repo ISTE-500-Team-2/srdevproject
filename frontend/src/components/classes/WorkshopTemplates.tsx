@@ -1,3 +1,5 @@
+// Displays reusable workshop definitions separately from their scheduled sessions.
+
 import { Users } from "lucide-react";
 import { ClassThumb } from "./ClassBits";
 import { WORKSHOP_LABEL, workshopImage, type WorkshopTemplate } from "./classData";

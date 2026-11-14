@@ -1,3 +1,6 @@
+// Staff equipment overview combines availability and day bookings, with detail panels sized to the
+// workspace.
+
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowUpRight, ChevronRight, Search, Wrench } from 'lucide-react';

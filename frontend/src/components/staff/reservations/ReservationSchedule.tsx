@@ -1,3 +1,6 @@
+// Calendar presentation for staff bookings; shared scheduling helpers calculate visible slots and
+// conflicts.
+
 import { useState, type CSSProperties, type MouseEvent } from "react";
 import { Link } from "react-router-dom";
 import { ChevronRight, Drill, Wrench } from "lucide-react";

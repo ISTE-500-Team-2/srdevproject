@@ -1,3 +1,5 @@
+// Reads and validates the member's email preferences and time zone before saving them.
+
 import { StaffModel } from "../models/StaffModel.js";
 import { transaction } from "../db.js";
 import type { Request, Response } from "express";

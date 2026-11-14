@@ -1,3 +1,6 @@
+// Creates and cancels training payment records while preserving evidence of fees already covered by
+// another enrollment.
+
 import type { Database } from './db.js';
 import { AppError } from './domain.js';
 import { StaffModel } from './models/StaffModel.js';
@@ -12,6 +15,10 @@ export function trainingFeeCoveredSql(user: string, cert: string) {
       AND e.training_fee_cents>0 AND tp.paymentstatus IN ('paid','waived')))`;
 }
 
+/**
+ * Attach the enrollment's training fee without charging again when existing coverage satisfies the
+ * configured rule.
+ */
 export async function enrollTrainingPayment(db: Database, tz: string, userId: number,
   course: { id: number; certification_id: number | null; title: string },
   before: { payment_id: number | null; training_fee_cents: number | null } | undefined,
@@ -43,6 +50,7 @@ export async function enrollTrainingPayment(db: Database, tz: string, userId: nu
   return { fee, paymentId };
 }
 
+/** Cancel pending enrollment charges; settled payments need the explicit refund workflow. */
 export async function cancelTrainingPayments(db: Database, classId: number, userId?: number) {
   // Paid registrations remain visible for staff to refund explicitly.
   await db.query(`UPDATE payment SET paymentstatus='void',revision=revision+1,updated_at=now()

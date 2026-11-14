@@ -1,3 +1,6 @@
+// Persistent reader identities and encrypted secrets. Card UIDs are normalized and keyed-hashed
+// rather than stored in full.
+
 import {
   createCipheriv,
   createDecipheriv,
@@ -27,6 +30,10 @@ export interface StoredReader extends Omit<Reader, "secret"> {
   revision: number;
 }
 export const readerColumns = `id,name,kind,resource_id AS "resourceId",secret_encrypted AS "secretEncrypted",enabled,revision`;
+/**
+ * Normalize supported UID lengths and return a keyed fingerprint plus a display suffix; do not
+ * persist the complete UID.
+ */
 export function cardIdentity(uid: unknown, c: DeviceConfig) {
   const value =
     typeof uid === "string" ? uid.replace(/[: -]/g, "").toUpperCase() : "";
@@ -62,6 +69,10 @@ export class ReaderRegistry {
       .update("reader-credentials-v1")
       .digest();
   }
+  /**
+   * Store reader secrets as AES-GCM IV/tag/ciphertext using a key derived separately from card
+   * fingerprinting.
+   */
   encrypt(secret: string) {
     const iv = randomBytes(12),
       cipher = createCipheriv("aes-256-gcm", this.key(), iv);
@@ -73,6 +84,10 @@ export class ReaderRegistry {
       "base64",
     );
   }
+  /**
+   * Authenticate the stored secret before returning plaintext; a changed encryption key cannot
+   * recover existing reader credentials.
+   */
   decrypt(value: string) {
     const bytes = Buffer.from(value, "base64"),
       decipher = createDecipheriv(

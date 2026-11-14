@@ -1,3 +1,6 @@
+// Builds the staff Today view's machine groups, booking blocks and action counts from current API
+// records.
+
 import type { LiveEquipment, Reservation } from "./contracts";
 import type { ComplianceReport } from "./staffContracts";
 import type { Rental, Studio } from "./studioContracts";

@@ -1,3 +1,6 @@
+// Member monthly-rental form; date/availability feedback is advisory until the server accepts the
+// booking.
+
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { CalendarCheck, CircleAlert, CreditCard } from "lucide-react";

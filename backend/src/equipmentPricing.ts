@@ -1,3 +1,6 @@
+// Captures equipment prices on reservations and keeps linked payment records consistent when
+// bookings change.
+
 import type { Database } from './db.js';
 import { AppError } from './domain.js';
 import { StaffModel } from './models/StaffModel.js';
@@ -9,6 +12,10 @@ export interface EquipmentPrice {
   certificationRevision: number | null;
 }
 
+/**
+ * Return an integer-cent quote, or null for a legacy item without a configured rate; unpriced is
+ * not the same as free.
+ */
 export async function equipmentPrice(db: Database, equipmentId: number, hours: number): Promise<EquipmentPrice | null> {
   if (!Number.isInteger(hours) || hours < 1 || hours > 24)
     throw new AppError(400, 'INVALID_INPUT', 'Choose 1–24 whole hours.');
@@ -27,6 +34,10 @@ export async function equipmentPrice(db: Database, equipmentId: number, hours: n
     trainingFeeCents: 0, totalCents: total, certificationId: row.certid, certificationRevision: row.revision };
 }
 
+/**
+ * Reject a changed quote before booking so the member confirms exactly the amount and certification
+ * revision being saved.
+ */
 export function reviewEquipmentPrice(current: EquipmentPrice | null, expected: unknown) {
   if (expected === undefined && !current?.trainingFeeCents) return; // Older clients remain usable for ordinary bookings.
   if (!current || !expected || typeof expected !== 'object' ||
@@ -34,6 +45,10 @@ export function reviewEquipmentPrice(current: EquipmentPrice | null, expected: u
     throw new AppError(409, 'PRICE_CHANGED', 'The booking price changed. Refresh and review the breakdown before confirming.');
 }
 
+/**
+ * Inside the caller's transaction, lock the booking and synchronize its snapshot/payment without
+ * rewriting an incompatible settled payment.
+ */
 export async function saveReservationPrice(db: Database, reservationId: number, userId: number,
   actorId: number, price: EquipmentPrice | null, name: string, createPayment = true) {
   const before = (await db.query('SELECT payment_id,price_snapshot FROM reservation WHERE reservationid=$1 FOR UPDATE', [reservationId])).rows[0];
@@ -58,6 +73,7 @@ export async function saveReservationPrice(db: Database, reservationId: number, 
     [reservationId, price ? JSON.stringify(price) : null, paymentId]);
 }
 
+/** Void only an unpaid pending charge; paid money requires a separate explicit refund workflow. */
 export async function cancelReservationPayment(db: Database, reservationId: number) {
   // External payments are refunded explicitly by staff; cancellation never claims a refund was sent.
   await db.query(`UPDATE payment SET paymentstatus='void',revision=revision+1,updated_at=now()

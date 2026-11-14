@@ -1,3 +1,5 @@
+// Resolves role grants from the database so permission changes take effect without issuing new tokens.
+
 import type { Database } from '../db.js';
 import type { UserView } from '../domain.js';
 import { authorize } from '../auth.js';

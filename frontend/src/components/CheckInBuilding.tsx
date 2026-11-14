@@ -1,3 +1,6 @@
+// Shows the building choice when check-in needs an explicit location instead of assuming the first
+// facility.
+
 import type { Overview } from '../lib/contracts';
 
 export function CheckInBuilding({buildings, buildingId, onChange, disabled = false}: {

@@ -1,3 +1,6 @@
+// Schedules expiry reminders in the member's time zone and checks whether their source record is
+// still current before dispatch.
+
 import type { Database } from '../db.js';
 import { enqueueNotification, validTimeZone } from './store.js';
 

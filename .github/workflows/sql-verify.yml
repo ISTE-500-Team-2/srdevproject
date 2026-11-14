@@ -1,3 +1,6 @@
+# Checks legacy SQL/schema compatibility in disposable PostgreSQL, separate from production
+# migration execution.
+
 name: Verify PostgreSQL scripts
 
 on:

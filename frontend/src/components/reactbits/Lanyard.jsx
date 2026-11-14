@@ -526,6 +526,8 @@ const pushBody = (body, r, impulse) => {
   rotateBody(body.quaternion, applyInverseInertia(body, scratch.e.crossVectors(r, impulse), scratch.f));
 };
 
+// Limit strap stretch using mass-weighted position corrections; the last segment also transfers
+// torque to the badge body.
 const solveSegment = (sim, i, h, physics) => {
   const { nodes, body } = sim;
   const a = nodes[i];
@@ -557,6 +559,8 @@ const solveSegment = (sim, i, h, physics) => {
   else b.addScaledVector(normal, -lambda * wb);
 };
 
+// Keep the grabbed point on the badge at the pointer target while allowing the rest of the body to
+// rotate.
 const solvePin = (body, grab, target) => {
   const r = scratch.g.copy(grab.local).applyQuaternion(body.quaternion);
   const delta = scratch.a.copy(target).sub(body.position).sub(r);
@@ -595,6 +599,7 @@ const placeHanging = (sim, layout, intro) => {
   sim.calm = 0;
 };
 
+// Recalculate segment length and badge inertia when card dimensions or strap length change.
 const configureSimulation = (sim, layout, length) => {
   sim.rest = length / JOINTS;
   const { width, height } = layout;
@@ -609,6 +614,8 @@ const configureSimulation = (sim, layout, length) => {
   body.hang.set(0, layout.hangY, 0);
 };
 
+// Subdivide frame time into bounded physics steps so strap constraints stay stable across different
+// display frame rates.
 const stepSimulation = (sim, dt, physics, time) => {
   const steps = Math.max(1, Math.ceil(dt / MAX_STEP - 1e-6));
   const h = dt / steps;
@@ -700,6 +707,8 @@ const stepSimulation = (sim, dt, physics, time) => {
   sim.calm = energy < 2e-4 ? sim.calm + dt : 0;
 };
 
+// Own the Three.js scene, generated badge textures, pointer dragging and animation cleanup; this is
+// a visual component only.
 const Lanyard = ({
   frontImage,
   backImage,

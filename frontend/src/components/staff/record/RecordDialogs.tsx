@@ -1,3 +1,6 @@
+// Focused member-record mutation dialogs carry revisions and reasons so stale edits can be rejected
+// and changes attributed.
+
 import { useState, type FormEvent, type ReactNode } from "react";
 import { api, ApiError, errorMessage } from "../../../lib/api";
 import { dollars } from "../../../lib/display";

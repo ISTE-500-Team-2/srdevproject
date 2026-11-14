@@ -1,3 +1,5 @@
+// List presentation for the staff reservation workspace; selection opens a separate details/edit panel.
+
 import { Fragment } from "react";
 import type { LiveEquipment, Reservation } from "../../../lib/contracts";
 import { cents } from "../../../lib/display";

@@ -1,3 +1,5 @@
+/* Canvas container, fallback and interaction presentation for the 3D badge; scene simulation lives in Lanyard.jsx. */
+
 .lanyard {
   position: relative;
   width: 100%;

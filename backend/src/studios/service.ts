@@ -1,3 +1,6 @@
+// Monthly studio availability, holds, payments and refunds. Local rental state is reconciled with
+// provider state rather than browser redirects.
+
 import { MinorSupervision } from "../minorSupervision.js";
 import type { Pool } from "pg";
 import type Stripe from "stripe";
@@ -23,6 +26,10 @@ export class StudioService {
       day: "2-digit",
     }).format(new Date());
   }
+  /**
+   * Reload and validate the acting account, optionally requiring staff/admin privileges for the
+   * operation.
+   */
   async actor(db: Database, id: number, staff = false, admin = false) {
     await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR SHARE', [id]);
     const user = await new UserModel(db, this.zone).findById(id);
@@ -96,6 +103,7 @@ export class StudioService {
           payload,
         });
   }
+  /** Release expired desk-payment holds before availability is calculated. */
   async expireManual() {
     await this.pool.query(
       "UPDATE app_studio_rental SET status='expired' WHERE status='pending' AND payment_method='manual' AND hold_until<=now()",
@@ -161,6 +169,10 @@ export class StudioService {
       return r.rows[0];
     });
   }
+  /**
+   * Validate terms, dates and pricing, then lock the studio and create a request-keyed hold before
+   * arranging payment.
+   */
   async create(userid: number, body: any) {
     const { start, end } = monthlyWindow(body.startDate, this.today());
     const studioId = positiveId(body.studioId);
@@ -306,6 +318,10 @@ export class StudioService {
           : `${r.ends_on.getFullYear()}-${String(r.ends_on.getMonth() + 1).padStart(2, "0")}-${String(r.ends_on.getDate()).padStart(2, "0")}`,
     };
   }
+  /**
+   * Record staff-confirmed external payment and activate the held rental with its receipt/audit
+   * evidence.
+   */
   async manualPay(actor: number, id: number, reference: unknown) {
     return transaction(this.pool, async (db) => {
       await this.actor(db, actor, true);
@@ -345,6 +361,10 @@ export class StudioService {
       return result;
     });
   }
+  /**
+   * Calculate the saved-policy refund outcome and coordinate provider or desk cancellation without
+   * inventing a successful refund.
+   */
   async cancel(userid: number, id: number) {
     const initial = (
       await this.pool.query(
@@ -429,6 +449,10 @@ export class StudioService {
       await this.pool.query("SELECT * FROM app_studio_rental WHERE id=$1", [id])
     ).rows[0];
   }
+  /**
+   * Reconcile a member's pending rental against provider state after a checkout return or a missed
+   * callback.
+   */
   async syncPayment(userid: number, id: number) {
     const r = (
       await this.pool.query(
@@ -493,6 +517,10 @@ export class StudioService {
       checkoutUrl: session.status === "open" ? session.url : null,
     };
   }
+  /**
+   * Retry a rental's outstanding provider refund using its existing identity rather than creating
+   * an unrelated second refund.
+   */
   async retryRefund(id: number) {
     const r = (
       await this.pool.query("SELECT * FROM app_studio_rental WHERE id=$1", [id])
@@ -566,6 +594,7 @@ export class StudioService {
       return r;
     });
   }
+  /** Validate a completed provider checkout and commit rental activation/payment evidence together. */
   async complete(session: Stripe.Checkout.Session, db?: Database) {
     const work = async (db: Database) => {
       if (session.livemode || session.payment_status !== "paid") return;
@@ -635,6 +664,10 @@ export class StudioService {
         startsAt: this.dates(r).starts_on, endsAt: this.dates(r).ends_on},
     });
   }
+  /**
+   * Update rental/refund/payment evidence from the provider result; failed and pending refunds
+   * remain distinct from success.
+   */
   async applyRefund(db: Database, f: Stripe.Refund) {
     if (!f.metadata?.studioRentalId || f.currency !== "usd") return;
     const r = (
@@ -679,6 +712,10 @@ export class StudioService {
         });
     }
   }
+  /**
+   * Route verified checkout/refund events through locked reconciliation; arrival order is not a
+   * reliable state machine.
+   */
   async webhook(event: Stripe.Event) {
     if (event.livemode)
       throw new AppError(

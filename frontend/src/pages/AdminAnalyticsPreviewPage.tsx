@@ -1,3 +1,5 @@
+// Static analytics preview uses fixture series; production reporting lives in AnalyticsDashboardPage.
+
 import {
   Check,
   ChevronDown,

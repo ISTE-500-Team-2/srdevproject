@@ -1,3 +1,6 @@
+// Pure presentation model for member verdicts, requirements and activity; server eligibility
+// remains authoritative.
+
 import { accessReasonLabel } from "../../../lib/accessReadiness";
 import type { SupervisionSummary } from "../../../lib/contracts";
 import { dollars, shortDate, timeOnly } from "../../../lib/display";
@@ -96,6 +99,10 @@ const ROLE_NAMES: Record<string, string> = {
 export const roleName = (role: string) => ROLE_NAMES[role] ?? role;
 export const ROLES = Object.keys(ROLE_NAMES);
 
+/**
+ * Derive the member-record headline from account/access/requirements data; this display verdict is
+ * not permission to unlock a reader.
+ */
 export function verdict(input: {
   person: Person;
   req: MemberRequirements | null;

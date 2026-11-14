@@ -1,3 +1,6 @@
+// Plan administration separates catalog pricing from student/partner eligibility settings and
+// preserves revision checks.
+
 import "./plans.css";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ChevronDown, ChevronRight, GraduationCap, Plus, School, X } from "lucide-react";

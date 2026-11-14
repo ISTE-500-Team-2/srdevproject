@@ -1,3 +1,6 @@
+// Member landing page combines access status, check-in actions and upcoming activity, including
+// first-visit guidance.
+
 import { dateTime, shortDate, timeOnly } from "../lib/display";
 import {
   ArrowUpRight,

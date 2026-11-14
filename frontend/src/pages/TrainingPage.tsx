@@ -1,3 +1,5 @@
+// Training-definition and equipment-link management used by the staff certification/class workflow.
+
 import { useEffect, useState, type FormEvent } from "react";
 import { MemberSelect } from "../components/MemberSelect";
 import type { LiveEquipment } from "../lib/contracts";

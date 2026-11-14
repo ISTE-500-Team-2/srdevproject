@@ -27,6 +27,8 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+# Accept only bare service origins; credentials, query strings and arbitrary paths must not enter
+# signed transport URLs.
 def base_url(value, *, backend=False):
     parsed = urlsplit(value)
     schemes = {'https'} if backend else {'http', 'https'}
@@ -35,6 +37,7 @@ def base_url(value, *, backend=False):
     return value.rstrip('/')
 
 
+# Disable redirects so signed requests and reader credentials cannot be forwarded to an unexpected host.
 def open_request(request, timeout):
     return urllib.request.build_opener(NoRedirect()).open(request, timeout=timeout)
 
@@ -43,6 +46,7 @@ def body_json(value):
     return json.dumps(value, separators=(',', ':'), ensure_ascii=True).encode()
 
 
+# Bound response size before parsing; a misbehaving reader must not allocate an unbounded payload.
 def read_response(response):
     raw = response.read(16385)
     if len(raw) > 16384:

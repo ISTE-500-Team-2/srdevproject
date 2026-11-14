@@ -101,6 +101,8 @@ class Agent:
     def profile(self,device_id):
         return self.profiles/(device_id+'.json')
 
+    # Serialize work per discovered device while allowing the gateway to keep polling for
+    # cancellation and new jobs.
     def submit(self,device_id,fn,*args):
         # Recovery and the next attempt on the SAME USB device are FIFO. Another
         # reader has its own executor, so a long backup never blocks its setup.
@@ -108,6 +110,7 @@ class Agent:
             self.executors[device_id]=ThreadPoolExecutor(max_workers=1)
         return Task(self.executors[device_id].submit(fn,*args))
 
+    # Require a fresh reader/backend verification before reporting a provisioning job as complete.
     def verify(self,job,device,link_key,cancelled):
         self.stage(job['id'],'verifying')
         deadline=time.monotonic()+35
@@ -133,6 +136,8 @@ class Agent:
             cancelled.wait(.5)
         raise SetupError('verification_failed')
 
+    # Run the selected transport's configuration workflow and propagate cancellation/progress to the
+    # setup job.
     def provision(self,job,device,cancelled,accepted):
         provisioner=USBProvisioner(device,self.root/job['id'],cancelled,lambda stage:self.stage(job['id'],stage))
         path=self.profile(job['deviceId'])

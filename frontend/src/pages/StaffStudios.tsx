@@ -1,3 +1,5 @@
+// Staff studio workspace combines occupancy, rental details and desk payment/refund tasks.
+
 import { useEffect, useState } from "react";
 import { CalendarPlus } from "lucide-react";
 import { AccountPicker } from "../components/admin/AccountPicker";

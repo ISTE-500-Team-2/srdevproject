@@ -1,3 +1,6 @@
+// Browser shapes for billing responses; monetary amounts marked Cents are integer minor units, not
+// dollar values.
+
 import type { Plan } from "./staffContracts";
 
 export type Offer = Plan & {

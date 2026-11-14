@@ -2,6 +2,10 @@ import { waiverFormFields, type WaiverFormField } from '../../src/waiverForms.js
 
 export const equipmentWaiverName = 'Specialized Equipment Use – Acknowledgment of Risk, Release & Safety Agreement';
 
+/**
+ * Build complete acceptance values from the policy definition so fixtures exercise the same
+ * required-field contract as member submissions.
+ */
 export function waiverAcceptance(waiver: { description?: string; formFields?: WaiverFormField[]; signerName?: string }, guardianConsent = false) {
   const fields = waiver.formFields ?? waiverFormFields(waiver.description ?? '');
   if (!fields.length) return { accepted: true };

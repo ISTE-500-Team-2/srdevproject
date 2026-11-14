@@ -1,3 +1,6 @@
+// Serves the member equipment catalog and quotes, delegating booking eligibility and prices to
+// shared domain services.
+
 import type { Request, Response } from "express";
 import type { Pool } from "pg";
 import { EquipmentBilling } from "../billing/equipment.js";

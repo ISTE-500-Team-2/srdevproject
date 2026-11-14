@@ -1,3 +1,6 @@
+// Process entry point: loads configuration, starts HTTP/background runtimes and releases resources
+// on shutdown.
+
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPool } from './db.js';

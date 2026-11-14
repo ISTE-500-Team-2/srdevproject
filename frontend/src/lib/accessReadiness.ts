@@ -1,3 +1,5 @@
+// Maps access-denial codes to readable guidance without changing the server's eligibility verdict.
+
 export interface AccessReadinessResult {
   userId: number;
   readers: { id: string; kind: 'building' | 'room' | 'equipment'; resourceId: number; name: string }[];

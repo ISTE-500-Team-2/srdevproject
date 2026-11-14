@@ -1,3 +1,6 @@
+// Guides a persisted reader setup job through discovery, configuration and verification; polling
+// follows the gateway's progress.
+
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, errorMessage } from "../../lib/api";
 import { useApi } from "../../lib/useApi";

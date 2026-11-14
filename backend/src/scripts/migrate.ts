@@ -1,3 +1,6 @@
+// Applies pending migrations in filename order under one advisory lock; stored checksums
+// deliberately reject edits to previously applied SQL.
+
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -34,6 +37,10 @@ export async function prepareAuditMigration(db: Database, name: string) {
   }
 }
 
+/**
+ * Apply pending SQL atomically and record content hashes. Even comment-only edits to an applied
+ * migration will fail checksum verification.
+ */
 export async function migrate(pool: Pool): Promise<void> {
   const directory = path.join(repositoryRoot, 'database/migrations');
   const files = (await readdir(directory))

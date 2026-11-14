@@ -52,6 +52,8 @@ const getEffect = (effect, em) => {
   }
 };
 
+// Animate split text after fonts/layout are ready; clean up split markup and scroll animations when
+// inputs change or the component unmounts.
 const SplitText = ({
   text,
   className = '',

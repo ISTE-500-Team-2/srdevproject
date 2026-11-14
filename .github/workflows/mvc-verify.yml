@@ -1,3 +1,6 @@
+# Builds and tests the application against isolated PostgreSQL data; deployment gates depend on
+# these job results.
+
 name: Verify MVC application
 on:
   pull_request:

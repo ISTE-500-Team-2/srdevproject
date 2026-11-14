@@ -1,3 +1,6 @@
+// Reconciles membership subscriptions, invoices and refunds with local access records; provider
+// events can arrive more than once.
+
 import {quote} from './pricing.js';
 import {cancellationBoundary} from './policy.js';
 import {randomUUID} from 'node:crypto';
@@ -24,6 +27,10 @@ export class MembershipBilling {
       cancel_at_period_end AS "cancelAtPeriodEnd",current_period_end AS "currentPeriodEnd",
       cancellation_effective_at AS "cancellationEffectiveAt",cancellation_confirmed AS "cancellationConfirmed",amount_cents AS "amountCents" FROM app_membership_billing WHERE userid=$1 ORDER BY created_at DESC LIMIT 100`,[userid])).rows;
   }
+  /**
+   * Require auto-renew consent and a current monthly offer before creating/reusing the member's
+   * subscription checkout.
+   */
   async checkout(userid:number, body:any) {
     const returnPath = `/checkout-return?member=${userid}`;
     const provider=this.provider(), planId=positiveId(body.planId);
@@ -75,6 +82,10 @@ export class MembershipBilling {
     if(session.status!=='open'||!session.url) throw new AppError(409,'PAYMENT_PROCESSING','Payment is being verified. Refresh your membership status shortly.');
     return {checkoutUrl:session.url};
   }
+  /**
+   * Coordinate pending-checkout cancellation or subscription termination with the applicable notice
+   * boundary.
+   */
   async cancel(userid:number,id:string) {
     const provider=this.provider();
     const row=(await this.pool.query('SELECT * FROM app_membership_billing WHERE id::text=$1 AND userid=$2',[id,userid])).rows[0];
@@ -121,6 +132,10 @@ export class MembershipBilling {
     const s=await p.sdk.billingPortal.sessions.create({customer:r.customer_id,configuration:config.id,return_url:p.config.origin+'/membership'});
     return {url:s.url};
   }
+  /**
+   * Reconcile a provider subscription into its local billing record; subscription status alone does
+   * not establish paid access.
+   */
   async syncSubscription(db:Database, sub:Stripe.Subscription) {
     if(sub.livemode) throw new AppError(400,'LIVE_PAYMENT_FORBIDDEN','Test events only.');
     // First-class subscription ID is primary; metadata is only the initial
@@ -141,6 +156,10 @@ export class MembershipBilling {
     // an immutable paid period; a failed renewal cannot extend the previous one.
     return {...r,subscription_id:sub.id,customer_id:customer};
   }
+  /**
+   * Validate a paid invoice and issue its membership period/payment evidence once within the
+   * caller's transaction.
+   */
   async invoicePaid(db:Database, invoice:Stripe.Invoice, row:any) {
     if(invoice.livemode||invoice.status!=='paid'||invoice.currency!=='usd'||
        objectId(invoice.customer)!==row.customer_id||objectId(invoice.parent?.subscription_details?.subscription)!==row.subscription_id||invoice.amount_paid!==row.amount_cents||
@@ -221,6 +240,10 @@ export class MembershipBilling {
     // Refunding a charge does not silently cancel a subscription or revoke a
     // paid period. Those are separate staff/member actions with their own policy.
   }
+  /**
+   * Reconcile refund events even when provider callbacks arrive before the local refund-creation
+   * response.
+   */
   async refundEvent(db:Database,obj:Stripe.Refund) {
     const sdk=this.provider().sdk,pi=objectId(obj.payment_intent);
     if(!pi)throw new AppError(400,'PAYMENT_MISMATCH','Refund payment intent missing.');
@@ -262,6 +285,10 @@ export class MembershipBilling {
     if(current.id!==obj.id||objectId(current.payment_intent)!==pi)throw new AppError(400,'PAYMENT_MISMATCH','Refund identity mismatch.');
     await this.applyRefund(db,current);
   }
+  /**
+   * Read current provider objects and serialize by subscription before applying possibly repeated
+   * or out-of-order events.
+   */
   async webhook(event:Stripe.Event) {
     if(event.livemode) throw new AppError(400,'LIVE_PAYMENT_FORBIDDEN','Test events only.');
     const sdk=this.provider().sdk;

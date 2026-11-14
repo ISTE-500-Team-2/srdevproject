@@ -1,3 +1,6 @@
+// Coordinates booking permissions, resource locks, eligibility, price snapshots and payment state
+// in transactional workflows.
+
 import { randomUUID } from "node:crypto";
 import { EquipmentBilling } from "../billing/equipment.js";
 import { StudioStripe } from "../studios/stripe.js";
@@ -25,6 +28,10 @@ export class ReservationService {
     private stripe?: StudioStripe,
   ) {}
 
+  /**
+   * Create a booking after locking/checking its resource and member; request keys make repeated
+   * equipment checkout submissions idempotent.
+   */
   async create(
     userId: number,
     input: {
@@ -262,6 +269,10 @@ export class ReservationService {
     return created;
   }
 
+  /**
+   * Revalidate the revised booking window, eligibility and price under locks before committing a
+   * revisioned change.
+   */
   async update(
     actorId: number,
     reservationId: number,
@@ -505,6 +516,10 @@ export class ReservationService {
     });
   }
 
+  /**
+   * Cancel an authorized booking and reconcile its linked pending checkout/payment without claiming
+   * an external refund occurred.
+   */
   async cancelAny(actorId: number, reservationId: number, maintenance?: { sourceEquipmentId: number; expectedRevision: unknown }) {
     return transaction(this.pool, async (db) => {
       const access = new AccessService(db, this.timeZone);

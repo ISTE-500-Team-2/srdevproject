@@ -1,3 +1,6 @@
+// Staff-assisted purchase endpoints preserve the member being helped while using the staff
+// operator's authorization.
+
 import { Router } from 'express';
 import type { Pool } from 'pg';
 import { AppError, positiveId } from '../domain.js';

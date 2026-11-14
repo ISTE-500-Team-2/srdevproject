@@ -1,3 +1,6 @@
+// Builds the member badge artwork for the interactive lanyard, including image loading and canvas
+// text sizing.
+
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useAppearance } from "../theme/appearance";
 

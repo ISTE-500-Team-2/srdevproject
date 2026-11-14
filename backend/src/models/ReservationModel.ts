@@ -1,3 +1,6 @@
+// Reservation persistence and overlap/cooldown queries. Services supply authorization, eligibility
+// and the surrounding transaction.
+
 import { AppError } from '../domain.js';
 import type { Database } from '../db.js';
 
@@ -92,6 +95,10 @@ export class ReservationModel {
       )
     ).rows[0] ?? null;
   }
+  /**
+   * Find equipment bookings intersecting the proposed interval, optionally excluding the booking
+   * being edited.
+   */
   async overlaps(
     equipmentId: number,
     start: Date,
@@ -108,6 +115,10 @@ export class ReservationModel {
     );
     return rows[0]!.exists;
   }
+  /**
+   * Apply the corresponding overlap check to room bookings without mixing the two resource
+   * namespaces.
+   */
   async roomOverlaps(
     roomId: number,
     start: Date,
@@ -124,6 +135,10 @@ export class ReservationModel {
     );
     return rows[0]!.exists;
   }
+  /**
+   * Check the member's required gap around other bookings of this equipment, separately from
+   * resource overlap.
+   */
   async equipmentCooldown(
     equipmentId: number,
     start: Date,
@@ -140,6 +155,7 @@ export class ReservationModel {
     );
     return rows[0]!.exists;
   }
+  /** Check the member's required gap around other bookings of this room. */
   async roomCooldown(
     userId: number,
     roomId: number,

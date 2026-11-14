@@ -1,3 +1,6 @@
+// Staff payment search, summaries and record actions, using shared payment controls for permitted
+// changes.
+
 import { useEffect, useRef, useState } from "react";
 import { MemberSelect } from "../components/MemberSelect";
 import { LoadState, Pager } from "../components/Management";

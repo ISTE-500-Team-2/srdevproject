@@ -1,3 +1,6 @@
+// Staff reader configuration and diagnostics routes; the registry owns credential encryption and
+// resource targeting.
+
 import { randomBytes, randomUUID } from "node:crypto";
 import { Router } from "express";
 import type { Pool } from "pg";

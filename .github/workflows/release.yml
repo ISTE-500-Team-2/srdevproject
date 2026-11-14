@@ -1,3 +1,6 @@
+# Release orchestration is gated by verification of the candidate revision; workflow invocation
+# alone is not deployment approval.
+
 name: Gated ARBOR release
 on:
   workflow_dispatch:

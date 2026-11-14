@@ -1,3 +1,6 @@
+// Studio occupancy timeline distinguishes active rentals and temporary holds using shared
+// desk/calendar helpers.
+
 import { useState } from "react";
 import { ChevronLeft, ChevronRight, Hourglass, Lock } from "lucide-react";
 import type { Rental, Studio } from "../../lib/studioContracts";

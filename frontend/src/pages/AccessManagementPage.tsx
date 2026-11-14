@@ -1,3 +1,5 @@
+// Staff access workspace combines card/member lookup, reader setup and decision history.
+
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useApi } from "../lib/useApi";

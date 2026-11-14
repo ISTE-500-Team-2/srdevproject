@@ -1,3 +1,6 @@
+// Reservation detail and editing panel, including eligibility feedback, payment information and
+// focus handling.
+
 import { useEffect, useRef, useState, type FormEvent, type ReactNode, type Ref } from "react";
 import { Link } from "react-router-dom";
 import { CalendarClock, CircleX, Clock, CreditCard, Plus, TriangleAlert, Wrench, X } from "lucide-react";

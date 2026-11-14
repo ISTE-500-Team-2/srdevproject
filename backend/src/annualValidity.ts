@@ -1,3 +1,5 @@
+// Validates the fixed 365-day compliance period; this is a day count, not a calendar-year anniversary.
+
 import { AppError } from './domain.js';
 
 /** Client rule: waivers and certifications last 365 days from each person's signing or training. */

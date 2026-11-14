@@ -1,3 +1,6 @@
+// Composes HTTP middleware, provider/device callbacks and SPA serving. Middleware order determines
+// which requests receive raw bodies.
+
 import { ReaderRegistry } from './readerRegistry.js';
 import {readerSetupPoll} from './readerSetup.js';
 import {deviceDecision} from './deviceAccess.js';
@@ -49,6 +52,10 @@ function hashedBuildFiles(frontendDirectory: string) {
   return files;
 }
 
+/**
+ * Construct an app without listening, allowing tests and the production server to supply their own
+ * pool and frontend directory.
+ */
 export function createApp(
   pool: Pool,
   config: AppConfig,

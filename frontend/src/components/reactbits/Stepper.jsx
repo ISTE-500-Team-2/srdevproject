@@ -103,6 +103,10 @@ export function Step({ children }) {
   return <div className="stepper__step">{children}</div>;
 }
 
+/**
+ * Coordinate step panels, validation callbacks and measured transitions; the host form owns
+ * submitted values and final completion.
+ */
 export default function Stepper({
   children,
   step,

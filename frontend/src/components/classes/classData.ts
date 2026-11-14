@@ -1,3 +1,6 @@
+// Shared class view types, pricing labels and image/date helpers keep catalog and schedule
+// presentation consistent.
+
 import { timeOnly } from "../../lib/display";
 
 export type ClassRecord = {

@@ -24,6 +24,7 @@ def output(*args, **kwargs):
     return subprocess.check_output(args, text=True, **kwargs).strip()
 
 
+# Require a clean source checkout so the verified tree and the release revision describe the same bytes.
 def pristine(source):
     if output('git', '-C', str(source), 'status', '--porcelain', '--untracked-files=all'):
         raise RuntimeError('Use a pristine checkout of the exact merged main revision')
@@ -51,6 +52,7 @@ def cleanup_failed_check(host, sha):
 
 
 @contextmanager
+# Wait for check processes before removing their temporary working files.
 def settle_pool_before_cleanup(pool):
     try:
         yield

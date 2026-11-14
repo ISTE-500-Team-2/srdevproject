@@ -1,3 +1,6 @@
+// Maps HTTP reservation requests to transactional booking and checkout services; ownership and
+// permission checks precede mutations.
+
 import { EquipmentBilling } from "../billing/equipment.js";
 import { StudioStripe, type StudioStripeConfig } from "../studios/stripe.js";
 import { StaffModel } from "../models/StaffModel.js";

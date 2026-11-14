@@ -1,3 +1,5 @@
+// Staff booking workspace coordinates list/calendar filters, selection and detail/edit panels.
+
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ChartGantt, ChevronLeft, ChevronRight, List, Plus, Search, X } from "lucide-react";

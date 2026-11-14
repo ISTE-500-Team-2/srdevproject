@@ -1,3 +1,6 @@
+// Staff member workspace combines identity, readiness and history; dialog mutations refresh the
+// affected record.
+
 import {
   Ban,
   CalendarClock,

@@ -1,3 +1,5 @@
+// Staff class schedule and session actions; roster and editing workflows open from the selected class.
+
 import { Ban, CalendarPlus, ClipboardCheck, MoreHorizontal, Plus, Search, Users } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { DateRail, SeatMeter } from "./ClassBits";

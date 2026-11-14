@@ -1,3 +1,5 @@
+/* Digit-slot states and validation animations used by CodeSlots.jsx; visual success is supplied by its caller. */
+
 .code-slots {
   --cs-accent: #f5f5f5;
   --cs-ink: #f5f5f5;

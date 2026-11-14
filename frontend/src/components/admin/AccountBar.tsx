@@ -1,3 +1,5 @@
+// Shows who staff are acting for and provides a way back to their own workspace.
+
 import { ArrowLeft, ArrowLeftRight } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";

@@ -26,6 +26,10 @@ const firstEmptyOf = slots => {
 };
 const isFull = slots => slots.every(Boolean);
 
+/**
+ * Keep digit slots, keyboard/paste input and completion callbacks synchronized while animating
+ * validation feedback.
+ */
 export default function CodeSlots({
   length = 6,
   value,

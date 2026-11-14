@@ -1,3 +1,6 @@
+// Staff editor for reader names, resource targets and enabled state, using server revisions to
+// detect stale changes.
+
 import { useState, type FormEvent } from "react";
 import { api, ApiError, errorMessage } from "../../lib/api";
 import { useApi } from "../../lib/useApi";

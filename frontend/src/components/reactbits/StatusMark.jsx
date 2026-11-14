@@ -19,6 +19,10 @@ const IDLE_DASH = 0.3;
 
 const clamp01 = v => Math.min(1, Math.max(0, v));
 
+/**
+ * Animate supplied operation status/progress while preserving its readable label; this control
+ * never determines an operation's result.
+ */
 export default function StatusMark({
   status = 'pending',
   progress,

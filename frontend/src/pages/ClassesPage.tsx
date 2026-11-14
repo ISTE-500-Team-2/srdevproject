@@ -1,3 +1,6 @@
+// Class page chooses the member catalog or staff scheduling workflow according to the active
+// account's permissions.
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";

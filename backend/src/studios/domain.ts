@@ -1,4 +1,11 @@
+// Pure rental date and refund calculations; calendar-month rentals are distinct from a fixed number
+// of days.
+
 import { AppError } from "../domain.js";
+/**
+ * Build a one-calendar-month interval, clamping the end day for shorter months instead of assuming
+ * a fixed 30-day duration.
+ */
 export function monthlyWindow(
   value: unknown,
   today = new Date().toISOString().slice(0, 10),
@@ -30,6 +37,10 @@ export function monthlyWindow(
   );
   return { start: value, end: end.toISOString().slice(0, 10) };
 }
+/**
+ * Apply the rental's saved cancellation policy; only full-before-start cancellations qualify for
+ * the full amount.
+ */
 export function refundDue(
   rental: {
     starts_on: string;

@@ -1,3 +1,6 @@
+// Live readiness summary for a selected member; advisory display does not replace the server's
+// final check-in decision.
+
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApi } from '../../lib/useApi';
 import { accessReasonLabel, type AccessReadinessResult } from '../../lib/accessReadiness';

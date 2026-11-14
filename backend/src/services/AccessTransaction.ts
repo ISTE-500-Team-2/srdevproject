@@ -1,3 +1,6 @@
+// Reader transaction wrapper with a wall-clock budget that includes pool wait time; timed-out work
+// must never grant access later.
+
 import type { Pool, PoolClient } from 'pg';
 
 export class AccessDeadlineError extends Error {}

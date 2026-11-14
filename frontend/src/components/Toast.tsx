@@ -1,3 +1,5 @@
+// Portals a dismissible success notice above page content; message lifetime is controlled by the caller.
+
 import { createPortal } from 'react-dom';
 import { CheckCircle2, X } from 'lucide-react';
 

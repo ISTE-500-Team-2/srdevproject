@@ -1,3 +1,5 @@
+// HTTP adapter for authorized waiver history and completed-document downloads.
+
 import type {Request,Response} from 'express';
 import type {Pool} from 'pg';
 import {AppError,positiveId} from '../domain.js';

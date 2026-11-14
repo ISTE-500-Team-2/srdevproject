@@ -1,3 +1,6 @@
+// Member-facing profile, waiver, membership and check-in handlers. Uses the authenticated account
+// rather than trusting a client-supplied owner.
+
 import { enqueueNotification, getNotificationPreferences } from "../notifications/store.js";
 import { EXPIRATION_LOOKAHEAD_DAYS, reminderDates } from "../notifications/scheduler.js";
 import type { Request, Response } from "express";

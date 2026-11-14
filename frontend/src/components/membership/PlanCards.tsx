@@ -1,3 +1,6 @@
+// Plan selection and purchase confirmation; sends the displayed quote/revisions so the server can
+// reject stale pricing.
+
 import { useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, Check, Clock, Lock } from "lucide-react";

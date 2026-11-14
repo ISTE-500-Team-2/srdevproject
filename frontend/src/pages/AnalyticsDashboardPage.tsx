@@ -1,3 +1,6 @@
+// Report dashboard aggregates the selected facility-date range and comparison period for revenue,
+// visits and class activity.
+
 import { TableScroll } from "../components/TableScroll";
 import {
   ArrowRight,

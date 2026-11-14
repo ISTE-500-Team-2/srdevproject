@@ -1,3 +1,6 @@
+// Member navigation, account actions and responsive menus; staff account mode retains its real
+// operator context.
+
 import {
   ChevronDown,
   CircleUserRound,

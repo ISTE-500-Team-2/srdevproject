@@ -1,3 +1,5 @@
+// Static presentation fixtures for previews/tests; live class and financial workflows must use API data.
+
 import type { WorkshopClass } from '../types';
 
 export const classes: WorkshopClass[] = [

@@ -1,3 +1,6 @@
+# Exercises the documented local launcher on supported operating systems and in Docker before
+# handoff.
+
 name: Team development setup
 on:
   pull_request:

@@ -1,3 +1,6 @@
+// Authenticates signed reader messages, rejects replays and records access decisions; reader setup
+// and staff previews use shared eligibility rules.
+
 import { MinorSupervision } from "./minorSupervision.js";
 import { evaluateReaderAccess } from "./services/ReaderEligibility.js";
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -59,6 +62,10 @@ export function readDeviceConfig(): DeviceConfig | undefined {
     throw Error("Invalid reader setup gateway configuration");
   return { readers, cardHashKey, setupGateways };
 }
+/**
+ * Authenticate the exact signed request bytes and replay identity before evaluating access under
+ * the reader transaction deadline.
+ */
 export function deviceDecision(
   pool: Pool,
   timeZone: string,

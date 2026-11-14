@@ -1,3 +1,6 @@
+// Class-detail dialog combines current session information with the member's enrollment and
+// permitted actions.
+
 import { CalendarDays, Clock3, Info, MapPin, UserRound } from "lucide-react";
 import { useEffect } from "react";
 import { Link } from "react-router-dom";

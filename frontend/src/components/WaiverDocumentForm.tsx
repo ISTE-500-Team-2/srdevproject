@@ -1,3 +1,6 @@
+// Renders policy-derived fields for member consent; server validation and completed-document
+// generation remain authoritative.
+
 import { useId, useState, type ReactNode } from 'react';
 import type { User, Waiver, WaiverFormField } from '../lib/contracts';
 import { localInput } from '../lib/display';

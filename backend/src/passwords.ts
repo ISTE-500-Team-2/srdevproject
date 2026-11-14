@@ -1,3 +1,6 @@
+// New credentials use bcrypt; verified legacy scrypt hashes can be upgraded during sign-in without
+// forcing password resets.
+
 import bcrypt from 'bcryptjs';
 import { AppError } from './domain.js';
 import { scrypt, timingSafeEqual } from 'node:crypto';
@@ -13,11 +16,19 @@ const derive = (password: string, salt: string): Promise<Buffer> =>
     );
   });
 
+/**
+ * Reject inputs bcrypt would truncate before hashing; silent truncation would make distinct
+ * passwords equivalent.
+ */
 export async function hashPassword(password: string): Promise<string> {
   if (bcrypt.truncates(password)) throw new AppError(400,'PASSWORD_TOO_LONG','Passwords must be at most 72 UTF-8 bytes.');
   return bcrypt.hash(password, 12);
 }
 
+/**
+ * Verify current bcrypt or strictly formatted legacy scrypt hashes; malformed stored encodings are
+ * rejected.
+ */
 export async function verifyPassword(
   password: string,
   encoded: string,

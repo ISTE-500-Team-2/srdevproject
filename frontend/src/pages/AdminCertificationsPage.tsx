@@ -1,3 +1,5 @@
+// Staff entry point for certification/class management, composed from the shared training workspace.
+
 import { useSearchParams } from "react-router-dom";
 import { StaffCompliance } from "./StaffCompliance";
 import { StaffPolicies } from "./StaffPolicies";

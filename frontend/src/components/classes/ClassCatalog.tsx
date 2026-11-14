@@ -1,3 +1,5 @@
+// Member class discovery, enrollment and cancellation UI with current capacity and payment feedback.
+
 import { AlertTriangle, Award, Ban, Check, Clock3, GraduationCap, Lock, MapPin, Palette, Search, ShieldCheck, UserRound, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";

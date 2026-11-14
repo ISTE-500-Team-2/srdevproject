@@ -24,6 +24,7 @@ class AccessClient:
         self.url = base_url.rstrip('/') + '/api/devices/decision'
         self.reader_id, self.secret, self.opener = reader_id, secret, opener
 
+    # Sign the exact JSON bytes and require the response's event/reader IDs to match this request.
     def _request(self, payload):
         event = str(uuid.uuid4())
         body = json.dumps({**payload, 'eventId': event}, separators=(',', ':')).encode()
@@ -53,6 +54,8 @@ class AccessClient:
             raise ValueError('Invalid reader mode')
         return {'mode': data['mode'], 'enrollmentExpiresAt': data.get('enrollmentExpiresAt')}
 
+    # Return a conservative relay lease, subtracting request latency and honoring the server's
+    # absolute expiry.
     def decide(self, uid, check_in=False, *, renewal=False):
         data, elapsed = self._request({'uid': uid, 'checkIn': check_in, 'renewal': renewal})
         if data.get('mode') in ('enroll', 'disabled'):
@@ -90,6 +93,7 @@ class RelayLease:
             if generation == self._generation:
                 self.set_relay(False)
 
+    # Replace the active timer under lock; obsolete timer callbacks must not turn off a newer lease.
     def apply(self, seconds):
         with self._lock:
             if self._closed:

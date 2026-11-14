@@ -1,3 +1,5 @@
+// Pure chart aggregations fill time buckets and calculate comparisons from report data.
+
 import type { Report } from "../pages/ReportsPage";
 export type RevenuePeriod = "daily" | "weekly" | "monthly";
 export type RevenuePoint = {

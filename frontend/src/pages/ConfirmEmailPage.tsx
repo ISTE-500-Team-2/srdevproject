@@ -1,3 +1,6 @@
+// Consumes an email confirmation link and provides recovery/resend feedback when the link is
+// invalid or expired.
+
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";

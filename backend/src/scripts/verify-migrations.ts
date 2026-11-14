@@ -1,3 +1,6 @@
+// Checks migration history against repository files without treating a missing or modified
+// migration as safe to ignore.
+
 import { readFile, readdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import path from "node:path";

@@ -1,3 +1,5 @@
+// Read-only HTTP adapter for the room catalog; room bookings are handled by ReservationService.
+
 import type { Request, Response } from 'express';
 import type { Pool } from 'pg';
 import { RoomModel } from '../models/RoomModel.js';

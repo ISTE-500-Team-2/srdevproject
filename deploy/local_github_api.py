@@ -16,6 +16,7 @@ REPO = 'ISTE-500-Team-2/srdevproject'
 PORT = 39393
 
 
+# Restrict the local bridge to the GitHub reads needed by release verification.
 def allowed(path):
     return bool(re.fullmatch(r'(commits/[a-f0-9]{40}/check-runs\?per_page=100|'
                              r'actions/runs\?head_sha=[a-f0-9]{40}&event=push&branch=main&per_page=100)', path))
@@ -28,6 +29,7 @@ def read_local_status(path):
         return json.load(response)
 
 
+# Keep all release-gate inputs while trimming unused GitHub response fields.
 def compact_status(path, value):
     """Preserve every gate input/record; omit unused logos, URLs and repo copies."""
     if not allowed(path) or not isinstance(value, dict):

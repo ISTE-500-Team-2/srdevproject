@@ -1,3 +1,6 @@
+// Shows historical access and payment records separately from the member's currently effective
+// entitlement.
+
 import { TableScroll } from "../TableScroll";
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";

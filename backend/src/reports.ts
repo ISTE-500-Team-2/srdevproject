@@ -1,3 +1,6 @@
+// Staff report queries and CSV/PDF exports; filters and result shapes support both on-screen review
+// and downloadable evidence.
+
 import { Router } from "express";
 import type { Pool } from "pg";
 import { transaction } from "./db.js";
@@ -271,6 +274,10 @@ export function reportRoutes(pool: Pool, tz: string) {
   );
   return r;
 }
+/**
+ * Quote CSV values and neutralize spreadsheet formula prefixes before exporting user-controlled
+ * text.
+ */
 function csvCell(s: string) {
   const safe = /^[=+@\-\t\r]/.test(s) ? "'" + s : s;
   return '"' + safe.replaceAll('"', '""') + '"';

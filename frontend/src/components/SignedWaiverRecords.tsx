@@ -1,3 +1,5 @@
+// Lists signed policy records and downloads their server-generated completed copies.
+
 import type { SignedWaiver } from "../lib/billingContracts";
 import { useState } from "react";
 import { api, errorMessage } from "../lib/api";

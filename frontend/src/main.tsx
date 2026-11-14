@@ -1,3 +1,5 @@
+// Browser bootstrap installs global styles/theme behavior and mounts the router and application once.
+
 import '@fontsource/barlow/400.css';
 import '@fontsource/barlow/500.css';
 import '@fontsource/barlow/600.css';

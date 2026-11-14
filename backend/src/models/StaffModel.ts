@@ -1,3 +1,6 @@
+// Staff data access, revisioned records and audit persistence. StaffService owns validation and
+// transaction boundaries.
+
 import { auditContext } from "../auditContext.js";
 import type { Database } from "../db.js";
 import type { PlanInput } from "../staffDomain.js";
@@ -210,6 +213,7 @@ export class StaffModel {
       )
     ).rows;
   }
+  /** Lock a membership or day-pass record before a status-change transaction. */
   async entitlement(kind: "membership" | "day_pass", id: number) {
     const table = kind === "membership" ? "user_membership" : "day_pass";
     const key = kind === "membership" ? "membershipid" : "dayid";
@@ -220,6 +224,7 @@ export class StaffModel {
       )
     ).rows[0];
   }
+  /** Find overlapping membership coverage before issuing another interval for the same member. */
   async membershipWindow(userId: number, startsAt: string, months: number) {
     return (
       await this.db.query(
@@ -394,6 +399,10 @@ export class StaffModel {
       )
     ).rows[0] as PaymentSummary;
   }
+  /**
+   * Record before/after evidence, substituting the real operator when staff act through a member
+   * account.
+   */
   async audit(
     actor: number | null,
     subject: number | null,
@@ -469,6 +478,7 @@ export class StaffModel {
       )
     ).rows;
   }
+  /** Read an earlier staff issuance request so a retried submission can return its original result. */
   async request(id: string) {
     return (
       await this.db.query(
@@ -477,6 +487,10 @@ export class StaffModel {
       )
     ).rows[0];
   }
+  /**
+   * Persist the request fingerprint/result alongside issuance; reusing a request ID with different
+   * details must not issue twice.
+   */
   async saveRequest(
     id: string,
     actorId: number,
@@ -533,6 +547,10 @@ export class StaffModel {
     ]);
     return { waivers: waivers.rows, certifications: certifications.rows };
   }
+  /**
+   * Build a paginated member requirements report using current policy/training validity and the
+   * facility time zone.
+   */
   async compliance(filters: ComplianceFilters, includeAllRows = false) {
     const limit = includeAllRows ? COMPLIANCE_EXPORT_LIMIT : 51;
     const params = [

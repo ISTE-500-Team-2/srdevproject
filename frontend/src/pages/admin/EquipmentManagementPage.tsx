@@ -1,3 +1,6 @@
+// Staff equipment list/detail route entry points; focused editor and availability workflows live in
+// adjacent components.
+
 import { useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ArrowUpRight, Check, Wrench } from 'lucide-react';

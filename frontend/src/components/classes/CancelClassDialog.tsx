@@ -1,3 +1,5 @@
+// Confirms class cancellation and collects the reason required by the staff workflow.
+
 import { Users, X } from "lucide-react";
 import { useRef, useState, type FormEvent } from "react";
 import { Modal } from "../Modal";

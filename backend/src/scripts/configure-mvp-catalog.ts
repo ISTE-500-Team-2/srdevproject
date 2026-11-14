@@ -1,3 +1,6 @@
+// Operator-run catalog configuration with a preview path; kept separate from normal startup and
+// member requests.
+
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { createPool, transaction, type Database } from '../db.js';

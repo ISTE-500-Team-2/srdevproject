@@ -1,3 +1,6 @@
+// Shared read hook separates first-load state from background refresh and cancels obsolete reads
+// when the requested resource changes.
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, errorMessage } from "./api";
 import { readStored, storeResult } from "./apiCache";
@@ -6,6 +9,10 @@ import { readStored, storeResult } from "./apiCache";
 export function loadShared<T>(path: string): Promise<T> {
   return api<T>(path).then((data) => { storeResult(path, data); return data; });
 }
+/**
+ * Compare uncontrolled form values with their defaults before polling can replace a revision-keyed
+ * staff form.
+ */
 function hasUnsavedManagementEdits() {
   return Array.from(document.querySelectorAll<HTMLFormElement>("form.management-form")).some(form =>
     Array.from(form.elements).some(element => {

@@ -1,3 +1,6 @@
+// HTTP boundary for sign-in, registration and recovery. Session creation and cookie settings are
+// centralized here.
+
 import { consumeRegistration, pruneRegistrations, resendRegistration, stageRegistration } from '../confirmation/pendingRegistration.js';
 import { issueEmailConfirmation, consumeEmailConfirmation } from '../confirmation/emailConfirmation.js';
 import { issuePasswordReset, checkPasswordReset, consumePasswordReset } from '../confirmation/passwordReset.js';
@@ -35,6 +38,10 @@ export class AuthController {
     private pool: Pool,
     private config: AppConfig,
   ) {}
+  /**
+   * Create a session only after rechecking the locked account; a concurrent password reset or
+   * restriction must win over stale login data.
+   */
   private async establish(
     req: Request,
     res: Response,
@@ -93,12 +100,20 @@ export class AuthController {
     const csrfToken = token ? await new SessionModel(this.pool,this.config.jwtKey).refreshCsrf(token) : undefined;
     res.json({data:{csrfToken:csrfToken ?? null}});
   };
+  /**
+   * Rotate the refresh cookie transactionally, then return the new access/CSRF tokens through the
+   * shared response path.
+   */
   refresh = async (req: Request,res: Response) => {
     const session = await transaction(this.pool,db => new SessionModel(db,this.config.jwtKey,this.config.accessTokenSeconds,this.config.refreshTokenSeconds,this.config.timeZone).rotate(refreshToken(req),req.get('X-CSRF-Token') ?? ''));
     if (!session) throw new AppError(401,'UNAUTHENTICATED','Sign in to continue.');
     this.respond(res,session);
   };
 
+  /**
+   * Verify credentials without revealing whether an address exists, and upgrade eligible legacy
+   * hashes before establishing a session.
+   */
   login = async (req: Request, res: Response) => {
     const email = emailField(req.body.email);
     const password = passwordField(req.body.password);
@@ -140,6 +155,10 @@ export class AuthController {
     }
     await this.establish(req, res, account.id, req.body.remember === true, undefined, account.password);
   };
+  /**
+   * Validate sign-up fields and stage a confirmation request; an unconfirmed request is not yet a
+   * member account.
+   */
   register = async (req: Request, res: Response) => {
     const timeZone = req.body.timeZone ?? this.config.timeZone;
     if (!validTimeZone(timeZone)) throw new AppError(400,'INVALID_INPUT','Choose a valid IANA time zone.');

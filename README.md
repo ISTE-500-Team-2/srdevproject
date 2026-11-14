@@ -88,6 +88,7 @@ ARBOR works today, but a few launch steps are still open. Check these against th
 - [Local development](docs/LOCAL-DEVELOPMENT.md): setup, demo accounts, email mode,
   troubleshooting
 - [Architecture](docs/MVC.md): MVC structure and integration points
+- [Code guide](docs/CODE-GUIDE.md): source entry points, comment conventions and maintenance constraints
 - [Authentication](docs/JWT-AUTH.md): JWT signing keys and session behavior
 - [Email-only accounts](docs/email-only-accounts.md): registration, sign-in and
   password recovery

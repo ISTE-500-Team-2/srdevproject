@@ -1,3 +1,6 @@
+// Defines public, member and staff routes; area loaders keep the initial sign-in bundle separate
+// from the larger workspaces.
+
 import { useEffect, useLayoutEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { RequireUser, RequireStaff, isWorkspaceUser } from './components/RouteGuards';

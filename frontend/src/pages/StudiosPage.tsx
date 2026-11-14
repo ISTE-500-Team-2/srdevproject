@@ -1,3 +1,5 @@
+// Member studio availability and rental checkout; payment/refund labels reflect separate server states.
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BookingReference } from "../components/studios/BookingReference";
 import { CancelRentalDialog } from "../components/studios/CancelRentalDialog";

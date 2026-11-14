@@ -1,3 +1,6 @@
+// Central API wiring: public auth routes come first, followed by signed-in feature routes and
+// resource-specific permission checks.
+
 import { minorSupervisionRoutes } from './minorSupervision.js';
 import { staffPurchaseRoutes } from './billing/staff.js';
 import { equipmentManagement } from "./equipmentManagement.js";

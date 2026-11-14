@@ -1,3 +1,6 @@
+// Persists member certifications, waiver signatures and check-ins using the caller's database or
+// transaction client.
+
 import { MinorSupervision } from "../minorSupervision.js";
 import type { Database } from '../db.js';
 

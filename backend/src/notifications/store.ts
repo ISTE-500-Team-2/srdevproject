@@ -1,3 +1,6 @@
+// Transactional email outbox, preferences and delivery metrics. Dedupe keys prevent repeated domain
+// events from queuing duplicate notices.
+
 import type { Database } from '../db.js';
 import { AppError } from '../domain.js';
 
@@ -32,6 +35,10 @@ export async function updateNotificationPreferences(db: Database, userId: number
     WHERE userid=$1 AND status='pending' AND attempts=0 AND payload ? 'sourceType' AND payload ? 'expiresAt'`,[userId,preferences.timeZone]);
   return preferences;
 }
+/**
+ * Insert the outbox job using the domain transaction client so a rolled-back change cannot send a
+ * success notice.
+ */
 export async function enqueueNotification(db: Database, input: NotificationInput): Promise<void> {
   if (!input.kind || !input.dedupeKey) throw new Error('Notification kind and dedupe key are required');
   const dueAt = input.dueAt ?? new Date();

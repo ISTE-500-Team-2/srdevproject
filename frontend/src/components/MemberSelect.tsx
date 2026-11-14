@@ -1,3 +1,5 @@
+// Searchable member selector; request cleanup prevents an earlier search from replacing newer results.
+
 import { Search, X } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { useApi } from "../lib/useApi";

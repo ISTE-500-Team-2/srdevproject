@@ -1,3 +1,6 @@
+// Resolves signed-in identity, account mode and CSRF checks. Browser origin validation and bounded
+// sign-in throttling are separate layers.
+
 import { timingSafeEqual } from "node:crypto";
 import { auditContext } from "../auditContext.js";
 import type { Request, Response, NextFunction } from "express";
@@ -44,6 +47,10 @@ export function requireStaff(_req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+/**
+ * Resolve current session/account data on every request, then bind the real operator separately
+ * from any member being assisted.
+ */
 export function requireUser(pool: Pool, config: AppConfig) {
   const sessions = new SessionModel(
     pool,
@@ -89,6 +96,10 @@ export function requireUser(pool: Pool, config: AppConfig) {
   };
 }
 
+/**
+ * Compare the browser's CSRF header with its session value without timing-dependent string
+ * comparison.
+ */
 export function requireCsrf(req: Request, res: Response, next: NextFunction) {
   const expected = Buffer.from(authState(res).csrfToken);
   const actual = Buffer.from(req.get("X-CSRF-Token") ?? "");
@@ -97,6 +108,10 @@ export function requireCsrf(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+/**
+ * For browser mutations, require an allowed origin/site and a JSON object body before dispatching
+ * to feature handlers.
+ */
 export function checkOrigin(config: AppConfig) {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!["GET", "HEAD", "OPTIONS"].includes(req.method)) {
@@ -124,6 +139,10 @@ export function checkOrigin(config: AppConfig) {
   };
 }
 
+/**
+ * Create a bounded, process-local IP budget; separate instances let recovery and refresh avoid
+ * consuming the login allowance.
+ */
 export function authRateLimit(
   options: { limit?: number; windowMs?: number; message?: string } = {},
 ) {

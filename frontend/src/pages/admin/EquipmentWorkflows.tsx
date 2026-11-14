@@ -1,3 +1,5 @@
+// Equipment availability and booking actions shared by the catalog detail screens.
+
 import { useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, RefreshCw } from 'lucide-react';

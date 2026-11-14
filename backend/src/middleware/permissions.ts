@@ -1,3 +1,6 @@
+// Checks database-configured resource/action grants, with own-account or global scope chosen by the
+// route.
+
 import type { Request, Response, NextFunction } from 'express';
 import type { Pool } from 'pg';
 import { AppError } from '../domain.js';

@@ -1,3 +1,6 @@
+// Staff section metadata drives routes, navigation, required permissions and legacy tab redirects
+// from one registry.
+
 import { EquipmentManagementPage } from "./EquipmentManagementPage";
 import type { ComponentType } from "react";
 import type { PageWidth } from "../../components/admin/pageWidth";

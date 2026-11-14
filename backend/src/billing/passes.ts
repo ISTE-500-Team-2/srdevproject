@@ -1,3 +1,6 @@
+// Coordinates day-pass checkout, issuance and cancellation, including separate handling for
+// payments recorded at the desk.
+
 import {randomUUID} from 'node:crypto';
 import type {Pool} from 'pg';
 import type Stripe from 'stripe';
@@ -14,12 +17,20 @@ const objectId=(v:any):string|undefined=>typeof v==='string'?v:v?.id;
 export class PassBilling {
  constructor(readonly pool:Pool,readonly stripe?:StudioStripe,readonly zone='America/New_York'){}
  provider(){if(!this.stripe)throw new AppError(503,'PAYMENTS_UNAVAILABLE','Card checkout is not configured.');return this.stripe;}
+ /**
+  * Merge online and desk-issued passes; the manual: prefix preserves which cancellation workflow
+  * owns each record.
+  */
  async mine(userid:number){const online=(await this.pool.query(`SELECT id,plan_snapshot AS plan,to_char(valid_date,'YYYY-MM-DD') AS "validDate",amount_cents AS "amountCents",status,refund_status AS "refundStatus",
   ((valid_date-3)::timestamp AT TIME ZONE $2) AS "cancelBy" FROM app_pass_checkout WHERE userid=$1 ORDER BY created_at DESC LIMIT 100`,[userid,this.zone])).rows;
   const manual=(await this.pool.query(`SELECT 'manual:'||d.dayid AS id,d.plan_snapshot AS plan,to_char(d.validdate,'YYYY-MM-DD') AS "validDate",round(COALESCE(p.price,0)*100)::int AS "amountCents",d.status,CASE WHEN p.paymentstatus='refunded' THEN 'succeeded' ELSE NULL END AS "refundStatus",
    ((d.validdate::date-3)::timestamp AT TIME ZONE $2) AS "cancelBy" FROM day_pass d LEFT JOIN payment p ON p.paymentid=d.paymentid
    WHERE d.userid=$1 AND NOT EXISTS(SELECT 1 FROM app_pass_checkout c WHERE c.pass_id=d.dayid) ORDER BY d.dayid DESC LIMIT 100`,[userid,this.zone])).rows;
   return [...online,...manual];}
+ /**
+  * Cancel a desk-issued pass within the notice period; report a required manual refund without
+  * marking money as returned.
+  */
  async cancelManual(userid:number,id:number){
   return transaction(this.pool,async db=>{
    await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,userid]);
@@ -58,6 +69,10 @@ export class PassBilling {
    return {cancelled:true,endsAt:ends};
   });
  }
+ /**
+  * Serialize member/date issuance, revalidate the displayed quote and reuse an existing compatible
+  * pending checkout.
+  */
  async checkout(userid:number,body:any){
   const returnPath = `/checkout-return?member=${userid}`;
   const date=calendarDate(body.validDate),id=positiveId(body.planId);
@@ -90,6 +105,10 @@ export class PassBilling {
   if(s.status!=='open'||!s.url)throw new AppError(409,'PAYMENT_PROCESSING','Payment is being verified. Refresh shortly.');
   return {checkoutUrl:s.url};
  }
+ /**
+  * Create the access/payment evidence once inside the caller's transaction, whether the source is
+  * paid checkout or an eligible free offer.
+  */
  async issue(db:Database,r:any,reference:string){
   if(r.pass_id)return;
   const model=new StaffModel(db),date=new Date(r.valid_date).toISOString().slice(0,10);
@@ -101,6 +120,10 @@ export class PassBilling {
   await model.audit(r.userid,r.userid,'daypass.issued','day_pass',pass,'Online day pass',null,{payment,reference});
   await enqueueNotification(db,{userId:r.userid,kind:'payment_receipt',dedupeKey:'daypass-receipt:'+r.id,payload:{amount:(r.amount_cents/100).toFixed(2),currency:'USD',reference,method:r.amount_cents?'Card (test mode)':'Approved free access',paymentId:payment,membershipName:r.plan_snapshot.name,validDate:date}});
  }
+ /**
+  * Issue an eligible zero-cost membership using the same current plan/discount checks as a priced
+  * offer.
+  */
  async freeMembership(userid:number,body:any){
   return transaction(this.pool,async db=>{
    await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,userid]);
@@ -156,6 +179,10 @@ export class PassBilling {
   await db.query("UPDATE app_pass_checkout SET status='cancelled' WHERE id=$1",[r.id]);
   await db.query("UPDATE day_pass SET status='cancelled',statusdesc='Member cancellation with 3 days notice',revision=revision+1 WHERE dayid=$1",[r.pass_id]);
  }
+ /**
+  * Project the provider's refund result onto local pass/payment records without treating a pending
+  * refund as successful.
+  */
  async applyRefund(db:Database,f:Stripe.Refund){
   const r=(await db.query('SELECT * FROM app_pass_checkout WHERE payment_intent=$1 FOR UPDATE',[objectId(f.payment_intent)])).rows[0];
   if(!r)return;
@@ -185,6 +212,10 @@ export class PassBilling {
   if(f.id!==obj.id||objectId(f.payment_intent)!==pi)throw new AppError(400,'PAYMENT_MISMATCH','Refund identity mismatch.');
   await this.applyRefund(db,f);
  }
+ /**
+  * Reconcile current provider state under member/checkout locks so repeated callbacks cannot issue
+  * duplicate access.
+  */
  async webhook(event:Stripe.Event){
   if(event.livemode)throw new AppError(400,'LIVE_PAYMENT_FORBIDDEN','Test events only.');
   const sdk=this.provider().sdk,obj=event.data.object as any;

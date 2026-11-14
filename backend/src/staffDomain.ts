@@ -1,3 +1,6 @@
+// Strict input parsers for staff workflows; money, dates, revisions and reasons are validated
+// before any record changes.
+
 import { AppError, positiveId, textField } from "./domain.js";
 
 export type PolicyScope = 'facility' | 'equipment';

@@ -1,3 +1,6 @@
+// Bounds reader leases by the earliest loss of eligibility; all comparisons use the same decision
+// instant.
+
 import type { Database } from './db.js';
 
 // A lease must end before any eligibility condition stops being true. Membership

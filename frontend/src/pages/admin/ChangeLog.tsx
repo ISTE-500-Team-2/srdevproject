@@ -1,3 +1,6 @@
+// Filterable staff audit trail; displays recorded operator actions rather than reconstructing
+// changes from current rows.
+
 import { useState } from "react";
 import { AuditList, LoadState, Pager } from "../../components/Management";
 import { MemberSelect } from "../../components/MemberSelect";

@@ -1,3 +1,5 @@
+// Selected studio details and staff rental actions, including terms and renter information.
+
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { CalendarCheck, CircleAlert, Eye, Mail, Pencil } from "lucide-react";

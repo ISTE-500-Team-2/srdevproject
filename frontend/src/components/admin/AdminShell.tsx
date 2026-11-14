@@ -1,3 +1,6 @@
+// Persistent staff navigation and workspace frame; child routes change without recreating the
+// entire shell.
+
 import { CalendarDays, Eye, LogOut, Menu } from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";

@@ -1,3 +1,6 @@
+// Shared payment editing/refund actions; provider refunds and externally recorded payments use
+// different workflows.
+
 import { api } from "../../lib/api";
 import { dollars, type StatusTone } from "../../lib/display";
 import type { Payment } from "../../lib/staffContracts";

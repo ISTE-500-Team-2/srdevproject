@@ -1,3 +1,6 @@
+// Shared authenticated transport: access/CSRF tokens stay in memory, refresh credentials stay in
+// HttpOnly cookies and 401s retry once.
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -14,6 +17,7 @@ let csrfToken: string | null = null;
 export function setCsrfToken(value: string | null) {
   csrfToken = value;
 }
+/** Send an authenticated JSON request, renew once on 401 and unwrap the API's data/error envelope. */
 export async function api<T>(
   path: string,
   options: { method?: string; body?: unknown; signal?: AbortSignal } = {},
@@ -58,6 +62,7 @@ export async function api<T>(
   }
   return payload.data as T;
 }
+/** Use the same session renewal for CSV/text downloads without expecting the JSON data envelope. */
 export async function apiText(path: string): Promise<string> {
   if (!accessToken) await renew();
   const perform = () =>
@@ -86,6 +91,10 @@ export function errorMessage(error: unknown) {
     : 'Cannot reach the server. Please try again.';
 }
 
+/**
+ * Share one refresh promise across concurrent reads so they do not race to consume the same
+ * single-use refresh cookie.
+ */
 async function renew(): Promise<void> {
   if (refreshing) return refreshing;
   refreshing = (async () => {

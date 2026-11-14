@@ -1,3 +1,6 @@
+// Initializes the isolated development database and sample accounts; this is a demo entry point,
+// not a production startup task.
+
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';

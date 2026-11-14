@@ -1,3 +1,6 @@
+// Card assignment and enrollment routes. Fingerprint locks serialize competing assignments of the
+// same physical card.
+
 import { Router } from "express";
 import type { Pool } from "pg";
 import { transaction, type Database } from "./db.js";

@@ -1,3 +1,6 @@
+// Credential-independent reader verdict shared by signed devices and staff previews; authorization
+// expires with the underlying eligibility.
+
 import { accessDeadline } from "../accessDeadline.js";
 import type { Database } from "../db.js";
 import { AppError } from "../domain.js";
@@ -10,6 +13,10 @@ export interface ReaderTarget {
   resourceId?: number;
 }
 
+/**
+ * Convert expected eligibility failures into reader denial codes and cap a grant by member/sponsor
+ * expiry; unexpected faults still propagate.
+ */
 export async function evaluateReaderAccess(db: Database, tz: string, r: ReaderTarget, userId?: number, renewal = false) {
   const deny = (reason: string) => ({
     allowed: false,

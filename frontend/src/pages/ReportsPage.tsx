@@ -1,3 +1,5 @@
+// Staff report filters and downloadable exports, including compliance summaries for the chosen scope.
+
 import { TableScroll } from "../components/TableScroll";
 import { useState, type FormEvent } from "react";
 import { api, errorMessage } from "../lib/api";

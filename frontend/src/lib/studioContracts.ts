@@ -1,3 +1,5 @@
+// Rental API contracts keep booking state, payment state and refund state separate.
+
 export type Studio = {
   id: number;
   name: string;

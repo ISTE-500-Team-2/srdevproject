@@ -1,9 +1,16 @@
+// Calculates member-specific offers and manages discount revisions. Checkout must recheck the quote
+// before accepting payment.
+
 import type {Pool} from 'pg';
 import {transaction,type Database} from '../db.js';
 import {AppError,positiveId,textField} from '../domain.js';
 import {calendarDate} from '../staffDomain.js';
 import {StaffModel,type Plan} from '../models/StaffModel.js';
 import {StudioService} from '../studios/service.js';
+/**
+ * Choose the applicable standard/student/partner rate in integer cents while locking the
+ * eligibility inputs used by checkout.
+ */
 export async function quote(db:Database,userid:number,plan:Plan,through:string) {
  const policy=(await db.query('SELECT * FROM app_billing_price WHERE tierid=$1 FOR SHARE',[plan.id])).rows[0];
  const user=(await db.query('SELECT is_student FROM "user" WHERE userid=$1 FOR SHARE',[userid])).rows[0];

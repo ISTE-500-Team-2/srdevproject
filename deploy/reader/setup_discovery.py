@@ -8,6 +8,7 @@ import time
 import urllib.request
 
 
+# Derive candidate LAN networks from local interfaces instead of scanning arbitrary remote address ranges.
 def lan_networks():
     try:
         interfaces = json.loads(subprocess.check_output(['ip', '-j', 'address'], timeout=2))

@@ -1,3 +1,6 @@
+// Staff attendance/completion workflow for an individual class; saving results can affect member
+// credentials.
+
 import { AlertTriangle, ArrowRight, CalendarDays, Check, MapPin, UserRound, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
