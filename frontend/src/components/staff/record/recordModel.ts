@@ -134,7 +134,7 @@ export function verdict(input: {
       icon: "ban",
       title: p.accessStatus === "revoked" ? "Facility access revoked" : "Facility access suspended",
       quote: p.accessReason || undefined,
-      detail: `${firstName(p)} can still sign in, but readers, check-in and new bookings refuse them.${by("user.access_")}`,
+      detail: `${firstName(p)} is signed out and can’t sign in, and readers, check-in and new bookings refuse them.${by("user.access_")}`,
     };
   if (visit) {
     const since = `In the building since ${timeOnly(visit.checkedInAt)}`;

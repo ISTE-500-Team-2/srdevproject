@@ -200,11 +200,11 @@ export function RecordDialogHost({
             return status === "active" ? `${first}’s facility access is restored.` : `${first}’s facility access is ${status}.`;
           }}
         >
-          <p className="mr-dialog__lead">A staff restriction on the shop itself. {first} can still sign in and see their account.</p>
+          <p className="mr-dialog__lead">A staff restriction on the shop. While it’s on, {first} is signed out everywhere and can’t sign in.</p>
           <fieldset className="mr-options">
             <legend className="sr-only">Facility access</legend>
             <Choice name="status" value="active" title="No restriction" help="Membership, waiver and training rules decide access as usual." checked={dialog.restore || person.accessStatus === "active"} />
-            <Choice name="status" value="suspended" title="Suspended" help="Readers, check-in and new bookings refuse them, and any open visit ends." checked={!dialog.restore && person.accessStatus === "suspended"} tone="bad" />
+            <Choice name="status" value="suspended" title="Suspended" help="Sign-in, readers, check-in and new bookings refuse them, and any open visit ends." checked={!dialog.restore && person.accessStatus === "suspended"} tone="bad" />
             <Choice name="status" value="revoked" title="Revoked" help="The same as suspended, recorded as permanent." checked={!dialog.restore && person.accessStatus === "revoked"} tone="bad" />
           </fieldset>
           <Reason />
@@ -295,7 +295,8 @@ export function RecordDialogHost({
             {initials(person.firstName, person.lastName)}
           </MemberPhoto>
           <p className="mr-dialog__lead">
-            {first} added this photo. Remove it if it isn’t a clear photo of them. They can add a new one from their profile.
+            {first} added this photo. Remove it if it isn’t a clear photo of them. We’ll email {first} that it was removed and that
+            they can add a new one; your reason stays in the change log.
           </p>
           <Reason />
         </RecordDialog>

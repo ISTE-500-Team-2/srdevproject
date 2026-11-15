@@ -156,3 +156,11 @@ test('email change mail: the link only to the confirm page, and the heads-up nam
   assert.ok(notice.htmlContent.includes('https://studio.example/profile'));
   assert.throws(() => renderNotification('email_change_requested', {}, context), /new address/);
 });
+
+test('a removed photo is explained without anyone’s private reason, with a way to add another', () => {
+  const mail = renderNotification('photo_removed', {}, context);
+  assert.equal(mail.subject, 'The Crafty Studio: Your profile photo was removed');
+  assert.ok(mail.textContent.includes('clear photo of you'));
+  assert.ok(mail.htmlContent.includes('https://studio.example/profile'));
+  assert.ok(!mail.textContent.includes('Reason'));
+});

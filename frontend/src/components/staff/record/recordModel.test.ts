@@ -78,7 +78,7 @@ describe("verdict", () => {
   test("facility suspension is its own verdict and keeps sign-in", () => {
     const v = verdict({ person: person({ accessStatus: "suspended", accessReason: "Unsafe use" }), req: req(), supervision: null, audit: [], now: NOW });
     expect(v.title).toBe("Facility access suspended");
-    expect(v.detail).toMatch(/can still sign in/);
+    expect(v.detail).toMatch(/signed out and can’t sign in/);
   });
   test("a minor in the building is told the cascade", () => {
     const v = verdict({

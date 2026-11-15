@@ -135,7 +135,7 @@ test("the picker opens your own account or a member's, and refuses staff account
   expect(auth.openAccount).toHaveBeenCalledWith(7);
   expect(onClose).toHaveBeenCalled();
   // Recent accounts keep names only.
-  expect(JSON.parse(localStorage.getItem("collaboratory.recentAccounts")!)).toEqual([{ id: 7, firstName: "Dana", lastName: "Tester" }]);
+  expect(JSON.parse(localStorage.getItem("collaboratory.recentAccounts")!)).toEqual([{ id: 7, firstName: "Dana", lastName: "Tester", photoVersion: null }]);
 });
 
 test("returning to the workspace closes an open account", async () => {

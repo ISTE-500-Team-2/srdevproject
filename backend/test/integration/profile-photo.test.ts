@@ -206,7 +206,11 @@ test("staff remove a member's photo with a reason; a photo changed meanwhile is 
   const logged = await pool.query(`SELECT actor_id AS "actorId", reason, before_state AS before FROM app_staff_audit
     WHERE action='user.photo_removed' AND subject_id=$1`, [member.user.id]);
   assert.deepEqual(logged.rows, [{ actorId: admin.user.id, reason: "Not a photo of the member", before: { photoVersion: version } }]);
+  // The member hears that it happened, never the staff member's reason.
+  const mail = await pool.query(`SELECT payload FROM app_notification_outbox WHERE userid=$1 AND kind='photo_removed'`, [member.user.id]);
+  assert.deepEqual(mail.rows, [{ payload: {} }]);
   // Removing again is not another change.
   assert.equal((await remove({ version, reason: "Not a photo of the member" })).status, 200);
   assert.equal((await pool.query(`SELECT count(*)::int AS n FROM app_staff_audit WHERE action='user.photo_removed'`)).rows[0].n, 1);
+  assert.equal((await pool.query(`SELECT count(*)::int AS n FROM app_notification_outbox WHERE kind='photo_removed'`)).rows[0].n, 1);
 });

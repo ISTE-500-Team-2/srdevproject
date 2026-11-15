@@ -3,7 +3,8 @@
 import { Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { isProtectedAccount } from "../components/admin/people";
+import { initials, isProtectedAccount } from "../components/admin/people";
+import { MemberPhoto } from "../components/MemberPhoto";
 import { rememberAccount } from "../lib/recentAccounts";
 import { useAuth } from "../context/AuthContext";
 import { errorMessage } from "../lib/api";
@@ -108,10 +109,15 @@ export function StaffUsers() {
                   {users.data.items.map((p) => (
                     <tr key={p.id} className={selected?.id === p.id ? "is-selected" : ""}>
                       <td>
-                        <button type="button" onClick={() => setSelected(p)}>
-                          {p.firstName} {p.lastName}
-                        </button>
-                        <small>#{p.id}</small>
+                        <span className="staff-directory__who">
+                          <MemberPhoto id={p.id} version={p.photoVersion} className={`admin-avatar admin-avatar--${p.id % 5} staff-directory__avatar`}>
+                            {initials(p.firstName, p.lastName)}
+                          </MemberPhoto>
+                          <button type="button" onClick={() => setSelected(p)}>
+                            {p.firstName} {p.lastName}
+                          </button>
+                          <small>#{p.id}</small>
+                        </span>
                       </td>
                       <td>{p.email}</td>
                       <td>{p.roles.map((r) => statusLabel(r)).join(", ")}</td>

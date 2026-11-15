@@ -269,6 +269,8 @@ export class StaffService {
         throw new AppError(409, "STALE_RECORD", "This member changed their photo just now. Look at the new one first.");
       await photos.remove(id);
       await model.audit(actorId, id, "user.photo_removed", "user", id, reason, { photoVersion: current }, { photoVersion: null });
+      // Staff reasons are private, as for account and access changes: the email says only what happened.
+      await enqueueNotification(db, { userId: id, kind: "photo_removed", dedupeKey: `photo-removed:${id}:${current}`, payload: {} });
       return { version: null };
     });
   }
