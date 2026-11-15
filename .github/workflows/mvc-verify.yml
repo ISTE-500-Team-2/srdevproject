@@ -45,6 +45,16 @@ jobs:
       - run: npm ci --prefix backend
       - run: npm run check --prefix backend
       - run: npm run test:integration --prefix backend
+      - name: Verify concurrent reader and validation performance
+        run: npm run test:load --prefix backend -- --profile smoke --output ../.local/load-results/ci.json
+      - name: Retain load test diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: load-smoke-results
+          path: .local/load-results/ci.json
+          if-no-files-found: ignore
+          retention-days: 14
       # These backup-helper checks execute the compiled backend script.
       - run: python3 deploy/test_deploy.py
   frontend:

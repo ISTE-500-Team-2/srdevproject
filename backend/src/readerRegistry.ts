@@ -27,6 +27,13 @@ export interface StoredReader extends Omit<Reader, "secret"> {
   revision: number;
 }
 export const readerColumns = `id,name,kind,resource_id AS "resourceId",secret_encrypted AS "secretEncrypted",enabled,revision`;
+// Both the staff board and outage notices count authenticated taps and renewals
+// as presence, using the indexed latest decision rather than a metadata write.
+export const readerPresenceJoin = `LEFT JOIN LATERAL (
+  SELECT created_at FROM app_device_access_event WHERE reader_id=r.id
+  ORDER BY created_at DESC LIMIT 1
+) activity ON true`;
+export const readerLastSeen = 'GREATEST(r.last_seen_at,activity.created_at)';
 export function cardIdentity(uid: unknown, c: DeviceConfig) {
   const value =
     typeof uid === "string" ? uid.replace(/[: -]/g, "").toUpperCase() : "";
@@ -110,9 +117,11 @@ export class ReaderRegistry {
     return (
       await this.pool
         .query(`SELECT r.id,r.name,r.kind,r.resource_id AS "resourceId",r.enabled,r.revision,
-      r.last_seen_at AS "lastSeenAt",COALESCE(r.last_seen_at>NOW()-INTERVAL '45 seconds',false) AS online,
+      ${readerLastSeen} AS "lastSeenAt",
+      COALESCE(${readerLastSeen}>NOW()-INTERVAL '45 seconds',false) AS online,
       COALESCE(b.name,rm.name,e.name,'Unavailable resource') AS "resourceName"
       FROM app_access_reader r
+      ${readerPresenceJoin}
       LEFT JOIN building b ON r.kind='building' AND b.buildingid=r.resource_id
       LEFT JOIN room rm ON r.kind='room' AND rm.roomid=r.resource_id
       LEFT JOIN equipment e ON r.kind='equipment' AND e.equipmentid=r.resource_id
