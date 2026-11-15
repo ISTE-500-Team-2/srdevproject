@@ -20,7 +20,13 @@ export type {
   PlanSnapshot,
 } from "./staff/entitlements.js";
 export type { PaymentFilters, PaymentListItem, PaymentRecord, PaymentSummary } from "./staff/payments.js";
-export type { AuditEntry, AuditFilters } from "./staff/audits.js";
+export {
+  AUDIT_VIEWS_LIST,
+  type AuditEntry,
+  type AuditFilters,
+  type AuditRecordDetail,
+  type AuditView,
+} from "./staff/audits.js";
 export type { IssuanceRequest } from "./staff/issuanceRequests.js";
 export type { PolicyRecord } from "./staff/policies.js";
 export {
@@ -165,8 +171,17 @@ export class StaffModel {
   auditActions() {
     return this.auditTrail.auditActions();
   }
+  /** Without a view, every row matches (the member record and older callers rely on that). */
   audits(filters: AuditFilters, offset?: number) {
     return this.auditTrail.audits(filters, offset);
+  }
+  /** How many rows each view holds under the same filters, for the view switcher and page totals. */
+  auditCounts(filters: AuditFilters) {
+    return this.auditTrail.auditCounts(filters);
+  }
+  /** One record with its reason, stored states and the rows saved in the same transaction. */
+  auditRecord(id: number) {
+    return this.auditTrail.auditRecord(id);
   }
 
   request(id: string) {
