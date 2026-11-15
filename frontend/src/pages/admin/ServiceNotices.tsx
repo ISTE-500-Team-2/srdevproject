@@ -4,6 +4,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ChevronRight, Megaphone, Nfc, RefreshCw, ShieldCheck, TriangleAlert, Users } from "lucide-react";
+import { KeptResults, useResultsPaging } from "../../components/KeptResults";
 import { LoadState, Pager } from "../../components/Management";
 import { Modal } from "../../components/Modal";
 import { Toast } from "../../components/Toast";
@@ -46,7 +47,8 @@ export function ServiceNotices() {
   const query = new URLSearchParams({ period, offset: String(offset) });
   if (source) query.set("source", source);
   // Readers recover on their own, so keep the page current without a reload.
-  const notices = useApi<ServiceNoticePage>(`/admin/service-notices?${query}`, { retainOnReload: true, refreshInterval: 60000 });
+  const notices = useApi<ServiceNoticePage>(`/admin/service-notices?${query}`, { retainOnReload: true, retainOnChange: true, refreshInterval: 60000 });
+  const paging = useResultsPaging(notices);
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60000);
@@ -93,7 +95,9 @@ export function ServiceNotices() {
             offset={offset}
             onPeriod={(next) => refilter(() => setPeriod(next))}
             onSource={(next) => refilter(() => setSource(next))}
-            onOffset={setOffset}
+            read={notices}
+            paging={paging}
+            onOffset={(next) => paging.turn(() => setOffset(next))}
           />
         </>
       ) : null}
@@ -283,6 +287,8 @@ function HistoryPanel({
   offset,
   onPeriod,
   onSource,
+  read,
+  paging,
   onOffset,
 }: {
   page: ServiceNoticePage;
@@ -292,6 +298,9 @@ function HistoryPanel({
   offset: number;
   onPeriod: (period: Period) => void;
   onSource: (source: Source) => void;
+  /** The history read and its paging: past notices wait faded while another page or filter loads. */
+  read: { data: unknown; stale: boolean };
+  paging: ReturnType<typeof useResultsPaging>;
   onOffset: (offset: number) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
@@ -330,35 +339,37 @@ function HistoryPanel({
           </label>
         </div>
       </div>
-      {rows.length ? (
-        <div className="notices-table table-scroll" role="region" aria-label="Past notices" tabIndex={0}>
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Problem</th>
-                <th scope="col">Audience</th>
-                <th scope="col">Opened</th>
-                <th scope="col">Down for</th>
-                <th scope="col">Resolved</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <HistoryLine key={row.key} row={row} zone={zone} open={expanded.has(row.key)} onToggle={() => toggle(row.key)} />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <p className="today-empty">No problems were recorded {phrase}{source ? " from this source" : ""}.</p>
-      )}
+      <KeptResults read={read} ref={paging.results}>
+        {rows.length ? (
+          <div className="notices-table table-scroll" role="region" aria-label="Past notices" tabIndex={0}>
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Problem</th>
+                  <th scope="col">Audience</th>
+                  <th scope="col">Opened</th>
+                  <th scope="col">Down for</th>
+                  <th scope="col">Resolved</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <HistoryLine key={row.key} row={row} zone={zone} open={expanded.has(row.key)} onToggle={() => toggle(row.key)} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="today-empty">No problems were recorded {phrase}{source ? " from this source" : ""}.</p>
+        )}
+      </KeptResults>
       <div className="today-panel-foot notices-foot">
         <span>
           {page.total === null
             ? ""
             : `${page.total} ${page.total === 1 ? "notice" : "notices"} ${phrase}${filtered && source ? ` from ${source === "reader" ? "card readers" : "announcements"}` : ""}`}
         </span>
-        <Pager offset={offset} nextOffset={page.nextOffset} onChange={onOffset} />
+        <Pager offset={offset} nextOffset={page.nextOffset} busy={paging.busy} onChange={onOffset} />
       </div>
     </section>
   );

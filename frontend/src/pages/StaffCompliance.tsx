@@ -2,10 +2,11 @@
 // readiness data.
 
 import { Check, ChevronRight, Download, Search } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiText, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
 import type { ComplianceBreakdown, ComplianceIssue, ComplianceReport, Plan } from "../lib/staffContracts";
+import { KeptResults, useResultsPaging } from "../components/KeptResults";
 import { LoadState, Pager } from "../components/Management";
 import { MemberRecord } from "../components/staff/record/MemberRecord";
 import { shortDate } from "../lib/display";
@@ -75,7 +76,9 @@ export function StaffCompliance() {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState<{ id: number; name: string } | null>(null);
   const [exportError, setExportError] = useState("");
-  const report = useApi<ComplianceReport>(reportPath(filters), { retainOnReload: true });
+  const report = useApi<ComplianceReport>(reportPath(filters), { retainOnReload: true, retainOnChange: true });
+  const { results, turn, busy } = useResultsPaging(report);
+  const everyone = useRef<HTMLButtonElement>(null);
   const plans = useApi<Plan[]>("/admin/plans");
   const config = useApi<{ timeZone: string }>("/config", { reuse: true });
   useEffect(() => {
@@ -116,23 +119,26 @@ export function StaffCompliance() {
       <LoadState {...report} loading={report.loading && !report.data} />
       {data ? (
         <>
-          <div className="cw-reqs" aria-label="Requirements">
-            {data.waiverBreakdown.map((w) => (
-              <RequirementCard key={`w${w.id}`} item={w} kind="Waiver" />
-            ))}
-            {data.certificationBreakdown.map((c) => (
-              <RequirementCard key={`c${c.id}`} item={c} kind="Certification" />
-            ))}
-            {!data.waiverBreakdown.length && !data.certificationBreakdown.length ? (
-              <p className="cw-muted">No required waivers or certifications are set up yet.</p>
-            ) : null}
-          </div>
+          <KeptResults read={report}>
+            <div className="cw-reqs" aria-label="Requirements">
+              {data.waiverBreakdown.map((w) => (
+                <RequirementCard key={`w${w.id}`} item={w} kind="Waiver" />
+              ))}
+              {data.certificationBreakdown.map((c) => (
+                <RequirementCard key={`c${c.id}`} item={c} kind="Certification" />
+              ))}
+              {!data.waiverBreakdown.length && !data.certificationBreakdown.length ? (
+                <p className="cw-muted">No required waivers or certifications are set up yet.</p>
+              ) : null}
+            </div>
+          </KeptResults>
 
           <div className="cw-toolbar">
             <div className="cw-chips" role="radiogroup" aria-label="Show">
               {(
                 [
-                  ["attention", `Needs attention · ${data.summary.attentionUsers}`],
+                  // Not the window's count: the chip reads the same on "Expiring in 30 days".
+                  ["attention", `Needs attention · ${data.summary.allAttentionUsers}`],
                   ["expiring", "Expiring in 30 days"],
                   ["everyone", "Everyone"],
                 ] as const
@@ -141,6 +147,7 @@ export function StaffCompliance() {
                   key={view}
                   type="button"
                   role="radio"
+                  ref={view === "everyone" ? everyone : undefined}
                   aria-checked={filters.view === view}
                   className="cw-chip"
                   onClick={() => set({ view })}
@@ -171,58 +178,69 @@ export function StaffCompliance() {
             </label>
           </div>
 
-          <div className="cw-list">
-            <div className="cw-list__head" aria-hidden="true">
-              <span>Member</span>
-              <span>What's missing</span>
-            </div>
-            {rows.map((u) => (
-              <div className="cw-list__row" key={u.id}>
-                <div>
-                  <b>
-                    {u.firstName} {u.lastName}
-                  </b>
-                  <small>{u.email}</small>
-                  {u.accessStatus !== "active" ? <span className="cw-tag cw-tag--grey">{u.accessStatus}</span> : null}
-                </div>
-                <div className="cw-issues">
-                  {u.issues.length ? (
-                    u.issues.map((issue) => <IssueTag key={issue.kind + issue.name} issue={issue} />)
-                  ) : (
-                    <span className="cw-tag cw-tag--green">
-                      <Check aria-hidden="true" /> All current
-                    </span>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  className="button button--quiet cw-small"
-                  onClick={() => setOpen({ id: u.id, name: `${u.firstName} ${u.lastName}` })}
-                  aria-label={`Open record for ${u.firstName} ${u.lastName}`}
-                >
-                  Open record <ChevronRight aria-hidden="true" />
-                </button>
+          <KeptResults read={report} ref={results}>
+            <div className="cw-list">
+              <div className="cw-list__head" aria-hidden="true">
+                <span>Member</span>
+                <span>What's missing</span>
               </div>
-            ))}
-            {!rows.length ? (
-              <p className="cw-list__empty">
-                {search
-                  ? `No members on this page match “${input}”.`
-                  : filters.view === "attention"
-                    ? "Everyone is current. Nothing needs attention."
-                    : "No members match these filters."}
-              </p>
-            ) : null}
-            {allSet > 0 ? (
-              <button type="button" className="cw-allset" onClick={() => set({ view: "everyone" })}>
-                <Check aria-hidden="true" /> {allSet} {allSet === 1 ? "member is" : "members are"} all set · show everyone
-              </button>
-            ) : null}
-          </div>
+              {rows.map((u) => (
+                <div className="cw-list__row" key={u.id}>
+                  <div>
+                    <b>
+                      {u.firstName} {u.lastName}
+                    </b>
+                    <small>{u.email}</small>
+                    {u.accessStatus !== "active" ? <span className="cw-tag cw-tag--grey">{u.accessStatus}</span> : null}
+                  </div>
+                  <div className="cw-issues">
+                    {u.issues.length ? (
+                      u.issues.map((issue) => <IssueTag key={issue.kind + issue.name} issue={issue} />)
+                    ) : (
+                      <span className="cw-tag cw-tag--green">
+                        <Check aria-hidden="true" /> All current
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    className="button button--quiet cw-small"
+                    onClick={() => setOpen({ id: u.id, name: `${u.firstName} ${u.lastName}` })}
+                    aria-label={`Open record for ${u.firstName} ${u.lastName}`}
+                  >
+                    Open record <ChevronRight aria-hidden="true" />
+                  </button>
+                </div>
+              ))}
+              {!rows.length ? (
+                <p className="cw-list__empty">
+                  {search
+                    ? `No members on this page match “${input}”.`
+                    : filters.view === "attention"
+                      ? "Everyone is current. Nothing needs attention."
+                      : "No members match these filters."}
+                </p>
+              ) : null}
+              {allSet > 0 ? (
+                <button
+                type="button"
+                className="cw-allset"
+                onClick={() => {
+                  // The list waits out of reach while the view changes: hand focus to the chip it picks.
+                  everyone.current?.focus();
+                  set({ view: "everyone" });
+                }}
+              >
+                  <Check aria-hidden="true" /> {allSet} {allSet === 1 ? "member is" : "members are"} all set · show everyone
+                </button>
+              ) : null}
+            </div>
+          </KeptResults>
           <Pager
             offset={filters.offset}
             nextOffset={data.users.nextOffset}
-            onChange={(offset) => setFilters((current) => ({ ...current, offset }))}
+            busy={busy}
+            onChange={(offset) => turn(() => setFilters((current) => ({ ...current, offset })))}
           />
         </>
       ) : null}

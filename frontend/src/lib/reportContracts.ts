@@ -42,7 +42,8 @@ export type Report = {
   rooms: {
     id: number;
     name: string;
-    capacity: number;
+    /** Null when the room has no recorded capacity (backend reports/types.ts RoomVisitRow). */
+    capacity: number | null;
     recordedCheckIns: number;
     distinctVisitors: number;
   }[];

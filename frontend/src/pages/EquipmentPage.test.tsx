@@ -7,7 +7,8 @@ import {api,ApiError} from '../lib/api';
 import type {EquipmentPrice,LiveEquipment,Reservation} from '../lib/contracts';
 import {mockApi,mockApiOnce} from '../testing/apiMock';
 import {liveEquipment,reservation} from '../testing/fixtures';
-vi.mock('../context/AuthContext',()=>({useAuth:()=>({user:{id:1,roles:['member'],membership:'Monthly'}})}));
+const auth=vi.hoisted(()=>({user:{id:1,roles:['member'],membership:'Monthly'}}));
+vi.mock('../context/AuthContext',()=>({useAuth:()=>auth}));
 vi.mock('../lib/api',async original=>({...await original<typeof import('../lib/api')>(),api:vi.fn()}));
 const machine=liveEquipment({id:4,name:'3D Printer',type:'3D printing',rate:7,image:'/assets/3d-printer.webp',status:'available',canReserve:true,trainingRequired:false,availability:'Choose a time to check availability',location:'Makerspace'});
 function quoteFor(path:string,items=[machine]):EquipmentPrice|null{
@@ -114,6 +115,40 @@ test('cancellation cutoff is explained and only bookings outside it have a cance
  expect(vi.mocked(api).mock.calls.filter(([p])=>p==='/reservations/2/cancel')).toHaveLength(1);
  await act(async()=>{done();});
  expect(screen.getByText('Reservation cancelled.')).toBeTruthy();
+});
+
+test('a booking already cancelled elsewhere is reloaded when cancelling it fails',async()=>{
+ const start=Date.now()+3*86400000;
+ const later=reservation({id:2,userId:1,equipmentName:'Later',startTime:new Date(start).toISOString(),endTime:new Date(start+3600000).toISOString(),status:'confirmed'});
+ records=[later];
+ await mount();
+ const mine=screen.getByRole('region',{name:'My reservations'});
+ const reads=()=>vi.mocked(api).mock.calls.filter(([p,o])=>p==='/reservations'&&!o?.method).length;
+ const before=reads();
+ // Another tab cancelled it first; the server now lists it as cancelled.
+ records=[{...later,status:'cancelled'}];
+ mockApiOnce(async()=>{throw new ApiError(409,'CONFLICT','This reservation can no longer be cancelled.');});
+ await act(async()=>{fireEvent.click(within(mine).getByRole('button',{name:'Cancel reservation'}));});
+ expect(screen.getAllByText('This reservation can no longer be cancelled.').length).toBeGreaterThan(0);
+ await waitFor(()=>expect(reads()).toBe(before+1));
+ await waitFor(()=>expect(within(mine).queryByRole('button',{name:'Cancel reservation'})).toBeNull());
+ expect(within(mine).queryByRole('heading',{name:'Later'})).toBeNull();
+});
+
+test('a full booking list says older bookings are left out instead of undercounting them',async()=>{
+ const past=(id:number)=>reservation({id,userId:1,equipmentName:'Old '+id,startTime:new Date(Date.now()-(id+1)*86400000).toISOString(),endTime:new Date(Date.now()-(id+1)*86400000+3600000).toISOString(),status:'confirmed'});
+ records=Array.from({length:99},(_,i)=>past(i+1));
+ await mount();
+ let mine=screen.getByRole('region',{name:'My reservations'});
+ expect(within(mine).getByRole('button',{name:'Past · 99'})).toBeTruthy();
+ expect(within(mine).queryByText(/most recent bookings are listed/)).toBeNull();
+ cleanup();
+ // The server returns at most the newest 100 (ReservationModel.listForUser).
+ records=Array.from({length:100},(_,i)=>past(i+1));
+ await mount();
+ mine=screen.getByRole('region',{name:'My reservations'});
+ expect(within(mine).getByRole('button',{name:'Past · 100+'})).toBeTruthy();
+ expect(within(mine).getByText('Only your 100 most recent bookings are listed.')).toBeTruthy();
 });
 
 test('the picked day and time are what gets booked',async()=>{
@@ -302,4 +337,18 @@ test('equipment and reservations show placeholders in their own shape while they
  expect(screen.queryByRole('status',{name:/Loading/})).toBeNull();
  expect(screen.getByRole('button',{name:/^3D Printer/})).toBeTruthy();
  expect(screen.getByText(/No reservations yet/)).toBeTruthy();
+});
+
+test('staff cancelling another member\'s booking send the revision they saw',async()=>{
+ const member=auth.user;
+ auth.user={id:1,roles:['staff'],membership:'Monthly'};
+ try{
+  const start=Date.now()+3*86400000;
+  records=[reservation({id:6,userId:2,revision:3,equipmentName:'Their booking',startTime:new Date(start).toISOString(),endTime:new Date(start+3600000).toISOString(),status:'confirmed'})];
+  await mount();
+  const card=screen.getByRole('heading',{name:'Their booking'}).closest('article')!;
+  fireEvent.click(within(card).getByRole('button',{name:'Cancel reservation'}));
+  await waitFor(()=>expect(vi.mocked(api).mock.calls.some(([p])=>p==='/admin/reservations/6/cancel')).toBe(true));
+  expect(vi.mocked(api).mock.calls.find(([p])=>p==='/admin/reservations/6/cancel')?.[1]).toEqual({method:'POST',body:{expectedRevision:3}});
+ }finally{auth.user=member;}
 });

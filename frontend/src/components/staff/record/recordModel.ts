@@ -23,6 +23,8 @@ export interface Verdict {
   detail: string;
   /** Quoted staff reason, shown in its own type. */
   quote?: string;
+  /** Short standing facts (where they are, when they last came), set apart from the detail. */
+  facts?: string[];
 }
 export interface Requirement {
   key: "account" | "membership" | "waiver" | "training" | "card" | "sponsor";
@@ -69,7 +71,8 @@ export function daysUntil(at: string, now = new Date()) {
 export function dayLabel(at: string, now = new Date()) {
   const d = new Date(at);
   if (sameDay(d, now)) return "Today";
-  if (sameDay(d, new Date(now.getTime() - DAY))) return "Yesterday";
+  // The calendar day before today, not 24 hours back: the spring-forward night is only 23 hours long.
+  if (sameDay(d, new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1))) return "Yesterday";
   return shortDate(d, d.getFullYear() !== now.getFullYear());
 }
 const when = (at: string, now = new Date()) => {
@@ -183,14 +186,14 @@ export function verdict(input: {
       detail: `${firstName(p)} is under 18. ${req.minor.sponsorName} has to be checked in first, with their own access.`,
     };
   const lastVisit = latest(audit, (a) => a.action === "visit.check-in" || a.entityType === "check_in");
-  const away = lastVisit ? `Not in the building; last visit ${when(lastVisit.createdAt, now)}.` : "Not in the building.";
   return {
     tone: "ok",
     icon: "shield",
     title: "Cleared for the shop",
     detail: req.training.missing.length
-      ? `Except ${list(req.training.missing)}, which ${req.training.missing.length === 1 ? "needs" : "need"} training. ${away}`
-      : away,
+      ? `Except ${list(req.training.missing)}, which ${req.training.missing.length === 1 ? "needs" : "need"} training.`
+      : "",
+    facts: ["Not in the building", ...(lastVisit ? [`Last visit ${when(lastVisit.createdAt, now)}`] : [])],
   };
 }
 

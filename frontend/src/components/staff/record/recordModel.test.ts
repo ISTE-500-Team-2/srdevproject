@@ -1,6 +1,6 @@
-import { describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import type { Audit, Entitlement, MemberRequirements, Payment, Person } from "../../../lib/staffContracts";
-import { activity, byDay, needs, phoneText, plans, requirements, verdict } from "./recordModel";
+import { activity, byDay, dayLabel, needs, phoneText, plans, requirements, verdict } from "./recordModel";
 
 const NOW = new Date("2026-11-10T19:00:00Z");
 const person = (over: Partial<Person> = {}): Person => ({
@@ -49,7 +49,19 @@ describe("verdict", () => {
     const v = verdict({ person: person(), req: req(), supervision: null, audit: [], now: NOW });
     expect(v.tone).toBe("ok");
     expect(v.title).toBe("Cleared for the shop");
-    expect(v.detail).toMatch(/^Except Darth Vader, which needs training\./);
+    expect(v.detail).toBe("Except Darth Vader, which needs training.");
+    expect(v.facts).toEqual(["Not in the building"]);
+  });
+  test("cleared keeps where they are and their last visit apart from the training", () => {
+    const v = verdict({
+      person: person(),
+      req: req({ training: { required: 4, held: 4, missing: [] } }),
+      supervision: null,
+      audit: [audit({ action: "visit.check-in", entityType: "visit", createdAt: "2026-11-05T15:00:00Z" })],
+      now: NOW,
+    });
+    expect(v.detail).toBe("");
+    expect(v.facts).toEqual(["Not in the building", "Last visit Thu, Nov 5"]);
   });
   test("on hold quotes the reason and who set it", () => {
     const v = verdict({
@@ -157,4 +169,23 @@ test("phone numbers read grouped when they are plain digits", () => {
   expect(phoneText("5855550142")).toBe("(585) 555-0142");
   expect(phoneText("15855550142")).toBe("(585) 555-0142");
   expect(phoneText("+44 20 7946")).toBe("+44 20 7946");
+});
+
+describe("day labels across the spring clock change", () => {
+  const zone = process.env.TZ;
+  beforeAll(() => {
+    process.env.TZ = "America/New_York";
+  });
+  afterAll(() => {
+    if (zone === undefined) delete process.env.TZ;
+    else process.env.TZ = zone;
+  });
+
+  test("yesterday is the previous calendar day, not 24 hours back", () => {
+    // Mon Mar 15 2027, 00:30 EDT: the night before was only 23 hours long.
+    const now = new Date("2027-03-15T04:30:00Z");
+    expect(dayLabel("2027-03-14T14:00:00Z", now)).toBe("Yesterday"); // Sun 10:00 AM
+    expect(dayLabel("2027-03-14T04:45:00Z", now)).not.toBe("Yesterday"); // Sat 11:45 PM
+    expect(dayLabel("2027-03-15T04:15:00Z", now)).toBe("Today"); // Mon 12:15 AM
+  });
 });

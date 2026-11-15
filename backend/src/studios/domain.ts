@@ -68,3 +68,7 @@ export function integer(value: unknown, min: number, max: number) {
     );
   return value;
 }
+
+/** A rental's ends_on is exclusive (the first free day); people are told the last day they have the studio. */
+export const lastRentalDay = (endsOn: string) =>
+  new Date(Date.parse(`${endsOn}T00:00:00Z`) - 86400000).toISOString().slice(0, 10);

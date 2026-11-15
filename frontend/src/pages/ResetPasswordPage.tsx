@@ -15,9 +15,11 @@ const RESEND_SECONDS = 60;
 const TOKEN = /^[A-Za-z0-9_-]{43}$/;
 type View = 'request' | 'sent' | 'reset' | 'done' | 'expired';
 
-// Mirrors newPasswordField in backend/src/domain.ts.
+// Mirrors newPasswordField in backend/src/domain.ts. The server's bcrypt hash reads at most
+// 72 UTF-8 bytes, so the upper limit counts bytes: accented letters and emoji take 2–4 each.
+const utf8Bytes = (p: string) => new TextEncoder().encode(p).length;
 const RULES = [
-  { key: 'len', label: '8–128 characters', test: (p: string) => p.length >= 8 && p.length <= 128 },
+  { key: 'len', label: '8–72 characters (accented letters and emoji count as more than one)', test: (p: string) => p.length >= 8 && utf8Bytes(p) <= 72 },
   { key: 'upper', label: 'One uppercase letter', test: (p: string) => /[A-Z]/.test(p) },
   { key: 'special', label: 'One special character', test: (p: string) => /[^A-Za-z0-9]/.test(p) },
 ] as const;
@@ -239,7 +241,7 @@ export function ResetPasswordPage() {
                   <LockKeyhole aria-hidden="true" />
                   <input id="reset-password" value={password} onChange={event => setPassword(event.target.value)}
                     type={reveal ? 'text' : 'password'} autoComplete="new-password" placeholder="Create a password…"
-                    maxLength={128} aria-labelledby="reset-password-label" aria-describedby="reset-rules" />
+                    maxLength={72} aria-labelledby="reset-password-label" aria-describedby="reset-rules" />
                   <button className="form-field__reveal" type="button" onClick={() => setReveal(value => !value)}
                     aria-label={reveal ? 'Hide password' : 'Show password'}>
                     {reveal ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
@@ -260,7 +262,7 @@ export function ResetPasswordPage() {
                 <span className="form-field__control">
                   <KeyRound aria-hidden="true" />
                   <input value={confirm} onChange={event => setConfirm(event.target.value)} type={reveal ? 'text' : 'password'}
-                    autoComplete="new-password" placeholder="Type it again…" maxLength={128} />
+                    autoComplete="new-password" placeholder="Type it again…" maxLength={72} />
                   <span />
                 </span>
               </label>

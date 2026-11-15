@@ -56,6 +56,10 @@ export function EquipmentPage() {
   const [showCancelled, setShowCancelled] = useState(false);
   const now = Date.now();
   const sortedBookings = splitBookings(bookings.data ?? [], now, user?.id);
+  // GET /reservations returns only the newest BOOKING_LIST_LIMIT bookings, so a full list
+  // means older ones were left out: don't present the counts as complete.
+  const listCapped = (bookings.data?.length ?? 0) >= BOOKING_LIST_LIMIT;
+  const more = listCapped ? '+' : '';
   const machineFor = (item: Reservation) =>
     item.equipmentId == null ? undefined : catalog.data?.find(equipment => equipment.id === item.equipmentId);
   useEffect(() => {
@@ -139,11 +143,19 @@ export function EquipmentPage() {
     setError('');
     try {
       const item = bookings.data?.find(booking => booking.id === id);
-      await api((canBookForOthers && item?.userId !== user?.id ? '/admin' : '') + '/reservations/' + id + '/cancel', { method: 'POST' });
+      const forOther = canBookForOthers && item?.userId !== user?.id;
+      // Staff cancelling for someone else send the revision they saw, so a booking a colleague has
+      // since moved isn't cancelled from a stale card.
+      await api((forOther ? '/admin' : '') + '/reservations/' + id + '/cancel', {
+        method: 'POST',
+        ...(forOther && item ? { body: { expectedRevision: item.revision } } : {}),
+      });
       bookings.reload();
       setToast('Reservation cancelled.');
     } catch (err) {
       setError(errorMessage(err));
+      // It may have been cancelled or changed elsewhere (another tab, staff); show what it is now.
+      bookings.reload();
     } finally {
       mutationInFlight.current = false;
       setBusy(false);
@@ -267,13 +279,13 @@ export function EquipmentPage() {
             <div className="booking-group">
               <h3>
                 <button type="button" aria-expanded={pastOpen} aria-controls="past-bookings" onClick={() => setPastOpen(open => !open)}>
-                  <ChevronDown aria-hidden="true" />Past · {sortedBookings.past.length}
+                  <ChevronDown aria-hidden="true" />Past · {sortedBookings.past.length}{more}
                 </button>
               </h3>
               {sortedBookings.cancelled.length ? (
                 <label className="booking-group__toggle">
                   <input type="checkbox" checked={showCancelled} onChange={event => setShowCancelled(event.target.checked)} />
-                  <span>Show cancelled<span className="booking-group__long"> and expired</span> ({sortedBookings.cancelled.length})</span>
+                  <span>Show cancelled<span className="booking-group__long"> and expired</span> ({sortedBookings.cancelled.length}{more})</span>
                 </label>
               ) : null}
             </div>
@@ -282,6 +294,7 @@ export function EquipmentPage() {
                 <BookingRow key={item.id} item={item} view={describeBooking(item, now, user?.id, '')} machine={machineFor(item)} userId={user?.id} now={now} />
               ))}
               {!showCancelled && !sortedBookings.past.length ? <p className="booking-history__empty">Only cancelled or expired bookings so far.</p> : null}
+              {listCapped ? <p className="booking-history__empty">Only your {BOOKING_LIST_LIMIT} most recent bookings are listed.</p> : null}
             </div>
           </> : null}
         </> : null}
@@ -373,6 +386,8 @@ function rateLabel(rate: number | null) {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const ACTIVE_STATUSES = ['pending', 'confirmed'];
+// ReservationModel.listForUser: newest first, LIMIT 100.
+const BOOKING_LIST_LIMIT = 100;
 const PAID_WORDS: Record<string, string> = { paid: 'Paid', refunded: 'Refunded', waived: 'Waived', failed: 'Payment failed' };
 const time = (value: string) => new Date(value).getTime();
 const byStartDescending = (items: Reservation[]) => [...items].sort((a, b) => time(b.startTime) - time(a.startTime));

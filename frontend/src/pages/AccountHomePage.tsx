@@ -96,8 +96,10 @@ export function AccountHomePage() {
   });
   const [reset, setReset] = useState({ busy: false, message: "", failed: false });
   const overview = useCheckInOverview(user?.id);
-  const certifications = useApi<Certification[]>("/me/certifications");
-  const bookings = useApi<Reservation[]>("/reservations");
+  // The paths name no member: key them to the open account, or switching accounts
+  // (which stays on this page) would keep showing the previous member's records.
+  const certifications = useApi<Certification[]>("/me/certifications", { requestKey: user?.id });
+  const bookings = useApi<Reservation[]>("/reservations", { requestKey: user?.id });
   const detail = useApi<MemberDetail>(user ? `/admin/users/${user.id}` : null);
   if (!user || !actor) return null;
 

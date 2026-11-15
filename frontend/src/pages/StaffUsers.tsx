@@ -7,6 +7,7 @@ import { isProtectedAccount } from "../components/admin/people";
 import { rememberAccount } from "../lib/recentAccounts";
 import { useAuth } from "../context/AuthContext";
 import { errorMessage } from "../lib/api";
+import { KeptResults, useResultsPaging } from "../components/KeptResults";
 import { LoadState, Pager } from "../components/Management";
 import { MemberRecord } from "../components/staff/record/MemberRecord";
 import { statusLabel } from "../lib/display";
@@ -67,8 +68,9 @@ export function StaffUsers() {
   }, [input]);
   const users = useApi<Page<Person>>(
     `/admin/users?search=${encodeURIComponent(search)}&offset=${offset}`,
-    { retainOnReload: true, refreshInterval: 5000 },
+    { retainOnReload: true, retainOnChange: true, refreshInterval: 5000 },
   );
+  const { results, turn, busy } = useResultsPaging(users);
   const plans = useApi<Plan[]>("/admin/plans"),
     config = useApi<{ timeZone: string }>("/config", { reuse: true });
   return (
@@ -89,52 +91,54 @@ export function StaffUsers() {
       </div>
       <LoadState {...users} loading={users.loading && !users.data} />
       {users.data ? (
-        users.data.items.length ? (
-          <div className="staff-directory__table table-scroll" role="region" aria-label="Members and staff" tabIndex={0}>
-            <table>
-              <thead>
-                <tr>
-                  <th scope="col">Name</th>
-                  <th scope="col">Email</th>
-                  <th scope="col">Role</th>
-                  <th scope="col">Account</th>
-                  <th scope="col">Access</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.data.items.map((p) => (
-                  <tr key={p.id} className={selected?.id === p.id ? "is-selected" : ""}>
-                    <td>
-                      <button type="button" onClick={() => setSelected(p)}>
-                        {p.firstName} {p.lastName}
-                      </button>
-                      <small>#{p.id}</small>
-                    </td>
-                    <td>{p.email}</td>
-                    <td>{p.roles.map((r) => statusLabel(r)).join(", ")}</td>
-                    <td>
-                      <span className={`status-pill status-pill--${p.status === "active" ? "ok" : "neutral"}`}>
-                        {statusLabel(p.status)}
-                      </span>
-                    </td>
-                    <td>
-                      {p.accessStatus === "active" ? (
-                        <span className="staff-directory__muted">No restriction</span>
-                      ) : (
-                        <span className="status-pill status-pill--warn">{statusLabel(p.accessStatus)}</span>
-                      )}
-                    </td>
+        <KeptResults read={users} ref={results}>
+          {users.data.items.length ? (
+            <div className="staff-directory__table table-scroll" role="region" aria-label="Members and staff" tabIndex={0}>
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col">Email</th>
+                    <th scope="col">Role</th>
+                    <th scope="col">Account</th>
+                    <th scope="col">Access</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="empty-state">No members match “{search}”.</p>
-        )
+                </thead>
+                <tbody>
+                  {users.data.items.map((p) => (
+                    <tr key={p.id} className={selected?.id === p.id ? "is-selected" : ""}>
+                      <td>
+                        <button type="button" onClick={() => setSelected(p)}>
+                          {p.firstName} {p.lastName}
+                        </button>
+                        <small>#{p.id}</small>
+                      </td>
+                      <td>{p.email}</td>
+                      <td>{p.roles.map((r) => statusLabel(r)).join(", ")}</td>
+                      <td>
+                        <span className={`status-pill status-pill--${p.status === "active" ? "ok" : "neutral"}`}>
+                          {statusLabel(p.status)}
+                        </span>
+                      </td>
+                      <td>
+                        {p.accessStatus === "active" ? (
+                          <span className="staff-directory__muted">No restriction</span>
+                        ) : (
+                          <span className="status-pill status-pill--warn">{statusLabel(p.accessStatus)}</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="empty-state">No members match “{search}”.</p>
+          )}
+        </KeptResults>
       ) : null}
       {users.data ? (
-        <Pager offset={offset} nextOffset={users.data.nextOffset} onChange={setOffset} />
+        <Pager offset={offset} nextOffset={users.data.nextOffset} busy={busy} onChange={(next) => turn(() => setOffset(next))} />
       ) : null}
       {selected ? (
         <MemberRecord

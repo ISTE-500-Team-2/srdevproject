@@ -69,11 +69,12 @@ export function MembershipPage() {
       return;
     }
     if (!history.data || !billing.data || !passes.data) return;
-    const waiting =
-      openBilling(billing.data.records).some((r) => r.status === "pending") ||
-      passes.data.some((p) => p.status === "pending") ||
-      (params.has("billing") &&
-        !history.data.memberships.some((m) => ["active", "scheduled"].includes(m.effectiveStatus)));
+    // Wait only on what this return is about: an abandoned membership checkout
+    // must not hold up a day-pass return (or a pending pass a membership one).
+    const waiting = params.has("billing")
+      ? openBilling(billing.data.records).some((r) => r.status === "pending") ||
+        !history.data.memberships.some((m) => ["active", "scheduled"].includes(m.effectiveStatus))
+      : passes.data.some((p) => p.status === "pending");
     if (!waiting) {
       setConfirming(false);
       // A return URL is not payment evidence. Show the server-backed records

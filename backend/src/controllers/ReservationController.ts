@@ -110,10 +110,14 @@ export class ReservationController {
     });
   };
   staffCancel = async (req: Request, res: Response) => {
+    // A revision sent by the client must still be current, so a booking a colleague moved is not
+    // cancelled from the old details. Older clients that send none keep the unconditional cancel.
+    const expectedRevision: unknown = req.body?.expectedRevision;
     res.json({
       data: await new ReservationService(this.pool, this.timeZone).cancelAny(
         authState(res).user.id,
         positiveId(req.params.id),
+        expectedRevision == null ? undefined : { expectedRevision },
       ),
     });
   };

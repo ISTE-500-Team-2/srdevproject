@@ -80,10 +80,12 @@ export function slotAt(fraction: number, window: { start: number; end: number })
   return window.start + Math.floor((Math.min(Math.max(fraction, 0), 0.9999) * (window.end - window.start)) / step) * step;
 }
 
-/** "Today, Wednesday, Nov 11" / "Tomorrow, Thursday, Nov 12" / "Friday, Nov 13". */
+/** "Today, Wednesday, Nov 11" / "Tomorrow, Thursday, Nov 12" / "Friday, Nov 13" / "Friday, Jan 1, 2027". */
 export function dayLabel(day: string, today: string, weekday: "long" | "short" = "long") {
   const date = new Date(`${day}T12:00:00Z`);
-  const base = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday, month: "short", day: "numeric" }).format(date);
+  // Another year's day carries its year, so last November doesn't read as this one.
+  const year = day.slice(0, 4) === today.slice(0, 4) ? undefined : "numeric";
+  const base = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday, month: "short", day: "numeric", year }).format(date);
   const tomorrow = new Date(`${today}T12:00:00Z`);
   tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
   if (day === today) return `Today, ${base}`;

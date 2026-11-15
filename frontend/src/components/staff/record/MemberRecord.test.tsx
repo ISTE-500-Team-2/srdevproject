@@ -117,6 +117,16 @@ test("the name is said once and the verdict leads with the desk action", async (
   expect(await screen.findByText("Casey checked in.")).toBeTruthy();
 });
 
+test("the cleared verdict sets the training gap apart from where the member is", () => {
+  state.req = { ...state.req, training: { required: 3, held: 1, missing: ["CNC Machine", "Laser"] } };
+  mount();
+  const verdict = screen.getByRole("region", { name: "Cleared for the shop" });
+  expect(within(verdict).getByText("Except CNC Machine and Laser, which need training.")).toBeTruthy();
+  expect(within(verdict).getByText("Not in the building").closest(".mr-lead__facts")).toBeTruthy();
+  // The check-in button still reads out both parts.
+  expect(screen.getByRole("button", { name: "Check in" }).getAttribute("aria-describedby")).toBe("mr-verdict-detail mr-verdict-facts");
+});
+
 test("check-in is held back with the reason when something blocks it", () => {
   state.req = { ...state.req, entitlement: null };
   mount();

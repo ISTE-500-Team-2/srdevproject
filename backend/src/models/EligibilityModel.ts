@@ -12,8 +12,10 @@ export class EligibilityModel {
   ) {}
 
   /**
-   * Check coverage for the entire requested interval; a day pass must cover both endpoints on the
-   * facility's local date.
+   * Check coverage for the entire requested interval [start, end); end is exclusive. Active
+   * memberships may cover it together when one starts as the previous ends (a renewal). A day pass
+   * must cover the facility's local date of start and of the last instant before end, so a slot
+   * ending exactly at local midnight still belongs to the pass's day.
    */
   async entitlement(userId: number, start: Date, end = start) {
     const { rows } = await this.db.query<{
@@ -21,13 +23,17 @@ export class EligibilityModel {
       dayPass: boolean;
     }>(
       `
-      SELECT EXISTS (SELECT 1 FROM user_membership WHERE userid=$1 AND status='active'
-                     AND startdate <= $2::timestamptz AT TIME ZONE 'UTC'
-                     AND end_date > $2::timestamptz AT TIME ZONE 'UTC'
-                     AND end_date >= $3::timestamptz AT TIME ZONE 'UTC') AS membership,
+      SELECT COALESCE((SELECT range_agg(tsrange(startdate, end_date)) FROM user_membership
+                       WHERE userid=$1 AND status='active' AND startdate < end_date)
+               @> CASE WHEN $3::timestamptz > $2::timestamptz
+                    THEN tsrange($2::timestamptz AT TIME ZONE 'UTC', $3::timestamptz AT TIME ZONE 'UTC')
+                    -- An instant (start = end) is a single point that must fall inside a membership.
+                    ELSE tsrange($2::timestamptz AT TIME ZONE 'UTC', $2::timestamptz AT TIME ZONE 'UTC', '[]') END,
+             false) AS membership,
              EXISTS (SELECT 1 FROM day_pass WHERE userid=$1 AND status='active'
                      AND validdate::date = ($2::timestamptz AT TIME ZONE $4)::date
-                     AND validdate::date = ($3::timestamptz AT TIME ZONE $4)::date) AS "dayPass"`,
+                     AND validdate::date = ((CASE WHEN $3::timestamptz > $2::timestamptz
+                       THEN $3::timestamptz - interval '1 microsecond' ELSE $2::timestamptz END) AT TIME ZONE $4)::date) AS "dayPass"`,
       [userId, start, end, this.timeZone],
     );
     return rows[0]!;

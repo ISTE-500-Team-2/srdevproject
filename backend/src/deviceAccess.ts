@@ -13,6 +13,7 @@ import {
   AccessDeadlineError,
 } from "./services/AccessTransaction.js";
 import { AccessService } from "./services/AccessService.js";
+import { assertManageable } from "./services/StaffService.js";
 import { StaffModel } from "./models/StaffModel.js";
 import { authState, requireCsrf } from "./middleware/auth.js";
 import { requirePermission } from "./middleware/permissions.js";
@@ -427,6 +428,7 @@ export function cardManagement(
         );
       const data = await transaction(pool, async (db) => {
         await new AccessService(db, tz).assertActiveUser(userId);
+        await assertManageable(db, authState(res).user, userId);
         const table = kind === "room" ? "room" : "equipment",
           key = kind === "room" ? "roomid" : "equipmentid";
         const resource = (
@@ -522,6 +524,7 @@ export function cardManagement(
           ).rows[0];
         if (!before)
           throw new AppError(404, "NOT_FOUND", "Override not found.");
+        await assertManageable(db, authState(res).user, before.user_id);
         if (before.revoked_at) return before;
         if (before.owns_reservation) {
           const cancelled = (

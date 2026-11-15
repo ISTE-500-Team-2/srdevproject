@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ChartGantt, ChevronLeft, ChevronRight, List, Plus, Search, X } from "lucide-react";
+import { KeptResults, useResultsPaging } from "../components/KeptResults";
+import { useHoldHeight } from "../components/admin/steadyHeight";
 import { LoadState, Pager } from "../components/Management";
 import { Toast } from "../components/Toast";
 import { ReservationSchedule } from "../components/staff/reservations/ReservationSchedule";
@@ -110,7 +112,8 @@ function Workspace({ zone, now }: { zone: string; now: number }) {
   if (includeCancelled) listQuery.set("includeCancelled", "true");
   if (linkedMember) listQuery.set("userId", String(linkedMember));
   if (linkedEquipment) listQuery.set("equipmentId", String(linkedEquipment));
-  const list = useApi<Page<Reservation>>(view === "list" ? `/admin/reservations?${listQuery}` : null, refresh);
+  const list = useApi<Page<Reservation>>(view === "list" ? `/admin/reservations?${listQuery}` : null, { ...refresh, retainOnChange: true });
+  const { results, turn, busy } = useResultsPaging(list);
 
   const reloadAll = () => {
     dayBookings.reload();
@@ -132,8 +135,15 @@ function Workspace({ zone, now }: { zone: string; now: number }) {
   const edit = (from: EditorStart) => setPanel({ kind: "edit", from, opened: ++opened.current });
   const startNew = (from: Partial<EditorStart> = {}) => edit({ day: day < today ? today : day, ...from });
   const closePanel = () => setPanel({ kind: "needs" });
-  const showView = (next: View) => {
+  // The other view starts with a short "Loading…": hold the page's height through the swap.
+  const holdHeight = useHoldHeight();
+  const searchBox = useRef<HTMLInputElement>(null);
+  const swapView = (next: View) => {
+    if (next !== view) holdHeight();
     setView(next);
+  };
+  const showView = (next: View) => {
+    swapView(next);
     setViewBeforeSearch(null);
   };
   const onSearch = (value: string) => {
@@ -141,9 +151,9 @@ function Workspace({ zone, now }: { zone: string; now: number }) {
     // Searching looks across every day, so it shows the list; clearing it goes back.
     if (value.trim() && view !== "list") {
       setViewBeforeSearch(view);
-      setView("list");
+      swapView("list");
     } else if (!value.trim() && viewBeforeSearch) {
-      setView(viewBeforeSearch);
+      swapView(viewBeforeSearch);
       setViewBeforeSearch(null);
     }
   };
@@ -188,7 +198,7 @@ function Workspace({ zone, now }: { zone: string; now: number }) {
         <label className="eq-search">
           <Search aria-hidden="true" />
           <span className="sr-only">Find a member or machine</span>
-          <input type="search" placeholder="Find a member or machine…" value={search} onChange={(event) => onSearch(event.target.value)} />
+          <input ref={searchBox} type="search" placeholder="Find a member or machine…" value={search} onChange={(event) => onSearch(event.target.value)} />
         </label>
         <div className="eq-filters" role="group" aria-label="View">
           <button type="button" className="eq-filter" aria-pressed={view === "schedule"} onClick={() => showView("schedule")}>
@@ -286,29 +296,41 @@ function Workspace({ zone, now }: { zone: string; now: number }) {
             <>
               <LoadState loading={list.loading && !list.data} error={list.error} reload={list.reload} />
               {list.data ? (
-                items.length ? (
-                  <ReservationList
-                    items={items}
-                    zone={zone}
-                    now={now}
-                    today={today}
-                    machines={machines}
-                    selectedId={panel.kind === "details" ? panel.reservation.id : null}
-                    caption={`${when === "upcoming" ? "Upcoming" : "Past"} reservations ${offset + 1}–${offset + items.length}`}
-                    onOpen={open}
-                  />
-                ) : (
-                  <div className="res-empty">
-                    <p>{query ? `No ${when} reservations match “${query}”.` : `No ${when} reservations.`}</p>
-                    {query ? (
-                      <button type="button" className="button button--quiet" onClick={() => onSearch("")}>
-                        Clear search
-                      </button>
-                    ) : null}
-                  </div>
-                )
+                <KeptResults read={list} ref={results}>
+                  {items.length ? (
+                    <ReservationList
+                      items={items}
+                      zone={zone}
+                      now={now}
+                      today={today}
+                      machines={machines}
+                      selectedId={panel.kind === "details" ? panel.reservation.id : null}
+                      caption={`${when === "upcoming" ? "Upcoming" : "Past"} reservations ${offset + 1}–${offset + items.length}`}
+                      onOpen={open}
+                    />
+                  ) : (
+                    <div className="res-empty">
+                      <p>{query ? `No ${when} reservations match “${query}”.` : `No ${when} reservations.`}</p>
+                      {query ? (
+                        <button
+                          type="button"
+                          className="button button--quiet"
+                          onClick={() => {
+                            // The list waits out of reach while the search changes: hand focus to the search box.
+                            searchBox.current?.focus();
+                            onSearch("");
+                          }}
+                        >
+                          Clear search
+                        </button>
+                      ) : null}
+                    </div>
+                  )}
+                </KeptResults>
               ) : null}
-              {list.data ? <Pager offset={offset} nextOffset={list.data.nextOffset} onChange={setOffset} /> : null}
+              {list.data ? (
+                <Pager offset={offset} nextOffset={list.data.nextOffset} busy={busy} onChange={(next) => turn(() => setOffset(next))} />
+              ) : null}
             </>
           )}
         </div>

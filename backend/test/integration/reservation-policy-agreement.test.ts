@@ -202,10 +202,10 @@ test('member and staff cancellation share payment, audit and notification effect
   assert.equal(staffEffects.notice[0].userid, member);
   assert.deepEqual(Object.keys(staffEffects.notice[0].payload).sort(), Object.keys(memberEffects.notice[0].payload).sort());
 
-  // Unchanged member responses: nothing left to cancel, and short notice.
+  // Member responses: already cancelled, and short notice.
   const again = await cancel(mine.id);
   assert.deepEqual([again.status, again.body.error.code, again.body.error.message],
-    [404, 'NOT_FOUND', 'No cancellable reservation was found for this account.']);
+    [409, 'INVALID_STATUS', 'This booking was already cancelled or has ended.']);
   const soon = new Date(Date.now() + 2 * hour);
   const close = (await pool.query(`INSERT INTO reservation(userid,equipmentid,location,starttime,endtime,status)
     VALUES($1,$2,'Policy lab',$3::timestamptz AT TIME ZONE 'UTC',$4::timestamptz AT TIME ZONE 'UTC','confirmed') RETURNING reservationid`,

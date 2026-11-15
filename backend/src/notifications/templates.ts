@@ -337,6 +337,7 @@ export function renderNotification(kind: NotificationKind, payload: Notification
   const currency = field('currency');
   const item = field('resourceName') || field('equipmentName');
   const start = field('startsAt') || field('startTime');
+  // A calendar-date end is printed as the last day, so senders pass the inclusive last day.
   const end = field('endsAt') || field('endTime');
   const allDay = /^\d{4}-\d{2}-\d{2}$/.test(start) && /^\d{4}-\d{2}-\d{2}$/.test(end);
   const range = start && end ? displayRange(start, end, timeZone) : '';

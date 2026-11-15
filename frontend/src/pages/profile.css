@@ -2,6 +2,9 @@
    text and switch to a form one at a time. */
 .account-page {
   display: grid;
+  /* minmax(0, …): a plain 1fr track can't shrink below its widest unbreakable
+     content (the email address), which pushed phones into sideways scrolling. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 32px;
 }
 
@@ -9,6 +12,10 @@
   display: flex;
   align-items: center;
   gap: 24px;
+}
+
+.account-hero > div {
+  min-width: 0;
 }
 
 .account-hero h1 {
@@ -23,6 +30,7 @@
   margin-top: 10px;
   color: var(--ink-soft);
   font-size: var(--text-base);
+  overflow-wrap: anywhere;
 }
 
 .account-hero__facts .membership-pill {
@@ -83,6 +91,7 @@
 
 .account-main {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 22px;
 }
 
@@ -101,6 +110,7 @@
 
 .account-section__head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   border-bottom: 1px solid #ebe3dc;
@@ -149,6 +159,7 @@
 
 .account-section__body {
   padding: 18px 22px 20px;
+  overflow-wrap: anywhere;
 }
 
 .account-details {
@@ -477,6 +488,13 @@
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+  min-width: 0;
+}
+
+/* A long studio email must wrap inside its button on phones. */
+.account-help__actions .button {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .account-help .button {
@@ -494,7 +512,7 @@
 /* Narrow screens: the section menu becomes a scrolling row of chips. */
 @media (max-width: 860px) {
   .account-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 18px;
   }
 

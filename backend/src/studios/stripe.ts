@@ -3,6 +3,7 @@
 
 import Stripe from "stripe";
 import { AppError } from "../domain.js";
+import { lastRentalDay } from "./domain.js";
 import type { StudioCheckoutRental, StudioRefundRental } from "./rows.js";
 export interface StudioStripeConfig {
   key: string;
@@ -52,7 +53,7 @@ export class StudioStripe {
               currency: "usd",
               unit_amount: r.amount_cents,
               product_data: {
-                name: `Studio rental ${r.starts_on} to ${r.ends_on}`,
+                name: `Studio rental ${r.starts_on} to ${lastRentalDay(r.ends_on)}`,
               },
             },
           },

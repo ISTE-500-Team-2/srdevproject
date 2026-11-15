@@ -4,6 +4,7 @@ import { TableScroll } from "../components/TableScroll";
 import { useState, type FormEvent } from "react";
 import { api, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
+import { KeptResults } from "../components/KeptResults";
 import { LoadState } from "../components/Management";
 import { dollars, dateTime, zonedDay } from "../lib/display";
 import { useFacilityZone } from "../lib/facilityZone";
@@ -15,8 +16,9 @@ export function ComplianceSummary({ compliance: c }: { compliance: Report["compl
     <>
       <p>
         {plural(c.activeMemberships, "active membership", "active memberships")} ·{" "}
-        {c.activeAccounts} active accounts · {c.restrictedAccounts} restricted accounts ·{" "}
-        {c.expiredTraining} expired active training records
+        {plural(c.activeAccounts, "active account", "active accounts")} ·{" "}
+        {plural(c.restrictedAccounts, "restricted account", "restricted accounts")} ·{" "}
+        {plural(c.expiredTraining, "expired active training record", "expired active training records")}
       </p>
       {c.trainingWithoutExpiry ? (
         <p>{plural(c.trainingWithoutExpiry, "active training record has", "active training records have")} no expiry date. Set a validity period on the certification to date them.</p>
@@ -56,7 +58,7 @@ function ReportsView({ today }: { today: string }) {
   const [query, setQuery] = useState(`from=${today}&to=${today}&period=daily`),
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false);
-  const report = useApi<Report>("/admin/reports?" + query, { retainOnReload: true, refreshInterval: 30000 });
+  const report = useApi<Report>("/admin/reports?" + query, { retainOnReload: true, retainOnChange: true, refreshInterval: 30000 });
   const { reload } = report;
 
   function filter(e: FormEvent<HTMLFormElement>) {
@@ -139,7 +141,7 @@ function ReportsView({ today }: { today: string }) {
       {message ? <p role="alert">{message}</p> : null}
       <LoadState {...report} />
       {d ? (
-        <>
+        <KeptResults read={report}>
           {/* When the report was made, in the viewer's own clock. */}
           <p>
             Generated {dateTime(d.generatedAt)} · Reporting timezone:{" "}
@@ -191,8 +193,8 @@ function ReportsView({ today }: { today: string }) {
             <section>
               <h2>Users & compliance</h2>
               <p>
-                {d.active.activeUsers} unique checked-in users ·{" "}
-                {d.active.approvedCheckIns} approved check-ins
+                {plural(d.active.activeUsers, "unique checked-in user", "unique checked-in users")} ·{" "}
+                {plural(d.active.approvedCheckIns, "approved check-in", "approved check-ins")}
               </p>
               <ComplianceSummary compliance={d.compliance} />
               <h3>Current authenticated reader leases</h3>
@@ -388,8 +390,10 @@ function ReportsView({ today }: { today: string }) {
           <h2>Room visits</h2>
           {d.rooms.map((r) => (
             <p key={r.id}>
-              {r.name}: {r.distinctVisitors} visitors, {r.recordedCheckIns}{" "}
-              check-ins; room capacity {r.capacity}
+              {r.name}: {plural(r.distinctVisitors, "visitor", "visitors")},{" "}
+              {plural(r.recordedCheckIns, "check-in", "check-ins")}
+              {/* A room without a set capacity comes back null: leave the capacity out rather than print nothing. */}
+              {r.capacity == null ? null : `; room capacity ${r.capacity}`}
             </p>
           ))}
           <details>
@@ -398,7 +402,7 @@ function ReportsView({ today }: { today: string }) {
               <p key={n}>{n}</p>
             ))}
           </details>
-        </>
+        </KeptResults>
       ) : null}
     </>
   );

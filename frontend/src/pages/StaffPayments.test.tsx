@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { StaffPayments } from "./StaffPayments";
 import { useApi } from "../lib/useApi";
 import { api } from "../lib/api";
@@ -44,7 +44,7 @@ const mount = (items: Payment[]) => {
 test("saving a payment keeps the table on screen and confirms on the page", async () => {
   vi.mocked(api).mockResolvedValue({} as never);
   mount([desk, card]);
-  expect(vi.mocked(useApi).mock.calls.find(([path]) => path?.startsWith("/admin/payments"))?.[1]).toEqual({ retainOnReload: true });
+  expect(vi.mocked(useApi).mock.calls.find(([path]) => path?.startsWith("/admin/payments"))?.[1]).toEqual({ retainOnReload: true, retainOnChange: true });
   fireEvent.click(screen.getByRole("button", { name: "Update payment #212 for Jordan Lee" }));
   const form = screen.getByRole("form", { name: "Update payment #212" });
   fireEvent.change(within(form).getByLabelText("Payment method"), { target: { value: "cash" } });
@@ -60,6 +60,60 @@ test("saving a payment keeps the table on screen and confirms on the page", asyn
   expect(screen.getByText("Chris Walker")).toBeTruthy();
   // Keyboard users land back on the row they were working in.
   await waitFor(() => expect(document.activeElement?.id).toBe("payment-212-action"));
+});
+
+test("another page keeps the current results in place and out of reach, the pager keeps focus, and focus moves to the new page when it lands", () => {
+  const summary = { count: 60, collected: "90.00", pendingCount: 1, pending: "45.00", refunded: "0" };
+  const first: PaymentPage = { items: [desk, card], nextOffset: 50, summary };
+  const second: PaymentPage = { items: [refunding], nextOffset: null, summary };
+  const read = (data: PaymentPage, stale: boolean) =>
+    vi.mocked(useApi).mockReturnValue({ data, loading: false, refreshing: stale, stale, error: "", reload } as never);
+  read(first, false);
+  const { rerender } = render(<StaffPayments />);
+  const results = () => document.querySelector(".kept-results")!;
+  const next = () => screen.getByRole("button", { name: "Next page" });
+  expect(results().hasAttribute("inert")).toBe(false);
+  expect(results().hasAttribute("aria-busy")).toBe(false);
+
+  // The next page is on its way: the hook keeps the last page and reports it as stale.
+  read(first, true);
+  next().focus();
+  fireEvent.click(next());
+  expect(vi.mocked(useApi).mock.lastCall?.[0]).toContain("offset=50");
+  // Old rows can't be used, so nobody edits a row that may vanish...
+  expect(results().hasAttribute("inert")).toBe(true);
+  expect(results().getAttribute("aria-busy")).toBe("true");
+  expect(screen.getByText("Jordan Lee")).toBeTruthy();
+  expect(screen.queryByText("Loading records…")).toBeNull();
+  // ...but the pager sits outside them: the button pressed keeps focus, and does nothing until the page lands.
+  expect(results().contains(next())).toBe(false);
+  expect(document.activeElement).toBe(next());
+  expect(next().getAttribute("aria-disabled")).toBe("true");
+  fireEvent.click(next());
+  expect(vi.mocked(useApi).mock.calls.some(([path]) => path?.includes("offset=100"))).toBe(false);
+
+  // The page lands: focus moves to the top of the new results.
+  read(second, false);
+  rerender(<StaffPayments />);
+  expect(screen.getByText("Morgan Diaz")).toBeTruthy();
+  expect(results().hasAttribute("inert")).toBe(false);
+  expect(document.activeElement).toBe(results());
+});
+
+test("refreshing the same results after a save leaves them usable and not busy", () => {
+  vi.mocked(useApi).mockReturnValue({
+    data: { items: [desk], nextOffset: null, summary: { count: 1, collected: "0", pendingCount: 1, pending: "45.00", refunded: "0" } },
+    loading: false,
+    refreshing: true,
+    stale: false,
+    error: "",
+    reload,
+  } as never);
+  render(<StaffPayments />);
+  const results = document.querySelector(".kept-results")!;
+  expect(results.contains(screen.getByText("Jordan Lee"))).toBe(true);
+  expect(results.hasAttribute("aria-busy")).toBe(false);
+  expect(results.hasAttribute("inert")).toBe(false);
 });
 
 test("a card refund needs explicit confirmation and isn't offered while one is pending", async () => {
@@ -137,6 +191,35 @@ test("the period filter waits for the facility zone, and falls back to New York 
   expect(fromFor("today")).toBe("2026-11-10T05:00:00.000Z");
 });
 
+test("an open page's \"Today\" and \"This month\" move on at the facility's midnight, and nothing refetches before then", () => {
+  vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+  // 11:50 PM on Nov 30 in New York.
+  vi.setSystemTime(new Date("2026-12-01T04:50:00Z"));
+  const data: PaymentPage = { items: [], nextOffset: null, summary: { count: 0, collected: "0", pendingCount: 0, pending: "0", refunded: "0" } };
+  vi.mocked(useApi).mockImplementation(((path: string) =>
+    path === "/config"
+      ? { data: { timeZone: "America/New_York" }, loading: false, refreshing: false, error: "", reload }
+      : { data, loading: false, refreshing: false, error: "", reload }) as never);
+  render(<StaffPayments />);
+  const paths = () => vi.mocked(useApi).mock.calls.map(([path]) => path).filter((path) => path?.startsWith("/admin/payments"));
+  const from = () => new URL(paths().at(-1)!, "http://x").searchParams.get("from");
+
+  expect(fromFor("today")).toBe("2026-11-30T05:00:00.000Z");
+  const asked = new Set(paths());
+  act(() => vi.advanceTimersByTime(5 * 60_000));
+  expect(new Set(paths())).toEqual(asked);
+  act(() => vi.advanceTimersByTime(10 * 60_000));
+  expect(from()).toBe("2026-12-01T05:00:00.000Z");
+
+  cleanup();
+  // "This month", picked late on Nov 30, moves to December after midnight.
+  vi.setSystemTime(new Date("2026-12-01T04:50:00Z"));
+  render(<StaffPayments />);
+  expect(fromFor("month")).toBe("2026-11-01T04:00:00.000Z");
+  act(() => vi.advanceTimersByTime(15 * 60_000));
+  expect(from()).toBe("2026-12-01T05:00:00.000Z");
+});
+
 test("when a saved payment leaves the filtered results, focus lands on the confirmation", async () => {
   vi.mocked(api).mockResolvedValue({} as never);
   const page = (items: Payment[]): PaymentPage => ({
@@ -157,4 +240,32 @@ test("when a saved payment leaves the filtered results, focus lands on the confi
   await new Promise((resolve) => requestAnimationFrame(resolve));
   expect(screen.queryByRole("region", { name: "Payments" })).toBeNull();
   await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("status")));
+});
+
+test("clearing filters from an empty result hands focus to the filters before the results wait on the change", () => {
+  mount([]);
+  fireEvent.change(screen.getByLabelText("Status"), { target: { value: "void" } });
+  const clear = screen.getByRole("button", { name: "Clear filters" });
+  clear.focus();
+  fireEvent.click(clear);
+  expect(document.activeElement).toBe(screen.getByRole("group", { name: "Filter payments" }));
+  expect(vi.mocked(useApi).mock.lastCall?.[0]).not.toContain("status=");
+});
+
+test("when \"Today\" moves on at midnight, the new day starts from its first page", () => {
+  vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+  vi.setSystemTime(new Date("2026-12-01T04:50:00Z")); // 11:50 PM on Nov 30 in New York
+  const data: PaymentPage = { items: [desk], nextOffset: 50, summary: { count: 140, collected: "0", pendingCount: 1, pending: "45.00", refunded: "0" } };
+  vi.mocked(useApi).mockImplementation(((path: string) =>
+    path === "/config"
+      ? { data: { timeZone: "America/New_York" }, loading: false, refreshing: false, error: "", reload }
+      : { data, loading: false, refreshing: false, error: "", reload }) as never);
+  render(<StaffPayments />);
+  const last = () => new URL(vi.mocked(useApi).mock.calls.map(([path]) => path).filter((path) => path?.startsWith("/admin/payments")).at(-1)!, "http://x").searchParams;
+  fireEvent.change(screen.getByLabelText("Period"), { target: { value: "today" } });
+  fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+  expect(last().get("offset")).toBe("50");
+  act(() => vi.advanceTimersByTime(15 * 60_000));
+  expect(last().get("from")).toBe("2026-12-01T05:00:00.000Z");
+  expect(last().get("offset")).toBe("0");
 });

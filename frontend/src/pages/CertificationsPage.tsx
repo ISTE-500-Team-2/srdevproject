@@ -33,7 +33,7 @@ import { Modal } from '../components/Modal';
 import { Toast } from '../components/Toast';
 import { WaiverDocumentForm } from '../components/WaiverDocumentForm';
 import { useAuth } from '../context/AuthContext';
-import { api, errorMessage } from '../lib/api';
+import { api, ApiError, errorMessage } from '../lib/api';
 import type { Certification, LiveEquipment, Waiver } from '../lib/contracts';
 import { shortDate } from '../lib/display';
 import { useApi } from '../lib/useApi';
@@ -364,7 +364,7 @@ export function CertificationsPage() {
   const [accepted, setAccepted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ text: string; tone?: 'notice' } | null>(null);
 
   const open = (item: Waiver) => {
     setSelected(item);
@@ -383,9 +383,15 @@ export function CertificationsPage() {
       waivers.reload();
       const completedTerms = selected.name === 'Terms of Service';
       setSelected(null);
-      setToast(completedTerms ? 'Terms of Service completed.' : 'Your agreement has been recorded.');
+      setToast({ text: completedTerms ? 'Terms of Service completed.' : 'Your agreement has been recorded.' });
     } catch (err) {
-      setError(errorMessage(err));
+      // A newer version was published (or this one retired) while the dialog was open. Retrying
+      // can't succeed, so close it and load the current list for the member to review.
+      if (err instanceof ApiError && err.status === 404 && err.code === 'NOT_FOUND') {
+        waivers.reload();
+        setSelected(null);
+        setToast({ text: 'This policy was just updated. Please review the new version.', tone: 'notice' });
+      } else setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -611,7 +617,7 @@ export function CertificationsPage() {
           </div>
         ) : null}
       </Modal>
-      <Toast message={toast} onClose={() => setToast(null)} />
+      <Toast message={toast?.text ?? null} tone={toast?.tone} onClose={() => setToast(null)} />
     </div>
   );
 }

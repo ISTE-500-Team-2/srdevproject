@@ -172,7 +172,8 @@ export function ReservationDetails({
     setBusy(true);
     setError("");
     try {
-      onCancelled(await api<Reservation>(`/admin/reservations/${r.id}/cancel`, { method: "POST" }));
+      // The revision makes the server refuse if someone changed this booking since it was shown.
+      onCancelled(await api<Reservation>(`/admin/reservations/${r.id}/cancel`, { method: "POST", body: { expectedRevision: r.revision } }));
     } catch (err) {
       setError(errorMessage(err));
     } finally {

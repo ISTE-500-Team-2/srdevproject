@@ -35,8 +35,9 @@ export class PeopleRepository {
     return (
       await this.db.query<StaffPerson>(
         `SELECT ${personColumns} FROM "user" u WHERE u.email_confirmed=true AND
-      (u.firstname || ' ' || u.lastname || ' ' || u.email) ILIKE $1 ORDER BY u.lastname,u.firstname,u.userid LIMIT 51 OFFSET $2`,
-        ["%" + search + "%", offset],
+      (u.firstname || ' ' || u.lastname || ' ' || u.email) ILIKE $1 ESCAPE '\\' ORDER BY u.lastname,u.firstname,u.userid LIMIT 51 OFFSET $2`,
+        // Escaped so "%" and "_" (common in emails) match themselves, not any text.
+        ["%" + search.replace(/[\\%_]/g, (c) => "\\" + c) + "%", offset],
       )
     ).rows;
   }

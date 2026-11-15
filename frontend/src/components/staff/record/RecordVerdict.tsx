@@ -1,5 +1,5 @@
 import { Ban, Check, Eye, Info, Lock, LogIn, LogOut, Minus, Pause, ShieldCheck, TriangleAlert, X, type LucideIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import type { MemberRequirements, Person } from "../../../lib/staffContracts";
 import { requirements, type Requirement, type Verdict } from "./recordModel";
 import type { OpenDialog } from "./recordParts";
@@ -40,9 +40,22 @@ export function RecordVerdict({
         </span>
         <div>
           <h3 id="mr-verdict-title">{v.title}</h3>
-          <p id="mr-verdict-detail">
-            {v.quote ? <q>{v.quote}</q> : null} {v.detail}
-          </p>
+          {v.quote || v.detail ? (
+            <p id="mr-verdict-detail" className="mr-lead__detail">
+              {v.quote ? <q>{v.quote}</q> : null} {v.detail}
+            </p>
+          ) : null}
+          {v.facts?.length ? (
+            // The spaces between facts are for screen readers; the flex row drops them.
+            <p id="mr-verdict-facts" className="mr-lead__facts">
+              {v.facts.map((fact, i) => (
+                <Fragment key={fact}>
+                  {i ? " " : null}
+                  <span>{fact}</span>
+                </Fragment>
+              ))}
+            </p>
+          ) : null}
         </div>
       </div>
       <div className="mr-actions">{actions}</div>
@@ -120,7 +133,7 @@ export function DeskAction({
         className="button button--primary"
         disabled={busy || !!blockedBy}
         title={blockedBy || undefined}
-        aria-describedby="mr-verdict-detail"
+        aria-describedby="mr-verdict-detail mr-verdict-facts"
         onClick={() => visitAction("check-in")}
       >
         <LogIn aria-hidden="true" />

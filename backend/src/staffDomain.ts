@@ -93,6 +93,17 @@ export function pageOffset(value: unknown): number {
     throw new AppError(400, "INVALID_INPUT", "Invalid page offset.");
   return Number(value);
 }
+/** A plan price members can pay online: card checkout (billing/pricing.ts quote) only takes free or $0.50–$100,000.00. */
+function planPrice(value: unknown): string {
+  const price = money(value), amount = Number(price);
+  if (amount !== 0 && (amount < 0.5 || amount > 100000))
+    throw new AppError(
+      400,
+      "INVALID_INPUT",
+      "Plan price must be $0.00 (free) or between $0.50 and $100,000.00.",
+    );
+  return price;
+}
 export interface PlanInput {
   name: string;
   kind: "membership" | "day_pass";
@@ -118,7 +129,7 @@ export function planInput(body: Record<string, unknown>): PlanInput {
   return {
     name: textField(body.name, "Plan name", 50),
     kind,
-    price: money(body.price),
+    price: planPrice(body.price),
     months,
     benefits: textField(body.benefits, "Benefits", 4000, 0),
     active: booleanField(body.active, "Active"),

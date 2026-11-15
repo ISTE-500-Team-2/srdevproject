@@ -3,6 +3,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { MemberSelect } from "../components/MemberSelect";
+import { KeptResults, useResultsPaging } from "../components/KeptResults";
 import { LoadState, Pager } from "../components/Management";
 import { paymentStatusName } from "../components/staff/PaymentControls";
 import { PaymentTable } from "../components/staff/PaymentTable";
@@ -23,9 +24,8 @@ const periods = [
 type Period = (typeof periods)[number]["value"];
 
 /** Start of the period at midnight in the facility's time zone, as an ISO instant. */
-function periodStart(period: Period, zone: string) {
+function periodStart(period: Period, zone: string, today: string) {
   if (period === "all") return "";
-  const today = zonedDay(zone);
   const first =
     period === "7d" ? addCalendarDays(today, -6)
     : period === "30d" ? addCalendarDays(today, -29)
@@ -35,21 +35,36 @@ function periodStart(period: Period, zone: string) {
 }
 
 export function StaffPayments() {
-  const [offset, setOffset] = useState(0),
+  const [paging, setPaging] = useState({ offset: 0, from: "" }),
     [userId, setUserId] = useState(""),
     [period, setPeriod] = useState<Period>("all"),
-    [from, setFrom] = useState(""),
     [status, setStatus] = useState(""),
     [open, setOpen] = useState<number | null>(null),
     [notice, setNotice] = useState("");
   // Periods are facility days; the period filter waits until the zone is known.
   const zone = useFacilityZone();
+  // The facility day, re-checked each minute so "Today" and "This month" move on at midnight while the
+  // page stays open; an unchanged day leaves the query, and so the results, as they are.
+  const [today, setToday] = useState("");
+  useEffect(() => {
+    if (!zone) return;
+    const check = () => setToday(zonedDay(zone));
+    check();
+    const timer = window.setInterval(check, 60_000);
+    return () => window.clearInterval(timer);
+  }, [zone]);
+  const from = zone && today ? periodStart(period, zone, today) : "";
+  // A page number belongs to the period it was chosen in: when "Today" moves on at midnight, the new
+  // day starts from its first page rather than an empty page 3.
+  const offset = paging.from === from ? paging.offset : 0;
+  const setOffset = (next: number) => setPaging({ offset: next, from });
   const query = new URLSearchParams({ offset: String(offset) });
   if (userId) query.set("userId", userId);
   if (from) query.set("from", from);
   if (status) query.set("status", status);
-  // Saving keeps the table on screen while it refreshes; a new filter or page loads fresh.
-  const payments = useApi<PaymentPage>(`/admin/payments?${query}`, { retainOnReload: true });
+  // Saving, a new filter or another page keeps the last results on screen until the new ones land,
+  // so the page never collapses to a loading line and back (which flashed the scrollbar).
+  const payments = useApi<PaymentPage>(`/admin/payments?${query}`, { retainOnReload: true, retainOnChange: true });
   const filtered = Boolean(userId || from || status);
   const refilter = (change: () => void) => {
     change();
@@ -57,6 +72,7 @@ export function StaffPayments() {
     setOpen(null);
     setNotice("");
   };
+  const filters = useRef<HTMLDivElement>(null);
   const noticeRef = useRef<HTMLParagraphElement>(null),
     refocus = useRef(false);
   const done = (message: string) => {
@@ -66,6 +82,7 @@ export function StaffPayments() {
     payments.reload();
   };
   const page = payments.data;
+  const { results, turn, busy } = useResultsPaging(payments);
   // If the saved payment left these results (or the table emptied), focus would fall to the page: keep it on the notice.
   useEffect(() => {
     if (!refocus.current || payments.refreshing) return;
@@ -80,7 +97,7 @@ export function StaffPayments() {
       <p className="payments__intro">
         Every payment: what members paid at the front desk and their card payments online.
       </p>
-      <div className="management-search payments__filters" role="group" aria-label="Filter payments">
+      <div className="management-search payments__filters" role="group" aria-label="Filter payments" ref={filters} tabIndex={-1}>
         <MemberSelect
           label="Member"
           required={false}
@@ -95,10 +112,7 @@ export function StaffPayments() {
             onChange={(e) => {
               if (!zone) return;
               const next = e.target.value as Period;
-              refilter(() => {
-                setPeriod(next);
-                setFrom(periodStart(next, zone));
-              });
+              refilter(() => setPeriod(next));
             }}
           >
             {periods.map((p) => (
@@ -121,81 +135,87 @@ export function StaffPayments() {
         </label>
       </div>
 
-      {summary ? (
-        <dl className="payments__summary" aria-label="Totals for these payments">
-          <div>
-            <dt>Collected</dt>
-            <dd>{dollars(summary.collected)}</dd>
-          </div>
-          <div className={summary.pendingCount ? "is-warn" : undefined}>
-            <dt>Awaiting payment</dt>
-            <dd>
-              {dollars(summary.pending)}
-              <small>
-                {summary.pendingCount} {summary.pendingCount === 1 ? "payment" : "payments"}
-              </small>
-            </dd>
-          </div>
-          <div>
-            <dt>Refunded</dt>
-            <dd>{dollars(summary.refunded)}</dd>
-          </div>
-          <div>
-            <dt>Payments</dt>
-            <dd>{summary.count}</dd>
-          </div>
-        </dl>
-      ) : null}
+      <KeptResults read={payments} ref={results}>
+        {summary ? (
+          <dl className="payments__summary" aria-label="Totals for these payments">
+            <div>
+              <dt>Collected</dt>
+              <dd>{dollars(summary.collected)}</dd>
+            </div>
+            <div className={summary.pendingCount ? "is-warn" : undefined}>
+              <dt>Awaiting payment</dt>
+              <dd>
+                {dollars(summary.pending)}
+                <small>
+                  {summary.pendingCount} {summary.pendingCount === 1 ? "payment" : "payments"}
+                </small>
+              </dd>
+            </div>
+            <div>
+              <dt>Refunded</dt>
+              <dd>{dollars(summary.refunded)}</dd>
+            </div>
+            <div>
+              <dt>Payments</dt>
+              <dd>{summary.count}</dd>
+            </div>
+          </dl>
+        ) : null}
 
-      {/* Saving closes the editor, so the result is confirmed here. */}
-      <p role="status" ref={noticeRef} tabIndex={-1} className={notice ? "payments__notice" : "sr-only"}>
-        {notice}
-      </p>
+        {/* Saving closes the editor, so the result is confirmed here. */}
+        <p role="status" ref={noticeRef} tabIndex={-1} className={notice ? "payments__notice" : "sr-only"}>
+          {notice}
+        </p>
 
-      <LoadState {...payments} loading={payments.loading && !page} />
-      {page ? (
-        page.items.length ? (
-          <PaymentTable
-            items={page.items}
-            caption={`Payments ${offset + 1}–${offset + page.items.length} of ${summary?.count ?? page.items.length}, newest first`}
-            open={open}
-            onOpen={(id) => {
-              setOpen(id);
-              if (id !== null) setNotice("");
-            }}
-            onChanged={done}
-          />
-        ) : (
-          <div className="payments__empty">
-            <p>{filtered ? "No payments match these filters." : "No payments yet."}</p>
-            {filtered ? (
-              <button
-                type="button"
-                className="button button--quiet"
-                onClick={() =>
-                  refilter(() => {
-                    setUserId("");
-                    setPeriod("all");
-                    setFrom("");
-                    setStatus("");
-                  })
-                }
-              >
-                Clear filters
-              </button>
-            ) : null}
-          </div>
-        )
-      ) : null}
+        <LoadState {...payments} loading={payments.loading && !page} />
+        {page ? (
+          page.items.length ? (
+            <PaymentTable
+              items={page.items}
+              caption={`Payments ${offset + 1}–${offset + page.items.length} of ${summary?.count ?? page.items.length}, newest first`}
+              open={open}
+              onOpen={(id) => {
+                setOpen(id);
+                if (id !== null) setNotice("");
+              }}
+              onChanged={done}
+            />
+          ) : (
+            <div className="payments__empty">
+              <p>{filtered ? "No payments match these filters." : "No payments yet."}</p>
+              {filtered ? (
+                <button
+                  type="button"
+                  className="button button--quiet"
+                  onClick={() => {
+                    // The results wait faded while the filters change: hand focus to the filters first.
+                    filters.current?.focus();
+                    refilter(() => {
+                      setUserId("");
+                      setPeriod("all");
+                      setStatus("");
+                    });
+                  }}
+                >
+                  Clear filters
+                </button>
+              ) : null}
+            </div>
+          )
+        ) : null}
+      </KeptResults>
       {page ? (
         <Pager
           offset={offset}
           nextOffset={page.nextOffset}
-          onChange={(next) => {
-            setOffset(next);
-            setOpen(null);
-            setNotice("");
-          }}
+          busy={busy}
+          onChange={(next) =>
+            turn(() => {
+              setOffset(next);
+              setOpen(null);
+              setNotice("");
+            })
+          }
         />
       ) : null}
     </section>

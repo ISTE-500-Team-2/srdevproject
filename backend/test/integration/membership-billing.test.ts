@@ -155,3 +155,51 @@ test('billing portal cannot bypass application cancellation policy',async()=>{
  assert.equal(config!.features.payment_method_update!.enabled,true);
  assert.equal(session!.configuration,'bpc_methods_only');assert.equal(session!.customer,'cus_billing');
 });
+
+test('a failed membership refund can be retried; a repeat click reuses the retry, and a late failure of the first attempt changes nothing',async()=>{
+ const id='in_parallel',pi='pi_retry',keys:string[]=[],byKey=new Map<string,StripeFixture<Stripe.Refund>>();
+ let refunds:StripeFixture<Stripe.Refund>[]=[],nextStatus:Stripe.Refund['status']='failed';
+ stripe.invoicePaymentList(async()=>({has_more:false,data:[{livemode:false,currency:'usd',amount_paid:5000,payment:{type:'payment_intent',payment_intent:pi}}]}));
+ stripe.refundList(async()=>({has_more:false,data:refunds}));
+ stripe.refundRetrieve(async rid=>refunds.find(f=>f.id===rid)!);
+ // Idempotent like Stripe: the same key returns the same refund.
+ stripe.refundCreate(async(p,o)=>{
+  const key=o!.idempotencyKey!;keys.push(key);
+  if(byKey.has(key))return byKey.get(key)!;
+  const f={id:'re_retry_'+byKey.size,object:'refund',currency:'usd',amount:p!.amount!,payment_intent:pi,status:nextStatus,metadata:p!.metadata??{}} as StripeFixture<Stripe.Refund>;
+  refunds=[f,...refunds];byKey.set(key,f);return f;
+ });
+ const recorded=async()=>(await pool.query("SELECT refund_id,refund_status FROM app_membership_invoice WHERE id=$1",[id])).rows[0];
+ await service.refund(other,id,'First attempt');
+ assert.deepEqual(await recorded(),{refund_id:'re_retry_0',refund_status:'failed'});
+ nextStatus='pending';
+ await service.refund(other,id,'Retry after the failure');
+ assert.equal(new Set(keys).size,2);
+ assert.deepEqual(await recorded(),{refund_id:'re_retry_1',refund_status:'pending'});
+ await service.refund(other,id,'Repeat click');
+ assert.equal(byKey.size,2);
+ await service.webhook(event('evt_retry_late_failure','refund.failed',{...refunds.find(f=>f.id==='re_retry_0')!}));
+ assert.deepEqual(await recorded(),{refund_id:'re_retry_1',refund_status:'pending'});
+});
+
+test('a membership refund retry that fails at once is recorded while the attempt it replaced still looks pending here',async()=>{
+ const id='in_parallel',pi='pi_retry',byKey=new Map<string,StripeFixture<Stripe.Refund>>();
+ // Continue from the previous test: re_retry_1 is recorded as pending. It now fails at Stripe; its webhook hasn't arrived.
+ let refunds:StripeFixture<Stripe.Refund>[]=[{id:'re_retry_1',object:'refund',currency:'usd',amount:5000,payment_intent:pi,status:'failed',metadata:{replaces:'re_retry_0'}},
+  {id:'re_retry_0',object:'refund',currency:'usd',amount:5000,payment_intent:pi,status:'failed',metadata:{}}] as StripeFixture<Stripe.Refund>[];
+ stripe.refundList(async()=>({has_more:false,data:refunds}));
+ stripe.refundRetrieve(async rid=>refunds.find(f=>f.id===rid)!);
+ stripe.refundCreate(async(p,o)=>{
+  const key=o!.idempotencyKey!;
+  if(byKey.has(key))return byKey.get(key)!;
+  const f={id:'re_retry_late_'+byKey.size,object:'refund',currency:'usd',amount:p!.amount!,payment_intent:pi,status:'failed',metadata:p!.metadata??{}} as StripeFixture<Stripe.Refund>;
+  refunds=[f,...refunds];byKey.set(key,f);return f;
+ });
+ const recorded=async()=>(await pool.query("SELECT refund_id,refund_status FROM app_membership_invoice WHERE id=$1",[id])).rows[0];
+ assert.deepEqual(await recorded(),{refund_id:'re_retry_1',refund_status:'pending'});
+ await service.refund(other,id,'Retry while the last attempt still looks pending');
+ assert.deepEqual(await recorded(),{refund_id:'re_retry_late_0',refund_status:'failed'});
+ // The replaced attempt's failure arrives late and changes nothing.
+ await service.webhook(event('evt_retry_replaced_failure','refund.failed',{...refunds.find(f=>f.id==='re_retry_1')!}));
+ assert.deepEqual(await recorded(),{refund_id:'re_retry_late_0',refund_status:'failed'});
+});

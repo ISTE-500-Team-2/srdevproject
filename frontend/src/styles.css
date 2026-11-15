@@ -80,6 +80,9 @@
 html {
   min-width: 320px;
   scroll-behavior: smooth;
+  /* Room for the scrollbar is kept whether or not a page scrolls, so nothing shifts sideways
+     when a page grows, shrinks or opens a dialog. */
+  scrollbar-gutter: stable;
 }
 
 body {
@@ -218,11 +221,12 @@ small {
   transition: transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
 }
 
-.button:hover:not(:disabled) {
+.button:hover:not(:disabled, [aria-disabled="true"]) {
   transform: translateY(-2px);
 }
 
-.button:disabled {
+.button:disabled,
+.button[aria-disabled="true"] {
   cursor: default;
   opacity: 0.72;
 }
