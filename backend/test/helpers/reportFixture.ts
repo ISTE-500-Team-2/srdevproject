@@ -45,7 +45,7 @@ export function reportFixture(): ReportData {
     live: [{ kind: 'equipment', resourceId: null, activeReaderLeases: 1 }],
     usage: [{ equipmentId: 1, authorizedHours: '0.00138888888888888889' }],
     visitsByDay: [{ day: '2030-01-01', visits: 1, people: 1 }],
-    checkedInToday: [{ userId: 4, name: 'Not exported', location: 'Room A', at: new Date(Date.UTC(2030, 0, 31)), method: 'portal' }],
+    checkedInToday: [{ userId: 4, name: 'Not exported', location: 'Room A', at: new Date(Date.UTC(2030, 0, 31)), method: 'portal', photoVersion: null }],
     checkedInTodayCount: 1,
     memberships: [
       { period: '2029-12-30', newMembers: 1, activeMembers: 4, expiringMembers: 0, cancelledMembers: 0 },

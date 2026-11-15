@@ -163,3 +163,50 @@ test("staff in a member's account see that member's photo but cannot change it",
   // Back in their own session, the admin's photo is their own (none yet).
   assert.equal((await as(admin).get("/me/photo")).body.data, null);
 });
+
+test("staff see members' photos in batches; members can't", async () => {
+  const image = dataUrl("image/jpeg", jpeg(64, 64));
+  const version = (await as(member).put("/me/photo", { image })).body.data.version;
+  try {
+    const batch = await as(admin).get(`/admin/photos?ids=${member.user.id},${admin.user.id},${member.user.id}`);
+    assert.equal(batch.status, 200, JSON.stringify(batch.body));
+    assert.deepEqual(batch.body.data, { [member.user.id]: { version, image } });
+    assert.match(batch.headers["cache-control"] ?? "", /no-store/);
+    // Directory and record reads say which photo is current, so lists only ask for people with one.
+    const directory = await as(admin).get(`/admin/users?search=${encodeURIComponent("Demo")}`);
+    assert.equal(directory.body.data.items.find((p: { id: number }) => p.id === member.user.id)?.photoVersion, version);
+    assert.equal((await as(admin).get(`/admin/users/${member.user.id}`)).body.data.user.photoVersion, version);
+
+    assert.equal((await as(member).get(`/admin/photos?ids=${member.user.id}`)).status, 403);
+    for (const ids of ["", "abc", "0", Array.from({ length: 51 }, (_, i) => i + 1).join(",")])
+      assert.equal((await as(admin).get(`/admin/photos?ids=${ids}`)).status, 400, ids);
+  } finally {
+    await as(member).delete("/me/photo");
+  }
+});
+
+test("staff remove a member's photo with a reason; a photo changed meanwhile is not removed", async () => {
+  const version = (await as(member).put("/me/photo", { image: dataUrl("image/jpeg", jpeg(70, 70)) })).body.data.version;
+  const remove = (body: object) => request(app).delete(`/api/admin/users/${member.user.id}/photo`)
+    .set("Authorization", "Bearer " + admin.accessToken).set("X-CSRF-Token", admin.csrfToken).send(body);
+
+  assert.equal((await remove({ version })).status, 400, "a reason is required");
+  const stale = await remove({ version: "an-older-photo", reason: "Not a photo of the member" });
+  assert.equal(stale.status, 409);
+  assert.equal(stale.body.error.code, "STALE_RECORD");
+  assert.equal((await as(member).get("/me/photo")).body.data.version, version);
+
+  const memberTries = await request(app).delete(`/api/admin/users/${member.user.id}/photo`)
+    .set("Authorization", "Bearer " + member.accessToken).set("X-CSRF-Token", member.csrfToken).send({ version, reason: "Mine" });
+  assert.equal(memberTries.status, 403);
+
+  const removed = await remove({ version, reason: "Not a photo of the member" });
+  assert.equal(removed.status, 200, JSON.stringify(removed.body));
+  assert.equal((await as(member).get("/me/photo")).body.data, null);
+  const logged = await pool.query(`SELECT actor_id AS "actorId", reason, before_state AS before FROM app_staff_audit
+    WHERE action='user.photo_removed' AND subject_id=$1`, [member.user.id]);
+  assert.deepEqual(logged.rows, [{ actorId: admin.user.id, reason: "Not a photo of the member", before: { photoVersion: version } }]);
+  // Removing again is not another change.
+  assert.equal((await remove({ version, reason: "Not a photo of the member" })).status, 200);
+  assert.equal((await pool.query(`SELECT count(*)::int AS n FROM app_staff_audit WHERE action='user.photo_removed'`)).rows[0].n, 1);
+});

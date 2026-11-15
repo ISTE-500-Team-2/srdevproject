@@ -8,6 +8,8 @@ import { authState } from "../middleware/auth.js";
 import { AUDIT_VIEWS_LIST, COMPLIANCE_EXPORT_LIMIT, StaffModel } from "../models/StaffModel.js";
 import { auditChanges } from "../auditChanges.js";
 import { StaffService } from "../services/StaffService.js";
+import { ProfilePhotoModel } from "../models/ProfilePhotoModel.js";
+import { photoDataUrl } from "../profilePhoto.js";
 import { memberRequirements } from "../memberRequirements.js";
 import {
   instant,
@@ -113,7 +115,7 @@ export class StaffController {
     const id = positiveId(req.params.id);
     const user = await this.model.person(id);
     if (!user) throw new AppError(404, "NOT_FOUND", "User not found.");
-    const [memberships, passes, payments, audit, checkIns] = await Promise.all([
+    const [memberships, passes, payments, audit, checkIns, photoVersion] = await Promise.all([
       this.model.memberships(id),
       this.model.passes(id),
       this.model.payments(id),
@@ -122,16 +124,39 @@ export class StaffController {
         `SELECT checkinid AS id,location,status,checkintime AT TIME ZONE 'UTC' AS "checkedInAt" FROM check_in WHERE userid=$1 ORDER BY checkintime DESC LIMIT 50`,
         [id],
       ),
+      new ProfilePhotoModel(this.pool).version(id),
     ]);
     res.json({
       data: {
-        user,
+        user: { ...user, photoVersion },
         memberships,
         passes,
         payments: page(payments, 0),
         audit: page(audit, 0),
         checkIns: checkIns.rows,
       },
+    });
+  };
+  /** Up to 50 members' photos as data URLs, keyed by member id; members without one are left out. */
+  photos = async (req: Request, res: Response) => {
+    const raw = typeof req.query.ids === "string" ? req.query.ids.split(",") : [];
+    if (!raw.length || raw.length > 50)
+      throw new AppError(400, "INVALID_INPUT", "Ask for between 1 and 50 member photos.");
+    const ids = [...new Set(raw.map((value) => positiveId(value, "Member")))];
+    const photos = await new ProfilePhotoModel(this.pool).findMany(ids);
+    res.set("Cache-Control", "private, no-store");
+    res.json({ data: Object.fromEntries(photos.map((photo) => [photo.userId, { version: photo.version, image: photoDataUrl(photo) }])) });
+  };
+  removePhoto = async (req: Request, res: Response) => {
+    if (typeof req.body.version !== "string" || !req.body.version)
+      throw new AppError(400, "INVALID_INPUT", "Say which photo to remove.");
+    res.json({
+      data: await this.service.removePhoto(
+        authState(res).user.id,
+        positiveId(req.params.id),
+        req.body.version,
+        reasonField(req.body.reason),
+      ),
     });
   };
   profile = async (req: Request, res: Response) => {

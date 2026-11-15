@@ -163,6 +163,7 @@ export function loadReport(
       await db.query<CheckedInPerson & { total: number }>(
         `SELECT latest.*,COUNT(*) OVER()::int AS total FROM (
  SELECT DISTINCT ON (i.userid) i.userid AS "userId",u.firstname || ' ' || u.lastname AS name,i.location,
+ (SELECT p.version FROM app_user_photo p WHERE p.user_id=i.userid) AS "photoVersion",
  i.checkintime AT TIME ZONE 'UTC' AS at,${checkInOriginSql("i")} AS method
  FROM check_in i JOIN "user" u USING(userid)
  WHERE i.status='approved' AND i.checkintime AT TIME ZONE 'UTC'>=date_trunc('day',NOW() AT TIME ZONE $1) AT TIME ZONE $1

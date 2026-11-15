@@ -36,6 +36,7 @@ import { useFailure } from "../../lib/useFailure";
 import { useDayBookings } from "../../lib/useDayBookings";
 import type { Report } from "../../lib/reportContracts";
 import "./today.css";
+import { MemberPhoto } from "../../components/MemberPhoto";
 
 const refresh = { retainOnReload: true, refreshInterval: 60000 };
 type Result<T> = { data: T | null; loading: boolean; error: string; reload: () => void };
@@ -420,9 +421,9 @@ function CheckedInPanel({ state, report, zone }: { state: Result<unknown> | unde
         <>
           {(showAll ? people : people.slice(0, 6)).map((person) => (
             <div key={`${person.userId}-${person.at}`} className="today-who">
-              <span className={`today-avatar today-avatar--${tone(person.userId)}`} aria-hidden="true">
+              <MemberPhoto id={person.userId} version={person.photoVersion} className={`today-avatar today-avatar--${tone(person.userId)}`}>
                 {initials(person.name)}
-              </span>
+              </MemberPhoto>
               <div className="today-who-text">
                 <span className="today-who-name">{person.name}</span>
                 <span className="today-who-place">{person.location}</span>

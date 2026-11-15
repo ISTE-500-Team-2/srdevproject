@@ -47,6 +47,76 @@ export const rememberPhoto = keep;
 export function forgetPhotos() {
   ready.clear();
   pending.clear();
+  memberReady.clear();
+  memberPending.clear();
+  queued.clear();
+}
+
+// Staff screens show other members' photos. Requests made together (a list rendering) are sent as
+// one `/admin/photos` call per 50 members, and each member's photo is kept by version.
+const memberReady = new Map<string, string>();
+const memberPending = new Map<string, Promise<string | null>>();
+let queued = new Map<number, { version: string; settle: (image: string | null) => void }[]>();
+const BATCH = 50;
+
+function keepMember(id: number, photo: StoredPhoto) {
+  const key = `${id}:${photo.version}`;
+  memberReady.delete(key);
+  memberReady.set(key, photo.image);
+  while (memberReady.size > 300) memberReady.delete(memberReady.keys().next().value!);
+}
+
+function sendQueued() {
+  const batch = queued;
+  queued = new Map();
+  const ids = [...batch.keys()];
+  for (let at = 0; at < ids.length; at += BATCH) {
+    const chunk = ids.slice(at, at + BATCH);
+    const settle = (found: Record<string, StoredPhoto> | null) => {
+      for (const id of chunk) {
+        const photo = found?.[id];
+        if (photo) keepMember(id, photo);
+        // A list read before the member changed their photo gets initials, not the new photo.
+        for (const waiter of batch.get(id) ?? []) waiter.settle(photo?.version === waiter.version ? photo.image : null);
+      }
+    };
+    api<Record<string, StoredPhoto>>(`/admin/photos?ids=${chunk.join(",")}`).then(settle, () => settle(null));
+  }
+}
+
+/** The image for `version` of member `id`'s photo, or null when the server has another (or none). */
+export function loadMemberPhoto(id: number, version: string): Promise<string | null> {
+  const key = `${id}:${version}`;
+  const image = memberReady.get(key);
+  if (image) return Promise.resolve(image);
+  let request = memberPending.get(key);
+  if (!request) {
+    request = new Promise<string | null>((settle) => {
+      if (!queued.size) setTimeout(sendQueued, 0);
+      queued.set(id, [...(queued.get(id) ?? []), { version, settle }]);
+    }).finally(() => memberPending.delete(key));
+    memberPending.set(key, request);
+  }
+  return request;
+}
+
+/** Member `id`'s photo for staff screens, once loaded; null shows the initials instead. */
+export function useMemberPhoto(id: number | null | undefined, version: string | null | undefined): string | null {
+  const key = id && version ? `${id}:${version}` : null;
+  const [loaded, setLoaded] = useState<{ key: string; image: string | null } | null>(null);
+  useEffect(() => {
+    if (!id || !version || memberReady.has(`${id}:${version}`)) return;
+    let live = true;
+    const settle = (image: string | null) => {
+      if (live) setLoaded({ key: `${id}:${version}`, image });
+    };
+    loadMemberPhoto(id, version).then(settle, () => settle(null));
+    return () => {
+      live = false;
+    };
+  }, [id, version]);
+  if (!key) return null;
+  return memberReady.get(key) ?? (loaded?.key === key ? loaded.image : null);
 }
 
 /**

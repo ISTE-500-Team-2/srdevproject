@@ -32,6 +32,8 @@ export interface Person {
   primaryRole?: string;
   isStudent?: boolean;
   revision: number;
+  /** Member directory and record reads: their photo version, null without one. */
+  photoVersion?: string | null;
 }
 export interface Entitlement {
   id: number;

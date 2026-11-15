@@ -6,6 +6,7 @@ import {
   clampCrop,
   dataUrlBytes,
   forgetPhotos,
+  loadMemberPhoto,
   loadPhoto,
   placement,
   rememberPhoto,
@@ -99,5 +100,34 @@ describe('loading photos', () => {
     rerender(createElement(Probe, { version: 'staff-photo', account: 2 }));
     expect(await screen.findByText('data:staff')).toBeTruthy();
     expect(api).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('member photos on staff screens', () => {
+  test('photos asked for together load in one request per 50 members', async () => {
+    api.mockImplementation((path: string) => {
+      const ids = new URLSearchParams(path.split('?')[1]).get('ids')!.split(',');
+      return Promise.resolve(Object.fromEntries(ids.filter((id) => id !== '3').map((id) => [id, { version: `v${id}`, image: `data:${id}` }])));
+    });
+    const first = await Promise.all([loadMemberPhoto(1, 'v1'), loadMemberPhoto(2, 'v2'), loadMemberPhoto(3, 'v3'), loadMemberPhoto(1, 'v1')]);
+    expect(first).toEqual(['data:1', 'data:2', null, 'data:1']);
+    expect(api).toHaveBeenCalledTimes(1);
+    expect(api).toHaveBeenCalledWith('/admin/photos?ids=1,2,3');
+    // Already loaded: no request. A list read before the member changed photos gets initials.
+    expect(await loadMemberPhoto(2, 'v2')).toBe('data:2');
+    expect(await loadMemberPhoto(2, 'older')).toBeNull();
+    expect(api).toHaveBeenCalledTimes(2);
+
+    api.mockClear();
+    const many = Array.from({ length: 60 }, (_, i) => i + 10);
+    await Promise.all(many.map((id) => loadMemberPhoto(id, `v${id}`)));
+    expect(api.mock.calls.map(([path]) => (path as string).split('=')[1]!.split(',').length)).toEqual([50, 10]);
+  });
+
+  test('a failed request shows initials and is tried again next time', async () => {
+    api.mockRejectedValueOnce(new Error('offline'));
+    expect(await loadMemberPhoto(5, 'v5')).toBeNull();
+    api.mockResolvedValueOnce({ 5: { version: 'v5', image: 'data:5' } });
+    expect(await loadMemberPhoto(5, 'v5')).toBe('data:5');
   });
 });

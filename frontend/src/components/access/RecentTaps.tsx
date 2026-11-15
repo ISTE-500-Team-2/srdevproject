@@ -6,6 +6,7 @@ import { ChevronRight } from "lucide-react";
 import { useApi } from "../../lib/useApi";
 import { facilityTime } from "../../lib/nfc";
 import type { Tap } from "./TapHistory";
+import { MemberPhoto } from "../MemberPhoto";
 
 const SHOWN = 5;
 
@@ -41,7 +42,7 @@ export function timeAgo(value: string, now = Date.now()) {
   return days === 1 ? "yesterday" : `${days} days ago`;
 }
 
-function initials(name: string) {
+export function personInitials(name: string) {
   const parts = name.trim().split(/\s+/);
   return ((parts[0]?.[0] ?? "") + (parts.length > 1 ? parts.at(-1)![0] : "")).toUpperCase();
 }
@@ -115,9 +116,9 @@ function TapRow({ tap, timeZone }: { tap: Tap; timeZone?: string }) {
   const name = member ?? (tap.last4 ? `Unknown card ••${tap.last4}` : "Unknown card");
   const body = (
     <>
-      <span className={`nfc-recent__avatar${member ? "" : " is-unknown"}`} aria-hidden="true">
-        {member ? initials(member) : "?"}
-      </span>
+      <MemberPhoto id={member ? tap.userId : null} version={tap.photoVersion} className={`nfc-recent__avatar${member ? "" : " is-unknown"}`}>
+        {member ? personInitials(member) : "?"}
+      </MemberPhoto>
       <span className="nfc-recent__who">
         <strong>{name}</strong>
         <span>

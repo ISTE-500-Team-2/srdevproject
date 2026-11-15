@@ -188,6 +188,7 @@ const TITLES: Record<string, string> = {
   "user.account_suspended": "Account suspended",
   "user.conduct_cleared": "Conduct flag cleared",
   "user.conduct_flagged": "Conduct flagged",
+  "user.photo_removed": "Profile photo removed by staff",
   "user.profile_updated": "Member details edited",
   "user.role_changed": "Role changed",
   "visit.check-in": "Visit checked in",

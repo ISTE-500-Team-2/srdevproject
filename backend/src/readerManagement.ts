@@ -277,6 +277,7 @@ export function readerManagement(
       await pool.query(
         `SELECT e.id,e.reader_id AS "readerId",COALESCE(r.name,e.reader_id) AS "readerName",
       e.user_id AS "userId",u.firstname || ' ' || u.lastname AS "memberName",e.uid_last4 AS "last4",e.allowed,e.reason,
+      (SELECT p.version FROM app_user_photo p WHERE p.user_id=e.user_id) AS "photoVersion",
       e.created_at AS "createdAt" FROM app_device_access_event e LEFT JOIN app_access_reader r ON r.id=e.reader_id
       LEFT JOIN "user" u ON u.userid=e.user_id WHERE ${filters.join(" AND ")} ORDER BY e.id DESC LIMIT 51`,
         values,

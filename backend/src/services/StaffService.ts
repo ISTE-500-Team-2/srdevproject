@@ -7,6 +7,7 @@ import type { Pool } from "pg";
 import { transaction, type Database } from "../db.js";
 import { AppError, type UserView } from "../domain.js";
 import { UserModel } from "../models/UserModel.js";
+import { ProfilePhotoModel } from "../models/ProfilePhotoModel.js";
 import { StaffModel } from "../models/StaffModel.js";
 import type { IssueInput, PlanInput } from "../staffDomain.js";
 import { PermissionModel } from "../models/PermissionModel.js";
@@ -251,6 +252,24 @@ export class StaffService {
         after,
       );
       return after;
+    });
+  }
+  /**
+   * Remove a member's profile photo, for example one that isn't a photo of them. `version` is the
+   * photo staff were looking at: a member who has since changed it gets a conflict, not a removal.
+   */
+  removePhoto(actorId: number, id: number, version: string, reason: string) {
+    return this.write(actorId, false, "user", "update", async (model, actor, db) => {
+      // The account lock (FOR NO KEY UPDATE) is the one member photo changes take.
+      await this.target(model, actor, id, "no-key-update");
+      const photos = new ProfilePhotoModel(db);
+      const current = await photos.version(id);
+      if (!current) return { version: null };
+      if (current !== version)
+        throw new AppError(409, "STALE_RECORD", "This member changed their photo just now. Look at the new one first.");
+      await photos.remove(id);
+      await model.audit(actorId, id, "user.photo_removed", "user", id, reason, { photoVersion: current }, { photoVersion: null });
+      return { version: null };
     });
   }
   /** Protect the last active administrator while updating role assignments and audit evidence. */

@@ -30,6 +30,24 @@ export class ProfilePhotoModel {
     return rows[0]?.version ?? null;
   }
 
+  /** The current photos of these people, for staff screens; people without one are left out. */
+  async findMany(userIds: number[]): Promise<(ProfilePhoto & { userId: number })[]> {
+    const { rows } = await this.db.query<ProfilePhoto & { userId: number }>(
+      `SELECT user_id AS "userId", content_type AS "contentType", image, version FROM app_user_photo
+       WHERE user_id = ANY($1::int[])`,
+      [userIds],
+    );
+    return rows;
+  }
+
+  async version(userId: number): Promise<string | null> {
+    const { rows } = await this.db.query<{ version: string }>(
+      "SELECT version FROM app_user_photo WHERE user_id=$1",
+      [userId],
+    );
+    return rows[0]?.version ?? null;
+  }
+
   async save(userId: number, photo: ProfilePhoto): Promise<void> {
     await this.db.query(
       `INSERT INTO app_user_photo(user_id,content_type,image,version) VALUES($1,$2,$3,$4)

@@ -130,6 +130,8 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   routes.get("/admin/users/:id/signed-waivers/:waiverId/copy", permit("waiver","read","global"), waiverRecords.memberCopy);
   routes.patch("/admin/users/:id/signed-waivers/:waiverId/expiry", permit("waiver","update","global"), requireCsrf, waiverRecords.expiry);
   routes.patch("/admin/users/:id/profile", permit("user","update","global"), requireCsrf, staff.profile);
+  routes.delete("/admin/users/:id/photo", permit("user","update","global"), requireCsrf, staff.removePhoto);
+  routes.get("/admin/photos", permit("user","read","global"), staff.photos);
   routes.post("/admin/users/:id/access", permit("user_access","update","global"), requireCsrf, staff.access);
   routes.post("/admin/users/:id/status", permit("user_access","update","global"), requireCsrf, staff.accountStatus);
   routes.post("/admin/users/:id/conduct", permit("user_access","update","global"), requireCsrf, staff.conduct);

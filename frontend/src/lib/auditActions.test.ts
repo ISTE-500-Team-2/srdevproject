@@ -9,6 +9,7 @@ describe("change log wording", () => {
     expect(actionTitle("app_mystery_table.delete")).toBe("Mystery table deleted");
     expect(actionTitle("brand_new.thing_done")).toBe("Brand new thing done");
     expect(actionTitle("profile.photo_updated")).toBe("Profile photo changed");
+    expect(actionTitle("user.photo_removed")).toBe("Profile photo removed by staff");
     expect(actionTitle("app_user_photo.delete")).toBe("Profile photo deleted");
     expect(describeAudit({ action: "app_device_access_event.insert", entityType: "app_device_access_event", allowed: false })).toEqual({
       title: "Card tap denied",

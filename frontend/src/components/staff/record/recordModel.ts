@@ -236,6 +236,7 @@ const CHANGE_TITLES: Record<string, [string, ActivityRow["icon"], ActivityRow["t
   "user.access_revoked": ["Facility access revoked", "x", "alert"],
   "user.access_active": ["Facility access restored", "check", "ok"],
   "user.profile_updated": ["Name or phone updated", "pen"],
+  "user.photo_removed": ["Profile photo removed", "pen", "alert"],
   "user.role_changed": ["Roles changed", "user"],
   "user.conduct_flagged": ["Conduct flag turned on", "shield", "alert"],
   "user.conduct_cleared": ["Conduct flag cleared", "shield"],

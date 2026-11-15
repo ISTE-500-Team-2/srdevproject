@@ -10,6 +10,7 @@ import { useApi } from "../../lib/useApi";
 import { Modal } from "../Modal";
 import { recentAccounts, rememberAccount, type RecentAccount } from "../../lib/recentAccounts";
 import { initials, isProtectedAccount, roleLabel } from "./people";
+import { MemberPhoto } from "../MemberPhoto";
 
 /** Why a search result can't be opened, or null when it can. */
 function unavailable(person: Person, selfId: number | undefined) {
@@ -52,7 +53,7 @@ export function AccountPicker({ onClose, destination = "/" }: { onClose: () => v
     }
   };
 
-  const row = (account: RecentAccount, detail: string, tag?: { text: string; tone: string }, blocked?: string | null) => (
+  const row = (account: RecentAccount & { photoVersion?: string | null }, detail: string, tag?: { text: string; tone: string }, blocked?: string | null) => (
     <li key={account.id}>
       <button
         type="button"
@@ -61,9 +62,9 @@ export function AccountPicker({ onClose, destination = "/" }: { onClose: () => v
         disabled={busy !== null || !!blocked}
         aria-describedby={blocked ? `account-blocked-${account.id}` : undefined}
       >
-        <span className={`admin-avatar admin-avatar--${account.id % 5}`} aria-hidden="true">
+        <MemberPhoto id={account.id} version={account.photoVersion} className={`admin-avatar admin-avatar--${account.id % 5}`}>
           {initials(account.firstName, account.lastName)}
-        </span>
+        </MemberPhoto>
         <span className="account-picker__who">
           <strong>
             {account.id === staff?.id ? "Your own account" : `${account.firstName} ${account.lastName}`}

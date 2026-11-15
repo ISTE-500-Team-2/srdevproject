@@ -15,6 +15,8 @@ import { Modal } from "../../Modal";
 import { AssistedPurchase } from "../AssistedPurchase";
 import { CardRefund, PaymentEditor, paymentStatusName } from "../PaymentControls";
 import { ROLES, roleName } from "./recordModel";
+import { MemberPhoto } from "../../MemberPhoto";
+import { initials } from "../../admin/people";
 
 export type DialogState =
   | { kind: "status"; lift?: boolean }
@@ -22,6 +24,7 @@ export type DialogState =
   | { kind: "roles" }
   | { kind: "conduct" }
   | { kind: "profile" }
+  | { kind: "photo"; version: string }
   | { kind: "sell"; renewal?: Entitlement }
   | { kind: "entitlement"; item: Entitlement; entitlementKind: "membership" | "day_pass" }
   | { kind: "payment"; payment: Payment }
@@ -263,6 +266,38 @@ export function RecordDialogHost({
           </label>
           <p className="mr-dialog__hint">Email is how {first} signs in, so they change it from their own profile.</p>
           <Reason optional />
+        </RecordDialog>
+      );
+    case "photo":
+      return (
+        <RecordDialog
+          {...common}
+          title="Remove profile photo"
+          submitLabel="Remove photo"
+          danger
+          onSubmit={async (f) => {
+            try {
+              await api(`/admin/users/${id}/photo`, {
+                method: "DELETE",
+                body: { version: dialog.version, reason: String(f.get("reason") ?? "").trim() },
+              });
+            } catch (error) {
+              if (error instanceof ApiError && error.status === 409 && error.code === "STALE_RECORD") {
+                onConflict();
+                throw new StaleDialog(`${first} changed their photo just now. Close this and look at the new one.`);
+              }
+              throw error;
+            }
+            return "Photo removed.";
+          }}
+        >
+          <MemberPhoto id={id} version={dialog.version} className="mr-photo-preview">
+            {initials(person.firstName, person.lastName)}
+          </MemberPhoto>
+          <p className="mr-dialog__lead">
+            {first} added this photo. Remove it if it isn’t a clear photo of them. They can add a new one from their profile.
+          </p>
+          <Reason />
         </RecordDialog>
       );
     case "entitlement": {
