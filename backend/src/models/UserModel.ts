@@ -9,6 +9,10 @@ export interface UserProfileView {
   address: ProfileFields;
   contactPreferences: ProfileFields;
   studioContact: { name: string; email: string; phone: string | null };
+  /** When the member last set a password here (change or reset); null before this was recorded. */
+  passwordChangedAt: Date | null;
+  /** A new sign-in email waiting for its link to be opened. */
+  pendingEmail: { email: string; expiresAt: string } | null;
 }
 
 export const studioContact = {
@@ -126,12 +130,17 @@ ${identityProjection}
       membership: UserView["membership"];
       address: ProfileFields;
       contactPreferences: ProfileFields;
+      passwordChangedAt: Date | null;
+      pendingEmail: { email: string; expiresAt: string } | null;
     }>(
       `
       SELECT u.userid AS id, u.firstname AS "firstName", u.lastname AS "lastName", u.email, u.phone,
 ${identityProjection},
              u.profile_address AS address,
-             u.contact_preferences AS "contactPreferences"
+             u.contact_preferences AS "contactPreferences",
+             u.password_changed_at AS "passwordChangedAt",
+             (SELECT json_build_object('email',c.new_email,'expiresAt',c.expires_at) FROM app_email_change c
+               WHERE c.userid=u.userid AND c.expires_at>NOW()) AS "pendingEmail"
       FROM "user" u WHERE u.userid=$1`,
       [id],
     );
@@ -151,6 +160,8 @@ ${identityProjection},
           address: row.address ?? {},
           contactPreferences: row.contactPreferences ?? {},
           studioContact,
+          passwordChangedAt: row.passwordChangedAt,
+          pendingEmail: row.pendingEmail,
         }
       : null;
   }

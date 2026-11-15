@@ -24,6 +24,14 @@ export interface UserProfile {
   address: ProfileFields;
   contactPreferences: ProfileFields;
   studioContact: { name: string; email: string; phone: string | null };
+  /** When the member last set a password here; null before this was recorded. */
+  passwordChangedAt?: string | null;
+  /** A new sign-in email waiting for its link to be opened. */
+  pendingEmail?: PendingEmail | null;
+}
+export interface PendingEmail {
+  email: string;
+  expiresAt: string;
 }
 export interface Session {
   accessToken?: string;

@@ -57,7 +57,7 @@ export async function consumePasswordReset(db: Database, token: unknown, passwor
   if (!consumed.rows.length) throw invalid();
   // A hashing/validation failure rolls back token consumption and every other change.
   const encoded = await hashPassword(password);
-  await db.query('UPDATE "user" SET password=$2,email_confirmed=true WHERE userid=$1', [account.userid, encoded]);
+  await db.query('UPDATE "user" SET password=$2,email_confirmed=true,password_changed_at=NOW() WHERE userid=$1', [account.userid, encoded]);
   await db.query('DELETE FROM app_session WHERE userid=$1', [account.userid]);
   await db.query('UPDATE app_refresh_family SET revoked=true WHERE userid=$1', [account.userid]);
   await db.query('DELETE FROM app_email_confirmation WHERE userid=$1', [account.userid]);

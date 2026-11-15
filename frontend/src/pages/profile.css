@@ -203,6 +203,23 @@
   gap: 8px;
 }
 
+.account-signin__pending {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid #f2c88d;
+  border-radius: 10px;
+  background: #fdf1e1;
+  color: #5b3200;
+  line-height: 1.45;
+}
+
+.account-signin__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+
 .account-photo > .form-error {
   flex-basis: 100%;
   margin: 0;

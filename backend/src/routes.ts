@@ -52,6 +52,8 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   // CSRF, origin and rotating-cookie validation are unchanged.
   // Failed sign-ins (and other members on a shared network) must not lock people out of recovery.
   const resetLimit = authRateLimit({ message: "Too many password reset attempts. Please wait a few minutes and try again." });
+  // Same budget as sign-in: members at the front desk share one public address.
+  const credentialLimit = authRateLimit({ message: "Too many password attempts. Please wait 15 minutes and try again." });
   const refreshLimit = authRateLimit({ limit: 120, windowMs: 60000,
     message: "Too many session refreshes. Please retry shortly." });
   routes.get("/health", async (_req, res) => {
@@ -70,6 +72,7 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   routes.post("/auth/password-reset", resetLimit, auth.passwordReset);
   routes.post("/auth/password-reset/check", resetLimit, auth.checkPasswordReset);
   routes.post("/auth/password-reset/confirm", resetLimit, auth.confirmPasswordReset);
+  routes.post("/auth/email-change/confirm", resetLimit, auth.confirmEmailChange);
   if (config.demoLogin) routes.post("/auth/demo", rateLimit, auth.demo);
   routes.get("/auth/csrf", auth.csrf);
   routes.post("/auth/refresh", refreshLimit, auth.refresh);
@@ -99,6 +102,11 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   routes.patch("/me/notifications", permit("notification", "update", "own"), settingsAreMemberOnly, requireCsrf, notifications.update);
 
   routes.patch("/me/profile", permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, member.profile);
+  // Both check the current password, so they share a per-address attempt budget.
+  routes.post("/me/password", credentialLimit, permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, auth.changePassword);
+  routes.post("/me/email-change", credentialLimit, permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, auth.requestEmailChange);
+  routes.post("/me/email-change/resend", permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, auth.resendEmailChange);
+  routes.delete("/me/email-change", permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, auth.cancelEmailChange);
   routes.get("/me/photo", permit("user", "read", "own"), member.photo);
   routes.put("/me/photo", permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, member.savePhoto);
   routes.delete("/me/photo", permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, member.removePhoto);

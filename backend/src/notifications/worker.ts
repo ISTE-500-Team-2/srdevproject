@@ -4,6 +4,7 @@
 import type { Pool } from 'pg';
 import { transaction } from '../db.js';
 import { expirationSourceCurrent } from './scheduler.js';
+import { securityKinds } from './templates.js';
 
 export interface PendingNotification {
   id:number;userId:number | null;registrationId?:number | null;kind:string;dedupeKey:string;payload:Record<string,unknown>;
@@ -29,7 +30,10 @@ export async function runNotificationBatch(pool:Pool,send:(notification:PendingN
   for(let i=0;i<batchSize;i++) {
     const row=await transaction(pool,async db=>{
       const selected=await db.query<PendingNotification>(`SELECT o.id,o.userid AS "userId",o.registration_id AS "registrationId",o.kind,o.dedupe_key AS "dedupeKey",o.payload,
-        o.attempts,o.due_at AS "dueAt",o.deadline_at AS "deadlineAt",COALESCE(u.email,r.email) AS email,COALESCE(u.firstname,r.first_name) AS "firstName",
+        o.attempts,o.due_at AS "dueAt",o.deadline_at AS "deadlineAt",
+        -- Email-change notices go where they were addressed: the new inbox, or the one in use when asked.
+        COALESCE(CASE WHEN o.kind IN ('email_change_confirmation','email_change_requested') THEN o.payload->>'recipientEmail' END,u.email,r.email) AS email,
+        COALESCE(u.firstname,r.first_name) AS "firstName",
         COALESCE(p.time_zone,r.time_zone,'America/New_York') AS "timeZone"
         FROM app_notification_outbox o LEFT JOIN "user" u ON u.userid=o.userid
         LEFT JOIN app_pending_registration r ON r.id=o.registration_id
@@ -58,7 +62,7 @@ export async function runNotificationBatch(pool:Pool,send:(notification:PendingN
       } else {
         const allowed=await pool.query(`SELECT 1 FROM "user" u LEFT JOIN app_notification_preferences p USING(userid)
           WHERE u.userid=$1 AND (u.status='active' OR ($2='account_confirmation' AND u.status='pending'))
-          AND (COALESCE(p.enabled,true) OR $2 IN ('password_reset','password_changed'))`,[row.userId,row.kind]);
+          AND (COALESCE(p.enabled,true) OR $2=ANY($3::text[]))`,[row.userId,row.kind,securityKinds]);
         if(!allowed.rows.length) {await finish('suppressed');result.suppressed++;continue;}
         if (row.kind === 'account_confirmation') {
           const current = await pool.query(`SELECT 1 FROM app_email_confirmation c JOIN "user" u USING(userid)
@@ -66,6 +70,11 @@ export async function runNotificationBatch(pool:Pool,send:(notification:PendingN
             [row.userId,row.payload.confirmationHash,clock()]);
           if (!current.rows.length) {await finish('obsolete');result.obsolete++;continue;}
         }
+      }
+      if (row.kind === 'email_change_confirmation') {
+        const current = await pool.query(`SELECT 1 FROM app_email_change
+          WHERE userid=$1 AND token_hash=$2 AND expires_at>$3`, [row.userId,row.payload.changeHash,clock()]);
+        if (!current.rows.length) {await finish('obsolete');result.obsolete++;continue;}
       }
       if (row.kind === 'password_reset') {
         const current = await pool.query(`SELECT 1 FROM app_password_reset
