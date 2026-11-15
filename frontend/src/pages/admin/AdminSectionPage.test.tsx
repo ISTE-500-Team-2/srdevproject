@@ -30,6 +30,6 @@ test('each section keeps its own page width: the members table is wide, forms st
 });
 
 test('the page title carries its sidebar group as a label', () => {
-  render(<Shell path="change-log" />);
-  expect(screen.getByRole('heading', { level: 1, name: 'Change log' }).previousElementSibling?.textContent).toBe('Records');
+  render(<Shell path="payments" />);
+  expect(screen.getByRole('heading', { level: 1, name: 'Payments' }).previousElementSibling?.textContent).toBe('Billing');
 });

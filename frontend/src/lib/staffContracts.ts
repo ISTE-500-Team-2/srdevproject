@@ -91,6 +91,26 @@ export interface Audit {
   readerId?: string | null;
   resourceName?: string | null;
 }
+/** Staff actions, card taps, or database writes: see the backend's AUDIT_VIEWS. */
+export type AuditView = "staff" | "taps" | "database";
+export interface AuditPage extends Page<Audit> {
+  /** Present when the request named a view. */
+  counts?: Record<AuditView, number>;
+}
+export interface AuditField {
+  field: string;
+  before: unknown;
+  after: unknown;
+}
+export interface AuditRecord extends Audit {
+  reason: string;
+  source: "application" | "database";
+  /** Null when the record kept no states, as database writes never do. */
+  changes: { changed: AuditField[]; unchanged: AuditField[] } | null;
+  /** Other rows saved in the same transaction. */
+  related: { id: string; action: string; entityType: string; entityId: number; source: "application" | "database" }[];
+  relatedCount: number;
+}
 export interface Policy {
   id: number;
   name: string;
