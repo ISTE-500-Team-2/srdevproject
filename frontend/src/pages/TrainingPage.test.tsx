@@ -120,7 +120,8 @@ test('a new certification starts empty, is created without a revision, and canno
   fireEvent.click(within(dialog).getByRole('button', { name: 'Save certification' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   expect(writes()).toEqual([['/training/catalog', { method: 'POST', body: { name: 'Drill safety', description: '', trainingMinutes: 60, trainingFeeCents: null, equipmentIds: [4], reason: 'Approved policy' } }]]);
-  expect(screen.getByRole('status').textContent).toBe('Training records saved.');
+  // The catalog reloads after a save, so its own "Loading records…" status can be on screen too.
+  expect((await screen.findByText('Training records saved.')).getAttribute('role')).toBe('status');
 });
 
 test('editing sends the revision it was based on; first training sends none, a renewal sends the record revision', async () => {
