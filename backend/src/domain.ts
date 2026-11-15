@@ -18,6 +18,8 @@ export interface UserView {
   status: string;
   accessStatus: "active" | "suspended" | "revoked";
   membership: "Monthly" | "Day Pass" | "Staff" | "None";
+  /** Changes whenever the profile photo does; null when the person has none. */
+  photoVersion: string | null;
 }
 export type ProfileFields = Record<string, string | boolean>;
 export type ProfileFieldPatch = Record<string, string | boolean | null>;

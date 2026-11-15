@@ -8,6 +8,8 @@ describe("change log wording", () => {
     expect(actionTitle("app_notification_outbox.insert")).toBe("Email queued");
     expect(actionTitle("app_mystery_table.delete")).toBe("Mystery table deleted");
     expect(actionTitle("brand_new.thing_done")).toBe("Brand new thing done");
+    expect(actionTitle("profile.photo_updated")).toBe("Profile photo changed");
+    expect(actionTitle("app_user_photo.delete")).toBe("Profile photo deleted");
     expect(describeAudit({ action: "app_device_access_event.insert", entityType: "app_device_access_event", allowed: false })).toEqual({
       title: "Card tap denied",
       tone: "bad",
@@ -21,6 +23,7 @@ describe("change log wording", () => {
     expect(auditArea("user_membership.insert")).toBe("memberships");
     expect(auditArea("app_equipment_checkout.insert")).toBe("billing");
     expect(auditArea("app_equipment_retirement.insert")).toBe("equipment");
+    expect(auditArea("app_user_photo.update")).toBe("accounts");
     expect(auditArea("something.else")).toBe("other");
   });
 

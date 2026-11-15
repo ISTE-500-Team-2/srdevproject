@@ -28,3 +28,4 @@ import './components/staff/record/memberRecord.css';
 import './components/staff/reservations/reservations.css';
 import './pages/admin/serviceNotices.css';
 import './pages/admin/changeLog.css';
+import './components/photoEditor.css';

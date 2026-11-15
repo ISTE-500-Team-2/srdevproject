@@ -17,6 +17,7 @@ import { api, ApiError, errorMessage, setCsrfToken, setAccessToken } from '../li
 import type { NotificationMessage, Registration, Session, User } from '../lib/contracts';
 import type { UserRole } from '../types';
 import { forgetRecentAccounts } from '../lib/recentAccounts';
+import { forgetPhotos } from '../lib/profilePhoto';
 import { loadShared } from '../lib/useApi';
 
 
@@ -129,6 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .catch(() => setDemoLogin(false));
     const expired = () => {
       revision.current++;
+      forgetPhotos();
       setLoading(false);
       setError('');
       setNotification(null);
@@ -176,6 +178,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setActor(null);
     setNotification(null);
     forgetRecentAccounts();
+    forgetPhotos();
   }, []);
   const openAccount = useCallback(async (userId: number) => {
     acceptSession(await api<Session>('/admin/account-mode', { method: 'POST', body: { userId } }));

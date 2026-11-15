@@ -5,7 +5,7 @@ import type { Database } from "../db.js";
 import type { ProfileFieldPatch, ProfileFields, UserView } from "../domain.js";
 
 export interface UserProfileView {
-  user: Omit<UserView, "status" | "accessStatus">;
+  user: Omit<UserView, "status" | "accessStatus" | "photoVersion">;
   address: ProfileFields;
   contactPreferences: ProfileFields;
   studioContact: { name: string; email: string; phone: string | null };
@@ -43,6 +43,7 @@ export class UserModel {
              (u.dob IS NOT NULL AND u.dob::date>((NOW() AT TIME ZONE $2)::date-INTERVAL '18 years')::date) AS "isMinor",
              (SELECT a.firstname||' '||a.lastname FROM app_minor_sponsor s JOIN "user" a ON a.userid=s.adult_id WHERE s.minor_id=u.userid) AS "sponsorName",
              u.primary_role AS "primaryRole",u.is_student AS "isStudent",u.phone, COALESCE(u.status, '') AS status,u.accessstatus AS "accessStatus",
+             (SELECT p.version FROM app_user_photo p WHERE p.user_id=u.userid) AS "photoVersion",
 ${identityProjection}
       FROM "user" u WHERE u.userid=$1`,
       [id, this.timeZone],

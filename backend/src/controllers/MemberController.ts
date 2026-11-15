@@ -7,6 +7,8 @@ import { transaction } from "../db.js";
 import { AppError, integerId, positiveId, profileFields, textField } from "../domain.js";
 import { authState } from "../middleware/auth.js";
 import { UserModel } from "../models/UserModel.js";
+import { ProfilePhotoModel } from "../models/ProfilePhotoModel.js";
+import { photoDataUrl, profilePhotoField } from "../profilePhoto.js";
 import { EligibilityModel } from "../models/EligibilityModel.js";
 import { AccessService, type AccessTarget } from "../services/AccessService.js";
 import { MemberModel } from "../models/MemberModel.js";
@@ -110,6 +112,51 @@ export class MemberController {
     res.json({
       data: updated ? await new UserModel(this.pool).profile(updated.id) : null,
     });
+  };
+  /** The account's profile photo as a data URL, or null when it has none. */
+  photo = async (_req: Request, res: Response) => {
+    const photo = await new ProfilePhotoModel(this.pool).find(authState(res).user.id);
+    res.json({ data: photo ? { version: photo.version, image: photoDataUrl(photo) } : null });
+  };
+  savePhoto = async (req: Request, res: Response) => {
+    const photo = profilePhotoField(req.body.image);
+    const userId = authState(res).user.id;
+    await transaction(this.pool, async (db) => {
+      const model = new ProfilePhotoModel(db);
+      const before = await model.lockVersion(userId);
+      if (before === photo.version) return;
+      await model.save(userId, photo);
+      await new StaffModel(db, this.timeZone).audit(
+        userId,
+        userId,
+        "profile.photo_updated",
+        "user",
+        userId,
+        before ? "Member changed their profile photo" : "Member added a profile photo",
+        null,
+        null,
+      );
+    });
+    res.json({ data: { version: photo.version } });
+  };
+  removePhoto = async (_req: Request, res: Response) => {
+    const userId = authState(res).user.id;
+    await transaction(this.pool, async (db) => {
+      const model = new ProfilePhotoModel(db);
+      if (!(await model.lockVersion(userId))) return;
+      await model.remove(userId);
+      await new StaffModel(db, this.timeZone).audit(
+        userId,
+        userId,
+        "profile.photo_deleted",
+        "user",
+        userId,
+        "Member removed their profile photo",
+        null,
+        null,
+      );
+    });
+    res.json({ data: { version: null } });
   };
   waivers = async (req: Request, res: Response) => {
     const { user } = authState(res);

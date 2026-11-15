@@ -15,6 +15,8 @@ export interface User {
   isMinor?: boolean;
   sponsorName?: string | null;
   membership: 'Monthly' | 'Day Pass' | 'Staff' | 'None';
+  /** Changes whenever the profile photo does; null (or absent) without one. */
+  photoVersion?: string | null;
 }
 export type ProfileFields = Record<string, string | boolean>;
 export interface UserProfile {

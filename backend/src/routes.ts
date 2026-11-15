@@ -99,6 +99,9 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   routes.patch("/me/notifications", permit("notification", "update", "own"), settingsAreMemberOnly, requireCsrf, notifications.update);
 
   routes.patch("/me/profile", permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, member.profile);
+  routes.get("/me/photo", permit("user", "read", "own"), member.photo);
+  routes.put("/me/photo", permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, member.savePhoto);
+  routes.delete("/me/photo", permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, member.removePhoto);
   routes.get("/me/signed-waivers", permit("waiver", "read", "own"), waiverCopiesAreAdminOnly, waiverRecords.mine);
   routes.get("/me/signed-waivers/:id/copy", permit("waiver", "read", "own"), waiverCopiesAreAdminOnly, waiverRecords.ownCopy);
   routes.get("/me/waivers", permit("waiver", "read", "own"), member.waivers);

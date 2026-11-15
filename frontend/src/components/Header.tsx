@@ -22,6 +22,7 @@ import {
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { errorMessage } from "../lib/api";
+import { useProfilePhoto } from "../lib/profilePhoto";
 import { AppearanceControl } from "./AppearanceControl";
 import CardNav from "./reactbits/CardNav";
 
@@ -60,6 +61,7 @@ const navItems: { label: string; to: string; desktop?: boolean }[] = [
 
 export function Header() {
   const { user, logout } = useAuth();
+  const photo = useProfilePhoto(user?.photoVersion, user?.id);
   const hasStaffWorkspace = user?.roles.some(
     (role) => role === "staff" || role === "admin",
   );
@@ -224,7 +226,11 @@ export function Header() {
               aria-label="Open account menu"
               aria-expanded={accountOpen}
             >
-              <CircleUserRound aria-hidden="true" />
+              {photo ? (
+                <img className="account-menu__photo" src={photo} alt="" />
+              ) : (
+                <CircleUserRound aria-hidden="true" />
+              )}
             </button>
             {accountOpen ? (
               <div className="account-menu__popover">

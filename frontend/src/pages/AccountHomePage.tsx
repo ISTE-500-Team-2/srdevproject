@@ -21,7 +21,8 @@ import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { LoadState } from "../components/Management";
 import { CheckInBuilding } from "../components/CheckInBuilding";
-import { initials, roleLabel } from "../components/admin/people";
+import { roleLabel } from "../components/admin/people";
+import { AccountPhoto } from "../components/AccountPhoto";
 import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
 import type { Certification, Reservation } from "../lib/contracts";
@@ -206,9 +207,7 @@ export function AccountHomePage() {
     <div className="account-home page-enter">
       <aside className="panel account-snapshot" aria-label={own ? "Your account" : `${user.firstName}'s account`}>
         <div className="account-snapshot__head">
-          <span className="admin-avatar admin-avatar--large" aria-hidden="true">
-            {initials(user.firstName, user.lastName)}
-          </span>
+          <AccountPhoto person={user} className="admin-avatar admin-avatar--large" />
           <div>
             <h2>
               {user.firstName} {user.lastName}

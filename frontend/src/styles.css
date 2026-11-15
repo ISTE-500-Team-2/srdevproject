@@ -2129,6 +2129,27 @@ place-items: center;
   box-shadow: 5px 5px 0 var(--espresso);
 }
 
+/* A profile photo fills whichever avatar circle holds it (see AccountPhoto). */
+.has-photo {
+  overflow: hidden;
+}
+
+.avatar-photo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+/* The header's account button shows the photo at icon size. */
+.account-menu__photo {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--orange);
+}
+
 .not-found {
   min-height: 100vh;
   display: grid;

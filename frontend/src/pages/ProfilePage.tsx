@@ -24,6 +24,8 @@ import {
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import HoldButton from "../components/reactbits/HoldButton";
+import { AccountPhoto } from "../components/AccountPhoto";
+import { ProfilePhotoSetting } from "../components/ProfilePhotoSetting";
 import { Toast } from "../components/Toast";
 import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
@@ -225,7 +227,17 @@ function Choice({
   );
 }
 
-function ProfileSection({ user, profile, save }: { user: User; profile: UserProfile | null; save: Save }) {
+function ProfileSection({
+  user,
+  profile,
+  save,
+  notify,
+}: {
+  user: User;
+  profile: UserProfile | null;
+  save: Save;
+  notify: (message: string) => void;
+}) {
   const [editing, setEditing] = useState(false);
   return (
     <Section
@@ -261,12 +273,15 @@ function ProfileSection({ user, profile, save }: { user: User; profile: UserProf
           <p className="account-hint">Your email is how you sign in. Ask staff to change it.</p>
         </SectionForm>
       ) : (
-        <dl className="account-details">
-          <Detail label="Name">
-            {user.firstName} {user.lastName}
-          </Detail>
-          <Detail label="Email">{user.email}</Detail>
-        </dl>
+        <>
+          <ProfilePhotoSetting notify={notify} />
+          <dl className="account-details">
+            <Detail label="Name">
+              {user.firstName} {user.lastName}
+            </Detail>
+            <Detail label="Email">{user.email}</Detail>
+          </dl>
+        </>
       )}
     </Section>
   );
@@ -852,10 +867,7 @@ export function ProfilePage() {
   return (
     <div className="account-page page-enter">
       <section className="account-hero">
-        <div className="profile-hero__avatar" aria-hidden="true">
-          {user.firstName.at(0)}
-          {user.lastName.at(0)}
-        </div>
+        <AccountPhoto person={user} className="profile-hero__avatar" />
         <div>
           <h1>
             {user.firstName} {user.lastName}
@@ -890,7 +902,7 @@ export function ProfilePage() {
           ))}
         </nav>
         <div className="account-main">
-          <ProfileSection user={user} profile={profile} save={save} />
+          <ProfileSection user={user} profile={profile} save={save} notify={setToast} />
           <ContactSection user={user} profile={profile} save={save} />
           <BillingSection />
           {sponsors ? <MinorsSection notify={setToast} /> : null}

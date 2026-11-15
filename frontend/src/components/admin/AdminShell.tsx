@@ -10,7 +10,8 @@ import { adminNavGroups } from "./adminNavigation";
 import { AccountPicker } from "./AccountPicker";
 import { Modal } from "../Modal";
 import { AppearanceControl } from "../AppearanceControl";
-import { initials, lastWorkspacePathKey, roleLabel } from "./people";
+import { lastWorkspacePathKey, roleLabel } from "./people";
+import { AccountPhoto } from "../AccountPhoto";
 import { PageWidthContext, type PageWidth } from "./pageWidth";
 import { SteadyHeight, useSteadyHeight } from "./steadyHeight";
 
@@ -100,9 +101,7 @@ export function AdminShell() {
       </div>
       {staff ? (
         <div className="admin-side__me">
-          <span className="admin-avatar admin-avatar--self" aria-hidden="true">
-            {initials(staff.firstName, staff.lastName)}
-          </span>
+          <AccountPhoto person={staff} className="admin-avatar admin-avatar--self" />
           <span className="admin-side__who">
             <strong>
               {staff.firstName} {staff.lastName}
