@@ -43,13 +43,19 @@ function keep(photo: StoredPhoto) {
 
 /** Remember a photo this page just saved, so its avatars need no request. */
 export const rememberPhoto = keep;
+/** Bumped on sign-out: a photo asked for before then is dropped when it arrives, never kept. */
+let generation = 0;
 /** Drop loaded photos when someone signs out, so the next person's session starts empty. */
 export function forgetPhotos() {
+  generation++;
   ready.clear();
   pending.clear();
   memberReady.clear();
   memberPending.clear();
-  queued.clear();
+  // Requests not sent yet never will be: they settle now, with initials.
+  const waiting = queued;
+  queued = new Map();
+  for (const list of waiting.values()) for (const waiter of list) waiter.settle(null);
 }
 
 // Staff screens show other members' photos. Requests made together (a list rendering) are sent as
@@ -70,9 +76,12 @@ function sendQueued() {
   const batch = queued;
   queued = new Map();
   const ids = [...batch.keys()];
+  const asked = generation;
   for (let at = 0; at < ids.length; at += BATCH) {
     const chunk = ids.slice(at, at + BATCH);
-    const settle = (found: Record<string, StoredPhoto> | null) => {
+    const settle = (answer: Record<string, StoredPhoto> | null) => {
+      // Someone signed out while this was on its way: show initials and keep nothing.
+      const found = asked === generation ? answer : null;
       for (const id of chunk) {
         const photo = found?.[id];
         if (photo) keepMember(id, photo);
@@ -91,10 +100,13 @@ export function loadMemberPhoto(id: number, version: string): Promise<string | n
   if (image) return Promise.resolve(image);
   let request = memberPending.get(key);
   if (!request) {
-    request = new Promise<string | null>((settle) => {
+    const queuedRequest: Promise<string | null> = new Promise<string | null>((settle) => {
       if (!queued.size) setTimeout(sendQueued, 0);
       queued.set(id, [...(queued.get(id) ?? []), { version, settle }]);
-    }).finally(() => memberPending.delete(key));
+    }).finally(() => {
+      if (memberPending.get(key) === queuedRequest) memberPending.delete(key);
+    });
+    request = queuedRequest;
     memberPending.set(key, request);
   }
   return request;
@@ -131,12 +143,18 @@ export function loadPhoto(version: string, account: number): Promise<string | nu
   const key = `${account}:${version}`;
   let request = pending.get(key);
   if (!request) {
-    request = api<StoredPhoto | null>("/me/photo")
+    const asked = generation;
+    const sent: Promise<string | null> = api<StoredPhoto | null>("/me/photo")
       .then((photo) => {
+        // Someone signed out while this was on its way: keep nothing.
+        if (asked !== generation) return null;
         if (photo) keep(photo);
         return photo?.version === version ? photo.image : null;
       })
-      .finally(() => pending.delete(key));
+      .finally(() => {
+        if (pending.get(key) === sent) pending.delete(key);
+      });
+    request = sent;
     pending.set(key, request);
   }
   return request;

@@ -131,3 +131,44 @@ describe('member photos on staff screens', () => {
     expect(await loadMemberPhoto(5, 'v5')).toBe('data:5');
   });
 });
+
+describe('signing out while photos load', () => {
+  const deferred = <T,>() => {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((done) => (resolve = done));
+    return { promise, resolve };
+  };
+
+  test('a staff photo that arrives after sign-out is shown as initials and not kept', async () => {
+    const answer = deferred<Record<string, { version: string; image: string }>>();
+    api.mockReturnValueOnce(answer.promise);
+    const loading = loadMemberPhoto(7, 'v7');
+    await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(1));
+    forgetPhotos();
+    answer.resolve({ 7: { version: 'v7', image: 'data:private' } });
+    expect(await loading).toBeNull();
+    api.mockResolvedValueOnce({});
+    expect(await loadMemberPhoto(7, 'v7')).toBeNull();
+    expect(api).toHaveBeenCalledTimes(2); // asked again: nothing was kept
+  });
+
+  test('a staff photo still queued at sign-out settles at once and is never sent', async () => {
+    const loading = loadMemberPhoto(8, 'v8');
+    forgetPhotos();
+    expect(await loading).toBeNull();
+    await new Promise((done) => setTimeout(done, 5));
+    expect(api).not.toHaveBeenCalled();
+  });
+
+  test("the session's own photo that arrives after sign-out is not kept", async () => {
+    const answer = deferred<{ version: string; image: string }>();
+    api.mockReturnValueOnce(answer.promise);
+    const loading = loadPhoto('mine', 1);
+    forgetPhotos();
+    answer.resolve({ version: 'mine', image: 'data:mine' });
+    expect(await loading).toBeNull();
+    api.mockResolvedValueOnce(null);
+    expect(await loadPhoto('mine', 1)).toBeNull();
+    expect(api).toHaveBeenCalledTimes(2);
+  });
+});
