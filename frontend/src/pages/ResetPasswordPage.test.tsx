@@ -150,7 +150,8 @@ test('confirmation succeeds only after saving, clears fields, focuses completion
   await resetForm(); validPasswords(); click('Save password');
   const done = await screen.findByRole('heading', { name: 'You’re all set' });
   expect(call).toHaveBeenLastCalledWith('/auth/password-reset/confirm', { method: 'POST', body: { token, password: 'Workshop!' } });
-  expect(document.activeElement).toBe(done);
+  // Focus moves in an effect just after the heading renders; under load the heading can be found first.
+  await waitFor(() => expect(document.activeElement).toBe(done));
   expect(screen.queryByPlaceholderText('Create a password…')).toBeNull();
   expect(screen.queryByRole('list')).toBeNull();
   click('Go to login'); expect(screen.getByRole('heading', { name: 'Login' })).toBeTruthy();
