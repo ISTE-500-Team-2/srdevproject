@@ -8,6 +8,9 @@ import request from 'supertest';
 import {createApp} from '../../src/app.js';
 import {initializeDemo} from '../../src/scripts/init-demo.js';
 import {repositoryRoot} from '../../src/scripts/migrate.js';
+import {runNotificationBatch} from '../../src/notifications/worker.js';
+import {notificationJob,renderNotification} from '../../src/notifications/templates.js';
+import {BrevoTransport} from '../../src/notifications/transport.js';
 const database='arbor_'+randomBytes(6).toString('hex')+'_signed_copy_mvc_test';
 const adminPool=new Pool({connectionTimeoutMillis:5000});
 const pool=new Pool({database,connectionTimeoutMillis:5000});
@@ -36,6 +39,36 @@ test('signing stores the same signed copy outside the notification queue',async(
   assert.equal(copy.userid,member.id);
   assert.deepEqual(copy.payload,notice.payload);
   assert.equal(copy.payload.waiverText,'Durable accepted wording.');
+});
+
+test('signing dispatches the preserved copy to the member email once, even after edits and a signing retry',async()=>{
+  const id=await sign('Emailed Copy Policy','Original terms with Unicode: Jos\u00e9.');
+  const expected=(await get(`/me/signed-waivers/${id}/copy`)).body.data.content;
+  const waiverId=(await pool.query('SELECT waiverid FROM user_waiver WHERE userwaiverid=$1',[id])).rows[0].waiverid;
+  assert.equal((await post(`/me/waivers/${waiverId}/sign`,{accepted:true})).status,200);
+  await pool.query("UPDATE waiver SET description='Edited after signing' WHERE waiverid=$1",[waiverId]);
+  const email=(await pool.query('SELECT email FROM "user" WHERE userid=$1',[member.id])).rows[0].email;
+  let sent=0;
+  const transport=new BrevoTransport({apiKey:'fake-test-key',senderEmail:'studio@example.invalid',senderName:'Studio',replyToEmail:'studio@example.invalid'},
+    (async (_url,init)=>{
+      sent++;
+      const body=JSON.parse(String(init?.body));
+      assert.deepEqual(body.to,[{email}]);
+      assert.equal(body.attachment.length,1);
+      assert.equal(body.attachment[0].name,'signed-waiver.txt');
+      assert.equal(Buffer.from(body.attachment[0].content,'base64').toString('utf8'),expected);
+      return Response.json({messageId:'<signed-copy@test>'},{status:201});
+    }) as typeof fetch);
+  const dispatch=async()=>runNotificationBatch(pool,async job=>{
+    if(job.dedupeKey!==`waiver-signed:${id}`)return {messageId:`<other-${job.id}@test>`};
+    const {kind,payload}=notificationJob(job.kind,job.payload);
+    return transport.send({recipientEmail:job.email,...renderNotification(kind,payload,{
+      recipientEmail:job.email,senderName:'Studio',senderEmail:'studio@example.invalid',postalAddress:'Test address',
+    })});
+  });
+  await dispatch();await dispatch();
+  assert.equal(sent,1);
+  assert.equal((await pool.query('SELECT status FROM app_notification_outbox WHERE dedupe_key=$1',[`waiver-signed:${id}`])).rows[0].status,'accepted');
 });
 
 test('signed copy is still listed and downloadable after its notification row is deleted',async()=>{

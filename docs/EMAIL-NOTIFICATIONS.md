@@ -22,6 +22,12 @@ calls the provider. Unique event keys prevent repeated actions/scans from adding
 duplicate notices. Templates render escaped HTML and plain text with identities,
 address and a Profile preferences link. A signed-waiver event keeps the accepted
 text/version, signer's name and recorded signing time in its immutable payload.
+The signed-waiver email includes the completed document in its body and a UTF-8
+`signed-waiver.txt` attachment matching the profile download, including the waiver
+name, version, electronic signature and recorded signing time. Attachments use
+Brevo's [base64 content format](https://developers.brevo.com/reference/send-transac-email).
+Signed copies follow the member's notification preference and require email
+delivery to be enabled in the backend environment.
 
 Apply additive migrations `006_notifications.sql`, `007_email_confirmation.sql` and `009_brevo_delivery_events.sql` through the existing migration
 runner before running the updated server. The reader-health scan also requires
