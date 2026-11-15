@@ -1,4 +1,4 @@
-import { signedWaiverCopyContent } from '../signedWaiverCopy.js';
+import { signedWaiverCopyContent, signedWaiverFileName } from '../signedWaiverCopy.js';
 import type { NotificationMessage } from './transport.js';
 
 /** Requirement IDs are sourced from the live team Drive sheet, not older Jira numbering. */
@@ -507,7 +507,7 @@ ${p('', `This email was sent to ${e(context.recipientEmail)}. ${securityMail ? `
 
   const subject = `${context.senderName}: ${heading}`.replace(/[\r\n]+/g, ' ');
   const attachments = kind === 'waiver_signed' ? [{
-    name: 'signed-waiver.txt',
+    name: signedWaiverFileName(field('signature'), field('waiverName')),
     content: Buffer.from(signedWaiverCopyContent({
       waiverName: field('waiverName') || 'Signed agreement', waiverVersion: field('waiverVersion'),
       signature: field('signature'), signedAt: field('signedAt'), waiverText: documentText,

@@ -42,11 +42,17 @@ test('signing stores the same signed copy outside the notification queue',async(
 });
 
 test('signing dispatches the preserved copy to the member email once, even after edits and a signing retry',async()=>{
+  await pool.query('UPDATE "user" SET firstname=$2,lastname=$3 WHERE userid=$1',[member.id,'Edwin','Chen']);
+  member=await login('member');
   const id=await sign('Emailed Copy Policy','Original terms with Unicode: Jos\u00e9.');
-  const expected=(await get(`/me/signed-waivers/${id}/copy`)).body.data.content;
+  const download=(await get(`/me/signed-waivers/${id}/copy`)).body.data;
+  const expected=download.content;
+  assert.equal(download.fileName,'SIGNED_Edwin_Chen_Emailed_Copy_Policy.txt');
   const waiverId=(await pool.query('SELECT waiverid FROM user_waiver WHERE userwaiverid=$1',[id])).rows[0].waiverid;
   assert.equal((await post(`/me/waivers/${waiverId}/sign`,{accepted:true})).status,200);
-  await pool.query("UPDATE waiver SET description='Edited after signing' WHERE waiverid=$1",[waiverId]);
+  await pool.query("UPDATE waiver SET name='Renamed later',description='Edited after signing' WHERE waiverid=$1",[waiverId]);
+  await pool.query('UPDATE "user" SET firstname=$2,lastname=$3 WHERE userid=$1',[member.id,'Changed','Later']);
+  assert.equal((await get(`/me/signed-waivers/${id}/copy`)).body.data.fileName,download.fileName);
   const email=(await pool.query('SELECT email FROM "user" WHERE userid=$1',[member.id])).rows[0].email;
   let sent=0;
   const transport=new BrevoTransport({apiKey:'fake-test-key',senderEmail:'studio@example.invalid',senderName:'Studio',replyToEmail:'studio@example.invalid'},
@@ -55,7 +61,7 @@ test('signing dispatches the preserved copy to the member email once, even after
       const body=JSON.parse(String(init?.body));
       assert.deepEqual(body.to,[{email}]);
       assert.equal(body.attachment.length,1);
-      assert.equal(body.attachment[0].name,'signed-waiver.txt');
+      assert.equal(body.attachment[0].name,'SIGNED_Edwin_Chen_Emailed_Copy_Policy.txt');
       assert.equal(Buffer.from(body.attachment[0].content,'base64').toString('utf8'),expected);
       return Response.json({messageId:'<signed-copy@test>'},{status:201});
     }) as typeof fetch);

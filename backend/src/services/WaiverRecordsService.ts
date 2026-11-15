@@ -10,7 +10,7 @@ import { PermissionModel } from '../models/PermissionModel.js';
 import { enqueueNotification, getNotificationPreferences } from '../notifications/store.js';
 import { reminderDates } from '../notifications/scheduler.js';
 import {ANNUAL_VALIDITY_MS} from '../annualValidity.js';
-import { signedWaiverCopyContent } from '../signedWaiverCopy.js';
+import { signedWaiverCopyContent, signedWaiverFileName } from '../signedWaiverCopy.js';
 
 export interface SignedWaiverRecord {
   id:number;waiverId:number;name:string;version:string;signedAt:Date;expiresAt:Date|null;approved:boolean;copyAvailable:boolean;
@@ -46,7 +46,7 @@ export class WaiverRecordsService {
     const p=row.payload;
     if(!p || !['waiverName','waiverVersion','waiverText','signature','signedAt'].every(k=>typeof p[k]==='string'))
       throw new AppError(409,'SIGNED_COPY_UNAVAILABLE','This legacy signature has no preserved signed-text copy. Ask staff for its original record.');
-    return {fileName:`signed-waiver-${signatureId}.txt`,contentType:'text/plain;charset=utf-8',content:signedWaiverCopyContent({
+    return {fileName:signedWaiverFileName(p.signature,p.waiverName),contentType:'text/plain;charset=utf-8',content:signedWaiverCopyContent({
       waiverName:p.waiverName,waiverVersion:p.waiverVersion,signature:p.signature,signedAt:p.signedAt,
       waiverText:p.waiverText,completedWaiverText:typeof p.completedWaiverText==='string' ? p.completedWaiverText : undefined,
     })};
