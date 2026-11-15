@@ -50,16 +50,29 @@ const openAccountMenu = async () => {
 };
 const accountMenu = () => document.querySelector<HTMLElement>('.account-menu__popover');
 
-test('on desktop, Membership lives in the account menu rather than the top links', async () => {
+test('on desktop, Membership lives in the account menu rather than the top links; phones get it in CardNav', async () => {
   render(<MemoryRouter><Header /></MemoryRouter>);
-  const link = within(screen.getByRole('navigation', { name: 'Primary navigation' })).getByRole('link', { name: 'Membership' });
-  expect(link.className).toContain('mobile-only');
+  const primary = screen.getByRole('navigation', { name: 'Primary navigation' });
+  expect(within(primary).getAllByRole('link').map((link) => link.textContent)).toEqual(['Home', 'Equipment', 'Studios', 'Certifications & Waivers', 'Classes']);
+  // Phones use CardNav (the desktop header is hidden below 1040px), not a toggle inside the header.
+  expect(screen.queryByRole('button', { name: /navigation$/ })).toBeNull();
+  expect(within(mobileNav()).getByRole('link', { name: 'Membership', hidden: true }).getAttribute('href')).toBe('/membership');
   cleanup();
 
   const item = await openAccountMenu();
   expect(item.getAttribute('href')).toBe('/membership');
   await userEvent.click(item);
   expect(accountMenu()).toBeNull();
+});
+
+test('staff reach their workspace from the desktop header and the phone menu', () => {
+  auth.user = { ...auth.user, roles: ['staff'] };
+  render(<MemoryRouter><Header /></MemoryRouter>);
+  const primary = screen.getByRole('navigation', { name: 'Primary navigation' });
+  expect(within(primary).queryByRole('link', { name: 'Staff workspace' })).toBeNull();
+  const desktop = document.querySelector<HTMLAnchorElement>('.site-header__admin-link')!;
+  expect([desktop.textContent?.trim(), desktop.getAttribute('href')]).toEqual(['Staff workspace', '/admin']);
+  expect(within(mobileNav()).getByRole('link', { name: 'Staff workspace', hidden: true }).getAttribute('href')).toBe('/admin');
 });
 
 test('the account menu shows where the membership stands', async () => {

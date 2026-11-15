@@ -43,12 +43,12 @@ after(async () => {
   await admin.query(`DROP DATABASE "${database}"`);
   await admin.end();
 });
-const post = (p: string, b: unknown) =>
+const post = (p: string, b: string | object) =>
   staff
     .post("/api" + p)
     .set("X-CSRF-Token", csrf)
     .send(b);
-const patch = (p: string, b: unknown) =>
+const patch = (p: string, b: string | object) =>
   staff
     .patch("/api" + p)
     .set("X-CSRF-Token", csrf)

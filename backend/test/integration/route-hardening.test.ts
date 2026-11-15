@@ -71,7 +71,7 @@ test('every registered API route still answers rather than reporting itself miss
   assert.ok(endpoints.length > 100, `found ${endpoints.length} endpoints`);
   for (const { path: route, method } of endpoints) {
     const url = '/api' + route.replace(/\{[^}]*\}/g, '').replace(/:[A-Za-z]+/g, '1');
-    const res = await (request(app) as unknown as Record<string, (u: string) => request.Test>)[method](url)
+    const res = await (request(app) as unknown as Record<string, (u: string) => request.Test>)[method]!(url)
       .set('Origin', 'http://localhost:8080');
     assert.ok(!(res.status === 404 && res.body?.error?.message === 'API endpoint not found.'), `${method.toUpperCase()} ${url}`);
   }
@@ -104,7 +104,7 @@ test('the CSRF lookup answers signed-out visits with null instead of a 401', asy
 
   const signedIn = await request(app).post('/api/auth/demo').send({ role: 'member' });
   assert.equal(signedIn.status, 200);
-  const cookie = signedIn.headers['set-cookie'].find((c: string) => c.startsWith(cookieName + '='))!.split(';')[0]!;
+  const cookie = (signedIn.headers['set-cookie'] as unknown as string[]).find((c: string) => c.startsWith(cookieName + '='))!.split(';')[0]!;
   const csrf = await request(app).get('/api/auth/csrf').set('Cookie', cookie);
   assert.equal(csrf.status, 200);
   assert.equal(csrf.body.data.csrfToken, signedIn.body.data.csrfToken);

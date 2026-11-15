@@ -16,7 +16,7 @@ let created = false;
 let app: ReturnType<typeof createApp>;
 let member: any, admin: any, waiver: any;
 const get = (path: string, actor = member) => request(app).get(`/api${path}`).set('Authorization', `Bearer ${actor.accessToken}`);
-const post = (path: string, body: unknown, actor = member) => request(app).post(`/api${path}`)
+const post = (path: string, body: string | object, actor = member) => request(app).post(`/api${path}`)
   .set('Authorization', `Bearer ${actor.accessToken}`).set('X-CSRF-Token', actor.csrfToken).send(body);
 before(async () => {
   if (!process.env.PGHOST || process.env.DATABASE_URL) throw Error('Explicit isolated PostgreSQL required');
@@ -42,7 +42,7 @@ test('unsigned users receive the waiver with a field for all 19 blanks, without 
 });
 
 test('missing, invalid and unrecognized form entries cannot create a signature', async () => {
-  const sign = (body: unknown) => post(`/me/waivers/${waiver.id}/sign`, body);
+  const sign = (body: string | object) => post(`/me/waivers/${waiver.id}/sign`, body);
   const body = waiverAcceptance(waiver);
   assert.equal((await sign({ accepted: true })).status, 400);
   assert.equal((await sign({ ...body, accepted: false })).status, 400);

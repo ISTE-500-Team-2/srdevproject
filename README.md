@@ -88,7 +88,8 @@ ARBOR works today, but a few launch steps are still open. Check these against th
 - [Local development](docs/LOCAL-DEVELOPMENT.md): setup, demo accounts, email mode,
   troubleshooting
 - [Architecture](docs/MVC.md): MVC structure and integration points
-- [Code guide](docs/CODE-GUIDE.md): source entry points, comment conventions and maintenance constraints
+- [Load testing](docs/LOAD-TESTING.md): peak check-in bursts, validation deadlines,
+  sustained access tests and CI performance checks
 - [Authentication](docs/JWT-AUTH.md): JWT signing keys and session behavior
 - [Email-only accounts](docs/email-only-accounts.md): registration, sign-in and
   password recovery
@@ -135,3 +136,7 @@ Schema files live in `ddl/`. Incremental changes live in `database/migrations/`.
 ---
 
 <sub>Built by Team ARBOR for the RIT Senior Development Project. Hosting instructions describe a separate sponsor installation, not an already-provisioned cloud service.</sub>
+
+## Maintaining the code
+
+[Code responsibilities and maintenance constraints](docs/CODE-GUIDE.md) explains module ownership and the invariants to preserve.

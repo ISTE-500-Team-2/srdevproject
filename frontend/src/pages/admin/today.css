@@ -19,6 +19,9 @@
 .today-date { margin-top: 10px; color: var(--ink); font-size: var(--text-base); font-weight: 500; }
 .today-summary { margin-top: 2px; color: var(--ink-soft); font-size: var(--text-base); }
 
+.today-stale { margin: -6px 0 20px; }
+.today-stale .form-error { margin: 0; }
+
 .today-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
 .today-col { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
 .today-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: stretch; }

@@ -22,6 +22,19 @@ REQUIRED = {'verify', 'sponsor-rehearsal', 'launcher-docker',
 APPS = ('arbor-email-app', 'arbor-mvc-current')
 DATABASES = (('arbor-email-db', 'arbor_email', 'arbor_email_dev'),
              ('arbor-mvc-db-1', 'arbor_mvc', 'arbor_mvc_dev'))
+# Main-branch push workflows that every release gate requires. Shared with
+# local_frontend_release.py (as ops.MAIN_PUSH_WORKFLOWS); install both together.
+MAIN_PUSH_WORKFLOWS = ('.github/workflows/mvc-verify.yml', '.github/workflows/dev-setup.yml',
+                       '.github/workflows/sponsor-hosting.yml')
+
+
+class ReleaseCheckError(RuntimeError):
+    """A release or smoke check failed. Never stripped by python -O."""
+
+
+def require(condition, message=None):
+    if not condition:
+        raise ReleaseCheckError(message)
 
 
 # Replace status files atomically so readers never observe a half-written deployment report.
@@ -55,22 +68,38 @@ def api(path):
         return json.load(response)
 
 
-def green_checks(sha, checks, workflows):
-    """Exact revision, GitHub Actions identity, latest attempt, main push only."""
+def latest_checks(sha, checks):
+    """Newest GitHub Actions check run per name for exactly this revision.
+
+    Selection only. Each gate states its own acceptance rule over the result.
+    """
     latest = {}
     for check in checks:
         if check.get('head_sha') == sha and check.get('app', {}).get('slug') == 'github-actions':
             name = check['name']
             if name not in latest or check['id'] > latest[name]['id']:
                 latest[name] = check
+    return latest
+
+
+def latest_main_push_run(sha, workflows, path):
+    """Newest main-branch push run of one workflow for this revision, or {}.
+
+    PR runs on the same SHA never substitute for main-branch push workflows.
+    """
+    runs = [r for r in workflows if r.get('head_sha') == sha and r.get('head_branch') == 'main'
+            and r.get('event') == 'push' and r.get('path') == path]
+    return max(runs, key=lambda r: r['id']) if runs else {}
+
+
+def green_checks(sha, checks, workflows):
+    """Exact revision, GitHub Actions identity, latest attempt, main push only."""
+    latest = latest_checks(sha, checks)
     for name in REQUIRED:
         if name not in latest or latest[name].get('status') != 'completed' or latest[name].get('conclusion') != 'success':
             return False
-    # PR checks on a SHA must not substitute for main-branch push workflows.
-    for path in ('.github/workflows/mvc-verify.yml', '.github/workflows/dev-setup.yml', '.github/workflows/sponsor-hosting.yml'):
-        runs = [r for r in workflows if r.get('head_sha') == sha and r.get('head_branch') == 'main'
-                and r.get('event') == 'push' and r.get('path') == path]
-        latest_run = max(runs, key=lambda r: r['id']) if runs else {}
+    for path in MAIN_PUSH_WORKFLOWS:
+        latest_run = latest_main_push_run(sha, workflows, path)
         if latest_run.get('status') != 'completed' or latest_run.get('conclusion') != 'success':
             return False
     return True
@@ -80,12 +109,7 @@ def ready(sha, details=None):
     checks = api('commits/' + sha + '/check-runs?per_page=100')['check_runs']
     runs = api('actions/runs?head_sha=' + sha + '&event=push&branch=main&per_page=100')['workflow_runs']
     if details is not None:
-        latest = {}
-        for check in checks:
-            if check.get('head_sha') == sha and check.get('app', {}).get('slug') == 'github-actions':
-                name = check['name']
-                if name in REQUIRED and (name not in latest or check['id'] > latest[name]['id']):
-                    latest[name] = check
+        latest = latest_checks(sha, checks)
         details.update(revision=sha, checks=[{
             'name': name, 'status': latest.get(name, {}).get('status', 'missing'),
             'conclusion': latest.get(name, {}).get('conclusion'),
@@ -130,26 +154,26 @@ def request(origin, path, data=None, token=None, origin_header=None):
 
 def verify(root, origin, demo=False):
     health = request(origin, '/api/health')['data']
-    assert health.get('status') == 'ok' and health.get('database') == 'connected', 'Database health failed'
+    require(health.get('status') == 'ok' and health.get('database') == 'connected', 'Database health failed')
     credentials = {'role': 'admin'} if demo else json.loads((root / 'admin.private.json').read_text())
     login = request(origin, '/api/auth/demo' if demo else '/api/auth/login', credentials,
         origin_header=None if demo else 'https://collaboratory.webdev.gccis.rit.edu')
     token = login['data']['accessToken']
     for path in ('/api/auth/session', '/api/admin/users', '/api/training/catalog', '/api/classes'):
-        assert 'data' in request(origin, path, token=token), path
+        require('data' in request(origin, path, token=token), path)
     # Fetch assets without logging credentials or member records.
     with urllib.request.urlopen(origin + '/', timeout=20) as response:
         html = response.read().decode()
     assets = re.findall(r'(?:src|href)="(/assets/[^\"]+)"', html)
-    assert assets, 'Frontend assets missing'
+    require(assets, 'Frontend assets missing')
     for asset in assets:
         with urllib.request.urlopen(origin + asset, timeout=20) as response:
-            assert response.status == 200, asset
+            require(response.status == 200, asset)
     try:
         request(origin, '/api/admin/users')
-        raise AssertionError('Anonymous admin access allowed')
+        raise ReleaseCheckError('Anonymous admin access allowed')
     except urllib.error.HTTPError as error:
-        assert error.code == 401, 'Anonymous admin access did not fail closed'
+        require(error.code == 401, 'Anonymous admin access did not fail closed')
     print('Verified', 'demo' if demo else 'public', 'health/login/admin APIs/assets/access denial', flush=True)
 
 
@@ -247,7 +271,7 @@ def prepare_artifact(root, sha):
     if not source.exists():
         run('git', 'init', str(source))
     run('git', '-C', str(source), 'fetch', '--depth=1', 'https://github.com/' + REPO + '.git', sha)
-    assert output('git', '-C', str(source), 'rev-parse', 'FETCH_HEAD') == sha
+    require(output('git', '-C', str(source), 'rev-parse', 'FETCH_HEAD') == sha, 'Fetched release revision mismatch')
     run('git', '-C', str(source), 'checkout', '--detach', sha)
     if (output('git', '-C', str(source), 'rev-parse', 'HEAD') != sha or
             output('git', '-C', str(source), 'status', '--porcelain', '--untracked-files=all')):
@@ -279,7 +303,7 @@ def backup_databases(release, source):
             backup.chmod(0o600)
             run('docker', 'exec', container, 'pg_dump', '-U', user, '-d', database,
                 '--format=custom', '--no-owner', stdout=stream)
-        assert backup.stat().st_size > 0, 'Empty backup'
+        require(backup.stat().st_size > 0, 'Empty backup')
         with backup.open('rb') as stream:
             run('docker', 'exec', '-i', container, 'pg_restore', '--list', stdin=stream, stdout=subprocess.DEVNULL)
 

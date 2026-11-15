@@ -1,0 +1,367 @@
+{
+  "baseRevision": "3d922855bfc0610df713ecbe8ed938bd0091c378",
+  "branch": "testingBranch",
+  "optimizedSourceSha256": {
+    "backend/src/deviceAccess.ts": "5d294b9281ae289d49177e2a4a8eeb2df73f8b7085bb8128ab35a16591ff09e3",
+    "backend/src/readerRegistry.ts": "2d2ee1a5eb5b3129c09c8d224ce478a80fa74a3518b591ed99f8608b104a2e74",
+    "backend/src/serviceNotices.ts": "9ae5e183f2293a0780616c4d82411c76451adeee2b837cc81acacfc2bda76a15",
+    "database/migrations/038_reader_presence.sql": "2edb9a1cb263f856d56ce1393f350dde63c42faadb3073aa6e8b70fe39c2b007"
+  },
+  "baseline": {
+    "label": "baseline",
+    "startedAt": "2026-11-11T20:52:48.439Z",
+    "finishedAt": "2026-11-11T20:53:23.069Z",
+    "passed": false,
+    "environment": {
+      "node": "v24.22.1",
+      "platform": "linux",
+      "cpus": 16,
+      "poolMax": 10,
+      "localHttp": true
+    },
+    "config": {
+      "profile": "acceptance",
+      "users": 500,
+      "concurrency": [
+        25,
+        50,
+        100
+      ],
+      "requestsPerStage": 500,
+      "durationSeconds": 10,
+      "limitsMs": {
+        "access": 2000,
+        "waivers": 6000,
+        "training": 6000,
+        "health": 2000
+      }
+    },
+    "totals": {
+      "requests": 10846,
+      "errors": 33,
+      "timeouts": 33,
+      "falseGrants": 0,
+      "sloViolations": 0
+    },
+    "stages": [
+      {
+        "name": "baseline",
+        "concurrency": 25,
+        "requests": 500,
+        "errors": 9,
+        "timeouts": 9,
+        "p95Ms": 368.3859910000001,
+        "maxMs": 1632.7502869999998,
+        "requestsPerSecond": 122.17211342763761
+      },
+      {
+        "name": "entrance-burst-25",
+        "concurrency": 25,
+        "requests": 500,
+        "errors": 5,
+        "timeouts": 5,
+        "p95Ms": 309.69490399999995,
+        "maxMs": 1624.6935780000003,
+        "requestsPerSecond": 132.52779859170295
+      },
+      {
+        "name": "mixed-25",
+        "concurrency": 25,
+        "requests": 500,
+        "errors": 0,
+        "timeouts": 0,
+        "p95Ms": 61.474905999999464,
+        "maxMs": 72.28972199999953,
+        "requestsPerSecond": 615.1380082605627
+      },
+      {
+        "name": "entrance-burst-50",
+        "concurrency": 50,
+        "requests": 500,
+        "errors": 5,
+        "timeouts": 5,
+        "p95Ms": 503.0576280000005,
+        "maxMs": 1800.9893599999996,
+        "requestsPerSecond": 136.1349221451323
+      },
+      {
+        "name": "mixed-50",
+        "concurrency": 50,
+        "requests": 500,
+        "errors": 0,
+        "timeouts": 0,
+        "p95Ms": 120.16379700000107,
+        "maxMs": 128.64076699999714,
+        "requestsPerSecond": 638.8465469205726
+      },
+      {
+        "name": "entrance-burst-100",
+        "concurrency": 100,
+        "requests": 500,
+        "errors": 8,
+        "timeouts": 8,
+        "p95Ms": 881.5830549999991,
+        "maxMs": 1814.8055649999988,
+        "requestsPerSecond": 136.13625818181464
+      },
+      {
+        "name": "mixed-100",
+        "concurrency": 100,
+        "requests": 500,
+        "errors": 0,
+        "timeouts": 0,
+        "p95Ms": 243.28904700000203,
+        "maxMs": 251.4232489999995,
+        "requestsPerSecond": 664.452918623
+      },
+      {
+        "name": "sustained-1",
+        "concurrency": 25,
+        "requests": 6846,
+        "errors": 0,
+        "timeouts": 0,
+        "p95Ms": 53.615938999999344,
+        "maxMs": 62.12369699999908,
+        "requestsPerSecond": 683.0912986004416
+      },
+      {
+        "name": "recovery",
+        "concurrency": 25,
+        "requests": 500,
+        "errors": 6,
+        "timeouts": 6,
+        "p95Ms": 256.8737190000029,
+        "maxMs": 1611.830151999995,
+        "requestsPerSecond": 139.26524109460786
+      }
+    ],
+    "workloadMaxima": {
+      "access": 1814.8055649999988,
+      "waivers": 250.99728900000264,
+      "training": 251.4232489999995,
+      "health": 85.81572700000106
+    },
+    "stability": {
+      "passed": true,
+      "baselineP95Ms": 368.3859910000001,
+      "recoveryP95Ms": 256.8737190000029
+    },
+    "counters": {
+      "events": 4555,
+      "checkIns": 3890,
+      "openVisits": 450
+    }
+  },
+  "optimized": {
+    "label": "optimized",
+    "startedAt": "2026-11-11T21:40:02.095Z",
+    "finishedAt": "2026-11-11T21:41:20.714Z",
+    "passed": true,
+    "environment": {
+      "node": "v24.22.1",
+      "platform": "linux",
+      "cpus": 16,
+      "poolMax": 10,
+      "localHttp": true
+    },
+    "config": {
+      "profile": "acceptance",
+      "users": 500,
+      "concurrency": [
+        25,
+        50,
+        100
+      ],
+      "requestsPerStage": 500,
+      "durationSeconds": 60,
+      "limitsMs": {
+        "access": 2000,
+        "waivers": 6000,
+        "training": 6000,
+        "health": 2000
+      }
+    },
+    "totals": {
+      "requests": 45414,
+      "errors": 0,
+      "timeouts": 0,
+      "falseGrants": 0,
+      "sloViolations": 0
+    },
+    "stages": [
+      {
+        "name": "baseline",
+        "concurrency": 25,
+        "requests": 500,
+        "errors": 0,
+        "timeouts": 0,
+        "p95Ms": 105.03096599999844,
+        "maxMs": 134.9867809999996,
+        "requestsPerSecond": 321.53192832626326
+      },
+      {
+        "name": "entrance-burst-25",
+        "concurrency": 25,
+        "requests": 500,
+        "errors": 0,
+        "timeouts": 0,
+        "p95Ms": 91.03206200000022,
+        "maxMs": 112.59002900000087,
+        "requestsPerSecond": 373.2826399581544
+      },
+      {
+        "name": "mixed-25",
+        "concurrency": 25,
+        "requests": 500,
+        "errors": 0,
+        "timeouts": 0,
+        "p95Ms": 55.30619200000001,
+        "maxMs": 75.10347200000069,
+        "requestsPerSecond": 636.382850381773
+      },
+      {
+        "name": "entrance-burst-50",
+        "concurrency": 50,
+        "requests": 500,
+        "errors": 0,
+        "timeouts": 0,
+        "p95Ms": 108.03960499999994,
+        "maxMs": 127.61528800000087,
+        "requestsPerSecond": 519.7676683014805
+      },
+      {
+        "name": "mixed-50",
+        "concurrency": 50,
+        "requests": 500,
+        "errors": 0,
+        "timeouts": 0,
+        "p95Ms": 118.67736299999888,
+        "maxMs": 130.76840300000003,
+        "requestsPerSecond": 654.9403062910066
+      },
+      {
+        "name": "entrance-burst-100",
+        "concurrency": 100,
+        "requests": 500,
+        "errors": 0,
+        "timeouts": 0,
+        "p95Ms": 243.21058599999924,
+        "maxMs": 257.91091099999903,
+        "requestsPerSecond": 436.0145515077842
+      },
+      {
+        "name": "mixed-100",
+        "concurrency": 100,
+        "requests": 500,
+        "errors": 0,
+        "timeouts": 0,
+        "p95Ms": 241.24557300000015,
+        "maxMs": 269.7196589999985,
+        "requestsPerSecond": 657.7211702832255
+      },
+      {
+        "name": "sustained-1",
+        "concurrency": 25,
+        "requests": 6760,
+        "errors": 0,
+        "timeouts": 0,
+        "p95Ms": 54.30534599999737,
+        "maxMs": 71.4502399999983,
+        "requestsPerSecond": 674.2076046549821
+      },
+      {
+        "name": "sustained-2",
+        "concurrency": 25,
+        "requests": 6774,
+        "errors": 0,
+        "timeouts": 0,
+        "p95Ms": 52.58726000000024,
+        "maxMs": 70.40320399999837,
+        "requestsPerSecond": 675.0704281499901
+      },
+      {
+        "name": "sustained-3",
+        "concurrency": 25,
+        "requests": 7114,
+        "errors": 0,
+        "timeouts": 0,
+        "p95Ms": 50.46075800000108,
+        "maxMs": 64.47690200000216,
+        "requestsPerSecond": 709.861164387563
+      },
+      {
+        "name": "sustained-4",
+        "concurrency": 25,
+        "requests": 6881,
+        "errors": 0,
+        "timeouts": 0,
+        "p95Ms": 52.1916379999966,
+        "maxMs": 98.41617399999814,
+        "requestsPerSecond": 685.4320776446776
+      },
+      {
+        "name": "sustained-5",
+        "concurrency": 25,
+        "requests": 6830,
+        "errors": 0,
+        "timeouts": 0,
+        "p95Ms": 52.76568199999747,
+        "maxMs": 78.33696200000122,
+        "requestsPerSecond": 680.2015319303908
+      },
+      {
+        "name": "sustained-6",
+        "concurrency": 25,
+        "requests": 7055,
+        "errors": 0,
+        "timeouts": 0,
+        "p95Ms": 50.05262099999527,
+        "maxMs": 87.25104599999031,
+        "requestsPerSecond": 716.6528871940731
+      },
+      {
+        "name": "recovery",
+        "concurrency": 25,
+        "requests": 500,
+        "errors": 0,
+        "timeouts": 0,
+        "p95Ms": 88.62565099999483,
+        "maxMs": 104.08807199999865,
+        "requestsPerSecond": 364.58010482459747
+      }
+    ],
+    "workloadMaxima": {
+      "access": 257.91091099999903,
+      "waivers": 266.5070790000027,
+      "training": 269.7196589999985,
+      "health": 86.23675000000003
+    },
+    "stability": {
+      "passed": true,
+      "baselineP95Ms": 105.03096599999844,
+      "recoveryP95Ms": 88.62565099999483,
+      "firstWindowP95Ms": 54.30534599999737,
+      "lastWindowP95Ms": 50.05262099999527,
+      "firstWindowRequestsPerSecond": 674.2076046549821,
+      "lastWindowRequestsPerSecond": 716.6528871940731,
+      "maxLatencyRatio": 2,
+      "latencyNoiseAllowanceMs": 100,
+      "minimumThroughputRatio": 0.8
+    },
+    "counters": {
+      "events": 13230,
+      "allowed": 10830,
+      "checkIns": 10830,
+      "openVisits": 450,
+      "falseGrants": 0
+    },
+    "auditIntegrity": true
+  },
+  "verification": {
+    "backendBuild": true,
+    "loadTestTypeCheck": true,
+    "backendUnitTests": 68,
+    "backendIntegrationTests": 390,
+    "ciSmoke": true
+  }
+}

@@ -17,6 +17,12 @@ before(async()=>{
 });
 after(async()=>{await pool.end();if(created)await admin.query(`DROP DATABASE "${database}"`);await admin.end();});
 async function reset() {await pool.query('DELETE FROM app_notification_outbox');await updateNotificationPreferences(pool,userId,{enabled:true,timeZone:'America/New_York'});}
+/** Upserts certification 90001 and the user's record of it, so each test that reads it also runs alone. */
+async function ensureCertification(renewal:Date) {
+  await pool.query(`INSERT INTO certifications(certid,name) VALUES(90001,'Notification test') ON CONFLICT (certid) DO NOTHING`);
+  await pool.query(`INSERT INTO user_certifications(usercertid,userid,certid,renewaldate,status) VALUES(90001,$1,90001,$2::timestamptz AT TIME ZONE 'UTC','active')
+    ON CONFLICT (usercertid) DO UPDATE SET userid=EXCLUDED.userid,certid=EXCLUDED.certid,renewaldate=EXCLUDED.renewaldate,status=EXCLUDED.status`,[userId,renewal]);
+}
 async function enqueue(key:string,options:Partial<Parameters<typeof enqueueNotification>[1]>={}) {await enqueueNotification(pool,{userId,kind:'account_created',dedupeKey:key,payload:{},...options});}
 test('durable dedupe and concurrent workers send one event once',async()=>{
  await reset();await Promise.all([enqueue('same'),enqueue('same')]);let count=0;
@@ -44,8 +50,7 @@ test('expired lease uncertain; late/failed events remain in metric denominator',
 });
 test('scheduler deduplicates and cancels stale renewed certifications',async()=>{
  await reset();const now=new Date();const expiry=new Date(now.getTime()+4*86400000);
- await pool.query(`INSERT INTO certifications(certid,name) VALUES(90001,'Notification test')`);
- await pool.query(`INSERT INTO user_certifications(usercertid,userid,certid,renewaldate,status) VALUES(90001,$1,90001,$2::timestamptz AT TIME ZONE 'UTC','active')`,[userId,expiry]);
+ await ensureCertification(expiry);
  await scheduleExpirationNotifications(pool,now);await scheduleExpirationNotifications(pool,now);
  assert.equal((await pool.query("SELECT COUNT(*)::int n FROM app_notification_outbox WHERE dedupe_key LIKE 'certification-expiring:90001:%'")).rows[0].n,1);
  await pool.query("UPDATE user_certifications SET renewaldate=renewaldate+INTERVAL '1 year' WHERE usercertid=90001");
@@ -63,6 +68,7 @@ test('timezone change reschedules pending reminder but never revives suppressed 
 });
 test('unchanged expired source is failed and remains in on-time metric denominator',async()=>{
   await reset();const expiry=new Date(Date.now()-10000);
+  await ensureCertification(expiry);
   await pool.query(`UPDATE user_certifications SET renewaldate=$1::timestamptz AT TIME ZONE 'UTC' WHERE usercertid=90001`,[expiry]);
   await enqueue('expired',{kind:'certification_expiring',deadlineAt:new Date(expiry.getTime()-7*86400000),payload:{sourceType:'certification',sourceId:90001,expiresAt:expiry.toISOString()}});
   const result=await runNotificationBatch(pool,async()=>{throw new Error('expired mail must not send');});
@@ -78,6 +84,7 @@ test('explicit provider retry-after delays retries and suppression after deadlin
 });
 test('PostgreSQL sub-millisecond expirations still match queued JavaScript dates',async()=>{
   await reset();
+  await ensureCertification(new Date('2030-05-20T12:00:00Z'));
   await pool.query("UPDATE user_certifications SET renewaldate=TIMESTAMP '2030-05-20 12:00:00.123456' WHERE usercertid=90001");
   const now=new Date('2030-05-15T12:00:00Z');await scheduleExpirationNotifications(pool,now);
   let sent=false;await runNotificationBatch(pool,async row=>{if(row.payload.sourceId===90001)sent=true;return {messageId:`micro-${row.id}`};},{now});

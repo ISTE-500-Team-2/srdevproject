@@ -16,7 +16,7 @@ after(async()=>{await pool.end();if(created)await admin.query(`DROP DATABASE "${
 test('webhook authenticates, validates, retains early callbacks and deduplicates retries',async()=>{
  const event={event:'delivered','message-id':'<controlled@example.invalid>',ts_event:Math.floor(Date.now()/1000)};
  assert.equal((await request(app).post('/api/webhooks/brevo').send(event)).status,401);
- const send=(data:unknown)=>request(app).post('/api/webhooks/brevo').set('Authorization','Bearer '+token).send(data);
+ const send=(data:string | object)=>request(app).post('/api/webhooks/brevo').set('Authorization','Bearer '+token).send(data);
  assert.equal((await send(event)).status,204);
  assert.equal((await send(event)).status,204);
  assert.equal((await send({...event,event:'hard_bounce'})).status,204);

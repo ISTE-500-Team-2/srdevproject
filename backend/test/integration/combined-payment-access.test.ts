@@ -41,7 +41,7 @@ after(async()=>{
   await pool.end();if(created)await owner.query(`DROP DATABASE "${database}"`);await owner.end();
 });
 const get=(path:string,actor=member)=>request(server).get('/api'+path).set('Authorization','Bearer '+actor.accessToken);
-const post=(path:string,body:unknown,actor=member)=>request(server).post('/api'+path).set('Authorization','Bearer '+actor.accessToken).set('X-CSRF-Token',actor.csrfToken).send(body);
+const post=(path:string,body:string | object,actor=member)=>request(server).post('/api'+path).set('Authorization','Bearer '+actor.accessToken).set('X-CSRF-Token',actor.csrfToken).send(body);
 function scan(){
   const body=JSON.stringify({uid,eventId:randomUUID(),checkIn:true}),stamp=String(Date.now());
   return request(server).post('/api/devices/decision').set('Content-Type','application/json').set('X-Reader-ID','combined')

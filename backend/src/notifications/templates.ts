@@ -43,7 +43,46 @@ const headings = {
 
 export type NotificationKind = keyof typeof headings;
 export const notificationKinds = Object.keys(headings) as NotificationKind[];
+export const isNotificationKind = (kind: string): kind is NotificationKind => Object.hasOwn(headings, kind);
 export type NotificationPayload = Record<string, unknown>;
+
+/** Every payload field a template can show. Anything else in a payload is never rendered. */
+const renderedFields = ['currency', 'resourceName', 'equipmentName', 'startsAt', 'startTime', 'endsAt', 'endTime', 'amount',
+  'refundAmount', 'paymentStatus', 'role', 'certificationName', 'memberName', 'adultName', 'minorName', 'name',
+  'completedWaiverText', 'waiverText', 'signature', 'signedAt', 'waiverVersion', 'waiverName', 'membershipName', 'planName',
+  'location', 'validDate', 'expiresAt', 'renewsAt', 'method', 'paidAt', 'reason', 'reservationId', 'paymentId', 'reference',
+  'instructions', 'confirmationUrl', 'resetUrl'] as const;
+type RenderedField = typeof renderedFields[number];
+/** Text or a number; null and absent fields are left out of the email. */
+type Shown = string | number;
+type Details = { [F in RenderedField]?: Shown | null };
+/** Read by the worker and scheduler, or kept for the record; never rendered. */
+interface Bookkeeping {
+  sourceType?: string; sourceId?: number; confirmationHash?: string; resetHash?: string; noticeId?: number; readerId?: string;
+  waiverId?: number; membershipId?: number; memberId?: number; formValues?: unknown; guardianConsent?: unknown;
+  methodOfAcceptance?: string;
+}
+type Payload = Details & Bookkeeping;
+/** What each kind's template needs. Only the fields a template refuses to render without are required. */
+export interface NotificationPayloads extends Record<NotificationKind, Payload> {
+  account_confirmation: Payload & { confirmationUrl: string };
+  password_reset: Payload & { resetUrl: string };
+  waiver_signed: Payload & { signature: Shown; signedAt: Shown; waiverVersion: Shown }
+    & ({ waiverText: Shown } | { completedWaiverText: Shown });
+}
+
+const shown = (value: unknown) =>
+  value === null || typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value));
+/** Checks a persisted job before it is rendered: a known kind, and a payload whose
+ * rendered fields hold text or numbers rather than something shown as blank. */
+export function notificationJob(kind: string, payload: unknown): { kind: NotificationKind; payload: NotificationPayload } {
+  if (!isNotificationKind(kind)) throw new Error('Unsupported notification kind');
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) throw new Error('Notification payload must be an object');
+  const fields = payload as NotificationPayload;
+  for (const name of renderedFields)
+    if (Object.hasOwn(fields, name) && !shown(fields[name])) throw new Error(`Notification field ${name} must be text or a number`);
+  return { kind, payload: fields };
+}
 export interface NotificationContext {
   recipientEmail: string;
   recipientName?: string;
@@ -291,7 +330,7 @@ export function renderNotification(kind: NotificationKind, payload: Notification
   const heading = headings[kind];
   const { category, status, tone, title, intro, cta } = copy[kind];
   const timeZone = text(payload.timeZone);
-  const field = (name: string) => text(payload[name]);
+  const field = (name: RenderedField) => text(payload[name]);
   const preferenceLink = context.preferencesUrl ? safeUrl(context.preferencesUrl, 'Invalid notification preferences URL').href : '';
 
   /** Only explicit, approved fields are rendered; arbitrary payloads may contain sensitive metadata. */

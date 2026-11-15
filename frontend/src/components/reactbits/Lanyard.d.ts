@@ -8,6 +8,8 @@ export default function Lanyard(props: {
   cardColor?: string;
   orientation?: "portrait" | "landscape";
   finish?: "glossy" | "matte" | "holographic" | "metallic";
+  /** Card corner rounding from 0 (nearly square) to 1 (fully rounded); clamped. Default 0.3. */
+  cornerRadius?: number;
   size?: number;
   anchor?: "left" | "center" | "right";
   strapLength?: number;
@@ -16,6 +18,8 @@ export default function Lanyard(props: {
   metal?: "silver" | "gold" | "graphite";
   gravity?: number;
   damping?: number;
+  /** Strap springiness from 0 to 1; clamped. Default 0.5. */
+  elasticity?: number;
   breeze?: number;
   /** Tone-mapping exposure; lower it on dark pages so the white card doesn't glare. */
   exposure?: number;

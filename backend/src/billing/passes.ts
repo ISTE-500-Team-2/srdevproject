@@ -7,34 +7,37 @@ import type Stripe from 'stripe';
 import {transaction,type Database} from '../db.js';
 import {AppError,positiveId} from '../domain.js';
 import {calendarDate} from '../staffDomain.js';
-import {StaffModel} from '../models/StaffModel.js';
+import {StaffModel,type Plan} from '../models/StaffModel.js';
 import {AccessService} from '../services/AccessService.js';
-import {StudioService} from '../studios/service.js';
+import {requireActor} from '../accountPolicy.js';
+import {businessToday} from '../businessDate.js';
 import {StudioStripe} from '../studios/stripe.js';
 import {enqueueNotification} from '../notifications/store.js';
 import {quote} from './pricing.js';
-const objectId=(v:any):string|undefined=>typeof v==='string'?v:v?.id;
+import {refundTransition} from './refundTransition.js';
+import {isCheckoutSessionEvent,isRefundEvent} from './stripeEvents.js';
+/** An app_pass_checkout row. */
+interface PassCheckoutRow {id:string;userid:number;tierid:number;valid_date:Date;plan_snapshot:Plan;amount_cents:number;
+ status:'pending'|'paid'|'cancelled'|'expired';checkout_id:string|null;payment_intent:string|null;pass_id:number|null;payment_id:number|null;
+ cancel_requested_at:Date|null;refund_id:string|null;refund_status:string|null;created_at:Date;}
+/** Day-pass checkout request; each field is validated by PassBilling.checkout. */
+export interface PassCheckoutRequest {[field:string]:unknown;validDate?:unknown;planId?:unknown;expectedRevision?:unknown;pricingRevision?:unknown;amountCents?:unknown;}
+/** Free monthly membership request; each field is validated by PassBilling.freeMembership. */
+export interface FreeMembershipRequest {[field:string]:unknown;planId?:unknown;expectedRevision?:unknown;pricingRevision?:unknown;}
+const objectId=(v:string|{id:string}|null|undefined):string|undefined=>typeof v==='string'?v:v?.id;
 export class PassBilling {
  constructor(readonly pool:Pool,readonly stripe?:StudioStripe,readonly zone='America/New_York'){}
  provider(){if(!this.stripe)throw new AppError(503,'PAYMENTS_UNAVAILABLE','Card checkout is not configured.');return this.stripe;}
- /**
-  * Merge online and desk-issued passes; the manual: prefix preserves which cancellation workflow
-  * owns each record.
-  */
  async mine(userid:number){const online=(await this.pool.query(`SELECT id,plan_snapshot AS plan,to_char(valid_date,'YYYY-MM-DD') AS "validDate",amount_cents AS "amountCents",status,refund_status AS "refundStatus",
   ((valid_date-3)::timestamp AT TIME ZONE $2) AS "cancelBy" FROM app_pass_checkout WHERE userid=$1 ORDER BY created_at DESC LIMIT 100`,[userid,this.zone])).rows;
   const manual=(await this.pool.query(`SELECT 'manual:'||d.dayid AS id,d.plan_snapshot AS plan,to_char(d.validdate,'YYYY-MM-DD') AS "validDate",round(COALESCE(p.price,0)*100)::int AS "amountCents",d.status,CASE WHEN p.paymentstatus='refunded' THEN 'succeeded' ELSE NULL END AS "refundStatus",
    ((d.validdate::date-3)::timestamp AT TIME ZONE $2) AS "cancelBy" FROM day_pass d LEFT JOIN payment p ON p.paymentid=d.paymentid
    WHERE d.userid=$1 AND NOT EXISTS(SELECT 1 FROM app_pass_checkout c WHERE c.pass_id=d.dayid) ORDER BY d.dayid DESC LIMIT 100`,[userid,this.zone])).rows;
   return [...online,...manual];}
- /**
-  * Cancel a desk-issued pass within the notice period; report a required manual refund without
-  * marking money as returned.
-  */
  async cancelManual(userid:number,id:number){
   return transaction(this.pool,async db=>{
    await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,userid]);
-   const r=(await db.query(`SELECT d.*,p.paymentstatus,p.price,p.method,now()<=((d.validdate::date-3)::timestamp AT TIME ZONE $3) AS timely
+   const r=(await db.query<{status:string;validdate:Date;paymentid:number|null;paymentstatus:string|null;timely:boolean}>(`SELECT d.*,p.paymentstatus,p.price,p.method,now()<=((d.validdate::date-3)::timestamp AT TIME ZONE $3) AS timely
     FROM day_pass d LEFT JOIN payment p ON p.paymentid=d.paymentid WHERE d.dayid=$1 AND d.userid=$2 FOR UPDATE OF d`,[id,userid,this.zone])).rows[0];
    if(!r)throw new AppError(404,'NOT_FOUND','Day pass not found.');
    if((await db.query('SELECT id FROM app_pass_checkout WHERE pass_id=$1',[id])).rowCount)throw new AppError(409,'PROVIDER_PAYMENT','Use the online checkout cancellation.');
@@ -54,42 +57,38 @@ export class PassBilling {
    // Staff status changes lock the member before the entitlement. Audit writes
    // also need the member's FK lock, so keep the same order here.
    await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR UPDATE',[userid]);
-   const r=(await db.query(`SELECT m.status,m.cancellation_requested_at,COALESCE(m.plan_snapshot->>'name',t.tiername,'Membership') AS plan_name,m.end_date AT TIME ZONE 'UTC' AS ends,
+   const r=(await db.query<{status:string;cancellation_requested_at:Date|null;plan_name:string;ends:Date;running:boolean}>(`SELECT m.status,m.cancellation_requested_at,COALESCE(m.plan_snapshot->>'name',t.tiername,'Membership') AS plan_name,m.end_date AT TIME ZONE 'UTC' AS ends,
     m.startdate<=NOW() AT TIME ZONE 'UTC' AND m.end_date>NOW() AT TIME ZONE 'UTC' AS running
     FROM user_membership m LEFT JOIN membership_tiers t USING(tierid) WHERE m.membershipid=$1 AND m.userid=$2 FOR UPDATE OF m`,[id,userid])).rows[0];
    if(!r)throw new AppError(404,'NOT_FOUND','Membership not found.');
    if((await db.query('SELECT id FROM app_membership_invoice WHERE membership_id=$1',[id])).rowCount)throw new AppError(409,'PROVIDER_PAYMENT','Stop auto-renew to cancel a card membership.');
    if(r.cancellation_requested_at)return {cancelled:true,endsAt:r.ends};
    if(r.status!=='active'||!r.running)throw new AppError(409,'INVALID_STATUS','Contact staff about this membership.');
-   const ends=(await db.query(`UPDATE user_membership SET end_date=LEAST(end_date,(NOW() AT TIME ZONE 'UTC')+INTERVAL '30 days'),
-    cancellation_requested_at=NOW(),revision=revision+1 WHERE membershipid=$1 RETURNING end_date AT TIME ZONE 'UTC' AS ends`,[id])).rows[0].ends;
+   const ends=(await db.query<{ends:Date}>(`UPDATE user_membership SET end_date=LEAST(end_date,(NOW() AT TIME ZONE 'UTC')+INTERVAL '30 days'),
+    cancellation_requested_at=NOW(),revision=revision+1 WHERE membershipid=$1 RETURNING end_date AT TIME ZONE 'UTC' AS ends`,[id])).rows[0]!.ends;
    await new StaffModel(db).audit(userid,userid,'membership.cancelled','membership',id,'Member cancellation with 30 days notice',{endsAt:r.ends},{endsAt:ends});
    await enqueueNotification(db,{userId:userid,kind:'membership_cancelled',dedupeKey:'membership-manual-cancel:'+id,
     payload:{membershipId:id,membershipName:r.plan_name,endsAt:new Date(ends).toISOString(),instructions:'Your membership stays active until the date shown and will not renew. If you paid at the front desk, ask staff about any refund.'}});
    return {cancelled:true,endsAt:ends};
   });
  }
- /**
-  * Serialize member/date issuance, revalidate the displayed quote and reuse an existing compatible
-  * pending checkout.
-  */
- async checkout(userid:number,body:any){
+ async checkout(userid:number,body:PassCheckoutRequest){
   const returnPath = `/checkout-return?member=${userid}`;
   const date=calendarDate(body.validDate),id=positiveId(body.planId);
   const row=await transaction(this.pool,async db=>{
    await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,userid]);
-   const user=await new StudioService(this.pool).actor(db,userid),model=new StaffModel(db);
+   const user=await requireActor(db,userid),model=new StaffModel(db);
    await new AccessService(db,this.zone).assertWaivers(userid);
-   if(date<new StudioService(this.pool,this.zone).today())throw new AppError(400,'INVALID_DATE','Choose today or a future date.');
+   if(date<businessToday(this.zone))throw new AppError(400,'INVALID_DATE','Choose today or a future date.');
    const plan=await model.plan(id,true);
    if(!plan?.active||plan.kind!=='day_pass')throw new AppError(400,'INVALID_PLAN','Choose an active day-pass plan.');
    const offer=await quote(db,userid,plan,date);
    if(body.expectedRevision!==plan.revision||body.pricingRevision!==offer.pricingRevision||body.amountCents!==offer.amountCents)throw new AppError(409,'PRICE_CHANGED','Refresh and review the current price.');
-   const old=(await db.query("SELECT * FROM app_pass_checkout WHERE userid=$1 AND valid_date=$2 AND status NOT IN ('expired','cancelled') FOR UPDATE",[userid,date])).rows[0];
+   const old=(await db.query<PassCheckoutRow>("SELECT * FROM app_pass_checkout WHERE userid=$1 AND valid_date=$2 AND status NOT IN ('expired','cancelled') FOR UPDATE",[userid,date])).rows[0];
    if(old){if(old.tierid!==id||old.amount_cents!==offer.amountCents)throw new AppError(409,'CHECKOUT_EXISTS','Cancel the existing checkout before changing plans.');return {...old,email:user.email};}
    if(await model.passExists(userid,date))throw new AppError(409,'PASS_EXISTS','You already have a pass for this date.');
    if(offer.amountCents>0)this.provider();
-   const r=(await db.query(`INSERT INTO app_pass_checkout(id,userid,tierid,valid_date,plan_snapshot,amount_cents) VALUES($1,$2,$3,$4,$5,$6) RETURNING *`,[randomUUID(),userid,id,date,JSON.stringify({...plan,price:(offer.amountCents/100).toFixed(2),priceBasis:offer.basis}),offer.amountCents])).rows[0];
+   const r=(await db.query<PassCheckoutRow>(`INSERT INTO app_pass_checkout(id,userid,tierid,valid_date,plan_snapshot,amount_cents) VALUES($1,$2,$3,$4,$5,$6) RETURNING *`,[randomUUID(),userid,id,date,JSON.stringify({...plan,price:(offer.amountCents/100).toFixed(2),priceBasis:offer.basis}),offer.amountCents])).rows[0]!;
    if(r.amount_cents===0)await this.issue(db,r,'free:'+r.id);
    return {...r,email:user.email};
   });
@@ -105,11 +104,7 @@ export class PassBilling {
   if(s.status!=='open'||!s.url)throw new AppError(409,'PAYMENT_PROCESSING','Payment is being verified. Refresh shortly.');
   return {checkoutUrl:s.url};
  }
- /**
-  * Create the access/payment evidence once inside the caller's transaction, whether the source is
-  * paid checkout or an eligible free offer.
-  */
- async issue(db:Database,r:any,reference:string){
+ async issue(db:Database,r:PassCheckoutRow,reference:string){
   if(r.pass_id)return;
   const model=new StaffModel(db),date=new Date(r.valid_date).toISOString().slice(0,10);
   if(await model.passExists(r.userid,date))throw new AppError(409,'PASS_EXISTS','An existing pass requires payment reconciliation.');
@@ -120,14 +115,10 @@ export class PassBilling {
   await model.audit(r.userid,r.userid,'daypass.issued','day_pass',pass,'Online day pass',null,{payment,reference});
   await enqueueNotification(db,{userId:r.userid,kind:'payment_receipt',dedupeKey:'daypass-receipt:'+r.id,payload:{amount:(r.amount_cents/100).toFixed(2),currency:'USD',reference,method:r.amount_cents?'Card (test mode)':'Approved free access',paymentId:payment,membershipName:r.plan_snapshot.name,validDate:date}});
  }
- /**
-  * Issue an eligible zero-cost membership using the same current plan/discount checks as a priced
-  * offer.
-  */
- async freeMembership(userid:number,body:any){
+ async freeMembership(userid:number,body:FreeMembershipRequest){
   return transaction(this.pool,async db=>{
    await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,userid]);
-   await new StudioService(this.pool).actor(db,userid);
+   await requireActor(db,userid);
    await new AccessService(db,this.zone).assertWaivers(userid);
    const model=new StaffModel(db),plan=await model.plan(positiveId(body.planId),true);
    if(!plan?.active||plan.kind!=='membership'||plan.months!==1)throw new AppError(400,'INVALID_PLAN','Choose an active monthly plan.');
@@ -149,7 +140,7 @@ export class PassBilling {
   // can finish the same cancellation, not start an unauthorized late one.
   const row=await transaction(this.pool,async db=>{
    await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,userid]);
-   const r=(await db.query('SELECT *,now()<=((valid_date-3)::timestamp AT TIME ZONE $3) AS timely FROM app_pass_checkout WHERE id::text=$1 AND userid=$2 FOR UPDATE',[id,userid,this.zone])).rows[0];
+   const r=(await db.query<PassCheckoutRow&{timely:boolean}>('SELECT *,now()<=((valid_date-3)::timestamp AT TIME ZONE $3) AS timely FROM app_pass_checkout WHERE id::text=$1 AND userid=$2 FOR UPDATE',[id,userid,this.zone])).rows[0];
    if(!r)throw new AppError(404,'NOT_FOUND','Day-pass checkout not found.');
    if(r.status==='cancelled'||r.status==='expired')return r;
    if(r.status==='paid'&&!r.cancel_requested_at&&!r.timely)throw new AppError(409,'CANCELLATION_NOTICE','Day passes require at least 3 days cancellation notice.');
@@ -165,7 +156,7 @@ export class PassBilling {
    await this.pool.query("UPDATE app_pass_checkout SET status='expired',cancel_requested_at=NULL WHERE id=$1 AND status='pending'",[id]);return {cancelled:true};
   }
   return transaction(this.pool,async db=>{
-   const r=(await db.query('SELECT * FROM app_pass_checkout WHERE id::text=$1 FOR UPDATE',[id])).rows[0];
+   const r=(await db.query<PassCheckoutRow>('SELECT * FROM app_pass_checkout WHERE id::text=$1 FOR UPDATE',[id])).rows[0]!;
    if(r.status==='cancelled')return {cancelled:true};
    if(r.amount_cents===0){await this.finishCancel(db,r);return {cancelled:true};}
    if(!r.payment_intent)throw new AppError(409,'RECONCILE_REQUIRED','Original card payment must be reconciled.');
@@ -175,26 +166,22 @@ export class PassBilling {
    await this.applyRefund(db,f);return {cancelled:f.status==='succeeded',refundStatus:f.status};
   });
  }
- async finishCancel(db:Database,r:any){
+ async finishCancel(db:Database,r:Pick<PassCheckoutRow,'id'|'pass_id'>){
   await db.query("UPDATE app_pass_checkout SET status='cancelled' WHERE id=$1",[r.id]);
   await db.query("UPDATE day_pass SET status='cancelled',statusdesc='Member cancellation with 3 days notice',revision=revision+1 WHERE dayid=$1",[r.pass_id]);
  }
- /**
-  * Project the provider's refund result onto local pass/payment records without treating a pending
-  * refund as successful.
-  */
  async applyRefund(db:Database,f:Stripe.Refund){
-  const r=(await db.query('SELECT * FROM app_pass_checkout WHERE payment_intent=$1 FOR UPDATE',[objectId(f.payment_intent)])).rows[0];
+  const r=(await db.query<PassCheckoutRow>('SELECT * FROM app_pass_checkout WHERE payment_intent=$1 FOR UPDATE',[objectId(f.payment_intent)])).rows[0];
   if(!r)return;
   const failed=['failed','canceled'].includes(f.status??'');
-  if(r.refund_status==='succeeded'&&!(r.refund_id===f.id&&failed))return;
-  if(r.refund_id===f.id&&(r.refund_status===f.status||['failed','canceled'].includes(r.refund_status)&&f.status==='pending'))return;
+  if(refundTransition({refundId:r.refund_id,refundStatus:r.refund_status},f)==='skip')return;
   if(f.amount!==r.amount_cents||f.currency!=='usd')throw new AppError(409,'RECONCILE_REQUIRED','Refund amount mismatch.');
   await db.query('UPDATE app_pass_checkout SET refund_id=$2,refund_status=$3 WHERE id=$1',[r.id,f.id,f.status]);
   if(f.status==='succeeded'){
    await db.query("UPDATE payment SET paymentstatus='refunded',updated_at=now(),revision=revision+1 WHERE paymentid=$1",[r.payment_id]);
    await this.finishCancel(db,r);
-   await new StaffModel(db).audit(r.userid,r.userid,'daypass.refunded','payment',r.payment_id,'Original-card refund confirmed',null,{refundId:f.id,amount:f.amount});
+   // A refunded checkout was paid and issued, so it has its payment record.
+   await new StaffModel(db).audit(r.userid,r.userid,'daypass.refunded','payment',r.payment_id!,'Original-card refund confirmed',null,{refundId:f.id,amount:f.amount});
    await enqueueNotification(db,{userId:r.userid,kind:'payment_refunded',dedupeKey:'daypass-refund:'+r.id+':'+f.id,payload:{reference:f.id,amount:(f.amount/100).toFixed(2),currency:'USD',method:'Original card (test mode)'}});
   }
   if(failed){
@@ -206,31 +193,28 @@ export class PassBilling {
  async refundEvent(db:Database,obj:Stripe.Refund){
   const pi=objectId(obj.payment_intent);
   if(!pi)throw new AppError(400,'PAYMENT_MISMATCH','Refund payment intent missing.');
-  const row=(await db.query('SELECT id FROM app_pass_checkout WHERE payment_intent=$1 FOR UPDATE',[pi])).rows[0];
+  const row=(await db.query<{id:string}>('SELECT id FROM app_pass_checkout WHERE payment_intent=$1 FOR UPDATE',[pi])).rows[0];
   if(!row)return;
   const f=await this.provider().sdk.refunds.retrieve(obj.id);
   if(f.id!==obj.id||objectId(f.payment_intent)!==pi)throw new AppError(400,'PAYMENT_MISMATCH','Refund identity mismatch.');
   await this.applyRefund(db,f);
  }
- /**
-  * Reconcile current provider state under member/checkout locks so repeated callbacks cannot issue
-  * duplicate access.
-  */
  async webhook(event:Stripe.Event){
   if(event.livemode)throw new AppError(400,'LIVE_PAYMENT_FORBIDDEN','Test events only.');
-  const sdk=this.provider().sdk,obj=event.data.object as any;
+  const sdk=this.provider().sdk;
   await transaction(this.pool,async db=>{
    if(!(await db.query('INSERT INTO app_pass_stripe_event(id) VALUES($1) ON CONFLICT DO NOTHING RETURNING id',[event.id])).rowCount)return;
-   if(['refund.created','refund.updated','refund.failed'].includes(event.type)){await this.refundEvent(db,obj);return;}
-   if(!event.type.startsWith('checkout.session.'))return;
+   if(isRefundEvent(event)){await this.refundEvent(db,event.data.object);return;}
+   if(!isCheckoutSessionEvent(event))return;
+   const obj=event.data.object;
    // Ignore other products' Checkout events without an unnecessary provider call.
-   const known=(await db.query('SELECT id FROM app_pass_checkout WHERE checkout_id=$1 OR id::text=$2',[obj.id,obj.metadata?.dayPassCheckoutId??''])).rows[0];
+   const known=(await db.query<{id:string}>('SELECT id FROM app_pass_checkout WHERE checkout_id=$1 OR id::text=$2',[obj.id,obj.metadata?.dayPassCheckoutId??''])).rows[0];
    if(!known)return;
    const s=await sdk.checkout.sessions.retrieve(obj.id),id=s.metadata?.dayPassCheckoutId;
    if(!id)return;
-   const owner=(await db.query('SELECT userid FROM app_pass_checkout WHERE id::text=$1',[id])).rows[0];if(!owner)return;
+   const owner=(await db.query<{userid:number}>('SELECT userid FROM app_pass_checkout WHERE id::text=$1',[id])).rows[0];if(!owner)return;
    await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,owner.userid]);
-   const r=(await db.query('SELECT * FROM app_pass_checkout WHERE id::text=$1 FOR UPDATE',[id])).rows[0];
+   const r=(await db.query<PassCheckoutRow>('SELECT * FROM app_pass_checkout WHERE id::text=$1 FOR UPDATE',[id])).rows[0]!;
    if(s.livemode||s.mode!=='payment'||s.client_reference_id!==r.id||r.checkout_id&&s.id!==r.checkout_id||s.amount_total!==r.amount_cents||s.currency!=='usd')throw new AppError(400,'PAYMENT_MISMATCH','Day-pass payment does not match checkout.');
    if(s.status==='expired'){await db.query("UPDATE app_pass_checkout SET status='expired' WHERE id=$1 AND status='pending'",[id]);return;}
    if(event.type==='checkout.session.async_payment_failed'&&s.payment_status==='unpaid'){

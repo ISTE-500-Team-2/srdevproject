@@ -2,7 +2,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import postcss from 'postcss';
 import { describe, expect, test } from 'vitest';
-import { compileDarkTwins, contrast, formatColor, mapColor, mapValue, parseColor, roleOf } from './darkCompiler';
+import { compileDarkTwins, contrast, luminance, mapColor, mapValue, parseColor, roleOf } from './darkCompiler';
 
 const CARD = parseColor('#251c16')!;
 const PAGE = parseColor('#1a1410')!;
@@ -60,7 +60,8 @@ describe('color mapping', () => {
     const card = mapColor(parseColor('#fffdfa')!, 'surface');
     const well = mapColor(parseColor('#f3ece7')!, 'surface');
     expect(contrast(card, parseColor('#ffffff')!)).toBeGreaterThan(12);
-    expect(formatColor(well) > formatColor(card)).toBe(true);
+    // Relative luminance, not the hex strings' sort order.
+    expect(luminance(well)).toBeGreaterThan(luminance(card));
   });
 
   test('status tints keep their hue as opaque dark fills', () => {

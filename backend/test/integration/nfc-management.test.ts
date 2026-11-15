@@ -82,7 +82,7 @@ after(async () => {
   if (created) await admin.query(`DROP DATABASE "${database}"`);
   await admin.end();
 });
-function post(path: string, body: unknown, auth = token) {
+function post(path: string, body: string | object, auth = token) {
   return request(app)
     .post("/api" + path)
     .set("Authorization", "Bearer " + auth)

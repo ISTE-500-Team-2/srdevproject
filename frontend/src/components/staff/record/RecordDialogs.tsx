@@ -3,6 +3,7 @@
 
 import { useState, type FormEvent, type ReactNode } from "react";
 import { api, ApiError, errorMessage } from "../../../lib/api";
+import { editingFormRef } from "../../../lib/editingForms";
 import { dollars } from "../../../lib/display";
 import type { AccessResource, NfcCard, ReaderSetup } from "../../../lib/nfc";
 import type { SupervisionSummary } from "../../../lib/contracts";
@@ -76,8 +77,8 @@ function RecordDialog({
   };
   return (
     <Modal open width={wide ? "regular" : "compact"} title={title} onClose={() => !busy && onClose()} className="mr-dialog">
-      {/* management-form: the record's background refresh waits while this is being edited. */}
-      <form className="management-form mr-dialog__form" aria-label={title} onSubmit={submit}>
+      {/* editingFormRef: the record's background refresh waits while this is being edited. */}
+      <form ref={editingFormRef} className="management-form mr-dialog__form" aria-label={title} onSubmit={submit}>
         <fieldset className="mr-dialog__fields" disabled={busy}>
           {children}
         </fieldset>
@@ -328,7 +329,15 @@ export function RecordDialogHost({
     case "refund":
       return (
         <Modal open width="compact" title={`Refund ${dollars(dialog.payment.amount)}`} onClose={onClose} className="mr-dialog">
-          <CardRefund payment={dialog.payment} onRefunded={(status) => onDone(status === "succeeded" ? `Refunded ${dollars(dialog.payment.amount)}.` : `Refund of ${dollars(dialog.payment.amount)} started.`)} />
+          <CardRefund payment={dialog.payment} onRefunded={(status) =>
+              onDone(
+                status === "succeeded"
+                  ? `Refunded ${dollars(dialog.payment.amount)}.`
+                  : status === "pending" || status === "requires_action"
+                    ? `Refund of ${dollars(dialog.payment.amount)} is on its way.`
+                    : `Stripe didn't complete the refund of ${dollars(dialog.payment.amount)}. Check it in Stripe.`,
+              )
+            } />
         </Modal>
       );
     case "assign":

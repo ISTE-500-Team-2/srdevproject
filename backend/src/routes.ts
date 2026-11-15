@@ -39,7 +39,7 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   const notifications = new NotificationPreferencesController(pool);
   const waiverRecords = new WaiverRecordsController(pool);
   const member = new MemberController(pool, config.timeZone);
-  const equipment = new EquipmentController(pool, config.timeZone, config.studioStripe);
+  const equipment = new EquipmentController(pool, config.timeZone);
   const rooms = new RoomController(pool);
   const reservations = new ReservationController(pool, config.timeZone, config.studioStripe);
   const staff = new StaffController(pool, config.timeZone);
@@ -146,6 +146,7 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   routes.post("/admin/reservations/:id/cancel", permit("reservation","update","global"), requireCsrf, reservations.staffCancel);
   routes.get("/admin/audit", permit("audit","read","global"), staff.audits);
   routes.get("/admin/audit/actions", permit("audit","read","global"), staff.auditActions);
+  routes.get("/admin/audit/:id", permit("audit","read","global"), staff.auditRecord);
   routes.get("/admin/compliance", permit("waiver","read","global"), permit("certification","read","global"), staff.compliance);
   routes.get("/admin/policies", permit("policy","read","global"), staff.policies);
   routes.post("/admin/policies", permit("policy","create","global"), requireCsrf, staff.publishPolicy);

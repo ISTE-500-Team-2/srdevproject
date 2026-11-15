@@ -54,9 +54,13 @@ export interface LiveEquipment extends Omit<Equipment, 'rate'> {
   status: string;
   outages?: { reason: string; expectedBack: string | null; startedAt: string; endedAt: string | null }[];
   waiverRequired: boolean;
+  /** The required certification's id; null when the equipment needs none. */
+  certId?: number | null;
   certification: string | null;
   location: string;
   canReserve: boolean;
+  /** One code per reason in `availability`, in the same order. Older servers omit it. */
+  reasonCodes?: string[];
 }
 export interface Reservation {
   amountCents?: number | null;
@@ -93,6 +97,8 @@ export interface Waiver {
   description: string;
   scope: 'facility' | 'equipment';
   formFields?: WaiverFormField[];
+  /** How each description line is laid out, by line number. Older servers omit it. */
+  formLines?: WaiverLineKind[];
   /** The account holder's name; a form signature has to match it. */
   signerName?: string;
   signed: boolean;
@@ -104,12 +110,20 @@ export interface Waiver {
   /** When the current signature runs out, or when the last one of this version did; null if it never expires. */
   expiresAt?: string | null;
 }
+export type WaiverLineKind = 'acceptance-method' | 'heading' | 'text';
+/** What a blank means, independent of its label's wording. */
+export type WaiverFieldSemantic =
+  | 'participant-name' | 'waiver-version' | 'accepted-at' | 'member-id' | 'staff-witness'
+  | 'signature' | 'date-of-birth' | 'signing-date' | 'emergency-contact-name' | 'relationship'
+  | 'emergency-contact-phone' | 'guardian-name' | 'other';
 export interface WaiverFormField {
   key: string;
   label: string;
   line: number;
   type: 'text' | 'date' | 'datetime-local' | 'email' | 'tel';
   section: 'participant' | 'guardian' | 'administrative';
+  /** Absent from older servers; the form then reads the label. */
+  semantic?: WaiverFieldSemantic;
   /** 'server' fields (identity, version, signing time) are filled in when the waiver is signed. */
   source: 'member' | 'server';
   required: boolean;
@@ -137,6 +151,8 @@ export interface Overview {
   checkInBuildingId: number | null;
   buildings: { id: number; name: string; status: string }[];
   reasons: string[];
+  /** reasonCodes[i] identifies reasons[i]. Older servers omit it. */
+  reasonCodes?: string[];
   recentCheckIns: { id: number; location: string; checkedInAt: string; method?: 'nfc' | 'portal' }[];
 }
 /** An open facility visit. Staff reads may omit the building name. */

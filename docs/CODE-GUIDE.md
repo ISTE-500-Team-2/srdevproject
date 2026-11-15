@@ -17,6 +17,11 @@ Existing test names describe the behavior each scenario protects.
 | Email | `backend/src/notifications/` | Transactional outbox, rendering, dispatch and delivery events |
 | Browser routing | `frontend/src/App.tsx`, `areas/` | Public/member/staff routes and bundle loading |
 | Browser state | `context/AuthContext.tsx`, `lib/api.ts`, `lib/useApi.ts` | Session identity, authenticated requests and read lifecycles |
+| Staff data and audit | `backend/src/models/staff/` | Staff queries, audit filters, counts and record details; `StaffModel.ts` remains the facade |
+| Report exports | `backend/src/reports/` | Shared report queries and CSV/PDF serialization |
+| Booking and account rules | `backend/src/accountPolicy.ts`, `businessDate.ts`, `billing/refundTransition.ts` | Shared eligibility, facility dates and refund transitions |
+| Staff record sections | `frontend/src/components/staff/record/` | Account, activity, cards, membership and payment sections |
+| Training UI | `frontend/src/pages/training/` | Catalog, definition/link dialogs and training records |
 | Screens | `frontend/src/pages/`, `components/` | Member and staff workflows |
 | Release tooling | `deploy/`, `.github/workflows/` | Verification gates, release scope and rollback |
 

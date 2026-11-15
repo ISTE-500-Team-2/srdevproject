@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import type { LiveEquipment, Reservation } from "./contracts";
 import type { ComplianceReport } from "./staffContracts";
 import type { Rental, Studio } from "./studioContracts";
+import { studioNow } from "./studioDesk";
 import { dayKey, formatTime, localHour, equipmentBookings, timeWindow, shortName, initials, tone, blockKind, bookingBlock, machineStatus, groupMachines, studioOccupancy, studioPaymentsToRecord, needsYou } from "./today";
 const zone = "Asia/Kolkata", day = "2026-10-28", now = Date.parse("2026-10-28T07:30:00Z");
 const booking = (start = "2026-10-28T06:30:00Z", end = "2026-10-28T08:30:00Z"): Reservation => ({ id: 1, userId: 1, equipmentId: 1, equipmentName: "Lathe", startTime: start, endTime: end, location: "Shop", status: "confirmed", revision: 1, memberName: "Dana Whitfield" });
@@ -65,8 +66,8 @@ test("needs you orders waiver, outages and training with correct pluralisation",
   expect(needsYou(compliance(0, 0), [], [], now)).toEqual([]);
 });
 test("studio occupancy uses end-exclusive dates and tells rented from held", () => {
-  const studio = (id: number, availability: { starts_on: string; ends_on: string; status: string }[]) =>
-    ({ id, name: `Studio ${id}`, size: "Small", availability: availability.map(a => ({ ...a, hold_until: "" })) }) as unknown as Studio;
+  const studio = (id: number, availability: { starts_on: string; ends_on: string; status: string }[], ready: Partial<Studio> = {}) =>
+    ({ id, name: `Studio ${id}`, size: "Small", monthly_cents: 50000, policy_confirmed: true, ...ready, availability: availability.map(a => ({ ...a, hold_until: "" })) }) as unknown as Studio;
   const rows = studioOccupancy([
     studio(1, [{ starts_on: "2026-10-01", ends_on: "2026-11-01", status: "confirmed" }]),
     studio(2, [{ starts_on: day, ends_on: "2026-10-29", status: "pending" }]),
@@ -74,6 +75,20 @@ test("studio occupancy uses end-exclusive dates and tells rented from held", () 
     studio(4, []),
   ], day);
   expect(rows.map(r => r.state)).toEqual(["rented", "held", "open", "open"]);
+});
+test("studio occupancy matches the Studios desk: an unready studio is off, but a rental today still wins", () => {
+  const studio = (id: number, ready: Partial<Studio>, availability: { starts_on: string; ends_on: string; status: string }[] = []) =>
+    ({ id, name: `Studio ${id}`, size: "Small", ...ready, availability: availability.map(a => ({ ...a, hold_until: "" })) }) as unknown as Studio;
+  const studios = [
+    studio(1, { monthly_cents: null, policy_confirmed: true }),
+    studio(2, { monthly_cents: 50000, policy_confirmed: false }),
+    studio(3, { monthly_cents: null, policy_confirmed: false }, [{ starts_on: "2026-10-01", ends_on: "2026-11-01", status: "confirmed" }]),
+    studio(4, { monthly_cents: 0, policy_confirmed: false }, [{ starts_on: day, ends_on: "2026-10-29", status: "pending" }]),
+    studio(5, { monthly_cents: 50000, policy_confirmed: true }),
+  ];
+  const rows = studioOccupancy(studios, day);
+  expect(rows.map(r => r.state)).toEqual(["off", "off", "rented", "held", "open"]);
+  expect(rows.map(r => r.state)).toEqual(studios.map(s => studioNow(s, day).state));
 });
 test("studio payments to record match the Studios page rule", () => {
   const rental = (status: string, payment_method: string, payment_status: string) => ({ status, payment_method, payment_status }) as Rental;

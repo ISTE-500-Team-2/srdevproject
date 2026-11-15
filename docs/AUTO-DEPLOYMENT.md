@@ -150,8 +150,14 @@ public/demo databases/networks. It refuses a missing stack instead of creating o
 After reviewing and merging changes, copy `deploy/auto_release.py` to
 `/srv/arbor-full/auto-deploy/auto_release.py` (directory 0700, script 0600).
 Install the matching `deploy/blue_green_release.py` under the same deployment
-lock, backing up both existing controller files first. Install `deploy/arbor_site.py`
-as `~/arbor-site` (0700) for the existing operator. Syntax-check the new files
+lock, backing up both existing controller files first. `auto_release.py` also
+holds the CI check selection and required workflow list that
+`local_frontend_release.py` uses. When the owner-local frontend tools are
+installed (see `docs/local-frontend-releases.md`), copy the same `auto_release.py`
+and the matching `local_frontend_release.py` into
+`auto-deploy/local-frontend-tools/` in the same step, so both `auto_release.py`
+copies stay identical. Install `deploy/arbor_site.py` as `~/arbor-site` (0700)
+for the existing operator. Syntax-check the new files
 before replacement. Enable `prebuild.enabled` only after this matching upgrade;
 the old app and its data do not need a reset or OS upgrade.
 Copy the matching `.service` and `.timer` files into `~/.config/systemd/user/`.

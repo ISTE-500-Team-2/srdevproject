@@ -26,6 +26,7 @@ import {
 } from "./readerRegistry.js";
 import { readerManagement } from "./readerManagement.js";
 import { accessCards } from "./accessCards.js";
+import { DEFAULT_BUILDING_ID } from "./facility.js";
 export type { Reader, DeviceConfig } from "./readerRegistry.js";
 export function readDeviceConfig(): DeviceConfig | undefined {
   if (!process.env.ACCESS_READERS_JSON && !process.env.ACCESS_CARD_HASH_KEY)
@@ -91,11 +92,17 @@ export function deviceDecision(
       !/^[a-f0-9]{64}$/.test(signature)
     )
       throw authError();
+    // Parsing chooses a lock mode only; authentication still precedes all body
+    // errors and writes. Heartbeats update reader metadata; taps only read it.
+    let body: any;
+    try { body = JSON.parse(req.body.toString('utf8')); } catch { /* report after authentication */ }
     const decision = await accessTransaction(pool, async (db) => {
-      // This lock also orders disable/enrollment commands against physical taps.
+      // Taps share the row, while disable/enrollment/credential changes retain
+      // exclusive locks. Never upgrade a shared lock to write last_seen_at:
+      // signed tap events already supply presence, without serializing grants.
       const reader = (
         await db.query<StoredReader>(
-          `SELECT ${readerColumns} FROM app_access_reader WHERE id=$1 FOR UPDATE`,
+          `SELECT ${readerColumns} FROM app_access_reader WHERE id=$1 ${body?.action === 'heartbeat' ? 'FOR UPDATE' : 'FOR SHARE'}`,
           [readerId],
         )
       ).rows[0];
@@ -109,10 +116,7 @@ export function deviceDecision(
         .digest();
       if (!timingSafeEqual(Buffer.from(signature, "hex"), expected))
         throw authError();
-      let body: any;
-      try {
-        body = JSON.parse(req.body.toString("utf8"));
-      } catch {
+      if (body === undefined) {
         throw new AppError(400, "INVALID_JSON", "Invalid request.");
       }
       if (
@@ -132,10 +136,6 @@ export function deviceDecision(
         (body.action !== undefined && body.action !== "heartbeat")
       )
         throw new AppError(400, "INVALID_INPUT", "Invalid reader operation.");
-      await db.query(
-        "UPDATE app_access_reader SET last_seen_at=NOW() WHERE id=$1",
-        [reader.id],
-      );
       const enrollment = (
         await db.query(
           `SELECT id,purpose,captured_at,expires_at FROM app_card_enrollment
@@ -157,7 +157,8 @@ export function deviceDecision(
         buildingId: null,
         reservationId: null,
       });
-      if (body.action === "heartbeat")
+      if (body.action === "heartbeat") {
+        await db.query('UPDATE app_access_reader SET last_seen_at=NOW() WHERE id=$1', [reader.id]);
         return {
           eventId: body.eventId,
           readerId: reader.id,
@@ -165,6 +166,7 @@ export function deviceDecision(
           enrollmentExpiresAt: enrollment?.expires_at ?? null,
           ...deny("HEARTBEAT"),
         };
+      }
       const { hash, last4 } = cardIdentity(body.uid, config);
       if (
         (
@@ -205,7 +207,8 @@ export function deviceDecision(
       const saved = (
         await db.query(
           `INSERT INTO app_device_access_event(reader_id,request_id,user_id,target_kind,target_id,allowed,reason,expires_at,uid_hash,uid_last4,card_id,is_tap)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        ON CONFLICT(reader_id,request_id) DO NOTHING RETURNING id`,
           [
             reader.id,
             body.eventId,
@@ -222,13 +225,16 @@ export function deviceDecision(
           ],
         )
       ).rows[0];
+      // Shared reader locks allow simultaneous duplicate events to reach the
+      // unique index. Roll back the loser, including any enrollment changes.
+      if (!saved) throw new AppError(409, 'REPLAYED_EVENT', 'Use a fresh event ID.');
       if (verdict.allowed && body.checkIn === true && body.renewal !== true) {
-        await new MinorSupervision(db,timeZone).startVisit(card.user_id,verdict.buildingId ?? 1);
+        await new MinorSupervision(db,timeZone).startVisit(card!.user_id,verdict.buildingId ?? DEFAULT_BUILDING_ID);
         await db.query(
-          `INSERT INTO check_in(userid,roomid,location,buildingid,equipmentid,reservationid,checkintime,status,statusdesc)
-          VALUES($1,$2,$3,$4,$5,$6,NOW() AT TIME ZONE 'UTC','approved','Authenticated NFC eligibility decision')`,
+          `INSERT INTO check_in(userid,roomid,location,buildingid,equipmentid,reservationid,checkintime,status,statusdesc,origin)
+          VALUES($1,$2,$3,$4,$5,$6,NOW() AT TIME ZONE 'UTC','approved','Authenticated NFC eligibility decision','nfc')`,
           [
-            card.user_id,
+            card!.user_id,
             reader.kind === "room" ? reader.resourceId : null,
             reader.id,
             verdict.buildingId,

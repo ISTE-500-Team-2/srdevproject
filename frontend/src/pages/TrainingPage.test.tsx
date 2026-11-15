@@ -99,3 +99,90 @@ test('certification drafts survive closing and are discarded only after confirma
   expect(screen.queryByRole('dialog')).toBeNull();
   expect(writes()).toHaveLength(0);
 });
+
+test('a new certification starts empty, is created without a revision, and cannot take equipment linked elsewhere', async () => {
+  failures = 0;
+  const equipmentPath = (path: string) => path === '/equipment';
+  const base = vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation(async (path, init) => equipmentPath(path)
+    ? [{ id: 3, name: 'Laser cutter', location: 'Shop', certification: 'Laser safety' }, { id: 4, name: 'Drill press', location: 'Shop', certification: null }] as never
+    : base(path, init));
+  render(<TrainingPage />);
+  fireEvent.click(await screen.findByRole('button', { name: 'New certification' }));
+  const dialog = screen.getByRole('dialog', { name: 'New certification' });
+  expect(within(dialog).getByLabelText('Name')).toHaveProperty('value', '');
+  expect(within(dialog).getByLabelText('Training duration (minutes)')).toHaveProperty('value', '60');
+  expect(within(dialog).getByLabelText('One-time training fee ($)')).toHaveProperty('value', '');
+  expect(await within(dialog).findByRole('checkbox', { name: /Laser cutter/ })).toHaveProperty('disabled', true);
+  fireEvent.click(within(dialog).getByRole('checkbox', { name: /Drill press/ }));
+  fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'Drill safety' } });
+  fireEvent.change(within(dialog).getByLabelText('Policy approval/reference'), { target: { value: 'Approved policy' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Save certification' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(writes()).toEqual([['/training/catalog', { method: 'POST', body: { name: 'Drill safety', description: '', trainingMinutes: 60, trainingFeeCents: null, equipmentIds: [4], reason: 'Approved policy' } }]]);
+  expect(screen.getByRole('status').textContent).toBe('Training records saved.');
+});
+
+test('editing sends the revision it was based on; first training sends none, a renewal sends the record revision', async () => {
+  failures = 0;
+  render(<TrainingPage />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Configure Laser safety' }));
+  const editor = screen.getByRole('dialog', { name: 'Edit Laser safety' });
+  expect(within(editor).getByLabelText('Name')).toHaveProperty('value', 'Laser safety');
+  fireEvent.change(within(editor).getByLabelText('Policy approval/reference'), { target: { value: 'Approved policy' } });
+  fireEvent.click(within(editor).getByRole('button', { name: 'Save certification' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(writes()[0]).toEqual(['/training/catalog/7', expect.objectContaining({ method: 'PATCH', body: expect.objectContaining({ expectedRevision: 1 }) })]);
+
+  const second = { ...course, id: 8, name: 'Lathe safety', revision: 4 };
+  const base = vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation(async (path, init) => path === '/training/catalog' ? [course, second] as never : base(path, init));
+  cleanup();
+  render(<TrainingPage />);
+  await pickMember();
+  const approve = async (button: string) => {
+    fireEvent.click(await screen.findByRole('button', { name: button }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('Actual training date/time'), { target: { value: '2025-01-01T12:00' } });
+    fireEvent.change(within(dialog).getByLabelText('Verification reference'), { target: { value: 'Observed' } });
+    fireEvent.change(within(dialog).getByLabelText('Reason'), { target: { value: 'In person' } });
+    fireEvent.click(within(dialog).getByRole('checkbox'));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Approve training' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    return writes().at(-1)!;
+  };
+  const first = await approve('Record Lathe safety training');
+  expect(first[0]).toBe('/training/users/12/certifications/8');
+  expect(first[1]?.body).not.toHaveProperty('expectedRevision');
+  const renewal = await approve('Renew');
+  expect(renewal[0]).toBe('/training/users/12/certifications/7');
+  expect(renewal[1]?.body).toMatchObject({ expectedRevision: 2 });
+});
+
+test('each workflow has its own busy and error state', async () => {
+  let fail: (error: unknown) => void = () => {};
+  const base = vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation((path, init) => init?.method === 'POST' && path === '/training/users/12/certifications/7'
+    ? new Promise((_, reject) => { fail = reject; })
+    : base(path, init));
+  render(<TrainingPage />);
+  await pickMember();
+  fireEvent.click(screen.getByRole('button', { name: 'Renew' }));
+  const record = screen.getByRole('dialog');
+  fireEvent.change(within(record).getByLabelText('Actual training date/time'), { target: { value: '2025-01-01T12:00' } });
+  fireEvent.change(within(record).getByLabelText('Verification reference'), { target: { value: 'Observed' } });
+  fireEvent.change(within(record).getByLabelText('Reason'), { target: { value: 'In person' } });
+  fireEvent.click(within(record).getByRole('checkbox'));
+  fireEvent.click(within(record).getByRole('button', { name: 'Approve training' }));
+  await waitFor(() => expect(within(record).getByRole('button', { name: 'Approve training' })).toHaveProperty('disabled', true));
+  fireEvent.click(within(record).getByRole('button', { name: 'Cancel' }));
+  // The approval still running does not hold up revoking, and its failure is not shown there.
+  fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
+  const revoke = screen.getByRole('dialog', { name: 'Revoke Laser safety?' });
+  fireEvent.change(within(revoke).getByLabelText('Revocation/retraining reason'), { target: { value: 'Retraining required' } });
+  expect(within(revoke).getByRole('button', { name: 'Hold to revoke Laser safety' })).toHaveProperty('disabled', false);
+  fail(new ApiError(409, 'STALE_RECORD', 'This record changed. Review and retry.'));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(within(revoke).queryByRole('alert')).toBeNull();
+  expect(within(revoke).getByRole('button', { name: 'Hold to revoke Laser safety' })).toHaveProperty('disabled', false);
+});

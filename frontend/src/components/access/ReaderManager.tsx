@@ -3,6 +3,7 @@
 
 import { useState, type FormEvent } from "react";
 import { api, ApiError, errorMessage } from "../../lib/api";
+import { editingFormRef } from "../../lib/editingForms";
 import { useApi } from "../../lib/useApi";
 import {
   facilityTime,
@@ -214,7 +215,7 @@ export function ReaderManager({
         width="compact"
       >
         {editing ? (
-          <form className="management-form nfc-reader-form" onSubmit={save}>
+          <form ref={editingFormRef} className="management-form nfc-reader-form" onSubmit={save}>
             <fieldset disabled={busy}>
               <label>
                 Reader name

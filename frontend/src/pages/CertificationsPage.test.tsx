@@ -3,12 +3,17 @@ import { afterEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { CertificationsPage } from './CertificationsPage';
+import type { ClassRecord } from '../components/classes/classData';
+import type { Certification, LiveEquipment, User, Waiver } from '../lib/contracts';
+import { liveEquipment, user as account } from '../testing/fixtures';
+/** What the page reads, by path. */
+type Responses = {'/me/waivers':Waiver[];'/me/certifications':Certification[];'/equipment':LiveEquipment[];'/classes':ClassRecord[]};
 const { api, reload, state } = vi.hoisted(() => ({
  api:vi.fn(),reload:vi.fn(),
  state: {
-  data: {} as Record<string, any[]>,
+  data: {} as Record<string, unknown[]>,
   errors: {} as Record<string, string>,
-  auth: { demoLogin: false, user: null as any },
+  auth: { demoLogin: false, user: null as User | null },
  },
 }));
 vi.mock('../lib/api',()=>({api,errorMessage:(error:Error)=>error.message}));
@@ -16,22 +21,22 @@ vi.mock('../lib/useApi', () => ({ useApi: (path:string) => ({data:state.errors[p
 vi.mock('../context/AuthContext', () => ({ useAuth: () => state.auth }));
 afterEach(()=>{cleanup();vi.clearAllMocks();state.errors={};});
 
-const member = {role:'member',roles:['member'],email:'member@example.com'};
+const member = account({role:'member',roles:['member'],email:'member@example.com'});
 const inDays = (days:number) => new Date(Date.now()+days*86400000).toISOString();
-const waiver = (overrides:object = {}) => ({id:2,versionId:2,name:'Shop policy',version:'v2',description:'Policy text',signed:false,signedAt:null,signedVersion:'v2',signedVersionId:2,outdatedSignature:false,expiredSignature:true,...overrides});
-const cnc = {id:7,name:'Joey',type:'Large CNC',status:'available',certification:'CNC Training',canReserve:false,trainingRequired:true};
-const lathe = {id:8,name:'Kirk',type:'Metal lathe',status:'available',certification:'Metal Lathe Training',canReserve:false,trainingRequired:true};
-const printer = {id:1,name:'Rachel',type:'3D printer',status:'available',certification:null,canReserve:true,trainingRequired:false};
-const klass = (overrides:object = {}) => ({id:30,title:'CNC Basics',certificationId:2,certificationName:'CNC Training',instructorId:5,instructor:'Sam Lee',capacity:8,enrolled:5,status:'scheduled',revision:1,roomId:1,roomName:'Maker room',startsAt:inDays(5),endsAt:inDays(5.05),myStatus:null,...overrides});
+const waiver = (overrides:Partial<Waiver> = {}): Waiver => ({id:2,versionId:2,name:'Shop policy',version:'v2',description:'Policy text',scope:'facility',signed:false,signedAt:null,signedVersion:'v2',signedVersionId:2,outdatedSignature:false,expiredSignature:true,...overrides});
+const cnc = liveEquipment({id:7,name:'Joey',type:'Large CNC',status:'available',certification:'CNC Training',canReserve:false,trainingRequired:true});
+const lathe = liveEquipment({id:8,name:'Kirk',type:'Metal lathe',status:'available',certification:'Metal Lathe Training',canReserve:false,trainingRequired:true});
+const printer = liveEquipment({id:1,name:'Rachel',type:'3D printer',status:'available',certification:null,canReserve:true,trainingRequired:false});
+const klass = (overrides:Partial<ClassRecord> = {}): ClassRecord => ({id:30,title:'CNC Basics',certificationId:2,certificationName:'CNC Training',instructorId:5,instructor:'Sam Lee',capacity:8,enrolled:5,status:'scheduled',revision:1,roomId:1,roomName:'Maker room',startsAt:inDays(5),endsAt:inDays(5.05),myStatus:null,...overrides});
 
 function mount({
  waivers = [waiver()],
- certifications = [] as object[],
- equipment = [] as object[],
- classes = [] as object[],
- user = member as any,
-}: {waivers?:object[];certifications?:object[];equipment?:object[];classes?:object[];user?:any} = {}) {
- state.data={'/me/waivers':waivers,'/me/certifications':certifications,'/equipment':equipment,'/classes':classes};
+ certifications = [],
+ equipment = [],
+ classes = [],
+ user = member,
+}: {waivers?:Waiver[];certifications?:Certification[];equipment?:LiveEquipment[];classes?:ClassRecord[];user?:User} = {}) {
+ state.data={'/me/waivers':waivers,'/me/certifications':certifications,'/equipment':equipment,'/classes':classes} satisfies Responses;
  state.auth={demoLogin:false,user};
  render(<MemoryRouter><CertificationsPage /></MemoryRouter>);
 }
@@ -86,7 +91,7 @@ test('signed waivers show when they run out and warn in the last 30 days; expire
 });
 
 test('all signed waivers say so and link to signed form copies',()=>{
- mount({waivers:[waiver({signed:true,signedAt:'2026-02-03T12:00:00Z',expiredSignature:false,formFields:[{key:'name'}]})]});
+ mount({waivers:[waiver({signed:true,signedAt:'2026-02-03T12:00:00Z',expiredSignature:false,formFields:[{key:'name',label:'Full name',line:1,type:'text',section:'participant',source:'member',required:true,maxLength:200}]})]});
  expect(screen.getByText('All signed')).toBeTruthy();
  expect(screen.getByRole('link',{name:/Download signed copies/}).getAttribute('href')).toBe('/profile');
 });
@@ -168,6 +173,25 @@ test('an expired certification comes first and links to the next matching class'
  expect(screen.getByText('1 of 2 current')).toBeTruthy();
 });
 
+test('two certifications with the same name but different ids stay separate',()=>{
+ mount({
+  certifications:[{id:2,name:'CNC Training',status:'active',valid:true,renewalDate:inDays(200),equipmentIds:[]}],
+  // Equipment carries the certification id, so each machine joins its own certification.
+  equipment:[{...cnc,certId:2},{...cnc,id:9,name:'Ross',certId:5}],
+  classes:[klass({certificationId:5,title:'CNC for the new router'})],
+ });
+ const [held, earn] = screen.getAllByRole('heading',{name:'CNC Training'}).map(h=>h.closest('li')!);
+ expect(screen.getByRole('region',{name:'Your certifications'}).contains(held)).toBe(true);
+ expect(within(held).getByText('Current')).toBeTruthy();
+ expect(within(held).getByText('Joey')).toBeTruthy();
+ expect(within(held).queryByText(/Ross/)).toBeNull();
+ expect(within(held).queryByText('CNC for the new router')).toBeNull();
+ expect(screen.getByRole('region',{name:'Earn a certification'}).contains(earn)).toBe(true);
+ expect(within(earn).getByText('Not yet')).toBeTruthy();
+ expect(within(earn).getByText('Ross')).toBeTruthy();
+ expect(within(earn).getByText('CNC for the new router')).toBeTruthy();
+});
+
 test('revoked certifications are flagged for retraining',()=>{
  mount({certifications:[{id:2,name:'CNC Training',status:'revoked',valid:false,renewalDate:inDays(100),equipmentIds:[]}]});
  const cert = row('CNC Training');
@@ -228,6 +252,6 @@ test('only staff and instructors get the training records link',()=>{
  mount();
  expect(screen.queryByRole('link',{name:'Manage training records'})).toBeNull();
  cleanup();
- mount({user:{role:'instructor',roles:['instructor'],email:'i@example.com'}});
+ mount({user:account({role:'member',roles:['instructor'],email:'i@example.com'})});
  expect(screen.getByRole('link',{name:'Manage training records'}).getAttribute('href')).toBe('/training');
 });

@@ -76,8 +76,12 @@ not a promise that arbitrary backend/schema/infrastructure pushes take 30s.
 Use a protected directory `/srv/arbor-full/auto-deploy/local-frontend-tools/`
 containing reviewed `local_frontend_release.py`, `blue_green_release.py` and the
 installed controller's unchanged `auto_release.py`. The normal service/timer
-continues using its existing modules, not this directory. Put an exact, fully
-CI-green baseline SHA in the owner-only file
+continues using its existing modules, not this directory. This script uses
+`auto_release.py`'s CI check selection and required workflow list, so install
+both files together: whenever the controller's `auto_release.py` is updated,
+copy the same file here. `local_frontend_release.py` refuses to start, before
+any change, with an older `auto_release.py` that lacks those shared helpers.
+Put an exact, fully CI-green baseline SHA in the owner-only file
 `auto-deploy/local-frontend-baseline`. Changing this baseline is an operator
 decision; the code still revalidates its CI at promotion.
 

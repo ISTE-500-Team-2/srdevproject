@@ -6,97 +6,8 @@ import { api, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
 import { LoadState } from "../components/Management";
 import { dollars, dateTime, zonedDay } from "../lib/display";
-export type Report = {
-  period: "daily" | "weekly" | "monthly";
-  from: string;
-  to: string;
-  timeZone: string;
-  generatedAt: string;
-  notes: string[];
-  revenue: {
-    period: string;
-    category: string;
-    method: string;
-    receipts: number;
-    gross: string;
-    refunds: string;
-    net: string;
-  }[];
-  equipment: {
-    id: number;
-    name: string;
-    bookedHours: number;
-    bookedUtilizationPercent: number;
-    reservations: number;
-  }[];
-  patterns: {
-    id: number;
-    name: string;
-    weekday: number;
-    hour: number;
-    bookedHours: string;
-  }[];
-  classes: {
-    id: number;
-    title: string;
-    capacity: number;
-    enrolled: number;
-    attended: number;
-    filledPercent: string;
-    status: string;
-    startsAt: string;
-  }[];
-  rooms: {
-    id: number;
-    name: string;
-    capacity: number;
-    recordedCheckIns: number;
-    distinctVisitors: number;
-  }[];
-  active: { activeUsers: number; approvedCheckIns: number };
-  visitsByDay: { day: string; visits: number; people: number }[];
-  checkedInToday: { userId: number; name: string; location: string; at: string; method: "nfc" | "portal" }[];
-  checkedInTodayCount: number;
-  compliance: {
-    activeAccounts: number;
-    restrictedAccounts: number;
-    expiredTraining: number;
-    activeMemberships: number;
-    trainingWithoutExpiry: number;
-    signaturesWithoutCopy: number;
-    machinesWithoutTraining: string[];
-  };
-  live: {
-    kind: string;
-    resourceId: number | null;
-    activeReaderLeases: number;
-  }[];
-  usage: { equipmentId: number; authorizedHours: string }[];
-  memberships: {
-    period: string;
-    newMembers: number;
-    activeMembers: number;
-    expiringMembers: number;
-    cancelledMembers: number;
-  }[];
-  notifications: {
-    cohorts: Record<
-      string,
-      {
-        eligible: number;
-        on_time: number;
-        onTimePercent: number | null;
-        delivered: number;
-        delivery_on_time: number;
-        deliveryOnTimePercent: number | null;
-        delivery_failed: number;
-        failed: number;
-        uncertain: number;
-        pending: number;
-      }
-    >;
-  };
-};
+import { useFacilityZone } from "../lib/facilityZone";
+import type { Report } from "../lib/reportContracts";
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
 export function ComplianceSummary({ compliance: c }: { compliance: Report["compliance"] }) {
@@ -124,7 +35,24 @@ export function ComplianceSummary({ compliance: c }: { compliance: Report["compl
 }
 
 export function ReportsPage() {
-  const today = zonedDay("America/New_York");
+  // The default dates are today in the facility's zone, so the report waits for it.
+  const zone = useFacilityZone();
+  return (
+    <section className="management-page">
+      <header className="admin-page-heading">
+        <p className="admin-page-eyebrow">Records</p>
+        <h1 className="admin-title">Reports</h1>
+        <p>
+          Saved receipts, reservations, training attendance, and authenticated
+          reader activity. Refreshes every 30 seconds.
+        </p>
+      </header>
+      {zone ? <ReportsView today={zonedDay(zone)} /> : <LoadState loading error="" reload={() => undefined} />}
+    </section>
+  );
+}
+
+function ReportsView({ today }: { today: string }) {
   const [query, setQuery] = useState(`from=${today}&to=${today}&period=daily`),
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false);
@@ -172,15 +100,7 @@ export function ReportsPage() {
   }
   const d = report.data;
   return (
-    <section className="management-page">
-      <header className="admin-page-heading">
-        <p className="admin-page-eyebrow">Records</p>
-        <h1 className="admin-title">Reports</h1>
-        <p>
-          Saved receipts, reservations, training attendance, and authenticated
-          reader activity. Refreshes every 30 seconds.
-        </p>
-      </header>
+    <>
       <form className="management-search" onSubmit={filter}>
         <label>
           From
@@ -220,6 +140,7 @@ export function ReportsPage() {
       <LoadState {...report} />
       {d ? (
         <>
+          {/* When the report was made, in the viewer's own clock. */}
           <p>
             Generated {dateTime(d.generatedAt)} · Reporting timezone:{" "}
             {d.timeZone}
@@ -452,7 +373,7 @@ export function ReportsPage() {
                 {d.classes.map((c) => (
                   <tr key={c.id}>
                     <td>{c.title}</td>
-                    <td>{dateTime(c.startsAt)}</td>
+                    <td>{dateTime(c.startsAt, d.timeZone)}</td>
                     <td>{c.status}</td>
                     <td className="table-number">
                       {c.enrolled} / {c.capacity}
@@ -479,6 +400,6 @@ export function ReportsPage() {
           </details>
         </>
       ) : null}
-    </section>
+    </>
   );
 }

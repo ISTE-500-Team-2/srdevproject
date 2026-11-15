@@ -3,6 +3,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, errorMessage } from "../../lib/api";
+import { editingFormRef } from "../../lib/editingForms";
 import { useApi } from "../../lib/useApi";
 import type { AccessResource } from "../../lib/nfc";
 import { LoadState } from "../Management";
@@ -267,7 +268,7 @@ export function ReaderSetupWizard({
           </>
         ) : null}
         {selected && !jobId ? (
-          <form className="management-form nfc-reader-form" onSubmit={begin}>
+          <form ref={editingFormRef} className="management-form nfc-reader-form" onSubmit={begin}>
             <p className="nfc-help">
               {selected.model} ·{" "}
               {data?.gateways.find((g) => g.id === selected.gatewayId)?.name}

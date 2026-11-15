@@ -11,14 +11,36 @@ afterEach(() => { cleanup(); vi.resetAllMocks(); vi.useRealTimers(); });
 const render = (ui: ReactElement) => rtlRender(<MemoryRouter>{ui}</MemoryRouter>);
 const report = (over: Record<string, unknown> = {}) => ({ from: '2026-10-12', to: '2026-11-10', period: 'weekly', timeZone: 'America/New_York', generatedAt: '2026-11-10T16:00:00Z', revenue: [], classes: [], active: { approvedCheckIns: 0, activeUsers: 0 }, visitsByDay: [], checkedInToday: [], checkedInTodayCount: 0, compliance: { activeMemberships: 0 }, notes: [], ...over });
 const state = (data: unknown) => ({ data, loading: false, refreshing: false, error: '', reload: vi.fn() }) as never;
+/** The requests the page makes, as "path?from&to&period" keys, in any order. */
+const requestKey = (url: string) => {
+  const { pathname, searchParams } = new URL(url, 'http://test.invalid');
+  return `${pathname}?from=${searchParams.get('from')}&to=${searchParams.get('to')}&period=${searchParams.get('period')}`;
+};
+const requested = () => vi.mocked(useApi).mock.calls.map(([url]) => requestKey(String(url)));
+/** Every report requested while `action` runs, independent of hook-call order or count. */
+function requestsDuring(action: () => void) {
+  vi.mocked(useApi).mockClear();
+  action();
+  return requested();
+}
 /**
- * useApi is called for this range, then for the previous one, on every render.
- * The comparison report covers the 30 days before Oct 12, day by day.
+ * Pins today to Tue Nov 10, 2026 (New York), so the default 30-day range is
+ * Oct 12 to Nov 10 by week and its comparison is the 30 days before, by day.
+ * Each fixture is served only for its own URL; any other request fails the test.
  */
 function serve(current: Record<string, unknown>, previous: Record<string, unknown> = current) {
-  let call = 0;
-  const before = { ...previous, from: '2026-09-12', to: '2026-10-11', period: 'daily' };
-  vi.mocked(useApi).mockImplementation(() => state(call++ % 2 === 0 ? current : before));
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-11-10T16:00:00Z'));
+  const fixtures = new Map<string, unknown>([
+    ['/admin/reports?from=2026-10-12&to=2026-11-10&period=weekly', current],
+    ['/admin/reports?from=2026-09-12&to=2026-10-11&period=daily', { ...previous, from: '2026-09-12', to: '2026-10-11', period: 'daily' }],
+  ]);
+  vi.mocked(useApi).mockImplementation((url) => {
+    if (url === '/config') return state({ timeZone: 'America/New_York' });
+    const key = requestKey(String(url));
+    if (!fixtures.has(key)) throw new Error(`Unexpected request: ${key}`);
+    return state(fixtures.get(key));
+  });
 }
 
 test.each(['From', 'Through'])('historical dates can be entered starting with %s without requesting an invalid range', (first) => {
@@ -29,17 +51,20 @@ test.each(['From', 'Through'])('historical dates can be entered starting with %s
   fireEvent.change(screen.getByLabelText('Date range'), { target: { value: 'custom' } });
   const from = screen.getByLabelText('From') as HTMLInputElement;
   const through = screen.getByLabelText('Through') as HTMLInputElement;
-  fireEvent.change(first === 'From' ? from : through, { target: { value: first === 'From' ? '2026-01-01' : '2026-01-31' } });
+  const halfway = requestsDuring(() => fireEvent.change(first === 'From' ? from : through, { target: { value: first === 'From' ? '2026-01-01' : '2026-01-31' } }));
   expect(screen.getByRole('alert').textContent).toMatch(/93 days/);
-  expect(vi.mocked(useApi).mock.calls.at(-2)![0]).toContain('from=2026-09-28&to=2026-10-27');
-  fireEvent.change(first === 'From' ? through : from, { target: { value: first === 'From' ? '2026-01-31' : '2026-01-01' } });
+  // The half-entered range is never requested; the last valid one stays applied.
+  expect(halfway).toContainEqual(expect.stringContaining('from=2026-09-28&to=2026-10-27&'));
+  expect(halfway.filter((key) => key.includes('2026-01-'))).toEqual([]);
+  const complete = requestsDuring(() => fireEvent.change(first === 'From' ? through : from, { target: { value: first === 'From' ? '2026-01-31' : '2026-01-01' } }));
   expect([from.value, through.value]).toEqual(['2026-01-01', '2026-01-31']);
   expect(screen.queryByRole('alert')).toBeNull();
-  expect(vi.mocked(useApi).mock.calls.at(-2)![0]).toContain('from=2026-01-01&to=2026-01-31');
+  expect(complete).toContainEqual(expect.stringContaining('from=2026-01-01&to=2026-01-31&'));
   // Clearing a date is allowed; the last valid range remains applied.
-  fireEvent.change(from, { target: { value: '' } });
+  const cleared = requestsDuring(() => fireEvent.change(from, { target: { value: '' } }));
   expect(from.value).toBe('');
-  expect(vi.mocked(useApi).mock.calls.at(-2)![0]).toContain('from=2026-01-01&to=2026-01-31');
+  expect(cleared).toContainEqual(expect.stringContaining('from=2026-01-01&to=2026-01-31&'));
+  expect(cleared.filter((key) => key.includes('from=&') || key.includes('from=null'))).toEqual([]);
   fireEvent.change(screen.getByLabelText('Date range'), { target: { value: 'month' } });
   fireEvent.change(screen.getByLabelText('Date range'), { target: { value: 'custom' } });
   expect((screen.getByLabelText('From') as HTMLInputElement).value).toBe('2026-10-01');
@@ -96,11 +121,13 @@ test('"This week" compares with the same weekdays last week, not the weekend bef
   vi.setSystemTime(new Date('2026-11-10T16:00:00Z'));
   vi.mocked(useApi).mockReturnValue(state(null));
   render(<AnalyticsDashboardPage />);
-  fireEvent.change(screen.getByLabelText('Date range'), { target: { value: 'week' } });
-  expect(vi.mocked(useApi).mock.calls.at(-2)![0]).toContain('from=2026-11-09&to=2026-11-10');
-  expect(vi.mocked(useApi).mock.calls.at(-1)![0]).toContain('from=2026-11-02&to=2026-11-03&period=daily');
-  fireEvent.change(screen.getByLabelText('Date range'), { target: { value: 'month' } });
-  expect(vi.mocked(useApi).mock.calls.at(-1)![0]).toContain('from=2026-10-01&to=2026-10-10&period=daily');
+  const week = requestsDuring(() => fireEvent.change(screen.getByLabelText('Date range'), { target: { value: 'week' } }));
+  expect(week).toContainEqual(expect.stringContaining('from=2026-11-09&to=2026-11-10&'));
+  expect(week).toContainEqual('/admin/reports?from=2026-11-02&to=2026-11-03&period=daily');
+  expect(week.filter((key) => key.includes('from=2026-11-07'))).toEqual([]);
+  const month = requestsDuring(() => fireEvent.change(screen.getByLabelText('Date range'), { target: { value: 'month' } }));
+  expect(month).toContainEqual(expect.stringContaining('from=2026-11-01&to=2026-11-10&'));
+  expect(month).toContainEqual('/admin/reports?from=2026-10-01&to=2026-10-10&period=daily');
 });
 
 test('a chart is one Tab stop; arrow keys move between its bars', () => {
@@ -236,4 +263,38 @@ test('members: an empty period says so instead of drawing empty bars', () => {
   const card = screen.getByText('Members by week').closest('article')!;
   expect(card.textContent).toContain('Nobody joined or cancelled in this period.');
   expect(within(card).queryByRole('region')).toBeNull();
+});
+
+/** The page at `now` with /config answering `config`; every report request is recorded and answered with `report`. */
+function serveZone(now: string, config: { timeZone: string } | 'loading' | 'failed', answer: unknown = null) {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(now));
+  vi.mocked(useApi).mockImplementation((url) => url === '/config'
+    ? { data: typeof config === 'object' ? config : null, loading: config === 'loading', refreshing: false, error: config === 'failed' ? 'Offline' : '', reload: vi.fn() }
+    : state(answer));
+  render(<AnalyticsDashboardPage />);
+}
+const reportRequests = () => requested().filter((key) => key.startsWith('/admin/reports'));
+
+test('no report is requested until the facility zone is known', () => {
+  serveZone('2026-11-11T03:00:00Z', 'loading');
+  expect(screen.getByRole('heading', { name: 'Analytics' })).toBeTruthy();
+  expect(screen.getByRole('status').textContent).toBe('Loading records…');
+  expect(reportRequests()).toEqual([]);
+});
+
+test('ranges are days in the facility zone from /config, and class times are shown in it', () => {
+  // 03:00 UTC on Nov 11 is still Nov 10 in New York but already Nov 11 in Auckland.
+  const classes = [{ id: 1, title: 'Morning class', capacity: 10, enrolled: 5, attended: 4, filledPercent: '50', status: 'scheduled', startsAt: '2026-11-10T20:00:00Z' }];
+  serveZone('2026-11-11T03:00:00Z', { timeZone: 'Pacific/Auckland' }, report({ from: '2026-10-13', to: '2026-11-11', classes, timeZone: 'Pacific/Auckland' }));
+  expect(reportRequests()).toContain('/admin/reports?from=2026-10-13&to=2026-11-11&period=weekly');
+  expect(reportRequests().filter((key) => key.includes('to=2026-11-10&period=weekly'))).toEqual([]);
+  expect(screen.getByText(/Morning class/).closest('li')!.textContent).toContain('Nov 11');
+  fireEvent.change(screen.getByLabelText('Date range'), { target: { value: 'custom' } });
+  expect((screen.getByLabelText('Through') as HTMLInputElement).max).toBe('2026-11-11');
+});
+
+test('when /config cannot be read, ranges fall back to New York days', () => {
+  serveZone('2026-11-11T03:00:00Z', 'failed');
+  expect(reportRequests()).toContain('/admin/reports?from=2026-10-12&to=2026-11-10&period=weekly');
 });
