@@ -19,23 +19,30 @@ export async function emailTaken(db: Database, email: string, userId: number) {
   return rows.length > 0;
 }
 
-/** The member's pending change, if any, with when it was last sent. Caller holds the account lock. */
+/** The member's unexpired pending change, with when its link was last sent. Caller holds the account lock. */
 export async function pendingEmailChange(db: Database, userId: number) {
   const { rows } = await db.query<{ email: string; createdAt: Date }>(
-    'SELECT new_email AS email, created_at AS "createdAt" FROM app_email_change WHERE userid=$1', [userId]);
+    'SELECT new_email AS email, created_at AS "createdAt" FROM app_email_change WHERE userid=$1 AND expires_at>NOW()', [userId]);
   return rows[0] ?? null;
 }
 
+/** An unsent link must not go out once its change is replaced, cancelled or applied. */
+async function retireLinkMail(db: Database, userId: number) {
+  await db.query(`UPDATE app_notification_outbox SET status='obsolete',counts_for_sla=false,updated_at=NOW()
+    WHERE userid=$1 AND kind='email_change_confirmation' AND status='pending'`, [userId]);
+}
+
 /**
- * Replace any earlier pending change and queue two emails: the link, to the new address, and a
- * heads-up to the current one. Caller owns the transaction and the account row lock.
+ * Replace any earlier pending change and queue the link to the new address. `notifyCurrent` also
+ * sends the current address a heads-up: once per address asked for, not on every resend.
+ * Caller owns the transaction and the account row lock.
  */
-export async function issueEmailChange(db: Database, userId: number, currentEmail: string, newEmail: string, origin: string): Promise<PendingEmail> {
+export async function issueEmailChange(db: Database, userId: number, currentEmail: string, newEmail: string, origin: string,
+  { notifyCurrent }: { notifyCurrent: boolean }): Promise<PendingEmail> {
   const token = randomBytes(32).toString('base64url');
   const digest = hash(token);
   const expiresAt = new Date(Date.now() + emailChangeLifetimeMs);
-  await db.query(`UPDATE app_notification_outbox SET status='obsolete',counts_for_sla=false,updated_at=NOW()
-    WHERE userid=$1 AND kind='email_change_confirmation' AND status='pending'`, [userId]);
+  await retireLinkMail(db, userId);
   await db.query(`INSERT INTO app_email_change(userid,new_email,token_hash,expires_at) VALUES($1,$2,$3,$4)
     ON CONFLICT(userid) DO UPDATE SET new_email=EXCLUDED.new_email,token_hash=EXCLUDED.token_hash,
       expires_at=EXCLUDED.expires_at,created_at=NOW()`, [userId, newEmail, digest, expiresAt]);
@@ -44,17 +51,22 @@ export async function issueEmailChange(db: Database, userId: number, currentEmai
   // Both go to fixed addresses: the link to the new one, the heads-up to the one in use now.
   await enqueueNotification(db, { userId, kind: 'email_change_confirmation', dedupeKey: `email-change:${digest}`,
     payload: { confirmationUrl: confirmationUrl.href, expiresAt: expiresAt.toISOString(), changeHash: digest, recipientEmail: newEmail } });
-  await enqueueNotification(db, { userId, kind: 'email_change_requested', dedupeKey: `email-change-notice:${digest}`,
-    payload: { newEmail, recipientEmail: currentEmail } });
+  if (notifyCurrent)
+    await enqueueNotification(db, { userId, kind: 'email_change_requested', dedupeKey: `email-change-notice:${digest}`,
+      payload: { newEmail, recipientEmail: currentEmail } });
   return { email: newEmail, expiresAt: expiresAt.toISOString() };
 }
 
-/** Drop the pending change and its unsent link. Caller owns the transaction. */
-export async function cancelEmailChange(db: Database, userId: number): Promise<boolean> {
-  const removed = await db.query('DELETE FROM app_email_change WHERE userid=$1', [userId]);
-  await db.query(`UPDATE app_notification_outbox SET status='obsolete',counts_for_sla=false,updated_at=NOW()
-    WHERE userid=$1 AND kind='email_change_confirmation' AND status='pending'`, [userId]);
-  return (removed.rowCount ?? 0) > 0;
+/**
+ * Drop the pending change and its unsent link. Returns the address that was still waiting, or null
+ * when there was none (or only an expired one), so callers can log what they cancelled.
+ * Caller owns the transaction.
+ */
+export async function cancelEmailChange(db: Database, userId: number): Promise<string | null> {
+  const removed = (await db.query<{ email: string; live: boolean }>(
+    'DELETE FROM app_email_change WHERE userid=$1 RETURNING new_email AS email, expires_at>NOW() AS live', [userId])).rows[0];
+  await retireLinkMail(db, userId);
+  return removed?.live ? removed.email : null;
 }
 
 /**
@@ -68,6 +80,9 @@ export async function consumeEmailChange(db: Database, token: unknown) {
     `SELECT u.userid, u.email, u.status FROM "user" u JOIN app_email_change c USING(userid)
      WHERE c.token_hash=$1 FOR UPDATE OF u`, [digest])).rows[0];
   if (!account || account.status !== 'active') throw invalid();
+  // Signed out, so nobody was known when the transaction began: the database's own change
+  // records for what follows name the member whose link this is.
+  await db.query("SELECT set_config('app.actor_id',$1,true)", [String(account.userid)]);
   const consumed = (await db.query<{ email: string }>(`DELETE FROM app_email_change
     WHERE userid=$1 AND token_hash=$2 AND expires_at>NOW() RETURNING new_email AS email`, [account.userid, digest])).rows[0];
   if (!consumed) throw invalid();
@@ -77,6 +92,7 @@ export async function consumeEmailChange(db: Database, token: unknown) {
   // The old inbox no longer controls the account: its reset links stop working.
   await db.query('DELETE FROM app_password_reset WHERE userid=$1', [account.userid]);
   await db.query(`UPDATE app_notification_outbox SET status='obsolete',counts_for_sla=false,updated_at=NOW()
-    WHERE userid=$1 AND kind IN ('password_reset','email_change_confirmation') AND status='pending'`, [account.userid]);
+    WHERE userid=$1 AND kind='password_reset' AND status='pending'`, [account.userid]);
+  await retireLinkMail(db, account.userid);
   return { userId: account.userid, previousEmail: account.email, email: consumed.email };
 }

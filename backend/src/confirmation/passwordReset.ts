@@ -63,7 +63,11 @@ export async function consumePasswordReset(db: Database, token: unknown, passwor
   await db.query('UPDATE app_refresh_family SET revoked=true WHERE userid=$1', [account.userid]);
   await db.query('DELETE FROM app_email_confirmation WHERE userid=$1', [account.userid]);
   // A pending email change may have been asked for by whoever the reset is locking out.
-  await cancelEmailChange(db, account.userid);
+  const cancelled = await cancelEmailChange(db, account.userid);
+  if (cancelled)
+    await db.query(`INSERT INTO app_staff_audit(actor_id,subject_id,action,entity_type,entity_id,reason,before_state)
+      VALUES($1,$1,'profile.email_change_cancelled','user',$1,'Cancelled because the password was reset',$2)`,
+      [account.userid, JSON.stringify({ pendingEmail: cancelled })]);
   await db.query(`UPDATE app_notification_outbox SET status='obsolete',counts_for_sla=false,updated_at=NOW()
     WHERE userid=$1 AND kind IN ('password_reset','account_confirmation') AND status='pending'`, [account.userid]);
   await enqueueNotification(db, { userId: account.userid, kind: 'password_changed',

@@ -122,3 +122,9 @@ test("staff in a member's account see the details but no changes", () => {
   expect(within(section()).getByText('Members change their own email and password.')).toBeTruthy();
   expect(within(section()).queryByRole('button')).toBeNull();
 });
+
+test('changes wait until the profile has loaded, so what they return has somewhere to go', () => {
+  render(<SignInSection profile={null} onProfile={onProfile} notify={notify} />);
+  expect(within(section()).getByText('test@example.com')).toBeTruthy();
+  expect(within(section()).queryByRole('button')).toBeNull();
+});

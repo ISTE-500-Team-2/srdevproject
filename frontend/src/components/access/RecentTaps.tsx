@@ -42,7 +42,7 @@ export function timeAgo(value: string, now = Date.now()) {
   return days === 1 ? "yesterday" : `${days} days ago`;
 }
 
-export function personInitials(name: string) {
+function initials(name: string) {
   const parts = name.trim().split(/\s+/);
   return ((parts[0]?.[0] ?? "") + (parts.length > 1 ? parts.at(-1)![0] : "")).toUpperCase();
 }
@@ -117,7 +117,7 @@ function TapRow({ tap, timeZone }: { tap: Tap; timeZone?: string }) {
   const body = (
     <>
       <MemberPhoto id={member ? tap.userId : null} version={tap.photoVersion} className={`nfc-recent__avatar${member ? "" : " is-unknown"}`}>
-        {member ? personInitials(member) : "?"}
+        {member ? initials(member) : "?"}
       </MemberPhoto>
       <span className="nfc-recent__who">
         <strong>{name}</strong>

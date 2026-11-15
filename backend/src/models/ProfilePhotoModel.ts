@@ -23,11 +23,7 @@ export class ProfilePhotoModel {
    */
   async lockVersion(userId: number): Promise<string | null> {
     await this.db.query('SELECT 1 FROM "user" WHERE userid=$1 FOR NO KEY UPDATE', [userId]);
-    const { rows } = await this.db.query<{ version: string }>(
-      "SELECT version FROM app_user_photo WHERE user_id=$1",
-      [userId],
-    );
-    return rows[0]?.version ?? null;
+    return this.version(userId);
   }
 
   /** The current photos of these people, for staff screens; people without one are left out. */

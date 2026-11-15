@@ -93,7 +93,8 @@ export async function runNotificationBatch(pool:Pool,send:(notification:PendingN
       // A callback can arrive before the HTTP send response. Apply unsubscribe
       // ownership only after the provider message ID is known locally.
       // Pending requests have no member preferences or unsubscribe ownership to mutate.
-      if (row.userId !== null) await pool.query(`INSERT INTO app_notification_preferences(userid,enabled)
+      // An email-change link went to an address nobody has confirmed: its unsubscribe isn't the member's.
+      if (row.userId !== null && row.kind !== 'email_change_confirmation') await pool.query(`INSERT INTO app_notification_preferences(userid,enabled)
         SELECT $1,false WHERE EXISTS(SELECT 1 FROM app_brevo_delivery_event
           WHERE provider_message_id=trim(both '<>' from $2::text) AND event_type='unsubscribed')
         ON CONFLICT(userid) DO UPDATE SET enabled=false,updated_at=NOW()`,[row.userId,response.messageId]);

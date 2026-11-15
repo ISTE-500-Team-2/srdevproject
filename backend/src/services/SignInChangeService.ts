@@ -73,10 +73,13 @@ export class SignInChangeService {
       await db.query('DELETE FROM app_password_reset WHERE userid=$1', [userId]);
       await db.query(`UPDATE app_notification_outbox SET status='obsolete',counts_for_sla=false,updated_at=NOW()
         WHERE userid=$1 AND kind='password_reset' AND status='pending'`, [userId]);
-      await cancelEmailChange(db, userId);
+      const cancelled = await cancelEmailChange(db, userId);
       await enqueueNotification(db, { userId, kind: 'password_changed', dedupeKey: `password-changed:${randomUUID()}`, payload: {} });
-      await new StaffModel(db, this.config.timeZone).audit(userId, userId, 'profile.password_changed', 'user', userId,
-        'Member changed their password', null, null);
+      const staff = new StaffModel(db, this.config.timeZone);
+      await staff.audit(userId, userId, 'profile.password_changed', 'user', userId, 'Member changed their password', null, null);
+      if (cancelled)
+        await staff.audit(userId, userId, 'profile.email_change_cancelled', 'user', userId,
+          'Cancelled because the password was changed', { pendingEmail: cancelled }, null);
       return this.sessions(db).create(userId, family?.persistent ?? false);
     });
   }
@@ -91,8 +94,11 @@ export class SignInChangeService {
       // Sign-up says the same thing about an address that's in use.
       if (await emailTaken(db, email, userId))
         throw new AppError(409, 'EMAIL_ALREADY_REGISTERED', 'An account with that email address already exists.', 'email');
-      await this.throttle(db, userId);
-      const pending = await issueEmailChange(db, userId, account.email, email, this.origin);
+      // Asking again for the same address is a resend; a different one (a typo fixed) replaces it at
+      // once, and the current address hears about each address asked for.
+      const sameAddress = (await pendingEmailChange(db, userId))?.email === email;
+      if (sameAddress) await this.throttle(db, userId);
+      const pending = await issueEmailChange(db, userId, account.email, email, this.origin, { notifyCurrent: !sameAddress });
       await new StaffModel(db, this.config.timeZone).audit(userId, userId, 'profile.email_change_requested', 'user', userId,
         'Member asked to change their sign-in email', { email: account.email }, { pendingEmail: email });
       return pending;
@@ -108,17 +114,17 @@ export class SignInChangeService {
       if (await emailTaken(db, pending.email, userId))
         throw new AppError(409, 'EMAIL_ALREADY_REGISTERED', 'An account with that email address already exists.', 'email');
       await this.throttle(db, userId);
-      return issueEmailChange(db, userId, account.email, pending.email, this.origin);
+      return issueEmailChange(db, userId, account.email, pending.email, this.origin, { notifyCurrent: false });
     });
   }
 
   async cancelEmailChange(userId: number): Promise<void> {
     await transaction(this.pool, async (db) => {
       await db.query('SELECT 1 FROM "user" WHERE userid=$1 FOR UPDATE', [userId]);
-      const pending = await pendingEmailChange(db, userId);
-      if (!(await cancelEmailChange(db, userId))) return;
+      const cancelled = await cancelEmailChange(db, userId);
+      if (!cancelled) return;
       await new StaffModel(db, this.config.timeZone).audit(userId, userId, 'profile.email_change_cancelled', 'user', userId,
-        'Member cancelled their email change', { pendingEmail: pending?.email ?? null }, null);
+        'Member cancelled their email change', { pendingEmail: cancelled }, null);
     });
   }
 

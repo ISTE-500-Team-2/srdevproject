@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import { MemberPhoto } from "../MemberPhoto";
-import { personInitials } from "./RecentTaps";
+import { initials } from "../../lib/today";
 import { Link } from "react-router-dom";
 import { api, errorMessage } from "../../lib/api";
 import { useApi } from "../../lib/useApi";
@@ -153,7 +153,7 @@ export function TapHistory({
             <p className="nfc-tap__who">
               {t.memberName ? (
                 <MemberPhoto id={t.userId} version={t.photoVersion} className="nfc-tap__avatar">
-                  {personInitials(t.memberName)}
+                  {initials(t.memberName)}
                 </MemberPhoto>
               ) : null}
               {t.memberName ? (

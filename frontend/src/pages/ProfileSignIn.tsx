@@ -153,7 +153,7 @@ export function SignInSection({
         ) : null}
         {!ownAccount ? (
           <p className="account-hint">Members change their own email and password.</p>
-        ) : (
+        ) : !profile ? null : (
           <div className="account-signin__actions">
             {pending ? (
               <>
