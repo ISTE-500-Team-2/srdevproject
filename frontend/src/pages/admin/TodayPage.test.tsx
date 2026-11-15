@@ -113,3 +113,71 @@ test("at midnight every panel starts the new day, so a failed refresh is not hid
   expect(api.mock.calls.map(([p]) => p)).toContain("/admin/reports?period=daily&from=2026-10-29&to=2026-10-29");
   vi.useRealTimers();
 });
+test("a failed background refresh keeps every panel's data and offers one reload", async () => {
+  mount();
+  expect(await screen.findByRole("link", { name: "Lathe" })).toBeTruthy();
+  expect(await screen.findByText("Nothing needs you right now.")).toBeTruthy();
+  expect(screen.queryByText(/could not be refreshed/)).toBeNull();
+  fail = "/equipment";
+  const before = api.mock.calls.filter(([p]) => p === "/equipment").length;
+  await act(async () => { fireEvent.focus(window); });
+  const stale = await screen.findByText(/Some of today’s information could not be refreshed/);
+  expect(stale.textContent).toContain("Equipment request failed");
+  expect(stale.getAttribute("role")).toBe("status");
+  // The older data stays on screen; no panel switches to its error state.
+  expect(screen.getByRole("link", { name: "Lathe" })).toBeTruthy();
+  expect(screen.getByText("Nothing needs you right now.")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  fail = "";
+  const reloads = api.mock.calls.length;
+  fireEvent.click(within(stale).getByRole("button", { name: "Reload" }));
+  await waitFor(() => expect(screen.queryByText(/could not be refreshed/)).toBeNull());
+  // Only the failed source is read again.
+  expect(api.mock.calls.slice(reloads).map(([p]) => p)).toEqual(["/equipment"]);
+  expect(api.mock.calls.filter(([p]) => p === "/equipment").length).toBeGreaterThan(before + 1);
+  expect(screen.getByRole("link", { name: "Lathe" })).toBeTruthy();
+});
+test("the stale notice stays up while a retry is still running", async () => {
+  mount();
+  expect(await screen.findByRole("link", { name: "Lathe" })).toBeTruthy();
+  fail = "/equipment";
+  await act(async () => { fireEvent.focus(window); });
+  const stale = await screen.findByText(/Some of today’s information could not be refreshed/);
+  // The retry never settles; useApi clears its error while it runs.
+  fail = "";
+  const original = api.getMockImplementation()!;
+  api.mockImplementation((path: string) => path === "/equipment" ? new Promise(() => {}) : original(path));
+  await act(async () => { fireEvent.click(within(stale).getByRole("button", { name: "Reload" })); });
+  expect(screen.getByText(/Some of today’s information could not be refreshed/).textContent).toContain("Equipment request failed");
+  expect(screen.getByRole("link", { name: "Lathe" })).toBeTruthy();
+});
+
+test("a failed bookings refresh is reported while the bookings stay on the floor", async () => {
+  const original = api.getMockImplementation()!;
+  let bookingsFail = false;
+  api.mockImplementation((path: string) => path.startsWith("/admin/reservations?")
+    ? bookingsFail
+      ? Promise.reject(new Error("Bookings request failed"))
+      : Promise.resolve({ items: [{ id: 2, equipmentId: 1, memberName: "Dana Whitfield", startTime: "2026-10-28T07:00:00Z", endTime: "2026-10-28T09:00:00Z", status: "confirmed" }], nextOffset: null })
+    : original(path));
+  mount();
+  const booking = { name: "Dana Whitfield, 12:30 PM to 2:30 PM, in use now" };
+  expect(await screen.findByRole("listitem", booking)).toBeTruthy();
+  bookingsFail = true;
+  await act(async () => { fireEvent.focus(window); });
+  const stale = await screen.findByText(/Some of today’s information could not be refreshed/);
+  expect(stale.textContent).toContain("Bookings request failed");
+  expect(stale.getAttribute("role")).toBe("status");
+  expect(screen.getByRole("listitem", booking)).toBeTruthy();
+  bookingsFail = false;
+  const reloads = api.mock.calls.length;
+  fireEvent.click(within(stale).getByRole("button", { name: "Reload" }));
+  await waitFor(() => expect(screen.queryByText(/could not be refreshed/)).toBeNull());
+  expect(api.mock.calls.slice(reloads).map(([p]) => p)).toEqual(["/admin/reservations?date=2026-10-28"]);
+  expect(screen.getByRole("listitem", booking)).toBeTruthy();
+});
+test("a first-load failure stays in its panel and adds no stale notice", async () => {
+  fail = "/equipment"; mount();
+  expect((await screen.findAllByText(/Equipment request failed/)).length).toBeGreaterThan(0);
+  expect(screen.queryByText(/could not be refreshed/)).toBeNull();
+});

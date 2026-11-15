@@ -7,7 +7,7 @@ Executed on the VM's Docker `verify` target against the separate PostgreSQL demo
 | Suite | Passed | Source |
 | --- | ---: | --- |
 | Backend unit | 4 | `backend/test/domain.test.ts` |
-| Frontend unit | 6 | `frontend/src/data/mockData.test.ts`, `frontend/src/lib/reservationInput.test.ts` |
+| Frontend unit | 6 | `frontend/src/data/mockData.test.ts` (since removed with the unused analytics preview), `frontend/src/lib/reservationInput.test.ts` |
 | Backend/PostgreSQL integration | 17 | `backend/test/integration/mvc.test.ts`, `primary.test.ts` |
 | React/Express/PostgreSQL integration | 2 | `frontend/test/integration/mvc-flow.test.tsx`, `staff-flow.test.tsx` |
 | **Total** | **29** | No skipped cases in the final successful candidate run |

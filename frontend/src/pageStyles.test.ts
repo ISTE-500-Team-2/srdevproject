@@ -7,8 +7,8 @@ import { expect, test } from 'vitest';
 // and tables.css and silently win the cascade. Add new page styles there.
 const src = path.dirname(new URL(import.meta.url).pathname);
 // main.tsx loads the global sheets and the dark theme after pageStyles; Lanyard's sheet is emitted last, where it
-// sat when it loaded with the lazy 3D badge; CodeSlots.jsx is unused (add its sheet when it isn't).
-const loadedElsewhere = new Set(['styles.css', 'tables.css', 'theme/dark.css', 'components/reactbits/Lanyard.css', 'components/reactbits/CodeSlots.css']);
+// sat when it loaded with the lazy 3D badge.
+const loadedElsewhere = new Set(['styles.css', 'tables.css', 'theme/dark.css', 'components/reactbits/Lanyard.css']);
 
 function sources(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {

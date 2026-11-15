@@ -14,6 +14,22 @@ export const studioContact = {
   phone: process.env.STUDIO_CONTACT_PHONE?.trim() || null,
 };
 
+/**
+ * Role precedence (admin > staff > member), role list and active-membership window, shared by
+ * every user projection so authentication and profile responses cannot drift apart.
+ */
+const identityProjection = `             CASE
+               WHEN EXISTS (SELECT 1 FROM user_role ur JOIN role r USING (roleid)
+                            WHERE ur.userid=u.userid AND r.role = 'admin') THEN 'admin'
+               WHEN EXISTS (SELECT 1 FROM user_role ur JOIN role r USING (roleid)
+                            WHERE ur.userid=u.userid AND r.role = 'staff') THEN 'staff'
+               ELSE 'member'
+             END AS role,
+             COALESCE((SELECT json_agg(r.role ORDER BY r.role) FROM user_role ur JOIN role r USING (roleid) WHERE ur.userid=u.userid), '[]') AS roles,
+             CASE WHEN EXISTS (SELECT 1 FROM user_membership um WHERE um.userid=u.userid AND um.status='active'
+                               AND um.startdate <= NOW() AT TIME ZONE 'UTC' AND um.end_date > NOW() AT TIME ZONE 'UTC')
+                  THEN 'Monthly' ELSE 'None' END AS membership`;
+
 export class UserModel {
   constructor(private db: Database, private timeZone = "America/New_York") {}
 
@@ -24,17 +40,7 @@ export class UserModel {
              (u.dob IS NOT NULL AND u.dob::date>((NOW() AT TIME ZONE $2)::date-INTERVAL '18 years')::date) AS "isMinor",
              (SELECT a.firstname||' '||a.lastname FROM app_minor_sponsor s JOIN "user" a ON a.userid=s.adult_id WHERE s.minor_id=u.userid) AS "sponsorName",
              u.primary_role AS "primaryRole",u.is_student AS "isStudent",u.phone, COALESCE(u.status, '') AS status,u.accessstatus AS "accessStatus",
-             CASE
-               WHEN EXISTS (SELECT 1 FROM user_role ur JOIN role r USING (roleid)
-                            WHERE ur.userid=u.userid AND r.role = 'admin') THEN 'admin'
-               WHEN EXISTS (SELECT 1 FROM user_role ur JOIN role r USING (roleid)
-                            WHERE ur.userid=u.userid AND r.role = 'staff') THEN 'staff'
-               ELSE 'member'
-             END AS role,
-             COALESCE((SELECT json_agg(r.role ORDER BY r.role) FROM user_role ur JOIN role r USING (roleid) WHERE ur.userid=u.userid), '[]') AS roles,
-             CASE WHEN EXISTS (SELECT 1 FROM user_membership um WHERE um.userid=u.userid AND um.status='active'
-                               AND um.startdate <= NOW() AT TIME ZONE 'UTC' AND um.end_date > NOW() AT TIME ZONE 'UTC')
-                  THEN 'Monthly' ELSE 'None' END AS membership
+${identityProjection}
       FROM "user" u WHERE u.userid=$1`,
       [id, this.timeZone],
     );
@@ -119,17 +125,7 @@ export class UserModel {
     }>(
       `
       SELECT u.userid AS id, u.firstname AS "firstName", u.lastname AS "lastName", u.email, u.phone,
-             CASE
-               WHEN EXISTS (SELECT 1 FROM user_role ur JOIN role r USING (roleid)
-                            WHERE ur.userid=u.userid AND r.role = 'admin') THEN 'admin'
-               WHEN EXISTS (SELECT 1 FROM user_role ur JOIN role r USING (roleid)
-                            WHERE ur.userid=u.userid AND r.role = 'staff') THEN 'staff'
-               ELSE 'member'
-             END AS role,
-             COALESCE((SELECT json_agg(r.role ORDER BY r.role) FROM user_role ur JOIN role r USING (roleid) WHERE ur.userid=u.userid), '[]') AS roles,
-             CASE WHEN EXISTS (SELECT 1 FROM user_membership um WHERE um.userid=u.userid AND um.status='active'
-                               AND um.startdate <= NOW() AT TIME ZONE 'UTC' AND um.end_date > NOW() AT TIME ZONE 'UTC')
-                  THEN 'Monthly' ELSE 'None' END AS membership,
+${identityProjection},
              u.profile_address AS address,
              u.contact_preferences AS "contactPreferences"
       FROM "user" u WHERE u.userid=$1`,

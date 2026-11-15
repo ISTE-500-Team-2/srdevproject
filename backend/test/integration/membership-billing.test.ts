@@ -55,10 +55,10 @@ test('checkout is not access; verified paid invoice issues membership and one re
  assert.equal((await pool.query("SELECT * FROM app_notification_outbox WHERE dedupe_key='membership-receipt:in_first'")).rowCount,1);
  assert.equal((await pool.query("SELECT * FROM payment WHERE reference='in_first' AND paymentstatus='paid'")).rowCount,1);
  // Staff see which invoice a card payment refunds through, from the payment row itself.
- const [listed]=await new StaffModel(pool).payments(userid,0,{status:'paid',from:null,to:null});
+ const listed=(await new StaffModel(pool).payments(userid,0,{status:'paid',from:null,to:null}))[0]!;
  assert.equal(listed.method,'card');assert.equal(listed.invoiceId,'in_first');assert.equal(listed.refundStatus,null);
  await pool.query("UPDATE app_membership_invoice SET refund_status='pending' WHERE id='in_first'");
- assert.equal((await new StaffModel(pool).payments(userid))[0].refundStatus,'pending');
+ assert.equal((await new StaffModel(pool).payments(userid))[0]!.refundStatus,'pending');
  await pool.query("UPDATE app_membership_invoice SET refund_status=NULL WHERE id='in_first'");
 });
 test('failed renewal does not extend access; later paid renewal grants exactly the next period',async()=>{

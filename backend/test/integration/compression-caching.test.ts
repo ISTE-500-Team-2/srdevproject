@@ -67,7 +67,7 @@ test('a large hashed bundle is compressed for clients that accept it and cached 
     const res = await request(app).get('/assets/index-AbCd1234.js').set('Accept-Encoding', accept).buffer(true).parse(raw);
     assert.equal(res.status, 200);
     assert.equal(res.headers['content-encoding'], encoding, accept);
-    assert.match(res.headers.vary, /Accept-Encoding/);
+    assert.match(res.headers.vary!, /Accept-Encoding/);
     assert.equal(res.headers['cache-control'], immutable);
     assert.equal(res.headers['x-content-type-options'], 'nosniff');
     assert.equal((res.body as Buffer).toString(), bundle);
@@ -123,7 +123,7 @@ test('large authenticated API JSON is compressed and still never stored', async 
 test('auth, reader and webhook responses are never compressed, whatever the client accepts', async () => {
   const signedIn = await request(app).post('/api/auth/demo').set('Accept-Encoding', 'gzip, br').send({ role: 'admin' });
   assert.equal(signedIn.status, 200);
-  const cookie = signedIn.headers['set-cookie'].find((c: string) => c.startsWith(cookieName + '='))!.split(';')[0]!;
+  const cookie = (signedIn.headers['set-cookie'] as unknown as string[]).find((c: string) => c.startsWith(cookieName + '='))!.split(';')[0]!;
   const bearer = 'Bearer ' + signedIn.body.data.accessToken;
   const responses = [
     signedIn,
@@ -135,7 +135,9 @@ test('auth, reader and webhook responses are never compressed, whatever the clie
     await request(app).post('/api/webhooks/brevo').set('Accept-Encoding', 'gzip, br').send({}),
   ];
   for (const res of responses) {
-    const url = `${res.req.method} ${res.req.path}`;
+    // supertest's Response type omits the underlying ClientRequest it exposes at runtime.
+    const { req } = res as typeof res & { req: { method: string; path: string } };
+    const url = `${req.method} ${req.path}`;
     assert.equal(res.headers['content-encoding'], undefined, url);
     // compression adds Vary only once a response passes the filter, so its
     // absence proves exclusion even for bodies under the size threshold.
@@ -145,7 +147,7 @@ test('auth, reader and webhook responses are never compressed, whatever the clie
   // The same small body elsewhere in the API does pass the filter.
   const other = await request(app).get('/api/admin/policies').set('Authorization', bearer).set('Accept-Encoding', 'gzip, br');
   assert.equal(other.status, 200);
-  assert.match(other.headers.vary, /Accept-Encoding/);
+  assert.match(other.headers.vary!, /Accept-Encoding/);
 });
 
 test('byte ranges are served from the stored file, never compressed', async () => {

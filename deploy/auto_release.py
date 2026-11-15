@@ -24,6 +24,15 @@ DATABASES = (('arbor-email-db', 'arbor_email', 'arbor_email_dev'),
              ('arbor-mvc-db-1', 'arbor_mvc', 'arbor_mvc_dev'))
 
 
+class ReleaseCheckError(RuntimeError):
+    """A release or smoke check failed. Never stripped by python -O."""
+
+
+def require(condition, message=None):
+    if not condition:
+        raise ReleaseCheckError(message)
+
+
 def write_json(path, value):
     temporary = path.with_suffix('.next')
     temporary.write_text(json.dumps(value, indent=2) + '\n')
@@ -129,26 +138,26 @@ def request(origin, path, data=None, token=None, origin_header=None):
 
 def verify(root, origin, demo=False):
     health = request(origin, '/api/health')['data']
-    assert health.get('status') == 'ok' and health.get('database') == 'connected', 'Database health failed'
+    require(health.get('status') == 'ok' and health.get('database') == 'connected', 'Database health failed')
     credentials = {'role': 'admin'} if demo else json.loads((root / 'admin.private.json').read_text())
     login = request(origin, '/api/auth/demo' if demo else '/api/auth/login', credentials,
         origin_header=None if demo else 'https://collaboratory.webdev.gccis.rit.edu')
     token = login['data']['accessToken']
     for path in ('/api/auth/session', '/api/admin/users', '/api/training/catalog', '/api/classes'):
-        assert 'data' in request(origin, path, token=token), path
+        require('data' in request(origin, path, token=token), path)
     # Fetch assets without logging credentials or member records.
     with urllib.request.urlopen(origin + '/', timeout=20) as response:
         html = response.read().decode()
     assets = re.findall(r'(?:src|href)="(/assets/[^\"]+)"', html)
-    assert assets, 'Frontend assets missing'
+    require(assets, 'Frontend assets missing')
     for asset in assets:
         with urllib.request.urlopen(origin + asset, timeout=20) as response:
-            assert response.status == 200, asset
+            require(response.status == 200, asset)
     try:
         request(origin, '/api/admin/users')
-        raise AssertionError('Anonymous admin access allowed')
+        raise ReleaseCheckError('Anonymous admin access allowed')
     except urllib.error.HTTPError as error:
-        assert error.code == 401, 'Anonymous admin access did not fail closed'
+        require(error.code == 401, 'Anonymous admin access did not fail closed')
     print('Verified', 'demo' if demo else 'public', 'health/login/admin APIs/assets/access denial', flush=True)
 
 
@@ -244,7 +253,7 @@ def prepare_artifact(root, sha):
     if not source.exists():
         run('git', 'init', str(source))
     run('git', '-C', str(source), 'fetch', '--depth=1', 'https://github.com/' + REPO + '.git', sha)
-    assert output('git', '-C', str(source), 'rev-parse', 'FETCH_HEAD') == sha
+    require(output('git', '-C', str(source), 'rev-parse', 'FETCH_HEAD') == sha, 'Fetched release revision mismatch')
     run('git', '-C', str(source), 'checkout', '--detach', sha)
     if (output('git', '-C', str(source), 'rev-parse', 'HEAD') != sha or
             output('git', '-C', str(source), 'status', '--porcelain', '--untracked-files=all')):
@@ -275,7 +284,7 @@ def backup_databases(release, source):
             backup.chmod(0o600)
             run('docker', 'exec', container, 'pg_dump', '-U', user, '-d', database,
                 '--format=custom', '--no-owner', stdout=stream)
-        assert backup.stat().st_size > 0, 'Empty backup'
+        require(backup.stat().st_size > 0, 'Empty backup')
         with backup.open('rb') as stream:
             run('docker', 'exec', '-i', container, 'pg_restore', '--list', stdin=stream, stdout=subprocess.DEVNULL)
 

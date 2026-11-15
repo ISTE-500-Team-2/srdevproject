@@ -82,16 +82,16 @@ test('registration and remembered login issue signed JWTs with bounded expiry an
   assert.deepEqual(verified.payload.roles, ['member']);
   assert.equal(verified.payload.role, 'member');
   assert.equal('email' in verified.payload, false);
-  const cookie = account.res.headers['set-cookie'].find((c:string)=>c.startsWith(cookieName+'='))!;
+  const cookie = (account.res.headers['set-cookie'] as unknown as string[]).find((c:string)=>c.startsWith(cookieName+'='))!;
   assert.ok(cookie.includes('HttpOnly') && cookie.includes('SameSite=Lax') && cookie.includes('Path=/api'));
   assert.equal(cookie.includes('Max-Age'), false);
   const remembered = await request(app).post('/api/auth/login').send({ email: account.email, password: account.password, remember: true });
   assert.equal(remembered.status, 200);
   const payload = (await jwtVerify(browserToken(remembered), config.jwtKey)).payload;
   assert.equal(payload.exp! - payload.iat!, sessionLifetimeSeconds);
-  assert.ok(remembered.headers['set-cookie'].find((c:string)=>c.startsWith(cookieName+'='))!.includes(`Max-Age=${rememberedLifetimeSeconds}`));
+  assert.ok((remembered.headers['set-cookie'] as unknown as string[]).find((c:string)=>c.startsWith(cookieName+'='))!.includes(`Max-Age=${rememberedLifetimeSeconds}`));
   const secure = await request(createApp(pool, { ...config, secureCookies: true })).post('/api/auth/login').send({ email: account.email, password: account.password });
-  assert.ok(secure.headers['set-cookie'].find((c:string)=>c.startsWith(cookieName+'='))!.includes('Secure'));
+  assert.ok((secure.headers['set-cookie'] as unknown as string[]).find((c:string)=>c.startsWith(cookieName+'='))!.includes('Secure'));
   const stored = await pool.query('SELECT token_hash,expires_at FROM app_session WHERE token_hash=$1', [tokenHash(account.token)]);
   assert.equal(stored.rows[0].token_hash.length, 64);
   assert.equal(new Date(stored.rows[0].expires_at).getTime(), verified.payload.exp! * 1000);
@@ -138,7 +138,7 @@ test('invalid signatures, algorithms, identity/expiry claims and old opaque toke
 test('logout revokes a captured JWT, and re-login rotates the previous JWT and CSRF token', async () => {
   const account = await register();
   const signedIn = await request(app).post('/api/auth/login')
-    .set('Cookie', account.res.headers['set-cookie'].find((c:string)=>c.startsWith(cookieName+'='))!.split(';')[0])
+    .set('Cookie', (account.res.headers['set-cookie'] as unknown as string[]).find((c:string)=>c.startsWith(cookieName+'='))!.split(';')[0]!)
     .send({ email: account.email, password: account.password });
   assert.equal(signedIn.status, 200);
   const token = browserToken(signedIn);
@@ -193,7 +193,7 @@ test('same key survives app restart; a rotated signing key and expired registry 
   assert.equal((await current(account.token)).status, 401);
 });
 
-function refreshCookie(res: request.Response) { return res.headers['set-cookie'].find((c:string)=>c.startsWith(cookieName+'='))!.split(';')[0]!; }
+function refreshCookie(res: request.Response) { return (res.headers['set-cookie'] as unknown as string[]).find((c:string)=>c.startsWith(cookieName+'='))!.split(';')[0]!; }
 function renew(cookie: string, csrf: string) { return request(app).post('/api/auth/refresh').set('Cookie',cookie).set('X-CSRF-Token',csrf).send({}); }
 test('account suspension/blocking revokes every session; restoration requires fresh login and retains history', async () => {
   const operator = await request(app).post('/api/auth/demo').send({role:'admin'});
@@ -375,5 +375,5 @@ test('legacy scrypt credentials upgrade after successful login; configurable exp
   const claims=decodeJwt(browserToken(login));
   assert.equal(claims.exp!-claims.iat!,60);
   assert.match((await pool.query('SELECT password FROM "user" WHERE userid=$1',[a.userId])).rows[0].password,/^\$2b\$12\$/);
-  assert.ok(login.headers['set-cookie'].some((c:string)=>c.includes('Max-Age=3600')));
+  assert.ok((login.headers['set-cookie'] as unknown as string[]).some((c:string)=>c.includes('Max-Age=3600')));
 });

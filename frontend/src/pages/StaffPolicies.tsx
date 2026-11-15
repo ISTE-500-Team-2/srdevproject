@@ -13,18 +13,31 @@ import "./certwaiver.css";
 
 type Waiver = { name: string; current: Policy | null; upcoming: Policy | null; versions: Policy[] };
 
+/** A version with no start date is already in effect, as the backend treats it. */
+const inEffect = (p: Policy, now: number) => p.effectiveAt === null || Date.parse(p.effectiveAt) <= now;
+const startsLater = (p: Policy, now: number) => p.effectiveAt !== null && Date.parse(p.effectiveAt) > now;
+
+/** Newest start first and undated versions last, like the backend's
+ * `effectivedate DESC NULLS LAST`; ties keep the server's order. */
+function newestFirst(a: Policy, b: Policy) {
+  if (a.effectiveAt === b.effectiveAt) return 0;
+  if (a.effectiveAt === null) return 1;
+  if (b.effectiveAt === null) return -1;
+  return Date.parse(b.effectiveAt) - Date.parse(a.effectiveAt);
+}
+
 /** Groups every version under its waiver name, newest first. */
 function groupWaivers(policies: Policy[], now = Date.now()): Waiver[] {
   const byName = new Map<string, Policy[]>();
   for (const p of policies) byName.set(p.name, [...(byName.get(p.name) ?? []), p]);
   return [...byName.entries()]
     .map(([name, list]) => {
-      const versions = list.sort((a, b) => Date.parse(b.effectiveAt) - Date.parse(a.effectiveAt));
+      const versions = list.sort(newestFirst);
       const active = versions.filter((p) => p.active);
       return {
         name,
-        current: active.find((p) => Date.parse(p.effectiveAt) <= now) ?? null,
-        upcoming: active.find((p) => Date.parse(p.effectiveAt) > now) ?? null,
+        current: active.find((p) => inEffect(p, now)) ?? null,
+        upcoming: active.find((p) => startsLater(p, now)) ?? null,
         versions,
       };
     })
@@ -362,7 +375,7 @@ export function StaffPolicies() {
       {waivers.map((w) => {
         const shown = w.current ?? w.upcoming ?? w.versions[0]!;
         const stats = w.current ? signed.get(w.current.id) : undefined;
-        const scheduled = w.versions.filter((p) => p !== shown && p.active && Date.parse(p.effectiveAt) > Date.now());
+        const scheduled = w.versions.filter((p) => p !== shown && p.active && startsLater(p, Date.now()));
         const earlier = w.versions.filter((p) => p !== shown && !scheduled.includes(p));
         return (
           <article className="cw-waiver" key={w.name}>
@@ -384,11 +397,13 @@ export function StaffPolicies() {
                 </span>
                 <span>
                   <Clock aria-hidden="true" />
-                  {w.current ? `In effect since ${shortDate(shown.effectiveAt, true)}` : w.upcoming ? `Starts ${dateTime(shown.effectiveAt)}` : "Retired"}
+                  {w.current
+                    ? shown.effectiveAt ? `In effect since ${shortDate(shown.effectiveAt, true)}` : "In effect · No start date"
+                    : w.upcoming ? `Starts ${dateTime(shown.effectiveAt ?? undefined)}` : "Retired"}
                 </span>
                 {w.current && w.upcoming ? (
                   <span className="cw-tag cw-tag--amber">
-                    Version {w.upcoming.version} starts {shortDate(w.upcoming.effectiveAt)}
+                    Version {w.upcoming.version} starts {w.upcoming.effectiveAt ? shortDate(w.upcoming.effectiveAt) : "No start date"}
                   </span>
                 ) : null}
                 {!shown.approvalReference ? (
@@ -432,7 +447,7 @@ export function StaffPolicies() {
                         <button type="button" className="cw-link" onClick={() => setReading(p)}>
                           Version {p.version}
                         </button>{" "}
-                        · {p.active ? "Active" : "Retired"} · from {shortDate(p.effectiveAt, true)}
+                        · {p.active ? "Active" : "Retired"} · {p.effectiveAt ? `from ${shortDate(p.effectiveAt, true)}` : "No start date"}
                       </li>
                     ))}
                   </ul>
@@ -449,7 +464,7 @@ export function StaffPolicies() {
                 <h4>Scheduled versions</h4>
                 {scheduled.map((p) => (
                   <div className="cw-row" key={p.id}>
-                    <span>Version {p.version} · starts {dateTime(p.effectiveAt)}</span>
+                    <span>Version {p.version} · starts {p.effectiveAt ? dateTime(p.effectiveAt) : "No start date"}</span>
                     <div className="cw-waiver__actions">
                       <button type="button" className="button button--quiet cw-small" aria-label={`View ${w.name} ${p.version}`} onClick={() => setReading(p)}>
                         <Eye aria-hidden="true" /> View text

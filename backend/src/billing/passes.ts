@@ -10,6 +10,7 @@ import {StudioService} from '../studios/service.js';
 import {StudioStripe} from '../studios/stripe.js';
 import {enqueueNotification} from '../notifications/store.js';
 import {quote} from './pricing.js';
+import {refundTransition} from './refundTransition.js';
 const objectId=(v:any):string|undefined=>typeof v==='string'?v:v?.id;
 export class PassBilling {
  constructor(readonly pool:Pool,readonly stripe?:StudioStripe,readonly zone='America/New_York'){}
@@ -160,8 +161,7 @@ export class PassBilling {
   const r=(await db.query('SELECT * FROM app_pass_checkout WHERE payment_intent=$1 FOR UPDATE',[objectId(f.payment_intent)])).rows[0];
   if(!r)return;
   const failed=['failed','canceled'].includes(f.status??'');
-  if(r.refund_status==='succeeded'&&!(r.refund_id===f.id&&failed))return;
-  if(r.refund_id===f.id&&(r.refund_status===f.status||['failed','canceled'].includes(r.refund_status)&&f.status==='pending'))return;
+  if(refundTransition({refundId:r.refund_id,refundStatus:r.refund_status},f)==='skip')return;
   if(f.amount!==r.amount_cents||f.currency!=='usd')throw new AppError(409,'RECONCILE_REQUIRED','Refund amount mismatch.');
   await db.query('UPDATE app_pass_checkout SET refund_id=$2,refund_status=$3 WHERE id=$1',[r.id,f.id,f.status]);
   if(f.status==='succeeded'){

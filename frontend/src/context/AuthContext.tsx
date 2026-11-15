@@ -13,7 +13,7 @@ import { useLocation } from 'react-router-dom';
 import { api, ApiError, errorMessage, setCsrfToken, setAccessToken } from '../lib/api';
 import type { NotificationMessage, Registration, Session, User } from '../lib/contracts';
 import type { UserRole } from '../types';
-import { forgetRecentAccounts } from '../components/admin/people';
+import { forgetRecentAccounts } from '../lib/recentAccounts';
 import { loadShared } from '../lib/useApi';
 
 

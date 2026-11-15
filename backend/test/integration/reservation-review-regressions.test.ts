@@ -76,7 +76,7 @@ for (const alreadyApplied of [false, true]) test(`upgrade ${alreadyApplied ? 'or
     if (alreadyApplied) await pool.query("SELECT setval('app_room_id_seq',500,true)");
     for (const year of [2020, 2030]) {
       const start = Date.parse(`${year}-01-10T10:00:00Z`);
-      for (const [user, offset] of [[f.first, 0], [alreadyApplied ? f.second : f.first, hour]])
+      for (const [user, offset] of [[f.first, 0], [alreadyApplied ? f.second : f.first, hour]] as const)
         await pool.query(`INSERT INTO reservation(userid,equipmentid,location,starttime,endtime,status)
           VALUES($1,$2,'Old booking',$3::timestamptz AT TIME ZONE 'UTC',$4::timestamptz AT TIME ZONE 'UTC','confirmed')`,
         [user, f.equipment, new Date(start + offset), new Date(start + offset + hour)]);

@@ -4,7 +4,7 @@ import { transaction, type Database } from "./db.js";
 import { AppError, positiveId, textField } from "./domain.js";
 import { authState, requireCsrf } from "./middleware/auth.js";
 import { oneOf, optionalReasonField, pageOffset } from "./staffDomain.js";
-import { page } from "./controllers/StaffController.js";
+import { page } from "./pagination.js";
 import { StaffModel } from "./models/StaffModel.js";
 import { enqueueNotification } from "./notifications/store.js";
 import { readerLastSeen, readerPresenceJoin } from './readerRegistry.js';

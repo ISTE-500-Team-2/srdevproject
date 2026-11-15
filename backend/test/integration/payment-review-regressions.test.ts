@@ -80,6 +80,12 @@ test('late day-pass refund failure corrects money status without restoring cance
  assert.equal((await pool.query('SELECT paymentstatus FROM payment WHERE paymentid=$1',[payment])).rows[0].paymentstatus,'paid');
  assert.equal((await pool.query('SELECT status FROM day_pass WHERE dayid=$1',[pass])).rows[0].status,'cancelled');
 });
+/** Settles like `promise`, or rejects with `message` after `ms` so a stalled race fails instead of hanging. */
+async function within<T>(promise:Promise<T>,ms:number,message:string):Promise<T>{
+ let timer:ReturnType<typeof setTimeout>|undefined;
+ try{return await Promise.race([promise,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error(message)),ms);})]);}
+ finally{clearTimeout(timer);}
+}
 for(const kind of ['membership','day_pass'] as const)test(`concurrent staff and online ${kind} issuance cannot create duplicate access`,async()=>{
  const plan=kind==='membership'?monthly:day,date='2035-01-01',model=new StaffModel(pool);
  // Pause the online path after its overlap check, while it holds the per-member lock.
@@ -98,7 +104,10 @@ for(const kind of ['membership','day_pass'] as const)test(`concurrent staff and 
   online=passes.webhook(event('checkout.session.completed',checkout));
  }
  try{
-  await ready;let settled=false;
+  // Fail (never hang) when the online path errors or settles before it reaches the pause, or never reaches it.
+  await within(Promise.race([ready,online.then(()=>{throw new Error(`online ${kind} issuance settled without reaching the paused overlap check`);})]),
+   10_000,`online ${kind} issuance did not reach the paused overlap check within 10s`);
+  let settled=false;
   const manual=staff.issue(admin,member,{requestId:randomUUID(),planId:plan.id,startsAt:kind==='membership'?date+'T00:00:00Z':null,validDate:kind==='day_pass'?date:null,paymentStatus:'paid',method:'cash',reference:'CASH-RACE',reason:'Concurrent staff issuance'}).then(value=>({value}),error=>({error})).finally(()=>{settled=true;});
   for(let i=0;i<100&&!settled;i++){
    const waiting=await pool.query("SELECT 1 FROM pg_locks WHERE locktype='advisory' AND classid=7121 AND objid=$1 AND NOT granted",[member]);
@@ -109,7 +118,7 @@ for(const kind of ['membership','day_pass'] as const)test(`concurrent staff and 
   assert.equal(result.error.code,kind==='membership'?'MEMBERSHIP_OVERLAP':'PASS_EXISTS');
   const count=kind==='membership'?await pool.query("SELECT count(*)::int n FROM user_membership WHERE userid=$1 AND startdate='2035-01-01'",[member]):await pool.query("SELECT count(*)::int n FROM day_pass WHERE userid=$1 AND validdate::date='2035-01-01'",[member]);
   assert.equal(count.rows[0].n,1);
- }finally{release();(StaffModel.prototype as any)[method]=original;await online.catch(()=>{});}
+ }finally{release();(StaffModel.prototype as any)[method]=original;await within(online.catch(()=>{}),10_000,'online issuance cleanup').catch(()=>{});}
 });
 
 test('studio reconciliation preserves processing holds and releases confirmed failures without a webhook',async()=>{

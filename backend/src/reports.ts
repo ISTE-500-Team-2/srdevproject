@@ -151,7 +151,10 @@ export function reportRoutes(pool: Pool, tz: string) {
             (SELECT COUNT(*)::int FROM user_certifications WHERE status='active' AND renewaldate IS NULL) AS "trainingWithoutExpiry",
             (SELECT COUNT(*)::int FROM user_membership um JOIN "user" mu USING(userid) WHERE um.status='active' AND mu.status='active'
               AND um.startdate<=NOW() AT TIME ZONE 'UTC' AND um.end_date>NOW() AT TIME ZONE 'UTC') AS "activeMemberships",
-            (SELECT COUNT(*)::int FROM user_waiver uw WHERE uw.approval=true AND NOT EXISTS(SELECT 1 FROM app_notification_outbox o
+            (SELECT COUNT(*)::int FROM user_waiver uw WHERE uw.approval=true AND NOT EXISTS(SELECT 1 FROM app_signed_waiver_copy c
+              WHERE c.userwaiverid=uw.userwaiverid AND c.userid=uw.userid
+                AND c.payload ?& ARRAY['waiverName','waiverVersion','waiverText','signature','signedAt'])
+              AND NOT EXISTS(SELECT 1 FROM app_notification_outbox o
               WHERE o.dedupe_key='waiver-signed:'||uw.userwaiverid AND o.userid=uw.userid AND o.kind='waiver_signed'
                 AND o.payload ?& ARRAY['waiverName','waiverVersion','waiverText','signature','signedAt'])) AS "signaturesWithoutCopy",
             (SELECT COALESCE(json_agg(name ORDER BY name),'[]') FROM equipment WHERE certid IS NULL AND status='available') AS "machinesWithoutTraining"
@@ -214,21 +217,10 @@ export function reportRoutes(pool: Pool, tz: string) {
             },
             ...data.notes.map((note) => ({ section: "method", note })),
           ];
-          for (const section of [
-            "revenue",
-            "equipment",
-            "patterns",
-            "classes",
-            "rooms",
-            "live",
-            "usage",
-            "memberships",
-          ] as const)
+          for (const section of EXPORT_ROW_SECTIONS)
             for (const row of data[section]) records.push({ section, ...row });
-          records.push(
-            { section: "active", ...data.active },
-            { section: "compliance", ...data.compliance },
-          );
+          for (const section of EXPORT_SUMMARY_SECTIONS)
+            records.push({ section, ...data[section] });
           for (const [cohort, metrics] of Object.entries(
             data.notifications.cohorts,
           ))
@@ -271,6 +263,19 @@ export function reportRoutes(pool: Pool, tz: string) {
   );
   return r;
 }
+// CSV and PDF exports list the same sections in the same order.
+// Row sections hold arrays of records; summary sections hold one record each.
+const EXPORT_ROW_SECTIONS = [
+  "revenue",
+  "equipment",
+  "patterns",
+  "classes",
+  "rooms",
+  "live",
+  "usage",
+  "memberships",
+] as const;
+const EXPORT_SUMMARY_SECTIONS = ["active", "compliance"] as const;
 function csvCell(s: string) {
   const safe = /^[=+@\-\t\r]/.test(s) ? "'" + s : s;
   return '"' + safe.replaceAll('"', '""') + '"';
@@ -280,22 +285,13 @@ function reportLines(d: any): string[][] {
     ["Report", `${d.from} through ${d.to}`, d.timeZone, d.generatedAt],
     ...d.notes.map((x: string) => ["Method", x]),
   ];
-  for (const section of [
-    "revenue",
-    "equipment",
-    "patterns",
-    "classes",
-    "rooms",
-    "live",
-    "usage",
-    "memberships",
-  ])
+  for (const section of EXPORT_ROW_SECTIONS)
     for (const row of d[section])
       rows.push([
         section,
         ...Object.entries(row).map(([k, v]) => `${k}: ${v ?? "not recorded"}`),
       ]);
-  for (const section of ["active", "compliance"])
+  for (const section of EXPORT_SUMMARY_SECTIONS)
     rows.push([
       section,
       ...Object.entries(d[section]).map(([k, v]) => `${k}: ${v}`),

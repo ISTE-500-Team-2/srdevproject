@@ -246,6 +246,26 @@ test('staff banner counts unrecorded attendance from the roster of a started cla
   expect(screen.getByText('2 people on the roster have no attendance recorded yet.')).toBeTruthy();
 });
 
+test('a roster that cannot be read is flagged as attendance unavailable, with a retry', async () => {
+  classes = [course(4, -1), course(6, -3), course(5, 48)];
+  let failing = true;
+  const served = vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path === '/classes/6/roster' && failing) throw new ApiError(503, 'UNAVAILABLE', 'Try again later.');
+    return served(path, options);
+  });
+  await mount();
+  // The readable class still counts; the failed one is not silently treated as recorded.
+  expect(screen.getByRole('alert').textContent).toMatch(/^Attendance unavailable for Safety 6\./);
+  expect(screen.getByText(/Safety 4 .* needs attendance/)).toBeTruthy();
+  expect(screen.queryByText(/Safety 6 .* needs attendance/)).toBeNull();
+  failing = false;
+  await click('Retry attendance');
+  expect(screen.queryByText(/Attendance unavailable/)).toBeNull();
+  expect(calls('/classes/6/roster').length).toBeGreaterThanOrEqual(2);
+  expect(screen.getByText('2 past classes need attendance.')).toBeTruthy();
+});
+
 test('nobody is pre-marked; saving needs a note and only sends chosen people', async () => {
   await mount();
   const panel = await openRoster();

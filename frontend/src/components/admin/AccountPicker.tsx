@@ -6,14 +6,8 @@ import { errorMessage } from "../../lib/api";
 import type { Page, Person } from "../../lib/staffContracts";
 import { useApi } from "../../lib/useApi";
 import { Modal } from "../Modal";
-import {
-  initials,
-  isProtectedAccount,
-  recentAccounts,
-  rememberAccount,
-  roleLabel,
-  type RecentAccount,
-} from "./people";
+import { recentAccounts, rememberAccount, type RecentAccount } from "../../lib/recentAccounts";
+import { initials, isProtectedAccount, roleLabel } from "./people";
 
 /** Why a search result can't be opened, or null when it can. */
 function unavailable(person: Person, selfId: number | undefined) {

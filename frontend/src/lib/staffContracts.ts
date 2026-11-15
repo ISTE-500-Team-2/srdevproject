@@ -95,11 +95,12 @@ export interface Policy {
   id: number;
   name: string;
   version: string;
-  description: string;
-  effectiveAt: string;
+  description: string | null;
+  /** Null when the version has no start date; the backend treats it as already in effect. */
+  effectiveAt: string | null;
   active: boolean;
   required: boolean;
-  approvalReference: string;
+  approvalReference: string | null;
   validityDays?: number | null;
   scope: 'facility' | 'equipment';
 }

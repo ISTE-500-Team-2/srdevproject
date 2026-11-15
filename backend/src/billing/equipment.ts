@@ -9,6 +9,7 @@ import { StudioStripe } from '../studios/stripe.js';
 import { EquipmentModel } from '../models/EquipmentModel.js';
 import { AccessService } from '../services/AccessService.js';
 import type { Database } from '../db.js';
+import { errorIdentifier } from '../logSafety.js';
 
 /** Server-priced equipment holds. Only canonical paid Stripe state confirms a booking. */
 export class EquipmentBilling {
@@ -138,10 +139,12 @@ export class EquipmentBilling {
         if (session.id !== row.checkout_id || session.metadata?.equipmentReservationId !== String(row.reservation_id))
           throw new AppError(400, 'PAYMENT_MISMATCH', 'Equipment checkout identity mismatch.');
         await this.apply(session);
-      } catch {
+      } catch (error) {
         // Keep the hold during provider outages; browsing stays available and a
-        // later read or signed callback can finish verification safely.
-        console.error('Equipment payment reconciliation deferred', {reservationId: row.reservation_id});
+        // later read or signed callback can finish verification safely. Log only the
+        // error class and PostgreSQL SQLSTATE or Stripe error type, never messages or bodies.
+        console.error('Equipment payment reconciliation deferred', {reservationId: row.reservation_id, stage: 'equipment_reconcile',
+          ...errorIdentifier(error)});
       }
     }));
   }

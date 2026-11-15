@@ -19,7 +19,11 @@ const database = 'arbor_equipment_' + randomBytes(6).toString('hex') + '_mvc_tes
 const owner = new Pool(), pool = new Pool({database});
 const provider = new StudioStripe({key: 'sk_test_equipment_fake', webhookSecret: 'whsec_equipment_fake', origin: 'http://localhost:8080'});
 const billing = new EquipmentBilling(pool, provider);
-const service = new ReservationService(pool, 'America/New_York', provider);
+// ReservationService.create returns a loosely typed row union; tests read id/status from it.
+type CreatedReservation = {id: number; status: string; [column: string]: any};
+type TypedReservations = Omit<ReservationService, 'create'> & {create(...args: Parameters<ReservationService['create']>): Promise<CreatedReservation>};
+const reservations = (...args: ConstructorParameters<typeof ReservationService>) => new ReservationService(...args) as unknown as TypedReservations;
+const service = reservations(pool, 'America/New_York', provider);
 const sessions = new Map<string, any>();
 let member: number, equipment: number, created = false, counter = 0;
 const quotes: Stripe.Checkout.SessionCreateParams[] = [];
@@ -189,11 +193,11 @@ test('paid-state reconciliation recovers a missed webhook; no Stripe config fail
   paid(await sessionFor(result.id));
   await billing.reconcile(member);
   assert.equal((await state(result.id)).status, 'confirmed');
-  await assert.rejects(new ReservationService(pool, 'America/New_York').create(member, booking()), {code: 'PAYMENTS_UNAVAILABLE'});
+  await assert.rejects(reservations(pool, 'America/New_York').create(member, booking()), {code: 'PAYMENTS_UNAVAILABLE'});
   await pool.query('UPDATE equipment SET hourlyrate=NULL WHERE equipmentid=$1', [equipment]);
   await assert.rejects(service.create(member, booking()), {code: 'RATE_NOT_SET'});
   await pool.query('UPDATE equipment SET hourlyrate=0 WHERE equipmentid=$1', [equipment]);
-  const free = await new ReservationService(pool, 'America/New_York').create(member, booking(1, {amountCents: 0}));
+  const free = await reservations(pool, 'America/New_York').create(member, booking(1, {amountCents: 0}));
   assert.equal(free.status, 'confirmed');
   assert.equal((await pool.query('SELECT 1 FROM app_equipment_checkout WHERE reservation_id=$1', [free.id])).rowCount, 0);
   await pool.query('UPDATE equipment SET hourlyrate=7 WHERE equipmentid=$1', [equipment]);

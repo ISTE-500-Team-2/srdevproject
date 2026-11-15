@@ -8,6 +8,7 @@ import { requirePermission } from './middleware/permissions.js';
 import { StaffModel } from './models/StaffModel.js';
 import { EligibilityModel } from './models/EligibilityModel.js';
 import { enqueueNotification } from './notifications/store.js';
+import { DEFAULT_BUILDING_ID } from './facility.js';
 
 /** Active account aged 18+; `$${zone}` is the time-zone parameter. */
 const adultSql=(zone:number)=>`dob IS NOT NULL AND dob::date<=((now() AT TIME ZONE $${zone})::date-INTERVAL '18 years')::date
@@ -303,7 +304,7 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
         const model=new EligibilityModel(db,zone),entitlement=await model.entitlement(id,new Date()),waivers=await model.waivers(id,'facility');
         if (!entitlement.membership && !entitlement.dayPass) throw new AppError(403,'MEMBERSHIP_REQUIRED','Each visitor needs a membership or day pass.');
         if (!waivers.length || waivers.some(w=>!w.signed)) throw new AppError(403,'WAIVER_REQUIRED','Sign current required policies first.');
-        const building=positiveId(req.body.buildingId ?? 1);
+        const building=positiveId(req.body.buildingId ?? DEFAULT_BUILDING_ID);
         if (!(await db.query("SELECT buildingid FROM building WHERE buildingid=$1 AND status='available' FOR SHARE",[building])).rowCount)
           throw new AppError(409,'RESOURCE_UNAVAILABLE','This building is unavailable.');
         await service.startVisit(id,building);

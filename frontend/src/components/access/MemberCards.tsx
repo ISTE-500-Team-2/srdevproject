@@ -1,5 +1,5 @@
 import { useId, useState, type FormEvent } from "react";
-import { api, errorMessage } from "../../lib/api";
+import { api, ApiError, errorMessage } from "../../lib/api";
 import { dateTime } from "../../lib/display";
 import { useApi } from "../../lib/useApi";
 import { useCardScan } from "../../lib/useCardScan";
@@ -26,6 +26,7 @@ export function MemberCards({
   const [replacement, setReplacement] = useState<NfcCard | null>(null);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
+    [stale, setStale] = useState(false),
     [notice, setNotice] = useState("");
   const changed = (message: string) => {
     setError("");
@@ -35,7 +36,7 @@ export function MemberCards({
   };
   async function changeCard(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!action) return;
+    if (!action || busy || stale) return;
     const reason = new FormData(e.currentTarget).get("reason");
     setBusy(true);
     setError("");
@@ -50,9 +51,13 @@ export function MemberCards({
       );
       setAction(null);
     } catch (e) {
-      setError(errorMessage(e));
+      // The dialog stays open with the reason as typed. Someone else changed this card:
+      // load the latest and have staff look before trying again.
       cards.reload();
-      setAction(null);
+      if (e instanceof ApiError && e.status === 409) {
+        setStale(true);
+        setError("This card changed since you opened it. The latest is loaded; close this and check the card before trying again.");
+      } else setError(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -77,11 +82,6 @@ export function MemberCards({
         </button>
       </div>
       <LoadState {...cards} />
-      {error ? (
-        <p className="form-error" role="alert">
-          {error}
-        </p>
-      ) : null}
       {notice ? (
         <p className="form-notice" role="status">
           {notice}{" "}
@@ -132,6 +132,7 @@ export function MemberCards({
                 className="button button--quiet"
                 onClick={() => {
                   setError("");
+                  setStale(false);
                   setNotice("");
                   setAction({
                     card,
@@ -206,8 +207,13 @@ export function MemberCards({
               Reason
               <input name="reason" required maxLength={500} disabled={busy} />
             </label>
+            {error ? (
+              <p className="form-error" role="alert">
+                {error}
+              </p>
+            ) : null}
             <div className="management-actions">
-              <button className="button button--primary" disabled={busy}>
+              <button className="button button--primary" disabled={busy || stale}>
                 {busy
                   ? "Saving…"
                   : action.kind === "revoke"

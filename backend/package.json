@@ -15,7 +15,8 @@
     "test": "tsx --test test/*.test.ts",
     "test:integration": "tsx --test test/integration/*.test.ts",
     "test:load": "tsx test/load/run.ts",
-    "check": "npm run build && npm test",
+    "typecheck:test": "tsc -p test/tsconfig.json --noEmit",
+    "check": "npm run build && npm run typecheck:test && npm test",
     "setup:demo": "tsx src/scripts/init-demo.ts"
   },
   "dependencies": {

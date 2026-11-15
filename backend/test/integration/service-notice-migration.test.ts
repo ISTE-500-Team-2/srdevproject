@@ -21,7 +21,7 @@ test('FR-032: upgrading keeps earlier notices\' reach and their "what was fixed"
     const [actor] = users;
     const notice = async (resolved: boolean) => (await pool.query<{id: number}>(
       `INSERT INTO app_service_notice(source,summary,opened_by,resolved_at,resolved_by) VALUES('staff','The laser cutter is down.',$1,$2,$3) RETURNING id`,
-      [actor, resolved ? new Date() : null, resolved ? actor : null])).rows[0].id;
+      [actor, resolved ? new Date() : null, resolved ? actor : null])).rows[0]!.id;
     const fixed = await notice(true), open = await notice(false);
     // Three emails queued for the fixed notice, one of them to someone who opted out.
     for (const [i, status] of (['accepted', 'pending', 'suppressed'] as const).entries())
