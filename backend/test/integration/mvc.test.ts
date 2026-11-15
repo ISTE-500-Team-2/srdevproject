@@ -1,128 +1,25 @@
 import { waiverAcceptance } from '../helpers/waiver.js';
-import { confirmationToken } from '../helpers/confirmation.js';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { before, after, test } from 'node:test';
-import { Pool } from 'pg';
 import { setTimeout as delay } from 'node:timers/promises';
-import type { Server } from 'node:http';
 import request from 'supertest';
 import { createApp } from '../../src/app.js';
 import { initializeDemo } from '../../src/scripts/init-demo.js';
 import { migrate } from '../../src/scripts/migrate.js';
-import type { AppConfig } from '../../src/config.js';
+import { DisposableApp, type TestClient } from '../helpers/appHarness.js';
 
 // A fresh, disposable database is created for this run. Never reset an existing DB.
-const database = 'arbor_' + randomBytes(6).toString('hex') + '_mvc_test';
-const adminPool = new Pool({ connectionTimeoutMillis: 5000 });
-const pool = new Pool({ database, connectionTimeoutMillis: 5000, max: 10 });
-const config: AppConfig = {
-  jwtKey: randomBytes(32),
-  port: 8080,
-  host: '127.0.0.1',
-  secureCookies: false,
-  demoLogin: true,
-  allowedOrigins: ['http://localhost:8080'],
-  timeZone: 'America/New_York',
-};
-let created = false;
-let app: ReturnType<typeof createApp>,server:Server;
-const servers:Server[]=[];
-async function serve(application:ReturnType<typeof createApp>){
- const listener=application.listen(0,'127.0.0.1');servers.push(listener);
- await new Promise<void>(resolve=>listener.once('listening',resolve));return listener;
-}
+const harness = new DisposableApp('arbor_');
+const { pool, config } = harness;
 before(async () => {
-  if (!process.env.PGHOST || process.env.DATABASE_URL)
-    throw new Error(
-      'Use explicit PGHOST/PGPORT/PGUSER/PGDATABASE for an isolated PostgreSQL test server.',
-    );
-  await adminPool.query(`CREATE DATABASE "${database}"`);
-  created = true;
-  await initializeDemo(pool);
-  // Scheduling/access tests use free equipment; card checkout has separate payment coverage.
-  await pool.query('UPDATE equipment SET hourlyrate=0');
-  app = createApp(pool, config);
-  server = await serve(app);
+  await harness.setup();
+  await harness.start();
 });
-after(async () => {
-  await Promise.all(servers.map(listener=>new Promise<void>(resolve=>{listener.close(()=>resolve());listener.closeAllConnections();})));
-  await pool.end();
-  if (created) await adminPool.query(`DROP DATABASE "${database}"`);
-  await adminPool.end();
-});
-function client() {
-  const agent = request.agent(server);
-  let csrf = '';
-  let id = 0;
-  let cookie = '';
-  return {
-    agent,
-    get id() {
-      return id;
-    },
-    get cookie() {
-      return cookie;
-    },
-    async demo(role = 'member') {
-      const res = await agent.post('/api/auth/demo').send({ role });
-      assert.equal(res.status, 200);
-      agent.set('Authorization', 'Bearer '+res.body.data.accessToken);
-      csrf = res.body.data.csrfToken;
-      id = res.body.data.user.id;
-      cookie = res.body.data.accessToken;
-      return res;
-    },
-    async register() {
-      const email = randomBytes(8).toString('hex') + '@example.invalid',
-        password = `A!${randomBytes(24).toString('hex')}`;
-      let res = await agent
-        .post('/api/auth/register')
-        .send({
-          email,
-          password,
-          firstName: 'Test',
-          lastName: 'Member',
-          phone: '0000000000',
-          dob: '2000-01-01',
-          role: 'admin',
-        });
-      assert.equal(res.status, 202);
-      res = await agent.post('/api/auth/confirm').send({token:await confirmationToken(pool,email)});
-      assert.equal(res.status,200);
-      agent.set('Authorization', 'Bearer '+res.body.data.accessToken);
-      csrf = res.body.data.csrfToken;
-      id = res.body.data.user.id;
-      cookie = res.body.data.accessToken;
-      return { email, password, res };
-    },
-    async login(email: string, password: string) {
-      const res = await agent.post('/api/auth/login').send({ email, password });
-      assert.equal(res.status, 200);
-      agent.set('Authorization', 'Bearer '+res.body.data.accessToken);
-      csrf = res.body.data.csrfToken;
-      id = res.body.data.user.id;
-      cookie = res.body.data.accessToken;
-      return res;
-    },
-    adoptCsrf(token: string) {
-      csrf = token;
-    },
-    post(path: string, body: string | object = {}) {
-      return agent
-        .post('/api' + path)
-        .set('X-CSRF-Token', csrf)
-        .send(body);
-    },
-    patch(path: string, body: string | object) {
-      return agent
-        .patch('/api' + path)
-        .set('X-CSRF-Token', csrf)
-        .send(body);
-    },
-  };
-}
-type Client = ReturnType<typeof client>;
+after(() => harness.teardown());
+// The signup body still claims admin: registration must ignore a self-assigned role.
+const client = () => harness.client({ firstName: 'Test', lastName: 'Member', role: 'admin' });
+type Client = TestClient;
 /** Members check in at a reader; the web check-in is staff at the desk, in the member's open account. */
 async function deskCheckIn(staff: Client, member: Client, body: string | object) {
   const opened = await staff.post('/admin/account-mode', { userId: member.id });
@@ -226,8 +123,9 @@ test('registration, DB session recovery, profile persistence and logout', async 
   assert.equal((await user.post('/auth/logout')).status, 204);
   assert.equal((await user.agent.get('/api/auth/session')).status, 401);
   const signedIn = await user.login(email, password);
+  assert.equal(signedIn.status, 200);
   assert.equal(signedIn.body.data.user.firstName, 'Updated');
-  const duplicate = await request(server)
+  const duplicate = await request(harness.server)
     .post('/api/auth/register')
     .send({
       email: email.toUpperCase(),
@@ -242,7 +140,7 @@ test('registration, DB session recovery, profile persistence and logout', async 
 });
 
 test('unauthenticated, missing CSRF, cross-origin and malformed writes are rejected', async () => {
-  assert.equal((await request(server).get('/api/equipment')).status, 401);
+  assert.equal((await request(harness.server).get('/api/equipment')).status, 401);
   const user = client();
   await user.demo();
   assert.equal(
@@ -291,8 +189,8 @@ test('reservation saves to PostgreSQL, survives a new app instance, and only its
   assert.equal(row.rows[0].userid, owner.id);
   assert.equal(row.rows[0].status, 'confirmed');
   const restarted = createApp(pool, config);
-  const restored = request.agent(await serve(restarted));
-  const cookie = owner.cookie;
+  const restored = request.agent(await harness.listen(restarted));
+  const cookie = owner.accessToken;
   // Recover the same browser session against a fresh controller/router instance.
   const recovered = await restored
     .get('/api/reservations')
@@ -612,8 +510,7 @@ test('a day pass grants access only on its valid local calendar day', async () =
 });
 
 test('profile patches preserve omitted/custom fields and clear only explicitly named fields', async () => {
-  app = createApp(pool, config);
-  server = await serve(app);
+  await harness.start();
   const user = client();
   await user.register();
   const names = { firstName: 'Profile', lastName: 'Member', phone: '1111111111' };

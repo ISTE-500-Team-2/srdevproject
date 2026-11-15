@@ -4,15 +4,12 @@ Adapter-neutral: existing PN532 firmware/receiver stays intact. The Pi adapter m
 provide an actually verified relay callback; no unverified GPIO pin is assumed.
 """
 from __future__ import annotations
-import hashlib
-import hmac
-import json
 import math
 import threading
-import time
-import uuid
 import urllib.request
-from datetime import datetime, timezone
+
+from signed_decision import (DECISION_PATH, ProtocolError, decision_outcome, exchange,
+                             expiry_remaining, heartbeat_mode, lease_seconds)
 
 
 class AccessClient:
@@ -21,26 +18,18 @@ class AccessClient:
             raise ValueError('Reader transport requires HTTPS')
         if len(secret) < 32:
             raise ValueError('Reader secret must have at least 32 characters')
-        self.url = base_url.rstrip('/') + '/api/devices/decision'
+        self.url = base_url.rstrip('/') + DECISION_PATH
         self.reader_id, self.secret, self.opener = reader_id, secret, opener
 
     def _request(self, payload):
-        event = str(uuid.uuid4())
-        body = json.dumps({**payload, 'eventId': event}, separators=(',', ':')).encode()
-        stamp = str(int(time.time()*1000))
-        signature = hmac.new(self.secret.encode(), stamp.encode()+b'\n'+body, hashlib.sha256).hexdigest()
-        request = urllib.request.Request(self.url, data=body, headers={
-            'Content-Type': 'application/json', 'X-Reader-ID': self.reader_id,
-            'X-Reader-Timestamp': stamp, 'X-Reader-Signature': signature}, method='POST')
-        started = time.monotonic()
-        with self.opener(request, timeout=1.8) as response:
-            data = json.loads(response.read(16384))['data']
-        if data.get('eventId') != event or data.get('readerId') != self.reader_id:
-            raise ValueError('Mismatched reader decision')
-        elapsed = time.monotonic()-started
-        if elapsed >= 1.8:
-            raise TimeoutError('Late reader decision')
-        return data, elapsed
+        """Signed exchange. Protocol faults are ValueError; a late reply is TimeoutError."""
+        try:
+            data, started, received = exchange(self.opener, self.url, self.reader_id, self.secret, payload)
+        except ProtocolError as error:
+            if error.code == 'late':
+                raise TimeoutError('Late reader decision') from None
+            raise
+        return data, received-started
 
     def status(self):
         """Heartbeat and command read. Call every 15 seconds while idle.
@@ -49,21 +38,17 @@ class AccessClient:
         relay; staff confirm the captured card separately in the admin screen.
         """
         data, _ = self._request({'action': 'heartbeat'})
-        if data.get('mode') not in ('access', 'enroll', 'disabled'):
-            raise ValueError('Invalid reader mode')
-        return {'mode': data['mode'], 'enrollmentExpiresAt': data.get('enrollmentExpiresAt')}
+        return {'mode': heartbeat_mode(data), 'enrollmentExpiresAt': data.get('enrollmentExpiresAt')}
 
     def decide(self, uid, check_in=False, *, renewal=False):
         data, elapsed = self._request({'uid': uid, 'checkIn': check_in, 'renewal': renewal})
+        allowed, _reason = decision_outcome(data)
         if data.get('mode') in ('enroll', 'disabled'):
             return 0.0
-        if data.get('allowed') is not True:
+        if not allowed:
             return 0.0
-        lease = data.get('leaseSeconds')
-        if isinstance(lease, bool) or not isinstance(lease, (int, float)) or not math.isfinite(lease):
-            raise ValueError('Invalid relay lease')
-        expiry = datetime.fromisoformat(data['expiresAt'].replace('Z', '+00:00'))
-        remaining = (expiry-datetime.now(timezone.utc)).total_seconds()
+        lease = lease_seconds(data)
+        remaining = expiry_remaining(data)
         # Bound both the server lease and the signed response's absolute expiry.
         # Subtract the full request duration, conservatively including outbound
         # time. A slow reply or a reader clock behind the server must not extend

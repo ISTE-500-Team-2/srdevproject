@@ -3,7 +3,9 @@ import { MemberSelect } from "../components/MemberSelect";
 import { LoadState, Pager } from "../components/Management";
 import { paymentStatusName } from "../components/staff/PaymentControls";
 import { PaymentTable } from "../components/staff/PaymentTable";
-import { dollars } from "../lib/display";
+import { addCalendarDays } from "../lib/calendarDate";
+import { dollars, zonedDay } from "../lib/display";
+import { useFacilityZone, zonedDayStart } from "../lib/facilityZone";
 import type { PaymentPage } from "../lib/staffContracts";
 import { useApi } from "../lib/useApi";
 import "./payments.css";
@@ -17,15 +19,16 @@ const periods = [
 ] as const;
 type Period = (typeof periods)[number]["value"];
 
-/** Start of the period in the browser's local time, as an ISO instant. */
-function periodStart(period: Period) {
+/** Start of the period at midnight in the facility's time zone, as an ISO instant. */
+function periodStart(period: Period, zone: string) {
   if (period === "all") return "";
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  if (period === "7d") start.setDate(start.getDate() - 6);
-  if (period === "30d") start.setDate(start.getDate() - 29);
-  if (period === "month") start.setDate(1);
-  return start.toISOString();
+  const today = zonedDay(zone);
+  const first =
+    period === "7d" ? addCalendarDays(today, -6)
+    : period === "30d" ? addCalendarDays(today, -29)
+    : period === "month" ? today.slice(0, 8) + "01"
+    : today;
+  return zonedDayStart(first, zone);
 }
 
 export function StaffPayments() {
@@ -36,6 +39,8 @@ export function StaffPayments() {
     [status, setStatus] = useState(""),
     [open, setOpen] = useState<number | null>(null),
     [notice, setNotice] = useState("");
+  // Periods are facility days; the period filter waits until the zone is known.
+  const zone = useFacilityZone();
   const query = new URLSearchParams({ offset: String(offset) });
   if (userId) query.set("userId", userId);
   if (from) query.set("from", from);
@@ -83,11 +88,13 @@ export function StaffPayments() {
           Period
           <select
             value={period}
+            disabled={!zone}
             onChange={(e) => {
+              if (!zone) return;
               const next = e.target.value as Period;
               refilter(() => {
                 setPeriod(next);
-                setFrom(periodStart(next));
+                setFrom(periodStart(next, zone));
               });
             }}
           >

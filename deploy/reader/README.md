@@ -2,7 +2,7 @@
 
 Existing physical PN532 firmware and receipt receiver are preserved. This module adds the application-facing piece, not a claim of installed hardware.
 
-`AccessClient` signs the exact JSON body plus a fresh millisecond timestamp and UUID, uses HTTPS and a 1.8-second timeout, checks response reader/event identity, and caps authorization at both the absolute expiry and five seconds. Keep each reader's secret in a protected service configuration, never a command-line argument.
+`AccessClient` signs the exact JSON body plus a fresh millisecond timestamp and UUID, uses HTTPS and a 1.8-second timeout, checks response reader/event identity, and caps authorization at both the absolute expiry and five seconds. Keep each reader's secret in a protected service configuration, never a command-line argument. Signing and the response checks live in `signed_decision.py`, which the wireless gateway's `BackendClient` also uses; keep it beside these scripts.
 
 `RelayLease` accepts a verified `set_relay(allowed)` callback. It starts off, bounds each lease, and switches off on timeout/denial/expiry/close. `RenewingAccessSession` records the first scan once and revalidates every second without duplicating check-ins. A denied/revoked/offline session stops; a new card scan must create a fresh session. Only the adapter should translate allowed/denied into actual electrical polarity.
 

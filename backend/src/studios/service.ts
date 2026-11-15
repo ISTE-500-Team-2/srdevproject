@@ -3,12 +3,25 @@ import type { Pool } from "pg";
 import type Stripe from "stripe";
 import { transaction, type Database } from "../db.js";
 import { AppError, positiveId, textField } from "../domain.js";
-import { UserModel } from "../models/UserModel.js";
 import { PermissionModel } from "../models/PermissionModel.js";
 import { enqueueNotification } from "../notifications/store.js";
 import { monthlyWindow, refundDue, integer } from "./domain.js";
 import { StudioStripe } from "./stripe.js";
 import { DEFAULT_BUILDING_ID } from "../facility.js";
+import { requireActor } from "../accountPolicy.js";
+import { businessToday } from "../businessDate.js";
+import { studioRefundDecision, studioRefundState } from "./refundDecision.js";
+import type {
+  NamedStudioRentalRow,
+  StudioConfigureRequest,
+  StudioRentalRequest,
+  StudioRentalRow,
+  StudioRow,
+  WithRentalDates,
+} from "./rows.js";
+
+const oneOf = <T extends string>(values: readonly T[], value: unknown): value is T =>
+  (values as readonly unknown[]).includes(value);
 
 export class StudioService {
   constructor(
@@ -16,44 +29,9 @@ export class StudioService {
     readonly zone = "America/New_York",
     readonly stripe?: StudioStripe,
   ) {}
-  today() {
-    return new Intl.DateTimeFormat("en-CA", {
-      timeZone: this.zone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(new Date());
-  }
-  async actor(db: Database, id: number, staff = false, admin = false) {
-    await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR SHARE', [id]);
-    const user = await new UserModel(db, this.zone).findById(id);
-    if (!user || user.status !== "active" || user.accessStatus !== "active")
-      throw new AppError(
-        403,
-        "ACCESS_DENIED",
-        "Your account cannot perform this action.",
-      );
-    if (
-      staff &&
-      (!user.roles.some((r) => ["admin", "staff", "super-admin"].includes(r)) ||
-        !(await new PermissionModel(db).allows(user, "payment", "update")))
-    )
-      throw new AppError(
-        403,
-        "STAFF_REQUIRED",
-        "Payment-management permission is required.",
-      );
-    if (admin && !user.roles.some((r) => ["admin", "super-admin"].includes(r)))
-      throw new AppError(
-        403,
-        "ADMIN_REQUIRED",
-        "Administrator permission is required.",
-      );
-    return user;
-  }
   async event(
     db: Database,
-    r: any,
+    r: Pick<StudioRentalRow, "id"> | null,
     actor: number | null,
     event: string,
     details: object = {},
@@ -63,7 +41,11 @@ export class StudioService {
       [r?.id ?? null, actor, event, JSON.stringify(details)],
     );
   }
-  async notices(db: Database, r: any, kind: string) {
+  async notices(
+    db: Database,
+    r: WithRentalDates<StudioRentalRow> & { name?: string },
+    kind: "studio_reservation_confirmed" | "studio_reservation_cancelled",
+  ) {
     const payload = {
       reservationId: r.id,
       resourceName: r.name ?? `Studio ${r.studio_id}`,
@@ -85,7 +67,7 @@ export class StudioService {
       payload,
     });
     // Staff notification recipients are real studio accounts and retain their opt-out preferences.
-    const staff = await db.query(
+    const staff = await db.query<{ userid: number }>(
       "SELECT DISTINCT ur.userid FROM user_role ur JOIN role r USING(roleid) JOIN \"user\" u USING(userid) WHERE r.role IN ('admin','staff','super-admin') AND u.status='active'",
     );
     for (const row of staff.rows)
@@ -112,7 +94,7 @@ export class StudioService {
   }
   async mine(id: number) {
     return (
-      await this.pool.query(
+      await this.pool.query<NamedStudioRentalRow>(
         "SELECT r.*,s.name FROM app_studio_rental r JOIN app_studio s ON s.id=r.studio_id WHERE r.userid=$1 ORDER BY r.created_at DESC",
         [id],
       )
@@ -120,21 +102,19 @@ export class StudioService {
   }
   async staffList(id: number) {
     return transaction(this.pool, async (db) => {
-      await this.actor(db, id, true);
+      await requireActor(db, id, { staff: true, zone: this.zone });
       return (
-        await db.query(
+        await db.query<NamedStudioRentalRow & { email: string; member_name: string }>(
           `SELECT r.*,s.name,u.email,u.firstname||' '||u.lastname AS member_name FROM app_studio_rental r JOIN app_studio s ON s.id=r.studio_id JOIN "user" u ON u.userid=r.userid ORDER BY r.created_at DESC LIMIT 200`,
         )
       ).rows.map((r) => this.dates(r));
     });
   }
-  async configure(actor: number, id: number, body: any) {
+  async configure(actor: number, id: number, body: StudioConfigureRequest) {
     return transaction(this.pool, async (db) => {
-      await this.actor(db, actor, false, true);
+      await requireActor(db, actor, { admin: true, zone: this.zone });
       if (
-        !["full_before_start", "no_refunds"].includes(
-          body.cancellationPolicy,
-        ) ||
+        !oneOf(["full_before_start", "no_refunds"], body.cancellationPolicy) ||
         body.policyConfirmed !== true
       )
         throw new AppError(
@@ -144,7 +124,7 @@ export class StudioService {
         );
       const amount = integer(body.monthlyCents, 50, 10000000),
         revision = integer(body.revision, 1, 2147483647);
-      const r = await db.query(
+      const r = await db.query<StudioRow>(
         "UPDATE app_studio SET monthly_cents=$2,cancellation_policy=$3,policy_confirmed=true,revision=revision+1 WHERE id=$1 AND revision=$4 RETURNING *",
         [id, amount, body.cancellationPolicy, revision],
       );
@@ -162,8 +142,11 @@ export class StudioService {
       return r.rows[0];
     });
   }
-  async create(userid: number, body: any) {
-    const { start, end } = monthlyWindow(body.startDate, this.today());
+  async create(
+    userid: number,
+    body: StudioRentalRequest,
+  ): Promise<WithRentalDates<StudioRentalRow> & { checkoutUrl?: string | null }> {
+    const { start, end } = monthlyWindow(body.startDate, businessToday(this.zone));
     const studioId = positiveId(body.studioId);
     if (
       typeof body.requestKey !== "string" ||
@@ -176,7 +159,7 @@ export class StudioService {
         "INVALID_REQUEST_KEY",
         "A unique request key is required.",
       );
-    if (!["manual", "stripe_test"].includes(body.paymentMethod))
+    if (!oneOf(["manual", "stripe_test"], body.paymentMethod))
       throw new AppError(400, "INVALID_PAYMENT", "Choose a payment method.");
     if (body.paymentMethod === "stripe_test" && !this.stripe)
       throw new AppError(
@@ -185,10 +168,12 @@ export class StudioService {
         "Card test checkout is not configured. Choose pay with staff.",
       );
     await this.expireManual();
-    let rental;
+    const requestKey = body.requestKey,
+      paymentMethod = body.paymentMethod;
+    let held: StudioRentalRow;
     try {
-      rental = await transaction(this.pool, async (db) => {
-        const user = await this.actor(db, userid);
+      held = await transaction(this.pool, async (db) => {
+        const user = await requireActor(db, userid, { zone: this.zone });
         if (!(await new PermissionModel(db).allows(user,"reservation","create",userid))) throw new AppError(403,"PERMISSION_DENIED","Reservation permission is required.");
         if (user.roles.some((r) => r.toLowerCase() === "instructor"))
           throw new AppError(
@@ -204,19 +189,19 @@ export class StudioService {
           );
         await db.query(
           "SELECT pg_advisory_xact_lock(hashtext('studio-request'),hashtext($1))",
-          [userid + ":" + body.requestKey],
+          [userid + ":" + requestKey],
         );
         const old = (
-          await db.query(
+          await db.query<StudioRentalRow>(
             "SELECT * FROM app_studio_rental WHERE userid=$1 AND request_key=$2",
-            [userid, body.requestKey],
+            [userid, requestKey],
           )
         ).rows[0];
         if (old) {
           if (
             old.studio_id !== studioId ||
             this.dates(old).starts_on !== start ||
-            old.payment_method !== body.paymentMethod
+            old.payment_method !== paymentMethod
           )
             throw new AppError(
               409,
@@ -229,7 +214,7 @@ export class StudioService {
         // Studios are all in the main building until studios carry their own building.
         await new MinorSupervision(db,this.zone).requireSponsor(userid,DEFAULT_BUILDING_ID);
         const studio = (
-          await db.query("SELECT * FROM app_studio WHERE id=$1 FOR UPDATE", [
+          await db.query<StudioRow>("SELECT * FROM app_studio WHERE id=$1 FOR UPDATE", [
             studioId,
           ])
         ).rows[0];
@@ -250,7 +235,7 @@ export class StudioService {
             "The studio rate or terms just changed. Review the current price, then book again.",
           );
         const row = (
-          await db.query(
+          await db.query<StudioRentalRow>(
             `INSERT INTO app_studio_rental(studio_id,userid,starts_on,ends_on,amount_cents,cancellation_policy,payment_method,request_key,hold_until)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,now()+interval '31 minutes') RETURNING *`,
             [
@@ -260,17 +245,17 @@ export class StudioService {
               end,
               studio.monthly_cents,
               studio.cancellation_policy,
-              body.paymentMethod,
-              body.requestKey,
+              paymentMethod,
+              requestKey,
             ],
           )
-        ).rows[0];
+        ).rows[0]!;
         await new MinorSupervision(db,this.zone).recordBooking(userid,row.id,true);
         await this.event(db, row, userid, "rental_held");
         return row;
       });
-    } catch (e: any) {
-      if (e.code === "23P01")
+    } catch (e) {
+      if ((e as { code?: unknown }).code === "23P01")
         throw new AppError(
           409,
           "STUDIO_CONFLICT",
@@ -278,7 +263,7 @@ export class StudioService {
         );
       throw e;
     }
-    rental = this.dates(rental);
+    const rental = this.dates(held);
     if (
       rental.payment_method === "stripe_test" &&
       rental.status === "pending"
@@ -294,7 +279,9 @@ export class StudioService {
     }
     return rental;
   }
-  dates(r: any) {
+  dates<T extends { starts_on: Date | string; ends_on: Date | string }>(
+    r: T,
+  ): WithRentalDates<T> {
     return {
       ...r,
       starts_on:
@@ -309,9 +296,9 @@ export class StudioService {
   }
   async manualPay(actor: number, id: number, reference: unknown) {
     return transaction(this.pool, async (db) => {
-      await this.actor(db, actor, true);
+      await requireActor(db, actor, { staff: true, zone: this.zone });
       const r = (
-        await db.query(
+        await db.query<StudioRentalRow>(
           "SELECT * FROM app_studio_rental WHERE id=$1 FOR UPDATE",
           [id],
         )
@@ -329,11 +316,11 @@ export class StudioService {
         );
       const ref = textField(reference, "Receipt/reference", 200, 3);
       const result = (
-        await db.query(
+        await db.query<StudioRentalRow>(
           "UPDATE app_studio_rental SET status='confirmed',payment_status='paid',payment_reference=$2 WHERE id=$1 RETURNING *",
           [id, ref],
         )
-      ).rows[0];
+      ).rows[0]!;
       await this.receipt(db, result, ref);
       await this.event(db, result, actor, "manual_payment_recorded", {
         reference: ref,
@@ -348,7 +335,7 @@ export class StudioService {
   }
   async cancel(userid: number, id: number) {
     const initial = (
-      await this.pool.query(
+      await this.pool.query<StudioRentalRow>(
         "SELECT * FROM app_studio_rental WHERE id=$1 AND userid=$2",
         [id, userid],
       )
@@ -384,32 +371,33 @@ export class StudioService {
         );
     }
     const result = await transaction(this.pool, async (db) => {
-      const user = await this.actor(db, userid);
+      const user = await requireActor(db, userid, { zone: this.zone });
       if (!(await new PermissionModel(db).allows(user,"reservation","update",userid))) throw new AppError(403,"PERMISSION_DENIED","Cancellation permission is required.");
-      let r = (
-        await db.query(
-          "SELECT * FROM app_studio_rental WHERE id=$1 AND userid=$2 FOR UPDATE",
-          [id, userid],
-        )
-      ).rows[0];
-      r = this.dates(r);
+      const r = this.dates(
+        (
+          await db.query<StudioRentalRow>(
+            "SELECT * FROM app_studio_rental WHERE id=$1 AND userid=$2 FOR UPDATE",
+            [id, userid],
+          )
+        ).rows[0]!,
+      );
       if (r.status === "cancelled" || r.status === "expired") return r;
       // End dates are exclusive: from ends_on the month is over, so there is
       // nothing left to free up or refund.
-      if (this.today() >= r.ends_on)
+      if (businessToday(this.zone) >= r.ends_on)
         throw new AppError(
           409,
           "RENTAL_ENDED",
           "This rental has already ended, so it can't be cancelled.",
         );
       const refund =
-        r.payment_status === "paid" ? refundDue(r, this.today()) : 0;
+        r.payment_status === "paid" ? refundDue(r, businessToday(this.zone)) : 0;
       const result = (
-        await db.query(
+        await db.query<StudioRentalRow>(
           "UPDATE app_studio_rental SET status='cancelled',refund_cents=$2,payment_status=CASE WHEN $2>0 THEN 'refund_pending' ELSE payment_status END WHERE id=$1 RETURNING *",
           [id, refund],
         )
-      ).rows[0];
+      ).rows[0]!;
       await this.event(db, result, userid, "rental_cancelled", {
         refundCents: refund,
       });
@@ -427,12 +415,12 @@ export class StudioService {
     )
       await this.retryRefund(result.id);
     return (
-      await this.pool.query("SELECT * FROM app_studio_rental WHERE id=$1", [id])
+      await this.pool.query<StudioRentalRow>("SELECT * FROM app_studio_rental WHERE id=$1", [id])
     ).rows[0];
   }
   async syncPayment(userid: number, id: number) {
     const r = (
-      await this.pool.query(
+      await this.pool.query<StudioRentalRow>(
         "SELECT * FROM app_studio_rental WHERE id=$1 AND userid=$2",
         [id, userid],
       )
@@ -486,17 +474,17 @@ export class StudioService {
     return {
       ...this.dates(
         (
-          await this.pool.query("SELECT * FROM app_studio_rental WHERE id=$1", [
+          await this.pool.query<StudioRentalRow>("SELECT * FROM app_studio_rental WHERE id=$1", [
             id,
           ])
-        ).rows[0],
+        ).rows[0]!,
       ),
       checkoutUrl: session.status === "open" ? session.url : null,
     };
   }
   async retryRefund(id: number) {
     const r = (
-      await this.pool.query("SELECT * FROM app_studio_rental WHERE id=$1", [id])
+      await this.pool.query<StudioRentalRow>("SELECT * FROM app_studio_rental WHERE id=$1", [id])
     ).rows[0];
     if (
       !r ||
@@ -531,7 +519,7 @@ export class StudioService {
   }
   async manualRefund(actor: number, id: number, reference: unknown) {
     return transaction(this.pool, async (db) => {
-      await this.actor(db, actor, true);
+      await requireActor(db, actor, { staff: true, zone: this.zone });
       const ref = textField(
         reference,
         "Original-method refund reference",
@@ -539,7 +527,7 @@ export class StudioService {
         3,
       );
       const r = (
-        await db.query(
+        await db.query<StudioRentalRow>(
           "UPDATE app_studio_rental SET payment_status='refunded',refund_reference=$2 WHERE id=$1 AND status='cancelled' AND payment_method='manual' AND payment_status='refund_pending' RETURNING *",
           [id, ref],
         )
@@ -571,7 +559,7 @@ export class StudioService {
     const work = async (db: Database) => {
       if (session.livemode || session.payment_status !== "paid") return;
       let r = (
-        await db.query(
+        await db.query<StudioRentalRow>(
           "SELECT * FROM app_studio_rental WHERE id=$1 FOR UPDATE",
           [Number(session.metadata?.studioRentalId) || 0],
         )
@@ -603,11 +591,11 @@ export class StudioService {
       if (!intent)
         throw new AppError(400, "PAYMENT_MISMATCH", "Payment intent missing.");
       r = (
-        await db.query(
+        await db.query<StudioRentalRow>(
           "UPDATE app_studio_rental SET checkout_id=$2,payment_intent=$3,status='confirmed',payment_status='paid' WHERE id=$1 RETURNING *",
           [r.id, session.id, intent],
         )
-      ).rows[0];
+      ).rows[0]!;
       await this.receipt(db, r, intent);
       await this.event(db, r, null, "stripe_payment_confirmed");
       await this.notices(db, this.dates(r), "studio_reservation_confirmed");
@@ -616,7 +604,7 @@ export class StudioService {
   }
   async failedCheckout(session: Stripe.Checkout.Session, db?: Database) {
     const work=async(db:Database)=>{
-      const r=(await db.query("SELECT * FROM app_studio_rental WHERE checkout_id=$1 OR id::text=$2 FOR UPDATE",[session.id,session.metadata?.studioRentalId??''])).rows[0];
+      const r=(await db.query<StudioRentalRow>("SELECT * FROM app_studio_rental WHERE checkout_id=$1 OR id::text=$2 FOR UPDATE",[session.id,session.metadata?.studioRentalId??''])).rows[0];
       if(!r)return;
       if(session.livemode||session.mode!=='payment'||session.amount_total!==r.amount_cents||session.currency!=='usd'||session.client_reference_id!==String(r.id)||r.checkout_id&&session.id!==r.checkout_id)
         throw new AppError(400,'PAYMENT_MISMATCH','Failed checkout does not match rental.');
@@ -628,7 +616,7 @@ export class StudioService {
     };
     return db?work(db):transaction(this.pool,work);
   }
-  async receipt(db: Database, r: any, reference: string) {
+  async receipt(db: Database, r: StudioRentalRow, reference: string) {
     await enqueueNotification(db, {
       userId: r.userid, kind: "payment_receipt", dedupeKey: `studio-payment:${r.id}`,
       payload: {amount: (r.amount_cents / 100).toFixed(2), currency: "USD",
@@ -638,22 +626,31 @@ export class StudioService {
   }
   async applyRefund(db: Database, f: Stripe.Refund) {
     if (!f.metadata?.studioRentalId || f.currency !== "usd") return;
-    const r = (
-      await db.query(
-        "UPDATE app_studio_rental SET refund_id=$2,payment_status=$3 WHERE payment_intent=$1 AND status='cancelled' AND refund_cents=$4 AND id=$5 AND (payment_status IN ('refund_pending','refund_failed') OR (payment_status='refunded' AND refund_id=$2 AND $3='refund_failed')) AND NOT(payment_status='refund_failed' AND $3='refund_pending') AND (payment_status IS DISTINCT FROM $3 OR refund_id IS DISTINCT FROM $2) RETURNING *",
+    // A refund for another payment, rental or amount is ignored.
+    const rental = (
+      await db.query<StudioRentalRow>(
+        "SELECT * FROM app_studio_rental WHERE payment_intent=$1 AND status='cancelled' AND refund_cents=$2 AND id=$3 FOR UPDATE",
         [
           typeof f.payment_intent === "string"
             ? f.payment_intent
             : f.payment_intent?.id,
-          f.id,
-          f.status === "succeeded"
-            ? "refunded"
-            : ["failed","canceled"].includes(f.status ?? "")
-              ? "refund_failed"
-              : "refund_pending",
           f.amount,
           Number(f.metadata.studioRentalId),
         ],
+      )
+    ).rows[0];
+    if (
+      !rental ||
+      studioRefundDecision(
+        { paymentStatus: rental.payment_status, refundId: rental.refund_id },
+        f,
+      ) === "skip"
+    )
+      return;
+    const r = (
+      await db.query<StudioRentalRow>(
+        "UPDATE app_studio_rental SET refund_id=$2,payment_status=$3 WHERE id=$1 RETURNING *",
+        [rental.id, f.id, studioRefundState(f.status)],
       )
     ).rows[0];
     if (r) {
@@ -702,12 +699,12 @@ export class StudioService {
         event.type === "checkout.session.async_payment_succeeded"
       )
       {
-        const session = event.data.object as Stripe.Checkout.Session;
+        const session = event.data.object;
         if (session.metadata?.studioRentalId) await this.complete(session, db);
       }
       if(event.type==='checkout.session.async_payment_failed') {
-        const announced=event.data.object as Stripe.Checkout.Session;
-        const r=(await db.query("SELECT id FROM app_studio_rental WHERE checkout_id=$1 OR id::text=$2 FOR UPDATE",[announced.id,announced.metadata?.studioRentalId??''])).rows[0];
+        const announced=event.data.object;
+        const r=(await db.query<{ id: number }>("SELECT id FROM app_studio_rental WHERE checkout_id=$1 OR id::text=$2 FOR UPDATE",[announced.id,announced.metadata?.studioRentalId??''])).rows[0];
         if(r){
           if(!this.stripe)throw new AppError(503,'PAYMENTS_UNAVAILABLE','Stripe is not configured.');
           const current=await this.stripe.sdk.checkout.sessions.retrieve(announced.id);
@@ -716,7 +713,7 @@ export class StudioService {
         }
       }
       if (event.type === "checkout.session.expired") {
-        const s = event.data.object as Stripe.Checkout.Session;
+        const s = event.data.object;
         await db.query(
           "UPDATE app_studio_rental SET status='expired' WHERE checkout_id=$1 AND status='pending' AND payment_status='unpaid'",
           [s.id],
@@ -727,10 +724,10 @@ export class StudioService {
         event.type === "refund.created" ||
         event.type === "refund.failed"
       ) {
-        const announced = event.data.object as Stripe.Refund;
+        const announced = event.data.object;
         // Match an established refund/intent binding, not untrusted metadata alone.
         const intent=typeof announced.payment_intent==='string'?announced.payment_intent:announced.payment_intent?.id;
-        const rental=(await db.query("SELECT id FROM app_studio_rental WHERE payment_intent=$1 AND status='cancelled' AND (refund_id=$2 OR id::text=$3) FOR UPDATE",[intent,announced.id,announced.metadata?.studioRentalId??''])).rows[0];
+        const rental=(await db.query<{ id: number }>("SELECT id FROM app_studio_rental WHERE payment_intent=$1 AND status='cancelled' AND (refund_id=$2 OR id::text=$3) FOR UPDATE",[intent,announced.id,announced.metadata?.studioRentalId??''])).rows[0];
         if(!rental)return;
         if(!this.stripe)throw new AppError(503,'PAYMENTS_UNAVAILABLE','Stripe is not configured.');
         // A delayed success/failure payload must not overwrite Stripe's current state.

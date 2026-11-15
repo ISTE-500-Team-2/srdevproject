@@ -1,5 +1,6 @@
 import { AppError } from '../domain.js';
 import type { Database } from '../db.js';
+import type { EquipmentPrice } from '../equipmentPricing.js';
 
 export const RESERVATION_COOLDOWN_MINUTES = 15;
 
@@ -16,14 +17,51 @@ const selection = `r.reservationid AS id,r.userid AS "userId",r.equipmentid AS "
  u.firstname || ' ' || u.lastname AS "memberName",u.email AS "memberEmail"`;
 const joins = `LEFT JOIN equipment e USING (equipmentid) LEFT JOIN room ON room.roomid=r.roomid JOIN "user" u ON u.userid=r.userid`;
 
+/** One row of `selection`. Grandfathered rows may hold neither resource, so the name can be null. */
+export interface ReservationRecord {
+  id: number;
+  userId: number;
+  equipmentId: number | null;
+  roomId: number | null;
+  equipmentName: string | null;
+  resourceType: 'equipment' | 'room';
+  startTime: Date;
+  endTime: Date;
+  location: string;
+  status: string | null;
+  amountCents: number | null;
+  paymentStatus: string | null;
+  payerId: number | null;
+  holdUntil: Date | null;
+  revision: number;
+  priceSnapshot: EquipmentPrice | null;
+  paymentId: number | null;
+  memberName: string;
+  memberEmail: string;
+}
+
+/** Exactly one bookable resource, as migration 010 requires of every enforced reservation. */
+export type ReservationResource =
+  | { equipmentId: number; roomId?: never }
+  | { roomId: number; equipmentId?: never };
+
+/** The member, resource and window a create or staff update writes. */
+export type ReservationWrite = ReservationResource & {
+  userId: number;
+  waiverId: number | null;
+  location: string;
+  start: Date;
+  end: Date;
+};
+
 export class ReservationModel {
   constructor(
     private db: Database,
     private timeZone = 'America/New_York',
   ) {}
-  async listForUser(userId: number) {
+  async listForUser(userId: number): Promise<ReservationRecord[]> {
     return (
-      await this.db.query(
+      await this.db.query<ReservationRecord>(
         `SELECT ${selection} FROM reservation r ${joins} WHERE r.userid=$1 OR EXISTS(SELECT 1 FROM app_equipment_checkout c WHERE c.reservation_id=r.reservationid AND c.payer_id=$1) ORDER BY r.starttime DESC LIMIT 100`,
         [userId],
       )
@@ -42,13 +80,13 @@ export class ReservationModel {
     when?: 'upcoming' | 'past' | null;
     search?: string | null;
     includeCancelled?: boolean;
-  }) {
+  }): Promise<ReservationRecord[]> {
     const date = filters.date?.trim() || null;
     const search = filters.search?.trim()
       ? `%${filters.search.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`
       : null;
     return (
-      await this.db.query(
+      await this.db.query<ReservationRecord>(
         `SELECT ${selection} FROM reservation r ${joins}
         WHERE ($1::date IS NULL OR (
             r.starttime >= (($1::date::timestamp AT TIME ZONE $5) AT TIME ZONE 'UTC')
@@ -77,16 +115,16 @@ export class ReservationModel {
       )
     ).rows;
   }
-  async upcomingEquipment(equipmentId: number, offset: number) {
-    return (await this.db.query(`SELECT ${selection},
+  async upcomingEquipment(equipmentId: number, offset: number): Promise<(ReservationRecord & { isClass: boolean })[]> {
+    return (await this.db.query<ReservationRecord & { isClass: boolean }>(`SELECT ${selection},
       EXISTS(SELECT 1 FROM app_training_class c WHERE c.reservation_id=r.reservationid) AS "isClass"
       FROM reservation r ${joins} WHERE r.equipmentid=$1 AND r.status IN ('confirmed','pending')
       AND r.endtime > clock_timestamp() AT TIME ZONE 'UTC'
       ORDER BY r.starttime,r.reservationid LIMIT 51 OFFSET $2`, [equipmentId, offset])).rows;
   }
-  async find(id: number, lock = false) {
+  async find(id: number, lock = false): Promise<ReservationRecord | null> {
     return (
-      await this.db.query(
+      await this.db.query<ReservationRecord>(
         `SELECT ${selection} FROM reservation r ${joins} WHERE r.reservationid=$1 ${lock ? 'FOR UPDATE OF r' : ''}`,
         [id],
       )
@@ -157,16 +195,7 @@ export class ReservationModel {
     );
     return rows[0]!.exists;
   }
-  async create(input: {
-    userId: number;
-    equipmentId?: number;
-    roomId?: number;
-    waiverId: number | null;
-    location: string;
-    start: Date;
-    end: Date;
-    status?: 'pending' | 'confirmed';
-  }) {
+  async create(input: ReservationWrite & { status?: 'pending' | 'confirmed' }): Promise<ReservationRecord> {
     const { rows } = await this.db.query<{ id: number }>(
       `INSERT INTO reservation
       (userid,equipmentid,roomid,waiverid,location,starttime,endtime,status,statusdesc)
@@ -184,25 +213,14 @@ export class ReservationModel {
       ],
     );
     return (
-      await this.db.query(
+      await this.db.query<ReservationRecord>(
         `SELECT ${selection} FROM reservation r ${joins} WHERE r.reservationid=$1`,
         [rows[0]!.id],
       )
     ).rows[0]!;
   }
-  async update(
-    id: number,
-    input: {
-      userId: number;
-      equipmentId?: number;
-      roomId?: number;
-      waiverId: number | null;
-      location: string;
-      start: Date;
-      end: Date;
-    },
-  ) {
-    const { rows } = await this.db.query(
+  async update(id: number, input: ReservationWrite): Promise<ReservationRecord | null> {
+    const { rows } = await this.db.query<{ id: number }>(
       `UPDATE reservation SET userid=$2,equipmentid=$3,roomid=$4,waiverid=$5,location=$6,
       starttime=$7::timestamptz AT TIME ZONE 'UTC',endtime=$8::timestamptz AT TIME ZONE 'UTC',
       status='confirmed',statusdesc='Modified by staff',revision=revision+1
@@ -222,8 +240,8 @@ export class ReservationModel {
     if (!rows[0]) return null;
     return this.find(id);
   }
-  async cancel(id: number, userId: number) {
-    const { rows } = await this.db.query(
+  async cancel(id: number, userId: number): Promise<ReservationRecord | null> {
+    const { rows } = await this.db.query<{ id: number }>(
       `UPDATE reservation SET status='cancelled',statusdesc='Cancelled by member'
       WHERE reservationid=$1 AND userid=$2 AND status IN ('confirmed','pending')
         AND NOT EXISTS(SELECT 1 FROM app_equipment_checkout c WHERE c.reservation_id=reservation.reservationid AND c.status='pending')
@@ -231,11 +249,11 @@ export class ReservationModel {
       [id, userId],
     );
     if (!rows[0]) return null;
-    return (await this.db.query(`SELECT ${selection} FROM reservation r ${joins} WHERE r.reservationid=$1`,[id])).rows[0] ?? null;
+    return (await this.db.query<ReservationRecord>(`SELECT ${selection} FROM reservation r ${joins} WHERE r.reservationid=$1`,[id])).rows[0] ?? null;
   }
-  async cancelAny(id: number) {
+  async cancelAny(id: number): Promise<ReservationRecord | null> {
     const before = await this.find(id, true);
-    if (!before || !['confirmed', 'pending'].includes(before.status)) return null;
+    if (!before || (before.status !== 'confirmed' && before.status !== 'pending')) return null;
     if (before.paymentStatus === 'pending' && before.payerId != null)
       throw new AppError(409, 'PAYMENT_WORKFLOW_REQUIRED', 'Cancel the pending Stripe checkout before cancelling this reservation.');
     await this.db.query(

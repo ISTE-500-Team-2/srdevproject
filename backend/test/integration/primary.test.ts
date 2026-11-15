@@ -1,111 +1,21 @@
 import { waiverAcceptance } from '../helpers/waiver.js';
 import { SessionModel } from '../../src/models/SessionModel.js';
-import { confirmationToken } from '../helpers/confirmation.js';
 import assert from "node:assert/strict";
-import { randomBytes, randomUUID } from "node:crypto";
-import { once } from "node:events";
+import { randomUUID } from "node:crypto";
 import { before, beforeEach, after, test } from "node:test";
-import { Pool } from "pg";
 import request from "supertest";
-import { createApp } from "../../src/app.js";
 import { initializeDemo } from "../../src/scripts/init-demo.js";
 import { migrate } from "../../src/scripts/migrate.js";
+import { DisposableApp, type TestClient } from "../helpers/appHarness.js";
 
-const database =
-  "arbor_primary_" + randomBytes(6).toString("hex") + "_mvc_test";
-const adminPool = new Pool({ connectionTimeoutMillis: 5000 }),
-  pool = new Pool({ database, connectionTimeoutMillis: 5000 });
-let server: ReturnType<ReturnType<typeof createApp>["listen"]>;
-let created = false;
-const config = {
-  jwtKey: randomBytes(32),
-  port: 8080,
-  host: "127.0.0.1",
-  secureCookies: false,
-  demoLogin: true,
-  allowedOrigins: ["http://localhost:8080"],
-  timeZone: "America/New_York",
-};
-before(async () => {
-  if (!process.env.PGHOST || process.env.DATABASE_URL)
-    throw new Error("Explicit isolated PostgreSQL configuration required.");
-  await adminPool.query(`CREATE DATABASE "${database}"`);
-  created = true;
-  await initializeDemo(pool);
-  // Scheduling/access tests use free equipment; card checkout has separate payment coverage.
-  await pool.query('UPDATE equipment SET hourlyrate=0');
-});
-
-beforeEach(async () => {
-  if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
-  server = createApp(pool, config).listen(0, "127.0.0.1");
-  await once(server, "listening");
-});
-after(async () => {
-  if (server) await new Promise<void>((r) => server.close(() => r()));
-  await pool.end();
-  if (created) await adminPool.query(`DROP DATABASE "${database}"`);
-  await adminPool.end();
-});
-function client() {
-  const agent = request.agent(server);
-  let csrf = "",
-    id = 0;
-  let email = '', password = '';
-  const accept = (r: request.Response) => {
-    agent.set('Authorization', 'Bearer '+r.body.data.accessToken);
-    csrf = r.body.data.csrfToken;
-    id = r.body.data.user.id;
-  };
-  return {
-    agent,
-    get id() {
-      return id;
-    },
-    async admin() {
-      const r = await agent.post("/api/auth/demo").send({ role: "admin" });
-      assert.equal(r.status, 200);
-      accept(r);
-    },
-    async register() {
-      email = randomUUID() + '@example.invalid';
-      password = `A!${randomBytes(24).toString('hex')}`;
-      let r = await agent.post("/api/auth/register").send({
-        firstName: "Primary",
-        lastName: "Test",
-        phone: "0000000000",
-        email,
-        password,
-        dob: "2000-01-01",
-      });
-      assert.equal(r.status, 202);
-      r=await agent.post("/api/auth/confirm").send({token:await confirmationToken(pool,r.body.data.email)});
-      assert.equal(r.status,200);
-      accept(r);
-    },
-    async login() {
-      const r = await agent.post('/api/auth/login').send({email,password});
-      if (r.status === 200) accept(r);
-      return r;
-    },
-    adoptCsrf(token: string) {
-      csrf = token;
-    },
-    refresh: () => agent.post('/api/auth/refresh').set('X-CSRF-Token',csrf).send({}),
-    get: (path: string) => agent.get("/api" + path),
-    post: (path: string, body: string | object = {}) =>
-      agent
-        .post("/api" + path)
-        .set("X-CSRF-Token", csrf)
-        .send(body),
-    patch: (path: string, body: string | object) =>
-      agent
-        .patch("/api" + path)
-        .set("X-CSRF-Token", csrf)
-        .send(body),
-  };
-}
-type Client = ReturnType<typeof client>;
+const harness = new DisposableApp("arbor_primary_");
+const { pool, config } = harness;
+before(() => harness.setup());
+// Each test gets a new app instance on the same database.
+beforeEach(() => harness.restart());
+after(() => harness.teardown());
+const client = () => harness.client({ firstName: "Primary", lastName: "Test" });
+type Client = TestClient;
 const planBody = (kind = "membership") => ({
   name: "Plan " + randomUUID().slice(0, 8),
   kind,
@@ -179,7 +89,7 @@ async function currentRoomBooking(user: Client) {
 test("audit records are immutable and searchable by user, action and time range", async () => {
   const admin = client(),
     member = client();
-  await admin.admin();
+  await admin.demo("admin");
   await member.register();
   assert.equal((await member.get('/admin/audit')).status, 403);
   assert.equal((await member.get('/admin/audit/actions')).status, 403);
@@ -235,7 +145,7 @@ test("audit records are immutable and searchable by user, action and time range"
 
 test("account status validates authority, reasons, revisions and self changes", async () => {
   const admin=client(), member=client(), staff=client();
-  await admin.admin(); await member.register(); await staff.register();
+  await admin.demo("admin"); await member.register(); await staff.register();
   const initial=(await person(admin,staff.id)).user;
   assert.equal((await admin.post(`/admin/users/${staff.id}/role`,{role:'staff',revision:initial.revision,reason:'Test staff'})).status,200);
   const target=(await person(admin,member.id)).user;
@@ -258,7 +168,7 @@ test("account status validates authority, reasons, revisions and self changes", 
 
 test("member record: optional phone and note, staff-set conduct flag, and the requirements summary", async () => {
   const admin=client(), member=client(), staff=client();
-  await admin.admin(); await member.register(); await staff.register();
+  await admin.demo("admin"); await member.register(); await staff.register();
   const initial=(await person(admin,staff.id)).user;
   assert.equal((await admin.post(`/admin/users/${staff.id}/role`,{role:'staff',revision:initial.revision,reason:'Test staff'})).status,200);
   // Phone and the change-log note may be left blank; the log still gets a reason.
@@ -309,7 +219,7 @@ test("member record: optional phone and note, staff-set conduct flag, and the re
 
 test("concurrent administrators cannot suspend each other and leave no active administrator", async () => {
   const first=client(), second=client();
-  await first.admin(); await second.register();
+  await first.demo("admin"); await second.register();
   const target=(await person(first,second.id)).user;
   assert.equal((await first.post(`/admin/users/${second.id}/role`,{role:'admin',revision:target.revision,reason:'Additional administrator'})).status,200);
   const a=(await person(first,first.id)).user, b=(await person(first,second.id)).user;
@@ -329,10 +239,10 @@ test("primary authorization: member isolation, staff restrictions, role changes 
   const admin = client(),
     member = client(),
     staff = client();
-  await admin.admin();
+  await admin.demo("admin");
   await member.register();
   await staff.register();
-  assert.equal((await request(server).get("/api/admin/users")).status, 401);
+  assert.equal((await request(harness.server).get("/api/admin/users")).status, 401);
   assert.equal((await member.get("/admin/users")).status, 403);
   assert.equal((await member.post("/admin/plans", planBody())).status, 403);
   assert.equal(
@@ -429,7 +339,7 @@ test("primary authorization: member isolation, staff restrictions, role changes 
 test("plans validate decimal amounts, preserve revisions, and reject archived issuance", async () => {
   const admin = client(),
     user = client();
-  await admin.admin();
+  await admin.demo("admin");
   await user.register();
   for (const price of ["-1.00", "2.005", 3.5, "1e2"])
     assert.equal(
@@ -461,7 +371,7 @@ test("plans validate decimal amounts, preserve revisions, and reject archived is
 test("membership issuance is atomic/idempotent, stores immutable plan details, and supports adjacent renewal", async () => {
   const admin = client(),
     user = client();
-  await admin.admin();
+  await admin.demo("admin");
   await user.register();
   const p = await plan(admin);
   const body = issueBody(p.id);
@@ -547,7 +457,7 @@ test("membership issuance is atomic/idempotent, stores immutable plan details, a
 test("facility suspension and revocation kill sessions permanently while preserving history", async () => {
   const admin = client(),
     user = client();
-  await admin.admin();
+  await admin.demo("admin");
   await user.register();
   const p = await plan(admin);
   await issue(admin, user, p.id);
@@ -616,7 +526,7 @@ test("facility suspension and revocation kill sessions permanently while preserv
 test("day passes enforce local calendar dates, duplicate prevention, entitlement suspension and terminal revocation", async () => {
   const admin = client(),
     user = client();
-  await admin.admin();
+  await admin.demo("admin");
   await user.register();
   const p = await plan(admin, "day_pass");
   const date = (
@@ -713,7 +623,7 @@ test("day passes enforce local calendar dates, duplicate prevention, entitlement
 
 
 test("manual card receipt and refund retain staff identity, reference, and timestamps",async()=>{
- const admin=client(),user=client();await admin.admin();await user.register();
+ const admin=client(),user=client();await admin.demo("admin");await user.register();
  const p=await plan(admin),issued=await issue(admin,user,p.id);
  await pool.query("UPDATE payment SET paymentstatus='pending' WHERE paymentid=$1", [issued.paymentId]);
  await pool.query("DELETE FROM app_notification_outbox WHERE dedupe_key=$1", [`payment-recorded:${issued.paymentId}`]);
@@ -732,7 +642,7 @@ test("payment records are owner-scoped, transition-controlled, audited, and do n
   const admin = client(),
     user = client(),
     other = client();
-  await admin.admin();
+  await admin.demo("admin");
   await user.register();
   await other.register();
   const p = await plan(admin);
@@ -797,7 +707,7 @@ test("payment records are owner-scoped, transition-controlled, audited, and do n
 test("staff payment list filters by status and time, and totals the whole filtered set", async () => {
   const admin = client(),
     user = client();
-  await admin.admin();
+  await admin.demo("admin");
   await user.register();
   const p = await plan(admin);
   const issued = await issue(admin, user, p.id);
@@ -841,7 +751,7 @@ test("staff payment list filters by status and time, and totals the whole filter
 test("new full-length policy versions require fresh agreement; old signatures remain and only admins publish", async () => {
   const admin = client(),
     user = client();
-  await admin.admin();
+  await admin.demo("admin");
   await user.register();
   const p = await plan(admin);
   await issue(admin, user, p.id);
@@ -907,7 +817,7 @@ test("new full-length policy versions require fresh agreement; old signatures re
 test("calendar-month boundaries, automatic expiry and setup reruns preserve staff revocations and audit/payment history", async () => {
   const admin = client(),
     user = client();
-  await admin.admin();
+  await admin.demo("admin");
   await user.register();
   const p = await plan(admin);
   const issued = await admin.post(
@@ -969,7 +879,7 @@ test("calendar-month boundaries, automatic expiry and setup reruns preserve staf
 test("waived/void payment records and legacy-invalid plans cannot create incorrect charges or repeated issuance", async () => {
   const admin = client(),
     user = client();
-  await admin.admin();
+  await admin.demo("admin");
   await user.register();
   const p = await plan(admin);
   const body = {
@@ -1032,7 +942,7 @@ test("waived/void payment records and legacy-invalid plans cannot create incorre
 });
 
 test('multi-role editor preserves roles, separates student classification and applies changes to live sessions', async () => {
-  const admin=client(), user=client(); await admin.admin(); await user.register();
+  const admin=client(), user=client(); await admin.demo("admin"); await user.register();
   const update=async(body:Record<string,unknown>) => admin.post(`/admin/users/${user.id}/role`,{
     revision:(await person(admin,user.id)).user.revision,reason:'Verified role assignment',...body});
   let r=await update({primaryRole:'member',roles:['member','instructor'],isStudent:true});
@@ -1059,14 +969,14 @@ test('multi-role editor preserves roles, separates student classification and ap
 });
 
 test('customer roles have personal permissions without receiving staff powers or bypassing eligibility', async () => {
- const admin=client(),user=client();await admin.admin();await user.register();
+ const admin=client(),user=client();await admin.demo("admin");await user.register();
  for(const role of ['member','subscriber','day_pass']) {
   const r=await admin.post(`/admin/users/${user.id}/role`,{primaryRole:role,roles:[role],revision:(await person(admin,user.id)).user.revision,reason:'Role matrix verification'});
   assert.equal(r.status,200);
   assert.equal((await user.get('/me/overview')).status,200);
   assert.equal((await user.get('/equipment')).status,200);
   const issued=await new SessionModel(pool,config.jwtKey).create(user.id,false);
-  assert.equal((await request(server).get('/api/auth/session').set('Authorization','Bearer '+issued.token)).status,200,'fresh JWT works for specialized customer role');
+  assert.equal((await request(harness.server).get('/api/auth/session').set('Authorization','Bearer '+issued.token)).status,200,'fresh JWT works for specialized customer role');
   assert.equal((await user.get('/admin/payments')).status,403);
   assert.equal((await user.post('/reservations',{})).status,400,'authorized route reaches validation, not a privilege bypass');
  }
@@ -1079,7 +989,7 @@ test('customer roles have personal permissions without receiving staff powers or
 test("bootstrap preserves removed demo administrator permissions and renamed/archived demo plans", async () => {
   const admin = client(),
     successor = client();
-  await admin.admin();
+  await admin.demo("admin");
   await successor.register();
   const successorRecord = (await person(admin, successor.id)).user;
   assert.equal(

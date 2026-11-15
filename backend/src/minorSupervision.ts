@@ -142,7 +142,7 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
   };
   // Payloads carry first names only, never either account's email.
   const notify=(db:Database,userId:number,id:number,kind:'received'|'accepted'|'declined',payload:Record<string,string>)=>
-    enqueueNotification(db,{userId,kind:`sponsor_request_${kind}`,dedupeKey:`sponsor-request:${id}:${kind}`,payload});
+    enqueueNotification(db,{userId,kind:`sponsor_request_${kind}` as const,dedupeKey:`sponsor-request:${id}:${kind}`,payload});
   // A request resolved before its email went out no longer needs one.
   const withdrawNotices=(db:Database,ids:number[])=>db.query(`UPDATE app_notification_outbox SET status='obsolete',counts_for_sla=false,updated_at=now()
     WHERE dedupe_key=ANY($1::text[]) AND status='pending'`,[ids.map(id=>`sponsor-request:${id}:received`)]);

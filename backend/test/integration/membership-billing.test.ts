@@ -3,22 +3,24 @@ import {randomBytes} from 'node:crypto';
 import {before,after,test} from 'node:test';
 import {Pool} from 'pg';
 import request from 'supertest';
+import type Stripe from 'stripe';
 import {initializeDemo} from '../../src/scripts/init-demo.js';
 import {MembershipBilling} from '../../src/billing/service.js';
 import {StudioStripe} from '../../src/studios/stripe.js';
 import {createApp} from '../../src/app.js';
 import {StaffModel} from '../../src/models/StaffModel.js';
+import {stripeEvent as event,stripeMock,type StripeFixture} from '../helpers/stripeFixtures.js';
 const database='arbor_billing_'+randomBytes(6).toString('hex')+'_mvc_test';
-const owner=new Pool(),pool=new Pool({database});let created=false,userid:number,other:number,plan:any,row:any;
+const owner=new Pool(),pool=new Pool({database});let created=false,userid:number,other:number,plan:{id:number;revision:number},row:{id:string};
 const provider=new StudioStripe({key:'sk_test_fixture',webhookSecret:'whsec_fixture',origin:'http://localhost'});
-const service=new MembershipBilling(pool,provider);
-let checkoutParams:any,checkoutCalls=0,sub:any,invoice:any;
-(provider.sdk.checkout.sessions.create as any)=async(p:any)=>{checkoutParams=p;checkoutCalls++;return {id:'cs_billing',livemode:false,status:'open',url:'https://checkout.stripe.com/test'};};
-(provider.sdk.checkout.sessions.retrieve as any)=async()=>({id:'cs_billing',livemode:false,status:'open',url:'https://checkout.stripe.com/test'});
-(provider.sdk.subscriptions.retrieve as any)=async()=>sub;
-(provider.sdk.invoices.retrieve as any)=async()=>invoice;
-(provider.sdk.subscriptions.update as any)=async(_id:any,p:any)=>(sub={...sub,...p});
-const event=(id:string,type:string,object:any)=>({id,livemode:false,type,data:{object}} as any);
+const service=new MembershipBilling(pool,provider),stripe=stripeMock(provider);
+let checkoutParams:Stripe.Checkout.SessionCreateParams|undefined,checkoutCalls=0,sub:StripeFixture<Stripe.Subscription>,invoice:StripeFixture<Stripe.Invoice>;
+stripe.checkoutSessionCreate(async p=>{checkoutParams=p;checkoutCalls++;return {id:'cs_billing',livemode:false,status:'open',url:'https://checkout.stripe.com/test'};});
+stripe.checkoutSessionRetrieve(async()=>({id:'cs_billing',livemode:false,status:'open',url:'https://checkout.stripe.com/test'}));
+stripe.subscriptionRetrieve(async()=>sub);
+stripe.invoiceRetrieve(async()=>invoice);
+// Stripe applies the update parameters to the stored subscription.
+stripe.subscriptionUpdate(async(_id,p)=>(sub={...sub,...p as StripeFixture<Stripe.Subscription>}));
 before(async()=>{
  if(!process.env.PGHOST||process.env.DATABASE_URL)throw Error('Isolated PostgreSQL required');
  await owner.query(`CREATE DATABASE "${database}"`);created=true;await initializeDemo(pool);
@@ -34,12 +36,13 @@ test('explicit renewal consent and current server price required; checkout retri
  await assert.rejects(service.checkout(userid,{...input,autoRenewConsent:false}),{code:'CONSENT_REQUIRED'});
  await assert.rejects(service.checkout(userid,{...input,expectedRevision:999}),{code:'PRICE_CHANGED'});
  await service.checkout(userid,input);await service.checkout(userid,input);
- assert.equal(checkoutParams.success_url,`http://localhost/checkout-return?member=${userid}&billing=returned`);
- assert.equal(checkoutParams.cancel_url,`http://localhost/checkout-return?member=${userid}&billing=cancelled`);
- assert.equal(checkoutCalls,1);assert.equal(checkoutParams.mode,'subscription');
- assert.equal(checkoutParams.line_items[0].price_data.recurring.interval,'month');
- assert.equal(checkoutParams.line_items[0].price_data.unit_amount,5000);
- assert.deepEqual(checkoutParams.payment_method_types,['card'],'Do not offer buy-now-pay-later methods');
+ assert.equal(checkoutParams!.success_url,`http://localhost/checkout-return?member=${userid}&billing=returned`);
+ assert.equal(checkoutParams!.cancel_url,`http://localhost/checkout-return?member=${userid}&billing=cancelled`);
+ assert.equal(checkoutCalls,1);assert.equal(checkoutParams!.mode,'subscription');
+ const checkoutLine=checkoutParams!.line_items![0]!.price_data!;
+ assert.equal(checkoutLine.recurring!.interval,'month');
+ assert.equal(checkoutLine.unit_amount,5000);
+ assert.deepEqual(checkoutParams!.payment_method_types,['card'],'Do not offer buy-now-pay-later methods');
  row=(await pool.query('SELECT * FROM app_membership_billing WHERE userid=$1',[userid])).rows[0];
  assert.equal((await pool.query('SELECT * FROM app_membership_invoice')).rowCount,0);
  sub={billing_cycle_anchor:Date.parse('2030-01-01')/1000,id:'sub_billing',livemode:false,customer:'cus_billing',status:'active',cancel_at_period_end:false,metadata:{membershipBillingId:row.id},items:{data:[{quantity:1,current_period_end:Date.parse('2030-02-01')/1000,price:{unit_amount:5000,currency:'usd',recurring:{interval:'month',interval_count:1}}}]}};
@@ -78,7 +81,7 @@ test('ownership, cancellation and out-of-order subscription event preserve cance
  await service.cancel(userid,row.id);
  await service.webhook(event('evt_late','customer.subscription.updated',{...sub,cancel_at_period_end:false}));
  assert.equal(new Date((await service.mine(userid))[0].cancellationEffectiveAt).getTime()/1000,sub.cancel_at);
- assert.ok(sub.cancel_at>=Math.floor(Date.now()/1000)+30*86400);
+ assert.ok(sub.cancel_at!>=Math.floor(Date.now()/1000)+30*86400);
  const effective=sub.cancel_at;await service.cancel(userid,row.id);assert.equal(sub.cancel_at,effective);
  assert.equal((await pool.query('SELECT * FROM app_membership_invoice')).rowCount,2);
 });
@@ -98,16 +101,16 @@ test('webhook route rejects unsigned calls and billing routes require login',asy
 });
 
 test('staff original-card refund is idempotent; pending is not confirmed and members cannot refund',async()=>{
- const id='in_first';let calls=0;let refunds:any[]=[];
- (provider.sdk.invoicePayments.list as any)=async()=>({has_more:false,data:[{livemode:false,currency:'usd',amount_paid:5000,payment:{type:'payment_intent',payment_intent:'pi_membership'}}]});
- (provider.sdk.refunds.list as any)=async()=>({has_more:false,data:refunds});
- (provider.sdk.refunds.create as any)=async(p:any)=>{calls++;assert.equal(p.payment_intent,'pi_membership');refunds=[{id:'re_membership',currency:'usd',amount:5000,payment_intent:'pi_membership',status:'pending'}];return refunds[0];};
- (provider.sdk.refunds.retrieve as any)=async()=>refunds[0];
+ const id='in_first';let calls=0;let refunds:StripeFixture<Stripe.Refund>[]=[];
+ stripe.invoicePaymentList(async()=>({has_more:false,data:[{livemode:false,currency:'usd',amount_paid:5000,payment:{type:'payment_intent',payment_intent:'pi_membership'}}]}));
+ stripe.refundList(async()=>({has_more:false,data:refunds}));
+ stripe.refundCreate(async p=>{calls++;assert.equal(p!.payment_intent,'pi_membership');refunds=[{id:'re_membership',currency:'usd',amount:5000,payment_intent:'pi_membership',status:'pending'}];return refunds[0]!;});
+ stripe.refundRetrieve(async()=>refunds[0]!);
  await assert.rejects(service.refund(userid,id,'Member attempted refund'),{code:'STAFF_REQUIRED'});
  await service.refund(other,id,'Authorized test refund');
  assert.equal((await pool.query("SELECT paymentstatus FROM payment WHERE reference=$1",[id])).rows[0].paymentstatus,'paid');
- refunds[0].status='succeeded';
- await service.webhook(event('evt_refund','refund.updated',refunds[0]));
+ refunds[0]!.status='succeeded';
+ await service.webhook(event('evt_refund','refund.updated',refunds[0]!));
  await service.refund(other,id,'Repeat refund safely');
  assert.equal(calls,1);
  assert.equal((await pool.query("SELECT paymentstatus FROM payment WHERE reference=$1",[id])).rows[0].paymentstatus,'refunded');
@@ -124,7 +127,7 @@ test('concurrent duplicate deliveries issue exactly one period and receipt',asyn
 
 test('wrong quote, currency, subscription and overlapping period fail closed and remain retryable',async()=>{
  const good=invoice;
- for(const [label,patch] of Object.entries({amount:{amount_paid:1},currency:{currency:'eur'},subscription:{parent:{subscription_details:{subscription:'sub_other'}}},lines:{lines:{has_more:false,data:[{amount:1,period:good.lines.data[0].period}]}}})) {
+ for(const [label,patch] of Object.entries({amount:{amount_paid:1},currency:{currency:'eur'},subscription:{parent:{subscription_details:{subscription:'sub_other'}}},lines:{lines:{has_more:false,data:[{amount:1,period:good.lines!.data![0]!.period}]}}})) {
   invoice={...good,...patch,id:'in_invalid_'+label};
   await assert.rejects(service.webhook(event('evt_invalid_'+label,'invoice.paid',{...invoice,parent:good.parent})),{code:'PAYMENT_MISMATCH'});
   assert.equal((await pool.query('SELECT id FROM app_membership_stripe_event WHERE id=$1',['evt_invalid_'+label])).rowCount,0);
@@ -143,12 +146,12 @@ test('renewal notices deduplicate different event ids for the same upcoming peri
 });
 
 test('billing portal cannot bypass application cancellation policy',async()=>{
- let config:any,session:any;
- (provider.sdk.billingPortal.configurations.create as any)=async(p:any)=>{config=p;return {id:'bpc_methods_only'};};
- (provider.sdk.billingPortal.sessions.create as any)=async(p:any)=>{session=p;return {url:'https://billing.stripe.com/test'};};
+ let config:Stripe.BillingPortal.ConfigurationCreateParams|undefined,session:Stripe.BillingPortal.SessionCreateParams|undefined;
+ stripe.portalConfigurationCreate(async p=>{config=p;return {id:'bpc_methods_only'};});
+ stripe.portalSessionCreate(async p=>{session=p;return {url:'https://billing.stripe.com/test'};});
  await service.portal(userid,row.id);
- assert.equal(config.features.subscription_cancel.enabled,false);
- assert.equal(config.features.subscription_update.enabled,false);
- assert.equal(config.features.payment_method_update.enabled,true);
- assert.equal(session.configuration,'bpc_methods_only');assert.equal(session.customer,'cus_billing');
+ assert.equal(config!.features.subscription_cancel!.enabled,false);
+ assert.equal(config!.features.subscription_update!.enabled,false);
+ assert.equal(config!.features.payment_method_update!.enabled,true);
+ assert.equal(session!.configuration,'bpc_methods_only');assert.equal(session!.customer,'cus_billing');
 });

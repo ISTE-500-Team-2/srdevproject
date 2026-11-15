@@ -1,6 +1,7 @@
 import { Navigate, useLocation } from "react-router-dom";
 import type { AdminSection } from "./sections";
-import { adminGroups, legacyAdminPath } from "./sections";
+import { adminGroups } from "./sections";
+import { legacyAdminPath } from "../../components/admin/adminNavigation";
 import { TodayPage } from "./TodayPage";
 import { usePageWidth } from "../../components/admin/pageWidth";
 

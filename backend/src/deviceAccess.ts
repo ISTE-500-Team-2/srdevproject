@@ -224,8 +224,8 @@ export function deviceDecision(
       if (verdict.allowed && body.checkIn === true && body.renewal !== true) {
         await new MinorSupervision(db,timeZone).startVisit(card!.user_id,verdict.buildingId ?? DEFAULT_BUILDING_ID);
         await db.query(
-          `INSERT INTO check_in(userid,roomid,location,buildingid,equipmentid,reservationid,checkintime,status,statusdesc)
-          VALUES($1,$2,$3,$4,$5,$6,NOW() AT TIME ZONE 'UTC','approved','Authenticated NFC eligibility decision')`,
+          `INSERT INTO check_in(userid,roomid,location,buildingid,equipmentid,reservationid,checkintime,status,statusdesc,origin)
+          VALUES($1,$2,$3,$4,$5,$6,NOW() AT TIME ZONE 'UTC','approved','Authenticated NFC eligibility decision','nfc')`,
           [
             card!.user_id,
             reader.kind === "room" ? reader.resourceId : null,

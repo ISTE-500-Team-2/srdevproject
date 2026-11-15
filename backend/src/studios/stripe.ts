@@ -1,5 +1,6 @@
 import Stripe from "stripe";
 import { AppError } from "../domain.js";
+import type { StudioCheckoutRental, StudioRefundRental } from "./rows.js";
 export interface StudioStripeConfig {
   key: string;
   webhookSecret: string;
@@ -29,7 +30,7 @@ export class StudioStripe {
     if (!/^(sk|rk)_test_/.test(config.key)) throw new Error("Test keys only");
     this.sdk = new Stripe(config.key, { maxNetworkRetries: 2, timeout: 10000 });
   }
-  async checkout(r: any) {
+  async checkout(r: StudioCheckoutRental) {
     const session = await this.sdk.checkout.sessions.create(
       {
         mode: "payment",
@@ -64,10 +65,12 @@ export class StudioStripe {
       );
     return session;
   }
-  async refund(r: any) {
+  async refund(r: StudioRefundRental) {
+    // Only cancelled card rentals that were paid (so carry their payment intent) are refunded.
+    const paymentIntent = r.payment_intent as string;
     // Reconcile an ambiguous earlier response even after Stripe's idempotency cache expires.
     const prior = await this.sdk.refunds.list({
-      payment_intent: r.payment_intent,
+      payment_intent: paymentIntent,
       limit: 100,
     });
     // A staff dashboard refund may omit our metadata. The provider list is scoped
@@ -82,7 +85,7 @@ export class StudioStripe {
     if (matching) return matching;
     return this.sdk.refunds.create(
       {
-        payment_intent: r.payment_intent,
+        payment_intent: paymentIntent,
         amount: r.refund_cents,
         metadata: { studioRentalId: String(r.id) },
       },

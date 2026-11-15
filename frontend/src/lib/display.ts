@@ -16,9 +16,10 @@ export const dollars = (value: string) =>
     Number(value),
   );
 // Minutes are enough for people; seconds read as raw machine output.
-export const dateTime = (value?: string | Date) =>
+/** In the viewer's clock unless a time zone is given. */
+export const dateTime = (value?: string | Date, timeZone?: string) =>
   value
-    ? new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })
+    ? new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short", ...(timeZone && { timeZone }) })
     : "Not recorded";
 export const cents = (value: number) => dollars((value / 100).toFixed(2));
 /** "Fri, Nov 3" for a timestamp or a YYYY-MM-DD calendar date. */

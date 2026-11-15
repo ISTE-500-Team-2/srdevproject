@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Reservation } from "../../lib/contracts";
-import type { Page } from "../../lib/staffContracts";
-import { equipmentBookings } from "../../lib/today";
-import { useApi } from "../../lib/useApi";
+import type { Reservation } from "./contracts";
+import type { Page } from "./staffContracts";
+import { addDays, equipmentBookings, mergeBookings, previousDay } from "./today";
+import { useApi } from "./useApi";
 
 type Result<T> = { data: T | null; loading: boolean; error: string; reload: () => void };
 type Refresh = { retainOnReload: boolean; refreshInterval: number };
@@ -60,3 +60,32 @@ export function useDayBookings(day: string, refresh: Refresh) {
   return { bookings, state, failed, loaders, reload };
 }
 
+
+/**
+ * Every equipment booking that could touch `day`: a booking can run past midnight
+ * either way, and a 24-hour one that starts late can end two days later when a
+ * daylight-saving change shortens the next day, so this reads the day before
+ * through two days after. Render `loaders` somewhere in the tree.
+ * Until every read succeeds the times can't be trusted: `failure` is the first
+ * failed read (with its retry) and `loading` is set while any read is still
+ * loading and none has failed.
+ */
+export function useBookingsAround(day: string, refresh: Refresh) {
+  const dayBookings = useDayBookings(day, refresh);
+  const eveBookings = useDayBookings(previousDay(day), refresh);
+  const nextBookings = useDayBookings(addDays(day, 1), refresh);
+  const lastBookings = useDayBookings(addDays(day, 2), refresh);
+  const reads = [eveBookings, dayBookings, nextBookings, lastBookings];
+  const failure = reads.map((r) => r.failed ?? (r.state?.error ? { error: r.state.error, reload: r.state.reload } : undefined)).find(Boolean);
+  const loading = !failure && reads.some((r) => r.state);
+  const bookings = mergeBookings(...reads.map((r) => r.bookings));
+  const loaders = (
+    <>
+      {dayBookings.loaders}
+      {eveBookings.loaders}
+      {nextBookings.loaders}
+      {lastBookings.loaders}
+    </>
+  );
+  return { bookings, failure, loading, loaders };
+}

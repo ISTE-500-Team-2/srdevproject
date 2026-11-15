@@ -37,6 +37,12 @@ function useFirstVisit(key: string) {
   return first.current;
 }
 
+const SIGN = { to: '/certifications', label: 'Review and sign' };
+const GET_ACCESS = { to: '/membership', label: 'Get a membership or pass' };
+const BOOK = { to: '/equipment', label: 'Book equipment' };
+/** Access reason codes from /me/overview that have a fix in the portal. */
+const FIX_BY_CODE = new Map([['WAIVER_REQUIRED', SIGN], ['MEMBERSHIP_REQUIRED', GET_ACCESS], ['RESERVATION_REQUIRED', BOOK]]);
+
 const names = (list: string[]) =>
   new Intl.ListFormat('en', { style: 'long', type: 'conjunction' }).format(list);
 const firstName = (name: string) => name.split(' ')[0] ?? name;
@@ -74,17 +80,16 @@ export function MemberHomePage() {
     .filter((r) => r.status !== 'cancelled' && new Date(r.endTime).getTime() > now)
     .sort((a, b) => a.startTime.localeCompare(b.startTime));
   const last = summary?.recentCheckIns[0];
-  // The server's reasons are fixed sentences; link the first one that has a fix.
+  // Link the first reason that has a fix, chosen by its code. Older servers send
+  // no codes; their reasons are fixed sentences, matched as before.
   const fix = summary?.reasons
-    .map((reason) =>
-      /waiver|polic(y|ies) .*signature/i.test(reason)
-        ? { to: '/certifications', label: 'Review and sign' }
-        : /membership or day pass/i.test(reason)
-          ? { to: '/membership', label: 'Get a membership or pass' }
-          : /reservation/i.test(reason)
-            ? { to: '/equipment', label: 'Book equipment' }
-            : null,
-    )
+    .map((reason, index) => {
+      const code = summary.reasonCodes?.[index];
+      return code ? FIX_BY_CODE.get(code) ?? null
+        : /waiver|polic(y|ies) .*signature/i.test(reason) ? SIGN
+          : /membership or day pass/i.test(reason) ? GET_ACCESS
+            : /reservation/i.test(reason) ? BOOK : null;
+    })
     .find(Boolean);
   const accessLabel = summary?.entitlement.membership
     ? 'Active membership'

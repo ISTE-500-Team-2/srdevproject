@@ -2,7 +2,7 @@ import { pruneRegistrations } from '../confirmation/pendingRegistration.js';
 import type { Pool } from 'pg';
 import type { NotificationConfig } from './config.js';
 import { BrevoTransport, NotificationTransportError } from './transport.js';
-import { renderNotification, type NotificationKind } from './templates.js';
+import { notificationJob, renderNotification } from './templates.js';
 import { runNotificationBatch, NotificationSendError } from './worker.js';
 import { scheduleExpirationNotifications } from './scheduler.js';
 import { checkReaderHealth } from '../serviceNotices.js';
@@ -32,7 +32,9 @@ export function startNotificationRuntime(pool: Pool, config?: NotificationConfig
       await runNotificationBatch(pool, async job => {
         let content: ReturnType<typeof renderNotification>;
         try {
-          content = renderNotification(job.kind as NotificationKind, {...job.payload, timeZone: job.timeZone}, {
+          // A malformed stored job (unknown kind, or a field that would render blank) fails here as unrenderable.
+          const { kind, payload } = notificationJob(job.kind, job.payload);
+          content = renderNotification(kind, {...payload, timeZone: job.timeZone}, {
             recipientEmail: job.email,
             recipientName: job.firstName,
             senderName: config.senderName,

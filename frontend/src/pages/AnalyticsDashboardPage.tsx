@@ -17,6 +17,7 @@ import { Link } from "react-router-dom";
 import { LoadState } from "../components/Management";
 import { useApi } from "../lib/useApi";
 import { dollars, statusLabel, timeOnly, zonedDay } from "../lib/display";
+import { useFacilityZone } from "../lib/facilityZone";
 import {
   earlierTotal,
   periodCoverage,
@@ -33,7 +34,6 @@ import "../assets/css/analyticsDashboard.css";
 type Range = { from: string; to: string; period: RevenuePeriod };
 type Preset = "week" | "month" | "30" | "90" | "custom";
 
-const ZONE = "America/New_York";
 const PRESETS: { value: Preset; label: string }[] = [
   { value: "week", label: "This week" },
   { value: "month", label: "This month" },
@@ -447,8 +447,8 @@ function MoreLink({ to, children }: { to: string; children: ReactNode }) {
 }
 
 const CLASS_PREVIEW = 6;
-const classTime = (iso: string) =>
-  new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: ZONE });
+const classTime = (iso: string, zone: string) =>
+  new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: zone });
 
 /** Classes only have "scheduled" or "cancelled"; whether one was held depends on the date. */
 function classState(item: Report["classes"][number]) {
@@ -457,7 +457,7 @@ function classState(item: Report["classes"][number]) {
 }
 
 /** The newest classes in the range, two per row; the rest stay one click away. */
-function ClassList({ items, stats }: { items: Report["classes"]; stats: ReturnType<typeof classStats> }) {
+function ClassList({ items, stats, zone }: { items: Report["classes"]; stats: ReturnType<typeof classStats>; zone: string }) {
   const [showAll, setShowAll] = useState(false);
   const newest = [...items].sort((a, b) => Date.parse(b.startsAt) - Date.parse(a.startsAt));
   const shown = showAll ? newest : newest.slice(0, CLASS_PREVIEW);
@@ -487,7 +487,7 @@ function ClassList({ items, stats }: { items: Report["classes"]; stats: ReturnTy
             <li key={item.id} className={state === "Cancelled" ? "is-cancelled" : ""}>
               <span className="analytics-class__name">
                 <b>{item.title}</b>
-                <small>{classTime(item.startsAt)} · {state}</small>
+                <small>{classTime(item.startsAt, zone)} · {state}</small>
               </span>
               <span className="analytics-fill" aria-hidden="true">
                 <i style={{ width: `${Math.min(100, (item.enrolled / Math.max(1, item.capacity)) * 100)}%` }} />
@@ -510,7 +510,22 @@ function ClassList({ items, stats }: { items: Report["classes"]; stats: ReturnTy
 }
 
 export function AnalyticsDashboardPage() {
-  const today = zonedDay(ZONE);
+  // Ranges are facility days: the first range is only chosen, and requested, once the zone is known.
+  const zone = useFacilityZone();
+  if (!zone)
+    return (
+      <section className="analytics-dashboard management-page">
+        <header className="analytics-head">
+          <div><p className="admin-page-eyebrow">Records</p><h1 className="admin-title">Analytics</h1></div>
+        </header>
+        <LoadState loading error="" reload={() => undefined} />
+      </section>
+    );
+  return <AnalyticsDashboard zone={zone} />;
+}
+
+function AnalyticsDashboard({ zone }: { zone: string }) {
+  const today = zonedDay(zone);
   const [preset, setPreset] = useState<Preset>("30");
   const [range, setRange] = useState<Range>({ ...presetRange("30", today), period: "weekly" });
   const [draft, setDraft] = useState(range);
@@ -838,9 +853,10 @@ export function AnalyticsDashboardPage() {
             ) : null}
           </div>
 
-          {data.classes.length ? <ClassList items={data.classes} stats={classes} /> : null}
+          {data.classes.length ? <ClassList items={data.classes} stats={classes} zone={zone} /> : null}
 
           <footer className="analytics-foot">
+            {/* "Updated" is in the viewer's own clock; the zone named is the report's. */}
             <span>
               Updated {timeOnly(data.generatedAt)} · {zoneName(data.timeZone)} · refreshes every 30 seconds
             </span>

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {before,after,test} from 'node:test';
 import {Pool} from 'pg';
+import type Stripe from 'stripe';
 import {initializeDemo} from '../../src/scripts/init-demo.js';
 import {transaction} from '../../src/db.js';
 import {StaffModel} from '../../src/models/StaffModel.js';
@@ -10,25 +11,28 @@ import {MembershipBilling} from '../../src/billing/service.js';
 import {PassBilling} from '../../src/billing/passes.js';
 import {StudioService} from '../../src/studios/service.js';
 import {StudioStripe} from '../../src/studios/stripe.js';
+import {stripeEvent,stripeMock,stripeObject,type StripeFixture} from '../helpers/stripeFixtures.js';
+type Plan=NonNullable<Awaited<ReturnType<StaffModel['plan']>>>;
 const database='arbor_review_'+randomBytes(5).toString('hex')+'_mvc_test';
-const owner=new Pool(),pool=new Pool({database});let created=false,member:number,admin:number,monthly:any,day:any;
+const owner=new Pool(),pool=new Pool({database});let created=false,member:number,admin:number,monthly:Plan,day:Plan;
 const provider=new StudioStripe({key:'sk_test_fixture',webhookSecret:'whsec_fixture',origin:'http://localhost'});
 const billing=new MembershipBilling(pool,provider),passes=new PassBilling(pool,provider),studio=new StudioService(pool,'America/New_York',provider),staff=new StaffService(pool,'America/New_York');
-const event=(type:string,obj:any)=>({id:'evt_'+randomUUID(),livemode:false,type,data:{object:obj}} as any);
-let canonical:any,mappings:any[]=[],checkout:any;
-(provider.sdk.refunds.retrieve as any)=async()=>canonical;
-(provider.sdk.refunds.list as any)=async()=>({data:[],has_more:false});
-(provider.sdk.invoicePayments.list as any)=async()=>({data:mappings,has_more:false});
-(provider.sdk.checkout.sessions.retrieve as any)=async()=>checkout;
+const stripe=stripeMock(provider);
+const event=<Type extends Stripe.Event.Type>(type:Type,obj:Parameters<typeof stripeEvent<Type>>[2])=>stripeEvent('evt_'+randomUUID(),type,obj);
+let canonical:StripeFixture<Stripe.Refund>,mappings:StripeFixture<Stripe.InvoicePayment>[]=[],checkout:StripeFixture<Stripe.Checkout.Session>;
+stripe.refundRetrieve(async()=>canonical);
+stripe.refundList(async()=>({data:[],has_more:false}));
+stripe.invoicePaymentList(async()=>({data:mappings,has_more:false}));
+stripe.checkoutSessionRetrieve(async()=>checkout);
 before(async()=>{
  if(!process.env.PGHOST||process.env.DATABASE_URL)throw Error('Isolated PostgreSQL required');
  await owner.query(`CREATE DATABASE "${database}"`);created=true;await initializeDemo(pool);
  member=(await pool.query(`SELECT userid FROM "user" WHERE email='demo.member@collaboratory.invalid'`)).rows[0].userid;
  admin=(await pool.query(`SELECT userid FROM "user" WHERE email='demo.admin@collaboratory.invalid'`)).rows[0].userid;
  const model=new StaffModel(pool);
- monthly=await model.plan((await pool.query("SELECT tierid FROM membership_tiers WHERE kind='membership' LIMIT 1")).rows[0].tierid);
- day=await model.plan((await pool.query("SELECT tierid FROM membership_tiers WHERE kind='day_pass' LIMIT 1")).rows[0].tierid);
- await pool.query('UPDATE membership_tiers SET allottedmonths=1 WHERE tierid=$1',[monthly.id]);monthly=await model.plan(monthly.id);
+ monthly=(await model.plan((await pool.query("SELECT tierid FROM membership_tiers WHERE kind='membership' LIMIT 1")).rows[0].tierid))!;
+ day=(await model.plan((await pool.query("SELECT tierid FROM membership_tiers WHERE kind='day_pass' LIMIT 1")).rows[0].tierid))!;
+ await pool.query('UPDATE membership_tiers SET allottedmonths=1 WHERE tierid=$1',[monthly.id]);monthly=(await model.plan(monthly.id))!;
 });
 after(async()=>{await pool.end();if(created)await owner.query(`DROP DATABASE "${database}"`);await owner.end();});
 async function invoiceFixture(label:string,month:number,bind=true){
@@ -54,7 +58,7 @@ test('failed delayed studio payment releases dates and duplicate/stale events do
 test('dashboard refund discovers original invoice payment without prior app refund request',async()=>{
  const r=await invoiceFixture('dashboard',1,false);
  mappings=[{livemode:false,status:'paid',currency:'usd',amount_paid:5000,invoice:r.id,payment:{type:'payment_intent',payment_intent:r.pi}}];
- canonical={id:'re_dashboard',livemode:false,status:'succeeded',payment_intent:r.pi,amount:5000,currency:'usd'};
+ canonical={id:'re_dashboard',status:'succeeded',payment_intent:r.pi,amount:5000,currency:'usd'};
  await billing.webhook(event('refund.created',canonical));
  const stored=(await pool.query('SELECT * FROM app_membership_invoice WHERE id=$1',[r.id])).rows[0];
  assert.equal(stored.payment_intent,r.pi);assert.equal(stored.refund_status,'succeeded');
@@ -62,7 +66,7 @@ test('dashboard refund discovers original invoice payment without prior app refu
 });
 test('late membership refund failure corrects payment ledger; stale success stays failed',async()=>{
  const r=await invoiceFixture('late',2);
- canonical={id:'re_late',livemode:false,status:'succeeded',payment_intent:r.pi,amount:5000,currency:'usd'};
+ canonical={id:'re_late',status:'succeeded',payment_intent:r.pi,amount:5000,currency:'usd'};
  await billing.webhook(event('refund.updated',canonical));
  const stale={...canonical};canonical={...canonical,status:'failed'};
  await billing.webhook(event('refund.failed',canonical));await billing.webhook(event('refund.updated',stale));
@@ -73,7 +77,7 @@ test('late day-pass refund failure corrects money status without restoring cance
  const model=new StaffModel(pool),id=randomUUID(),pass=await model.createPass(member,day,'2032-06-01',admin,'Refund fixture');
  const payment=await model.createPayment(member,null,'15.00','paid','card','cs_late_pass','Refund fixture',admin);await model.linkPassPayment(pass,payment);
  await pool.query("INSERT INTO app_pass_checkout(id,userid,tierid,valid_date,plan_snapshot,amount_cents,status,payment_intent,pass_id,payment_id) VALUES($1,$2,$3,'2032-06-01',$4,1500,'paid','pi_late_pass',$5,$6)",[id,member,day.id,day,pass,payment]);
- canonical={id:'re_late_pass',livemode:false,status:'succeeded',payment_intent:'pi_late_pass',amount:1500,currency:'usd'};
+ canonical={id:'re_late_pass',status:'succeeded',payment_intent:'pi_late_pass',amount:1500,currency:'usd'};
  await passes.webhook(event('refund.updated',canonical));const stale={...canonical};canonical={...canonical,status:'failed'};
  await passes.webhook(event('refund.failed',canonical));await passes.webhook(event('refund.updated',stale));
  assert.equal((await pool.query('SELECT refund_status FROM app_pass_checkout WHERE id=$1',[id])).rows[0].refund_status,'failed');
@@ -96,7 +100,7 @@ for(const kind of ['membership','day_pass'] as const)test(`concurrent staff and 
  if(kind==='membership'){
   await pool.query("INSERT INTO app_membership_billing(id,userid,tierid,plan_snapshot,amount_cents,status,customer_id,subscription_id) VALUES($1,$2,$3,$4,5000,'canceled','cus_race','sub_race')",[bid,member,monthly.id,monthly]);
   const row=(await pool.query('SELECT * FROM app_membership_billing WHERE id=$1',[bid])).rows[0];
-  const inv:any={id:'in_race',livemode:false,status:'paid',currency:'usd',amount_paid:5000,customer:'cus_race',parent:{subscription_details:{subscription:'sub_race'}},billing_reason:'subscription_create',lines:{has_more:false,data:[{amount:5000,period:{start:Date.parse(date)/1000,end:Date.parse('2035-02-01')/1000}}]}};
+  const inv=stripeObject<Stripe.Invoice>({id:'in_race',livemode:false,status:'paid',currency:'usd',amount_paid:5000,customer:'cus_race',parent:{subscription_details:{subscription:'sub_race'}},billing_reason:'subscription_create',lines:{has_more:false,data:[{amount:5000,period:{start:Date.parse(date)/1000,end:Date.parse('2035-02-01')/1000}}]}});
   online=transaction(pool,db=>billing.invoicePaid(db,inv,row));
  }else{
   await pool.query("INSERT INTO app_pass_checkout(id,userid,tierid,valid_date,plan_snapshot,amount_cents,checkout_id) VALUES($1,$2,$3,$4,$5,1500,'cs_race_pass')",[bid,member,day.id,date,day]);
@@ -125,8 +129,8 @@ test('studio reconciliation preserves processing holds and releases confirmed fa
  const r=(await pool.query(`INSERT INTO app_studio_rental(studio_id,userid,starts_on,ends_on,amount_cents,cancellation_policy,status,payment_method,payment_status,request_key,checkout_id)
  VALUES(2,$1,'2032-01-01','2032-02-01',20000,'full_before_start','pending','stripe_test','unpaid',$2,'cs_sync_failure') RETURNING *`,[member,randomUUID()])).rows[0];
  checkout={id:r.checkout_id,livemode:false,status:'complete',mode:'payment',payment_status:'unpaid',amount_total:20000,currency:'usd',client_reference_id:String(r.id),metadata:{studioRentalId:String(r.id)},payment_intent:'pi_sync_failure'};
- let intent:any={id:'pi_sync_failure',livemode:false,amount:20000,currency:'usd',status:'processing'};
- (provider.sdk.paymentIntents.retrieve as any)=async()=>intent;
+ let intent:StripeFixture<Stripe.PaymentIntent>={id:'pi_sync_failure',livemode:false,amount:20000,currency:'usd',status:'processing'};
+ stripe.paymentIntentRetrieve(async()=>intent);
  assert.equal((await studio.syncPayment(member,r.id)).status,'pending');
  intent={...intent,status:'requires_payment_method',last_payment_error:{code:'payment_failed'}};
  assert.equal((await studio.syncPayment(member,r.id)).status,'expired');
@@ -152,7 +156,7 @@ test('refund before invoice persistence is retried, not silently acknowledged',a
  const bid=randomUUID(),pi='pi_early_invoice';
  await pool.query("INSERT INTO app_membership_billing(id,userid,tierid,plan_snapshot,amount_cents,status,subscription_id) VALUES($1,$2,$3,$4,5000,'canceled','sub_early_invoice')",[bid,member,monthly.id,monthly]);
  mappings=[{livemode:false,status:'paid',currency:'usd',amount_paid:5000,invoice:'in_early_invoice',payment:{type:'payment_intent',payment_intent:pi}}];
- (provider.sdk.invoices.retrieve as any)=async()=>({parent:{subscription_details:{subscription:'sub_early_invoice'}}});
+ stripe.invoiceRetrieve(async()=>({parent:{subscription_details:{subscription:'sub_early_invoice'}}}));
  const e=event('refund.updated',{id:'re_early_invoice',payment_intent:pi});
  await assert.rejects(billing.webhook(e),{code:'INVOICE_PENDING'});
  assert.equal((await pool.query('SELECT id FROM app_membership_stripe_event WHERE id=$1',[e.id])).rowCount,0);
@@ -162,11 +166,11 @@ test('refund before subscription binding remains retryable and replay corrects t
  const bid=randomUUID(),pi='pi_before_binding',sid='sub_before_binding',iid='in_before_binding';
  await pool.query('INSERT INTO app_membership_billing(id,userid,tierid,plan_snapshot,amount_cents) VALUES($1,$2,$3,$4,5000)',[bid,member,monthly.id,monthly]);
  const start=Date.parse('2036-01-01')/1000,end=Date.parse('2036-02-01')/1000;
- const sub:any={id:sid,livemode:false,metadata:{membershipBillingId:bid},customer:'cus_before_binding',status:'canceled',cancel_at_period_end:false,items:{data:[{quantity:1,current_period_end:end,price:{currency:'usd',unit_amount:5000,recurring:{interval:'month',interval_count:1}}}]}};
- const inv:any={id:iid,livemode:false,status:'paid',currency:'usd',amount_paid:5000,customer:sub.customer,parent:{subscription_details:{subscription:sid}},billing_reason:'subscription_create',lines:{has_more:false,data:[{amount:5000,period:{start,end}}]}};
+ const sub:StripeFixture<Stripe.Subscription>={id:sid,livemode:false,metadata:{membershipBillingId:bid},customer:'cus_before_binding',status:'canceled',cancel_at_period_end:false,items:{data:[{quantity:1,current_period_end:end,price:{currency:'usd',unit_amount:5000,recurring:{interval:'month',interval_count:1}}}]}};
+ const inv:StripeFixture<Stripe.Invoice>={id:iid,livemode:false,status:'paid',currency:'usd',amount_paid:5000,customer:sub.customer,parent:{subscription_details:{subscription:sid}},billing_reason:'subscription_create',lines:{has_more:false,data:[{amount:5000,period:{start,end}}]}};
  mappings=[{livemode:false,status:'paid',currency:'usd',amount_paid:5000,invoice:iid,payment:{type:'payment_intent',payment_intent:pi}}];
- (provider.sdk.invoices.retrieve as any)=async()=>inv;
- (provider.sdk.subscriptions.retrieve as any)=async()=>sub;
+ stripe.invoiceRetrieve(async()=>inv);
+ stripe.subscriptionRetrieve(async()=>sub);
  canonical={id:'re_before_binding',status:'succeeded',payment_intent:pi,amount:5000,currency:'usd'};
  const refundEvent=event('refund.created',canonical);
  await assert.rejects(billing.webhook(refundEvent),{code:'INVOICE_PENDING'});
@@ -180,8 +184,8 @@ test('refund before subscription binding remains retryable and replay corrects t
 
 test('unrelated subscription refund is acknowledged without blocking other products',async()=>{
  mappings=[{invoice:'in_unrelated'}];
- (provider.sdk.invoices.retrieve as any)=async()=>({parent:{subscription_details:{subscription:'sub_unrelated'}}});
- (provider.sdk.subscriptions.retrieve as any)=async()=>({id:'sub_unrelated',metadata:{},livemode:false});
+ stripe.invoiceRetrieve(async()=>({parent:{subscription_details:{subscription:'sub_unrelated'}}}));
+ stripe.subscriptionRetrieve(async()=>({id:'sub_unrelated',metadata:{},livemode:false}));
  const e=event('refund.created',{id:'re_unrelated',payment_intent:'pi_unrelated'});
  await billing.webhook(e);
  assert.equal((await pool.query('SELECT id FROM app_membership_stripe_event WHERE id=$1',[e.id])).rowCount,1);

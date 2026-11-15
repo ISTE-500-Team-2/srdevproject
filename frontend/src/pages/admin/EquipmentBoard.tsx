@@ -9,7 +9,7 @@ import { shortDate } from '../../lib/display';
 import type { Reservation } from '../../lib/contracts';
 import { bookingBlock, dayKey, formatTime, localHour, machineStatus, mergeBookings, previousDay, timeWindow } from '../../lib/today';
 import { equipmentRate, equipmentTime, maintenanceReasons, type EquipmentDetail, type ManagedEquipment } from '../../lib/equipmentMaintenance';
-import { useDayBookings } from './useDayBookings';
+import { useDayBookings } from '../../lib/useDayBookings';
 import { EquipmentEditor, type CatalogOptions } from './EquipmentEditor';
 
 const refresh = { retainOnReload: true, refreshInterval: 15000 };

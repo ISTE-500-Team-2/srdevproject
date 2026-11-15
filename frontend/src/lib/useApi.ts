@@ -1,27 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, errorMessage } from "./api";
 import { readStored, storeResult } from "./apiCache";
+import { staffIsEditing } from "./editingForms";
 
 /** Reads a setting that is the same for everyone and keeps it for `reuse` readers (/config). */
 export function loadShared<T>(path: string): Promise<T> {
   return api<T>(path).then((data) => { storeResult(path, data); return data; });
-}
-function hasUnsavedManagementEdits() {
-  return Array.from(document.querySelectorAll<HTMLFormElement>("form.management-form")).some(form =>
-    Array.from(form.elements).some(element => {
-      if (element instanceof HTMLInputElement) {
-        if (["submit", "button", "reset", "hidden"].includes(element.type)) return false;
-        return ["checkbox", "radio"].includes(element.type)
-          ? element.checked !== element.defaultChecked : element.value !== element.defaultValue;
-      }
-      if (element instanceof HTMLTextAreaElement) return element.value !== element.defaultValue;
-      if (element instanceof HTMLSelectElement) {
-        const defaults = Array.from(element.options).filter(option => option.defaultSelected);
-        if (!defaults.length && !element.multiple && element.options.length) defaults.push(element.options[0]);
-        return Array.from(element.selectedOptions).map(option => option.value).join("\0") !== defaults.map(option => option.value).join("\0");
-      }
-      return false;
-    }));
 }
 
 /**
@@ -82,8 +66,8 @@ export function useApi<T>(path: string | null, options: { retainOnReload?: boole
   useEffect(() => {
     if (!path || refreshInterval <= 0) return;
     const refresh = () => {
-      // Do not replace revision-keyed forms while a staff member is editing.
-      if (fetching.current || document.visibilityState === "hidden" || document.activeElement?.closest("form.management-form") || hasUnsavedManagementEdits()) return;
+      // Do not replace revision-keyed forms while a staff member is editing (see editingForms).
+      if (fetching.current || document.visibilityState === "hidden" || staffIsEditing()) return;
       reload();
     };
     const timer = window.setInterval(refresh, refreshInterval);

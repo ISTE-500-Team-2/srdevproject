@@ -305,6 +305,13 @@
   border-color: rgba(247, 150, 29, 0.45);
 }
 
+/* ---------- Studio desk ---------- */
+/* The desk keeps its hairline and muted text in local variables, which the compiler leaves as written. */
+:root[data-theme='dark'] .studio-desk {
+  --desk-line: var(--dk-hairline);
+  --desk-muted: var(--muted);
+}
+
 /* ---------- Cards, wells, panels ---------- */
 :root[data-theme='dark'] .panel,
 :root[data-theme='dark'] .summary-card,

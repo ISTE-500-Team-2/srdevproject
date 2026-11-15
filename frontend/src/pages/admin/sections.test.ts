@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
-import { adminSections, legacyAdminPath } from "./sections";
+import { adminSections } from "./sections";
+import { adminNavGroups, legacyAdminPath } from "../../components/admin/adminNavigation";
 
 test("old ?tab= workspace links land on the matching section", () => {
   expect(legacyAdminPath("?tab=members")).toBe("/admin/members");
@@ -16,4 +17,9 @@ test("old ?tab= workspace links land on the matching section", () => {
 test("every section has a unique path and old tab key", () => {
   expect(new Set(adminSections.map((s) => s.path)).size).toBe(adminSections.length);
   expect(new Set(adminSections.map((s) => s.legacyTab)).size).toBe(adminSections.length);
+});
+
+test("every navigation section renders a page", () => {
+  expect(adminSections.map((s) => s.path)).toEqual(adminNavGroups.flatMap((group) => group.sections.map((s) => s.path)));
+  expect(adminSections.every((s) => typeof s.component === "function")).toBe(true);
 });

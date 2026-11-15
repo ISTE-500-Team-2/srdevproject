@@ -139,6 +139,18 @@ class GateTests(unittest.TestCase):
             candidate = workflows(); candidate[0].update(change)
             self.assertFalse(release.green_checks(SHA, checks(), candidate))
 
+    def test_shared_selection_keeps_newest_exact_sha_actions_check_and_main_push_run(self):
+        older = checks()[0]; newer = dict(older, id=99, conclusion='failure')
+        other_app = dict(older, id=100, app={'slug': 'other-app'})
+        other_sha = dict(older, id=101, head_sha='c' * 40)
+        self.assertEqual(release.latest_checks(SHA, [newer, older, other_app, other_sha]), {older['name']: newer})
+        self.assertEqual(release.latest_checks(SHA, [other_app, other_sha]), {})
+        runs = workflows(); retry = dict(runs[0], id=50, conclusion='failure')
+        pull_request = dict(runs[0], id=60, event='pull_request')
+        self.assertIs(release.latest_main_push_run(SHA, runs + [retry, pull_request], PATHS[0]), retry)
+        self.assertEqual(release.latest_main_push_run(SHA, [pull_request], PATHS[0]), {})
+        self.assertEqual(list(release.MAIN_PUSH_WORKFLOWS), PATHS)
+
     def test_candidate_only_changes_app_images_and_canaries_cannot_send_email(self):
         original = config(); candidate, canary = release.candidates(original, IMAGE)
         for name in release.APPS:

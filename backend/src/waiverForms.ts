@@ -1,21 +1,47 @@
 import { AppError, dateOfBirthField, emailField, textField } from './domain.js';
 
+/** What a blank means. Clients act on this id rather than on the label's wording. */
+export type WaiverFieldSemantic =
+  | 'participant-name' | 'waiver-version' | 'accepted-at' | 'member-id' | 'staff-witness'
+  | 'signature' | 'date-of-birth' | 'signing-date' | 'emergency-contact-name' | 'relationship'
+  | 'emergency-contact-phone' | 'guardian-name' | 'other';
+
 export interface WaiverFormField {
   key: string;
   label: string;
   line: number;
   type: 'text' | 'date' | 'datetime-local' | 'email' | 'tel';
   section: 'participant' | 'guardian' | 'administrative';
+  semantic: WaiverFieldSemantic;
   /** 'server' fields record facts the member can't vouch for; they are filled in at signing. */
   source: 'member' | 'server';
   required: boolean;
   maxLength: number;
 }
 
+// The only place a label's wording is interpreted; the first match wins. The
+// acceptance time, member ID and witness are Administrative Record entries.
+function fieldSemantic(label: string, type: WaiverFormField['type'], section: WaiverFormField['section']): WaiverFieldSemantic {
+  const administrative = section === 'administrative';
+  return /^participant name$/i.test(label) ? 'participant-name'
+    : /^waiver version$/i.test(label) ? 'waiver-version'
+    : administrative && /date\/time/i.test(label) ? 'accepted-at'
+    : administrative && /member id/i.test(label) ? 'member-id'
+    : administrative && /staff witness/i.test(label) ? 'staff-witness'
+    : /signature/i.test(label) ? 'signature'
+    : /guardian name/i.test(label) ? 'guardian-name'
+    : /date of birth/i.test(label) ? 'date-of-birth'
+    : /^date$/i.test(label) ? 'signing-date'
+    : /emergency contact name/i.test(label) ? 'emergency-contact-name'
+    : /relationship/i.test(label) ? 'relationship'
+    : type === 'tel' && /emergency/i.test(label) ? 'emergency-contact-phone'
+    : 'other';
+}
+
 // The signer's identity, the signing time and the administrative record come
 // from the account and the server clock, never from the submitted form.
-const isServerField = (label: string, section: WaiverFormField['section']) =>
-  section === 'administrative' || /^date$/i.test(label) || /^participant name$/i.test(label);
+const isServerField = (semantic: WaiverFieldSemantic, section: WaiverFormField['section']) =>
+  section === 'administrative' || semantic === 'signing-date' || semantic === 'participant-name';
 const sameName = (a: string, b: string) =>
   a.trim().replace(/\s+/g, ' ').toLowerCase() === b.trim().replace(/\s+/g, ' ').toLowerCase();
 
@@ -34,14 +60,30 @@ export function waiverFormFields(description: string): WaiverFormField[] {
         : /^(date|date of birth)$/i.test(label) ? 'date'
         : /email/i.test(label) ? 'email'
         : /phone/i.test(label) ? 'tel' : 'text';
-      fields.push({ key: `field_${fields.length + 1}`, label, line: lineNumber, type, section,
-        source: isServerField(label, section) ? 'server' : 'member',
+      const semantic = fieldSemantic(label, type, section);
+      fields.push({ key: `field_${fields.length + 1}`, label, line: lineNumber, type, section, semantic,
+        source: isServerField(semantic, section) ? 'server' : 'member',
         required: !/if applicable/i.test(label), maxLength: type === 'email' ? 100 : type === 'tel' ? 40 : 200 });
       previousEnd = blank.index + blank[0].length;
     }
   });
   return fields;
 }
+
+/** How a client lays out each description line that has no blanks. */
+export type WaiverLineKind = 'acceptance-method' | 'heading' | 'text';
+
+/** One kind per description line, in line order. */
+export function waiverFormLines(description: string): WaiverLineKind[] {
+  return description.split(/\r?\n/).map(line =>
+    /^Method of Acceptance:/.test(line) ? 'acceptance-method'
+      : /^\d+\.\s|^Parent or Legal Guardian Consent$|^Administrative Record$/.test(line) ? 'heading'
+      : 'text');
+}
+
+/** The participant's own signature blank, if the form has one. */
+export const participantSignatureField = (fields: readonly WaiverFormField[]) =>
+  fields.find(f => f.section === 'participant' && f.semantic === 'signature');
 
 /** Validate what the member typed. `signerName` is the account holder's full name. */
 export function validateWaiverFields(description: string, raw: unknown, guardianConsent: unknown, signerName: string) {
@@ -74,18 +116,18 @@ export function validateWaiverFields(description: string, raw: unknown, guardian
       const date = new Date(isDate ? `${text}T00:00:00Z` : `${text}:00Z`);
       if (!format.test(text) || !Number.isFinite(date.getTime()) || date.toISOString().slice(0, isDate ? 10 : 16) !== text)
         throw new AppError(400, 'INVALID_INPUT', `Enter a valid ${field.label.toLowerCase()}.`);
-      values[field.key] = /^date of birth$/i.test(field.label) ? dateOfBirthField(text) : text;
+      values[field.key] = field.semantic === 'date-of-birth' ? dateOfBirthField(text) : text;
     } else {
       if (field.type === 'tel' && (!/^\+?[\d\s().\-xext]{7,40}$/i.test(text) || text.replace(/\D/g, '').length < 7))
         throw new AppError(400, 'INVALID_INPUT', `Enter a valid ${field.label.toLowerCase()}.`);
       values[field.key] = text;
     }
   }
-  const signature = fields.find(f => f.section === 'participant' && /signature/i.test(f.label));
+  const signature = participantSignatureField(fields);
   if (signature && !sameName(values[signature.key] ?? '', signerName))
     throw new AppError(400, 'SIGNATURE_MISMATCH', `Type your full name, ${signerName}, to sign.`);
-  const guardianName = fields.find(f => f.section === 'guardian' && /guardian name/i.test(f.label));
-  const guardianSignature = fields.find(f => f.section === 'guardian' && /signature/i.test(f.label));
+  const guardianName = fields.find(f => f.section === 'guardian' && f.semantic === 'guardian-name');
+  const guardianSignature = fields.find(f => f.section === 'guardian' && f.semantic === 'signature');
   if (guardianConsent && guardianName && guardianSignature && !sameName(values[guardianSignature.key] ?? '', values[guardianName.key] ?? ''))
     throw new AppError(400, 'SIGNATURE_MISMATCH', 'The guardian signature must match the guardian name.');
   return { values, guardianConsent };
@@ -101,12 +143,12 @@ export function serverWaiverValues(description: string, context: {
   const date = `${parts.year}-${parts.month}-${parts.day}`;
   const values: Record<string, string> = {};
   for (const field of waiverFormFields(description).filter(f => f.source === 'server')) {
-    values[field.key] = /^waiver version$/i.test(field.label) ? context.waiverVersion
-      : /date\/time/i.test(field.label) ? `${date} ${parts.hour}:${parts.minute} (${context.timeZone})`
-      : /member id/i.test(field.label) ? String(context.memberId)
-      : /staff witness/i.test(field.label) ? 'Not applicable (electronic acceptance)'
-      : /^participant name$/i.test(field.label) ? context.signerName
-      : /^date$/i.test(field.label) ? date : '';
+    values[field.key] = field.semantic === 'waiver-version' ? context.waiverVersion
+      : field.semantic === 'accepted-at' ? `${date} ${parts.hour}:${parts.minute} (${context.timeZone})`
+      : field.semantic === 'member-id' ? String(context.memberId)
+      : field.semantic === 'staff-witness' ? 'Not applicable (electronic acceptance)'
+      : field.semantic === 'participant-name' ? context.signerName
+      : field.semantic === 'signing-date' ? date : '';
   }
   return values;
 }
