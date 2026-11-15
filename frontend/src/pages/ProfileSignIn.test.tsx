@@ -69,7 +69,7 @@ test('a new password is checked before sending, then this browser stays signed i
   await waitFor(() => expect(notify).toHaveBeenCalledWith('Password changed. Your other devices are signed out.'));
   expect(api).toHaveBeenCalledWith('/me/password', { method: 'POST', body: { currentPassword: 'OldPassword1!', newPassword: 'BrandNew-Password1' } });
   expect(refresh).toHaveBeenCalledWith(false, { fresh: true });
-  expect(onProfile).toHaveBeenCalledWith({ passwordChangedAt: expect.any(String) });
+  expect(onProfile).toHaveBeenCalledWith({ passwordChangedAt: expect.any(String), pendingEmail: null });
 });
 
 test('a wrong current password is said plainly and the form stays open', async () => {

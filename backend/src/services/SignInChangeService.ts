@@ -68,10 +68,12 @@ export class SignInChangeService {
       await db.query('UPDATE "user" SET password=$2,password_changed_at=NOW() WHERE userid=$1', [userId, encoded]);
       await db.query('UPDATE app_refresh_family SET revoked=true WHERE userid=$1', [userId]);
       await db.query('DELETE FROM app_session WHERE userid=$1', [userId]);
-      // A reset link sent before the change would undo it.
+      // A reset link sent before the change would undo it, and an email change asked for before it
+      // may have come from whoever the member is locking out.
       await db.query('DELETE FROM app_password_reset WHERE userid=$1', [userId]);
       await db.query(`UPDATE app_notification_outbox SET status='obsolete',counts_for_sla=false,updated_at=NOW()
         WHERE userid=$1 AND kind='password_reset' AND status='pending'`, [userId]);
+      await cancelEmailChange(db, userId);
       await enqueueNotification(db, { userId, kind: 'password_changed', dedupeKey: `password-changed:${randomUUID()}`, payload: {} });
       await new StaffModel(db, this.config.timeZone).audit(userId, userId, 'profile.password_changed', 'user', userId,
         'Member changed their password', null, null);

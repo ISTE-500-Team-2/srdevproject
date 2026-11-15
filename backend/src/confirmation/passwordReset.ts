@@ -6,6 +6,7 @@ import type { Database } from '../db.js';
 import { AppError } from '../domain.js';
 import { hashPassword } from '../passwords.js';
 import { enqueueNotification } from '../notifications/store.js';
+import { cancelEmailChange } from './emailChange.js';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 export const resetLifetimeMs = 30 * 60 * 1000;
@@ -61,6 +62,8 @@ export async function consumePasswordReset(db: Database, token: unknown, passwor
   await db.query('DELETE FROM app_session WHERE userid=$1', [account.userid]);
   await db.query('UPDATE app_refresh_family SET revoked=true WHERE userid=$1', [account.userid]);
   await db.query('DELETE FROM app_email_confirmation WHERE userid=$1', [account.userid]);
+  // A pending email change may have been asked for by whoever the reset is locking out.
+  await cancelEmailChange(db, account.userid);
   await db.query(`UPDATE app_notification_outbox SET status='obsolete',counts_for_sla=false,updated_at=NOW()
     WHERE userid=$1 AND kind IN ('password_reset','account_confirmation') AND status='pending'`, [account.userid]);
   await enqueueNotification(db, { userId: account.userid, kind: 'password_changed',

@@ -68,9 +68,14 @@ export function SignInSection({
             if (next !== String(form.get("repeatPassword") ?? "")) throw new FormMessage("The new passwords don’t match.");
             // The response is a fresh sign-in for this browser; api() keeps its tokens.
             await api("/me/password", { method: "POST", body: { currentPassword: form.get("currentPassword"), newPassword: next } });
-            onProfile({ passwordChangedAt: new Date().toISOString() });
+            // The server also cancels a waiting email change: it may not have been the member's.
+            onProfile({ passwordChangedAt: new Date().toISOString(), pendingEmail: null });
             setEditing(null);
-            notify("Password changed. Your other devices are signed out.");
+            notify(
+              pending
+                ? "Password changed. Your other devices are signed out, and the waiting email change was cancelled."
+                : "Password changed. Your other devices are signed out.",
+            );
             await refresh(false, { fresh: true });
           }}
         >

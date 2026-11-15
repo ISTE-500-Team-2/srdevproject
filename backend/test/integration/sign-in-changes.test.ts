@@ -184,3 +184,30 @@ test("staff in a member's account can't change that member's email or password",
   }
   assert.equal((await login(account.email, account.password)).status, 200);
 });
+
+// Someone who learned the password asks to move the account to their inbox; the member locks
+// them out by changing or resetting the password. The waiting link must stop working.
+test("changing or resetting the password cancels a waiting email change", async () => {
+  const account = await register("casey");
+  let me = take(await login(account.email, account.password));
+  const intruder = () => as(me).post("/me/email-change", { email: "intruder@example.invalid", currentPassword: account.password });
+
+  assert.equal((await intruder()).status, 202);
+  const afterChange = await linkToken(me.user.id);
+  const changed = await as(me).post("/me/password", { currentPassword: account.password, newPassword: "Locked-Out-Now1!" });
+  assert.equal(changed.status, 200);
+  assert.equal((await request(app).post("/api/auth/email-change/confirm").send({ token: afterChange })).status, 400);
+  assert.deepEqual((await outbox(me.user.id, "email_change_confirmation")).map((r) => r.status), ["obsolete"]);
+  me = take(changed);
+  assert.equal((await as(me).get("/me/profile")).body.data.pendingEmail, null);
+
+  account.password = "Locked-Out-Now1!";
+  assert.equal((await intruder()).status, 202);
+  const afterReset = await linkToken(me.user.id);
+  assert.equal((await request(app).post("/api/auth/password-reset").send({ email: account.email })).status, 202);
+  const reset = (await outbox(me.user.id, "password_reset")).at(-1).payload.resetUrl as string;
+  const done = await request(app).post("/api/auth/password-reset/confirm").send({ token: new URL(reset).hash.slice(1), password: "Reset-And-Safe2!" });
+  assert.equal(done.status, 204, JSON.stringify(done.body));
+  assert.equal((await request(app).post("/api/auth/email-change/confirm").send({ token: afterReset })).status, 400);
+  assert.equal((await login(account.email, "Reset-And-Safe2!")).status, 200);
+});

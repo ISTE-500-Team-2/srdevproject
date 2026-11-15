@@ -2540,7 +2540,7 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 .email-confirm-icon { font-size: var(--text-5xl); color: #a85d00; margin-bottom: 16px; }
 .email-confirm-content h1 { font-size: clamp(26px, 5vw, 32px); line-height: 1.2; margin: 0 0 16px; }
 .email-confirm-content > p { color: #63584e; margin: 0 0 28px; line-height: 1.6; }
-.email-confirm-button { display: block; width: 100%; padding: 18px 24px; border: 0; border-radius: 8px; background: #a85d00; color: white; font: inherit; font-size: var(--text-xl); font-weight: 700; cursor: pointer; }
+.email-confirm-button { display: block; width: 100%; padding: 18px 24px; border: 0; border-radius: 8px; background: #a85d00; color: white; font: inherit; font-size: var(--text-xl); font-weight: 700; text-align: center; text-decoration: none; cursor: pointer; }
 .email-confirm-button:hover { background: #874a00; }
 .email-confirm-button:focus-visible { outline: 3px solid #291607; outline-offset: 4px; }
 .email-confirm-button:disabled { opacity: .65; cursor: wait; }
