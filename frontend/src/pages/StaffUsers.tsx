@@ -1,3 +1,5 @@
+// Member search and record selection for the staff workspace, with filters retained as selection changes.
+
 import { Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";

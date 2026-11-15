@@ -1,3 +1,5 @@
+// Builds the staff member's readiness summary from the same eligibility sources used by check-in.
+
 import type { Database } from "./db.js";
 import { AppError } from "./domain.js";
 import { EligibilityModel } from "./models/EligibilityModel.js";

@@ -24,6 +24,10 @@ const readings = (t, doneOpacity, strikeLag) => {
   };
 };
 
+/**
+ * Render controlled or local checked state with spring feedback; reduced-motion users receive the
+ * same state without the full animation.
+ */
 export default function SpringCheck({
   label = 'Ship the build',
   checked,

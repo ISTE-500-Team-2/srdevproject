@@ -1,3 +1,6 @@
+// Loads the signing key, requiring an explicit production secret while allowing a persisted local
+// development key.
+
 import { randomBytes, randomUUID } from 'node:crypto';
 import { linkSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';

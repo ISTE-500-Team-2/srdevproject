@@ -1,3 +1,6 @@
+// Browser card/reader/setup contracts contain display metadata, not reader secrets or complete
+// stored card identities.
+
 export type NfcCard = {
   id: number;
   label: string;

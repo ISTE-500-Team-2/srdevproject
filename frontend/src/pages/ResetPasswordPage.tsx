@@ -1,3 +1,6 @@
+// Password recovery request/link validation/completion flow; expired links are handled separately
+// from network failures.
+
 import {
   Check, CircleAlert, Eye, EyeOff, KeyRound, LoaderCircle, LockKeyhole, Mail, MailCheck, ShieldCheck,
 } from 'lucide-react';

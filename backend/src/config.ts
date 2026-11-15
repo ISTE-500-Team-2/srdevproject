@@ -1,3 +1,6 @@
+// Validates environment settings once at startup. Production must explicitly configure its origin
+// and cannot enable sample-account login.
+
 import {readDeviceConfig,type DeviceConfig} from './deviceAccess.js';
 import {readStudioStripeConfig,type StudioStripeConfig} from './studios/stripe.js';
 import { readJwtKey } from './jwtKey.js';
@@ -24,6 +27,10 @@ function lifetime(name: string, fallback: number, max: number) {
   if (!Number.isSafeInteger(n) || n < 1 || n > max) throw new Error(`Invalid ${name}`);
   return n;
 }
+/**
+ * Fail startup on invalid security/runtime settings rather than running with an unintended
+ * production configuration.
+ */
 export function readConfig(): AppConfig {
   const port = Number(process.env.PORT ?? 8080);
   if (!Number.isInteger(port) || port < 1 || port > 65535)

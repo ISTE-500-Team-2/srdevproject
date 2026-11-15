@@ -1,3 +1,6 @@
+// Shared staff forms, loading/error states and record lists, including reason fields used for
+// auditability.
+
 import { useState, type FormEvent, type ReactNode } from "react";
 import { errorMessage } from "../lib/api";
 import { editingFormRef } from "../lib/editingForms";

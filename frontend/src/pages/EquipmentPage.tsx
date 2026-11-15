@@ -1,3 +1,6 @@
+// Member equipment catalog and reservations; booking forms submit server-reviewed prices and
+// eligibility remains server-enforced.
+
 import { useAuth } from '../context/AuthContext';
 import { CalendarDays, ChevronDown, Filter, ShieldAlert } from 'lucide-react';
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';

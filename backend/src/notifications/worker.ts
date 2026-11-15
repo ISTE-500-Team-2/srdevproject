@@ -1,3 +1,6 @@
+// Claims outbox jobs under row locks, then sends outside the transaction. Unknown provider
+// acceptance requires review rather than blind resend.
+
 import type { Pool } from 'pg';
 import { transaction } from '../db.js';
 import { expirationSourceCurrent } from './scheduler.js';
@@ -10,6 +13,10 @@ export interface PendingNotification {
 export class NotificationSendError extends Error {
   constructor(message:string,public options:{retryable:boolean;ambiguous?:boolean;retryAfterMs?:number;reason?:'render_failed'}) {super(message);}
 }
+/**
+ * Claim a bounded batch, recheck eligibility/preferences and send; retry only explicit rejection
+ * known not to have accepted the message.
+ */
 export async function runNotificationBatch(pool:Pool,send:(notification:PendingNotification)=>Promise<{messageId:string}>,options:{batchSize?:number;maxAttempts?:number;now?:Date}={}) {
   const result={accepted:0,suppressed:0,failed:0,uncertain:0,retried:0,obsolete:0};
   const batchSize=Math.min(100,Math.max(1,options.batchSize??20));

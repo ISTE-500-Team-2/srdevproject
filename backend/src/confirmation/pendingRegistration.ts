@@ -1,3 +1,6 @@
+// Keeps unconfirmed sign-ups outside the member roster; consuming a valid confirmation creates the
+// actual account.
+
 import { createHash, randomBytes } from 'node:crypto';
 import type { Database } from '../db.js';
 import { AppError } from '../domain.js';
@@ -12,6 +15,10 @@ interface RegistrationInput {
 const digest = (token: string) => createHash('sha256').update(token).digest('hex');
 
 /** Expired requests and their queued mail are removed without ever creating member records. */
+/**
+ * Remove expired staged sign-ups so unconfirmed personal data does not remain in the pending roster
+ * indefinitely.
+ */
 export async function pruneRegistrations(db: Database) {
   await db.query('DELETE FROM app_pending_registration WHERE expires_at<=NOW()');
 }
@@ -42,6 +49,7 @@ export async function stageRegistration(db: Database, input: RegistrationInput, 
 }
 
 /** Possession of a live, single-use inbox token is required before allocating a user, role or session. */
+/** Consume a valid staged confirmation and create the member once; return null for an unusable token. */
 export async function consumeRegistration(db: Database, token: unknown): Promise<number | null> {
   if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
   // Take the email lock before the row lock, matching registration and resend lock order.

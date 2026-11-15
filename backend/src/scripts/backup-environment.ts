@@ -1,3 +1,6 @@
+// Converts application connection settings into protected PG environment values for the backup
+// operator; it does not run pg_dump itself.
+
 import { Client } from "pg";
 import path from "node:path";
 import { pathToFileURL } from "node:url";

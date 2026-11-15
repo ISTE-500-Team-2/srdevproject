@@ -1,3 +1,5 @@
+// Membership trend queries separate historical enrollment from currently effective access.
+
 import type { Database } from "./db.js";
 
 /** Memberships are people, not invoices: renewals never become new members. */

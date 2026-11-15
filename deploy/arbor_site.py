@@ -32,6 +32,7 @@ def show_status(state):
     if state.get('reason'):print('Note:',state['reason'])
 
 
+# Poll deployment status until the requested revision succeeds, fails or reaches the caller's timeout.
 def wait_for(target, timeout):
     print('Watching exact candidate:',target,flush=True)
     deadline=time.monotonic()+timeout;last=None

@@ -1,3 +1,6 @@
+// Catalog editor submits revisioned equipment details; backend services validate references and
+// deletion blockers.
+
 import { useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowUpRight, CalendarDays, Check, Nfc } from 'lucide-react';

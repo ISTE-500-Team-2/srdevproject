@@ -1,3 +1,6 @@
+// Member settings are split into independently saved sections so editing contact details does not
+// replace unrelated preferences.
+
 import {
   BadgeCheck,
   Bell,

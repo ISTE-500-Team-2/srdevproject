@@ -1,3 +1,5 @@
+/* Status indicator presentation; accessible labels and operation status are set by StatusMark.jsx. */
+
 .status-mark {
   --sm-size: 20px;
   --sm-stroke: 2;

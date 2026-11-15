@@ -1,3 +1,6 @@
+// Signs and validates short-lived access tokens; SessionModel also checks database revocation
+// before accepting them.
+
 import { randomUUID } from 'node:crypto';
 import { jwtVerify, SignJWT } from 'jose';
 

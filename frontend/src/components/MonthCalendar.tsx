@@ -1,3 +1,5 @@
+// Reusable month/day picker; callers determine which days are available for their booking workflow.
+
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { addDays, calendarDate, nextMonth } from "../lib/studioDisplay";
 import "./monthCalendar.css";

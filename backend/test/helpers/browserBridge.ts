@@ -8,6 +8,10 @@ import { initializeDemo } from '../../src/scripts/init-demo.js';
 
 // React/jsdom calls the real Express HTTP stack, backed by a fresh PostgreSQL DB.
 // The cookie jar stays inside this harness, like a browser-owned HttpOnly cookie.
+/**
+ * Run real Express/PostgreSQL behind a fetch-shaped test adapter. Close it in teardown to release
+ * the listener and isolated database.
+ */
 export async function createBrowserBridge(options:{devices?:DeviceConfig}={}) {
   if (!process.env.PGHOST || process.env.DATABASE_URL)
     throw new Error(

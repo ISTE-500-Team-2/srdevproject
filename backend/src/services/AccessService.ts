@@ -1,3 +1,6 @@
+// Canonical account, entitlement, policy and equipment checks used by check-in, bookings and reader
+// decisions.
+
 import { MinorSupervision } from "../minorSupervision.js";
 import type { Database } from "../db.js";
 import { AppError } from "../domain.js";
@@ -18,6 +21,10 @@ export class AccessService {
     this.eligibility = new EligibilityModel(db,timeZone);
   }
 
+  /**
+   * Lock and check account/facility status so a concurrent staff restriction cannot be ignored by
+   * the current transaction.
+   */
   async assertActiveUser(userId: number) {
     const user = (await this.db.query<{status: string; accessstatus: string}>(
       'SELECT status,accessstatus FROM "user" WHERE userid=$1 FOR SHARE',[userId])).rows[0];
@@ -27,6 +34,10 @@ export class AccessService {
       throw new AppError(403,'ACCESS_BLOCKED','Facility access is suspended or revoked. Contact staff.');
   }
 
+  /**
+   * Require membership or day-pass coverage through the full requested interval and return which
+   * alternatives cover it.
+   */
   async assertEntitlement(userId: number, start: Date, end = start) {
     const value = await this.eligibility.entitlement(userId,start,end);
     if (entitlementCode(value))
@@ -34,6 +45,10 @@ export class AccessService {
     return value;
   }
 
+  /**
+   * Reject missing policy configuration as well as missing signatures; an empty policy catalog must
+   * not silently grant access.
+   */
   async assertWaivers(userId: number, scope: PolicyScope = 'facility', through?: Date) {
     const waivers = await this.eligibility.waivers(userId, scope, through);
     const code = waiverCode(waivers);
@@ -53,12 +68,20 @@ export class AccessService {
     return this.assertWaivers(userId, 'equipment', through);
   }
 
+  /**
+   * Check training through the booking end and, where required, both facility and equipment policy
+   * signatures.
+   */
   async assertEquipmentRequirements(userId: number, equipment: EquipmentRecord, through: Date) {
     if (equipment.certId && !await this.eligibility.certification(userId, equipment.certId, through))
       throw new AppError(403, 'CERTIFICATION_REQUIRED', `A current ${equipment.certification ?? 'equipment'} certification is required.`);
     return equipment.waiverRequired ? this.assertEquipmentWaivers(userId, through) : [];
   }
 
+  /**
+   * Resolve an explicit building or the member's current visit; ambiguous multi-building check-ins
+   * require a choice.
+   */
   async facilityContext(userId: number, requestedBuildingId?: number) {
     const buildings = (await this.db.query<{id: number; name: string; status: string}>(
       'SELECT buildingid AS id,name,status FROM building ORDER BY name,buildingid')).rows;
@@ -73,6 +96,10 @@ export class AccessService {
   }
 
   // The caller keeps the decision and check-in in one transaction.
+  /**
+   * Resolve building/room/equipment access through one path so reader decisions and desk checks
+   * enforce the same requirements.
+   */
   async accessForTarget(userId: number, target: AccessTarget, at = new Date()) {
     await this.assertActiveUser(userId);
     const entitlement = await this.assertEntitlement(userId,at);

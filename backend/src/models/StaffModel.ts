@@ -1,3 +1,5 @@
+// Compatibility facade for staff repositories; query ownership lives in models/staff/.
+
 import type { Database } from "../db.js";
 import type { PlanInput, PolicyScope } from "../staffDomain.js";
 import { AuditRepository, type AuditFilters } from "./staff/audits.js";

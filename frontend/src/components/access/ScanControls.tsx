@@ -1,3 +1,6 @@
+// Shared reader/manual-input controls for card lookup and assignment; useCardScan owns the
+// enrollment lifecycle.
+
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { ReaderSetup } from "../../lib/nfc";

@@ -50,6 +50,7 @@ def usb_devices():
     return result
 
 
+# Validate the flash partition table/checksum before trusting backup offsets for credential restoration.
 def validated_nvs(data):
     if len(data) not in (4*1024*1024, 8*1024*1024):
         raise SetupError('backup_failed')
@@ -137,6 +138,8 @@ class USBProvisioner:
                     pass
                 raise SetupError('backup_failed' if label == 'backup' else 'verification_failed') from error
 
+    # Capture a validated flash/NVS backup before provisioning can overwrite the device's saved
+    # configuration.
     def backup(self):
         self.stage('backing_up')
         destination = self.root / 'full-flash-before.private.bin'
@@ -248,6 +251,7 @@ class USBProvisioner:
             if self.port is not None:
                 self.port.close()
 
+    # Restore the saved configuration after an interrupted or rejected provisioning attempt.
     def rollback(self):
         if not self.changed:
             return

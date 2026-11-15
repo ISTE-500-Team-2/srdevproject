@@ -9,6 +9,10 @@ import path from 'node:path';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const stripeNames = ['STRIPE_TEST_SECRET_KEY', 'STRIPE_STUDIO_WEBHOOK_SECRET'];
 const emailNames = ['BREVO_API_KEY','EMAIL_FROM','EMAIL_REPLY_TO','EMAIL_FROM_NAME','EMAIL_POSTAL_ADDRESS','EMAIL_WORKER_INTERVAL_MS'];
+/**
+ * Build an isolated demo/email environment instead of inheriting database or signing credentials
+ * from another deployment.
+ */
 export function makeEnv(parent, local, email) {
   const env = { ...parent };
   for (const key of Object.keys(env)) {
@@ -27,11 +31,13 @@ export function makeEnv(parent, local, email) {
   env.DEV_DB_NAME=env.PGDATABASE; env.DEV_DB_PORT=env.PGPORT;
   return env;
 }
+/** Strip server-only secrets from the environment inherited by Vite and dependency installation. */
 export function frontendEnv(parent) {
   const env={...parent};
   for(const key of Object.keys(env)) if(/^(PG|DATABASE_URL$|EMAIL_|BREVO_|JWT_|STRIPE_)/i.test(key)) delete env[key];
   env.NODE_ENV='development'; return env;
 }
+/** Fail before launching either service when a required loopback port is already occupied. */
 export async function assertFree(port) {
   await new Promise((resolve,reject) => {
     const server=createServer();
@@ -45,6 +51,10 @@ export function assertNodeVersion(version = process.versions.node) {
   if (major !== 24 || minor < 22 || (minor === 22 && patch < 1))
     throw new Error('Install Node 24.22.1 or newer in the 24 LTS line (use nvm install && nvm use).');
 }
+/**
+ * Prepare dependencies and the isolated database, then supervise API/Vite together so one failed
+ * child shuts down the other.
+ */
 async function main() {
   const args=process.argv.slice(2);
   if(args.some(a=>a!=='--email')) throw new Error('Usage: npm run dev OR npm run dev:email');

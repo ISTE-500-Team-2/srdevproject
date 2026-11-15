@@ -1,3 +1,6 @@
+// Retires superseded policy versions when their replacements become effective; scheduled
+// publication must not retire them early.
+
 import type {Pool} from 'pg';
 import {transaction, type Database} from './db.js';
 import {StaffModel, type PolicyRecord} from './models/StaffModel.js';

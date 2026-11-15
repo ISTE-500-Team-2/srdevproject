@@ -1,3 +1,6 @@
+// Filterable access-decision history for staff investigation, distinct from the current live-reader
+// status.
+
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, errorMessage } from "../../lib/api";

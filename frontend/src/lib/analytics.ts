@@ -1,3 +1,5 @@
+// Pure chart aggregations fill time buckets and calculate comparisons from report data.
+
 import type { Report } from "./reportContracts";
 import { addCalendarDays as shiftDay } from "./calendarDate";
 export type RevenuePeriod = "daily" | "weekly" | "monthly";

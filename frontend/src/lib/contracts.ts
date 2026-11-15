@@ -1,3 +1,6 @@
+// Member-facing API response types; these describe server data and do not replace runtime input
+// validation.
+
 import type { Equipment, UserRole } from '../types';
 export interface User {
   id: number;

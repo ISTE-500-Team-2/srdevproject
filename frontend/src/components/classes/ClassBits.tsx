@@ -1,3 +1,6 @@
+// Shared class presentation pieces for date, capacity and imagery; enrollment decisions remain
+// server-side.
+
 import { GraduationCap } from "lucide-react";
 import { classImage, dateParts, seatText, seatTone, seatsLeft, type ClassPhoto } from "./classData";
 

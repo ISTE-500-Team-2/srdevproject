@@ -1,3 +1,6 @@
+// Publishes versioned policies with effective dates and approval references; retiring a policy is a
+// separate confirmed action.
+
 import { Archive, Check, Clock, Eye, FileText, History, Pencil, Plus, RefreshCw, TriangleAlert, Upload } from "lucide-react";
 import { useRef, useState, type FormEvent } from "react";
 import { useAuth } from "../context/AuthContext";

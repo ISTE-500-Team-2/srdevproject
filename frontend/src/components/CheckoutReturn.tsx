@@ -1,3 +1,5 @@
+// Routes payment-provider returns to the correct account context before rendering the destination page.
+
 import type { ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';

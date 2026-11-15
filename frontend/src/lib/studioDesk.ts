@@ -1,3 +1,5 @@
+// Derives staff studio tasks and timeline segments from rental records without mutating server state.
+
 import type { Rental, Studio } from "./studioContracts";
 import { addDays, bookable, dateOnly } from "./studioDisplay";
 

@@ -1,3 +1,6 @@
+// Staff compliance review builds report filters and readable requirement cards from the server's
+// readiness data.
+
 import { Check, ChevronRight, Download, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { apiText, errorMessage } from "../lib/api";

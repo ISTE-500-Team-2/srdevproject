@@ -1,3 +1,5 @@
+// Landing page while staff act for a member; links remain scoped to that member's account.
+
 import {
   CalendarSync,
   ChevronRight,

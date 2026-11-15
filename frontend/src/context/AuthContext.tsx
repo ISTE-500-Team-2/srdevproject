@@ -1,3 +1,6 @@
+// Owns signed-in and acting-for identities. Revision counters stop older session reads from undoing
+// a newer authentication transition.
+
 import {
   createContext,
   useCallback,
@@ -49,6 +52,10 @@ interface AuthContextValue {
   clearNotification: () => void;
 }
 const AuthContext = createContext<AuthContextValue | null>(null);
+/**
+ * Centralize session transitions and ignore superseded reads so route guards and pages share one
+ * current account identity.
+ */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [actor, setActor] = useState<User | null>(null);

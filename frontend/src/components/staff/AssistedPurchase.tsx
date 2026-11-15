@@ -1,3 +1,6 @@
+// Staff-assisted checkout UI keeps the target member explicit while the operator completes a
+// purchase workflow.
+
 import { useEffect, useState, type ComponentProps } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { rememberAssistedReturn } from '../../lib/checkoutReturn';

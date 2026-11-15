@@ -1,3 +1,5 @@
+# Rehearses the standalone sponsor installation separately from the existing RIT/RLES environment.
+
 name: Verify sponsor hosting template
 on:
   pull_request:

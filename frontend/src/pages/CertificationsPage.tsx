@@ -1,3 +1,6 @@
+// Member compliance workspace shows current credentials and policy signatures, with actions to sign
+// or find training.
+
 import {
   AlertTriangle,
   ArrowRight,

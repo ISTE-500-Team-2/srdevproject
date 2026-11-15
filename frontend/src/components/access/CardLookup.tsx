@@ -1,3 +1,5 @@
+// Looks up a scanned or entered card and presents its assignments before staff choose a member action.
+
 import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { api, errorMessage } from "../../lib/api";

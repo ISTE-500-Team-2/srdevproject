@@ -1,3 +1,6 @@
+// Issues and consumes account-bound confirmation tokens; raw tokens go to email while only their
+// hashes are stored.
+
 import { randomBytes, createHash } from 'node:crypto';
 import type { Database } from '../db.js';
 import { AppError } from '../domain.js';

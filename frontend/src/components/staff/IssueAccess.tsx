@@ -1,3 +1,5 @@
+// Staff issue-membership/day-pass form combines plan, dates, payment details and an audit reason.
+
 import { useRef, useState } from "react";
 import { api, ApiError } from "../../lib/api";
 import { dollars, localInput, zonedDay } from "../../lib/display";

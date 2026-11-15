@@ -1,3 +1,10 @@
+// Converts a validated local form time into UTC booking instants; rejects invalid dates and
+// daylight-saving gaps rather than normalizing them silently.
+
+/**
+ * Validate the exact local date/time before converting to UTC; Date's automatic rollover must not
+ * alter a member's chosen slot.
+ */
 export function reservationInput(
   equipmentId: number,
   localStart: string,

@@ -1,3 +1,6 @@
+// Calculates member-specific offers and manages discount revisions. Checkout must recheck the quote
+// before accepting payment.
+
 import type {Pool} from 'pg';
 import {transaction,type Database} from '../db.js';
 import {AppError,positiveId,textField} from '../domain.js';

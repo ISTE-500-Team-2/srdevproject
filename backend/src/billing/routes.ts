@@ -1,3 +1,5 @@
+// Mounts member billing endpoints with authentication-state, CSRF and account-mode restrictions.
+
 import {BillingPricing} from './pricing.js';
 import {PassBilling} from './passes.js';
 import {positiveId} from '../domain.js';

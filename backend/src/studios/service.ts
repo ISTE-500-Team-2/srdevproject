@@ -1,3 +1,6 @@
+// Monthly studio availability, holds, payments and refunds. Local rental state is reconciled with
+// provider state rather than browser redirects.
+
 import { MinorSupervision } from "../minorSupervision.js";
 import type { Pool } from "pg";
 import type Stripe from "stripe";

@@ -1,3 +1,6 @@
+// Single-use password recovery tokens. Reset completion changes credentials and revokes existing
+// sign-ins together.
+
 import { createHash, randomBytes } from 'node:crypto';
 import type { Database } from '../db.js';
 import { AppError } from '../domain.js';
@@ -13,6 +16,7 @@ function digest(token: unknown) {
 }
 
 /** Caller owns transaction and account row lock. Never return tokens to the requester. */
+/** Replace the account's recovery token and queue its email using the caller's database transaction. */
 export async function issuePasswordReset(db: Database, userId: number, origin: string) {
   const token = randomBytes(32).toString('base64url');
   const tokenHash = hash(token);
@@ -28,6 +32,10 @@ export async function issuePasswordReset(db: Database, userId: number, origin: s
     payload: { resetUrl: resetUrl.href, expiresAt: expiresAt.toISOString(), resetHash: tokenHash } });
 }
 
+/**
+ * Check format, expiry and account eligibility without consuming the token so the form can validate
+ * a link first.
+ */
 export async function checkPasswordReset(db: Database, token: unknown) {
   const row = await db.query(`SELECT 1 FROM app_password_reset r JOIN "user" u USING(userid)
     WHERE r.token_hash=$1 AND r.expires_at>NOW() AND u.status='active'`, [digest(token)]);
@@ -35,6 +43,10 @@ export async function checkPasswordReset(db: Database, token: unknown) {
 }
 
 /** Caller owns the transaction; account-first locking also serializes session refreshes. */
+/**
+ * Consume the recovery token under lock, save the new password and revoke prior sign-ins in the
+ * caller's transaction.
+ */
 export async function consumePasswordReset(db: Database, token: unknown, password: string) {
   const tokenHash = digest(token);
   const account = (await db.query(`SELECT u.userid,u.status FROM "user" u JOIN app_password_reset r USING(userid)

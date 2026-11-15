@@ -59,6 +59,8 @@ const channels = (ctx, color) => {
   return [0, 0, 0];
 };
 
+// Render bounded pointer-triggered spark bursts on an overlay canvas, with reduced-motion handling
+// and an imperative trigger.
 const ClickSpark = forwardRef(
   (
     {

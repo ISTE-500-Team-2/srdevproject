@@ -1,3 +1,6 @@
+// Coordinates plan offers, effective access and payment history; provider-return polling waits for
+// server reconciliation.
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import StatusMark from "../components/reactbits/StatusMark";

@@ -1,3 +1,5 @@
+/* Checkbox geometry and label states used by the spring-driven JSX control. */
+
 .spring-check {
   --sc-ink: #ffffff;
   --sc-fill: #ffffff;

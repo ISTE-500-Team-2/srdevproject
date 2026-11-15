@@ -1,3 +1,5 @@
+// Fallback for unmatched browser routes with a path back into the application.
+
 import { ArrowLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
 

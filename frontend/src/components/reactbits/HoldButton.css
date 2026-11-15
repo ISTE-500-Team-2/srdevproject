@@ -1,3 +1,5 @@
+/* Gesture progress and completed/canceled visuals; hold timing and action dispatch remain in HoldButton.jsx. */
+
 .hold-button {
   --hb-radius: 14px;
   --hb-bg: #27272a;

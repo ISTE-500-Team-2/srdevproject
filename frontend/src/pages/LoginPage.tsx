@@ -1,3 +1,6 @@
+// Sign-in and registration UI handles return paths, confirmation requirements and optional
+// sample-account access.
+
 import { Eye, EyeOff, LockKeyhole, Mail } from 'lucide-react';
 import { type ChangeEvent, type CSSProperties, type FormEvent, type KeyboardEvent, lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';

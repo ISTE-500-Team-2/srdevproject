@@ -1,3 +1,6 @@
+// Staff business rules wrap revision checks, record changes, audit entries and notifications in
+// transactions.
+
 import { enqueueNotification } from '../notifications/store.js';
 import { createHash } from "node:crypto";
 import type { Pool } from "pg";
@@ -27,6 +30,10 @@ export class StaffService {
     private timeZone: string,
   ) {}
 
+  /**
+   * Recheck the operator's current role/grants inside a serialized transaction before running a
+   * staff mutation.
+   */
   private async write<T>(
     actorId: number,
     adminOnly: boolean,
@@ -67,6 +74,7 @@ export class StaffService {
       return work(new StaffModel(db, this.timeZone), actor, db);
     });
   }
+  /** Lock the subject and prevent non-admin staff from managing another staff/admin account. */
   private async target(model: StaffModel, actor: UserView, id: number, lock: true | 'no-key-update' = true) {
     const user = await model.person(id, lock);
     if (!user) throw missing();
@@ -81,6 +89,7 @@ export class StaffService {
       );
     return user;
   }
+  /** Reject stale staff edits before overwriting a record that another operator has changed. */
   private expectRevision(current: unknown, revision: number) {
     if (current !== revision) throw conflict();
   }
@@ -229,6 +238,7 @@ export class StaffService {
       return after;
     });
   }
+  /** Protect the last active administrator while updating role assignments and audit evidence. */
   role(
     actorId: number,
     id: number,
@@ -278,6 +288,10 @@ export class StaffService {
       return after;
     });
   }
+  /**
+   * Issue an entitlement and its payment/audit evidence together so access cannot be partially
+   * granted after a failed save.
+   */
   issue(actorId: number, userId: number, input: IssueInput) {
     const fingerprint = createHash("sha256")
       .update(JSON.stringify({ userId, ...input }))
@@ -463,6 +477,10 @@ export class StaffService {
       return after;
     });
   }
+  /**
+   * Apply allowed payment-state changes with revision checks; provider-managed payments require
+   * their dedicated flow.
+   */
   paymentStatus(
     actorId: number,
     id: number,
@@ -524,6 +542,10 @@ export class StaffService {
       return after;
     });
   }
+  /**
+   * Publish a new policy version with approval/effective-date validation rather than rewriting
+   * already signed text.
+   */
   publishPolicy(
     actorId: number,
     input: {

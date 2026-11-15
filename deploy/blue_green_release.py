@@ -90,6 +90,7 @@ def rollback(root, journal, ops):
                     '--wait', '--wait-timeout', '90', 'arbor-mvc-current')
 
 
+# Resolve an interrupted route switch from persisted activation state before starting another deployment.
 def recover_activation(root, ops):
     path = root / 'auto-deploy/activation.json'
     if not path.exists():
@@ -124,6 +125,7 @@ def recover_activation(root, ops):
             'reason': 'Interrupted activation rolled back to previous public release'}
 
 
+# Retire the old slot only after its grace period; in-flight clients may still need its assets.
 def retire_previous(root, port, expected_sha, ops):
     """Timer holds the deployment lock; stale timers cannot stop a reused slot."""
     if port not in PUBLIC_PORTS or not re.fullmatch('[a-f0-9]{40}', expected_sha):
@@ -163,6 +165,8 @@ def schedule_retirement(root, old_route, ops):
         return False
 
 
+# Prepare and verify the inactive slot before switching the edge route, retaining the previous slot
+# for rollback.
 def deploy_blue_green(root, sha, ops, *, update_demo=True):
     if not re.fullmatch('[a-f0-9]{40}', sha):
         raise ValueError('Invalid release revision')

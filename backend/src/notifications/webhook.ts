@@ -1,3 +1,6 @@
+// Authenticates Brevo callbacks and records delivery events separately from the worker's
+// send/acceptance result.
+
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { Request, Response } from 'express';
 import type { Pool } from 'pg';

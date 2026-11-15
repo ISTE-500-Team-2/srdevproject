@@ -1,3 +1,6 @@
+// Parses staff request filters and input, then delegates mutations to StaffService and reads to
+// StaffModel.
+
 import type { Request, Response } from "express";
 import type { Pool } from "pg";
 import { AppError, positiveId, textField } from "../domain.js";

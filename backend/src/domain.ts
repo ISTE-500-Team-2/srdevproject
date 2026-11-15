@@ -1,3 +1,6 @@
+// Shared API types and input validation. AppError carries safe client-facing failures to the
+// central HTTP error handler.
+
 import validator from 'validator';
 
 export interface UserView {
@@ -20,6 +23,10 @@ export type ProfileFields = Record<string, string | boolean>;
 export type ProfileFieldPatch = Record<string, string | boolean | null>;
 export interface PublicUserView
   extends Omit<UserView, "status" | "accessStatus"> {}
+/**
+ * Project only fields intended for the browser; callers must not serialize a credential/model row
+ * directly.
+ */
 export function publicUser(user: UserView): PublicUserView {
   const { status: _status, accessStatus: _accessStatus, ...safe } = user;
   return safe;
@@ -114,6 +121,9 @@ export function textField(
 }
 
 /** All email flows share validation and the existing case-insensitive identity policy; dots and plus tags remain meaningful. */
+/**
+ * Validate and normalize the account address consistently across sign-up, sign-in and recovery.
+ */
 export function emailField(value: unknown): string {
   // Reject control and invisible formatting characters before trimming so malformed input cannot become another address.
   if (typeof value === 'string' && /[\p{Cc}\p{Cf}]/u.test(value))
@@ -221,6 +231,10 @@ export function newPasswordField(value: unknown): string {
   return password;
 }
 
+/**
+ * Require explicit time-zone offsets, valid calendar components and a future interval of at most 24
+ * hours; reject Date rollover.
+ */
 export function reservationWindow(
   start: unknown,
   end: unknown,

@@ -1,3 +1,6 @@
+// Read-side eligibility queries shared by booking and access checks; timestamps use UTC while day
+// passes use the facility's calendar date.
+
 import type { Database } from "../db.js";
 import { waiverFormFields } from "../waiverForms.js";
 import type { PolicyScope } from "../staffDomain.js";
@@ -8,6 +11,10 @@ export class EligibilityModel {
     private timeZone: string,
   ) {}
 
+  /**
+   * Check coverage for the entire requested interval; a day pass must cover both endpoints on the
+   * facility's local date.
+   */
   async entitlement(userId: number, start: Date, end = start) {
     const { rows } = await this.db.query<{
       membership: boolean;
@@ -26,6 +33,10 @@ export class EligibilityModel {
     return rows[0]!;
   }
 
+  /**
+   * Select the latest effective required version per policy name and distinguish missing, outdated
+   * and expired signatures.
+   */
   async waivers(userId: number, scope?: PolicyScope, through?: Date) {
     const { rows } = await this.db.query<{
       id: number;
@@ -74,6 +85,10 @@ export class EligibilityModel {
     return rows.map(row => ({ ...row, formFields: waiverFormFields(row.description) }));
   }
 
+  /**
+   * Require both the member's credential and the certification definition to remain valid through
+   * the requested time.
+   */
   async certification(
     userId: number,
     certId: number,

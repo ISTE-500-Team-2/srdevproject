@@ -1,7 +1,14 @@
+// Owns expiring reader enrollment capture: starts/polls/cancels scans and discards results from
+// superseded requests.
+
 import { useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "./api";
 import type { CardScan } from "./nfc";
 
+/**
+ * Manage a single capture session; generation checks prevent late start responses from restoring a
+ * canceled scan.
+ */
 export function useCardScan(purpose: "assign" | "lookup", userId?: number) {
   const [scan, setScan] = useState<CardScan | null>(null),
     [error, setError] = useState(""),

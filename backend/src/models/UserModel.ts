@@ -1,3 +1,6 @@
+// Loads current account/role data and persists profiles; credential reads are separate from public
+// user projections.
+
 import type { Database } from "../db.js";
 import type { ProfileFieldPatch, ProfileFields, UserView } from "../domain.js";
 

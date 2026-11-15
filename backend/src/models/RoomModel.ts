@@ -1,3 +1,5 @@
+// Room catalog reads and locking for reservation workflows.
+
 import type { Database } from '../db.js';
 
 export interface RoomRecord {

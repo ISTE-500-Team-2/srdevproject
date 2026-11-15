@@ -39,9 +39,13 @@ class PollProtocol:
         self.last_seen = 0
         self.last_scan = None
 
+    # Separate protocol message domains so a valid signature for one message type cannot authorize
+    # another.
     def mac(self, domain, body):
         return hmac.new(self.key, domain + b'\n' + body, hashlib.sha256).hexdigest()
 
+    # Validate signature, session and monotonic counters before handling a scan or returning reader
+    # commands.
     def poll(self, raw, signature):
         if len(raw) > 2048 or not hmac.compare_digest(self.mac(b'reader-poll', raw), signature):
             raise ValueError('unauthorized')

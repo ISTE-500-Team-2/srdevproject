@@ -1,3 +1,6 @@
+// Small role and ownership checks shared by handlers; database-backed resource permissions live in
+// middleware/permissions.ts.
+
 import type { NextFunction, Request, Response } from 'express';
 
 export const PERMISSION_ID_TO_NAME: Record<number, string> = {1: 'create', 2: 'read', 3: 'update', 4: 'delete'};

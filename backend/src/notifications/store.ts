@@ -1,3 +1,6 @@
+// Transactional email outbox, preferences and delivery metrics. Dedupe keys prevent repeated domain
+// events from queuing duplicate notices.
+
 import type { Database } from '../db.js';
 import { AppError } from '../domain.js';
 import { reminderDates, validTimeZone } from './reminderTiming.js';

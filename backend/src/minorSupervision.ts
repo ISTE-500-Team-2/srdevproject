@@ -1,3 +1,6 @@
+// Enforces adult sponsorship and same-building visits for minors; booking and reader flows call
+// these rules rather than duplicating them.
+
 import { createHash } from 'node:crypto';
 import { Router } from 'express';
 import type { Pool } from 'pg';

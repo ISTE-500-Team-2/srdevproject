@@ -1,3 +1,6 @@
+// Operational landing view combines floor availability, bookings, check-ins and tasks that need
+// staff attention.
+
 import { useEffect, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
 import {

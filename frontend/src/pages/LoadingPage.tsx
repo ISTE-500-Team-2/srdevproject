@@ -1,3 +1,6 @@
+// Post-sign-in transition screen waits for the appropriate area before navigating to the user's
+// destination.
+
 import { Cog } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';

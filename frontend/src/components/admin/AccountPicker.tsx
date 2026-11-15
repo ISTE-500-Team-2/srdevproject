@@ -1,3 +1,5 @@
+// Searches members for account mode and explains unavailable accounts before attempting to open one.
+
 import { History, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";

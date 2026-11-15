@@ -136,3 +136,7 @@ Schema files live in `ddl/`. Incremental changes live in `database/migrations/`.
 ---
 
 <sub>Built by Team ARBOR for the RIT Senior Development Project. Hosting instructions describe a separate sponsor installation, not an already-provisioned cloud service.</sub>
+
+## Maintaining the code
+
+[Code responsibilities and maintenance constraints](docs/CODE-GUIDE.md) explains module ownership and the invariants to preserve.

@@ -1,3 +1,6 @@
+// Member card assignment, labeling and deactivation UI; reader capture remains separate from
+// confirming the assignment.
+
 import { useId, useState, type FormEvent } from "react";
 import { api, ApiError, errorMessage } from "../../lib/api";
 import { editingFormRef } from "../../lib/editingForms";

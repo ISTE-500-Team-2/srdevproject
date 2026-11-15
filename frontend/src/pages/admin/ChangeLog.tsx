@@ -1,3 +1,6 @@
+// Filterable staff audit trail; displays recorded operator actions rather than reconstructing
+// changes from current rows.
+
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { CalendarDays, ChevronDown, Search, X } from "lucide-react";
 import { LoadState } from "../../components/Management";

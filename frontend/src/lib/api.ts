@@ -1,3 +1,6 @@
+// Shared authenticated transport: access/CSRF tokens stay in memory, refresh credentials stay in
+// HttpOnly cookies and 401s retry once.
+
 export class ApiError extends Error {
   constructor(
     public status: number,

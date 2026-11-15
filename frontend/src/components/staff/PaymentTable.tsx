@@ -1,3 +1,5 @@
+// Staff payment list with expandable details and permitted record/refund actions.
+
 import { Fragment, useRef } from "react";
 import { dollars, shortDate } from "../../lib/display";
 import type { Payment } from "../../lib/staffContracts";

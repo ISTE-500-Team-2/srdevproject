@@ -1,3 +1,6 @@
+// Coordinates booking permissions, resource locks, eligibility, price snapshots and payment state
+// in transactional workflows.
+
 import { randomUUID } from "node:crypto";
 import { EquipmentBilling } from "../billing/equipment.js";
 import { StudioStripe } from "../studios/stripe.js";

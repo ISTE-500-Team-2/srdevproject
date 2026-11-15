@@ -1,3 +1,5 @@
+// Display helpers and response types for maintenance records and equipment rates.
+
 import type { EquipmentPrice, Reservation } from './contracts';
 export const maintenanceReasons: Record<string, string> = {
   repair: 'Repair', maintenance: 'Routine maintenance', safety: 'Safety concern', other: 'Other',

@@ -1,3 +1,6 @@
+// Seeds synthetic development data only after checking the target database; sample users must never
+// be installed into a live member dataset.
+
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL } from "node:url";

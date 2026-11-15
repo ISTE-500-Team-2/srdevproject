@@ -1,3 +1,6 @@
+// Combines staff announcements with reader-health alerts; notification history is retained when an
+// incident is resolved.
+
 import { Router } from "express";
 import type { Pool } from "pg";
 import { transaction, type Database } from "./db.js";

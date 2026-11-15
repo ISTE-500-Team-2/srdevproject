@@ -1,3 +1,6 @@
+// Shared Stripe test-mode adapter for checkout and refunds; configuration rejects live payment
+// credentials.
+
 import Stripe from "stripe";
 import { AppError } from "../domain.js";
 import type { StudioCheckoutRental, StudioRefundRental } from "./rows.js";

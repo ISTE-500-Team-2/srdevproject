@@ -1,3 +1,6 @@
+// Training credential administration and member eligibility routes; certification revisions tie
+// class completion to the requirement taught.
+
 import { Router } from "express";
 import type { Pool } from "pg";
 import { transaction, type Database } from "./db.js";

@@ -1,3 +1,6 @@
+// Equipment catalog reads and row locking for booking transactions; availability changes must
+// serialize with reservations.
+
 import type { Database } from '../db.js';
 
 export interface EquipmentRecord {

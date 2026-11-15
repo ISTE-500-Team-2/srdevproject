@@ -1,3 +1,6 @@
+// Links a reservation's pending payment to Stripe test checkout; provider reconciliation decides
+// when the booking becomes paid.
+
 import type { Pool } from 'pg';
 import Stripe from 'stripe';
 import { transaction } from '../db.js';
@@ -26,6 +29,10 @@ export class EquipmentBilling {
     return this.stripe;
   }
 
+  /**
+   * Create or reuse the provider checkout with a stable idempotency key; recheck the booked
+   * member's requirements before returning a link.
+   */
   async checkout(payerId: number, id: number) {
     const row = (await this.pool.query(`SELECT c.*,r.userid,r.equipmentid,r.endtime AT TIME ZONE 'UTC' AS "endsAt" FROM app_equipment_checkout c
       JOIN reservation r ON r.reservationid=c.reservation_id
@@ -81,6 +88,10 @@ export class EquipmentBilling {
     return { ...reservation, checkoutUrl: session.url, amountCents: row.amount_cents };
   }
 
+  /**
+   * Validate provider identity, amount and currency under a booking lock before changing
+   * reservation/payment state.
+   */
   async apply(session: Stripe.Checkout.Session) {
     const id = session.metadata?.equipmentReservationId;
     if (!id) return;
@@ -127,6 +138,10 @@ export class EquipmentBilling {
     });
   }
 
+  /**
+   * Refresh the payer's pending checkouts from the provider so a missed callback does not leave
+   * stale booking state.
+   */
   async reconcile(payerId?: number) {
     if (!this.stripe) return;
     const rows = (await this.pool.query(`SELECT reservation_id,checkout_id FROM app_equipment_checkout
@@ -149,6 +164,7 @@ export class EquipmentBilling {
     }));
   }
 
+  /** Expire an unpaid checkout through the provider before releasing its local booking/payment state. */
   async cancelPending(payerId: number, id: number) {
     const row = (await this.pool.query('SELECT * FROM app_equipment_checkout WHERE reservation_id=$1 AND payer_id=$2', [id, payerId])).rows[0];
     if (!row) throw new AppError(404, 'NOT_FOUND', 'Checkout not found.');
@@ -162,6 +178,10 @@ export class EquipmentBilling {
     return { cancelled: true };
   }
 
+  /**
+   * Dispatch relevant verified provider events through reconciliation instead of trusting browser
+   * return parameters.
+   */
   async webhook(event: Stripe.Event) {
     if (!['checkout.session.completed', 'checkout.session.expired', 'checkout.session.async_payment_succeeded', 'checkout.session.async_payment_failed'].includes(event.type)) return;
     const object = event.data.object as Stripe.Checkout.Session;

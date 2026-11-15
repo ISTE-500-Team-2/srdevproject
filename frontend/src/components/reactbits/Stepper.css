@@ -1,3 +1,5 @@
+/* Step navigation, panel transitions and responsive spacing; keep height behavior aligned with Stepper.jsx. */
+
 .stepper {
   --stepper-pad: 0px;
   --stepper-inset: 0px;

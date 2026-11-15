@@ -1,3 +1,6 @@
+// Authorizes access to signed waiver records and reconstructs completed copies from stored
+// signature data.
+
 import type { Pool } from 'pg';
 import { transaction, type Database } from '../db.js';
 import { AppError } from '../domain.js';

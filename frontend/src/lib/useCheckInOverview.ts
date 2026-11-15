@@ -1,7 +1,13 @@
+// Loads the selected member/building check-in overview and guards against stale selection responses.
+
 import { useState } from 'react';
 import type { Overview } from './contracts';
 import { useApi } from './useApi';
 
+/**
+ * Bind building selection and readiness to the current user; an older user/building response must
+ * never enable check-in.
+ */
 export function useCheckInOverview(userId?: number) {
   const [selection, setSelection] = useState<{userId?: number; buildingId: number} | null>(null);
   const requested = selection?.userId === userId ? selection?.buildingId : undefined;

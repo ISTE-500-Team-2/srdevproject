@@ -1,9 +1,16 @@
+// Portal dialog with focus trapping, stacked-modal isolation and unsaved-change protection shared
+// across member and staff forms.
+
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 const modalStack: HTMLElement[] = [];
 const originalInert = new Map<HTMLElement, boolean>();
+/**
+ * Only the top portal remains interactive; restore each element's original inert state after the
+ * last dialog closes.
+ */
 function syncModalBackground() {
   const top = modalStack.at(-1);
   if (!top) {
@@ -20,6 +27,10 @@ function syncModalBackground() {
       element === top ? (originalInert.get(element) ?? false) : true;
   }
 }
+/**
+ * Calculate the current visible tab stops each time, including controls added or removed by
+ * conditional dialog content.
+ */
 function focusable(dialog: HTMLElement) {
   return Array.from(
     dialog.querySelectorAll<HTMLElement>(
@@ -51,6 +62,10 @@ interface ModalProps {
   className?: string;
 }
 
+/**
+ * Provide focus restoration/trapping and a common close path that can ask before discarding unsaved
+ * changes.
+ */
 export function Modal({
   open,
   title,

@@ -1,3 +1,5 @@
+// Typed staff API records, including revision fields used to reject edits made against stale data.
+
 import type { FacilityVisit } from "./contracts";
 export interface Page<T> {
   items: T[];

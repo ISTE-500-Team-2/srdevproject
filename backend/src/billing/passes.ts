@@ -1,3 +1,6 @@
+// Coordinates day-pass checkout, issuance and cancellation, including separate handling for
+// payments recorded at the desk.
+
 import {randomUUID} from 'node:crypto';
 import type {Pool} from 'pg';
 import type Stripe from 'stripe';

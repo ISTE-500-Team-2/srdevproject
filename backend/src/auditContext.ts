@@ -1,3 +1,6 @@
+// Carries the real operator through async calls so database audit triggers can attribute writes,
+// including staff acting for a member.
+
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Pool } from 'pg';
 

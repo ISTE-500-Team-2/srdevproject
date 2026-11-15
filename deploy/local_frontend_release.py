@@ -49,6 +49,8 @@ def tree_files(source, sha):
     return result
 
 
+# Reject changes outside the allowed frontend paths; local frontend evidence cannot authorize
+# backend or deployment changes.
 def check_scope(before, after):
     changed = sorted(p for p in before.keys() | after.keys() if before.get(p) != after.get(p))
     if not changed:
@@ -82,6 +84,8 @@ def scoped_source(root, sha, baseline):
     return release, source
 
 
+# Bind local verification evidence to the exact candidate revision and required commands before it
+# can influence release eligibility.
 def validate_receipt(receipt, directory, sha, tree, now=None):
     now = time.time() if now is None else now
     if (receipt.get('version') != 1 or receipt.get('revision') != revision(sha)
@@ -157,6 +161,8 @@ def baseline_green(root, sha, checks, runs):
         return False
 
 
+# Accept scoped local results only with the required baseline checks; an operator receipt is not a
+# public CI status.
 def accept_evidence(root, sha, stream):
     """Private SSH stdin only. Fixed filenames; validate everything before publish."""
     raw = stream.read(16 * 1024 * 1024 + 1)

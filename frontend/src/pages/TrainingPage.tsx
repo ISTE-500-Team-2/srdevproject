@@ -1,3 +1,5 @@
+// Training-definition and equipment-link management used by the staff certification/class workflow.
+
 import { useState } from "react";
 import type { LiveEquipment } from "../lib/contracts";
 import { Link } from "react-router-dom";

@@ -1,3 +1,6 @@
+// Pure booking-grid helpers for conflicts, duration choices and slot labels; final acceptance is
+// checked by the API.
+
 import type { Reservation } from "./contracts";
 import { blockKind, localHour } from "./today";
 

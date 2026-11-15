@@ -1,3 +1,5 @@
+// Validates and audits equipment changes; linked reservations and other records can block removal.
+
 import type { Pool } from 'pg';
 import { transaction, type Database } from '../db.js';
 import { AppError, positiveId, textField, type UserView } from '../domain.js';
@@ -74,6 +76,10 @@ export class EquipmentCatalogService {
   }
 
   /** Retires the machine: it leaves the catalog, its bookings, payments and service history stay. */
+  /**
+   * Check linked-record blockers inside the deletion transaction so removing equipment cannot
+   * orphan live workflow data.
+   */
   async remove(actorId: number, id: number, input: Record<string, unknown>) {
     return transaction(this.pool, async db => {
       const before = await this.authorize(db, actorId, 'delete', id, input);

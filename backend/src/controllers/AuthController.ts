@@ -1,3 +1,6 @@
+// HTTP boundary for sign-in, registration and recovery. Session creation and cookie settings are
+// centralized here.
+
 import { consumeRegistration, pruneRegistrations, stageRegistration } from '../confirmation/pendingRegistration.js';
 import { consumeEmailConfirmation } from '../confirmation/emailConfirmation.js';
 import { RecoveryService } from '../services/RecoveryService.js';

@@ -1,3 +1,6 @@
+// Reconciles membership subscriptions, invoices and refunds with local access records; provider
+// events can arrive more than once.
+
 import {quote} from './pricing.js';
 import {cancellationBoundary} from './policy.js';
 import {refundTransition} from './refundTransition.js';

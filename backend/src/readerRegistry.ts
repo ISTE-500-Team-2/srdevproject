@@ -1,3 +1,6 @@
+// Persistent reader identities and encrypted secrets. Card UIDs are normalized and keyed-hashed
+// rather than stored in full.
+
 import {
   createCipheriv,
   createDecipheriv,

@@ -1,3 +1,6 @@
+// Calendar and availability presentation for studio rentals; dates represent facility days rather
+// than browser-local instants.
+
 import type { Studio } from "./studioContracts";
 import { addCalendarDays as addDays } from "./calendarDate";
 
@@ -12,6 +15,10 @@ export const policy = (p: string | null) =>
       ? "No refunds once booked. Cancelling frees the studio for other members."
       : "Rental terms not set.";
 export const dateOnly = (s: string) => s.slice(0, 10);
+/**
+ * Mirror calendar-month clamping for the rental preview; the server recalculates the accepted
+ * interval.
+ */
 export function nextMonth(s: string) {
   if (!s) return "";
   const d = new Date(s + "T00:00:00Z");

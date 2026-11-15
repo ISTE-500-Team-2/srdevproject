@@ -1,3 +1,6 @@
+// Staff incident/announcement workspace with reader health, retained history and email
+// preview/notification controls.
+
 import { Fragment, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ChevronRight, Megaphone, Nfc, RefreshCw, ShieldCheck, TriangleAlert, Users } from "lucide-react";

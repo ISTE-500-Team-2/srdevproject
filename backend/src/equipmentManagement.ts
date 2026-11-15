@@ -1,3 +1,6 @@
+// Staff equipment routes compose catalog, maintenance and reservation services under resource
+// permissions.
+
 import { Router } from 'express';
 import type { Pool } from 'pg';
 import { AppError, positiveId } from './domain.js';

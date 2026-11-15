@@ -1,3 +1,6 @@
+// Member-facing profile, waiver, membership and check-in handlers. Uses the authenticated account
+// rather than trusting a client-supplied owner.
+
 import type { Request, Response } from "express";
 import type { Pool } from "pg";
 import { transaction } from "../db.js";

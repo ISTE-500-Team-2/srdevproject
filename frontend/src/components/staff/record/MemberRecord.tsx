@@ -1,3 +1,6 @@
+// Staff member workspace combines identity, readiness and history; dialog mutations refresh the
+// affected record.
+
 import { Mail, Phone } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";

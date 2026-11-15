@@ -1,3 +1,6 @@
+// Staff may act for a member without becoming that member. Restrictions here keep personal consent
+// and billing actions with their owner.
+
 import { Router, type NextFunction, type Request, type Response } from "express";
 import type { Pool } from "pg";
 import type { AppConfig } from "./config.js";

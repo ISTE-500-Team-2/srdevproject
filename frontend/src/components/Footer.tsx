@@ -1,34 +1,24 @@
+// Footer navigation lists implemented destinations only; do not add help or social links until
+// their content exists.
+
 import { Link } from 'react-router-dom';
 
 const footerLinks = [
   {
-    title: 'Sitemap',
+    title: 'Explore',
     links: [
       ['Home', '/'],
       ['Equipment', '/equipment'],
       ['Studios', '/studios'],
       ['Certifications', '/certifications'],
       ['Classes', '/classes'],
-      ['Search', '/equipment'],
-      ['Profile', '/profile'],
     ],
   },
   {
-    title: 'Account',
+    title: 'Your account',
     links: [
-      ['Personal information', '/profile'],
-      ['Security & Privacy', '/profile'],
-      ['Payments', '/profile'],
-      ['Membership details', '/profile'],
-      ['Notification settings', '/profile'],
-    ],
-  },
-  {
-    title: 'Help',
-    links: [
-      ['Contact us', '/profile'],
-      ['Refund policy', '/profile'],
-      ['Frequently asked questions', '/profile'],
+      ['Profile & settings', '/profile'],
+      ['Membership & passes', '/membership'],
     ],
   },
 ];
@@ -36,7 +26,7 @@ const footerLinks = [
 export function Footer() {
   return (
     <footer className="site-footer">
-      <div className="site-footer__grid">
+      <nav className="site-footer__grid" aria-label="Footer">
         {footerLinks.map((group) => (
           <section key={group.title}>
             <h2>{group.title}</h2>
@@ -49,15 +39,9 @@ export function Footer() {
             </ul>
           </section>
         ))}
-      </div>
+      </nav>
       <div className="site-footer__bottom">
-        <p>© 2026, The Crafty Studio</p>
-        <div className="site-footer__socials" aria-label="Social links">
-          <a href="#facebook" aria-label="Facebook">f</a>
-          <a href="#instagram" aria-label="Instagram">◎</a>
-          <a href="#youtube" aria-label="YouTube">▶</a>
-          <a href="#tiktok" aria-label="TikTok">♪</a>
-        </div>
+        <p>© {new Date().getFullYear()} The Collaboratory</p>
       </div>
     </footer>
   );

@@ -1,3 +1,6 @@
+// Applies equipment availability changes with booking impact checks and audit records in the same
+// transaction.
+
 import type { Pool } from 'pg';
 import { transaction, type Database } from '../db.js';
 import { AppError, positiveId, textField, type UserView } from '../domain.js';
@@ -62,6 +65,10 @@ export class EquipmentMaintenanceService {
     });
   }
 
+  /**
+   * Lock the equipment, check the submitted revision and apply availability changes with their
+   * booking/access effects and audit evidence.
+   */
   async change(actorId: number, id: number, input: Record<string, unknown>, restore: boolean) {
     const revision = positiveId(input.expectedRevision, 'Revision');
     const note = textField(input.note ?? '', 'Staff note', 500, 0);

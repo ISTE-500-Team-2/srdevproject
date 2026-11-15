@@ -1,3 +1,5 @@
+// Validates optional email delivery settings before background workers are started.
+
 export interface NotificationConfig {
   apiKey: string;
   senderEmail: string;

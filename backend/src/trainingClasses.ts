@@ -1,3 +1,6 @@
+// Class scheduling, enrollment, attendance and credential issuance routes; booking capacity and
+// training payments are coordinated in transactions.
+
 import { MinorSupervision } from "./minorSupervision.js";
 import { Router } from "express";
 import type { Pool } from "pg";

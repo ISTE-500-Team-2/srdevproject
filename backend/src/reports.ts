@@ -1,3 +1,5 @@
+// HTTP report handlers delegate query, CSV and PDF work to reports/ modules.
+
 import { Router } from "express";
 import type { Pool } from "pg";
 import { AppError } from "./domain.js";

@@ -1,3 +1,5 @@
+// Appearance preference control; theme persistence and cross-tab updates belong to theme/appearance.ts.
+
 import { Monitor, Moon, Sun } from 'lucide-react';
 import { useId } from 'react';
 import { useAppearance, type Appearance } from '../theme/appearance';

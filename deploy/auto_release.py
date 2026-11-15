@@ -37,6 +37,7 @@ def require(condition, message=None):
         raise ReleaseCheckError(message)
 
 
+# Replace status files atomically so readers never observe a half-written deployment report.
 def write_json(path, value):
     temporary = path.with_suffix('.next')
     temporary.write_text(json.dumps(value, indent=2) + '\n')
@@ -196,6 +197,8 @@ def candidates(original, image):
     return candidate, canary
 
 
+# Refuse an application release whose expected migrations are absent or changed; this deployer does
+# not migrate live data.
 def verify_migrations(source, rows):
     """Read metadata with the DB owner; never broaden the runtime role's rights."""
     directory = source / 'database/migrations'
@@ -286,6 +289,7 @@ def prepare_artifact(root, sha):
     return release, source, image
 
 
+# Save recoverable snapshots of both known datasets before switching application versions.
 def backup_databases(release, source):
     # Runtime roles intentionally cannot read the migration ledger. Retain owner
     # access and exact checksums; never migrate or broaden application privileges.
@@ -350,6 +354,8 @@ def deploy(root, sha):
     return {'deployedSha': sha, 'image': image, 'releaseDirectory': str(release), 'phase': 'deployed', 'failedSha': None}
 
 
+# Perform one gated release check; the scheduler owns repetition and the current exact main revision
+# owns eligibility.
 def tick(root, retry=False):
     directory = root / 'auto-deploy'
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)

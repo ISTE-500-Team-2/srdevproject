@@ -1,3 +1,5 @@
+/* Animated navigation states and responsive layout; retain the matching JSX measurements when changing dimensions. */
+
 .card-nav {
   position: relative;
   width: 100%;

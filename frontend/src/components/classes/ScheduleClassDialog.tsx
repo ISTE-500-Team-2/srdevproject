@@ -1,3 +1,6 @@
+// Creates or edits class sessions from training definitions, validating scheduling inputs before
+// submission.
+
 import { AlertTriangle, Info } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";

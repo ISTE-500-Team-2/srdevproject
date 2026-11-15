@@ -1,3 +1,6 @@
+// Shared read hook separates first-load state from background refresh and cancels obsolete reads
+// when the requested resource changes.
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, errorMessage } from "./api";
 import { readStored, storeResult } from "./apiCache";

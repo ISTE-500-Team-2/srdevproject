@@ -1,3 +1,5 @@
+// Shared membership status styling; status interpretation is supplied by the calling workflow.
+
 import type { ReactNode } from "react";
 import type { StatusTone } from "../../lib/display";
 

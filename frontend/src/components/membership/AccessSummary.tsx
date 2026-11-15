@@ -1,3 +1,6 @@
+// Combines effective access with billing state so a pending checkout is not presented as an active
+// membership.
+
 import { useState } from "react";
 import {
   CalendarCheck,
@@ -18,10 +21,18 @@ import { lastCancelDay } from "./dates";
 const closedBilling = ["canceled", "expired", "incomplete_expired"];
 const closedPass = ["cancelled", "expired"];
 
+/**
+ * Keep unfinished or ongoing billing records visible; terminal subscriptions no longer offer
+ * billing actions.
+ */
 export function openBilling(records: Billing[]) {
   return records.filter((r) => !closedBilling.includes(r.status));
 }
 
+/**
+ * Show today's and future nonterminal passes in date order, including checkouts whose payment is
+ * still pending.
+ */
 export function upcomingPasses(passes: BillingPass[], today: string) {
   return passes
     .filter((p) => !closedPass.includes(p.status) && p.validDate >= today)

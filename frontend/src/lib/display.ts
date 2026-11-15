@@ -1,8 +1,19 @@
+// Shared money, date and status formatting; local form timestamps and facility-calendar dates are
+// intentionally distinct.
+
+/**
+ * Format an instant for datetime-local inputs using browser-local fields; slicing an ISO string
+ * would display UTC instead.
+ */
 export function localInput(date = new Date()) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
     .toISOString()
     .slice(0, 16);
 }
+/**
+ * Return the calendar date in an explicit facility time zone, independent of the browser's local
+ * date.
+ */
 export function zonedDay(timeZone: string) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone,

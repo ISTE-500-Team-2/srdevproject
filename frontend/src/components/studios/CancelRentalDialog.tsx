@@ -1,3 +1,5 @@
+// Reviews the server-quoted cancellation/refund outcome before submitting a rental cancellation.
+
 import { CircleAlert, CircleCheck, X } from "lucide-react";
 import { Modal } from "../Modal";
 import HoldButton from "../reactbits/HoldButton";

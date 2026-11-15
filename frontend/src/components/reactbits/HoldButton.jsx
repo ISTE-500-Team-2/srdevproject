@@ -8,6 +8,10 @@ const HIT_PAD = 10;
 const LINEAR = t => t;
 const EASE_OUT = t => 1 - Math.pow(1 - t, 3);
 
+/**
+ * Run the hold/cancel/complete gesture lifecycle; only a completed hold invokes onHold, while onTap
+ * supports the separate quick-tap hint.
+ */
 export default function HoldButton({
   children = 'Hold to delete',
   doneLabel = 'Deleted',

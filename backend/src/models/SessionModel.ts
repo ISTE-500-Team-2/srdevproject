@@ -1,3 +1,6 @@
+// Stores hashed access/refresh tokens and revocable sign-in families; refresh rotation detects
+// token reuse across concurrent requests.
+
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Database } from '../db.js';
 import { timingSafeEqual } from 'node:crypto';
