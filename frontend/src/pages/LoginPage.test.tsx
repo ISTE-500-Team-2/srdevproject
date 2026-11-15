@@ -98,6 +98,23 @@ test('Enter while a registration is pending does not register again', async () =
   expect(auth.register.mock.calls[0]![0].dob).toBe('2000-01-01');
 });
 
+test('signup refuses a password over 72 bytes before asking the server', async () => {
+  const dialog = openSignup();
+  await fillToLastStep(dialog);
+  const password = within(dialog).getByLabelText('Password', { exact: false }) as HTMLInputElement;
+  expect(password.maxLength).toBe(72);
+  expect(within(dialog).getByText(/8–72 characters/).textContent).toContain('Accented letters and emoji count as more than one.');
+  // 39 characters, 76 bytes: short enough for maxLength, too long for bcrypt.
+  type(password, 'A!' + 'é'.repeat(37));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Create account' }));
+  expect(password.validationMessage).toContain('at most 72 characters');
+  expect(auth.register).not.toHaveBeenCalled();
+  auth.register.mockReturnValue(new Promise(() => {}));
+  type(password, 'ValidPassword!');
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Create account' }));
+  await waitFor(() => expect(auth.register).toHaveBeenCalledTimes(1));
+});
+
 // The visible step, by the first field it shows.
 const stepShown = (dialog: HTMLElement) =>
   within(dialog).queryByLabelText('First name') ? 1

@@ -20,7 +20,7 @@ const upcoming = [
 
 test.each([true, false])('each scheduled version can be read and retired independently (current version: %s)', async (hasCurrent) => {
   let policies = hasCurrent ? [current, ...upcoming] : [...upcoming];
-  vi.mocked(useApi).mockImplementation((path) => ({ data: path === '/admin/policies' ? policies : { summary: { userCount: 5 }, waiverBreakdown: [] }, loading: false, refreshing: false, error: '', reload: vi.fn() }));
+  vi.mocked(useApi).mockImplementation((path) => ({ data: path === '/admin/policies' ? policies : { summary: { userCount: 5 }, waiverBreakdown: [] }, loading: false, refreshing: false, stale: false, error: '', reload: vi.fn() }));
   vi.mocked(api).mockImplementation(async (path) => {
     expect(path).toBe('/admin/policies/2/retire');
     policies = policies.map(p => p.id === 2 ? { ...p, active: false } : p);
@@ -44,7 +44,7 @@ test.each([true, false])('each scheduled version can be read and retired indepen
 
 test('staff can inspect scheduled wording but cannot retire it', () => {
   auth.user.roles = ['staff'];
-  vi.mocked(useApi).mockImplementation(path => ({ data: path === '/admin/policies' ? [current, ...upcoming] : null, loading: false, refreshing: false, error: '', reload: vi.fn() }));
+  vi.mocked(useApi).mockImplementation(path => ({ data: path === '/admin/policies' ? [current, ...upcoming] : null, loading: false, refreshing: false, stale: false, error: '', reload: vi.fn() }));
   render(<StaffPolicies />);
   expect(screen.getByRole('button', { name: 'View Safety waiver v2' })).toBeTruthy();
   expect(screen.queryByRole('button', { name: /^Retire/ })).toBeNull();
@@ -59,7 +59,7 @@ test("next version: dated versions take the start date, numbered ones count up",
 });
 
 test('waiver text and approval evidence survive accidental closing until discard is confirmed', () => {
-  vi.mocked(useApi).mockImplementation(path => ({ data: path === '/admin/policies' ? [] : null, loading: false, refreshing: false, error: '', reload: vi.fn() }));
+  vi.mocked(useApi).mockImplementation(path => ({ data: path === '/admin/policies' ? [] : null, loading: false, refreshing: false, stale: false, error: '', reload: vi.fn() }));
   render(<StaffPolicies />);
   fireEvent.click(screen.getByRole('button', { name: 'New waiver' }));
   const editor = screen.getByRole('dialog', { name: 'New waiver' });
@@ -76,7 +76,7 @@ test('waiver text and approval evidence survive accidental closing until discard
 });
 
 const publish = async () => {
-  vi.mocked(useApi).mockImplementation(path => ({ data: path === '/admin/policies' ? [current] : { summary: { userCount: 5 }, waiverBreakdown: [] }, loading: false, refreshing: false, error: '', reload: vi.fn() }));
+  vi.mocked(useApi).mockImplementation(path => ({ data: path === '/admin/policies' ? [current] : { summary: { userCount: 5 }, waiverBreakdown: [] }, loading: false, refreshing: false, stale: false, error: '', reload: vi.fn() }));
   vi.mocked(api).mockResolvedValue({} as never);
   render(<StaffPolicies />);
   fireEvent.click(screen.getByRole('button', { name: 'Publish new version' }));
@@ -97,7 +97,7 @@ test('B-015: publishing leaves the annual signature period to the server', async
 });
 
 test('administrators can publish an equipment waiver without making it a day-pass prerequisite', async () => {
-  vi.mocked(useApi).mockImplementation(path => ({ data: path === '/admin/policies' ? [] : null, loading: false, refreshing: false, error: '', reload: vi.fn() }));
+  vi.mocked(useApi).mockImplementation(path => ({ data: path === '/admin/policies' ? [] : null, loading: false, refreshing: false, stale: false, error: '', reload: vi.fn() }));
   vi.mocked(api).mockResolvedValue({} as never);
   render(<StaffPolicies />);
   fireEvent.click(screen.getByRole('button', { name: 'New waiver' }));
@@ -112,7 +112,7 @@ test('administrators can publish an equipment waiver without making it a day-pas
 });
 
 test('publishing a new equipment version retains its applicability', () => {
-  vi.mocked(useApi).mockImplementation(path => ({ data: path === '/admin/policies' ? [{ ...current, scope: 'equipment' }] : null, loading: false, refreshing: false, error: '', reload: vi.fn() }));
+  vi.mocked(useApi).mockImplementation(path => ({ data: path === '/admin/policies' ? [{ ...current, scope: 'equipment' }] : null, loading: false, refreshing: false, stale: false, error: '', reload: vi.fn() }));
   render(<StaffPolicies />);
   fireEvent.click(screen.getByRole('button', { name: 'Publish new version' }));
   expect(screen.getByLabelText('Required for')).toHaveProperty('value', 'equipment');

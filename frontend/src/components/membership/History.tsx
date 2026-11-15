@@ -8,9 +8,12 @@ import type { Entitlement, Page, Payment } from "../../lib/staffContracts";
 import { useApi } from "../../lib/useApi";
 import { dollars, shortDate, statusLabel, statusTone } from "../../lib/display";
 import { LoadState } from "../Management";
+import { KeptResults, useResultsPaging } from "../KeptResults";
 import { StatusPill } from "./StatusPill";
 
 const PAGE_SIZE = 50;
+// Methods staff record for payments taken in person (see PaymentControls).
+const DESK_METHODS = new Set(["cash", "external_card", "bank_transfer", "other"]);
 
 export function History({
   memberships,
@@ -124,60 +127,69 @@ function Records({
 
 function Payments() {
   const [offset, setOffset] = useState(0);
-  const payments = useApi<Page<Payment>>(`/me/payments?offset=${offset}`);
+  // Another page keeps this one on screen until it lands.
+  const payments = useApi<Page<Payment>>(`/me/payments?offset=${offset}`, { retainOnChange: true });
   const page = payments.data;
+  const { results, turn, busy } = useResultsPaging(payments);
+  const older = page?.nextOffset ?? null;
   return (
     <>
       <LoadState {...payments} />
-      {page && !page.items.length ? (
-        <p className="membership-muted">No payments yet.</p>
+      {page ? (
+        <KeptResults read={payments} ref={results}>
+          {!page.items.length ? (
+            <p className="membership-muted">No payments yet.</p>
+          ) : (
+            <TableScroll label="Payment history">
+              <table className="membership-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Date</th>
+                    <th scope="col">For</th>
+                    <th scope="col">Status</th>
+                    <th scope="col" className="membership-table__amount">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {page.items.map((p) => (
+                    <tr key={p.id}>
+                      <td>{shortDate(p.recordedAt)}</td>
+                      <td>
+                        {p.planName}
+                        {DESK_METHODS.has(p.method) ? (
+                          <small className="membership-muted"> · Paid at front desk</small>
+                        ) : null}
+                      </td>
+                      <td>
+                        <StatusPill tone={statusTone(p.status)}>
+                          {p.status === "pending" ? "Pending" : statusLabel(p.status)}
+                        </StatusPill>
+                      </td>
+                      <td className="membership-table__amount">{dollars(p.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableScroll>
+          )}
+        </KeptResults>
       ) : null}
-      {page?.items.length ? (
-        <TableScroll label="Payment history">
-          <table className="membership-table">
-            <thead>
-              <tr>
-                <th scope="col">Date</th>
-                <th scope="col">For</th>
-                <th scope="col">Status</th>
-                <th scope="col" className="membership-table__amount">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {page.items.map((p) => (
-                <tr key={p.id}>
-                  <td>{shortDate(p.recordedAt)}</td>
-                  <td>
-                    {p.planName}
-                    {p.method === "manual" ? (
-                      <small className="membership-muted"> · Paid at front desk</small>
-                    ) : null}
-                  </td>
-                  <td>
-                    <StatusPill tone={statusTone(p.status)}>
-                      {p.status === "pending" ? "Pending" : statusLabel(p.status)}
-                    </StatusPill>
-                  </td>
-                  <td className="membership-table__amount">{dollars(p.amount)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </TableScroll>
-      ) : null}
-      {page && (offset > 0 || page.nextOffset !== null) ? (
+      {/* While a page loads the buttons stay focusable but do nothing (see Pager). */}
+      {page && (offset > 0 || older !== null || busy) ? (
         <div className="membership-pager">
           <button
             className="button button--quiet"
-            disabled={offset === 0}
-            onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+            disabled={!busy && offset === 0}
+            aria-disabled={busy || undefined}
+            onClick={() => !busy && turn(() => setOffset(Math.max(0, offset - PAGE_SIZE)))}
           >
             Previous
           </button>
           <button
             className="button button--quiet"
-            disabled={page.nextOffset === null}
-            onClick={() => page.nextOffset !== null && setOffset(page.nextOffset)}
+            disabled={!busy && older === null}
+            aria-disabled={busy || undefined}
+            onClick={() => !busy && older !== null && turn(() => setOffset(older))}
           >
             Next
           </button>

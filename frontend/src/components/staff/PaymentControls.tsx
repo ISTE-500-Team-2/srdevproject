@@ -20,6 +20,8 @@ const methodNames: Record<string, string> = {
   bank_transfer: "Bank transfer",
   other: "Other",
   card: "Card online",
+  // $0 day passes and approved free memberships are recorded with method "none".
+  none: "No charge",
 };
 /** Plain words for a payment's status, method and Stripe refund state. */
 export const paymentStatusName = (status: string) => statusNames[status] ?? status;

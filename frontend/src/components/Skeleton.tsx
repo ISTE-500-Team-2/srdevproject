@@ -12,12 +12,13 @@ export function Skeleton({ width, height, round = false, className = '' }: {
   round?: boolean;
   className?: string;
 }) {
-  return <span aria-hidden="true" className={`skeleton${round ? ' skeleton--round' : ''}${className ? ` ${className}` : ''}`} style={{ width, height }} />;
+  // data-loading: the workspace holds its height while a page shows these (steadyHeight).
+  return <span aria-hidden="true" data-loading="" className={`skeleton${round ? ' skeleton--round' : ''}${className ? ` ${className}` : ''}`} style={{ width, height }} />;
 }
 
 /** Holds a loading area's placeholders and announces `label` once to screen readers. */
 export function SkeletonGroup({ label, className, children }: { label: string; className?: string; children: ReactNode }) {
-  return <div className={className} role="status" aria-label={label}>
+  return <div className={className} role="status" aria-label={label} data-loading="">
     <span className="sr-only">{label}</span>
     {children}
   </div>;

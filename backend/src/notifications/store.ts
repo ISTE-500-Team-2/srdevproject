@@ -4,7 +4,7 @@
 import type { Database } from '../db.js';
 import { AppError } from '../domain.js';
 import { reminderDates, validTimeZone } from './reminderTiming.js';
-import type { NotificationKind, NotificationPayloads } from './templates.js';
+import { securityKinds, type NotificationKind, type NotificationPayloads } from './templates.js';
 
 export interface NotificationPreferences { enabled: boolean; timeZone: string }
 /** A known kind's payload is typed by that kind. A kind only known at run time
@@ -31,7 +31,7 @@ export async function updateNotificationPreferences(db: Database, userId: number
     [userId,preferences.enabled,preferences.timeZone]);
   // Opting back in never resurrects notices that were intentionally suppressed.
   if (!preferences.enabled) await db.query(`UPDATE app_notification_outbox SET status='suppressed',counts_for_sla=(counts_for_sla AND deadline_at<NOW()),updated_at=NOW()
-    WHERE userid=$1 AND status='pending' AND kind NOT IN ('password_reset','password_changed')`,[userId]);
+    WHERE userid=$1 AND status='pending' AND kind <> ALL($2::text[])`,[userId,securityKinds]);
   // Unsent expiration reminders move to the new zone's send time, computed exactly as when first queued.
   if (preferences.enabled) {
     const { rows } = await db.query<{ id: number; expiresAt: string }>(`SELECT id,payload->>'expiresAt' AS "expiresAt" FROM app_notification_outbox
@@ -51,12 +51,12 @@ export async function enqueueNotification<K extends string>(db: Database, input:
   // Legacy unverified accounts may still receive their confirmation link while held in pending status.
   await db.query(`INSERT INTO app_notification_outbox(userid,kind,dedupe_key,payload,due_at,deadline_at,status,counts_for_sla)
     SELECT u.userid,$2,$3,$4::jsonb,$5,$6,
-      CASE WHEN (COALESCE(p.enabled,true) OR $2 IN ('password_reset','password_changed')) AND (u.status='active' OR ($2='account_confirmation' AND u.status='pending')) THEN 'pending' ELSE 'suppressed' END,
-      $7::boolean AND (COALESCE(p.enabled,true) OR $2 IN ('password_reset','password_changed')) AND (u.status='active' OR ($2='account_confirmation' AND u.status='pending'))
+      CASE WHEN (COALESCE(p.enabled,true) OR $2=ANY($8::text[])) AND (u.status='active' OR ($2='account_confirmation' AND u.status='pending')) THEN 'pending' ELSE 'suppressed' END,
+      $7::boolean AND (COALESCE(p.enabled,true) OR $2=ANY($8::text[])) AND (u.status='active' OR ($2='account_confirmation' AND u.status='pending'))
     FROM "user" u LEFT JOIN app_notification_preferences p USING(userid) WHERE u.userid=$1
     ON CONFLICT(dedupe_key) DO UPDATE SET due_at=EXCLUDED.due_at,deadline_at=EXCLUDED.deadline_at,updated_at=NOW()
     WHERE app_notification_outbox.status='pending' AND app_notification_outbox.attempts=0
-      AND EXCLUDED.payload ? 'sourceType'`,[input.userId,input.kind,input.dedupeKey,JSON.stringify(input.payload),dueAt,deadlineAt,input.countsForSla??true]);
+      AND EXCLUDED.payload ? 'sourceType'`,[input.userId,input.kind,input.dedupeKey,JSON.stringify(input.payload),dueAt,deadlineAt,input.countsForSla??true,securityKinds]);
 }
 export async function notificationMetrics(
   db: Database,

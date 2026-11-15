@@ -194,6 +194,7 @@
 
 /* Disabled reads as inert rather than as a faded live button. */
 :root[data-theme='dark'] .button:disabled,
+:root[data-theme='dark'] .button[aria-disabled="true"],
 :root[data-theme='dark'] .button--primary:disabled {
   border-color: var(--border);
   background: #3a2d24;

@@ -42,7 +42,7 @@ test("an opened account is remembered when storage works", async () => {
   mount(onClose);
   fireEvent.click(screen.getByRole("button", { name: /Dana Tester/ }));
   await waitFor(() => expect(onClose).toHaveBeenCalled());
-  expect(JSON.parse(localStorage.getItem("collaboratory.recentAccounts")!)).toEqual([{ id: 7, firstName: "Dana", lastName: "Tester" }]);
+  expect(JSON.parse(localStorage.getItem("collaboratory.recentAccounts")!)).toEqual([{ id: 7, firstName: "Dana", lastName: "Tester", photoVersion: null }]);
 });
 
 test("a failed switch still shows its error and stays open", async () => {

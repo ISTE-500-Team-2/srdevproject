@@ -6,12 +6,15 @@ import type { OpenDialog } from "./recordParts";
 /** The account settings staff change from the record, each locked with the reason when this viewer may not. */
 export function RecordAccount({
   person: u,
+  photoVersion,
   locked,
   self,
   isAdmin,
   open,
 }: {
   person: Person;
+  /** From the record read; saves don't return it. */
+  photoVersion?: string | null;
   /** Why every setting is locked for this viewer, or empty. */
   locked: string;
   /** The viewer is this member. */
@@ -68,6 +71,13 @@ export function RecordAccount({
           edit
           onChange={() => open({ kind: "profile" })}
         />
+        <Fact
+          label="Profile photo"
+          value={photoVersion ? "Added by the member" : "None"}
+          lock={locked || (photoVersion ? "" : "Members add their own photo.")}
+          action="Remove"
+          onChange={() => photoVersion && open({ kind: "photo", version: photoVersion })}
+        />
       </dl>
     </section>
   );
@@ -80,6 +90,7 @@ function Fact({
   bad = false,
   lock,
   edit = false,
+  action,
   onChange,
 }: {
   label: string;
@@ -88,8 +99,11 @@ function Fact({
   bad?: boolean;
   lock: string;
   edit?: boolean;
+  /** The button's word when it isn't "Edit" or "Change". */
+  action?: string;
   onChange: () => void;
 }) {
+  const verb = action ?? (edit ? "Edit" : "Change");
   return (
     <div className="mr-fact">
       <dt>{label}</dt>
@@ -104,8 +118,8 @@ function Fact({
         ) : null}
       </dd>
       {lock ? null : (
-        <button type="button" className="today-link" onClick={onChange} aria-label={`${edit ? "Edit" : "Change"} ${label.toLowerCase()}`}>
-          {edit ? "Edit" : "Change"}
+        <button type="button" className="today-link" onClick={onChange} aria-label={`${verb} ${label.toLowerCase()}`}>
+          {verb}
         </button>
       )}
     </div>

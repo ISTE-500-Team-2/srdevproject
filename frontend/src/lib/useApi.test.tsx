@@ -32,6 +32,33 @@ test('switching resources clears prior content and uses real loading state',asyn
  await act(async()=>{});rerender({path:'/admin/users/2'});await act(async()=>{});
  expect(result.current.data).toBeNull();expect(result.current.loading).toBe(true);expect(result.current.refreshing).toBe(false);
 });
+test('retainOnChange keeps the last results on screen while another page loads, then swaps them in',async()=>{
+ let finish!:(value:unknown)=>void;
+ api.mockResolvedValueOnce({page:1}).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+ const {result,rerender}=renderHook(({path})=>useApi<{page:number}>(path,{retainOnReload:true,retainOnChange:true}),{initialProps:{path:'/admin/payments?offset=0'}});
+ await act(async()=>{});expect(result.current.stale).toBe(false);rerender({path:'/admin/payments?offset=50'});await act(async()=>{});
+ expect(result.current.data?.page).toBe(1);expect(result.current.loading).toBe(false);expect(result.current.refreshing).toBe(true);expect(result.current.stale).toBe(true);
+ await act(async()=>{finish({page:2});});expect(result.current.data?.page).toBe(2);expect(result.current.refreshing).toBe(false);expect(result.current.stale).toBe(false);
+});
+test('a reload during a page change still treats the kept results as the earlier page\'s, and drops them if it fails',async()=>{
+ api.mockResolvedValueOnce({page:1}).mockImplementationOnce(()=>new Promise(()=>{})).mockRejectedValueOnce(new Error('Server error'));
+ const {result,rerender}=renderHook(({path})=>useApi<{page:number}>(path,{retainOnReload:true,retainOnChange:true}),{initialProps:{path:'/admin/payments?offset=0'}});
+ await act(async()=>{});rerender({path:'/admin/payments?offset=50'});await act(async()=>{});
+ act(()=>result.current.reload());await act(async()=>{});
+ expect(api).toHaveBeenCalledTimes(3);expect(result.current.data).toBeNull();expect(result.current.stale).toBe(false);expect(result.current.error).toBe('Server error');
+});
+test('a failed reload of the same page keeps its results, as before',async()=>{
+ api.mockResolvedValueOnce({page:1}).mockRejectedValueOnce(new Error('Server error'));
+ const {result}=renderHook(()=>useApi<{page:number}>('/admin/payments?offset=0',{retainOnReload:true,retainOnChange:true}));
+ await act(async()=>{});act(()=>result.current.reload());await act(async()=>{});
+ expect(result.current.data?.page).toBe(1);expect(result.current.stale).toBe(false);expect(result.current.error).toBe('Server error');
+});
+test('retainOnChange drops the kept results when the new request fails, so they never sit under the wrong filters',async()=>{
+ api.mockResolvedValueOnce({page:1}).mockRejectedValueOnce(new Error('Cannot reach the server.'));
+ const {result,rerender}=renderHook(({path})=>useApi<{page:number}>(path,{retainOnReload:true,retainOnChange:true}),{initialProps:{path:'/admin/payments?offset=0'}});
+ await act(async()=>{});rerender({path:'/admin/payments?status=paid&offset=0'});await act(async()=>{});
+ expect(result.current.data).toBeNull();expect(result.current.error).toBe('Cannot reach the server.');expect(result.current.refreshing).toBe(false);
+});
 test('dirty staff input pauses automatic refresh even after it loses focus',async()=>{
  vi.useFakeTimers();api.mockResolvedValue({id:1});
  const form=document.createElement('form');const input=document.createElement('input');input.defaultValue='Original';form.append(input);document.body.append(form);const unregister=editingFormRef(form);

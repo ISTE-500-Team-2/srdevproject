@@ -97,6 +97,19 @@ test('new passwords require length, uppercase, and a special character', () => {
   assert.throws(() => newPasswordField(null), AppError);
 });
 
+test('new passwords stop at 72 UTF-8 bytes, the most bcrypt hashes', async () => {
+  const ascii = 'A!' + 'a'.repeat(70);
+  assert.equal(newPasswordField(ascii), ascii);
+  assert.ok(await hashPassword(newPasswordField(ascii)));
+  // 37 accented letters are 74 bytes: under 128 characters, but hashPassword would refuse them.
+  const accented = 'A!' + 'é'.repeat(37);
+  assert.throws(() => newPasswordField(accented), (error: AppError) =>
+    error.code === 'PASSWORD_TOO_LONG' && /8–72 characters; accented letters and emoji count as more than one/.test(error.message));
+  await assert.rejects(hashPassword(accented), /72 UTF-8 bytes/);
+  assert.throws(() => newPasswordField('A!' + '🔧'.repeat(18)), AppError);
+  assert.throws(() => newPasswordField('A!' + 'a'.repeat(71)), AppError);
+});
+
 test('dates of birth require a valid YYYY-MM-DD date that is not in the future', () => {
   assert.equal(dateOfBirthField('2000-01-01'), '2000-01-01');
 

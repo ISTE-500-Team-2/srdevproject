@@ -3,7 +3,7 @@
 
 import {quote} from './pricing.js';
 import {cancellationBoundary} from './policy.js';
-import {refundTransition} from './refundTransition.js';
+import {liveRefund,refundAttempt,refundTransition,replacedAttemptFailed} from './refundTransition.js';
 import {isCheckoutSessionEvent,isInvoiceEvent,isRefundEvent,isSubscriptionEvent} from './stripeEvents.js';
 import {randomUUID} from 'node:crypto';
 import type {Pool} from 'pg';
@@ -201,9 +201,10 @@ export class MembershipBilling {
         await db.query('UPDATE app_membership_invoice SET payment_intent=$2 WHERE id=$1',[id,r.payment_intent]);
       }
       const previous=await sdk.refunds.list({payment_intent:r.payment_intent,limit:100});
-      if(previous.has_more||previous.data.some(f=>f.currency!=='usd'||f.amount!==r.amount_cents)||previous.data.length>1)
-        throw new AppError(409,'RECONCILE_REQUIRED','Existing partial/multiple refunds need staff reconciliation.');
-      const refund=previous.data[0]??await sdk.refunds.create({payment_intent:r.payment_intent,amount:r.amount_cents},{idempotencyKey:'membership-refund:'+id});
+      // A failed attempt returned nothing, so a retry submits a new refund rather than reusing it.
+      const attempt=refundAttempt('membership-refund:'+id,previous);
+      const refund=liveRefund(previous,r.amount_cents)??await sdk.refunds.create({payment_intent:r.payment_intent,amount:r.amount_cents,...(attempt.metadata?{metadata:attempt.metadata}:{})},
+        {idempotencyKey:attempt.key});
       await this.applyRefund(db,refund);
       await new StaffModel(db).audit(actor,r.userid,'billing.refund.requested','payment',r.payment_id,explanation,null,{refundId:refund.id,status:refund.status});
       return {status:refund.status};
@@ -216,6 +217,7 @@ export class MembershipBilling {
     if(f.amount!==r.amount_cents||f.currency!=='usd') throw new AppError(409,'RECONCILE_REQUIRED','Refund does not match the original invoice payment.');
     const failed=['failed','canceled'].includes(f.status??'');
     if(refundTransition({refundId:r.refund_id,refundStatus:r.refund_status},f)==='skip') return;
+    if(replacedAttemptFailed({refundId:r.refund_id,refundStatus:r.refund_status},f)) return;
     await db.query('UPDATE app_membership_invoice SET refund_id=$2,refund_status=$3 WHERE id=$1',[r.id,f.id,f.status]);
     if(f.status==='succeeded') {
       await db.query("UPDATE payment SET paymentstatus='refunded',updated_at=now(),revision=revision+1 WHERE paymentid=$1",[r.payment_id]);

@@ -55,6 +55,10 @@
 .mr-lead h3 { font-size: var(--text-2xl); line-height: 1.15; }
 .mr-lead p { margin-top: 4px; color: var(--ink-soft); }
 .mr-lead q { color: var(--ink); }
+/* Facts sit on one row, ruled off from the detail above and from each other. */
+.mr-lead p.mr-lead__facts { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: var(--text-base-sm); }
+.mr-lead__detail + .mr-lead__facts { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.mr-lead__facts span + span { padding-left: 10px; border-left: 1px solid var(--border); }
 .mr-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; justify-content: flex-end; }
 .mr-actions .button { display: inline-flex; align-items: center; gap: 8px; min-height: 46px; white-space: nowrap; }
 .mr-actions .button svg { width: 18px; height: 18px; }
@@ -161,6 +165,7 @@
 .mr-dialog__fields .form-field { margin: 0; }
 .mr-dialog__actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .mr-dialog__lead { color: var(--ink-soft); }
+.mr-photo-preview { justify-self: center; display: grid; place-items: center; width: 120px; height: 120px; border-radius: 50%; background: var(--orange-soft); color: var(--bronze); font-size: var(--text-2xl); font-weight: 700; }
 .mr-dialog__hint { color: var(--ink-soft); font-size: var(--text-sm); }
 .mr-dialog .management-form > h3, .mr-dialog .nfc-assignment > h3 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .mr-options { display: grid; gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }

@@ -8,7 +8,7 @@ import { transaction, type Database } from "../db.js";
 import { AppError, positiveId, textField } from "../domain.js";
 import { PermissionModel } from "../models/PermissionModel.js";
 import { enqueueNotification } from "../notifications/store.js";
-import { monthlyWindow, refundDue, integer } from "./domain.js";
+import { monthlyWindow, refundDue, integer, lastRentalDay } from "./domain.js";
 import { StudioStripe } from "./stripe.js";
 import { DEFAULT_BUILDING_ID } from "../facility.js";
 import { requireActor } from "../accountPolicy.js";
@@ -53,7 +53,7 @@ export class StudioService {
       reservationId: r.id,
       resourceName: r.name ?? `Studio ${r.studio_id}`,
       startsAt: r.starts_on,
-      endsAt: r.ends_on,
+      endsAt: lastRentalDay(r.ends_on),
       amount: (r.amount_cents / 100).toFixed(2),
       currency: "USD",
       method: r.payment_method,
@@ -624,7 +624,7 @@ export class StudioService {
       userId: r.userid, kind: "payment_receipt", dedupeKey: `studio-payment:${r.id}`,
       payload: {amount: (r.amount_cents / 100).toFixed(2), currency: "USD",
         reference, reservationId: r.id, method: r.payment_method === "stripe_test" ? "Card (test mode)" : "Staff-recorded payment",
-        startsAt: this.dates(r).starts_on, endsAt: this.dates(r).ends_on},
+        startsAt: this.dates(r).starts_on, endsAt: lastRentalDay(this.dates(r).ends_on)},
     });
   }
   async applyRefund(db: Database, f: Stripe.Refund) {

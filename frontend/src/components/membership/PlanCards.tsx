@@ -9,7 +9,7 @@ import type { Entitlement, Plan } from "../../lib/staffContracts";
 import type { Waiver } from "../../lib/contracts";
 import { useApi } from "../../lib/useApi";
 import { cents, dollars, shortDate } from "../../lib/display";
-import { lastCancelDay } from "./dates";
+import { lastCancelDate, lastCancelDay } from "./dates";
 import { errorMessage } from "../../lib/api";
 import { LoadState } from "../Management";
 import { Modal } from "../Modal";
@@ -146,6 +146,8 @@ export function PlanCards({ plans, billingEnabled, billing, memberships, today, 
         {dayPasses.map((plan) => {
           const offer = offerFor(plan.id);
           const deadline = date ? lastCancelDay(date) : null;
+          // A visit under 3 days away (facility date) is already past the cancellation cutoff.
+          const refundable = !date || lastCancelDate(date) >= today;
           return (
             <PlanCard key={plan.id} plan={plan} offer={offer}>
               {billingEnabled && offer ? (
@@ -162,7 +164,9 @@ export function PlanCards({ plans, billingEnabled, billing, memberships, today, 
                   {deadline ? (
                     <p className="membership-hint">
                       <Clock aria-hidden="true" />
-                      Free cancellation through {deadline}
+                      {refundable
+                        ? `Free cancellation through ${deadline}`
+                        : "Can't be cancelled for a refund: day passes need 3 days' notice."}
                     </p>
                   ) : null}
                   <button

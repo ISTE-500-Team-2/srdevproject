@@ -133,11 +133,25 @@ test('unmet rules or mismatched passwords prevent confirmation', async () => {
   type('Create a password…', 'Workshop!'); type('Type it again…', 'Different!'); click('Save password');
   expect(call).toHaveBeenCalledTimes(1);
 });
+test('the length rule counts bytes the server can hash, so 37 accented letters are too long', async () => {
+  await resetForm();
+  const rule = screen.getByText(/^8–72 characters/).closest('li')!;
+  expect(rule.textContent).toContain('accented letters and emoji count as more than one');
+  type('Create a password…', 'A!' + 'é'.repeat(37)); type('Type it again…', 'A!' + 'é'.repeat(37));
+  expect(rule.hasAttribute('data-met')).toBe(false);
+  click('Save password');
+  expect(screen.getByRole('alert').textContent).toBe('Your password doesn’t meet every requirement yet.');
+  expect(call).toHaveBeenCalledTimes(1);
+  type('Create a password…', 'A!' + 'a'.repeat(70));
+  expect(rule.hasAttribute('data-met')).toBe(true);
+  expect(screen.getByPlaceholderText('Create a password…').getAttribute('maxlength')).toBe('72');
+});
 test('confirmation succeeds only after saving, clears fields, focuses completion, then navigates to login', async () => {
   await resetForm(); validPasswords(); click('Save password');
   const done = await screen.findByRole('heading', { name: 'You’re all set' });
   expect(call).toHaveBeenLastCalledWith('/auth/password-reset/confirm', { method: 'POST', body: { token, password: 'Workshop!' } });
-  expect(document.activeElement).toBe(done);
+  // Focus moves in an effect just after the heading renders; under load the heading can be found first.
+  await waitFor(() => expect(document.activeElement).toBe(done));
   expect(screen.queryByPlaceholderText('Create a password…')).toBeNull();
   expect(screen.queryByRole('list')).toBeNull();
   click('Go to login'); expect(screen.getByRole('heading', { name: 'Login' })).toBeTruthy();

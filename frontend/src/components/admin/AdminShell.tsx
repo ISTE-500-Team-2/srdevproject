@@ -10,8 +10,10 @@ import { adminNavGroups } from "./adminNavigation";
 import { AccountPicker } from "./AccountPicker";
 import { Modal } from "../Modal";
 import { AppearanceControl } from "../AppearanceControl";
-import { initials, lastWorkspacePathKey, roleLabel } from "./people";
+import { lastWorkspacePathKey, roleLabel } from "./people";
+import { AccountPhoto } from "../AccountPhoto";
 import { PageWidthContext, type PageWidth } from "./pageWidth";
+import { SteadyHeight, useSteadyHeight } from "./steadyHeight";
 
 /** The staff workspace: its own sidebar layout, separate from the member site. */
 export function AdminShell() {
@@ -23,6 +25,7 @@ export function AdminShell() {
   const [error, setError] = useState("");
   const [pageWidth, setPageWidth] = useState<PageWidth>("standard");
   const staff = actor ?? user;
+  const { column, content, holdNow } = useSteadyHeight(location.pathname);
 
   // Arriving in the workspace closes any member account left open. Only on
   // arrival: opening an account from the picker here must not undo itself.
@@ -98,9 +101,7 @@ export function AdminShell() {
       </div>
       {staff ? (
         <div className="admin-side__me">
-          <span className="admin-avatar admin-avatar--self" aria-hidden="true">
-            {initials(staff.firstName, staff.lastName)}
-          </span>
+          <AccountPhoto person={staff} className="admin-avatar admin-avatar--self" />
           <span className="admin-side__who">
             <strong>
               {staff.firstName} {staff.lastName}
@@ -144,10 +145,16 @@ export function AdminShell() {
             {error}
           </p>
         ) : null}
-        <main id="admin-main" className="admin-content page-enter" data-width={pageWidth}>
-          <PageWidthContext.Provider value={setPageWidth}>
-            <Outlet />
-          </PageWidthContext.Provider>
+        <main id="admin-main" className="admin-content" data-width={pageWidth} ref={column}>
+          {/* The page rises into place, not the full-height column: moving the column pushed it
+              past the window while it played and flashed a scrollbar on short pages. */}
+          <div className="page-enter" ref={content}>
+            <PageWidthContext.Provider value={setPageWidth}>
+              <SteadyHeight.Provider value={holdNow}>
+                <Outlet />
+              </SteadyHeight.Provider>
+            </PageWidthContext.Provider>
+          </div>
         </main>
       </div>
       {pickerOpen ? <AccountPicker onClose={() => setPickerOpen(false)} /> : null}

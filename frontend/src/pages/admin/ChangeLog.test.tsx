@@ -147,3 +147,37 @@ test("an empty view points to the views that do have matches", () => {
   fireEvent.click(screen.getByRole("button", { name: "Look further back" }));
   expect(lists().at(-1)!.has("from")).toBe(true);
 });
+
+test("another page or filter keeps the feed on screen, out of reach, while the search and Newer/Older stay usable", () => {
+  page = { items, nextOffset: 50, counts: { staff: 60, taps: 1, database: 3 } };
+  const before = useApi.getMockImplementation()!;
+  let stale = false;
+  useApi.mockImplementation((path: string | null) => (path?.startsWith("/admin/audit?") ? { ...before(path), stale } : before(path)));
+  show();
+  expect(useApi.mock.calls.find(([path]) => path?.startsWith("/admin/audit?"))?.[1]).toMatchObject({ retainOnChange: true });
+  const older = screen.getByRole("button", { name: "Older" });
+  older.focus();
+  stale = true;
+  fireEvent.click(older);
+  expect(lists().at(-1)?.get("offset")).toBe("50");
+  const feed = document.querySelector(".kept-results")!;
+  expect(feed.hasAttribute("inert")).toBe(true);
+  expect(feed.contains(screen.getByPlaceholderText("Search people, equipment, plans or actions…"))).toBe(false);
+  expect(feed.contains(older)).toBe(false);
+  expect(document.activeElement).toBe(older);
+  expect(older.getAttribute("aria-disabled")).toBe("true");
+  fireEvent.click(older);
+  expect(lists().some((params) => params.get("offset") === "100")).toBe(false);
+});
+
+test("the empty state's buttons hand focus to the search box before the results wait on the change", () => {
+  page = { items: [], nextOffset: null, counts: { staff: 0, taps: 0, database: 3 } };
+  show();
+  const search = screen.getByPlaceholderText("Search people, equipment, plans or actions…");
+  for (const name of ["Show database writes", "Look further back"]) {
+    const button = screen.getByRole("button", { name });
+    button.focus();
+    fireEvent.click(button);
+    expect(document.activeElement).toBe(search);
+  }
+});

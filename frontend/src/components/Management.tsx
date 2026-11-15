@@ -115,7 +115,8 @@ export function LoadState({
 }) {
   return (
     <>
-      {loading ? <p role="status">Loading records…</p> : null}
+      {/* data-loading: the workspace holds its height while a page shows this (steadyHeight). */}
+      {loading ? <p role="status" data-loading="">Loading records…</p> : null}
       {error ? (
         <p role="alert" className="form-error">
           {error} <button type="button" onClick={reload}>Retry</button>
@@ -128,27 +129,34 @@ export function Pager({
   offset,
   nextOffset,
   onChange,
+  busy = false,
 }: {
   offset: number;
   nextOffset: number | null;
   onChange: (n: number) => void;
+  /** A page is on its way (useResultsPaging): the buttons stay focusable, so the one pressed
+   * keeps focus, but do nothing until it lands. */
+  busy?: boolean;
 }) {
-  // Everything fits on one page: no pager, and no made-up record range.
-  if (offset === 0 && nextOffset == null) return null;
+  // Everything fits on one page: no pager, and no made-up record range. While a page loads the
+  // pager stays, so the button just pressed keeps focus.
+  if (!busy && offset === 0 && nextOffset == null) return null;
   return (
     <div className="management-actions management-pager">
       <button
         className="button button--quiet"
-        disabled={offset === 0}
-        onClick={() => onChange(Math.max(0, offset - 50))}
+        disabled={!busy && offset === 0}
+        aria-disabled={busy || undefined}
+        onClick={() => !busy && onChange(Math.max(0, offset - 50))}
       >
         Previous page
       </button>
       <span>Page {Math.floor(offset / 50) + 1}</span>
       <button
         className="button button--quiet"
-        disabled={nextOffset == null}
-        onClick={() => nextOffset != null && onChange(nextOffset)}
+        disabled={!busy && nextOffset == null}
+        aria-disabled={busy || undefined}
+        onClick={() => !busy && nextOffset != null && onChange(nextOffset)}
       >
         Next page
       </button>

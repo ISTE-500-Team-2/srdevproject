@@ -28,6 +28,7 @@ import type {
 } from '../lib/contracts';
 import { Toast } from '../components/Toast';
 import { MemberBadge } from '../components/MemberBadge';
+import { useProfilePhoto } from '../lib/profilePhoto';
 
 // GSAP is only needed for the greeting, so it loads with it.
 const SplitText = lazy(() => import('../components/reactbits/SplitText'));
@@ -52,6 +53,7 @@ const firstName = (name: string) => name.split(' ')[0] ?? name;
 
 export function MemberHomePage() {
   const { user, notification, clearNotification, refresh } = useAuth();
+  const photo = useProfilePhoto(user?.photoVersion, user?.id);
   const overview = useCheckInOverview(user?.id);
   const waivers = useApi<Waiver[]>('/me/waivers');
   const bookings = useApi<Reservation[]>('/reservations');
@@ -405,6 +407,7 @@ export function MemberHomePage() {
                 name={`${user.firstName} ${user.lastName}`}
                 access={accessLabel}
                 memberId={user.id}
+                photo={photo}
               />
             ) : null}
           </aside>

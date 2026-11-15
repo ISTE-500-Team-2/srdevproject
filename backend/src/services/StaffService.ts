@@ -7,6 +7,7 @@ import type { Pool } from "pg";
 import { transaction, type Database } from "../db.js";
 import { AppError, type UserView } from "../domain.js";
 import { UserModel } from "../models/UserModel.js";
+import { ProfilePhotoModel } from "../models/ProfilePhotoModel.js";
 import { StaffModel } from "../models/StaffModel.js";
 import type { IssueInput, PlanInput } from "../staffDomain.js";
 import { PermissionModel } from "../models/PermissionModel.js";
@@ -23,6 +24,25 @@ const conflict = () =>
     "STALE_RECORD",
     "This record changed. Refresh it before making another change.",
   );
+const staffAccount = () =>
+  new AppError(
+    403,
+    "ADMIN_REQUIRED",
+    "Only administrators can manage staff accounts.",
+  );
+
+/**
+ * The rule target() applies, for staff routes outside this service (NFC cards, supervised use):
+ * non-admin staff may not manage an account that holds the admin or staff role.
+ */
+export async function assertManageable(db: Database, actor: Pick<UserView, "roles">, userId: number) {
+  if (actor.roles.includes("admin")) return;
+  const held = await db.query(
+    `SELECT 1 FROM user_role ur JOIN role r USING(roleid) WHERE ur.userid=$1 AND r.role IN ('admin','staff') LIMIT 1`,
+    [userId],
+  );
+  if (held.rowCount) throw staffAccount();
+}
 
 export class StaffService {
   constructor(
@@ -82,11 +102,7 @@ export class StaffService {
       user.roles.some((r: string) => r === "admin" || r === "staff") &&
       !actor.roles.includes("admin")
     )
-      throw new AppError(
-        403,
-        "ADMIN_REQUIRED",
-        "Only administrators can manage staff accounts.",
-      );
+      throw staffAccount();
     return user;
   }
   /** Reject stale staff edits before overwriting a record that another operator has changed. */
@@ -238,6 +254,26 @@ export class StaffService {
       return after;
     });
   }
+  /**
+   * Remove a member's profile photo, for example one that isn't a photo of them. `version` is the
+   * photo staff were looking at: a member who has since changed it gets a conflict, not a removal.
+   */
+  removePhoto(actorId: number, id: number, version: string, reason: string) {
+    return this.write(actorId, false, "user", "update", async (model, actor, db) => {
+      // The account lock (FOR NO KEY UPDATE) is the one member photo changes take.
+      await this.target(model, actor, id, "no-key-update");
+      const photos = new ProfilePhotoModel(db);
+      const current = await photos.version(id);
+      if (!current) return { version: null };
+      if (current !== version)
+        throw new AppError(409, "STALE_RECORD", "This member changed their photo just now. Look at the new one first.");
+      await photos.remove(id);
+      await model.audit(actorId, id, "user.photo_removed", "user", id, reason, { photoVersion: current }, { photoVersion: null });
+      // Staff reasons are private, as for account and access changes: the email says only what happened.
+      await enqueueNotification(db, { userId: id, kind: "photo_removed", dedupeKey: `photo-removed:${id}:${current}`, payload: {} });
+      return { version: null };
+    });
+  }
   /** Protect the last active administrator while updating role assignments and audit evidence. */
   role(
     actorId: number,
@@ -264,7 +300,9 @@ export class StaffService {
           "ROLE_NOT_CONFIGURED",
           "That role must first be configured in the database.",
         );
+      // Only an active administrator counts toward the last one, as for account status.
       if (
+        before.status === "active" &&
         before.roles.includes("admin") &&
         !assigned.includes("admin") &&
         (await model.activeAdmins()) <= 1

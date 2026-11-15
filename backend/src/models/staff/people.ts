@@ -19,6 +19,8 @@ export interface StaffPerson {
   address: Record<string, unknown>;
   contactPreferences: Record<string, unknown>;
   roles: string[];
+  /** Directory and record reads only: the member's photo version, null without one. */
+  photoVersion?: string | null;
 }
 
 const personColumns = `u.userid AS id,u.firstname AS "firstName",u.lastname AS "lastName",u.email,u.phone,u.status,u.statusdesc AS "accountReason",
@@ -34,9 +36,11 @@ export class PeopleRepository {
   async users(search: string, offset: number): Promise<StaffPerson[]> {
     return (
       await this.db.query<StaffPerson>(
-        `SELECT ${personColumns} FROM "user" u WHERE u.email_confirmed=true AND
-      (u.firstname || ' ' || u.lastname || ' ' || u.email) ILIKE $1 ORDER BY u.lastname,u.firstname,u.userid LIMIT 51 OFFSET $2`,
-        ["%" + search + "%", offset],
+        `SELECT ${personColumns},(SELECT p.version FROM app_user_photo p WHERE p.user_id=u.userid) AS "photoVersion"
+      FROM "user" u WHERE u.email_confirmed=true AND
+      (u.firstname || ' ' || u.lastname || ' ' || u.email) ILIKE $1 ESCAPE '\\' ORDER BY u.lastname,u.firstname,u.userid LIMIT 51 OFFSET $2`,
+        // Escaped so "%" and "_" (common in emails) match themselves, not any text.
+        ["%" + search.replace(/[\\%_]/g, (c) => "\\" + c) + "%", offset],
       )
     ).rows;
   }

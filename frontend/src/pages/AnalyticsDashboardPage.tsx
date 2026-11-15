@@ -18,6 +18,7 @@ import {
 import { useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { LoadState } from "../components/Management";
+import { KeptResults } from "../components/KeptResults";
 import { useApi } from "../lib/useApi";
 import { dollars, statusLabel, timeOnly, zonedDay } from "../lib/display";
 import { useFacilityZone } from "../lib/facilityZone";
@@ -97,6 +98,8 @@ function comparison(preset: Preset, range: { from: string; to: string }) {
   if (preset === "week") return { unit: "last week", earlier: "a week earlier" };
   if (preset === "month") return { unit: "last month", earlier: "a month earlier" };
   const length = daysBetween(range.from, range.to);
+  // A one-day range is compared with "the previous day", not "the previous 1 days".
+  if (length === 1) return { unit: "the previous day", earlier: "a day earlier" };
   return { unit: `the previous ${length} days`, earlier: `${length} days earlier` };
 }
 
@@ -533,8 +536,10 @@ function AnalyticsDashboard({ zone }: { zone: string }) {
   const [range, setRange] = useState<Range>({ ...presetRange("30", today), period: "weekly" });
   const [draft, setDraft] = useState(range);
   const [validation, setValidation] = useState("");
+  // A new range keeps the last report on screen until it lands.
   const report = useApi<Report>("/admin/reports?" + new URLSearchParams(range), {
     retainOnReload: true,
+    retainOnChange: true,
     refreshInterval: 30000,
   });
   const previous = useApi<Report>("/admin/reports?" + new URLSearchParams(previousRange(range, preset)), {
@@ -637,7 +642,7 @@ function AnalyticsDashboard({ zone }: { zone: string }) {
       <LoadState {...report} loading={report.loading && !report.data} />
 
       {data && classes ? (
-        <>
+        <KeptResults read={report}>
           {/* Live numbers ignore the date range, so they sit apart from the headline cards. */}
           <p className="analytics-now">
             <span>
@@ -872,7 +877,7 @@ function AnalyticsDashboard({ zone }: { zone: string }) {
               ))}
             </details>
           </footer>
-        </>
+        </KeptResults>
       ) : null}
     </section>
   );

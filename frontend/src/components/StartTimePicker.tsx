@@ -78,7 +78,11 @@ export function StartTimePicker({ name, hours, onPick, children, now: nowProp, c
   const availableTimes = (date: string) => Array.from({ length: 48 }, (_, i) => `${pad(Math.floor(i / 2))}:${i % 2 ? "30" : "00"}`)
     .filter(value => {
       if (unavailable || date < dayKey(minimum) || (date === dayKey(minimum) && value < clockKey(minimum))) return false;
-      const start = new Date(`${date}T${value}`).getTime();
+      const at = new Date(`${date}T${value}`);
+      // Skip clock times a daylight-saving jump leaves out (2:00–2:59 AM on spring-forward day);
+      // reservationInput rejects them.
+      if (dayKey(at) !== date || clockKey(at) !== value) return false;
+      const start = at.getTime();
       const end = start + hours * 3600000;
       return !occupiedIntervals.some(slot => start < slot.end && end > slot.start);
     });
@@ -88,8 +92,10 @@ export function StartTimePicker({ name, hours, onPick, children, now: nowProp, c
   const chosen = new Date(year!, month! - 1, date!);
   const [hour, minute] = effectiveTime.split(":").map(Number);
   const start = hour! * 60 + minute!;
-  const end = start + hours * 60;
-  const valid = !!day && !!effectiveTime && Number.isFinite(chosen.getTime()) && Number.isFinite(start);
+  // A booking lasts `hours` of elapsed time (see reservationInput), which differs from the
+  // clock difference when it crosses a daylight-saving change.
+  const end = new Date(new Date(`${day}T${effectiveTime}`).getTime() + hours * 3600000);
+  const valid = !!day && !!effectiveTime && Number.isFinite(chosen.getTime()) && Number.isFinite(start) && Number.isFinite(end.getTime());
   return (
     <fieldset className={calendar ? "start-picker start-picker--calendar" : "start-picker"}>
       <legend className={calendar ? "sr-only" : undefined}>Day</legend>
@@ -125,7 +131,7 @@ export function StartTimePicker({ name, hours, onPick, children, now: nowProp, c
       {children}
       <p className="start-picker__hint">{Intl.DateTimeFormat().resolvedOptions().timeZone} · Hour or half-hour starts.{minLeadMinutes ? ` Book at least ${minLeadMinutes} minutes ahead.` : ''}</p>
       <p className="start-picker__summary" aria-live="polite">
-        {valid ? <>{chosen.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })} · {timeLabel(start)} – {timeLabel(end % (24 * 60))}{end >= 24 * 60 ? " the next day" : ""}</> : "Choose a date and start time."}
+        {valid ? <>{chosen.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })} · {timeLabel(start)} – {timeLabel(end.getHours() * 60 + end.getMinutes())}{dayKey(end) !== day ? " the next day" : ""}</> : "Choose a date and start time."}
       </p>
       </div>
       <input type="hidden" name={name} value={valid ? `${day}T${effectiveTime}` : ""} />

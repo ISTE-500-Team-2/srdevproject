@@ -42,7 +42,7 @@ The existing Mac-to-VM demo uses a loopback SSH forward. At the final handoff re
 4. Choose a start time and an initial payment record. Choose *Pending* unless a payment was actually received externally. *Paid externally* requires a method; *Waived* records a zero amount. Add a reason and issue access.
 5. Reload the page and reopen the member. The membership, original plan details, payment and audit entries remain.
 6. Sign in as the member. Review **Membership**, sign the sample policy under **Certifications & Waivers**, and check in from Home.
-7. Return to staff. Suspend facility access with a reason. The member can still sign in and read history but new check-ins and reservations are rejected by the server.
+7. Return to staff. Suspend facility access with a reason. The member is signed out and can't sign in, and the server rejects new check-ins and reservations; their history is kept.
 8. Restore facility access. Valid dated entitlement and signed waivers are still required. Restoring the global access flag alone does not create either.
 9. To demonstrate renewal, choose **Prepare renewal** on a membership. Its exact end time is copied into the issuance form; choose an active plan and issue the next period.
 10. Try repricing/archiving a plan. Old issued benefits/prices remain intact, while archived plans disappear from new issuance choices.

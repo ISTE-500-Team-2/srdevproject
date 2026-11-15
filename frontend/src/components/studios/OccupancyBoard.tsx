@@ -132,7 +132,7 @@ export function OccupancyBoard({
     >
       <div className="desk-panel__head">
         <h2 id="desk-board-title">Occupancy</h2>
-        <span className="desk-count">{studios.length} studios</span>
+        <span className="desk-count">{studios.length} {studios.length === 1 ? "studio" : "studios"}</span>
         <div className="desk-range">
           <button
             type="button"

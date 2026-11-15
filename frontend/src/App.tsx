@@ -71,6 +71,7 @@ const TrainingPage = member('TrainingPage');
 const StaffArea = fromArea(loadStaffArea, (area) => area.default);
 const ResetPasswordPage = fromArea(retryable(() => import('./pages/ResetPasswordPage')), (m) => m.ResetPasswordPage);
 const ConfirmEmailPage = fromArea(retryable(() => import('./pages/ConfirmEmailPage')), (m) => m.ConfirmEmailPage);
+const ConfirmEmailChangePage = fromArea(retryable(() => import('./pages/ConfirmEmailChangePage')), (m) => m.ConfirmEmailChangePage);
 
 /** Starts the right area's download from the URL, and from the role once it is known. */
 function AreaPreloader() {
@@ -135,6 +136,7 @@ export default function App() {
       <Routes>
         <Route path="/reset-password" element={titled('Reset password', <ResetPasswordPage />)} />
         <Route path="/confirm-email" element={titled('Confirm email', <ConfirmEmailPage />)} />
+        <Route path="/confirm-email-change" element={titled('Confirm new email', <ConfirmEmailChangePage />)} />
         <Route path="/login" element={titled('Login', <LoginPage />)} />
         <Route path="/loading" element={titled('Loading', <LoadingPage />)} />
         <Route element={<RequireUser />}>

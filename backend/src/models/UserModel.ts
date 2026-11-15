@@ -5,10 +5,14 @@ import type { Database } from "../db.js";
 import type { ProfileFieldPatch, ProfileFields, UserView } from "../domain.js";
 
 export interface UserProfileView {
-  user: Omit<UserView, "status" | "accessStatus">;
+  user: Omit<UserView, "status" | "accessStatus" | "photoVersion">;
   address: ProfileFields;
   contactPreferences: ProfileFields;
   studioContact: { name: string; email: string; phone: string | null };
+  /** When the member last set a password here (change or reset); null before this was recorded. */
+  passwordChangedAt: Date | null;
+  /** A new sign-in email waiting for its link to be opened. */
+  pendingEmail: { email: string; expiresAt: string } | null;
 }
 
 export const studioContact = {
@@ -43,6 +47,7 @@ export class UserModel {
              (u.dob IS NOT NULL AND u.dob::date>((NOW() AT TIME ZONE $2)::date-INTERVAL '18 years')::date) AS "isMinor",
              (SELECT a.firstname||' '||a.lastname FROM app_minor_sponsor s JOIN "user" a ON a.userid=s.adult_id WHERE s.minor_id=u.userid) AS "sponsorName",
              u.primary_role AS "primaryRole",u.is_student AS "isStudent",u.phone, COALESCE(u.status, '') AS status,u.accessstatus AS "accessStatus",
+             (SELECT p.version FROM app_user_photo p WHERE p.user_id=u.userid) AS "photoVersion",
 ${identityProjection}
       FROM "user" u WHERE u.userid=$1`,
       [id, this.timeZone],
@@ -125,12 +130,17 @@ ${identityProjection}
       membership: UserView["membership"];
       address: ProfileFields;
       contactPreferences: ProfileFields;
+      passwordChangedAt: Date | null;
+      pendingEmail: { email: string; expiresAt: string } | null;
     }>(
       `
       SELECT u.userid AS id, u.firstname AS "firstName", u.lastname AS "lastName", u.email, u.phone,
 ${identityProjection},
              u.profile_address AS address,
-             u.contact_preferences AS "contactPreferences"
+             u.contact_preferences AS "contactPreferences",
+             u.password_changed_at AS "passwordChangedAt",
+             (SELECT json_build_object('email',c.new_email,'expiresAt',c.expires_at) FROM app_email_change c
+               WHERE c.userid=u.userid AND c.expires_at>NOW()) AS "pendingEmail"
       FROM "user" u WHERE u.userid=$1`,
       [id],
     );
@@ -150,6 +160,8 @@ ${identityProjection},
           address: row.address ?? {},
           contactPreferences: row.contactPreferences ?? {},
           studioContact,
+          passwordChangedAt: row.passwordChangedAt,
+          pendingEmail: row.pendingEmail,
         }
       : null;
   }

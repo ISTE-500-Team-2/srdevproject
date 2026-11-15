@@ -84,12 +84,12 @@ test('check is non-consuming; resend replaces the token after one minute; expire
 
 test('password validation errors preserve the token, including the 72-byte bcrypt limit', async () => {
   const user = await person('validation'); await ask(user.email); const token = await tokenFor(user.id);
-  for (const password of ['short', 'lowercase!', 'NoSpecialCharacter', 'A!'.repeat(65)]) {
+  for (const password of ['short', 'lowercase!', 'NoSpecialCharacter']) {
     const result = await confirm(token, password); assert.equal(result.status, 400); assert.equal(result.body.error.code, 'INVALID_INPUT');
   }
-  for (const password of ['A!' + 'b'.repeat(71), 'A!' + 'é'.repeat(36)]) {
+  for (const password of ['A!' + 'b'.repeat(71), 'A!' + 'é'.repeat(36), 'A!'.repeat(65)]) {
     const result = await confirm(token, password); assert.equal(result.status, 400); assert.equal(result.body.error.code, 'PASSWORD_TOO_LONG');
-    assert.match(result.body.error.message, /72 UTF-8 bytes/);
+    assert.match(result.body.error.message, /8–72 characters; accented letters and emoji count as more than one/);
     assert.equal((await check(token)).status, 204);
   }
   assert.equal((await confirm(token)).status, 204);

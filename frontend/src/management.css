@@ -664,6 +664,19 @@
   margin-left: 6px;
   color: var(--ink-soft);
 }
+.staff-directory__who {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.staff-directory__who small {
+  margin-left: -4px;
+}
+.staff-directory__avatar.admin-avatar {
+  width: 32px;
+  height: 32px;
+  font-size: var(--text-xs);
+}
 .staff-directory tbody tr:hover {
   background: #faf6f2;
 }

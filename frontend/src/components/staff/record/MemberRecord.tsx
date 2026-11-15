@@ -25,6 +25,7 @@ import { RecordSupervision, type Override } from "./RecordSupervision";
 import { DeskAction, RecordVerdict, RequirementList, ViewAsButton, type ViewAs } from "./RecordVerdict";
 import { phoneText, verdict } from "./recordModel";
 import "./memberRecord.css";
+import { MemberPhoto } from "../../MemberPhoto";
 
 export type { ViewAs };
 
@@ -125,9 +126,10 @@ export function MemberRecord({
 
   const header = (
     <div className="mr-id">
-      <span className={`admin-avatar admin-avatar--${(id % 4) + 1} mr-avatar`} aria-hidden="true">
+      {/* The photo version comes from the record read: a save's response doesn't carry it. */}
+      <MemberPhoto id={id} version={d?.user.photoVersion} className={`admin-avatar admin-avatar--${(id % 4) + 1} mr-avatar`}>
         {initials(u ?? { firstName: name, lastName: name.split(" ")[1] ?? "" })}
-      </span>
+      </MemberPhoto>
       <div className="mr-id__text">
         <h2>
           {u ? `${u.firstName} ${u.lastName}` : name}
@@ -233,7 +235,7 @@ export function MemberRecord({
               ) : null}
               <RecordCards person={u} cards={cards.data} error={cards.error} canManage={canManage} open={setDialog} />
               <RecordSupervision person={u} overrides={overrides.data} canManage={canManage} open={setDialog} />
-              <RecordAccount person={u} locked={locked} self={self} isAdmin={isAdmin} open={setDialog} />
+              <RecordAccount person={u} photoVersion={d?.user.photoVersion} locked={locked} self={self} isAdmin={isAdmin} open={setDialog} />
             </div>
           </div>
         </div>

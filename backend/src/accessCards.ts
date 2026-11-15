@@ -8,6 +8,7 @@ import { AppError, positiveId, textField } from "./domain.js";
 import { authState, requireCsrf } from "./middleware/auth.js";
 import { requirePermission } from "./middleware/permissions.js";
 import { StaffModel } from "./models/StaffModel.js";
+import { assertManageable } from "./services/StaffService.js";
 import {
   cardIdentity,
   enrollmentId,
@@ -114,6 +115,7 @@ export function accessCards(pool: Pool, tz: string, registry: ReaderRegistry) {
         ).rowCount
       )
         throw new AppError(404, "NOT_FOUND", "Member not found.");
+      await assertManageable(db, authState(res).user, userId);
       let hash: string, last4: string, sessionId: string | undefined;
       if (req.body.enrollmentId !== undefined) {
         sessionId = enrollmentId(req.body.enrollmentId);
@@ -229,6 +231,7 @@ export function accessCards(pool: Pool, tz: string, registry: ReaderRegistry) {
             )
           ).rows[0];
           if (!before) throw new AppError(404, "NOT_FOUND", "Card not found.");
+          await assertManageable(db, authState(res).user, before.user_id);
           const active = action === "reactivate";
           if (before.active === active)
             throw new AppError(
