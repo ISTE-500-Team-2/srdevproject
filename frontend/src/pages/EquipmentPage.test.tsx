@@ -203,6 +203,42 @@ test('groups named printers while preserving per-machine prices, access and book
  expect(screen.getByRole('button',{name:/^3D Printer/}).textContent).toContain('Monica');
  expect(screen.getByRole('button',{name:/^3D Printer/}).textContent).not.toContain('Rachel');
 });
+test('picking another machine keeps the tiles behind the dialog and the price on screen while they refresh',async()=>{
+ const catalog:LiveEquipment[]=[{...machine,id:11,name:'Rachel',type:'3D printer'},{...machine,id:13,name:'Monica',type:'3D printer',rate:9}];
+ // Once held, catalog reloads and quotes wait until the test lets them land.
+ let held=false;const waiting:(()=>void)[]=[];
+ const hold=<T,>(value:T)=>held?new Promise<T>(resolve=>waiting.push(()=>resolve(value))):Promise.resolve(value);
+ mockApi(async path=>{
+  if(path==='/equipment')return hold(catalog);
+  if(path.includes('/quote?'))return hold(quoteFor(path,catalog));
+  if(path==='/reservations')return [];
+  return unexpected(path);
+ });
+ await mount();await open();
+ const price=()=>screen.getByRole('region',{name:'Booking price breakdown'});
+ await waitFor(()=>expect(within(price()).getAllByText('$7.00')).toHaveLength(2));
+ const catalogReads=()=>vi.mocked(api).mock.calls.filter(([p])=>p==='/equipment').length;
+ const readsBefore=catalogReads();
+ held=true;
+ fireEvent.click(screen.getByRole('radio',{name:/Monica/}));
+ expect(catalogReads()).toBe(readsBefore+1);
+ // The tiles behind the dialog stay put instead of dropping to placeholders.
+ expect(document.querySelector('[aria-label="Loading equipment"]')).toBeNull();
+ expect(document.querySelectorAll('.equipment-card')).toHaveLength(1);
+ // Rachel's price holds the dialog's height, marked as refreshing, and can't be booked against.
+ expect(within(price()).getAllByText('$7.00')).toHaveLength(2);
+ expect(price().closest('[aria-busy="true"]')).toBeTruthy();
+ expect(screen.getByText(/Continue to secure checkout/).getAttribute('aria-busy')).toBe('true');
+ const submit=screen.getByRole('button',{name:/confirm reservation/i}) as HTMLButtonElement;
+ expect(submit.disabled).toBe(true);
+ await act(async()=>{fireEvent.submit(submit.closest('form')!);});
+ expect(submits()).toHaveLength(0);
+ await act(async()=>{held=false;waiting.splice(0).forEach(release=>release());});
+ await waitFor(()=>expect(within(price()).getAllByText('$9.00')).toHaveLength(2));
+ expect(price().closest('[aria-busy]')).toBeNull();
+ expect(screen.getByText(/Continue to secure checkout/).hasAttribute('aria-busy')).toBe(false);
+ expect(submit.disabled).toBe(false);
+});
 
 
 test('charges the displayed hourly price times duration and redirects before confirmation', async()=>{

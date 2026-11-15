@@ -3100,7 +3100,9 @@ a.nfc-recent__row:focus-visible { outline: 2px solid var(--bronze); outline-offs
 
 .start-picker__hint { margin: 0; color: #6c5e54; font-size: .75rem; line-height: 1.5; }
 .equipment-booking-layout .start-picker__hint { grid-column: 1 / -1; }
-.equipment-reservation-form > .equipment-payment-note { margin: 0; font-size: .85rem; color: #6c5e54; line-height: 1.5; }
+.equipment-reservation-form > .equipment-payment-note { margin: 0; font-size: .85rem; color: #6c5e54; line-height: 1.5; transition: opacity 150ms; }
+/* Says whether the last price needed payment while the new one loads: fades like KeptResults. */
+.equipment-reservation-form > .equipment-payment-note[aria-busy="true"] { opacity: .55; transition-delay: 150ms; }
 
 /* Loading placeholders (components/Skeleton.tsx). Each block fades in after 200ms so quick
    loads never flash grey; a soft light sweeps across it unless motion is reduced. */

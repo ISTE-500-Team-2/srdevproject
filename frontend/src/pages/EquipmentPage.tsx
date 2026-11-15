@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { CalendarDays, ChevronDown, Filter, ShieldAlert } from 'lucide-react';
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { KeptResults } from '../components/KeptResults';
 import { Modal } from '../components/Modal';
 import { Skeleton, SkeletonGroup } from '../components/Skeleton';
 import { MemberSelect } from '../components/MemberSelect';
@@ -22,7 +23,9 @@ export function EquipmentPage() {
   const [params] = useSearchParams();
   const attempt = useRef<{signature: string; key: string} | null>(null);
   const canBookForOthers=!!user?.roles.some(r=>['staff','admin'].includes(r)) && !user.roles.includes('instructor');
-  const catalog = useApi<LiveEquipment[]>('/equipment');
+  // Kept on screen while it reloads: the open booking dialog refreshes it on every machine pick and
+  // every 15 seconds, and the tiles behind the dialog must not drop to placeholders each time.
+  const catalog = useApi<LiveEquipment[]>('/equipment', {retainOnReload: true});
   const bookings = useApi<Reservation[]>('/reservations', {retainOnReload: true});
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
@@ -44,7 +47,9 @@ export function EquipmentPage() {
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   const [busy, setBusy] = useState(false);
   const [duration, setDuration] = useState(1);
-  const quote = useApi<EquipmentPrice | null>(liveSelected ? `/equipment/${liveSelected.id}/quote?hours=${duration}` : null);
+  // The last price stays while another machine's or duration's loads, so the dialog keeps its height;
+  // it is stale until the new one lands, and can't be booked against.
+  const quote = useApi<EquipmentPrice | null>(liveSelected ? `/equipment/${liveSelected.id}/quote?hours=${duration}` : null, {retainOnChange: true});
   const totalCents = quote.data?.totalCents ?? null;
   const returnId = Number(params.get('reservation'));
   const returnedBooking = bookings.data?.find(item => item.id === returnId);
@@ -94,7 +99,7 @@ export function EquipmentPage() {
         Number(form.get('duration')),
       );
       const target=String(form.get('memberId')??'').trim();
-      if (!quote.data) throw new ApiError(409, 'PRICE_NOT_CONFIGURED', 'Refresh the equipment price before reserving.');
+      if (!quote.data || quote.stale) throw new ApiError(409, 'PRICE_NOT_CONFIGURED', 'Refresh the equipment price before reserving.');
       const details = {...input, amountCents: totalCents, expectedPrice: quote.data, ...(canBookForOthers&&target?{userId:Number(target)}:{})};
       const signature = JSON.stringify(details);
       if (attempt.current?.signature !== signature) attempt.current = {signature, key: crypto.randomUUID()};
@@ -350,13 +355,13 @@ export function EquipmentPage() {
               </p>
             ) : null}
             {liveSelected?.rate === null && <p className="form-notice">Rate not set. Contact staff before reserving.</p>}
-            <EquipmentPriceBreakdown price={quote.data} />
+            {quote.data ? <KeptResults read={quote}><EquipmentPriceBreakdown price={quote.data} /></KeptResults> : null}
             {quote.error && <p role="alert" className="form-error">{quote.error} <button type="button" onClick={quote.reload}>Refresh price</button></p>}
             <p className="form-caption">
               Cancel at least 24 hours before the start time. Leave 15 minutes between bookings for the same machine.
               {' '}Membership, training and waivers are checked when you book. Contact staff about refunds.
             </p>
-            {totalCents !== null && <p className="equipment-payment-note" aria-live="polite">
+            {totalCents !== null && <p className="equipment-payment-note" aria-live="polite" aria-busy={quote.stale || undefined}>
               {totalCents > 0 ? 'Continue to secure checkout. Your reservation is confirmed after payment succeeds.' : 'No payment is required for this equipment.'}
             </p>}
             {error ? (
@@ -367,7 +372,7 @@ export function EquipmentPage() {
             <button
               className="button button--primary equipment-booking-submit"
               type="submit"
-              disabled={busy || liveSelected?.status !== 'available' || quote.loading || !!quote.error || totalCents === null || (!canBookForOthers && !liveSelected?.canReserve)}
+              disabled={busy || liveSelected?.status !== 'available' || quote.loading || quote.stale || !!quote.error || totalCents === null || (!canBookForOthers && !liveSelected?.canReserve)}
             >
               <CalendarDays aria-hidden="true" />{' '}
               {busy ? 'Preparing checkout…' : totalCents ? `Pay ${money(totalCents)} & confirm reservation` : 'Confirm reservation'}
