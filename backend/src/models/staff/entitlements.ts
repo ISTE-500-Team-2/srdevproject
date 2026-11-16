@@ -94,11 +94,13 @@ export class EntitlementRepository {
   async membershipWindow(userId: number, startsAt: string, months: number): Promise<MembershipWindow> {
     return (
       await this.db.query<MembershipWindow>(
+        // Months are added on the facility's wall clock, so a plan ends on the same local date
+        // and time it started even when the UTC date differs or a DST change falls in between.
         `WITH span AS (SELECT $2::timestamptz AT TIME ZONE 'UTC' AS a,
-      ($2::timestamptz AT TIME ZONE 'UTC')+make_interval(months=>$3::int) AS b)
+      ((($2::timestamptz AT TIME ZONE $4)+make_interval(months=>$3::int)) AT TIME ZONE $4) AT TIME ZONE 'UTC' AS b)
       SELECT b AT TIME ZONE 'UTC' AS "endsAt",EXISTS(SELECT 1 FROM user_membership,span WHERE userid=$1 AND status IN('active','suspended')
       AND startdate<span.b AND end_date>span.a) AS overlap FROM span`,
-        [userId, startsAt, months],
+        [userId, startsAt, months, this.timeZone],
       )
     ).rows[0]!;
   }

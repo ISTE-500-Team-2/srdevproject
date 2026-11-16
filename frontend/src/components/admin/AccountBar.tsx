@@ -6,7 +6,8 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { errorMessage } from "../../lib/api";
 import { AccountPicker } from "./AccountPicker";
-import { initials, lastWorkspacePathKey, roleLabel } from "./people";
+import { lastWorkspacePathKey, roleLabel } from "./people";
+import { AccountPhoto } from "../AccountPhoto";
 
 /** Stays on top of every member page while staff have someone's account open. */
 export function AccountBar() {
@@ -34,9 +35,7 @@ export function AccountBar() {
   return (
     <>
       <section className="account-bar" aria-label="Account you are working in">
-        <span className="admin-avatar account-bar__avatar" aria-hidden="true">
-          {initials(user.firstName, user.lastName)}
-        </span>
+        <AccountPhoto person={user} className="admin-avatar account-bar__avatar" />
         <div className="account-bar__text">
           <p className="account-bar__line">
             {own ? (

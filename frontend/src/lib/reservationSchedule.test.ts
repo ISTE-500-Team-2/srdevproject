@@ -72,6 +72,13 @@ test("the timeline snaps a point to the half hour under it", () => {
   expect(slotAt(1, window)).toBe(at("2026-11-12T01:30:00Z"));
 });
 
+test("a day in another year says which year, so last November never reads as this one", () => {
+  expect(dayLabel("2025-11-12", "2026-11-11")).toBe("Wednesday, Nov 12, 2025");
+  expect(dayLabel("2027-01-01", "2026-12-30")).toBe("Friday, Jan 1, 2027");
+  expect(dayLabel("2027-01-01", "2026-12-31")).toBe("Tomorrow, Friday, Jan 1, 2027");
+  expect(dayLabel("2025-12-31", "2026-01-01", "short")).toBe("Wed, Dec 31, 2025");
+});
+
 test("days and times read the way the rest of the workspace writes them", () => {
   expect(dayLabel("2026-11-11", "2026-11-11")).toBe("Today, Wednesday, Nov 11");
   expect(dayLabel("2026-11-12", "2026-11-11")).toBe("Tomorrow, Thursday, Nov 12");

@@ -77,3 +77,30 @@
 .certifications-table td:first-child {
   overflow-wrap: anywhere;
 }
+
+/* Results kept on screen while another page or filter of them loads (KeptResults): they keep
+   the page's height, and fade and can't be used until the new ones land. Laid out like the
+   parent's grid, so wrapping results doesn't move anything. */
+.kept-results {
+  display: grid;
+  gap: inherit;
+  align-content: start;
+  min-width: 0;
+  scroll-margin-top: 96px;
+  transition: opacity 150ms;
+}
+.kept-results > * {
+  min-width: 0;
+}
+.kept-results[inert] {
+  opacity: 0.55;
+  transition-delay: 150ms;
+}
+.kept-results:focus {
+  outline: none;
+}
+.kept-results:focus-visible {
+  outline: 2px solid var(--bronze);
+  outline-offset: 4px;
+  border-radius: 4px;
+}

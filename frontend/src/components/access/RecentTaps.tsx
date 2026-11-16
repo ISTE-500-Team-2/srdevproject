@@ -6,6 +6,7 @@ import { ChevronRight } from "lucide-react";
 import { useApi } from "../../lib/useApi";
 import { facilityTime } from "../../lib/nfc";
 import type { Tap } from "./TapHistory";
+import { MemberPhoto } from "../MemberPhoto";
 
 const SHOWN = 5;
 
@@ -115,9 +116,9 @@ function TapRow({ tap, timeZone }: { tap: Tap; timeZone?: string }) {
   const name = member ?? (tap.last4 ? `Unknown card ••${tap.last4}` : "Unknown card");
   const body = (
     <>
-      <span className={`nfc-recent__avatar${member ? "" : " is-unknown"}`} aria-hidden="true">
+      <MemberPhoto id={member ? tap.userId : null} version={tap.photoVersion} className={`nfc-recent__avatar${member ? "" : " is-unknown"}`}>
         {member ? initials(member) : "?"}
-      </span>
+      </MemberPhoto>
       <span className="nfc-recent__who">
         <strong>{name}</strong>
         <span>

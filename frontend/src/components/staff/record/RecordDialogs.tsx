@@ -15,6 +15,8 @@ import { Modal } from "../../Modal";
 import { AssistedPurchase } from "../AssistedPurchase";
 import { CardRefund, PaymentEditor, paymentStatusName } from "../PaymentControls";
 import { ROLES, roleName } from "./recordModel";
+import { MemberPhoto } from "../../MemberPhoto";
+import { initials } from "../../admin/people";
 
 export type DialogState =
   | { kind: "status"; lift?: boolean }
@@ -22,6 +24,7 @@ export type DialogState =
   | { kind: "roles" }
   | { kind: "conduct" }
   | { kind: "profile" }
+  | { kind: "photo"; version: string }
   | { kind: "sell"; renewal?: Entitlement }
   | { kind: "entitlement"; item: Entitlement; entitlementKind: "membership" | "day_pass" }
   | { kind: "payment"; payment: Payment }
@@ -197,11 +200,11 @@ export function RecordDialogHost({
             return status === "active" ? `${first}’s facility access is restored.` : `${first}’s facility access is ${status}.`;
           }}
         >
-          <p className="mr-dialog__lead">A staff restriction on the shop itself. {first} can still sign in and see their account.</p>
+          <p className="mr-dialog__lead">A staff restriction on the shop. While it’s on, {first} is signed out everywhere and can’t sign in.</p>
           <fieldset className="mr-options">
             <legend className="sr-only">Facility access</legend>
             <Choice name="status" value="active" title="No restriction" help="Membership, waiver and training rules decide access as usual." checked={dialog.restore || person.accessStatus === "active"} />
-            <Choice name="status" value="suspended" title="Suspended" help="Readers, check-in and new bookings refuse them, and any open visit ends." checked={!dialog.restore && person.accessStatus === "suspended"} tone="bad" />
+            <Choice name="status" value="suspended" title="Suspended" help="Sign-in, readers, check-in and new bookings refuse them, and any open visit ends." checked={!dialog.restore && person.accessStatus === "suspended"} tone="bad" />
             <Choice name="status" value="revoked" title="Revoked" help="The same as suspended, recorded as permanent." checked={!dialog.restore && person.accessStatus === "revoked"} tone="bad" />
           </fieldset>
           <Reason />
@@ -263,6 +266,39 @@ export function RecordDialogHost({
           </label>
           <p className="mr-dialog__hint">Email is how {first} signs in, so they change it from their own profile.</p>
           <Reason optional />
+        </RecordDialog>
+      );
+    case "photo":
+      return (
+        <RecordDialog
+          {...common}
+          title="Remove profile photo"
+          submitLabel="Remove photo"
+          danger
+          onSubmit={async (f) => {
+            try {
+              await api(`/admin/users/${id}/photo`, {
+                method: "DELETE",
+                body: { version: dialog.version, reason: String(f.get("reason") ?? "").trim() },
+              });
+            } catch (error) {
+              if (error instanceof ApiError && error.status === 409 && error.code === "STALE_RECORD") {
+                onConflict();
+                throw new StaleDialog(`${first} changed their photo just now. Close this and look at the new one.`);
+              }
+              throw error;
+            }
+            return "Photo removed.";
+          }}
+        >
+          <MemberPhoto id={id} version={dialog.version} className="mr-photo-preview">
+            {initials(person.firstName, person.lastName)}
+          </MemberPhoto>
+          <p className="mr-dialog__lead">
+            {first} added this photo. Remove it if it isn’t a clear photo of them. We’ll email {first} that it was removed and that
+            they can add a new one; your reason stays in the change log.
+          </p>
+          <Reason />
         </RecordDialog>
       );
     case "entitlement": {

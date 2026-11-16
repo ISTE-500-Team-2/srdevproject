@@ -32,7 +32,13 @@ export class BillingPricing {
   return transaction(this.pool,async db=>{
    await requireActor(db,userid);
    const plans=await new StaffModel(db).plans(true);
-   return Promise.all(plans.filter(p=>p.kind==='day_pass'||p.months===1).map(async p=>({...p,...await quote(db,userid,p,p.kind==='day_pass'&&date?calendarDate(date):through)})));
+   // A plan at a rate card checkout can't take (e.g. a legacy $0.25 price) is left out rather than failing every
+   // offer; members see it without a buy button and are sent to the front desk.
+   const offers=await Promise.all(plans.filter(p=>p.kind==='day_pass'||p.months===1).map(async p=>{
+    try{return {...p,...await quote(db,userid,p,p.kind==='day_pass'&&date?calendarDate(date):through)};}
+    catch(error){if(error instanceof AppError&&error.code==='INVALID_PRICE')return null;throw error;}
+   }));
+   return offers.filter(o=>o!==null);
   });
  }
  async configure(actor:number,id:number,body:PricingRequest) {

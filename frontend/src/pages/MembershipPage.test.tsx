@@ -3,7 +3,8 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { MembershipPage } from "./MembershipPage";
-import { statusLabel } from "../lib/display";
+import { shortDate, statusLabel, zonedDay } from "../lib/display";
+import { addCalendarDays } from "../lib/calendarDate";
 
 const { api, reload, useApi } = vi.hoisted(() => ({ api: vi.fn(), reload: vi.fn(), useApi: vi.fn() }));
 vi.mock("../lib/api", () => ({ api, errorMessage: (e: Error) => e.message }));
@@ -166,6 +167,30 @@ test("returning from checkout waits for the payment, then confirms", () => {
   }, "/membership?billing=returned");
   expect(screen.queryByText("Confirming your payment…")).toBeNull();
   expect(screen.getByText("Your current access and billing status are shown below.")).toBeTruthy();
+});
+
+test("a day-pass return does not wait on an earlier, abandoned membership checkout", () => {
+  mount({
+    records: [{ id: "r", plan: monthly, status: "pending", amountCents: 5000, cancelAtPeriodEnd: false, currentPeriodEnd: null }],
+    passes: [{ id: "p", plan: dayPass, validDate: future(10), cancelBy: new Date(Date.now() + 7 * 86400000).toISOString(), status: "paid", refundStatus: null }],
+  }, "/membership?pass=returned");
+  expect(screen.queryByText("Confirming your payment…")).toBeNull();
+  expect(screen.getByText("Your current access and billing status are shown below.")).toBeTruthy();
+  cleanup();
+  // A pass that is still being paid for is what a pass return waits on.
+  mount({ passes: [{ id: "p", plan: dayPass, validDate: future(10), cancelBy: new Date(Date.now() + 7 * 86400000).toISOString(), status: "pending", refundStatus: null }] }, "/membership?pass=returned");
+  expect(screen.getByText("Confirming your payment…")).toBeTruthy();
+});
+
+test("a day pass for a visit under 3 days away says it can't be cancelled for a refund", () => {
+  const today = zonedDay("America/New_York");
+  mount();
+  // Four days ahead is the last date that still allows free cancellation today.
+  fireEvent.change(screen.getByLabelText("Visit date"), { target: { value: addCalendarDays(today, 4) } });
+  expect(screen.getByText(`Free cancellation through ${shortDate(today)}`)).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("Visit date"), { target: { value: addCalendarDays(today, 2) } });
+  expect(screen.queryByText(/Free cancellation through/)).toBeNull();
+  expect(screen.getByText(/Can't be cancelled for a refund: day passes need 3 days' notice/)).toBeTruthy();
 });
 
 test("a checkout return URL alone never claims a payment was received", () => {

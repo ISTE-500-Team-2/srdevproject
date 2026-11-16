@@ -185,6 +185,11 @@ export function LoginPage() {
     const pane = signupForm.current?.querySelector(
       '.stepper__pane:not(.stepper__pane--leaving)',
     );
+    // maxLength counts characters, but the server allows at most 72 UTF-8 bytes (bcrypt's
+    // limit), and accented letters and emoji take 2–4 bytes each.
+    const newPassword = pane?.querySelector<HTMLInputElement>('input[name="password"]');
+    newPassword?.setCustomValidity(new TextEncoder().encode(newPassword.value).length > 72
+      ? 'Use at most 72 characters. Accented letters and emoji count as more than one.' : '');
     const invalid = Array.from(pane?.querySelectorAll('input') ?? []).find(
       (input) => !input.checkValidity(),
     );
@@ -484,13 +489,14 @@ export function LoginPage() {
                     type="password"
                     required
                     minLength={8}
-                    maxLength={128}
+                    maxLength={72}
                     autoComplete="new-password"
                     placeholder="Create a password"
                     aria-describedby="signup-password-requirements"
                   />
                   <small id="signup-password-requirements">
-                    8–128 characters with at least one uppercase letter and one special character.
+                    8–72 characters with at least one uppercase letter and one special character.
+                    Accented letters and emoji count as more than one.
                   </small>
                 </label>
               </div>

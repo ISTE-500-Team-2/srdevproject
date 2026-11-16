@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { notificationKinds, renderNotification } from '../src/notifications/templates.js';
+import { notificationKinds, renderNotification, securityKinds } from '../src/notifications/templates.js';
 
 const context = {recipientEmail:'member@example.com', recipientName:'<script>alert(1)</script>',
   senderName:'The Crafty Studio', senderEmail:'studio@example.com',
@@ -11,12 +11,13 @@ test('every template includes sender/recipient, postal address and preference po
     const result = renderNotification(kind, {resourceName:'<img src=x onerror=alert(1)>',
       waiverText:'Line one\n<script>bad</script>', signature:'Test Member', signedAt:'2030-01-01T00:00:00Z', waiverVersion:'v1',
       resetUrl:'https://studio.example/reset-password#'+'a'.repeat(43),
-      confirmationUrl:'https://studio.example/confirm-email#'+'a'.repeat(43), password:'DO_NOT_RENDER', apiKey:'DO_NOT_RENDER'}, context);
+      confirmationUrl:`https://studio.example/${kind === 'email_change_confirmation' ? 'confirm-email-change' : 'confirm-email'}#${'a'.repeat(43)}`,
+      newEmail:'<b>new@example.com</b>', password:'DO_NOT_RENDER', apiKey:'DO_NOT_RENDER'}, context);
     assert.ok(result.subject.length > 0);
     assert.ok(result.textContent.includes(context.postalAddress));
     assert.ok(result.textContent.includes(context.recipientEmail));
     assert.ok(result.textContent.includes(context.senderEmail));
-    assert.ok(result.textContent.includes(kind === 'password_reset' || kind === 'password_changed'
+    assert.ok(result.textContent.includes(securityKinds.includes(kind)
       ? 'regardless of your notification preferences' : 'opt out of all'));
     assert.ok(!result.htmlContent.includes('<script>'));
     assert.ok(!result.htmlContent.includes('<img src=x'));
@@ -152,4 +153,30 @@ test('sponsor requests name people by first name only and link to where the answ
   assert.match(r.textContent,/opt out of all notifications/);
  }
  assert.match(renderNotification('sponsor_request_received',{},context).textContent,/^You have a sponsoring adult request/);
+});
+
+test('email change mail: the link only to the confirm page, and the heads-up names the new address', () => {
+  const link = 'https://studio.example/confirm-email-change#' + 'b'.repeat(43);
+  const confirm = renderNotification('email_change_confirmation', { confirmationUrl: link, recipientEmail: 'new@example.com' }, context);
+  assert.equal(confirm.subject, 'The Crafty Studio: Confirm your new email');
+  assert.ok(confirm.htmlContent.includes(`href="${link}"`));
+  assert.ok(confirm.textContent.includes('expires in 24 hours'));
+  for (const bad of ['https://studio.example/reset-password#' + 'b'.repeat(43), 'https://studio.example/confirm-email-change?x=1#' + 'b'.repeat(43),
+    'https://studio.example/confirm-email-change#short', 'javascript:alert(1)'])
+    assert.throws(() => renderNotification('email_change_confirmation', { confirmationUrl: bad }, context), /Invalid/);
+
+  const notice = renderNotification('email_change_requested', { newEmail: 'new@example.com', recipientEmail: 'old@example.com' }, context);
+  assert.equal(notice.subject, 'The Crafty Studio: Your sign-in email is changing');
+  assert.ok(notice.textContent.includes('new@example.com'));
+  assert.ok(notice.textContent.includes('change your password right away'));
+  assert.ok(notice.htmlContent.includes('https://studio.example/profile'));
+  assert.throws(() => renderNotification('email_change_requested', {}, context), /new address/);
+});
+
+test('a removed photo is explained without anyone’s private reason, with a way to add another', () => {
+  const mail = renderNotification('photo_removed', {}, context);
+  assert.equal(mail.subject, 'The Crafty Studio: Your profile photo was removed');
+  assert.ok(mail.textContent.includes('clear photo of you'));
+  assert.ok(mail.htmlContent.includes('https://studio.example/profile'));
+  assert.ok(!mail.textContent.includes('Reason'));
 });

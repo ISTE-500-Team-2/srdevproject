@@ -18,6 +18,8 @@ export interface UserView {
   status: string;
   accessStatus: "active" | "suspended" | "revoked";
   membership: "Monthly" | "Day Pass" | "Staff" | "None";
+  /** Changes whenever the profile photo does; null when the person has none. */
+  photoVersion: string | null;
 }
 export type ProfileFields = Record<string, string | boolean>;
 export type ProfileFieldPatch = Record<string, string | boolean | null>;
@@ -201,16 +203,19 @@ export function passwordField(value: unknown): string {
   return value;
 }
 
-export function newPasswordField(value: unknown): string {
-  const password = passwordField(value);
+const NEW_PASSWORD_RULE =
+  "Password must contain 8–72 characters; accented letters and emoji count as more than one.";
 
-  if (password.length < 8) {
-    throw new AppError(
-      400,
-      "INVALID_INPUT",
-      "Password must contain 8–128 characters.",
-    );
+export function newPasswordField(value: unknown): string {
+  if (typeof value !== "string" || value.length < 8) {
+    throw new AppError(400, "INVALID_INPUT", NEW_PASSWORD_RULE);
   }
+  // bcrypt reads only the first 72 UTF-8 bytes, so hashPassword rejects anything
+  // longer (same code). Count bytes, not characters: accented letters and emoji take 2–4.
+  if (new TextEncoder().encode(value).length > 72) {
+    throw new AppError(400, "PASSWORD_TOO_LONG", NEW_PASSWORD_RULE);
+  }
+  const password = value;
 
   if (!/[A-Z]/.test(password)) {
     throw new AppError(

@@ -222,3 +222,19 @@ test("FR-032: while a send is running the draft is locked, so a late reply canno
   finish({ recipients: 1 });
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 });
+
+test("another period or page keeps past notices on screen, out of reach, while the filters and pager stay usable", () => {
+  mount({ items: [drop(7, "2026-11-01T15:00:00Z", "2026-11-01T16:00:00Z")], nextOffset: 50, total: 60 });
+  expect(vi.mocked(useApi).mock.calls.find(([path]) => path?.startsWith("/admin/service-notices?"))?.[1]).toMatchObject({ retainOnChange: true });
+  const before = vi.mocked(useApi).getMockImplementation()!;
+  vi.mocked(useApi).mockImplementation(((path: string | null) =>
+    path?.startsWith("/admin/service-notices?") ? { ...(before as (p: string | null) => object)(path), stale: true } : before(path as never)) as never);
+  fireEvent.change(screen.getByLabelText("Period"), { target: { value: "all" } });
+  const history = document.querySelector(".kept-results")!;
+  expect(history.hasAttribute("inert")).toBe(true);
+  expect(history.contains(screen.getByRole("region", { name: "Past notices" }))).toBe(true);
+  expect(history.contains(screen.getByLabelText("Period"))).toBe(false);
+  const next = screen.getByRole("button", { name: "Next page" });
+  expect(history.contains(next)).toBe(false);
+  expect(next.getAttribute("aria-disabled")).toBe("true");
+});

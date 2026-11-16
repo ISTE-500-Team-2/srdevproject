@@ -9,7 +9,7 @@ afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 const base = { name: 'Safety waiver', active: true, required: true, scope: 'facility' as const, description: null, approvalReference: null };
 function show(policies: unknown[]) {
-  vi.mocked(useApi).mockImplementation((path) => ({ data: path === '/admin/policies' ? policies : null, loading: false, refreshing: false, error: '', reload: vi.fn() }));
+  vi.mocked(useApi).mockImplementation((path) => ({ data: path === '/admin/policies' ? policies : null, loading: false, refreshing: false, stale: false, error: '', reload: vi.fn() }));
   render(<StaffPolicies />);
   return screen.getByRole('heading', { name: 'Safety waiver' }).closest('article')!;
 }

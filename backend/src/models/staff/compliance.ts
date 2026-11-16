@@ -44,6 +44,11 @@ export interface ComplianceCounts {
   waiverCompliantUsers: number;
   certificationCompliantUsers: number;
   attentionUsers: number;
+  /**
+   * Members needing attention under the account-status filter, not narrowed to the expiring
+   * window, so the "Needs attention" count reads the same on every view of the page.
+   */
+  allAttentionUsers: number;
 }
 export interface RequirementBreakdown {
   id: number;
@@ -221,7 +226,10 @@ export class ComplianceReports {
           COUNT(*) FILTER (WHERE "waiverCompliant" AND "certificationCompliant")::int AS "compliantUsers",
           COUNT(*) FILTER (WHERE "waiverCompliant")::int AS "waiverCompliantUsers",
           COUNT(*) FILTER (WHERE "certificationCompliant")::int AS "certificationCompliantUsers",
-          COUNT(*) FILTER (WHERE NOT ("waiverCompliant" AND "certificationCompliant") OR jsonb_array_length(issues)>0)::int AS "attentionUsers"
+          COUNT(*) FILTER (WHERE NOT ("waiverCompliant" AND "certificationCompliant") OR jsonb_array_length(issues)>0)::int AS "attentionUsers",
+          -- Everyone, not just the window: the chip's count must not change with the view.
+          (SELECT COUNT(*) FROM user_rollup
+            WHERE NOT ("waiverCompliant" AND "certificationCompliant") OR jsonb_array_length(issues)>0)::int AS "allAttentionUsers"
         FROM window_users
       )
       SELECT
@@ -246,6 +254,7 @@ export class ComplianceReports {
       waiverCompliantUsers: 0,
       certificationCompliantUsers: 0,
       attentionUsers: 0,
+      allAttentionUsers: 0,
     };
     return {
       summary: {

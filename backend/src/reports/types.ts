@@ -86,6 +86,8 @@ export interface CheckedInPerson {
   location: string;
   at: Date;
   method: CheckInOrigin;
+  /** So the Today page can show who it is; null without a photo. */
+  photoVersion: string | null;
 }
 
 export interface ReportData {

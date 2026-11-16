@@ -36,8 +36,9 @@ export async function memberRequirements(db: Database, timeZone: string, userId:
        LIMIT 1`,
       [userId, timeZone],
     ),
-    // Every required policy, as the desk check-in checks them; a green verdict must mean check-in works.
-    eligibility.waivers(userId),
+    // The facility policies desk check-in checks; a green verdict must mean check-in works.
+    // Equipment waivers gate machines, not the door, so they don't count here.
+    eligibility.waivers(userId, "facility"),
     // Same test as EligibilityModel.certification, for every machine that needs training.
     db.query<{ name: string; held: boolean }>(
       `SELECT e.name,EXISTS(SELECT 1 FROM user_certifications uc WHERE uc.userid=$1 AND uc.certid=e.certid

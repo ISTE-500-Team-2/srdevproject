@@ -42,13 +42,14 @@ export type Report = {
   rooms: {
     id: number;
     name: string;
-    capacity: number;
+    /** Null when the room has no recorded capacity (backend reports/types.ts RoomVisitRow). */
+    capacity: number | null;
     recordedCheckIns: number;
     distinctVisitors: number;
   }[];
   active: { activeUsers: number; approvedCheckIns: number };
   visitsByDay: { day: string; visits: number; people: number }[];
-  checkedInToday: { userId: number; name: string; location: string; at: string; method: "nfc" | "portal" }[];
+  checkedInToday: { userId: number; name: string; location: string; at: string; method: "nfc" | "portal"; photoVersion?: string | null }[];
   checkedInTodayCount: number;
   compliance: {
     activeAccounts: number;

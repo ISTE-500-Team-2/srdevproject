@@ -6,6 +6,9 @@ const headings = {
   account_confirmation: 'Confirm your email address',
   password_reset: 'Reset your password',
   password_changed: 'Your password has been changed',
+  email_change_confirmation: 'Confirm your new email',
+  email_change_requested: 'Your sign-in email is changing',
+  photo_removed: 'Your profile photo was removed',
   account_created: 'Your account has been created',
   account_creation_failed: 'Account creation could not be completed',
   account_closed: 'Your account has been closed',
@@ -45,6 +48,8 @@ const headings = {
 
 
 export type NotificationKind = keyof typeof headings;
+/** Account-security mail: always sent, whatever the member's notification preferences say. */
+export const securityKinds: readonly NotificationKind[] = ['password_reset', 'password_changed', 'email_change_confirmation', 'email_change_requested'];
 export const notificationKinds = Object.keys(headings) as NotificationKind[];
 export const isNotificationKind = (kind: string): kind is NotificationKind => Object.hasOwn(headings, kind);
 export type NotificationPayload = Record<string, unknown>;
@@ -54,7 +59,7 @@ const renderedFields = ['currency', 'resourceName', 'equipmentName', 'startsAt',
   'refundAmount', 'paymentStatus', 'role', 'certificationName', 'memberName', 'adultName', 'minorName', 'name',
   'completedWaiverText', 'waiverText', 'signature', 'signedAt', 'waiverVersion', 'waiverName', 'membershipName', 'planName',
   'location', 'validDate', 'expiresAt', 'renewsAt', 'method', 'paidAt', 'reason', 'reservationId', 'paymentId', 'reference',
-  'instructions', 'confirmationUrl', 'resetUrl'] as const;
+  'instructions', 'confirmationUrl', 'resetUrl', 'newEmail'] as const;
 type RenderedField = typeof renderedFields[number];
 /** Text or a number; null and absent fields are left out of the email. */
 type Shown = string | number;
@@ -62,6 +67,8 @@ type Details = { [F in RenderedField]?: Shown | null };
 /** Read by the worker and scheduler, or kept for the record; never rendered. */
 interface Bookkeeping {
   sourceType?: string; sourceId?: number; confirmationHash?: string; resetHash?: string; noticeId?: number; readerId?: string;
+  /** Email-change notices go to a fixed address rather than the account's current one. */
+  changeHash?: string; recipientEmail?: string;
   waiverId?: number; membershipId?: number; memberId?: number; formValues?: unknown; guardianConsent?: unknown;
   methodOfAcceptance?: string;
 }
@@ -70,6 +77,8 @@ type Payload = Details & Bookkeeping;
 export interface NotificationPayloads extends Record<NotificationKind, Payload> {
   account_confirmation: Payload & { confirmationUrl: string };
   password_reset: Payload & { resetUrl: string };
+  email_change_confirmation: Payload & { confirmationUrl: string; recipientEmail: string };
+  email_change_requested: Payload & { newEmail: string; recipientEmail: string };
   waiver_signed: Payload & { signature: Shown; signedAt: Shown; waiverVersion: Shown }
     & ({ waiverText: Shown } | { completedWaiverText: Shown });
 }
@@ -131,6 +140,14 @@ const copy: Record<NotificationKind, Copy> = {
     intro: () => 'Thanks for signing up. One quick step and your account is ready.' },
   password_reset: { category: 'Account', status: 'Action needed', tone: 'warning',
     intro: () => 'Use the link below to set a new password for your member account.' },
+  email_change_confirmation: { category: 'Account', status: 'Action needed', tone: 'warning',
+    intro: () => 'You asked to sign in to your member account with this address. Open the link below to confirm it.' },
+  email_change_requested: { category: 'Account', status: 'Requested', tone: 'info',
+    intro: () => 'Someone signed in to your account asked to change the email you sign in with. Nothing changes until the new address confirms it.',
+    cta: ['Review my account', '/profile'] },
+  photo_removed: { category: 'Account', status: 'Removed', tone: 'info',
+    intro: () => 'A staff member removed your profile photo. Profile photos need to be a clear photo of you, so staff can recognize you at the door. You can add a new one any time.',
+    cta: ['Add a new photo', '/profile'] },
   password_changed: { category: 'Account', status: 'Updated', tone: 'success',
     intro: () => 'Your password is updated. For safety, we signed you out on your other devices. If you didn’t change it, contact the studio immediately.',
     cta: ['Go to login', '/login'] },
@@ -340,6 +357,7 @@ export function renderNotification(kind: NotificationKind, payload: Notification
   const currency = field('currency');
   const item = field('resourceName') || field('equipmentName');
   const start = field('startsAt') || field('startTime');
+  // A calendar-date end is printed as the last day, so senders pass the inclusive last day.
   const end = field('endsAt') || field('endTime');
   const allDay = /^\d{4}-\d{2}-\d{2}$/.test(start) && /^\d{4}-\d{2}-\d{2}$/.test(end);
   const range = start && end ? displayRange(start, end, timeZone) : '';
@@ -419,6 +437,18 @@ export function renderNotification(kind: NotificationKind, payload: Notification
     action = { label: 'Set a new password', url: link.href };
     notes.push('This link works once and expires in 30 minutes.', 'If you didn’t ask for this, you can ignore this email.');
     rows.length = 0;
+  } else if (kind === 'email_change_confirmation') {
+    const link = safeUrl(field('confirmationUrl'), 'Invalid email change link');
+    if (link.pathname !== '/confirm-email-change' || link.search || !/^#[A-Za-z0-9_-]{43}$/.test(link.hash)) throw new Error('Invalid email change link');
+    action = { label: 'Confirm my new email', url: link.href };
+    notes.push('This link works once and expires in 24 hours.', 'Didn’t ask for this? Ignore this email and nothing changes.');
+    rows.length = 0;
+  } else if (kind === 'email_change_requested') {
+    if (!field('newEmail')) throw new Error('Email change notice requires the new address');
+    rows.length = 0;
+    row('New email', field('newEmail'));
+    notes.push('If this was you, there’s nothing else to do.', 'If it wasn’t you, change your password right away and contact the studio.');
+    if (cta && preferenceLink) action = { label: cta[0], url: new URL(cta[1], preferenceLink).href };
   } else if (cta && preferenceLink) {
     action = { label: cta[0], url: new URL(cta[1], preferenceLink).href };
   }
@@ -427,7 +457,7 @@ export function renderNotification(kind: NotificationKind, payload: Notification
   const greeting = `Hi ${context.recipientName || 'there'},`;
   const lead = intro(facts);
   const recipient = context.recipientName ? `${context.recipientName} <${context.recipientEmail}>` : context.recipientEmail;
-  const securityMail = kind === 'password_reset' || kind === 'password_changed';
+  const securityMail = securityKinds.includes(kind);
   const optOut = securityMail ? 'This security email is sent regardless of your notification preferences'
     : 'You can opt out of all notifications in your profile notification settings';
   // Members get back what they signed: the completed form when there was one, not the blank document.

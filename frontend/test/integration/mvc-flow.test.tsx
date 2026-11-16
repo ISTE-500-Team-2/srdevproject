@@ -74,7 +74,7 @@ test('signup form creates an account with DOB and the new password policy', asyn
   await within(dialog).findByLabelText('Password',{exact:false});
   expect(
     within(dialog).getByText(
-      /8–128 characters with at least one uppercase letter and one special character/i,
+      /8–72 characters with at least one uppercase letter and one special character/i,
     ),
   ).toBeTruthy();
   await user.type(

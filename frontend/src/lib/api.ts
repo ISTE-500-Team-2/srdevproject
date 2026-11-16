@@ -21,7 +21,7 @@ export function setCsrfToken(value: string | null) {
 }
 // Sign-in, recovery and public config requests work without a session: they
 // never renew it first or retry after a 401.
-const SESSIONLESS = new Set(['/auth/login','/auth/register','/auth/confirm','/auth/confirmation','/auth/password-reset','/auth/password-reset/check','/auth/password-reset/confirm','/auth/demo','/auth/csrf','/auth/refresh','/config']);
+const SESSIONLESS = new Set(['/auth/login','/auth/register','/auth/confirm','/auth/confirmation','/auth/password-reset','/auth/password-reset/check','/auth/password-reset/confirm','/auth/email-change/confirm','/auth/demo','/auth/csrf','/auth/refresh','/config']);
 const FAILED = 'The request could not be completed.';
 
 /**

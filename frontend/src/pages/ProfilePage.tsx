@@ -13,17 +13,19 @@ import {
   LifeBuoy,
   Mail,
   MessageSquare,
-  Pencil,
   Phone,
   ShieldCheck,
   UserPlus,
   UserRound,
   Users,
+  KeyRound,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import HoldButton from "../components/reactbits/HoldButton";
+import { AccountPhoto } from "../components/AccountPhoto";
+import { ProfilePhotoSetting } from "../components/ProfilePhotoSetting";
 import { Toast } from "../components/Toast";
 import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
@@ -32,6 +34,8 @@ import type { SignedWaiver } from "../lib/billingContracts";
 import type { MembershipHistory, Page, Payment } from "../lib/staffContracts";
 import { dollars, shortDate, timeOnly } from "../lib/display";
 import { useApi } from "../lib/useApi";
+import { Detail, EditButton, Section, SectionForm } from "./profileSections";
+import { SignInSection } from "./ProfileSignIn";
 import "./profile.css";
 
 // Keys the profile API stores address and contact details under.
@@ -65,6 +69,7 @@ const ZONES = [
 const SECTIONS: { id: string; label: string; Icon: LucideIcon }[] = [
   { id: "profile", label: "Profile", Icon: UserRound },
   { id: "contact", label: "Contact", Icon: Phone },
+  { id: "sign-in", label: "Sign-in", Icon: KeyRound },
   { id: "billing", label: "Membership & billing", Icon: CreditCard },
   { id: "minors", label: "Minors", Icon: Users },
   { id: "notifications", label: "Notifications", Icon: Bell },
@@ -88,103 +93,6 @@ type Save = (change: {
   address?: ProfileFields;
   contactPreferences?: ProfileFields;
 }) => Promise<void>;
-
-function Section({
-  id,
-  title,
-  note,
-  Icon,
-  action,
-  editing,
-  children,
-}: {
-  id: string;
-  title: string;
-  note: string;
-  Icon: LucideIcon;
-  action?: ReactNode;
-  editing?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <section id={id} className={`account-section${editing ? " account-section--editing" : ""}`} aria-labelledby={`${id}-title`}>
-      <header className="account-section__head">
-        <span className="account-section__icon">
-          <Icon aria-hidden="true" />
-        </span>
-        <div>
-          <h2 id={`${id}-title`}>{title}</h2>
-          <p>{note}</p>
-        </div>
-        {action}
-      </header>
-      <div className="account-section__body">{children}</div>
-    </section>
-  );
-}
-
-function Detail({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="account-detail">
-      <dt>{label}</dt>
-      <dd>{children || <span className="account-detail__empty">Not added</span>}</dd>
-    </div>
-  );
-}
-
-function EditButton({ label, onClick }: { label: string; onClick: () => void }) {
-  return (
-    <button type="button" className="button button--quiet account-edit" onClick={onClick} aria-label={label}>
-      <Pencil aria-hidden="true" /> Edit
-    </button>
-  );
-}
-
-/** A form that saves one section and reports its own errors. */
-function SectionForm({
-  onSave,
-  onCancel,
-  saveLabel,
-  children,
-}: {
-  onSave: (form: FormData) => Promise<void>;
-  onCancel: () => void;
-  saveLabel: string;
-  children: ReactNode;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setBusy(true);
-    setError("");
-    try {
-      await onSave(new FormData(event.currentTarget));
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <form className="account-form" onSubmit={(e) => void submit(e)}>
-      {children}
-      {error ? (
-        <p className="form-error" role="alert">
-          {error}
-        </p>
-      ) : null}
-      <div className="account-form__actions">
-        <button type="button" className="button button--quiet" onClick={onCancel} disabled={busy}>
-          Cancel
-        </button>
-        <button type="submit" className="button button--primary" disabled={busy}>
-          <Check aria-hidden="true" /> {busy ? "Saving…" : saveLabel}
-        </button>
-      </div>
-    </form>
-  );
-}
 
 function Choice({
   name,
@@ -225,7 +133,17 @@ function Choice({
   );
 }
 
-function ProfileSection({ user, profile, save }: { user: User; profile: UserProfile | null; save: Save }) {
+function ProfileSection({
+  user,
+  profile,
+  save,
+  notify,
+}: {
+  user: User;
+  profile: UserProfile | null;
+  save: Save;
+  notify: (message: string) => void;
+}) {
   const [editing, setEditing] = useState(false);
   return (
     <Section
@@ -258,15 +176,18 @@ function ProfileSection({ user, profile, save }: { user: User; profile: UserProf
               <input name="lastName" defaultValue={user.lastName} required maxLength={50} autoComplete="family-name" />
             </label>
           </div>
-          <p className="account-hint">Your email is how you sign in. Ask staff to change it.</p>
+          <p className="account-hint">Change the email you sign in with under Sign-in.</p>
         </SectionForm>
       ) : (
-        <dl className="account-details">
-          <Detail label="Name">
-            {user.firstName} {user.lastName}
-          </Detail>
-          <Detail label="Email">{user.email}</Detail>
-        </dl>
+        <>
+          <ProfilePhotoSetting notify={notify} />
+          <dl className="account-details">
+            <Detail label="Name">
+              {user.firstName} {user.lastName}
+            </Detail>
+            <Detail label="Email">{user.email}</Detail>
+          </dl>
+        </>
       )}
     </Section>
   );
@@ -742,7 +663,7 @@ function HelpSection({ profile }: { profile: UserProfile | null }) {
       <div>
         <h2 id="help-title">Need a hand?</h2>
         <p>
-          Contact {contact?.name ?? "the studio"}. Email and password changes go through staff for now.
+          Contact {contact?.name ?? "the studio"} with any questions about your account.
         </p>
       </div>
       {contact ? (
@@ -820,6 +741,11 @@ export function ProfilePage() {
       controller.abort();
     };
   }, []);
+  const updateProfile = (change: Partial<UserProfile>) => {
+    if (!latestProfile.current) return;
+    latestProfile.current = { ...latestProfile.current, ...change };
+    setProfile(latestProfile.current);
+  };
   // Sections can save together, but the API replaces all identity fields.
   // Build each request from the preceding response, never a render's snapshot.
   const save: Save = (change) => {
@@ -852,10 +778,7 @@ export function ProfilePage() {
   return (
     <div className="account-page page-enter">
       <section className="account-hero">
-        <div className="profile-hero__avatar" aria-hidden="true">
-          {user.firstName.at(0)}
-          {user.lastName.at(0)}
-        </div>
+        <AccountPhoto person={user} className="profile-hero__avatar" />
         <div>
           <h1>
             {user.firstName} {user.lastName}
@@ -890,8 +813,9 @@ export function ProfilePage() {
           ))}
         </nav>
         <div className="account-main">
-          <ProfileSection user={user} profile={profile} save={save} />
+          <ProfileSection user={user} profile={profile} save={save} notify={setToast} />
           <ContactSection user={user} profile={profile} save={save} />
+          <SignInSection profile={profile} onProfile={updateProfile} notify={setToast} />
           <BillingSection />
           {sponsors ? <MinorsSection notify={setToast} /> : null}
           <NotificationsSection />

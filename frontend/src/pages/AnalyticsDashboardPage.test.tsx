@@ -10,7 +10,7 @@ afterEach(() => { cleanup(); vi.resetAllMocks(); vi.useRealTimers(); });
 // The links to Payments, Members and Classes need a router.
 const render = (ui: ReactElement) => rtlRender(<MemoryRouter>{ui}</MemoryRouter>);
 const report = (over: Record<string, unknown> = {}) => ({ from: '2026-10-12', to: '2026-11-10', period: 'weekly', timeZone: 'America/New_York', generatedAt: '2026-11-10T16:00:00Z', revenue: [], classes: [], active: { approvedCheckIns: 0, activeUsers: 0 }, visitsByDay: [], checkedInToday: [], checkedInTodayCount: 0, compliance: { activeMemberships: 0 }, notes: [], ...over });
-const state = (data: unknown) => ({ data, loading: false, refreshing: false, error: '', reload: vi.fn() }) as never;
+const state = (data: unknown) => ({ data, loading: false, refreshing: false, stale: false, error: '', reload: vi.fn() }) as never;
 /** The requests the page makes, as "path?from&to&period" keys, in any order. */
 const requestKey = (url: string) => {
   const { pathname, searchParams } = new URL(url, 'http://test.invalid');
@@ -46,7 +46,7 @@ function serve(current: Record<string, unknown>, previous: Record<string, unknow
 test.each(['From', 'Through'])('historical dates can be entered starting with %s without requesting an invalid range', (first) => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-10-27T16:00:00Z'));
-  vi.mocked(useApi).mockReturnValue({ data: null, loading: false, refreshing: false, error: '', reload: vi.fn() });
+  vi.mocked(useApi).mockReturnValue({ data: null, loading: false, refreshing: false, stale: false, error: '', reload: vi.fn() });
   render(<AnalyticsDashboardPage />);
   fireEvent.change(screen.getByLabelText('Date range'), { target: { value: 'custom' } });
   const from = screen.getByLabelText('From') as HTMLInputElement;
@@ -73,7 +73,7 @@ test.each(['From', 'Through'])('historical dates can be entered starting with %s
 
 test('the right-now line counts every check-in today, not the capped recent list', () => {
   const checkedInToday = Array.from({ length: 50 }, (_, i) => ({ userId: i, name: `Visitor ${i}`, location: 'Studio', at: '2026-10-27T15:00:00Z', method: 'portal' }));
-  vi.mocked(useApi).mockReturnValue({ data: { from: '2026-10-01', to: '2026-10-27', period: 'daily', timeZone: 'America/New_York', generatedAt: '2026-10-27T16:00:00Z', revenue: [], classes: [], active: { approvedCheckIns: 75, activeUsers: 75 }, visitsByDay: [], checkedInToday, checkedInTodayCount: 75, compliance: { activeMemberships: 0 }, notes: [] }, loading: false, refreshing: false, error: '', reload: vi.fn() });
+  vi.mocked(useApi).mockReturnValue({ data: { from: '2026-10-01', to: '2026-10-27', period: 'daily', timeZone: 'America/New_York', generatedAt: '2026-10-27T16:00:00Z', revenue: [], classes: [], active: { approvedCheckIns: 75, activeUsers: 75 }, visitsByDay: [], checkedInToday, checkedInTodayCount: 75, compliance: { activeMemberships: 0 }, notes: [] }, loading: false, refreshing: false, stale: false, error: '', reload: vi.fn() });
   render(<AnalyticsDashboardPage />);
   expect(screen.getByText(/checked in today/).closest('p')!.textContent).toContain('75 checked in today');
   // Names belong to the Today page; this page only counts them.
@@ -81,7 +81,7 @@ test('the right-now line counts every check-in today, not the capped recent list
 });
 
 test('daily visit values including zero-count days are readable without hover', () => {
-  vi.mocked(useApi).mockReturnValue({ data: { from: '2026-10-25', to: '2026-10-27', period: 'daily', timeZone: 'America/New_York', generatedAt: '2026-10-27T16:00:00Z', revenue: [], classes: [], active: { approvedCheckIns: 9, activeUsers: 9 }, visitsByDay: [{ day: '2026-10-25', visits: 2 }, { day: '2026-10-26', visits: 0 }, { day: '2026-10-27', visits: 7 }], checkedInToday: [], compliance: { activeMemberships: 0 }, notes: [] }, loading: false, refreshing: false, error: '', reload: vi.fn() });
+  vi.mocked(useApi).mockReturnValue({ data: { from: '2026-10-25', to: '2026-10-27', period: 'daily', timeZone: 'America/New_York', generatedAt: '2026-10-27T16:00:00Z', revenue: [], classes: [], active: { approvedCheckIns: 9, activeUsers: 9 }, visitsByDay: [{ day: '2026-10-25', visits: 2 }, { day: '2026-10-26', visits: 0 }, { day: '2026-10-27', visits: 7 }], checkedInToday: [], compliance: { activeMemberships: 0 }, notes: [] }, loading: false, refreshing: false, stale: false, error: '', reload: vi.fn() });
   render(<AnalyticsDashboardPage />);
   fireEvent.click(screen.getByText('Show daily visit counts'));
   const table = screen.getByRole('table', { name: 'Visits per day' });
@@ -89,7 +89,7 @@ test('daily visit values including zero-count days are readable without hover', 
 });
 
 test('FR-073: the dashboard headline shows total active memberships', () => {
-  vi.mocked(useApi).mockReturnValue({ data: { from: '2026-10-25', to: '2026-10-27', period: 'daily', timeZone: 'America/New_York', generatedAt: '2026-10-27T16:00:00Z', revenue: [], classes: [], visitsByDay: [], checkedInToday: [], checkedInTodayCount: 0, active: { activeUsers: 0, approvedCheckIns: 0 }, compliance: { activeMemberships: 42 }, notes: [] }, loading: false, refreshing: false, error: '', reload: vi.fn() } as never);
+  vi.mocked(useApi).mockReturnValue({ data: { from: '2026-10-25', to: '2026-10-27', period: 'daily', timeZone: 'America/New_York', generatedAt: '2026-10-27T16:00:00Z', revenue: [], classes: [], visitsByDay: [], checkedInToday: [], checkedInTodayCount: 0, active: { activeUsers: 0, approvedCheckIns: 0 }, compliance: { activeMemberships: 42 }, notes: [] }, loading: false, refreshing: false, stale: false, error: '', reload: vi.fn() } as never);
   render(<AnalyticsDashboardPage />);
   expect(screen.getByText(/checked in today/).closest('p')!.textContent).toContain('42 active memberships');
 });
@@ -270,7 +270,7 @@ function serveZone(now: string, config: { timeZone: string } | 'loading' | 'fail
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(now));
   vi.mocked(useApi).mockImplementation((url) => url === '/config'
-    ? { data: typeof config === 'object' ? config : null, loading: config === 'loading', refreshing: false, error: config === 'failed' ? 'Offline' : '', reload: vi.fn() }
+    ? { data: typeof config === 'object' ? config : null, loading: config === 'loading', refreshing: false, stale: false, error: config === 'failed' ? 'Offline' : '', reload: vi.fn() }
     : state(answer));
   render(<AnalyticsDashboardPage />);
 }
@@ -297,4 +297,37 @@ test('ranges are days in the facility zone from /config, and class times are sho
 test('when /config cannot be read, ranges fall back to New York days', () => {
   serveZone('2026-11-11T03:00:00Z', 'failed');
   expect(reportRequests()).toContain('/admin/reports?from=2026-10-12&to=2026-11-10&period=weekly');
+});
+
+test('a new range keeps the last report on screen, out of reach, while the range controls stay usable', () => {
+  serveZone('2026-11-11T03:00:00Z', { timeZone: 'America/New_York' }, report());
+  expect(vi.mocked(useApi).mock.calls.find(([path]) => path?.startsWith('/admin/reports'))?.[1]).toMatchObject({ retainOnChange: true });
+  const before = vi.mocked(useApi).getMockImplementation()!;
+  vi.mocked(useApi).mockImplementation(((path: string | null) =>
+    path?.startsWith('/admin/reports') ? { ...(before as (p: string | null) => object)(path), stale: true } : before(path as never)) as never);
+  fireEvent.change(screen.getByLabelText('Date range'), { target: { value: 'month' } });
+  const results = document.querySelector('.kept-results')!;
+  expect(results.hasAttribute('inert')).toBe(true);
+  expect(results.contains(screen.getByLabelText('Date range'))).toBe(false);
+  expect(screen.queryByText('Loading records…')).toBeNull();
+});
+
+test('a one-day range compares with "the previous day", not "the previous 1 days"', () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-11-10T16:00:00Z'));
+  // Every request is answered for its own dates, so the comparison report always matches.
+  vi.mocked(useApi).mockImplementation((url) => {
+    if (url === '/config') return state({ timeZone: 'America/New_York' });
+    const query = new URL(String(url), 'http://test.invalid').searchParams;
+    const day = query.get('from');
+    return state(report({ from: day, to: query.get('to'), period: query.get('period'), visitsByDay: [{ day, visits: 2, people: 2 }] }));
+  });
+  render(<AnalyticsDashboardPage />);
+  fireEvent.change(screen.getByLabelText('Date range'), { target: { value: 'custom' } });
+  fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-11-10' } });
+  fireEvent.change(screen.getByLabelText('Through'), { target: { value: '2026-11-10' } });
+  const visits = within(screen.getByLabelText('Headline numbers')).getByText('Visits').closest('article')!;
+  expect(visits.textContent).toContain('Same as the previous day');
+  expect(screen.getByLabelText('Week of Nov 9 (partial: 1 of 7 days): 2 visits; a day earlier: 2')).toBeTruthy();
+  expect(document.body.textContent).not.toMatch(/\b1 days\b/);
 });

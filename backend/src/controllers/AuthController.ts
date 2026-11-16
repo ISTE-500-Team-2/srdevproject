@@ -4,6 +4,7 @@
 import { consumeRegistration, pruneRegistrations, stageRegistration } from '../confirmation/pendingRegistration.js';
 import { consumeEmailConfirmation } from '../confirmation/emailConfirmation.js';
 import { RecoveryService } from '../services/RecoveryService.js';
+import { SignInChangeService } from '../services/SignInChangeService.js';
 import { auditContext } from '../auditContext.js';
 import { validTimeZone } from '../notifications/store.js';
 import { randomBytes } from 'node:crypto';
@@ -44,11 +45,13 @@ function signupField<T>(field: string, read: () => T): T {
 export class AuthController {
   private dummyHash = hashPassword(randomBytes(32).toString('hex'));
   private recovery: RecoveryService;
+  private signIn: SignInChangeService;
   constructor(
     private pool: Pool,
     private config: AppConfig,
   ) {
     this.recovery = new RecoveryService(pool, config, this.dummyHash);
+    this.signIn = new SignInChangeService(pool, config);
   }
   private async establish(
     req: Request,
@@ -239,6 +242,34 @@ export class AuthController {
     const password = newPasswordField(req.body.password);
     await this.recovery.completePasswordReset(req.body.token, password);
     res.status(204).end();
+  };
+  /** A new password ends every sign-in; this browser gets a fresh one in the same response. */
+  changePassword = async (req: Request, res: Response) => {
+    const next = newPasswordField(req.body.newPassword);
+    const session = await this.signIn.changePassword(authState(res).user.id, req.body.currentPassword, next, refreshToken(req));
+    this.respond(res, session);
+  };
+  requestEmailChange = async (req: Request, res: Response) => {
+    const email = emailField(req.body.email);
+    const pending = await this.signIn.requestEmailChange(authState(res).user.id, email, req.body.currentPassword);
+    res.set('Cache-Control', 'no-store');
+    res.status(202).json({ data: { pendingEmail: pending, emailSendingEnabled: !!this.config.notifications } });
+  };
+  resendEmailChange = async (_req: Request, res: Response) => {
+    const pending = await this.signIn.resendEmailChange(authState(res).user.id);
+    res.status(202).json({ data: { pendingEmail: pending, emailSendingEnabled: !!this.config.notifications } });
+  };
+  cancelEmailChange = async (_req: Request, res: Response) => {
+    await this.signIn.cancelEmailChange(authState(res).user.id);
+    res.json({ data: { pendingEmail: null } });
+  };
+  /** Opened from the emailed link, signed in or not: the token is the proof. */
+  confirmEmailChange = async (req: Request, res: Response) => {
+    const changed = await this.signIn.confirmEmailChange(req.body.token);
+    const context = auditContext.getStore();
+    if (context) context.actorId = changed.userId;
+    res.set('Cache-Control', 'no-store');
+    res.json({ data: { email: changed.email } });
   };
   current = async (_req: Request, res: Response) => {
     res.set("Cache-Control","no-store");

@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { CalendarDays, ChevronDown, Search, X } from "lucide-react";
 import { LoadState } from "../../components/Management";
+import { KeptResults, useResultsPaging } from "../../components/KeptResults";
 import { MemberSelect } from "../../components/MemberSelect";
 import { AUDIT_AREAS, auditArea, areaLabel, type AuditArea } from "../../lib/auditActions";
 import type { AuditPage, AuditView } from "../../lib/staffContracts";
@@ -81,7 +82,8 @@ export function ChangeLog() {
   if (query) params.set("search", query);
   if (actions) params.set("actions", actions.join(","));
   // Wait for the action list before asking for an area; the server answers an empty list with nothing.
-  const list = useApi<AuditPage>(areas.length && !recorded.data ? null : `/admin/audit?${params}`, { retainOnReload: true });
+  const list = useApi<AuditPage>(areas.length && !recorded.data ? null : `/admin/audit?${params}`, { retainOnReload: true, retainOnChange: true });
+  const { results, turn, busy } = useResultsPaging(list);
 
   const refilter = (change: () => void) => {
     change();
@@ -98,6 +100,7 @@ export function ChangeLog() {
     });
 
   const page = list.data;
+  const older = page?.nextOffset ?? null;
   const counts = page?.counts;
   const current = VIEWS.find((v) => v.id === view)!;
   const total = counts?.[view] ?? 0;
@@ -114,9 +117,18 @@ export function ChangeLog() {
     setSelected(null);
     requestAnimationFrame(() => {
       const row = id ? document.querySelector<HTMLElement>(`.cl-row[data-id="${id}"]`) : null;
-      (row ?? searchBox.current)?.focus();
+      // A row waiting on new results can't take focus.
+      (row && !row.closest("[inert]") ? row : searchBox.current)?.focus();
     });
   };
+  // The empty state's buttons change the filters while the results wait faded and out of reach:
+  // hand focus to the search box first, so it isn't lost with them.
+  const viaFilters =
+    <A extends unknown[]>(act: (...args: A) => void) =>
+    (...args: A) => {
+      searchBox.current?.focus();
+      act(...args);
+    };
   const onKey = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === "Escape" && selected) closeRecord();
   };
@@ -210,38 +222,55 @@ export function ChangeLog() {
         <div className="cl-main">
           <LoadState loading={list.loading && !page} error={list.error || recorded.error} reload={list.error ? list.reload : recorded.reload} />
           {page ? (
-            page.items.length ? (
-              <>
-                <AuditFeed items={page.items} zone={zone} today={today} selected={selected} onSelect={setSelected} />
+            <>
+              <KeptResults read={list} ref={results}>
+                {page.items.length ? (
+                  <AuditFeed items={page.items} zone={zone} today={today} selected={selected} onSelect={setSelected} />
+                ) : (
+                  <EmptyState
+                    view={current}
+                    counts={counts}
+                    phrase={phrase}
+                    query={query}
+                    filtered={filtered}
+                    canWiden={period !== "all"}
+                    onView={viaFilters((next: AuditView) => refilter(() => setView(next)))}
+                    onWiden={viaFilters(() => refilter(() => setPeriod(period === "today" || period === "7d" ? "30d" : "all")))}
+                    onClear={viaFilters(clearFilters)}
+                  />
+                )}
+              </KeptResults>
+              {page.items.length ? (
                 <div className="cl-foot">
                   <span>
                     Showing {offset + 1}–{offset + page.items.length} of {total.toLocaleString()}
                   </span>
-                  {offset > 0 || page.nextOffset != null ? (
+                  {/* While a page loads the buttons stay focusable but do nothing (see Pager). */}
+                  {offset > 0 || page.nextOffset != null || busy ? (
                     <span className="cl-foot__pages">
-                      <button type="button" className="button button--quiet" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE))}>
+                      <button
+                        type="button"
+                        className="button button--quiet"
+                        disabled={!busy && offset === 0}
+                        aria-disabled={busy || undefined}
+                        onClick={() => !busy && turn(() => setOffset(Math.max(0, offset - PAGE)))}
+                      >
                         Newer
                       </button>
-                      <button type="button" className="button button--quiet" disabled={page.nextOffset == null} onClick={() => page.nextOffset != null && setOffset(page.nextOffset)}>
+                      <button
+                        type="button"
+                        className="button button--quiet"
+                        disabled={!busy && older == null}
+                        aria-disabled={busy || undefined}
+                        onClick={() => !busy && older != null && turn(() => setOffset(older))}
+                      >
                         Older
                       </button>
                     </span>
                   ) : null}
                 </div>
-              </>
-            ) : (
-              <EmptyState
-                view={current}
-                counts={counts}
-                phrase={phrase}
-                query={query}
-                filtered={filtered}
-                canWiden={period !== "all"}
-                onView={(next) => refilter(() => setView(next))}
-                onWiden={() => refilter(() => setPeriod(period === "today" || period === "7d" ? "30d" : "all"))}
-                onClear={clearFilters}
-              />
-            )
+              ) : null}
+            </>
           ) : null}
         </div>
         {selected ? <ChangeLogPanel id={selected} zone={zone} onSelect={setSelected} onClose={closeRecord} /> : null}

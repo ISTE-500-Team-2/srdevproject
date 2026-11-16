@@ -14,7 +14,7 @@ import {businessToday} from '../businessDate.js';
 import {StudioStripe} from '../studios/stripe.js';
 import {enqueueNotification} from '../notifications/store.js';
 import {quote} from './pricing.js';
-import {refundTransition} from './refundTransition.js';
+import {liveRefund,refundAttempt,refundTransition,replacedAttemptFailed} from './refundTransition.js';
 import {isCheckoutSessionEvent,isRefundEvent} from './stripeEvents.js';
 /** An app_pass_checkout row. */
 interface PassCheckoutRow {id:string;userid:number;tierid:number;valid_date:Date;plan_snapshot:Plan;amount_cents:number;
@@ -77,7 +77,7 @@ export class PassBilling {
   const date=calendarDate(body.validDate),id=positiveId(body.planId);
   const row=await transaction(this.pool,async db=>{
    await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,userid]);
-   const user=await requireActor(db,userid),model=new StaffModel(db);
+   const user=await requireActor(db,userid),model=new StaffModel(db,this.zone);
    await new AccessService(db,this.zone).assertWaivers(userid);
    if(date<businessToday(this.zone))throw new AppError(400,'INVALID_DATE','Choose today or a future date.');
    const plan=await model.plan(id,true);
@@ -106,7 +106,7 @@ export class PassBilling {
  }
  async issue(db:Database,r:PassCheckoutRow,reference:string){
   if(r.pass_id)return;
-  const model=new StaffModel(db),date=new Date(r.valid_date).toISOString().slice(0,10);
+  const model=new StaffModel(db,this.zone),date=new Date(r.valid_date).toISOString().slice(0,10);
   if(await model.passExists(r.userid,date))throw new AppError(409,'PASS_EXISTS','An existing pass requires payment reconciliation.');
   const pass=await model.createPass(r.userid,r.plan_snapshot,date,r.userid,'Online day pass');
   const payment=await model.createPayment(r.userid,null,(r.amount_cents/100).toFixed(2),r.amount_cents?'paid':'waived',r.amount_cents?'card':'none',reference,'Online day pass',r.userid);
@@ -120,7 +120,8 @@ export class PassBilling {
    await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,userid]);
    await requireActor(db,userid);
    await new AccessService(db,this.zone).assertWaivers(userid);
-   const model=new StaffModel(db),plan=await model.plan(positiveId(body.planId),true);
+   // The facility zone: a free membership's end date is a month later on the facility's clock.
+   const model=new StaffModel(db,this.zone),plan=await model.plan(positiveId(body.planId),true);
    if(!plan?.active||plan.kind!=='membership'||plan.months!==1)throw new AppError(400,'INVALID_PLAN','Choose an active monthly plan.');
    const start=new Date().toISOString(),window=await model.membershipWindow(userid,start,1);
    const offer=await quote(db,userid,plan,new Date(window.endsAt).toISOString().slice(0,10));
@@ -161,8 +162,10 @@ export class PassBilling {
    if(r.amount_cents===0){await this.finishCancel(db,r);return {cancelled:true};}
    if(!r.payment_intent)throw new AppError(409,'RECONCILE_REQUIRED','Original card payment must be reconciled.');
    const sdk=this.provider().sdk,existing=await sdk.refunds.list({payment_intent:r.payment_intent,limit:100});
-   if(existing.has_more||existing.data.length>1||existing.data.some(f=>f.amount!==r.amount_cents||f.currency!=='usd'))throw new AppError(409,'RECONCILE_REQUIRED','Existing refunds require staff reconciliation.');
-   const f=existing.data[0]??await sdk.refunds.create({payment_intent:r.payment_intent,amount:r.amount_cents},{idempotencyKey:'daypass-refund:'+id});
+   // Retrying after a failure submits a new refund (see refundAttempt).
+   const attempt=refundAttempt('daypass-refund:'+id,existing);
+   const f=liveRefund(existing,r.amount_cents)??await sdk.refunds.create({payment_intent:r.payment_intent,amount:r.amount_cents,...(attempt.metadata?{metadata:attempt.metadata}:{})},
+    {idempotencyKey:attempt.key});
    await this.applyRefund(db,f);return {cancelled:f.status==='succeeded',refundStatus:f.status};
   });
  }
@@ -175,6 +178,7 @@ export class PassBilling {
   if(!r)return;
   const failed=['failed','canceled'].includes(f.status??'');
   if(refundTransition({refundId:r.refund_id,refundStatus:r.refund_status},f)==='skip')return;
+  if(replacedAttemptFailed({refundId:r.refund_id,refundStatus:r.refund_status},f))return;
   if(f.amount!==r.amount_cents||f.currency!=='usd')throw new AppError(409,'RECONCILE_REQUIRED','Refund amount mismatch.');
   await db.query('UPDATE app_pass_checkout SET refund_id=$2,refund_status=$3 WHERE id=$1',[r.id,f.id,f.status]);
   if(f.status==='succeeded'){
@@ -187,7 +191,10 @@ export class PassBilling {
   if(failed){
    await db.query("UPDATE payment SET paymentstatus='paid',updated_at=now(),revision=revision+1 WHERE paymentid=$1 AND paymentstatus='refunded'",[r.payment_id]);
    await db.query("UPDATE app_notification_outbox SET status='obsolete',updated_at=now() WHERE dedupe_key=ANY($1::text[]) AND status='pending'",[[`daypass-refund:${r.id}`,`daypass-refund:${r.id}:${f.id}`]]);
-   await enqueueNotification(db,{userId:r.userid,kind:'payment_status_changed',dedupeKey:`daypass-refund-failed:${r.id}:${f.id}`,payload:{paymentId:r.payment_id,reference:f.id,instructions:'The original-card day-pass refund failed. Contact staff for reconciliation. Cancelled access remains cancelled.'}});
+   // The pass is only cancelled once a refund succeeds, so say whether it is still usable.
+   await enqueueNotification(db,{userId:r.userid,kind:'payment_status_changed',dedupeKey:`daypass-refund-failed:${r.id}:${f.id}`,payload:{paymentId:r.payment_id,reference:f.id,instructions:r.status==='cancelled'
+    ?'The original-card refund for your cancelled day pass failed after it was confirmed. Your pass stays cancelled; contact staff to complete the refund.'
+    :'The original-card refund for your day pass did not go through, so the pass has not been cancelled and is still valid. Retry the refund from Membership & passes, or contact staff.'}});
   }
  }
  async refundEvent(db:Database,obj:Stripe.Refund){
@@ -230,9 +237,8 @@ export class PassBilling {
    // Refund delivery can precede checkout delivery. Reconcile the original
    // payment so a late checkout cannot grant access to an already-refunded pass.
    const refunds=await sdk.refunds.list({payment_intent:pi,limit:100});
-   if(refunds.has_more||refunds.data.length>1||refunds.data.some(f=>f.amount!==r.amount_cents||f.currency!=='usd'))
-    throw new AppError(409,'RECONCILE_REQUIRED','Existing refunds require staff reconciliation.');
-   if(refunds.data[0])await this.applyRefund(db,refunds.data[0]);
+   const refund=liveRefund(refunds,r.amount_cents)??refunds.data[0];
+   if(refund)await this.applyRefund(db,refund);
   });
  }
 }

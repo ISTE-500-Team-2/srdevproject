@@ -108,7 +108,8 @@ test("cancelling asks first; keeping it writes nothing", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Cancel…" }));
   fireEvent.click(screen.getByRole("button", { name: "Cancel reservation" }));
   expect(await screen.findByText("Reservation #17 cancelled.")).toBeTruthy();
-  expect(api).toHaveBeenCalledWith("/admin/reservations/17/cancel", { method: "POST" });
+  // The shown revision goes along, so the server refuses if a colleague moved the booking meanwhile.
+  expect(api).toHaveBeenCalledWith("/admin/reservations/17/cancel", { method: "POST", body: { expectedRevision: 2 } });
   expect(await screen.findByRole("heading", { name: "Needs you" })).toBeTruthy();
 });
 
@@ -327,4 +328,37 @@ test("when someone else moves the open reservation, the panel follows its new ma
   expect(await screen.findByRole("heading", { name: "Kiln, 10:00 AM–12:00 PM" })).toBeTruthy();
   expect(screen.getByText(/Kiln is out of service\. Move or cancel this reservation\./)).toBeTruthy();
   expect(screen.getByText("No certification")).toBeTruthy();
+});
+
+test("another page of the list keeps this one on screen, out of reach, while the pressed button keeps focus", async () => {
+  const base = api.getMockImplementation()!;
+  api.mockImplementation((path: string, options?: never) => {
+    if (path === "/admin/reservations?offset=0&when=upcoming&userId=12") return Promise.resolve({ items: [booking], nextOffset: 50 });
+    if (path.startsWith("/admin/reservations?offset=50")) return new Promise(() => {});
+    return base(path, options);
+  });
+  mount("/admin/reservations?member=12");
+  const next = await screen.findByRole("button", { name: "Next page" });
+  next.focus();
+  fireEvent.click(next);
+  await waitFor(() => expect(listCalls()).toContain("/admin/reservations?offset=50&when=upcoming&userId=12"));
+  const results = document.querySelector(".kept-results")!;
+  expect(results.hasAttribute("inert")).toBe(true);
+  expect(results.textContent).toContain("Laser cutter");
+  expect(screen.queryByText("Loading records…")).toBeNull();
+  expect(document.activeElement).toBe(next);
+  expect(next.getAttribute("aria-disabled")).toBe("true");
+});
+
+test("clearing a search from an empty list hands focus to the search box", async () => {
+  const base = api.getMockImplementation()!;
+  api.mockImplementation((path: string, options?: never) =>
+    path.startsWith("/admin/reservations?offset=") && path.includes("search=") ? Promise.resolve({ items: [], nextOffset: null }) : base(path, options));
+  mount();
+  const search = await screen.findByPlaceholderText("Find a member or machine…");
+  fireEvent.change(search, { target: { value: "nobody" } });
+  const clear = await screen.findByRole("button", { name: "Clear search" });
+  clear.focus();
+  fireEvent.click(clear);
+  expect(document.activeElement).toBe(search);
 });

@@ -6,6 +6,7 @@ import { CertificationsPage } from './CertificationsPage';
 import type { ClassRecord } from '../components/classes/classData';
 import type { Certification, LiveEquipment, User, Waiver } from '../lib/contracts';
 import { liveEquipment, user as account } from '../testing/fixtures';
+import { ApiError } from '../lib/api';
 /** What the page reads, by path. */
 type Responses = {'/me/waivers':Waiver[];'/me/certifications':Certification[];'/equipment':LiveEquipment[];'/classes':ClassRecord[]};
 const { api, reload, state } = vi.hoisted(() => ({
@@ -16,7 +17,7 @@ const { api, reload, state } = vi.hoisted(() => ({
   auth: { demoLogin: false, user: null as User | null },
  },
 }));
-vi.mock('../lib/api',()=>({api,errorMessage:(error:Error)=>error.message}));
+vi.mock('../lib/api',async original=>({ApiError:(await original<typeof import('../lib/api')>()).ApiError,api,errorMessage:(error:Error)=>error.message}));
 vi.mock('../lib/useApi', () => ({ useApi: (path:string) => ({data:state.errors[path] ? null : state.data[path] ?? [],loading:false,error:state.errors[path] ?? '',reload}) }));
 vi.mock('../context/AuthContext', () => ({ useAuth: () => state.auth }));
 afterEach(()=>{cleanup();vi.clearAllMocks();state.errors={};});
@@ -125,6 +126,18 @@ test('a failed signature keeps the policy open and shows the error',async()=>{
  fireEvent.click(screen.getByRole('button',{name:'Record agreement'}));
  expect(await screen.findByText('Policy changed')).toBeTruthy();
  expect(screen.getByRole('dialog')).toBeTruthy();
+});
+
+test('a policy updated while its dialog is open reloads the list and asks for the new version',async()=>{
+ mount({waivers:[waiver({expiredSignature:false})]});
+ fireEvent.click(screen.getByRole('button',{name:'Review and agree'}));
+ fireEvent.click(screen.getByRole('checkbox',{name:'I have read and agree to this version of the policy.'}));
+ api.mockRejectedValue(new ApiError(404,'NOT_FOUND','This is not a current required waiver.'));
+ fireEvent.click(screen.getByRole('button',{name:'Record agreement'}));
+ expect(await screen.findByText('This policy was just updated. Please review the new version.')).toBeTruthy();
+ expect(reload).toHaveBeenCalled();
+ expect(screen.queryByRole('dialog')).toBeNull();
+ expect(screen.queryByText('This is not a current required waiver.')).toBeNull();
 });
 
 test('a current certification lists what it unlocks, who approved it and when it renews',()=>{

@@ -545,13 +545,20 @@ export class ReservationService {
       const result = await new ReservationModel(db).cancel(reservationId, userId);
       if (!result) {
         const existing = await db.query(
-          "SELECT status,starttime FROM reservation WHERE reservationid=$1 AND userid=$2",
+          "SELECT status,endtime <= NOW() AT TIME ZONE 'UTC' AS ended FROM reservation WHERE reservationid=$1 AND userid=$2",
           [reservationId, userId],
         );
+        // Only the member's own booking gets a specific answer; anyone else's stays a 404.
         if (
           existing.rows[0] &&
-          ["confirmed", "pending"].includes(existing.rows[0].status)
+          (!["confirmed", "pending"].includes(existing.rows[0].status) || existing.rows[0].ended)
         )
+          throw new AppError(
+            409,
+            "INVALID_STATUS",
+            "This booking was already cancelled or has ended.",
+          );
+        if (existing.rows[0])
           throw new AppError(
             409,
             "CANCELLATION_NOTICE_REQUIRED",
@@ -579,7 +586,11 @@ export class ReservationService {
     return result;
   }
 
-  async cancelAny(actorId: number, reservationId: number, maintenance?: { sourceEquipmentId: number; expectedRevision: unknown }) {
+  /**
+   * Staff cancellation. With `expected`, the booking must still be the revision (and, from
+   * equipment maintenance, the machine) the staff member was shown.
+   */
+  async cancelAny(actorId: number, reservationId: number, expected?: { sourceEquipmentId?: number; expectedRevision: unknown }) {
     return transaction(this.pool, async (db) => {
       const access = new AccessService(db, this.timeZone);
       await access.assertActiveUser(actorId);
@@ -627,7 +638,8 @@ export class ReservationService {
           "CLASS_WORKFLOW_REQUIRED",
           "Cancel this training through Classes to preserve enrollment records.",
         );
-      if (maintenance && (before.equipmentId !== maintenance.sourceEquipmentId || before.revision !== positiveId(maintenance.expectedRevision, "Revision")))
+      if (expected && ((expected.sourceEquipmentId !== undefined && before.equipmentId !== expected.sourceEquipmentId)
+        || before.revision !== positiveId(expected.expectedRevision, "Revision")))
         throw new AppError(409, "STALE_RECORD", "This reservation changed. Refresh it before cancelling.");
       const result = await model.cancelAny(reservationId);
       if (!result)

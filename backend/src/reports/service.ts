@@ -88,11 +88,16 @@ export function loadReport(
     });
     const revenue = (
       await db.query<RevenueRow>(
+        // Categories use the staff Payments ledger's labels (models/staff/payments.ts), without its refund-due notes.
         `WITH ledger AS (
- SELECT p.paymentdate AT TIME ZONE 'UTC' AS at,COALESCE(m.plan_snapshot->>'name',d.plan_snapshot->>'name',t.tiername,'Unclassified payment') AS category,p.method,
+ SELECT p.paymentdate AT TIME ZONE 'UTC' AS at,COALESCE(m.plan_snapshot->>'name',d.plan_snapshot->>'name',t.tiername,
+   'Equipment: '||machine.name,'Training class: '||class.title,
+   CASE WHEN p.note LIKE 'Equipment booking:%' OR p.note LIKE 'Training class:%' THEN p.note END,'Unclassified payment') AS category,p.method,
  p.price AS gross,CASE WHEN p.paymentstatus='refunded' THEN p.price ELSE 0 END AS refunds
  FROM payment p LEFT JOIN user_membership m USING(membershipid) LEFT JOIN membership_tiers t ON t.tierid=m.tierid
  LEFT JOIN LATERAL(SELECT plan_snapshot FROM day_pass WHERE paymentid=p.paymentid ORDER BY dayid LIMIT 1) d ON true
+ LEFT JOIN reservation booking ON booking.payment_id=p.paymentid LEFT JOIN equipment machine ON machine.equipmentid=booking.equipmentid
+ LEFT JOIN app_training_enrollment training ON training.payment_id=p.paymentid LEFT JOIN app_training_class class ON class.id=training.class_id
  WHERE p.paymentstatus IN ('paid','refunded')
  UNION ALL SELECT created_at,'Studio rental',payment_method,amount_cents/100.0,CASE WHEN payment_status='refunded' THEN refund_cents/100.0 ELSE 0 END FROM app_studio_rental WHERE payment_status IN ('paid','refund_pending','refunded','refund_failed'))
  SELECT to_char(date_trunc('${bucket}',at AT TIME ZONE $3),'YYYY-MM-DD') AS period,category,method,COUNT(*)::int AS receipts,SUM(gross)::text AS gross,SUM(refunds)::text AS refunds,SUM(gross-refunds)::text AS net
@@ -158,6 +163,7 @@ export function loadReport(
       await db.query<CheckedInPerson & { total: number }>(
         `SELECT latest.*,COUNT(*) OVER()::int AS total FROM (
  SELECT DISTINCT ON (i.userid) i.userid AS "userId",u.firstname || ' ' || u.lastname AS name,i.location,
+ (SELECT p.version FROM app_user_photo p WHERE p.user_id=i.userid) AS "photoVersion",
  i.checkintime AT TIME ZONE 'UTC' AS at,${checkInOriginSql("i")} AS method
  FROM check_in i JOIN "user" u USING(userid)
  WHERE i.status='approved' AND i.checkintime AT TIME ZONE 'UTC'>=date_trunc('day',NOW() AT TIME ZONE $1) AT TIME ZONE $1

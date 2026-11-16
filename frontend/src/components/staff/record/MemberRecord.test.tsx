@@ -117,6 +117,16 @@ test("the name is said once and the verdict leads with the desk action", async (
   expect(await screen.findByText("Casey checked in.")).toBeTruthy();
 });
 
+test("the cleared verdict sets the training gap apart from where the member is", () => {
+  state.req = { ...state.req, training: { required: 3, held: 1, missing: ["CNC Machine", "Laser"] } };
+  mount();
+  const verdict = screen.getByRole("region", { name: "Cleared for the shop" });
+  expect(within(verdict).getByText("Except CNC Machine and Laser, which need training.")).toBeTruthy();
+  expect(within(verdict).getByText("Not in the building").closest(".mr-lead__facts")).toBeTruthy();
+  // The check-in button still reads out both parts.
+  expect(screen.getByRole("button", { name: "Check in" }).getAttribute("aria-describedby")).toBe("mr-verdict-detail mr-verdict-facts");
+});
+
 test("check-in is held back with the reason when something blocks it", () => {
   state.req = { ...state.req, entitlement: null };
   mount();
@@ -351,4 +361,32 @@ test("the notice stays while a retry is in flight and clears once a read succeed
   state.req = { ...state.req };
   view.rerender(element());
   expect(screen.queryByText(/could not be refreshed/)).toBeNull();
+});
+
+test("staff see the member's photo and can remove it with a reason", async () => {
+  state.detail = { ...state.detail, user: { ...user(), photoVersion: "v1" } };
+  api.mockImplementation((path: string) =>
+    Promise.resolve(path.startsWith("/admin/photos") ? { 14: { version: "v1", image: "data:image/webp;base64,UEhPVE8=" } } : { version: null }),
+  );
+  mount();
+  await waitFor(() => expect(record().querySelector(".mr-avatar img")?.getAttribute("src")).toBe("data:image/webp;base64,UEhPVE8="));
+  expect(api).toHaveBeenCalledWith("/admin/photos?ids=14");
+  expect(within(record()).getByText("Added by the member")).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("button", { name: "Remove profile photo" }));
+  const dialog = screen.getByRole("dialog", { name: "Remove profile photo" });
+  fireEvent.change(within(dialog).getByLabelText("Reason"), { target: { value: "Not a photo of Casey" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Remove photo" }));
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("/admin/users/14/photo", { method: "DELETE", body: { version: "v1", reason: "Not a photo of Casey" } }),
+  );
+  expect(await screen.findByText("Photo removed.")).toBeTruthy();
+  expect(reload).toHaveBeenCalled();
+});
+
+test("without a photo, the record says members add their own", () => {
+  mount();
+  expect(within(record()).getByText("None")).toBeTruthy();
+  expect(within(record()).getByText("Members add their own photo.")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Remove profile photo" })).toBeNull();
 });

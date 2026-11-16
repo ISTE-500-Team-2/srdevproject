@@ -28,7 +28,8 @@ function fit(ctx: CanvasRenderingContext2D, text: string, max: number, size: num
 /**
  * Paints the badge face in the site's paper, espresso and bronze. A minor's
  * badge moves the logo and text up so an orange UNDER 18 tag and, once linked,
- * the sponsoring adult clear the footer band.
+ * the sponsoring adult clear the footer band. With a profile photo, a smaller
+ * logo sits above the photo in a ringed circle, like a staff ID.
  */
 export async function paintFace(
   name: string,
@@ -36,6 +37,7 @@ export async function paintFace(
   memberId: number,
   isMinor = false,
   sponsorName?: string | null,
+  photoUrl?: string | null,
 ) {
   await document.fonts?.ready;
   const canvas = document.createElement("canvas");
@@ -51,12 +53,31 @@ export async function paintFace(
   ctx.fillRect(0, 0, W, 120);
   ctx.fillStyle = "#f7961d";
   ctx.fillRect(0, 120, W, 10);
+  // A photo that can't be decoded leaves the badge as it was without one.
+  const photo = photoUrl ? await loadImage(photoUrl).catch(() => null) : null;
+  // The photo fits between the logo and MEMBER, which a minor's badge moves up.
+  const portrait = isMinor ? { top: 345, size: 260, logoTop: 140 } : { top: 370, size: 300, logoTop: 150 };
   try {
     const logo = await loadImage("/assets/collaboratory-logo.webp");
-    const lw = 760;
-    ctx.drawImage(logo, (W - lw) / 2, 200 - lift / 2, lw, (lw * logo.height) / logo.width);
+    const lw = photo ? 440 : 760;
+    ctx.drawImage(logo, (W - lw) / 2, photo ? portrait.logoTop : 200 - lift / 2, lw, (lw * logo.height) / logo.width);
   } catch {
     // The badge still reads without the logo.
+  }
+  if (photo) {
+    const r = portrait.size / 2;
+    const cy = portrait.top + r;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(W / 2, cy, r, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(photo, W / 2 - r, cy - r, portrait.size, portrait.size);
+    ctx.restore();
+    ctx.beginPath();
+    ctx.arc(W / 2, cy, r, 0, Math.PI * 2);
+    ctx.lineWidth = 10;
+    ctx.strokeStyle = "#241006";
+    ctx.stroke();
   }
   ctx.textAlign = "center";
   ctx.fillStyle = "#a86008";
@@ -123,12 +144,15 @@ export function MemberBadge({
   memberId,
   isMinor = false,
   sponsorName,
+  photo,
 }: {
   name: string;
   access: string;
   memberId: number;
   isMinor?: boolean;
   sponsorName?: string | null;
+  /** The member's profile photo as a data URL; without one the badge shows the full logo. */
+  photo?: string | null;
 }) {
   const { theme } = useAppearance();
   const slot = useRef<HTMLDivElement>(null);
@@ -136,12 +160,12 @@ export function MemberBadge({
   const [strap, setStrap] = useState<string>();
   useEffect(() => {
     let live = true;
-    void paintFace(name, access, memberId, isMinor, sponsorName).then((url) => live && setFace(url));
+    void paintFace(name, access, memberId, isMinor, sponsorName, photo).then((url) => live && setFace(url));
     void Promise.resolve(document.fonts?.ready).then(() => live && setStrap(paintStrap()));
     return () => {
       live = false;
     };
-  }, [name, access, memberId, isMinor, sponsorName]);
+  }, [name, access, memberId, isMinor, sponsorName, photo]);
   return (
     <div
       ref={slot}

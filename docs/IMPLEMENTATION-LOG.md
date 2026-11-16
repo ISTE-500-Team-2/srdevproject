@@ -15,6 +15,7 @@ This is a development record for the team, not a claim of sponsor approval or a 
 2. Membership plans have calendar-month durations; day passes cover one calendar day in `APP_TIME_ZONE`. Prices use exact decimal USD strings. These defaults need sponsor confirmation.
 3. Preserve issued plan snapshots when catalog prices/benefits change. Archive plans instead of deleting purchase/history records.
 4. Account authentication and facility access are separate. A suspended/revoked facility member can still sign in to see their account; server-side booking/check-in must refuse access.
+   *Updated 2026-11-15:* superseded on 2026-10-19 (c519866, e03fa9b and migration 019's `app_revoke_blocked_sessions` trigger). Suspending or revoking facility access now also ends the member's sessions and blocks sign-in until it is restored; server-side checks still refuse bookings and check-in.
 5. Staff can manage members. Only administrators can manage staff roles or publish policy versions. No self-demotion or self-access changes through the staff console.
 6. Issuing an entitlement records the corresponding payment history atomically. Staff may record a payment received externally; this application does not charge cards or execute refunds. Access grants are explicit staff decisions, not inferred from a payment flag.
 7. Mutating staff actions require a reason and record actor, timestamp, target, and before/after state. Audits are append-only through the application, not tamper-proof against database administrators.

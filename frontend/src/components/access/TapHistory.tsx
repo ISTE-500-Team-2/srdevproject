@@ -2,6 +2,8 @@
 // status.
 
 import { useState } from "react";
+import { MemberPhoto } from "../MemberPhoto";
+import { initials } from "../../lib/today";
 import { Link } from "react-router-dom";
 import { api, errorMessage } from "../../lib/api";
 import { useApi } from "../../lib/useApi";
@@ -20,6 +22,8 @@ export type Tap = {
   readerName: string;
   userId: number | null;
   memberName: string | null;
+  /** The member's photo version, so staff can see who tapped; null without one. */
+  photoVersion?: string | null;
   last4: string | null;
   allowed: boolean;
   reason: string;
@@ -146,7 +150,12 @@ export function TapHistory({
                 {t.allowed ? "Allowed" : "Denied"}
               </span>
             </div>
-            <p>
+            <p className="nfc-tap__who">
+              {t.memberName ? (
+                <MemberPhoto id={t.userId} version={t.photoVersion} className="nfc-tap__avatar">
+                  {initials(t.memberName)}
+                </MemberPhoto>
+              ) : null}
               {t.memberName ? (
                 <Link to={`/admin/access?member=${t.userId}`}>
                   {t.memberName}
