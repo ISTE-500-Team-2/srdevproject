@@ -1,5 +1,8 @@
-/** Use the recorded signer and waiver title, even after either account or policy is edited. */
-export function signedWaiverFileName(signature: string, waiverName: string): string {
+/**
+ * Use the recorded signer and waiver title, even after either account or policy is edited.
+ * The recorded signing date keeps a renewal of the same waiver from reusing the earlier copy's name.
+ */
+export function signedWaiverFileName(signature: string, waiverName: string, signedAt: string): string {
   const part = (value: string, fallback: string) => {
     const safe = value.normalize('NFC').replace(/[^\p{L}\p{M}\p{N}_-]+/gu, '_').replace(/^_+|_+$/g, '');
     // Bound the whole filename below common filesystem byte limits without splitting Unicode.
@@ -12,7 +15,8 @@ export function signedWaiverFileName(signature: string, waiverName: string): str
   };
   const signer = signature.replace(/\s*\(electronic agreement\)\s*$/i, '')
     .replace(/(^|\s|_|-)\p{L}/gu, initial => initial.toUpperCase());
-  return `SIGNED_${part(signer, 'Member')}_${part(waiverName, 'Signed_Waiver')}.txt`;
+  const date = /^\d{4}-\d{2}-\d{2}/.exec(signedAt)?.[0];
+  return `SIGNED_${part(signer, 'Member')}_${part(waiverName, 'Signed_Waiver')}${date ? `_${date}` : ''}.txt`;
 }
 
 /** The same immutable signed document is used for profile downloads and email attachments. */

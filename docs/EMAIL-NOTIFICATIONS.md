@@ -23,12 +23,12 @@ duplicate notices. Templates render escaped HTML and plain text with identities,
 address and a Profile preferences link. A signed-waiver event keeps the accepted
 text/version, signer's name and recorded signing time in its immutable payload.
 The signed-waiver email includes the completed document in its body and a UTF-8
-personalized attachment such as `SIGNED_Edwin_Chen_Equipment_Waiver.txt` matching the profile download, including the waiver
+personalized attachment such as `SIGNED_Edwin_Chen_Equipment_Waiver_2030-01-01.txt` matching the profile download, including the waiver
 name, version, electronic signature and recorded signing time. Attachments use
 Brevo's [base64 content format](https://developers.brevo.com/reference/send-transac-email).
 Signed copies follow the member's notification preference and require email
 delivery to be enabled in the backend environment.
-Filenames start with `SIGNED_`, use the signer and waiver title recorded at signing, replace spaces and
+Filenames start with `SIGNED_`, use the signer, waiver title and date recorded at signing, replace spaces and
 unsafe filename characters with underscores, and retain the `.txt` extension.
 
 Apply additive migrations `006_notifications.sql`, `007_email_confirmation.sql` and `009_brevo_delivery_events.sql` through the existing migration

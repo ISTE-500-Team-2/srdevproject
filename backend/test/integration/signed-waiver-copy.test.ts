@@ -47,7 +47,7 @@ test('signing dispatches the preserved copy to the member email once, even after
   const id=await sign('Emailed Copy Policy','Original terms with Unicode: Jos\u00e9.');
   const download=(await get(`/me/signed-waivers/${id}/copy`)).body.data;
   const expected=download.content;
-  assert.equal(download.fileName,'SIGNED_Edwin_Chen_Emailed_Copy_Policy.txt');
+  assert.match(download.fileName,/^SIGNED_Edwin_Chen_Emailed_Copy_Policy_\d{4}-\d{2}-\d{2}\.txt$/);
   const waiverId=(await pool.query('SELECT waiverid FROM user_waiver WHERE userwaiverid=$1',[id])).rows[0].waiverid;
   assert.equal((await post(`/me/waivers/${waiverId}/sign`,{accepted:true})).status,200);
   await pool.query("UPDATE waiver SET name='Renamed later',description='Edited after signing' WHERE waiverid=$1",[waiverId]);
@@ -61,7 +61,7 @@ test('signing dispatches the preserved copy to the member email once, even after
       const body=JSON.parse(String(init?.body));
       assert.deepEqual(body.to,[{email}]);
       assert.equal(body.attachment.length,1);
-      assert.equal(body.attachment[0].name,'SIGNED_Edwin_Chen_Emailed_Copy_Policy.txt');
+      assert.equal(body.attachment[0].name,download.fileName);
       assert.equal(Buffer.from(body.attachment[0].content,'base64').toString('utf8'),expected);
       return Response.json({messageId:'<signed-copy@test>'},{status:201});
     }) as typeof fetch);

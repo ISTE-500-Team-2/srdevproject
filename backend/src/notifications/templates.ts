@@ -537,7 +537,7 @@ ${p('', `This email was sent to ${e(context.recipientEmail)}. ${securityMail ? `
 
   const subject = `${context.senderName}: ${heading}`.replace(/[\r\n]+/g, ' ');
   const attachments = kind === 'waiver_signed' ? [{
-    name: signedWaiverFileName(field('signature'), field('waiverName')),
+    name: signedWaiverFileName(field('signature'), field('waiverName'), field('signedAt')),
     content: Buffer.from(signedWaiverCopyContent({
       waiverName: field('waiverName') || 'Signed agreement', waiverVersion: field('waiverVersion'),
       signature: field('signature'), signedAt: field('signedAt'), waiverText: documentText,
