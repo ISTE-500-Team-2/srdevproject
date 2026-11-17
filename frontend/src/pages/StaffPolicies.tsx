@@ -2,7 +2,7 @@
 // separate confirmed action.
 
 import { Archive, Check, Clock, Eye, FileText, History, Pencil, Plus, RefreshCw, TriangleAlert, Upload } from "lucide-react";
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
@@ -53,6 +53,9 @@ export function suggestVersion(previous: string | undefined, startsOn: string) {
   const numbered = previous.match(/^(.*?)(\d+)$/);
   return numbered ? numbered[1] + String(Number(numbered[2]) + 1) : startsOn;
 }
+
+/** Whether a drag carries files from outside the page, rather than text moved between fields. */
+const carriesFiles = (transfer: DataTransfer | null) => Boolean(transfer && Array.from(transfer.types).includes("Files"));
 
 /** Tomorrow at 9:00 in the browser's time, as a datetime-local value. */
 function tomorrowMorning() {
@@ -110,6 +113,20 @@ function PublishPanel({
       if (run === importRun.current) setImporting(false);
     }
   };
+  // A document dropped anywhere on the form fills the text box, on either tab. Dropped anywhere else,
+  // the browser would open the file in place of the app and lose the draft, so the rest of the
+  // screen ignores the drop.
+  useEffect(() => {
+    const ignore = (event: DragEvent) => {
+      if (carriesFiles(event.dataTransfer)) event.preventDefault();
+    };
+    window.addEventListener("dragover", ignore);
+    window.addEventListener("drop", ignore);
+    return () => {
+      window.removeEventListener("dragover", ignore);
+      window.removeEventListener("drop", ignore);
+    };
+  }, []);
   const starts = effectiveAt ? new Date(effectiveAt) : null;
   const startsLabel = starts && Number.isFinite(starts.getTime()) ? dateTime(starts) : "the start date";
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -144,7 +161,25 @@ function PublishPanel({
   };
   return (
     <Modal open width="panel" title={waiver ? `Update ${waiver.name}` : "New waiver"} dirty={dirty} dismissible={!busy && !importing} onClose={onClose}>
-      {(requestClose) => <form className="cw-form" onChangeCapture={() => setDirty(true)} onSubmit={(e) => void submit(e)}>
+      {(requestClose) => <form
+        className="cw-form"
+        onChangeCapture={() => setDirty(true)}
+        onSubmit={(e) => void submit(e)}
+        onDragOver={(e) => {
+          if (!carriesFiles(e.dataTransfer)) return;
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+        }}
+        onDrop={(e) => {
+          if (!carriesFiles(e.dataTransfer)) return;
+          e.preventDefault();
+          setDragging(false);
+          void importFile(e.dataTransfer.files[0]);
+        }}
+      >
         <div className="cw-two">
           <label className="cw-field">
             <span>Waiver</span>
@@ -199,16 +234,6 @@ function PublishPanel({
           {tab === "edit" ? (
             <textarea
               className={dragging ? "is-dragging" : ""}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDragging(true);
-              }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setDragging(false);
-                void importFile(e.dataTransfer.files[0]);
-              }}
               aria-describedby="waiver-text-hint"
               aria-labelledby="waiver-text-label"
               value={text}
@@ -248,7 +273,7 @@ function PublishPanel({
           <div className="cw-hinted">
             <label className="cw-field">
               <span>Approval reference</span>
-              <input name="approvalReference" maxLength={500} placeholder="e.g. Board vote Oct 21" />
+              <input name="approvalReference" required minLength={3} maxLength={500} placeholder="e.g. Board vote Oct 21" />
             </label>
             <small>Where this wording was approved.</small>
           </div>

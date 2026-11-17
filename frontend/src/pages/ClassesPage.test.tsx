@@ -278,7 +278,9 @@ test('nobody is pre-marked; saving needs a note and only sends chosen people', a
   expect((radio(panel, 'First Member', 'No show') as HTMLInputElement).checked).toBe(false);
   fireEvent.click(radio(panel, 'First Member', 'Attended'));
   await click('Save 1 change');
-  expect(screen.getByText(/Add a verification note/)).toBeTruthy();
+  // Announced, and focus goes to the field that blocked the save.
+  expect(screen.getByRole('alert').textContent).toMatch(/Add a verification note/);
+  expect(document.activeElement).toBe(screen.getByRole('textbox', { name: /Verification note/, description: /Add a verification note/ }));
   expect(calls('/classes/4/attendance', 'POST')).toHaveLength(0);
   fireEvent.change(screen.getByLabelText(/Verification note/), { target: { value: 'Checked sign-in sheet' } });
   await click('Save 1 change');
@@ -369,6 +371,22 @@ test('a room conflict on publish is shown on the room field and keeps the form',
   expect(screen.getByText(/Training Room is already booked for part of this time/)).toBeTruthy();
   expect(screen.getByText('Booked for part of this time')).toBeTruthy();
   expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('Evening laser');
+});
+
+test('a time problem is announced on the time fields, and Publish takes the user to the time to change', async () => {
+  await mount();
+  await click('Schedule class');
+  const ends = screen.getByLabelText('Ends');
+  fireEvent.change(ends, { target: { value: '17:00' } });
+  expect(screen.getByRole('alert').textContent).toBe('End time must be after the start time.');
+  expect(ends.getAttribute('aria-invalid')).toBe('true');
+  expect(screen.getByLabelText('Starts').getAttribute('aria-invalid')).toBe('false');
+  expect(ends.getAttribute('aria-describedby')).toBe(screen.getByRole('alert').id);
+  const publish = screen.getByRole('button', { name: 'Publish class' }) as HTMLButtonElement;
+  expect(publish.disabled).toBe(false);
+  await act(async () => { fireEvent.submit(publish.closest('form')!); });
+  expect(document.activeElement).toBe(ends);
+  expect(calls('/classes', 'POST')).toHaveLength(0);
 });
 
 test('cancelling sends the record revision and the staff reason', async () => {

@@ -2,7 +2,7 @@
 // submission.
 
 import { AlertTriangle, Info } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useId, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { Modal } from "../Modal";
 import { MemberSelect } from "../MemberSelect";
@@ -63,7 +63,8 @@ export function ScheduleClassDialog({
   const room = rooms.data?.find((r) => String(r.id) === form.roomId);
   const course = catalog.data?.find(c => String(c.id) === form.certificationId);
   const minutes = duration(form.date, form.start, form.end);
-  const timeProblem =
+  // Length problems are fixed at the end time; a start in the past at the start time.
+  const lengthProblem =
     minutes === null
       ? ""
       : minutes <= 0
@@ -72,9 +73,15 @@ export function ScheduleClassDialog({
           ? `This certification requires at least ${course.trainingMinutes} minutes of training.`
         : minutes > 480
           ? "Classes can run up to 8 hours."
-          : new Date(`${form.date}T${form.start}`).getTime() <= Date.now()
-            ? "Pick a start time in the future."
-            : "";
+          : "";
+  const startProblem =
+    minutes !== null && !lengthProblem && new Date(`${form.date}T${form.start}`).getTime() <= Date.now()
+      ? "Pick a start time in the future."
+      : "";
+  const timeProblem = lengthProblem || startProblem;
+  const timeNoteId = useId();
+  const startField = useRef<HTMLInputElement>(null);
+  const endField = useRef<HTMLInputElement>(null);
 
   function set<K extends keyof typeof form>(key: K, value: string) {
     setForm((current) => {
@@ -101,7 +108,11 @@ export function ScheduleClassDialog({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (timeProblem) return;
+    if (timeProblem) {
+      // Take the user to the time that needs changing; the message is announced as it appears.
+      (lengthProblem ? endField : startField).current?.focus();
+      return;
+    }
     setBusy(true);
     setError("");
     setRoomError("");
@@ -273,16 +284,40 @@ export function ScheduleClassDialog({
             </label>
             <label className="class-field">
               <span>Starts</span>
-              <input type="time" value={form.start} required step={900} onChange={(e) => set("start", e.target.value)} />
+              <input
+                ref={startField}
+                type="time"
+                value={form.start}
+                required
+                step={900}
+                aria-invalid={Boolean(startProblem)}
+                aria-describedby={timeNoteId}
+                onChange={(e) => set("start", e.target.value)}
+              />
             </label>
             <label className="class-field">
               <span>Ends</span>
-              <input type="time" value={form.end} required step={900} onChange={(e) => set("end", e.target.value)} />
+              <input
+                ref={endField}
+                type="time"
+                value={form.end}
+                required
+                step={900}
+                aria-invalid={Boolean(lengthProblem)}
+                aria-describedby={timeNoteId}
+                onChange={(e) => set("end", e.target.value)}
+              />
             </label>
           </div>
-          <small className={timeProblem ? "class-field__error" : "class-form__hint"}>
-            {timeProblem || (minutes ? `${durationText(minutes)} · classes can run up to 8 hours` : "")}
-          </small>
+          {timeProblem ? (
+            <small key="problem" id={timeNoteId} className="class-field__error" role="alert">
+              {timeProblem}
+            </small>
+          ) : (
+            <small key="hint" id={timeNoteId} className="class-form__hint">
+              {minutes ? `${durationText(minutes)} · classes can run up to 8 hours` : ""}
+            </small>
+          )}
         </fieldset>
         <fieldset disabled={busy}>
           <legend>
@@ -351,7 +386,7 @@ export function ScheduleClassDialog({
           </button>
           <button
             className="button button--primary"
-            disabled={busy || Boolean(timeProblem) || loading || Boolean(loadError)}
+            disabled={busy || loading || Boolean(loadError)}
           >
             {busy ? "Publishing…" : "Publish class"}
           </button>
