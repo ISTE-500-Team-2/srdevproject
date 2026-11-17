@@ -10,6 +10,7 @@ import { PermissionModel } from '../models/PermissionModel.js';
 import { enqueueNotification, getNotificationPreferences } from '../notifications/store.js';
 import { reminderDates } from '../notifications/scheduler.js';
 import {ANNUAL_VALIDITY_MS} from '../annualValidity.js';
+import { signedWaiverCopyContent, signedWaiverFileName } from '../signedWaiverCopy.js';
 
 export interface SignedWaiverRecord {
   id:number;waiverId:number;name:string;version:string;signedAt:Date;expiresAt:Date|null;approved:boolean;copyAvailable:boolean;
@@ -45,11 +46,10 @@ export class WaiverRecordsService {
     const p=row.payload;
     if(!p || !['waiverName','waiverVersion','waiverText','signature','signedAt'].every(k=>typeof p[k]==='string'))
       throw new AppError(409,'SIGNED_COPY_UNAVAILABLE','This legacy signature has no preserved signed-text copy. Ask staff for its original record.');
-    return {fileName:`signed-waiver-${signatureId}.txt`,contentType:'text/plain;charset=utf-8',content:[
-      'SIGNED WAIVER COPY',`Waiver: ${p.waiverName}`,`Version: ${p.waiverVersion}`,`Signed by: ${p.signature}`,
-      `Signed at: ${p.signedAt}`,'','Accepted policy text:',typeof p.completedWaiverText==='string' ? p.completedWaiverText : p.waiverText,'',
-      'This copy reproduces the text and electronic agreement recorded when signed. It does not certify current access eligibility.'
-    ].join('\n')};
+    return {fileName:signedWaiverFileName(p.signature,p.waiverName,p.signedAt),contentType:'text/plain;charset=utf-8',content:signedWaiverCopyContent({
+      waiverName:p.waiverName,waiverVersion:p.waiverVersion,signature:p.signature,signedAt:p.signedAt,
+      waiverText:p.waiverText,completedWaiverText:typeof p.completedWaiverText==='string' ? p.completedWaiverText : undefined,
+    })};
   }
   async expiry(actorId:number,userId:number,signatureId:number,expiresAt:string|null,expectedExpiry:string|null,reason:string) {
     return transaction(this.pool,async db=>{

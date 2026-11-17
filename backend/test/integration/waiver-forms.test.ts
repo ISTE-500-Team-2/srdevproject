@@ -89,6 +89,7 @@ test('completed values survive signing, retries, document edits, email opt-out a
   const email = renderNotification('waiver_signed', payload, { recipientEmail: member.user.email, senderName: 'The Collaboratory', senderEmail: 'studio@example.invalid', postalAddress: 'Test address' });
   assert.ok(email.textContent.includes(payload.completedWaiverText));
   assert.match(email.htmlContent, /Emergency Contact Phone: \+1 \(555\) 010-1234/);
+  assert.equal(Buffer.from(email.attachments![0]!.content, 'base64').toString('utf8'), copy);
   assert.equal((await post(`/me/waivers/${waiver.id}/sign`, body)).status, 200);
   await pool.query("UPDATE waiver SET description='Changed current text' WHERE waiverid=$1", [waiver.id]);
   assert.equal((await get(`/me/signed-waivers/${record.id}/copy`)).body.data.content, copy);

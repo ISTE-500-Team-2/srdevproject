@@ -20,6 +20,7 @@ export interface NotificationMessage {
   subject: string;
   htmlContent: string;
   textContent: string;
+  attachments?: Array<{ name: string; content: string }>;
 }
 
 export class BrevoTransport {
@@ -47,6 +48,7 @@ export class BrevoTransport {
           replyTo: { email: c.replyToEmail, name: c.senderName },
           to: [{ email: message.recipientEmail, ...(message.recipientName ? { name: message.recipientName } : {}) }],
           subject: message.subject, htmlContent: message.htmlContent, textContent: message.textContent,
+          ...(message.attachments?.length ? { attachment: message.attachments } : {}),
         }),
       });
       if (!response.ok) {

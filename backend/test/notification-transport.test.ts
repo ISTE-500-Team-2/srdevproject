@@ -14,9 +14,21 @@ test('Brevo sends required API payload and returns provider acceptance ID, witho
     const body = JSON.parse(String(init?.body));
     assert.deepEqual(body.replyTo,{email:'reply@example.com',name:'Studio'});
     assert.deepEqual(body.to,[{email:'member@example.com'}]);
+    assert.equal(Object.hasOwn(body,'attachment'),false);
     return Response.json({messageId:'<accepted@test>'},{status:201});
   }));
   assert.deepEqual(await transport.send(message),{messageId:'<accepted@test>'});
+});
+
+test('Brevo forwards signed waiver attachments as named base64 content', async () => {
+  const attachments = [{name:'signed-waiver.txt',content:Buffer.from('Signed by: Jos\u00e9\nAccepted terms.','utf8').toString('base64')}];
+  const transport = new BrevoTransport(config, fake(async (_url,init) => {
+    const body = JSON.parse(String(init?.body));
+    assert.deepEqual(body.attachment,attachments);
+    assert.equal(Buffer.from(body.attachment[0].content,'base64').toString('utf8'),'Signed by: Jos\u00e9\nAccepted terms.');
+    return Response.json({messageId:'<waiver@test>'},{status:201});
+  }));
+  assert.deepEqual(await transport.send({...message,attachments}),{messageId:'<waiver@test>'});
 });
 
 test('provider errors classify retry safety and never expose response bodies or fetch errors', async () => {

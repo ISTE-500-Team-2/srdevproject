@@ -1,3 +1,6 @@
+import { signedWaiverCopyContent, signedWaiverFileName } from '../signedWaiverCopy.js';
+import type { NotificationMessage } from './transport.js';
+
 /** Requirement IDs are sourced from the live team Drive sheet, not older Jira numbering. */
 const headings = {
   account_confirmation: 'Confirm your email address',
@@ -100,7 +103,7 @@ export interface NotificationContext {
   postalAddress: string;
   preferencesUrl?: string;
 }
-export interface RenderedNotification { subject: string; htmlContent: string; textContent: string }
+export type RenderedNotification = Pick<NotificationMessage, 'subject' | 'htmlContent' | 'textContent' | 'attachments'>;
 
 const escapeHtml = (value: string): string => value.replace(/[&<>"']/g, c => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -155,7 +158,7 @@ const copy: Record<NotificationKind, Copy> = {
   account_closed: { category: 'Account', status: 'Closed', tone: 'info',
     intro: () => 'If you didn’t expect this, please contact the studio.' },
   waiver_signed: { category: 'Waivers', status: 'Signed', tone: 'success',
-    intro: () => 'Your agreement has been recorded. Keep the signed copy below for your records. You can also download it from your profile.',
+    intro: () => 'Your agreement has been recorded. Your signed waiver is attached as a text file and included below for your records. You can also download it from your profile.',
     cta: ['View my signed waivers', '/profile'] },
   waiver_expiring: { category: 'Waivers', status: 'Expiring soon', tone: 'warning',
     intro: () => 'Sign it again before it expires to keep booking equipment and studios without a gap.',
@@ -533,5 +536,12 @@ ${p('', `This email was sent to ${e(context.recipientEmail)}. ${securityMail ? `
 </body></html>`;
 
   const subject = `${context.senderName}: ${heading}`.replace(/[\r\n]+/g, ' ');
-  return { subject, htmlContent: tagDark(htmlContent), textContent };
+  const attachments = kind === 'waiver_signed' ? [{
+    name: signedWaiverFileName(field('signature'), field('waiverName'), field('signedAt')),
+    content: Buffer.from(signedWaiverCopyContent({
+      waiverName: field('waiverName') || 'Signed agreement', waiverVersion: field('waiverVersion'),
+      signature: field('signature'), signedAt: field('signedAt'), waiverText: documentText,
+    }), 'utf8').toString('base64'),
+  }] : undefined;
+  return { subject, htmlContent: tagDark(htmlContent), textContent, ...(attachments ? { attachments } : {}) };
 }

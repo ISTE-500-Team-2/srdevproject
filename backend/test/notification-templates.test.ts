@@ -22,6 +22,7 @@ test('every template includes sender/recipient, postal address and preference po
     assert.ok(!result.htmlContent.includes('<script>'));
     assert.ok(!result.htmlContent.includes('<img src=x'));
     assert.ok(!result.textContent.includes('DO_NOT_RENDER'));
+    assert.equal(result.attachments?.length ?? 0,kind === 'waiver_signed' ? 1 : 0);
   }
 });
 
@@ -32,6 +33,11 @@ test('signed copy uses complete snapshot and rejects absent signature/text inste
   assert.ok(result.textContent.includes('Full original terms\nSecond paragraph'));
   assert.ok(result.textContent.includes('Jane & Doe'));
   assert.ok(result.htmlContent.includes('Jane &amp; Doe'));
+  const attachment = result.attachments?.[0];
+  assert.equal(attachment?.name,'SIGNED_Jane_Doe_Signed_Waiver_2030-01-01.txt');
+  const attachedCopy = Buffer.from(attachment!.content,'base64').toString('utf8');
+  assert.match(attachedCopy,/Version: v7\nSigned by: Jane & Doe\nSigned at: 2030-01-01T00:00:00Z/);
+  assert.ok(attachedCopy.includes('Full original terms\nSecond paragraph'));
   assert.throws(() => renderNotification('account_created', {}, {...context,preferencesUrl:'javascript:alert(1)'}), /Invalid/);
 });
 
@@ -44,6 +50,16 @@ test('a signed form sends back the completed copy, not the blank document, in HT
     assert.ok(content.includes('Emergency Contact Phone: +1 (555) 010-1234'));
     assert.ok(!content.includes('__________'));
   }
+  const attachedCopy = Buffer.from(result.attachments![0]!.content,'base64').toString('utf8');
+  assert.ok(attachedCopy.includes(completed));
+  assert.ok(!attachedCopy.includes('__________'));
+});
+
+test('attachment filename uses the full recorded signer and waiver title rather than the current recipient name', () => {
+  const result = renderNotification('waiver_signed', {waiverName:'Equipment Waiver',waiverText:'Accepted terms',
+    signature:'edwin chen (electronic agreement)',signedAt:'2030-01-01T00:00:00Z',waiverVersion:'v1'},
+    {...context,recipientName:'Different first name'});
+  assert.equal(result.attachments![0]!.name,'SIGNED_Edwin_Chen_Equipment_Waiver_2030-01-01.txt');
 });
 
 test('staff notices are written for staff and link to the staff workspace', () => {
