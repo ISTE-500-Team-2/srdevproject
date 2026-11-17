@@ -1,4 +1,8 @@
-import { EXPORT_ROW_SECTIONS, EXPORT_SUMMARY_SECTIONS } from "./sections.js";
+import {
+  EXPORT_ROW_SECTIONS,
+  EXPORT_SUMMARY_SECTIONS,
+  exportValue,
+} from "./sections.js";
 import type { ReportData } from "./types.js";
 
 function csvCell(s: string) {
@@ -27,7 +31,9 @@ export function reportCsv(data: ReportData): string {
   const headers = [...new Set(records.flatMap((row) => Object.keys(row)))];
   return [
     headers,
-    ...records.map((row) => headers.map((key) => String(row[key] ?? ""))),
+    ...records.map((row) =>
+      headers.map((key) => String(exportValue(row[key], data.timeZone) ?? "")),
+    ),
   ]
     .map((row) => row.map(csvCell).join(","))
     .join("\r\n");

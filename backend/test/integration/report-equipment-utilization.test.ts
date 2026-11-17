@@ -20,6 +20,11 @@ test('equipment utilization is zero without matching bookings and clips confirme
     await reserve(excluded, '2030-01-03T05:00:00Z', '2030-01-03T07:00:00Z');
     await reserve(excluded, '2030-01-02T08:00:00Z', '2030-01-02T09:00:00Z', 'cancelled');
     await reserve(excluded, '2030-01-02T12:00:00Z', '2030-01-02T13:00:00Z', 'pending');
+    // A machine retired before the window is gone; one retired during it keeps its bookings.
+    const retiredBefore = await machine('Retired before report'), retiredDuring = await machine('Retired during report');
+    await reserve(retiredDuring, '2030-01-02T08:00:00Z', '2030-01-02T09:00:00Z');
+    await bridge.pool.query(`INSERT INTO app_equipment_retirement(equipment_id,reason,retired_at)
+      VALUES($1,'Report test','2030-01-01T12:00:00Z'),($2,'Report test','2030-01-02T12:00:00Z')`, [retiredBefore, retiredDuring]);
     const response = await bridge.fetch('/api/admin/reports?from=2030-01-02&to=2030-01-02&period=daily');
     assert.equal(response.status, 200);
     const rows = (await response.json()).data.equipment;
@@ -34,5 +39,7 @@ test('equipment utilization is zero without matching bookings and clips confirme
     assert.equal(row.reservations, 3);
     assert.equal(row.bookedHours, 4);
     assert.ok(Math.abs(row.bookedUtilizationPercent - 100 * 4 / 24) < 1e-9);
+    assert.equal(rows.find((r: {id: number}) => r.id === retiredBefore), undefined, 'a machine retired before the window is not counted');
+    assert.equal(rows.find((r: {id: number}) => r.id === retiredDuring)?.bookedHours, 1);
   } finally { await bridge.close(); }
 });
