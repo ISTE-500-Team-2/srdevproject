@@ -20,7 +20,9 @@ export async function pdfText(bytes: Uint8Array): Promise<string> {
     for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber++) {
       const page = await document.getPage(pageNumber);
       const content = await page.getTextContent();
-      const text = content.items.map((item) => "str" in item ? item.str + (item.hasEOL ? "\n" : " ") : "").join("").trim();
+      // PDF.js already emits the spaces between runs as their own items, so adding one after
+      // every item would double them and put a space before punctuation after bold text.
+      const text = content.items.map((item) => "str" in item ? item.str + (item.hasEOL ? "\n" : "") : "").join("").trim();
       pages.push(text);
       page.cleanup();
       // Bound extraction too: a small compressed PDF can contain enormous text.
