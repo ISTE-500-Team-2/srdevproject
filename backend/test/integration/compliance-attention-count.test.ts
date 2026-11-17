@@ -69,7 +69,7 @@ test("members are only measured against training they hold, so never training is
   const baseline = await view();
   const certs = (
     await pool.query<{ certid: number }>(
-      `INSERT INTO certifications(certid,name) SELECT COALESCE(MAX(certid),0)+n,'Lapse fixture '||n FROM certifications,generate_series(1,2) n
+      `INSERT INTO certifications(certid,name) SELECT COALESCE(MAX(certid),0)+n,'Lapse fixture '||n FROM certifications,generate_series(1,3) n
        GROUP BY n RETURNING certid`,
     )
   ).rows.map((r) => r.certid);
@@ -88,7 +88,8 @@ test("members are only measured against training they hold, so never training is
   // Current on the first machine and never trained on the second: still fully current.
   await hold(current, certs[0]!, "active", "1 year");
   await hold(lapsed, certs[0]!, "active", "-1 day");
-  await hold(revoked, certs[1]!, "revoked", "1 year");
+  // Revoked with a renewal date still ahead: a lapse now, not one coming up.
+  await hold(revoked, certs[1]!, "revoked", "10 days");
   const report = await view();
   const row = (id: number) => report.users.find((u) => u.id === id)!;
   assert.equal(row(current).certificationCompliant, true);
@@ -98,6 +99,9 @@ test("members are only measured against training they hold, so never training is
   assert.equal(row(lapsed).certificationCompliant, false);
   assert.ok(row(lapsed).issues.some((i) => i.kind === "certification" && i.state === "expired"));
   assert.equal(row(revoked).certificationCompliant, false);
+  assert.deepEqual(row(revoked).issues.filter((i) => i.kind === "certification").map((i) => i.state), ["revoked"]);
+  const soon = await view({ expiresWithinDays: 30 });
+  assert.equal(soon.users.some((u) => u.id === revoked), false);
   // The Today page's "need training renewed" count rises only by the two real lapses.
   const needRenewal = (r: typeof report) => r.summary.userCount - r.summary.certificationCompliantUsers;
   assert.equal(needRenewal(report) - needRenewal(baseline), 2);
@@ -105,6 +109,8 @@ test("members are only measured against training they hold, so never training is
   const card = (id: number) => report.certificationBreakdown.find((c) => c.id === id)!;
   assert.deepEqual([card(certs[0]!).total, card(certs[0]!).compliant], [2, 1]);
   assert.deepEqual([card(certs[1]!).total, card(certs[1]!).compliant], [1, 0]);
+  // A certification nobody has taken yet keeps its card, at zero.
+  assert.deepEqual([card(certs[2]!).total, card(certs[2]!).compliant], [0, 0]);
   // Filtering to one certification still leaves people who never took it out of the lapses.
   const filtered = await view({ certificationId: certs[1]! });
   assert.equal(filtered.users.find((u) => u.id === current)!.certificationCompliant, true);

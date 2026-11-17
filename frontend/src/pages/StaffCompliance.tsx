@@ -31,7 +31,7 @@ function reportPath(filters: ComplianceFilters, format?: "csv") {
   return `/admin/compliance?${params}`;
 }
 
-/** "Not signed", "Expired Oct 2" or "Expires Nov 8", with the item's name. */
+/** "Not signed", "Expired Oct 2", "Revoked" or "Expires Nov 8", with the item's name. */
 function IssueTag({ issue }: { issue: ComplianceIssue }) {
   const date = issue.expiresAt ? shortDate(issue.expiresAt) : "";
   const what =
@@ -41,7 +41,9 @@ function IssueTag({ issue }: { issue: ComplianceIssue }) {
         : "Not trained"
       : issue.state === "expired"
         ? `Expired${date ? " " + date : ""}`
-        : `Expires${date ? " " + date : " soon"}`;
+        : issue.state === "revoked"
+          ? "Revoked"
+          : `Expires${date ? " " + date : " soon"}`;
   return (
     <span className={`cw-tag cw-tag--${issue.state === "expiring" ? "amber" : "red"}`}>
       {what} · {issue.name}

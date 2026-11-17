@@ -81,3 +81,26 @@ test("the Needs attention count stays the same on “Expiring in 30 days”", ()
   expect(reports.at(-1)).toContain("expiresWithinDays=30");
   expect(screen.getByRole("radio", { name: "Needs attention · 5" })).toBeTruthy();
 });
+
+test("revoked training reads as revoked, and a certification nobody holds yet still gets a card", () => {
+  const issues = [{ kind: "certification", name: "Laser cutting", state: "revoked", expiresAt: null }];
+  useApi.mockImplementation((path: string | null) => ({
+    data: path?.includes("compliance")
+      ? {
+          ...report,
+          users: { items: [{ ...report.users.items[0], issues }], nextOffset: null },
+          certificationBreakdown: [{ id: 9, name: "Router table", total: 0, compliant: 0, expiring: 0 }],
+        }
+      : null,
+    loading: false,
+    refreshing: false,
+    stale: false,
+    error: "",
+    reload: vi.fn(),
+  }));
+  render(<StaffCompliance />);
+  expect(screen.getByText("Revoked · Laser cutting")).toBeTruthy();
+  expect(screen.queryByText(/Not trained/)).toBeNull();
+  expect(screen.getByText("Router table")).toBeTruthy();
+  expect(screen.getByText("Nobody trained yet")).toBeTruthy();
+});

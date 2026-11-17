@@ -19,7 +19,7 @@ export interface ComplianceOptions {
 export interface ComplianceIssue {
   kind: "waiver" | "certification";
   name: string;
-  state: "missing" | "expired" | "expiring";
+  state: "missing" | "expired" | "revoked" | "expiring";
   expiresAt: string | null;
 }
 export interface ComplianceUser {
@@ -158,7 +158,9 @@ export class ComplianceReports {
           (uc.usercertid IS NOT NULL
             AND ((uc.renewaldate IS NOT NULL AND uc.renewaldate<NOW() AT TIME ZONE 'UTC')
               OR (c.enddate IS NOT NULL AND c.enddate<NOW() AT TIME ZONE 'UTC'))) AS expired,
-          (uc.usercertid IS NOT NULL AND $3::int IS NOT NULL
+          uc.status='revoked' AS revoked,
+          -- Revoked training is already a lapse, not one coming up.
+          (uc.usercertid IS NOT NULL AND uc.status='active' AND $3::int IS NOT NULL
             AND (CASE
               WHEN uc.renewaldate IS NULL THEN c.enddate
               WHEN c.enddate IS NULL THEN uc.renewaldate
@@ -195,7 +197,8 @@ export class ComplianceReports {
           array_agg(name ORDER BY name) FILTER (WHERE NOT compliant) AS missing,
           array_agg(name ORDER BY name) FILTER (WHERE expiring) AS expiring,
           jsonb_agg(jsonb_build_object('kind','certification','name',name,
-            'state',CASE WHEN NOT compliant AND expired THEN 'expired' WHEN NOT compliant THEN 'missing' ELSE 'expiring' END,
+            'state',CASE WHEN NOT compliant AND revoked THEN 'revoked' WHEN NOT compliant AND expired THEN 'expired'
+              WHEN NOT compliant THEN 'missing' ELSE 'expiring' END,
             'expiresAt',effective_expires_at AT TIME ZONE 'UTC') ORDER BY name)
             FILTER (WHERE NOT compliant OR (effective_expires_at IS NOT NULL
               AND effective_expires_at<=NOW() AT TIME ZONE 'UTC'+make_interval(days=>COALESCE($3::int,30)))) AS issues
@@ -244,11 +247,17 @@ export class ComplianceReports {
             COUNT(*) FILTER (WHERE compliant)::int AS compliant,
             COUNT(*) FILTER (WHERE expiring)::int AS expiring
             FROM waiver_status ws JOIN window_users fu ON fu.id=ws.userid GROUP BY waiverid,name,version) w),'[]'::json) AS "waiverBreakdown",
+        -- Every certification gets a card whenever anyone is in view, even one
+        -- nobody holds yet; its counts cover the people who hold it.
         COALESCE((SELECT json_agg(row_to_json(c) ORDER BY name)
-          FROM (SELECT certid AS id,name,COUNT(*)::int AS total,
-            COUNT(*) FILTER (WHERE compliant)::int AS compliant,
-            COUNT(*) FILTER (WHERE expiring)::int AS expiring
-            FROM certification_status cs JOIN window_users fu ON fu.id=cs.userid GROUP BY certid,name) c),'[]'::json) AS "certificationBreakdown",
+          FROM (SELECT rc.certid AS id,rc.name,COUNT(held.userid)::int AS total,
+            COUNT(held.userid) FILTER (WHERE held.compliant)::int AS compliant,
+            COUNT(held.userid) FILTER (WHERE held.expiring)::int AS expiring
+            FROM report_certifications rc
+            LEFT JOIN (SELECT cs.* FROM certification_status cs JOIN window_users fu ON fu.id=cs.userid) held
+              ON held.certid=rc.certid
+            WHERE EXISTS (SELECT 1 FROM window_users)
+            GROUP BY rc.certid,rc.name) c),'[]'::json) AS "certificationBreakdown",
         (SELECT COUNT(*)::int FROM filtered_users) AS "filteredCount"`;
     const row = (await this.db.query<ComplianceRow>(query, params)).rows[0]!;
     const summary = row.summary ?? {
