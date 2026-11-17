@@ -123,13 +123,14 @@ test("staff reports UI reads actual ledger instead of sample charts", async () =
   );
   const user = userEvent.setup();
   await user.click(await screen.findByRole("link", { name: "Reports" }));
-  await screen.findByRole("heading", { name: "Recorded revenue" });
-  expect(await screen.findByRole('heading',{name:'Membership trends'})).toBeTruthy();
-  expect(await screen.findByRole('heading',{name:'Notification delivery evidence'})).toBeTruthy();
-  expect(screen.getByRole('rowheader',{name:'Waiver & training expiration'})).toBeTruthy();
+  await screen.findByRole("heading", { name: "Revenue" });
+  expect(await screen.findByRole('heading',{name:/^Members by/})).toBeTruthy();
+  expect(await screen.findByRole('heading',{name:'Reminder emails'})).toBeTruthy();
+  expect(screen.getByRole('rowheader',{name:'Waiver & training expiry'})).toBeTruthy();
   const table = screen.getAllByRole("table")[0];
-  expect(within(table).getByText("cash")).toBeTruthy();
-  expect(within(table).getAllByText("$125.50")).toHaveLength(2);
+  expect(within(table).getByText("Cash")).toBeTruthy();
+  // Gross and net on the receipt's row, then again on the total row.
+  expect(within(table).getAllByText("$125.50")).toHaveLength(4);
   expect(screen.getByRole("button", { name: "Export PDF" })).toBeTruthy();
   expect(screen.queryByText(/Design preview: all charts/)).toBeNull();
 });

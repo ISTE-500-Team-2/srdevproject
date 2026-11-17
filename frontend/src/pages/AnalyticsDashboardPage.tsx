@@ -10,33 +10,33 @@ import {
   DoorOpen,
   Gauge,
   Info,
-  TrendingDown,
-  TrendingUp,
   UserPlus,
-  type LucideIcon,
 } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { Delta, Kpi } from "../components/Kpi";
 import { LoadState } from "../components/Management";
 import { KeptResults } from "../components/KeptResults";
 import { useApi } from "../lib/useApi";
 import { dollars, statusLabel, timeOnly, zonedDay } from "../lib/display";
 import { useFacilityZone } from "../lib/facilityZone";
 import {
+  comparison,
   earlierTotal,
   periodCoverage,
+  presetRange,
+  previousRange,
   revenuePoints,
-  shiftDay,
   visitPoints,
   weekdayCounts,
+  zoneName,
+  type Preset,
+  type Range,
   type RevenuePeriod,
   type RevenuePoint,
 } from "../lib/analytics";
 import type { Report } from "../lib/reportContracts";
 import "../assets/css/analyticsDashboard.css";
-
-type Range = { from: string; to: string; period: RevenuePeriod };
-type Preset = "week" | "month" | "30" | "90" | "custom";
 
 const PRESETS: { value: Preset; label: string }[] = [
   { value: "week", label: "This week" },
@@ -46,62 +46,8 @@ const PRESETS: { value: Preset; label: string }[] = [
   { value: "custom", label: "Custom dates" },
 ];
 
-/** "Eastern Time" rather than "America/New_York". */
-function zoneName(zone: string) {
-  try {
-    return (
-      new Intl.DateTimeFormat("en-US", { timeZone: zone, timeZoneName: "longGeneric" })
-        .formatToParts(new Date())
-        .find((part) => part.type === "timeZoneName")?.value ?? zone
-    );
-  } catch {
-    return zone;
-  }
-}
 const dayLabel = (day: string) =>
   new Date(day + "T12:00:00Z").toLocaleDateString([], { month: "short", day: "numeric", timeZone: "UTC" });
-
-const daysBetween = (from: string, to: string) =>
-  Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1;
-
-function presetRange(preset: Exclude<Preset, "custom">, today: string) {
-  if (preset === "week") {
-    const weekday = (new Date(today + "T00:00:00Z").getUTCDay() + 6) % 7;
-    return { from: shiftDay(today, -weekday), to: today };
-  }
-  if (preset === "month") return { from: today.slice(0, 8) + "01", to: today };
-  return { from: shiftDay(today, preset === "30" ? -29 : -89), to: today };
-}
-
-/**
- * What the range is compared with. "This week" through Tuesday compares with
- * Monday and Tuesday of last week, not with the weekend just before it; "This
- * month" through the 10th compares with the 1st to the 10th of last month.
- * Always by day, so each bar can be compared with exactly its own days.
- */
-function previousRange(range: { from: string; to: string }, preset: Preset): Range {
-  if (preset === "week") return { from: shiftDay(range.from, -7), to: shiftDay(range.to, -7), period: "daily" };
-  if (preset === "month") {
-    const start = new Date(range.from + "T00:00:00Z");
-    start.setUTCMonth(start.getUTCMonth() - 1);
-    const from = start.toISOString().slice(0, 10);
-    const sameDay = shiftDay(from, Number(range.to.slice(8)) - 1);
-    const monthEnd = shiftDay(range.from, -1);
-    return { from, to: sameDay < monthEnd ? sameDay : monthEnd, period: "daily" };
-  }
-  const length = daysBetween(range.from, range.to);
-  return { from: shiftDay(range.from, -length), to: shiftDay(range.from, -1), period: "daily" };
-}
-
-/** "vs last week" on the headline cards; "a week earlier" on a single bar. */
-function comparison(preset: Preset, range: { from: string; to: string }) {
-  if (preset === "week") return { unit: "last week", earlier: "a week earlier" };
-  if (preset === "month") return { unit: "last month", earlier: "a month earlier" };
-  const length = daysBetween(range.from, range.to);
-  // A one-day range is compared with "the previous day", not "the previous 1 days".
-  if (length === 1) return { unit: "the previous day", earlier: "a day earlier" };
-  return { unit: `the previous ${length} days`, earlier: `${length} days earlier` };
-}
 
 /** Day-by-day totals from the comparison report, in cents for money. */
 function byDay<T>(rows: T[], day: (row: T) => string, value: (row: T) => number) {
@@ -128,43 +74,6 @@ function classStats(classes: Report["classes"]) {
   const booked = held.reduce((n, c) => n + c.enrolled, 0);
   const came = held.reduce((n, c) => n + c.attended, 0);
   return { held: held.length, seats, filled, rate: seats ? filled / seats : null, booked, came };
-}
-
-function Delta({
-  value,
-  previous,
-  format,
-  unit,
-}: {
-  value: number | null;
-  previous?: number;
-  format: (n: number) => string;
-  unit: string;
-}) {
-  if (value === null) return <span className="kpi__delta">No earlier data</span>;
-  if (value === 0) return <span className="kpi__delta">Same as {unit}</span>;
-  // "+$998 vs the previous period" says less than "$0 in the previous period".
-  if (previous === 0)
-    return <span className="kpi__delta">{format(0)} {unit.startsWith("the ") ? `in ${unit}` : unit}</span>;
-  const Icon = value > 0 ? TrendingUp : TrendingDown;
-  return (
-    <span className={`kpi__delta kpi__delta--${value > 0 ? "up" : "down"}`}>
-      <Icon aria-hidden="true" /> {value > 0 ? "+" : "−"}
-      {format(Math.abs(value))} vs {unit}
-    </span>
-  );
-}
-
-function Kpi({ label, Icon, value, children }: { label: string; Icon: LucideIcon; value: string; children: React.ReactNode }) {
-  return (
-    <article className="kpi">
-      <span className="kpi__label">
-        <Icon aria-hidden="true" /> {label}
-      </span>
-      <strong>{value}</strong>
-      {children}
-    </article>
-  );
 }
 
 /** A tidy axis top: four equal, round steps that just clear the tallest bar. */
@@ -681,7 +590,7 @@ function AnalyticsDashboard({ zone }: { zone: string }) {
               ) : (
                 <Delta
                   value={classesBefore?.rate == null ? null : Math.round(classes.rate * 100) - Math.round(classesBefore.rate * 100)}
-                  format={(n) => `${n} pts`}
+                  format={(n) => `${n} ${n === 1 ? "point" : "points"}`}
                   unit={unit}
                 />
               )}

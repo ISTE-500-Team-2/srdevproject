@@ -60,6 +60,8 @@ const SHIPPED_ORDER = [
   'pages/admin/serviceNotices.css',
   'pages/admin/changeLog.css',
   'components/photoEditor.css',
+  'pages/reports.css',
+  'components/InfoTip.css',
 ];
 
 test('page styles keep their shipped order, ahead of the app and the global sheets', () => {
