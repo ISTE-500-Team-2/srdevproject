@@ -1,9 +1,9 @@
 // Equipment availability and booking actions shared by the catalog detail screens.
 
-import { useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, RefreshCw } from 'lucide-react';
-import { api, errorMessage } from '../../lib/api';
+import { api, ApiError, errorMessage } from '../../lib/api';
 import { editingFormRef } from '../../lib/editingForms';
 import { useApi } from '../../lib/useApi';
 import { Modal } from '../../components/Modal';
@@ -11,6 +11,7 @@ import { LoadState } from '../../components/Management';
 import { EquipmentPriceBreakdown } from '../../components/EquipmentPriceBreakdown';
 import type { Page } from '../../lib/staffContracts';
 import { zonedDay } from '../../lib/display';
+import { paidOnline } from '../../lib/reservationSchedule';
 import { equipmentRate, equipmentTime, maintenanceReasons, type EquipmentDetail, type EquipmentBooking, type ManagedEquipment, type MoveReview } from '../../lib/equipmentMaintenance';
 
 export function AvailabilityForm({ initial, onClose, onSaved }: { initial: EquipmentDetail; onClose: () => void; onSaved: (text: string) => void }) {
@@ -63,30 +64,54 @@ export function AvailabilityForm({ initial, onClose, onSaved }: { initial: Equip
 
 export function EquipmentBookings({ machine, onChanged }: { machine: EquipmentDetail; onChanged: (text: string) => void }) {
   const [selection, setSelection] = useState<{ booking: EquipmentBooking; action: 'move' | 'cancel' } | null>(null);
+  // Bumped when an action fails, since the list may be out of date: every loaded page reloads.
+  const [refreshKey, setRefreshKey] = useState(0);
   return <section className="eq-panel eq-bookings"><div className="eq-section-head"><h2>Upcoming bookings</h2><Link to={`/admin/reservations?equipmentId=${machine.id}`}>All reservations</Link></div>
     <p>{machine.status === 'available' ? 'Current and future bookings for this machine.' : 'Review each booking while this machine is unavailable. Nothing has been cancelled automatically.'}</p>
     <p className="eq-muted">Times in {machine.timeZone.replaceAll('_', ' ')}. Includes bookings beyond today and the estimated return date.</p>
-    <BookingPage machine={machine} offset={0} select={(booking, action) => setSelection({ booking, action })} />
-    {selection && <BookingAction machine={machine} {...selection} onClose={() => setSelection(null)} onChanged={onChanged} />}
+    <BookingPage machine={machine} offset={0} refreshKey={refreshKey} select={(booking, action) => setSelection({ booking, action })} />
+    {selection && <BookingAction machine={machine} {...selection} onClose={() => setSelection(null)} onChanged={onChanged} onFailed={() => setRefreshKey(k => k + 1)} />}
   </section>;
 }
-function BookingPage({ machine, offset, select }: { machine: EquipmentDetail; offset: number; select: (b: EquipmentBooking, action: 'move' | 'cancel') => void }) {
-  const result = useApi<Page<EquipmentBooking>>(`/admin/equipment/${machine.id}/bookings?offset=${offset}`, { retainOnReload: true });
+/** Bookings made, moved or cancelled elsewhere show up without reloading the page. */
+const BOOKINGS_REFRESH_MS = 15000;
+function BookingPage({ machine, offset, refreshKey, select }: { machine: EquipmentDetail; offset: number; refreshKey: number; select: (b: EquipmentBooking, action: 'move' | 'cancel') => void }) {
+  const result = useApi<Page<EquipmentBooking>>(`/admin/equipment/${machine.id}/bookings?offset=${offset}`, { retainOnReload: true, refreshInterval: BOOKINGS_REFRESH_MS });
+  const { reload } = result;
+  const refreshed = useRef(refreshKey);
+  useEffect(() => {
+    if (refreshed.current === refreshKey) return;
+    refreshed.current = refreshKey;
+    reload();
+  }, [refreshKey, reload]);
   const [more, setMore] = useState(false);
+  const shortTime = (value: string) => new Intl.DateTimeFormat('en-US', { timeZone: machine.timeZone, timeStyle: 'short' }).format(new Date(value));
   return <><LoadState {...result} />
     {offset === 0 && result.data?.items.length === 0 && <p className="eq-empty">No upcoming bookings to review.</p>}
-    {result.data?.items.map(b => <article className="eq-booking" key={b.id}>
-      <div><strong>{b.memberName ?? 'Member'}</strong><span>{equipmentTime(b.startTime, machine.timeZone)} – {new Intl.DateTimeFormat('en-US', { timeZone: machine.timeZone, timeStyle: 'short' }).format(new Date(b.endTime))}</span><small>Booking #{b.id}{b.isClass ? ' · Training class' : ''}</small></div>
-      {b.isClass ? <Link to="/admin/certifications?section=certifications">Manage training</Link> : machine.canManageBookings && <div className="eq-actions"><button className="button button--quiet" disabled={Date.parse(b.startTime) <= Date.now()} onClick={() => select(b, 'move')}>Move</button><button className="button button--quiet" onClick={() => select(b, 'cancel')}>Cancel booking</button></div>}
-    </article>)}
-    {result.data?.nextOffset != null && (more ? <BookingPage machine={machine} offset={result.data.nextOffset} select={select} /> : <button className="button button--quiet" onClick={() => setMore(true)}>Load more bookings</button>)}
+    {result.data?.items.map(b => {
+      // The server keeps online checkout bookings as bought: never moved, and not cancelled while checkout is open.
+      const awaitingPayment = paidOnline(b) && b.paymentStatus === 'pending';
+      const note = b.isClass ? '' : awaitingPayment
+        ? `Waiting for the member’s online payment, so it can’t be changed yet.${b.holdUntil ? ` The hold is released at ${shortTime(b.holdUntil)} if unpaid.` : ''}`
+        : paidOnline(b) ? 'Paid online, so it can’t be moved. Cancel and rebook with the member if needed; refunds aren’t automatic.' : '';
+      const noteId = note ? `eq-booking-${b.id}-note` : undefined;
+      return <article className="eq-booking" key={b.id}>
+        <div><strong>{b.memberName ?? 'Member'}</strong><span>{equipmentTime(b.startTime, machine.timeZone)} – {shortTime(b.endTime)}</span><small>Booking #{b.id}{b.isClass ? ' · Training class' : ''}</small>{note && <small id={noteId}>{note}</small>}</div>
+        {b.isClass ? <Link to="/admin/certifications?section=certifications">Manage training</Link> : machine.canManageBookings && <div className="eq-actions"><button className="button button--quiet" disabled={Date.parse(b.startTime) <= Date.now() || paidOnline(b)} aria-describedby={noteId} onClick={() => select(b, 'move')}>Move</button><button className="button button--quiet" disabled={awaitingPayment} aria-describedby={noteId} onClick={() => select(b, 'cancel')}>Cancel booking</button></div>}
+      </article>;
+    })}
+    {result.data?.nextOffset != null && (more ? <BookingPage machine={machine} offset={result.data.nextOffset} refreshKey={refreshKey} select={select} /> : <button className="button button--quiet" onClick={() => setMore(true)}>Load more bookings</button>)}
   </>;
 }
-function BookingAction({ machine, booking, action, onClose, onChanged }: { machine: EquipmentDetail; booking: EquipmentBooking; action: 'move' | 'cancel'; onClose: () => void; onChanged: (text: string) => void }) {
+/** Errors meaning the booking changed after the list loaded (moved, cancelled, ended or removed). */
+const OUTDATED = new Set(['STALE_RECORD', 'INVALID_STATUS', 'NOT_FOUND']);
+function BookingAction({ machine, booking, action, onClose, onChanged, onFailed }: { machine: EquipmentDetail; booking: EquipmentBooking; action: 'move' | 'cancel'; onClose: () => void; onChanged: (text: string) => void; onFailed: () => void }) {
   const catalog = useApi<ManagedEquipment[]>(action === 'move' ? '/admin/equipment' : null);
   const [target, setTarget] = useState('');
   const [review, setReview] = useState<MoveReview | null>(null);
   const [error, setError] = useState('');
+  // This window holds the booking as listed; once it is known to be out of date, only closing helps.
+  const [outdated, setOutdated] = useState(false);
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
   const perform = async (confirm: boolean) => {
@@ -99,21 +124,28 @@ function BookingAction({ machine, booking, action, onClose, onChanged }: { machi
       } });
       if (operation === 'review-move') setReview(result);
       else { onClose(); onChanged(`Booking ${action === 'cancel' ? 'cancelled' : 'moved'}. Confirmation follows the member’s email preferences.`); }
-    } catch (err) { setReview(null); setError(errorMessage(err)); }
+    } catch (err) {
+      setReview(null);
+      onFailed();
+      if (err instanceof ApiError && OUTDATED.has(err.code)) {
+        setOutdated(true);
+        setError('This booking changed after the list was loaded. The list is now up to date: close this window and choose the booking again.');
+      } else setError(errorMessage(err));
+    }
     finally { inFlight.current = false; setBusy(false); }
   };
   return <Modal open title={action === 'cancel' ? 'Cancel this booking?' : 'Move booking'} onClose={onClose} dismissible={!busy} dirty={!!target}>
     {requestClose => <div className="eq-workspace eq-booking-dialog">
       <p><strong>{booking.memberName}</strong> · {machine.name}</p><p>{equipmentTime(booking.startTime, machine.timeZone)} – {equipmentTime(booking.endTime, machine.timeZone)}</p>
       {action === 'cancel' ? <><p>This cancels only this booking. A cancellation confirmation follows the member’s email preferences.</p><div className="eq-private-note"><span className="eq-eyebrow">Confirmation summary</span><p>Your reservation for {machine.name} on {equipmentTime(booking.startTime, machine.timeZone)} has been cancelled.</p></div></> : <>
-        <LoadState {...catalog} /><label className="eq-field">Replacement machine<select aria-label="Replacement machine" value={target} disabled={busy} onChange={e => { setTarget(e.target.value); setReview(null); setError(''); }}><option value="">Choose equipment…</option>{catalog.data?.filter(m => m.status === 'available' && m.id !== machine.id).map(m => <option key={m.id} value={m.id}>{m.name} · {equipmentRate(m.rate)}</option>)}</select></label>
+        <LoadState {...catalog} /><label className="eq-field">Replacement machine<select aria-label="Replacement machine" value={target} disabled={busy || outdated} onChange={e => { setTarget(e.target.value); setReview(null); setError(''); }}><option value="">Choose equipment…</option>{catalog.data?.filter(m => m.status === 'available' && m.id !== machine.id).map(m => <option key={m.id} value={m.id}>{m.name} · {equipmentRate(m.rate)}</option>)}</select></label>
         <p className="eq-muted">The member and booking time stay the same. Eligibility and availability are checked before you confirm.</p>
         {review && <div className="eq-move-review" role="status"><h3>Move to {review.equipmentName}</h3><p><Check aria-hidden="true" /> Membership, certification and waivers checked</p><p><Check aria-hidden="true" /> Full time slot and 15-minute gap available</p><p><strong>{equipmentRate(review.oldRate)} → {equipmentRate(review.rate)}</strong></p><p>No payment is collected by this change. All checks run again when you confirm.</p><p>An updated confirmation follows the member’s email preferences.</p></div>}
       </>}
       {review && <EquipmentPriceBreakdown price={review.priceSnapshot} />}
       {error && <p className="form-error" role="alert">{error}</p>}
       <div className="eq-actions"><button className="button button--quiet" disabled={busy} onClick={requestClose}>Keep booking</button>
-        <button className="button button--primary" disabled={busy || (action === 'move' && !target)} onClick={() => void perform(action === 'cancel' || !!review)}>{busy ? 'Checking…' : action === 'cancel' ? 'Confirm cancellation' : review ? 'Confirm move' : 'Review move'}</button></div>
+        <button className="button button--primary" disabled={busy || outdated || (action === 'move' && !target)} onClick={() => void perform(action === 'cancel' || !!review)}>{busy ? 'Checking…' : action === 'cancel' ? 'Confirm cancellation' : review ? 'Confirm move' : 'Review move'}</button></div>
     </div>}
   </Modal>;
 }

@@ -271,7 +271,7 @@ export class ReservationModel {
     const before = await this.find(id, true);
     if (!before || (before.status !== 'confirmed' && before.status !== 'pending')) return null;
     if (before.paymentStatus === 'pending' && before.payerId != null)
-      throw new AppError(409, 'PAYMENT_WORKFLOW_REQUIRED', 'Cancel the pending Stripe checkout before cancelling this reservation.');
+      throw new AppError(409, 'PAYMENT_WORKFLOW_REQUIRED', 'This booking is waiting for the member’s online payment. It can be cancelled once they pay or the hold is released.');
     await this.db.query(
       `UPDATE reservation SET status='cancelled',statusdesc='Cancelled by staff' WHERE reservationid=$1`,
       [id],
