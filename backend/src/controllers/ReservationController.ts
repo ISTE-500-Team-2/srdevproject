@@ -92,6 +92,12 @@ export class ReservationController {
       data: page(rows, offset),
     });
   };
+  /** One reservation as staff see it now, so a form refused as out of date can catch up. */
+  staffGet = async (req: Request, res: Response) => {
+    const reservation = await new ReservationModel(this.pool, this.timeZone).find(positiveId(req.params.id));
+    if (!reservation) throw new AppError(404, "NOT_FOUND", "Reservation not found.");
+    res.json({ data: reservation });
+  };
   create = async (req: Request, res: Response) => {
     res.status(201).json({
       data: await new ReservationService(this.pool, this.timeZone, this.stripeConfig ? new StudioStripe(this.stripeConfig) : undefined).create(

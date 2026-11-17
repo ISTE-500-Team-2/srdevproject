@@ -6,12 +6,12 @@ import { Link } from "react-router-dom";
 import { CalendarClock, CircleX, Clock, CreditCard, Plus, TriangleAlert, Wrench, X } from "lucide-react";
 import { MemberSelect } from "../../MemberSelect";
 import { EquipmentPriceBreakdown } from "../../EquipmentPriceBreakdown";
-import { api, errorMessage } from "../../../lib/api";
+import { api, ApiError, errorMessage } from "../../../lib/api";
 import { editingFormRef } from "../../../lib/editingForms";
 import type { EquipmentPrice, LiveEquipment, Reservation } from "../../../lib/contracts";
 import { cents } from "../../../lib/display";
 import { useApi } from "../../../lib/useApi";
-import { addDays, formatTime, localHour, timeWindow } from "../../../lib/today";
+import { addDays, dayKey, formatTime, localHour, timeWindow } from "../../../lib/today";
 import {
   bookedCents,
   canChange,
@@ -285,6 +285,7 @@ export function ReservationEditor({
   now,
   today,
   onSaved,
+  onStale,
   onClose,
   titleRef,
 }: {
@@ -294,10 +295,14 @@ export function ReservationEditor({
   now: number;
   today: string;
   onSaved: (reservation: Reservation, created: boolean) => void;
-  onClose: () => void;
+  /** Someone else changed the reservation first; the editor has caught up with their version. */
+  onStale: () => void;
+  /** Leaves the form, with the newest copy of the reservation it was changing. */
+  onClose: (reservation?: Reservation) => void;
   titleRef?: Ref<HTMLHeadingElement>;
 }) {
-  const editing = from.reservation;
+  // The version a save must still match. A refused save catches up to the newer one.
+  const [editing, setEditing] = useState(from.reservation);
   const [userId, setUserId] = useState(editing ? String(editing.userId) : "");
   const [chosenId, setEquipmentId] = useState(String(editing?.equipmentId ?? from.equipmentId ?? ""));
   // Until staff picks one, the first available machine. Equipment may still be loading when the form opens.
@@ -323,7 +328,8 @@ export function ReservationEditor({
   const quote = useApi<EquipmentPrice | null>(equipmentId ? `/equipment/${equipmentId}/quote?hours=${hours}` : null);
   const unchanged =
     !!editing && String(editing.equipmentId) === equipmentId && Date.parse(editing.startTime) === start && reservationHours(editing) === hours;
-  const ready = !!userId && !!machine && !down && start !== null && fits && !timesUnknown && !!quote.data && !quote.loading && !unchanged;
+  const ready =
+    !!userId && !!machine && !down && start !== null && fits && !timesUnknown && !!quote.data && !quote.loading && !unchanged && (!editing || canChange(editing, now));
 
   // Another day keeps the same time of day.
   const chooseDay = (next: string) => {
@@ -357,7 +363,8 @@ export function ReservationEditor({
         roomId: null,
         startTime: new Date(start).toISOString(),
         endTime: new Date(start + hours * HOUR).toISOString(),
-        ...(editing ? { expectedRevision: editing.revision } : {}),
+        // Staff collect a new booking's payment at the desk rather than through online checkout.
+        ...(editing ? { expectedRevision: editing.revision } : { payAtDesk: true }),
       };
       const saved = editing
         ? await api<Reservation>(`/admin/reservations/${editing.id}`, { method: "PATCH", body })
@@ -365,6 +372,23 @@ export function ReservationEditor({
       onSaved(saved, !editing);
     } catch (err) {
       quote.reload();
+      if (editing && err instanceof ApiError && err.code === "STALE_RECORD") {
+        // Someone else saved first. Catch up to their version but keep staff's choices, so saving
+        // again replaces the new time on purpose instead of resending the old revision forever.
+        try {
+          const current = await api<Reservation>(`/admin/reservations/${editing.id}`);
+          setEditing(current);
+          onStale();
+          setError(
+            canChange(current, now)
+              ? `Someone else changed this reservation. It’s now ${current.equipmentName}, ${dayLabel(dayKey(Date.parse(current.startTime), zone), today)}, ${timeRange(current.startTime, current.endTime, zone)}. Your choices are kept: save again to use them.`
+              : "Someone else changed this reservation, and it can’t be changed here any more. Go back to see it.",
+          );
+          return;
+        } catch {
+          // Show the save's own error below.
+        }
+      }
       setError(errorMessage(err));
     } finally {
       setBusy(false);
@@ -376,7 +400,7 @@ export function ReservationEditor({
       <PanelHead
         eyebrow={editing ? `Reservation #${editing.id}` : "New reservation"}
         title={editing ? "Change time or machine" : "Book equipment"}
-        onClose={onClose}
+        onClose={() => onClose(editing)}
         closeLabel={editing ? "Back to the reservation" : "Discard new reservation"}
         titleRef={titleRef}
       />
@@ -495,6 +519,11 @@ export function ReservationEditor({
           </p>
         ) : null}
         <EquipmentPriceBreakdown price={quote.data} />
+        {!editing && quote.data && quote.data.totalCents > 0 ? (
+          <p className="res-panel__muted">
+            The member pays {cents(quote.data.totalCents)} at the desk. Record it in <Link to="/admin/payments">Payments</Link> when it’s collected.
+          </p>
+        ) : null}
         {editing && bookedCents(editing) != null && quote.data && quote.data.totalCents !== bookedCents(editing) ? (
           <p className="res-panel__muted">Booked at {cents(bookedCents(editing)!)}. The price is checked again when you save.</p>
         ) : null}
@@ -516,7 +545,7 @@ export function ReservationEditor({
             {editing ? <CalendarClock aria-hidden="true" /> : <Plus aria-hidden="true" />}
             {busy ? "Saving…" : editing ? "Save changes" : "Book"}
           </button>
-          <button type="button" className="button button--quiet" onClick={onClose}>
+          <button type="button" className="button button--quiet" onClick={() => onClose(editing)}>
             {editing ? "Back" : "Discard"}
           </button>
         </div>

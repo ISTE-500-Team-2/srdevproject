@@ -188,6 +188,8 @@ export class ReservationService {
       requestKey?: unknown;
       amountCents?: unknown;
       expectedPrice?: unknown;
+      /** Staff collecting payment at the desk: confirm now with the payment due, no online checkout. */
+      payAtDesk?: unknown;
     },
   ) {
     const hasEquipment =
@@ -213,6 +215,9 @@ export class ReservationService {
     const requestKey = input.requestKey ?? randomUUID();
     if (typeof requestKey !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestKey))
       throw new AppError(400, 'INVALID_INPUT', 'Invalid reservation request key.');
+    if (input.payAtDesk !== undefined && typeof input.payAtDesk !== 'boolean')
+      throw new AppError(400, 'INVALID_INPUT', 'payAtDesk must be true or false.');
+    const payAtDesk = input.payAtDesk === true;
     const billing = new EquipmentBilling(this.pool, this.stripe, this.timeZone);
     if (equipmentId) await billing.reconcile(userId);
     const created = await transaction(this.pool, async (db) => {
@@ -235,6 +240,8 @@ export class ReservationService {
           "STAFF_REQUIRED",
           "Only staff can book for another member.",
         );
+      if (payAtDesk && !actor.roles.some((role) => ["staff", "admin"].includes(role)))
+        throw new AppError(403, "STAFF_REQUIRED", "Only staff can take payment at the desk.");
       if (
         !(await new PermissionModel(db).allows(
           actor,
@@ -281,12 +288,16 @@ export class ReservationService {
       if (resource.kind === "equipment") reviewEquipmentPrice(price, input.expectedPrice);
       const amountCents = price?.totalCents ?? 0;
       if (amountCents > 0) {
-        stripeCheckout = !!this.stripe;
+        // Desk bookings are confirmed with their payment due, as every paid booking is without
+        // card checkout, so staff collect it in Payments instead of the hold expiring unpaid.
+        stripeCheckout = !!this.stripe && !payAtDesk;
         if (stripeCheckout) {
           if (start.getTime() < Date.now() + 30 * 60_000)
             throw new AppError(400, 'PAYMENT_TIME_REQUIRED', 'Choose a start at least 30 minutes away to allow time for payment.');
           billing.provider();
         } else if (input.expectedPrice === undefined) {
+          // A payment record saved without checkout needs the reviewed quote.
+          if (payAtDesk) throw new AppError(409, 'PRICE_CHANGED', 'Review the current price before booking.');
           billing.provider();
         }
       }
