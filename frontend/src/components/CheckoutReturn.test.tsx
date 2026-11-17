@@ -27,6 +27,10 @@ for (const kind of ['billing','pass']) {
     expect(screen.getByText(`/admin/members?${kind}=returned&member=42`)).toBeTruthy();
   });
 }
+test('a pass return keeps the checkout it came from so the page waits on that one', () => {
+  mount('/checkout-return?member=42&pass=returned&checkout=abc-123');
+  expect(screen.getByText('/membership?pass=returned&checkout=abc-123')).toBeTruthy();
+});
 test('stored context cannot send a member or a different signed-in staff account to another member', () => {
   rememberAssistedReturn(7,99); mount('/membership?billing=returned');
   expect(screen.getByText('/membership?billing=returned')).toBeTruthy();

@@ -19,7 +19,10 @@ import { StatusPill } from "./StatusPill";
 import { lastCancelDay } from "./dates";
 
 const closedBilling = ["canceled", "expired", "incomplete_expired"];
-const closedPass = ["cancelled", "expired"];
+// Staff revoke a pass for good; a suspended one stays listed as on hold.
+const closedPass = ["cancelled", "expired", "revoked"];
+// Subscription states where a charge failed and the member must update their card.
+const failedBilling = ["past_due", "unpaid", "incomplete", "paused"];
 
 /**
  * Keep unfinished or ongoing billing records visible; terminal subscriptions no longer offer
@@ -58,6 +61,9 @@ export function AccessSummary({ history, billing, passes, busy, act }: Props) {
     (m) => m.effectiveStatus === "scheduled",
   );
   const passToday = history.passes.find((p) => p.effectiveStatus === "active");
+  const nextPass = history.passes
+    .filter((p) => p.effectiveStatus === "scheduled" && p.validDate)
+    .sort((a, b) => a.validDate!.localeCompare(b.validDate!))[0];
   const records = openBilling(billing);
   const pending = records.find((r) => r.status === "pending");
   const recurring = records.find((r) => r.status !== "pending");
@@ -74,6 +80,7 @@ export function AccessSummary({ history, billing, passes, busy, act }: Props) {
         current={current}
         scheduled={scheduled}
         passToday={passToday}
+        nextPass={nextPass}
         recurring={recurring}
         pending={pending}
       />
@@ -193,9 +200,11 @@ export function AccessSummary({ history, billing, passes, busy, act }: Props) {
           <p>
             Your day pass for {shortDate(cancelling.validDate)} will be
             cancelled.{" "}
-            {cancelling.id.startsWith("manual:")
-              ? "If you paid at the front desk, staff will refund you the same way you paid."
-              : "We'll refund the full amount to your card."}
+            {cancelling.amountCents === 0
+              ? "This pass was free, so there's nothing to refund."
+              : cancelling.id.startsWith("manual:")
+                ? "If you paid at the front desk, staff will refund you the same way you paid."
+                : "We'll refund the full amount to your card."}
           </p>
         ) : null}
         <div className="membership-dialog__actions">
@@ -224,6 +233,7 @@ function Headline({
   current,
   scheduled,
   passToday,
+  nextPass,
   recurring,
   pending,
 }: {
@@ -231,6 +241,7 @@ function Headline({
   current?: Entitlement;
   scheduled?: Entitlement;
   passToday?: Entitlement;
+  nextPass?: Entitlement;
   recurring?: Billing;
   pending?: Billing;
 }) {
@@ -267,6 +278,12 @@ function Headline({
       ? `Your membership starts ${shortDate(scheduled.startsAt)}`
       : "Your membership starts soon";
     detail = scheduled.plan?.name ?? "Membership";
+  } else if (recurring && failedBilling.includes(recurring.status)) {
+    icon = <CreditCard aria-hidden="true" />;
+    tone = "warn";
+    pill = "Payment failed";
+    title = "Your last payment didn't go through";
+    detail = "Update your payment method to keep your membership.";
   } else if (pending || recurring) {
     icon = <Clock aria-hidden="true" />;
     tone = "warn";
@@ -275,6 +292,12 @@ function Headline({
     detail = pending
       ? "Finish checkout to start your membership."
       : "We're waiting for your payment to clear. This page updates on its own.";
+  } else if (nextPass) {
+    icon = <CalendarCheck aria-hidden="true" />;
+    tone = "ok";
+    pill = "Booked";
+    title = `Your next day pass is ${shortDate(nextPass.validDate!)}`;
+    detail = nextPass.plan?.name ?? "Day pass";
   }
   return (
     <div className="membership-status__main">
@@ -326,8 +349,11 @@ function BillingDetails({
       </div>
     );
   const ending = r.cancellationEffectiveAt;
+  // A failed charge has no next charge date to promise; the member needs to fix their card.
+  const failed = failedBilling.includes(r.status);
   let renewal: string;
-  if (ending && r.cancellationConfirmed)
+  if (failed) renewal = `${r.plan.name} · ${cents(r.amountCents)} a month · payment failed`;
+  else if (ending && r.cancellationConfirmed)
     renewal = `Auto-renew is off. Your last day is ${shortDate(ending, true)}.`;
   else if (ending)
     renewal = `You asked to stop auto-renew from ${shortDate(ending, true)}. We're confirming this with the payment provider.`;
@@ -341,13 +367,13 @@ function BillingDetails({
     <div className="membership-billing">
       <p className="membership-facts">
         <span>
-          <Repeat aria-hidden="true" />
+          {failed ? <CreditCard aria-hidden="true" /> : <Repeat aria-hidden="true" />}
           {renewal}
         </span>
       </p>
       <div className="membership-actions">
         <button
-          className="button button--quiet"
+          className={failed ? "button button--primary" : "button button--quiet"}
           disabled={busy}
           onClick={() => onPortal(r)}
         >
@@ -392,7 +418,9 @@ function PassRow({
   const deadlinePassed = new Date(p.cancelBy).getTime() < Date.now();
   let note: string;
   let action: string | null = null;
-  if (p.status === "pending") {
+  if (p.status === "suspended") {
+    note = "On hold. Please contact staff about this pass.";
+  } else if (p.status === "pending") {
     note = "Checkout not finished";
     action = "Cancel checkout";
   } else if (p.refundStatus && p.refundStatus !== "succeeded") {

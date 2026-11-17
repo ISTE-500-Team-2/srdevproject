@@ -61,7 +61,9 @@ test('combined pricing, TOS, paid passes, bounded NFC decisions and policy repla
   await pool.query("INSERT INTO reservation(userid,roomid,location,starttime,endtime,status) VALUES($1,$2,'Combined fixture room',(now()-interval '1 minute') AT TIME ZONE 'UTC',(now()+interval '30 minutes') AT TIME ZONE 'UTC','confirmed')",[member.user.id,room]);
   assert.equal((await scan()).body.data.allowed,false,'A checkout is not a paid entitlement');
   await billing.checkout(member.user.id,input);
-  assert.equal(session.success_url,`http://localhost/checkout-return?member=${member.user.id}&pass=returned`);
+  const checkoutId=(await pool.query('SELECT id FROM app_pass_checkout WHERE userid=$1',[member.user.id])).rows[0].id;
+  // The return names its own checkout so the page doesn't wait on an older abandoned one.
+  assert.equal(session.success_url,`http://localhost/checkout-return?member=${member.user.id}&pass=returned&checkout=${checkoutId}`);
   assert.equal(session.cancel_url,`http://localhost/checkout-return?member=${member.user.id}&pass=cancelled`);
   await billing.checkout(member.user.id,input);
   assert.equal(providerCalls,1,'A resumed checkout preserves its member-safe callback and session');
@@ -81,4 +83,20 @@ test('combined pricing, TOS, paid passes, bounded NFC decisions and policy repla
   const history=(await get('/me/signed-waivers')).body.data;
   assert.ok(history.some((w:any)=>w.waiverId===waivers.find((w:any)=>w.name==='Terms of Service').id));
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM app_pass_checkout')).rows[0].n,1);
+});
+test('a paid pass staff put on hold or revoked is listed with that status, not as paid',async()=>{
+  const pass=(await pool.query('SELECT id,pass_id FROM app_pass_checkout WHERE userid=$1',[member.user.id])).rows[0];
+  const listed=async()=>{
+    const r=await get('/me/billing/passes');assert.equal(r.status,200);
+    return r.body.data.find((p:any)=>p.id===pass.id).status;
+  };
+  const change=async(status:string)=>{
+    const {revision}=(await pool.query('SELECT revision FROM day_pass WHERE dayid=$1',[pass.pass_id])).rows[0];
+    const r=await post(`/admin/users/${member.user.id}/entitlements/day_pass/${pass.pass_id}/status`,{status,revision,reason:'Synthetic hold check'},staff);
+    assert.equal(r.status,200,JSON.stringify(r.body));
+  };
+  assert.equal(await listed(),'paid');
+  await change('suspended');assert.equal(await listed(),'suspended');
+  await change('active');assert.equal(await listed(),'paid');
+  await change('revoked');assert.equal(await listed(),'revoked');
 });
