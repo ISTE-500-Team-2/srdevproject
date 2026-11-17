@@ -175,6 +175,14 @@ const emailField = () => screen.getByPlaceholderText('Enter your email…');
 const passwordField = () => screen.getByPlaceholderText('Enter your password…');
 const submit = () => fireEvent.click(screen.getByRole('button', { name: 'Login' }));
 
+// Stepper's light preset draws a white top edge on the current step and Back; inline styles can't be themed
+// from dark.css.
+test('the sign-up steps take their top-edge highlight from the theme', () => {
+  const dialog = openSignup();
+  const stepper = dialog.querySelector<HTMLElement>('.signup-stepper')!;
+  expect(stepper.style.getPropertyValue('--stepper-tile-highlight')).toBe('var(--stepper-theme-tile-highlight)');
+});
+
 test('Remember me starts unchecked for shared computers', () => {
   signIn();
   expect(screen.getByRole('checkbox', { name: 'Remember me' }).getAttribute('aria-checked')).toBe('false');

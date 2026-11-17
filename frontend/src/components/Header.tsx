@@ -37,6 +37,7 @@ const cardNavStyle = {
   "--cn-panel": "var(--nav-panel)",
   "--cn-solid": "var(--nav-solid)",
   "--cn-edge": "var(--nav-edge)",
+  "--cn-highlight": "var(--nav-highlight)",
   "--cn-text": "var(--nav-text)",
   "--cn-muted": "var(--nav-muted)",
   "--cn-hover": "var(--nav-hover)",

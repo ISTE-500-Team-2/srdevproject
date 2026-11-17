@@ -248,21 +248,17 @@
     transform: none !important;
   }
 
+  /* The fill fades in with the hold instead of sweeping across. --hb-p is the hold's progress, set from
+     HoldButton.jsx every frame, so the fade can't be cut short by the site's reduced-motion reset of
+     transitions (which made the button look finished the moment it was pressed). */
   .hold-button__fill,
   .hold-button[data-direction='up'] .hold-button__fill {
     clip-path: inset(0);
-    opacity: 0;
-    transition: opacity var(--hb-release) ease;
+    opacity: var(--hb-p);
   }
 
   .hold-button__crest {
     display: none;
-  }
-
-  .hold-button[data-phase='holding'] .hold-button__fill,
-  .hold-button[data-phase='done'] .hold-button__fill {
-    opacity: 1;
-    transition: opacity var(--hb-hold) linear;
   }
 
   .hold-button__pulse {

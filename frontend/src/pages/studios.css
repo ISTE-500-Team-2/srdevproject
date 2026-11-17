@@ -548,7 +548,7 @@
 .studio-terms__policies legend { grid-column: 1 / -1; }
 .studio-terms__policy { display: grid; grid-template-columns: 18px 1fr; gap: 9px; border: 1px solid #cdbfb6; border-radius: 10px; padding: 10px 12px; background: #fff; cursor: pointer; }
 .studio-terms__policy:has(input:checked) { border-color: var(--espresso-2); box-shadow: inset 0 0 0 1px var(--espresso-2); }
-.studio-terms__policy:has(input:focus-visible) { outline: 2px solid var(--orange); outline-offset: 2px; }
+.studio-terms__policy:has(input:focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .studio-terms__policy input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--espresso-2); }
 .studio-terms__policy strong { display: block; font-size: var(--text-base-sm); line-height: 1.3; }
 .studio-terms__policy span span { display: block; margin-top: 2px; color: var(--ink-soft); font-size: var(--text-sm); line-height: 1.35; }
