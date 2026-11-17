@@ -1,10 +1,11 @@
 // Staff class schedule and session actions; roster and editing workflows open from the selected class.
 
 import { Ban, CalendarPlus, ClipboardCheck, MoreHorizontal, Plus, Search, Users } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { DateRail, SeatMeter } from "./ClassBits";
 import { byStart, hasStarted, isCancelled, seatTone, timeRange, type ClassRecord } from "./classData";
 import { shortDate } from "../../lib/display";
+import { onArrowKeys } from "../../lib/rovingFocus";
 
 type Tab = "upcoming" | "attendance" | "past" | "cancelled";
 
@@ -28,6 +29,7 @@ export function ClassSchedule({
 }) {
   const [tab, setTab] = useState<Tab>("upcoming");
   const [query, setQuery] = useState("");
+  const ids = useId();
   const groups: Record<Tab, ClassRecord[]> = {
     upcoming: classes.filter((c) => !isCancelled(c) && !hasStarted(c)).sort(byStart),
     attendance: classes.filter((c) => !isCancelled(c) && (pending[c.id] ?? 0) > 0).sort(byStart),
@@ -93,13 +95,16 @@ export function ClassSchedule({
         </div>
       ) : null}
 
-      <div className="class-tabs" role="tablist" aria-label="Class lists">
+      <div className="class-tabs" role="tablist" aria-label="Class lists" onKeyDown={onArrowKeys}>
         {tabs.map(([key, label]) => (
           <button
             key={key}
+            id={`${ids}-tab-${key}`}
             type="button"
             role="tab"
             aria-selected={tab === key}
+            aria-controls={`${ids}-panel`}
+            tabIndex={tab === key ? 0 : -1}
             className={key === "attendance" && groups.attendance.length ? "class-tab class-tab--attention" : "class-tab"}
             onClick={() => setTab(key)}
           >
@@ -109,7 +114,7 @@ export function ClassSchedule({
         ))}
       </div>
 
-      <div className="class-table" role="tabpanel">
+      <div className="class-table" role="tabpanel" id={`${ids}-panel`} aria-labelledby={`${ids}-tab-${tab}`}>
         <div className="class-table__row class-table__head" aria-hidden="true">
           <span>Date</span>
           <span>Class</span>
@@ -171,10 +176,22 @@ function ScheduleRow({
 }) {
   const [menu, setMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  // Choosing an item hands focus back to "More actions" first, so a dialog it opens returns there.
+  const choose = (action: () => void) => {
+    trigger.current?.focus();
+    setMenu(false);
+    action();
+  };
   useEffect(() => {
     if (!menu) return;
+    // An opened menu takes focus, as screen readers expect, and the arrow keys move within it.
+    menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
     const close = (event: Event) => {
-      if (event instanceof KeyboardEvent ? event.key === "Escape" : !menuRef.current?.contains(event.target as Node)) setMenu(false);
+      if (event instanceof KeyboardEvent ? event.key === "Escape" : !menuRef.current?.contains(event.target as Node)) {
+        if (event instanceof KeyboardEvent && menuRef.current?.contains(document.activeElement)) trigger.current?.focus();
+        setMenu(false);
+      }
     };
     document.addEventListener("mousedown", close);
     document.addEventListener("keydown", close);
@@ -201,12 +218,20 @@ function ScheduleRow({
       <span>
         <span className={`status-pill status-pill--${status.tone}`}>{status.label}</span>
       </span>
-      <div className="class-table__actions" ref={menuRef}>
+      <div
+        className="class-table__actions"
+        ref={menuRef}
+        onBlur={(event) => {
+          // Tabbing out of an open menu closes it.
+          if (menu && !event.currentTarget.contains(event.relatedTarget as Node | null)) setMenu(false);
+        }}
+      >
         <button type="button" className="button button--quiet button--small" aria-label={`Roster for ${c.title}`} onClick={() => onRoster(c)}>
           <Users aria-hidden="true" />
           Roster
         </button>
         <button
+          ref={trigger}
           type="button"
           className="button button--quiet button--small button--icon"
           aria-label={`More actions for ${c.title}`}
@@ -217,15 +242,13 @@ function ScheduleRow({
           <MoreHorizontal aria-hidden="true" />
         </button>
         {menu ? (
-          <div className="class-menu" role="menu">
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setMenu(false);
-                onScheduleAgain(c);
-              }}
-            >
+          <div
+            className="class-menu"
+            role="menu"
+            aria-label={`Actions for ${c.title}`}
+            onKeyDown={(event) => onArrowKeys(event, { choose: false })}
+          >
+            <button type="button" role="menuitem" tabIndex={-1} onClick={() => choose(() => onScheduleAgain(c))}>
               <CalendarPlus aria-hidden="true" />
               Schedule again…
             </button>
@@ -233,11 +256,9 @@ function ScheduleRow({
               <button
                 type="button"
                 role="menuitem"
+                tabIndex={-1}
                 className="class-menu__danger"
-                onClick={() => {
-                  setMenu(false);
-                  onCancel(c);
-                }}
+                onClick={() => choose(() => onCancel(c))}
               >
                 <Ban aria-hidden="true" />
                 Cancel class…
