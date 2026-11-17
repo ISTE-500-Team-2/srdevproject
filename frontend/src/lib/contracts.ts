@@ -71,6 +71,8 @@ export interface LiveEquipment extends Omit<Equipment, 'rate'> {
   canReserve: boolean;
   /** One code per reason in `availability`, in the same order. Older servers omit it. */
   reasonCodes?: string[];
+  /** False when card checkout is off and priced bookings are paid at the front desk. Older servers omit it. */
+  cardCheckout?: boolean;
 }
 export interface Reservation {
   amountCents?: number | null;

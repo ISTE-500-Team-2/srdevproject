@@ -249,6 +249,9 @@ test('React → Express controllers/models → PostgreSQL: login, save, refresh,
     { timeout: 20000 },
   );
   await user.click(screen.getByRole('button', { name: 'Cancel reservation' }));
+  await user.click(
+    within(screen.getByRole('dialog', { name: 'Cancel this reservation?' })).getByRole('button', { name: 'Cancel reservation' }),
+  );
   await screen.findByText('Reservation cancelled.', {}, { timeout: 20000 });
   const cancelled = await bridge.pool.query(
     "SELECT COUNT(*)::int AS count FROM reservation WHERE status='cancelled'",

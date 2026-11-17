@@ -16,7 +16,7 @@ import type { EquipmentPrice, LiveEquipment, Reservation } from '../lib/contract
 import { EquipmentPriceBreakdown } from '../components/EquipmentPriceBreakdown';
 import { useApi } from '../lib/useApi';
 import { reservationInput } from '../lib/reservationInput';
-import { cents, dateTime, shortDate, timeOnly } from "../lib/display";
+import { cents, dateTime, localInput, shortDate, timeOnly } from "../lib/display";
 
 export function EquipmentPage() {
   const {user}=useAuth();
@@ -33,6 +33,8 @@ export function EquipmentPage() {
   const errorRef = useRef<HTMLParagraphElement>(null);
   const [selectedGroup, setSelectedGroup] = useState<{type: string; machines: LiveEquipment[]} | null>(null);
   const [selected, setSelected] = useState<LiveEquipment | null>(null);
+  // The booking a member asked to cancel, waiting for them to confirm.
+  const [cancelling, setCancelling] = useState<Reservation | null>(null);
   useEffect(() => {
     if (!selected) return;
     const reload = () => catalog.reload();
@@ -51,11 +53,14 @@ export function EquipmentPage() {
   // it is stale until the new one lands, and can't be booked against.
   const quote = useApi<EquipmentPrice | null>(liveSelected ? `/equipment/${liveSelected.id}/quote?hours=${duration}` : null, {retainOnChange: true});
   const totalCents = quote.data?.totalCents ?? null;
+  // Without card checkout, a priced booking is confirmed at once and paid at the front desk.
+  const payOnline = liveSelected?.cardCheckout !== false;
   const returnId = Number(params.get('reservation'));
   const returnedBooking = bookings.data?.find(item => item.id === returnId);
-  const bookingBlockReason = (item: Reservation) => {
+  /** The machine, when the member's own booking can't be paid for until they can book it again. */
+  const blockedMachine = (item: Reservation) => {
     const machine = catalog.data?.find(equipment => equipment.id === item.equipmentId);
-    return item.userId === user?.id && machine?.canReserve === false ? machine.availability : '';
+    return item.userId === user?.id && machine?.canReserve === false ? machine : undefined;
   };
   const [pastOpen, setPastOpen] = useState(true);
   const [showCancelled, setShowCancelled] = useState(false);
@@ -67,9 +72,14 @@ export function EquipmentPage() {
   const more = listCapped ? '+' : '';
   const machineFor = (item: Reservation) =>
     item.equipmentId == null ? undefined : catalog.data?.find(equipment => equipment.id === item.equipmentId);
+  // Only a live card checkout settles without the member doing anything, so only it is polled, and
+  // only while the tab is shown. Front-desk balances also read 'pending', but have no payer.
   useEffect(() => {
-    if (!bookings.data?.some(item => item.paymentStatus === 'pending')) return;
-    const timer = window.setInterval(bookings.reload, 5000);
+    const at = Date.now();
+    const checkingOut = bookings.data?.some(item => item.paymentStatus === 'pending' && item.payerId != null
+      && time(item.endTime) > at && (!item.holdUntil || time(item.holdUntil) > at));
+    if (!checkingOut) return;
+    const timer = window.setInterval(() => { if (document.visibilityState !== 'hidden') bookings.reload(); }, 5000);
     return () => window.clearInterval(timer);
   }, [bookings.data]);
   const equipment = (catalog.data ?? []).filter(
@@ -155,6 +165,7 @@ export function EquipmentPage() {
         method: 'POST',
         ...(forOther && item ? { body: { expectedRevision: item.revision } } : {}),
       });
+      setCancelling(null);
       bookings.reload();
       setToast('Reservation cancelled.');
     } catch (err) {
@@ -195,11 +206,6 @@ export function EquipmentPage() {
         {catalog.error ? (
           <p role="alert" className="form-error">
             {catalog.error} <button onClick={catalog.reload}>Retry</button>
-          </p>
-        ) : null}
-        {!selected && error ? (
-          <p ref={errorRef} tabIndex={-1} role="alert" className="form-error">
-            {error}
           </p>
         ) : null}
         {catalog.loading ? <EquipmentTilesLoading /> : <div className="equipment-grid">
@@ -245,7 +251,12 @@ export function EquipmentPage() {
         {params.get('payment') === 'cancelled' && <p role="status" className="form-notice">
           Checkout was closed. Payment is still required to confirm your reservation. Resume payment or cancel the checkout below.
         </p>}
-        {error && !selected && <p role="alert" className="form-error">{error}</p>}
+        {/* Paying and cancelling happen in this list, so their errors show (once) here. */}
+        {error && !selected && !cancelling ? (
+          <p ref={errorRef} tabIndex={-1} role="alert" className="form-error">
+            {error}
+          </p>
+        ) : null}
         {bookings.loading ? <BookingsLoading /> : null}
         {bookings.error ? (
           <p role="alert" className="form-error">
@@ -264,14 +275,14 @@ export function EquipmentPage() {
           {sortedBookings.upcoming.length ? (
             <div className="booking-list">
               {sortedBookings.upcoming.map(item => {
-                const view = describeBooking(item, now, user?.id, bookingBlockReason(item));
+                const view = describeBooking(item, now, user?.id, blockedMachine(item));
                 return (
                   <BookingRow key={item.id} item={item} view={view} machine={machineFor(item)} userId={user?.id} now={now} card>
                     {view.action === 'pay' ? <>
                       <button className="button button--quiet" disabled={busy} onClick={() => void checkoutAction(item.id, true)}>Cancel checkout</button>
-                      <button className="button button--primary" disabled={busy || !!bookingBlockReason(item)} onClick={() => void checkoutAction(item.id)}>Pay {money(item.amountCents ?? 0)}</button>
+                      <button className="button button--primary" disabled={busy || !!blockedMachine(item)} onClick={() => void checkoutAction(item.id)}>Pay {money(item.amountCents ?? 0)}</button>
                     </> : view.action === 'cancel' ? (
-                      <button className="button button--quiet" disabled={busy} onClick={() => void cancel(item.id)}>Cancel reservation</button>
+                      <button className="button button--quiet" disabled={busy} onClick={() => { setError(''); setToast(null); setCancelling(item); }}>Cancel reservation</button>
                     ) : null}
                   </BookingRow>
                 );
@@ -296,7 +307,7 @@ export function EquipmentPage() {
             </div>
             <div className="panel booking-history" id="past-bookings" hidden={!pastOpen}>
               {(showCancelled ? byStartDescending([...sortedBookings.past, ...sortedBookings.cancelled]) : sortedBookings.past).map(item => (
-                <BookingRow key={item.id} item={item} view={describeBooking(item, now, user?.id, '')} machine={machineFor(item)} userId={user?.id} now={now} />
+                <BookingRow key={item.id} item={item} view={describeBooking(item, now, user?.id, undefined)} machine={machineFor(item)} userId={user?.id} now={now} />
               ))}
               {!showCancelled && !sortedBookings.past.length ? <p className="booking-history__empty">Only cancelled or expired bookings so far.</p> : null}
               {listCapped ? <p className="booking-history__empty">Only your {BOOKING_LIST_LIMIT} most recent bookings are listed.</p> : null}
@@ -308,7 +319,8 @@ export function EquipmentPage() {
         open={!!selected}
         title={selectedGroup ? 'Reserve ' + selectedGroup.type : 'Reserve equipment'}
         onClose={() => {
-          if (!busy) setSelected(null);
+          // A booking error belongs to the dialog; don't leave it behind under My reservations.
+          if (!busy) { setSelected(null); setError(''); }
         }}
       >
         {selected ? (
@@ -320,7 +332,7 @@ export function EquipmentPage() {
             <div className="equipment-booking-layout">
             <section aria-labelledby="equipment-time-heading">
               <h3 className="equipment-booking-step" id="equipment-time-heading"><span>1</span> Start date</h3>
-            <StartTimePicker calendar occupied={liveSelected?.occupied} unavailable={liveSelected?.status !== 'available'} minLeadMinutes={totalCents != null && totalCents > 0 ? 30 : 0} name="start" hours={duration} onPick={() => setError('')}>
+            <StartTimePicker calendar occupied={liveSelected?.occupied} unavailable={liveSelected?.status !== 'available'} minLeadMinutes={payOnline && totalCents != null && totalCents > 0 ? 30 : 0} name="start" hours={duration} onPick={() => setError('')}>
               <label className="form-field">
                 <span>Duration</span>
                 <select name="duration" value={duration} onChange={e=>setDuration(Number(e.target.value))}>
@@ -347,11 +359,7 @@ export function EquipmentPage() {
             </div>
             {!liveSelected?.canReserve && !canBookForOthers ? (
               <p className="form-notice">
-                {liveSelected?.availability}.{' '}
-                <Link to="/certifications">
-                  Review your waivers and certifications
-                </Link>
-                .
+                {liveSelected?.availability}.{liveSelected ? blockedHelp(liveSelected) : null}
               </p>
             ) : null}
             {liveSelected?.rate === null && <p className="form-notice">Rate not set. Contact staff before reserving.</p>}
@@ -362,7 +370,9 @@ export function EquipmentPage() {
               {' '}Membership, training and waivers are checked when you book. Contact staff about refunds.
             </p>
             {totalCents !== null && <p className="equipment-payment-note" aria-live="polite" aria-busy={quote.stale || undefined}>
-              {totalCents > 0 ? 'Continue to secure checkout. Your reservation is confirmed after payment succeeds.' : 'No payment is required for this equipment.'}
+              {totalCents <= 0 ? 'No payment is required for this equipment.'
+                : payOnline ? 'Continue to secure checkout. Your reservation is confirmed after payment succeeds.'
+                : 'Your reservation is confirmed when you book. Payment is recorded at the front desk.'}
             </p>}
             {error ? (
               <p ref={errorRef} tabIndex={-1} role="alert" className="form-error">
@@ -375,10 +385,37 @@ export function EquipmentPage() {
               disabled={busy || liveSelected?.status !== 'available' || quote.loading || quote.stale || !!quote.error || totalCents === null || (!canBookForOthers && !liveSelected?.canReserve)}
             >
               <CalendarDays aria-hidden="true" />{' '}
-              {busy ? 'Preparing checkout…' : totalCents ? `Pay ${money(totalCents)} & confirm reservation` : 'Confirm reservation'}
+              {busy ? (totalCents && payOnline ? 'Preparing checkout…' : 'Confirming reservation…')
+                : totalCents && payOnline ? `Pay ${money(totalCents)} & confirm reservation` : 'Confirm reservation'}
             </button>
           </form>
         ) : null}
+      </Modal>
+      <Modal
+        open={!!cancelling}
+        width="compact"
+        title="Cancel this reservation?"
+        dismissible={!busy}
+        onClose={() => {
+          if (!busy) { setCancelling(null); setError(''); }
+        }}
+      >
+        {requestClose => cancelling ? <>
+          <p><strong>{cancelling.equipmentName}</strong></p>
+          <p>{dayLabel(cancelling.startTime, now)}, {timeRange(cancelling.startTime, cancelling.endTime)}</p>
+          <p>{cancelNote(cancelling)}</p>
+          {error ? (
+            <p ref={errorRef} tabIndex={-1} role="alert" className="form-error">
+              {error}
+            </p>
+          ) : null}
+          <div className="management-actions">
+            <button type="button" className="button button--quiet" disabled={busy} onClick={requestClose}>Keep reservation</button>
+            <button type="button" className="button button--danger" disabled={busy} onClick={() => void cancel(cancelling.id)}>
+              {busy ? 'Cancelling…' : 'Cancel reservation'}
+            </button>
+          </div>
+        </> : null}
       </Modal>
       <Toast message={toast} onClose={() => setToast(null)} />
     </div>
@@ -412,8 +449,30 @@ function splitBookings(items: Reservation[], now: number, userId: number | undef
 
 type BookingView = { status: string; tone: 'ok' | 'warn' | 'neutral'; note?: ReactNode; action?: 'pay' | 'cancel'; due?: boolean };
 
+/** What the member can do about why a machine can't be booked, chosen by each reason's code. */
+function blockedHelp(machine: LiveEquipment): ReactNode {
+  const codes = machine.reasonCodes ?? [];
+  const back = machine.outages?.find(outage => !outage.endedAt)?.expectedBack;
+  return <>
+    {codes.includes('RESOURCE_UNAVAILABLE') && back && back >= localInput().slice(0, 10) ? <>{' '}Expected back {shortDate(back)}.</> : null}
+    {codes.includes('MEMBERSHIP_REQUIRED') ? <>{' '}<Link to="/membership">Get a membership or day pass</Link>.</> : null}
+    {codes.some(code => ['CERTIFICATION_REQUIRED', 'WAIVER_REQUIRED', 'WAIVERS_NOT_CONFIGURED'].includes(code))
+      ? <>{' '}<Link to="/certifications">Review your waivers and certifications</Link>.</> : null}
+  </>;
+}
+
+/** What cancelling means for the booking's money: a payment is never refunded automatically. */
+function cancelNote(item: Reservation) {
+  const freed = 'The time is released for other members, and this can’t be undone.';
+  const total = item.priceSnapshot?.totalCents ?? item.amountCents ?? 0;
+  if (item.paymentStatus === 'paid')
+    return `${freed} ${total > 0 ? `The ${cents(total)} paid` : 'The payment'} isn’t refunded automatically; contact staff about a refund.`;
+  if (item.paymentStatus === 'pending') return `${freed} Nothing has been paid, so there’s nothing to refund.`;
+  return freed;
+}
+
 /** One status, one note and at most one kind of action for each booking. */
-function describeBooking(item: Reservation, now: number, userId: number | undefined, blockReason: string): BookingView {
+function describeBooking(item: Reservation, now: number, userId: number | undefined, blocked: LiveEquipment | undefined): BookingView {
   const payment = item.paymentStatus ?? '';
   // A cancelled booking keeps its payment outcome, so paid-but-not-refunded and refunded differ.
   if (!ACTIVE_STATUSES.includes(item.status))
@@ -423,9 +482,9 @@ function describeBooking(item: Reservation, now: number, userId: number | undefi
   if (payment === 'pending') {
     if (item.payerId != null && item.payerId !== userId) return { status: 'Awaiting payment', tone: 'warn', note: 'Awaiting payment from the person who started checkout.' };
     if (item.payerId === userId) return {
-      status: blockReason ? 'Requirements need attention' : 'Awaiting payment', tone: 'warn', action: 'pay', due: true,
-      note: blockReason || item.holdUntil ? <>
-        {blockReason ? <>{blockReason}. <Link to="/certifications">Review your waivers and certifications</Link> before paying. </> : null}
+      status: blocked ? 'Requirements need attention' : 'Awaiting payment', tone: 'warn', action: 'pay', due: true,
+      note: blocked || item.holdUntil ? <>
+        {blocked ? <>{blocked.availability}.{blockedHelp(blocked)} </> : null}
         {item.holdUntil ? <>Complete payment by {dateTime(item.holdUntil)} to confirm this booking.</> : null}
       </> : undefined,
     };
