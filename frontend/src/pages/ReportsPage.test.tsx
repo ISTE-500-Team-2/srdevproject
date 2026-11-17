@@ -296,6 +296,10 @@ test("a busiest-times filter stays visible while it is on, even with one machine
   rerender(page());
   const select = within(equipment()).getByRole("combobox", { name: "Machine" }) as HTMLSelectElement;
   expect(select.value).toBe("1");
+
+  // Clearing it goes back to every machine, and with only one left the select steps aside.
   fireEvent.change(select, { target: { value: "" } });
-  expect(select.value).toBe("");
+  expect(within(equipment()).queryByRole("combobox", { name: "Machine" })).toBeNull();
+  expect(within(equipment()).queryByText("No bookings in this period.")).toBeNull();
+  expect(within(equipment()).getByText("Tue 10am")).toBeTruthy();
 });
