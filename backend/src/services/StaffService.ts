@@ -420,6 +420,13 @@ export class StaffService {
             "PASS_EXISTS",
             "An active or suspended pass already exists for that date.",
           );
+        // A desk pass would leave the member's open card checkout paying for a second one.
+        if (await model.openPassCheckout(userId, input.validDate))
+          throw new AppError(
+            409,
+            "CHECKOUT_OPEN",
+            "This member has an unfinished online checkout for that date. Ask them to finish paying or cancel it under Membership & passes first.",
+          );
         await new AccessService(db, this.timeZone).assertWaivers(userId);
         id = await model.createPass(
           userId,
