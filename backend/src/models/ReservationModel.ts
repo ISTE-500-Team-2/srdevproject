@@ -11,7 +11,7 @@ const selection = `r.reservationid AS id,r.userid AS "userId",r.equipmentid AS "
  COALESCE(e.name,room.name) AS "equipmentName",CASE WHEN r.roomid IS NULL THEN 'equipment' ELSE 'room' END AS "resourceType",
  r.starttime AT TIME ZONE 'UTC' AS "startTime",r.endtime AT TIME ZONE 'UTC' AS "endTime",r.location,r.status,
  (SELECT c.amount_cents FROM app_equipment_checkout c WHERE c.reservation_id=r.reservationid) AS "amountCents",
- COALESCE((SELECT c.status FROM app_equipment_checkout c WHERE c.reservation_id=r.reservationid),
+ COALESCE((SELECT CASE WHEN c.refund_status='succeeded' THEN 'refunded' ELSE c.status END FROM app_equipment_checkout c WHERE c.reservation_id=r.reservationid),
    (SELECT paymentstatus FROM payment WHERE paymentid=r.payment_id)) AS "paymentStatus",
  (SELECT c.payer_id FROM app_equipment_checkout c WHERE c.reservation_id=r.reservationid) AS "payerId",
  (SELECT c.hold_until FROM app_equipment_checkout c WHERE c.reservation_id=r.reservationid) AS "holdUntil",

@@ -66,7 +66,11 @@ export interface Payment {
   planName: string;
   /** Set for card membership payments; the Stripe invoice a refund goes through. */
   invoiceId?: string | null;
-  /** Stripe refund state for that invoice, once a refund has been asked for. */
+  /** Set for a card day pass bought online; its refund goes through this checkout. */
+  passCheckoutId?: string | null;
+  /** Set for an equipment booking paid by card online; its refund goes through this booking. */
+  equipmentReservationId?: number | null;
+  /** Stripe refund state for that invoice or checkout, once a refund has been asked for. */
   refundStatus?: string | null;
 }
 export interface PaymentSummary {

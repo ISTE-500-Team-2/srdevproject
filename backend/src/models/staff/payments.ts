@@ -29,6 +29,11 @@ export interface PaymentListItem {
   recordedAt: Date | null;
   updatedAt: Date;
   invoiceId: string | null;
+  /** Set for a card day pass bought online; staff refund it through this checkout. */
+  passCheckoutId: string | null;
+  /** Set for an equipment booking paid by card online; staff refund it through this booking's checkout. */
+  equipmentReservationId: number | null;
+  /** Stripe state of the latest refund of the invoice or checkout above. */
   refundStatus: string | null;
   planName: string;
 }
@@ -105,7 +110,8 @@ export class PaymentRepository {
         `SELECT p.paymentid AS id,p.userid AS "userId",u.firstname || ' ' || u.lastname AS "memberName",
       p.membershipid AS "membershipId",d.dayid AS "dayPassId",p.price::text AS amount,p.paymentstatus AS status,p.method,p.reference,p.revision,
       p.paymentdate AT TIME ZONE 'UTC' AS "recordedAt",p.updated_at AS "updatedAt",
-      invoice.id AS "invoiceId",invoice.refund_status AS "refundStatus",
+      invoice.id AS "invoiceId",pass_checkout.id::text AS "passCheckoutId",equipment_checkout.reservation_id AS "equipmentReservationId",
+      COALESCE(invoice.refund_status,pass_checkout.refund_status,equipment_checkout.refund_status) AS "refundStatus",
       COALESCE(m.plan_snapshot->>'name',d.plan_snapshot->>'name',t.tiername,
         CASE WHEN booking.reservationid IS NOT NULL THEN 'Equipment: '||machine.name||
           CASE WHEN booking.status='cancelled' AND p.paymentstatus='paid' THEN ' (cancelled; refund due)' ELSE '' END END,
@@ -119,6 +125,8 @@ export class PaymentRepository {
       LEFT JOIN app_training_enrollment training ON training.payment_id=p.paymentid
       LEFT JOIN app_training_class class ON class.id=training.class_id
       LEFT JOIN LATERAL(SELECT id,refund_status FROM app_membership_invoice WHERE payment_id=p.paymentid ORDER BY period_start DESC LIMIT 1) invoice ON true
+      LEFT JOIN app_pass_checkout pass_checkout ON pass_checkout.payment_id=p.paymentid AND pass_checkout.amount_cents>0
+      LEFT JOIN app_equipment_checkout equipment_checkout ON equipment_checkout.payment_id=p.paymentid
       WHERE ${PAYMENT_FILTER} ORDER BY p.paymentid DESC LIMIT 51 OFFSET $5`,
         [userId, filters.status ?? null, filters.from ?? null, filters.to ?? null, offset],
       )

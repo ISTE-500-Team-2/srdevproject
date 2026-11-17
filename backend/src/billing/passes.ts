@@ -5,7 +5,7 @@ import {randomUUID} from 'node:crypto';
 import type {Pool} from 'pg';
 import type Stripe from 'stripe';
 import {transaction,type Database} from '../db.js';
-import {AppError,positiveId} from '../domain.js';
+import {AppError,positiveId,textField} from '../domain.js';
 import {calendarDate} from '../staffDomain.js';
 import {StaffModel,type Plan} from '../models/StaffModel.js';
 import {AccessService} from '../services/AccessService.js';
@@ -169,9 +169,36 @@ export class PassBilling {
    await this.applyRefund(db,f);return {cancelled:f.status==='succeeded',refundStatus:f.status};
   });
  }
- async finishCancel(db:Database,r:Pick<PassCheckoutRow,'id'|'pass_id'>){
+ /**
+  * Staff refund of an online card day pass to the original card, at any time: the member's own
+  * cancellation needs 3 days' notice. It shares the member's refund key, so the two can't refund twice,
+  * and the pass is cancelled once the refund succeeds.
+  */
+ async staffRefund(actor:number,id:string,reason:unknown){
+  const explanation=textField(reason,'Refund reason',255,3),sdk=this.provider().sdk;
+  return transaction(this.pool,async db=>{
+   await requireActor(db,actor,{staff:true});
+   const owner=(await db.query<{userid:number}>('SELECT userid FROM app_pass_checkout WHERE id::text=$1',[id])).rows[0];
+   if(!owner)throw new AppError(404,'NOT_FOUND','Day-pass payment not found.');
+   // Same order as member checkout and cancellation: the member's lock, then the checkout.
+   await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,owner.userid]);
+   const r=(await db.query<PassCheckoutRow>('SELECT * FROM app_pass_checkout WHERE id::text=$1 FOR UPDATE',[id])).rows[0]!;
+   if(r.refund_status==='succeeded')return {status:'succeeded'};
+   if(r.status!=='paid'||r.amount_cents===0||!r.payment_intent||!r.payment_id)throw new AppError(409,'NOT_PAID','Only a day pass paid by card can be refunded.');
+   const existing=await sdk.refunds.list({payment_intent:r.payment_intent,limit:100});
+   const attempt=refundAttempt('daypass-refund:'+r.id,existing);
+   const f=liveRefund(existing,r.amount_cents)??await sdk.refunds.create({payment_intent:r.payment_intent,amount:r.amount_cents,...(attempt.metadata?{metadata:attempt.metadata}:{})},
+    {idempotencyKey:attempt.key});
+   await this.applyRefund(db,f);
+   await new StaffModel(db).audit(actor,r.userid,'billing.refund.requested','payment',r.payment_id,explanation,null,{refundId:f.id,status:f.status});
+   return {status:f.status};
+  });
+ }
+ async finishCancel(db:Database,r:Pick<PassCheckoutRow,'id'|'pass_id'|'cancel_requested_at'>){
   await db.query("UPDATE app_pass_checkout SET status='cancelled' WHERE id=$1",[r.id]);
-  await db.query("UPDATE day_pass SET status='cancelled',statusdesc='Member cancellation with 3 days notice',revision=revision+1 WHERE dayid=$1",[r.pass_id]);
+  // Without the member's own request, the refund came from staff or Stripe.
+  await db.query("UPDATE day_pass SET status='cancelled',statusdesc=$2,revision=revision+1 WHERE dayid=$1",
+   [r.pass_id,r.cancel_requested_at?'Member cancellation with 3 days notice':'Refunded to the original card']);
  }
  async applyRefund(db:Database,f:Stripe.Refund){
   const r=(await db.query<PassCheckoutRow>('SELECT * FROM app_pass_checkout WHERE payment_intent=$1 FOR UPDATE',[objectId(f.payment_intent)])).rows[0];
