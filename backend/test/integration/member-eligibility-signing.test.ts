@@ -142,3 +142,58 @@ test('catalogue reads no longer reconcile payments; the background job releases 
   assert.equal(listed.status, 200);
   assert.equal(listed.body.data.find((r: any) => r.id === paid.id).status, 'confirmed');
 });
+
+test('a pass or membership for a later day lets the catalogue offer booking ahead; a past one does not', async () => {
+  const plain = async () => (await get('/equipment')).body.data.find((item: any) => item.id === machine);
+  const userId = member.user.id;
+  const pass = (days: number) => pool.query(
+    "INSERT INTO day_pass(userid,validdate,status) VALUES($1,(NOW() AT TIME ZONE 'America/New_York')::date + $2::int,'active') RETURNING dayid", [userId, days]);
+  const passes: number[] = [];
+  try {
+    await pool.query("UPDATE user_membership SET startdate=now()+interval '7 days',end_date=now()+interval '37 days' WHERE userid=$1", [userId]);
+    assert.deepEqual([(await plain()).canReserve, (await plain()).reasonCodes], [true, []], 'a membership that starts next week');
+    await pool.query("UPDATE user_membership SET startdate=now()-interval '37 days',end_date=now()-interval '7 days' WHERE userid=$1", [userId]);
+    assert.deepEqual([(await plain()).canReserve, (await plain()).reasonCodes], [false, ['MEMBERSHIP_REQUIRED']], 'an ended membership');
+    passes.push((await pass(-1)).rows[0].dayid);
+    assert.deepEqual((await plain()).reasonCodes, ['MEMBERSHIP_REQUIRED'], "yesterday's day pass");
+    passes.push((await pass(4)).rows[0].dayid);
+    assert.deepEqual([(await plain()).canReserve, (await plain()).reasonCodes], [true, []], 'a day pass for later this week');
+    // The booking itself still needs the pass to cover its time.
+    const startTime = new Date(Date.now() + 2 * 3_600_000).toISOString();
+    const today = await post('/reservations', { equipmentId: machine, startTime, endTime: new Date(Date.parse(startTime) + 3_600_000).toISOString(),
+      requestKey: randomUUID(), amountCents: 700 });
+    assert.equal(today.body.error?.code, 'MEMBERSHIP_REQUIRED', today.text);
+  } finally {
+    if (passes.length) await pool.query('DELETE FROM day_pass WHERE dayid = ANY($1)', [passes]);
+    await pool.query("UPDATE user_membership SET startdate=now()-interval '1 day',end_date='2031-01-01',status='active' WHERE userid=$1", [userId]);
+  }
+});
+
+test('the catalogue checks certifications in one query however many machines need one', async () => {
+  const userId = member.user.id;
+  await pool.query("INSERT INTO certifications(certid,name) VALUES(886001,'Catalogue held'),(886002,'Catalogue missing'),(886003,'Catalogue expired')");
+  await pool.query(`INSERT INTO user_certifications(usercertid,userid,certid,status,renewaldate) VALUES
+    (886101,$1,886001,'active',(NOW()+INTERVAL '1 year') AT TIME ZONE 'UTC'),
+    (886103,$1,886003,'active',(NOW()-INTERVAL '1 day') AT TIME ZONE 'UTC')`, [userId]);
+  const add = (name: string, cert: number) => pool.query(
+    "INSERT INTO equipment(name,status,hourlyrate,waiverrequired,location,certid) VALUES($1,'available',7,false,'Makerspace',$2) RETURNING equipmentid", [name, cert]);
+  const held = (await add('Catalogue held machine', 886001)).rows[0].equipmentid;
+  const queries = async () => {
+    // The app's audited pool runs each query on its own checked-out connection.
+    const spy = mock.method(pool, 'connect');
+    try {
+      const response = await get('/equipment');
+      assert.equal(response.status, 200, response.text);
+      return { count: spy.mock.callCount(), items: response.body.data as any[] };
+    } finally { spy.mock.restore(); }
+  };
+  const before = await queries();
+  const missing = (await add('Catalogue missing machine', 886002)).rows[0].equipmentid;
+  const expired = (await add('Catalogue expired machine', 886003)).rows[0].equipmentid;
+  await add('Catalogue second held machine', 886001);
+  const after = await queries();
+  assert.equal(after.count, before.count, 'three more certified machines add no queries');
+  const training = (id: number) => after.items.find(item => item.id === id).trainingRequired;
+  assert.deepEqual([training(held), training(missing), training(expired)], [false, true, true]);
+  assert.deepEqual(after.items.find(item => item.id === missing).reasonCodes, ['CERTIFICATION_REQUIRED']);
+});
