@@ -29,7 +29,7 @@ export function MemberTrainingRecords({
   return (
     <section className="cw-records" aria-labelledby="records-title">
       <div className="cw-row">
-        <h3 id="records-title">Member training records</h3>
+        <h2 id="records-title">Member training records</h2>
       </div>
       <MemberSelect value={memberId} onChange={onMember} />
       {memberId ? (

@@ -324,17 +324,8 @@ export function StudiosPage() {
 
       <div className="studio-grid">
         {groups.map((g) => (
-          <button
-            key={g.key}
-            type="button"
-            className="reservation-card studio-size"
-            aria-label={`${sizeLabel(g.key)} studios, ${g.varies ? "from " : ""}${money(g.price)} a month. ${availabilityLabel(g)}`}
-            onClick={() => {
-              setHeld(null);
-              setError("");
-              setSize(g.key);
-            }}
-          >
+          // The heading holds the card's button, so heading navigation finds each size; the button covers the card.
+          <article key={g.key} className="reservation-card studio-size">
             <div className="reservation-card__image studio-size__image">
               <img src={studioImage(g.key)} alt="" />
               <span
@@ -345,14 +336,27 @@ export function StudiosPage() {
             </div>
             <div className="reservation-card__rule" />
             <div className="reservation-card__title">
-              <h2>{sizeLabel(g.key)}</h2>
+              <h2>
+                <button
+                  type="button"
+                  className="reservation-card__open"
+                  aria-label={`${sizeLabel(g.key)} studios, ${g.varies ? "from " : ""}${money(g.price)} a month. ${availabilityLabel(g)}`}
+                  onClick={() => {
+                    setHeld(null);
+                    setError("");
+                    setSize(g.key);
+                  }}
+                >
+                  {sizeLabel(g.key)}
+                </button>
+              </h2>
               <strong>
                 {g.varies ? "from " : ""}
                 {money(g.price)}/mo
               </strong>
             </div>
             <small>{g.list.map((s) => s.name).join(" · ")}</small>
-          </button>
+          </article>
         ))}
       </div>
       {loaded && !groups.length && (

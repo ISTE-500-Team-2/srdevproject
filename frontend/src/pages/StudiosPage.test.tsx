@@ -66,6 +66,16 @@ async function openSmall() {
 const calls = (path: string) =>
   api.mock.calls.filter(([p]) => p === path).length;
 
+test("each size is a heading that holds its card's button, so heading navigation finds it", async () => {
+  mount();
+  const button = await screen.findByRole("button", { name: /^Small studios/ });
+  expect(screen.getAllByRole("heading", { level: 2 })).toContain(button.closest("h2"));
+  // The card's details stay with it, and its button opens the booking.
+  expect(button.closest("article")!.textContent).toContain("Harkonnen");
+  fireEvent.click(button);
+  expect(screen.getByRole("dialog", { name: "Reserve a small studio" })).toBeTruthy();
+});
+
 test("the member page never loads the staff studio desk", async () => {
   auth.user = { roles: ["staff"], membership: "None" };
   mount();

@@ -187,3 +187,11 @@ test('each workflow has its own busy and error state', async () => {
   expect(within(revoke).queryByRole('alert')).toBeNull();
   expect(within(revoke).getByRole('button', { name: 'Hold to revoke Laser safety' })).toHaveProperty('disabled', false);
 });
+
+test('headings step down one level at a time from the page title', async () => {
+  render(<TrainingPage />);
+  await screen.findByRole('heading', { level: 2, name: 'Laser safety' });
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Training & certifications');
+  expect(screen.getByRole('heading', { level: 2, name: 'Member training records' })).toBeTruthy();
+  expect(screen.queryAllByRole('heading', { level: 3 })).toEqual([]);
+});

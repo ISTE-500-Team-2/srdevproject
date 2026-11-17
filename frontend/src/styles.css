@@ -1943,12 +1943,36 @@ small {
 }
 
 .reservation-card {
+  position: relative;
   min-width: 0;
   border: 0;
   padding: 0;
   background: transparent;
   text-align: left;
   cursor: pointer;
+}
+
+/* The card's button sits in its heading (so heading navigation finds it) and covers the whole card. */
+.reservation-card__open {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+.reservation-card__open::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+}
+.reservation-card__open:focus-visible {
+  outline: none;
+}
+.reservation-card__open:focus-visible::after {
+  outline: 3px solid var(--orange);
+  outline-offset: 3px;
 }
 
 .reservation-card__image,

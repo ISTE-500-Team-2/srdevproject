@@ -33,7 +33,7 @@ export function CertificationCatalog({
           return (
             <article className="cw-cert" key={c.id}>
               <div className="cw-cert__top">
-                <h3>{c.name}</h3>
+                <h2>{c.name}</h2>
                 {n ? (
                   <span className={`cw-tag cw-tag--${n.compliant ? "green" : "grey"}`}>{n.compliant} certified</span>
                 ) : null}
