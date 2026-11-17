@@ -4,13 +4,20 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import './HoldButton.css';
 
 const TAP_MS = 250;
+// A press that isn't a hold (a screen reader, voice control or switch click, or a quick tap or key press)
+// asks for a second press instead. The second must come a moment later, so a double click can't confirm,
+// and soon enough to still be about this button.
+const CONFIRM_GUARD_MS = 500;
+const CONFIRM_WINDOW_MS = 6000;
+const CONFIRM_LABEL = 'Press again to confirm';
 const HIT_PAD = 10;
 const LINEAR = t => t;
 const EASE_OUT = t => 1 - Math.pow(1 - t, 3);
 
 /**
- * Run the hold/cancel/complete gesture lifecycle; only a completed hold invokes onHold, while onTap
- * supports the separate quick-tap hint.
+ * Run the hold/cancel/complete gesture lifecycle. onHold runs after a completed hold, or after two
+ * separate presses for people who can't hold (assistive technology activates with a single click);
+ * onTap also hears each quick tap.
  */
 export default function HoldButton({
   children = 'Hold to delete',
@@ -42,7 +49,9 @@ export default function HoldButton({
   const inputRef = useRef(null);
   const buttonRef = useRef(null);
   const gesture = useRef({ pointerId: null, start: 0, rect: null });
-  const timers = useRef({ complete: 0, reset: 0 });
+  const timers = useRef({ complete: 0, reset: 0, disarm: 0 });
+  // When the confirm step began, or null when the button isn't asking for a second press.
+  const armedAt = useRef(null);
   const hintId = useId();
 
   const go = (next, kind = null) => {
@@ -78,10 +87,16 @@ export default function HoldButton({
     m.raf = requestAnimationFrame(step);
   };
 
-  const complete = () => {
-    if (phaseRef.current !== 'holding') return;
-    if (performance.now() - gesture.current.start < holdTime - 50) return;
+  const disarm = () => {
+    clearTimeout(timers.current.disarm);
+    armedAt.current = null;
+    if (phaseRef.current === 'confirm') go('idle');
+  };
+
+  const finish = () => {
     clearTimers();
+    clearTimeout(timers.current.disarm);
+    armedAt.current = null;
     go('done', inputRef.current);
     onHold?.();
     if (resetAfter > 0) {
@@ -92,8 +107,30 @@ export default function HoldButton({
     }
   };
 
+  const complete = () => {
+    if (phaseRef.current !== 'holding') return;
+    if (performance.now() - gesture.current.start < holdTime - 50) return;
+    finish();
+  };
+
+  // A single press made at `at`: the first asks for confirmation, a later one confirms.
+  const press = at => {
+    if (disabled || (phaseRef.current !== 'idle' && phaseRef.current !== 'confirm')) return;
+    if (armedAt.current !== null && at - armedAt.current >= CONFIRM_GUARD_MS) {
+      drive(1, releaseTime, EASE_OUT);
+      finish();
+      return;
+    }
+    if (armedAt.current === null) {
+      armedAt.current = performance.now();
+      timers.current.disarm = setTimeout(disarm, CONFIRM_WINDOW_MS);
+    }
+    go('confirm');
+  };
+
   const begin = kind => {
-    if (disabled || phaseRef.current !== 'idle') return false;
+    const phase = phaseRef.current;
+    if (disabled || (phase !== 'idle' && phase !== 'confirm')) return false;
     const button = buttonRef.current;
     if (!button) return false;
     gesture.current.start = performance.now();
@@ -108,9 +145,13 @@ export default function HoldButton({
     if (phaseRef.current !== 'holding') return;
     clearTimers();
     const held = performance.now() - gesture.current.start;
-    go('idle');
+    if (drifted) disarm();
+    go(armedAt.current === null ? 'idle' : 'confirm');
     drive(0, releaseTime, EASE_OUT);
-    if (!drifted && held < TAP_MS) onTap?.();
+    if (!drifted && held < TAP_MS) {
+      onTap?.();
+      press(gesture.current.start);
+    }
   };
   const releaseRef = useRef(release);
   releaseRef.current = release;
@@ -152,6 +193,7 @@ export default function HoldButton({
   const handleKeyDown = e => {
     if (e.key === 'Escape') {
       if (inputRef.current === 'key') release({ drifted: true });
+      else disarm();
       return;
     }
     if (e.key === ' ' || e.key === 'Enter') {
@@ -165,6 +207,16 @@ export default function HoldButton({
       e.preventDefault();
       if (inputRef.current === 'key') release();
     }
+  };
+
+  // Pointer and key presses arrive through the handlers above. A click with no press behind it (detail 0)
+  // is assistive technology activating the button, and it can't hold.
+  const handleClick = e => {
+    if (e.detail === 0) press(performance.now());
+  };
+
+  const handleBlur = () => {
+    if (phaseRef.current === 'confirm') disarm();
   };
 
   useLayoutEffect(() => {
@@ -195,11 +247,17 @@ export default function HoldButton({
   }, [phase]);
 
   useEffect(() => {
+    if (disabled) disarm();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [disabled]);
+
+  useEffect(() => {
     const t = timers.current;
     const m = motion.current;
     return () => {
       clearTimeout(t.complete);
       clearTimeout(t.reset);
+      clearTimeout(t.disarm);
       cancelAnimationFrame(m.raf);
     };
   }, []);
@@ -209,7 +267,7 @@ export default function HoldButton({
     <>
       <span className="hold-button__idle" aria-hidden={phase === 'done'}>
         {icon ? <span className="hold-button__icon">{icon}</span> : null}
-        {children}
+        {phase === 'confirm' ? CONFIRM_LABEL : children}
       </span>
       <span className="hold-button__done" aria-hidden={phase !== 'done'}>
         {doneIcon ? <span className="hold-button__icon">{doneIcon}</span> : null}
@@ -219,51 +277,59 @@ export default function HoldButton({
   );
 
   return (
-    <button
-      ref={buttonRef}
-      type="button"
-      disabled={disabled}
-      className={`hold-button hold-button--${size}${className ? ` ${className}` : ''}`}
-      data-phase={phase}
-      data-input={input ?? undefined}
-      data-direction={direction}
-      data-glow={glow ? 'true' : undefined}
-      aria-describedby={hintId}
-      style={{
-        '--hb-radius': `${radius}px`,
-        '--hb-bg': backgroundColor,
-        '--hb-fill': fillColor,
-        '--hb-text': textColor,
-        '--hb-fill-text': fillTextColor,
-        '--hb-hold': `${holdTime}ms`,
-        '--hb-cycles': holdTime / 1100,
-        '--hb-release': `${releaseTime}ms`,
-        '--hb-press': pressScale,
-        '--hb-wave': `${wave ? waveAmplitude : 0}px`
-      }}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={e => endPointer(e)}
-      onPointerCancel={e => endPointer(e, { drifted: true })}
-      onLostPointerCapture={e => endPointer(e, { drifted: true })}
-      onPointerLeave={handlePointerLeave}
-      onKeyDown={handleKeyDown}
-      onKeyUp={handleKeyUp}
-      onContextMenu={e => e.preventDefault()}
-    >
-      <span className="hold-button__pulse" aria-hidden="true" />
-      <span className="hold-button__label">{labels}</span>
-      <span className="hold-button__clip" aria-hidden="true">
-        <span className="hold-button__fill">
-          <span className="hold-button__label hold-button__label--fill">{labels}</span>
-        </span>
-        <span className="hold-button__crest" aria-hidden="true">
-          <span className="hold-button__label hold-button__label--fill">{labels}</span>
-        </span>
+    <>
+      {/* Outside the button, whose content is its name: a live region in there isn't reliably announced. */}
+      <span className="hold-button__sr" role="status">
+        {phase === 'confirm' ? CONFIRM_LABEL : ''}
       </span>
-      <span id={hintId} className="hold-button__sr">
-        Press and hold for {Math.round(holdTime / 100) / 10} seconds to confirm
-      </span>
-    </button>
+      <button
+        ref={buttonRef}
+        type="button"
+        disabled={disabled}
+        className={`hold-button hold-button--${size}${className ? ` ${className}` : ''}`}
+        data-phase={phase}
+        data-input={input ?? undefined}
+        data-direction={direction}
+        data-glow={glow ? 'true' : undefined}
+        aria-describedby={hintId}
+        style={{
+          '--hb-radius': `${radius}px`,
+          '--hb-bg': backgroundColor,
+          '--hb-fill': fillColor,
+          '--hb-text': textColor,
+          '--hb-fill-text': fillTextColor,
+          '--hb-hold': `${holdTime}ms`,
+          '--hb-cycles': holdTime / 1100,
+          '--hb-release': `${releaseTime}ms`,
+          '--hb-press': pressScale,
+          '--hb-wave': `${wave ? waveAmplitude : 0}px`
+        }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={e => endPointer(e)}
+        onPointerCancel={e => endPointer(e, { drifted: true })}
+        onLostPointerCapture={e => endPointer(e, { drifted: true })}
+        onPointerLeave={handlePointerLeave}
+        onKeyDown={handleKeyDown}
+        onKeyUp={handleKeyUp}
+        onClick={handleClick}
+        onBlur={handleBlur}
+        onContextMenu={e => e.preventDefault()}
+      >
+        <span className="hold-button__pulse" aria-hidden="true" />
+        <span className="hold-button__label">{labels}</span>
+        <span className="hold-button__clip" aria-hidden="true">
+          <span className="hold-button__fill">
+            <span className="hold-button__label hold-button__label--fill">{labels}</span>
+          </span>
+          <span className="hold-button__crest" aria-hidden="true">
+            <span className="hold-button__label hold-button__label--fill">{labels}</span>
+          </span>
+        </span>
+        <span id={hintId} className="hold-button__sr">
+          Press and hold for {Math.round(holdTime / 100) / 10} seconds, or press twice, to confirm
+        </span>
+      </button>
+    </>
   );
 }

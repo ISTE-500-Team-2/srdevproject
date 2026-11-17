@@ -378,11 +378,12 @@ test('cancelling sends the record revision and the staff reason', async () => {
   expect(screen.getByText(/2 people are registered\./)).toBeTruthy();
   fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: 'Instructor out sick' } });
   const hold = screen.getByRole('button', { name: /Hold to cancel class/ });
-  // A short press does nothing; cancelling needs the full hold.
+  // A short press never cancels on its own: it only asks for a second press. The full hold cancels.
   fireEvent.keyDown(hold, { key: ' ' });
   fireEvent.keyUp(hold, { key: ' ' });
   await act(async () => { await new Promise((r) => setTimeout(r, 300)); });
   expect(calls('/classes/5/cancel', 'POST')).toHaveLength(0);
+  expect(hold.textContent).toContain('Press again to confirm');
   fireEvent.keyDown(hold, { key: ' ' });
   await act(async () => { await new Promise((r) => setTimeout(r, 1500)); });
   expect(calls('/classes/5/cancel', 'POST')[0][1]?.body).toEqual({ expectedRevision: 4, reason: 'Instructor out sick' });
