@@ -229,3 +229,65 @@ test('choosing a building previews eligibility but never records member presence
   expect(within(card).getByText('Tap your NFC tag at the door. Forgot it? Ask staff.')).toBeTruthy();
   expect(api.mock.calls.some(([,init])=>init?.method==='POST')).toBe(false);
 });
+
+const reservationsCard = async () => (await screen.findByRole('heading', { name: 'Reservations' })).closest('article') as HTMLElement;
+
+test('a failed reservations read says so with Retry, never "Nothing booked yet"', async () => {
+  auth.user = dana;
+  let fail = true;
+  const booking = {
+    id: 5, userId: dana.id, equipmentId: 3, equipmentName: 'Laser cutter', location: 'Main shop', status: 'confirmed', revision: 1,
+    startTime: '2999-01-02T15:00:00Z', endTime: '2999-01-02T16:00:00Z',
+  };
+  mount({
+    '/me/overview': overview({ activeReservations: 1 }),
+    '/me/supervision': adultSummary(),
+    '/reservations': () => (fail ? Promise.reject(new ApiError(500, 'REQUEST_FAILED', 'The request could not be completed.')) : [booking]),
+  });
+  const card = await reservationsCard();
+  expect((await within(card).findByRole('alert')).textContent).toContain('Your reservations couldn’t load.');
+  expect(within(card).queryByText('Nothing booked yet.')).toBeNull();
+  expect(within(card).getByRole('link', { name: 'Book or manage equipment' })).toBeTruthy();
+
+  fail = false;
+  fireEvent.click(within(card).getByRole('button', { name: 'Retry' }));
+  expect(await within(card).findByText('Laser cutter')).toBeTruthy();
+  expect(within(card).queryByRole('alert')).toBeNull();
+});
+
+test('with no bookings the card says so once they have loaded', async () => {
+  auth.user = dana;
+  mount({ '/me/overview': overview(), '/me/supervision': adultSummary() });
+  const card = await reservationsCard();
+  expect(await within(card).findByText('Nothing booked yet.')).toBeTruthy();
+  expect(within(card).getByRole('link', { name: 'Book equipment' })).toBeTruthy();
+});
+
+test('a check-in recorded at the front desk is labeled as staff, not as this site', async () => {
+  auth.user = dana;
+  mount({
+    '/me/overview': overview({ recentCheckIns: [{ id: 2, location: 'Main shop', checkedInAt: '2026-10-30T20:02:00Z', method: 'portal' }] }),
+    '/me/supervision': adultSummary(),
+  });
+  const card = await checkInCard();
+  expect(await within(card).findByText('Checked in by staff')).toBeTruthy();
+  expect(within(card).queryByText('From this site')).toBeNull();
+});
+
+test('the home page still renders when the browser blocks site storage', async () => {
+  const blocked = () => { throw new DOMException('The operation is insecure.', 'SecurityError'); };
+  const read = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(blocked);
+  const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(blocked);
+  try {
+    auth.user = dana;
+    mount({ '/me/overview': overview(), '/me/supervision': adultSummary() });
+    // No greeting animation without storage: the plain heading shows at once.
+    expect(screen.getByRole('heading', { level: 1, name: 'Welcome back, Dana' })).toBeTruthy();
+    expect(await checkInCard()).toBeTruthy();
+    expect(read).toHaveBeenCalled();
+    expect(write).toHaveBeenCalled();
+  } finally {
+    read.mockRestore();
+    write.mockRestore();
+  }
+});
