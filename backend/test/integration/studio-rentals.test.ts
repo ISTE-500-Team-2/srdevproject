@@ -425,3 +425,83 @@ test("a rental whose month is over can't be cancelled or trigger cancellation no
  assert.deepEqual(after,{status:'confirmed',payment_status:'paid',refund_cents:0});
  assert.equal((await pool.query("SELECT count(*)::int n FROM app_notification_outbox WHERE dedupe_key LIKE $1",[`studio:${r.id}:%`])).rows[0].n,0);
 });
+
+test("a flood of unsigned Stripe callbacks records one security event, not one per request", async () => {
+  const provider = new StudioStripe({
+    key: "sk_test_unit_fake",
+    webhookSecret: "whsec_flood_secret",
+    origin: "http://localhost:8080",
+  });
+  const app = createApp(pool, {
+    port: 8080,
+    host: "127.0.0.1",
+    secureCookies: false,
+    demoLogin: true,
+    allowedOrigins: ["http://localhost:8080"],
+    timeZone: "America/New_York",
+    jwtKey: randomBytes(32),
+    studioStripe: provider.config,
+  });
+  const count = async () =>
+    (await pool.query("SELECT count(*)::int n FROM app_payment_security_event WHERE kind='stripe.invalid_signature'")).rows[0].n;
+  const audited = async () =>
+    (await pool.query("SELECT count(*)::int n FROM app_staff_audit WHERE entity_type='app_payment_security_event'")).rows[0].n;
+  const [events, audits] = [await count(), await audited()];
+  for (let i = 0; i < 5; i++) {
+    const response = await request(app)
+      .post("/api/webhooks/stripe-studios")
+      .set("Content-Type", "application/json")
+      .set("stripe-signature", i % 2 ? "t=1,v1=forged" : "")
+      .send(JSON.stringify({ id: `evt_junk_${i}` }));
+    assert.equal(response.status, 400);
+    assert.equal(response.body.error.code, "INVALID_SIGNATURE");
+  }
+  assert.equal(await count(), events + 1);
+  assert.equal(await audited(), audits + 1);
+});
+
+test("studio and rental numbers beyond the database range are bad input, not a server error", async () => {
+  const app = createApp(pool, {
+    port: 8080,
+    host: "127.0.0.1",
+    secureCookies: false,
+    demoLogin: true,
+    allowedOrigins: ["http://localhost:8080"],
+    timeZone: "America/New_York",
+    jwtKey: randomBytes(32),
+  });
+  const signIn = async (role: string) =>
+    (await request(app).post("/api/auth/demo").send({ role })).body.data as { accessToken: string; csrfToken: string };
+  const [memberSession, adminSession] = [await signIn("member"), await signIn("admin")];
+  const post = (path: string, session: { accessToken: string; csrfToken: string }, body = {}) =>
+    request(app)
+      .post("/api" + path)
+      .set("Authorization", "Bearer " + session.accessToken)
+      .set("X-CSRF-Token", session.csrfToken)
+      .send(body);
+  for (const id of ["2147483648", "3000000000", String(Number.MAX_SAFE_INTEGER)]) {
+    const responses = [
+      await post(`/studio-rentals/${id}/payment-status`, memberSession),
+      await post(`/studio-rentals/${id}/cancel`, memberSession),
+      await request(app)
+        .patch(`/api/studio-management/studios/${id}`)
+        .set("Authorization", "Bearer " + adminSession.accessToken)
+        .set("X-CSRF-Token", adminSession.csrfToken)
+        .send({ monthlyCents: 20000, cancellationPolicy: "full_before_start", policyConfirmed: true, revision: 1 }),
+      await post(`/studio-management/rentals/${id}/payment`, adminSession, { reference: "cash receipt 123" }),
+      await post(`/studio-management/rentals/${id}/refund`, adminSession, { reference: "cash refund 123" }),
+      await post(`/studio-management/rentals/${id}/retry-refund`, adminSession),
+    ];
+    for (const response of responses) {
+      assert.equal(response.status, 400, JSON.stringify(response.body));
+      assert.equal(response.body.error.code, "INVALID_INPUT");
+    }
+    await assert.rejects(service.create(member, input(1, { studioId: Number(id) })), {
+      status: 400,
+      code: "INVALID_INPUT",
+    });
+  }
+  // The largest real id is still looked up normally.
+  const missing = await post("/studio-rentals/2147483647/cancel", memberSession);
+  assert.equal(missing.status, 404, JSON.stringify(missing.body));
+});

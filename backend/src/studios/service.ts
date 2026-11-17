@@ -5,7 +5,7 @@ import { MinorSupervision } from "../minorSupervision.js";
 import type { Pool } from "pg";
 import type Stripe from "stripe";
 import { transaction, type Database } from "../db.js";
-import { AppError, positiveId, textField } from "../domain.js";
+import { AppError, integerId, textField } from "../domain.js";
 import { PermissionModel } from "../models/PermissionModel.js";
 import { enqueueNotification } from "../notifications/store.js";
 import { monthlyWindow, refundDue, integer, lastRentalDay } from "./domain.js";
@@ -150,7 +150,7 @@ export class StudioService {
     body: StudioRentalRequest,
   ): Promise<WithRentalDates<StudioRentalRow> & { checkoutUrl?: string | null }> {
     const { start, end } = monthlyWindow(body.startDate, businessToday(this.zone));
-    const studioId = positiveId(body.studioId);
+    const studioId = integerId(body.studioId, "Studio");
     if (
       typeof body.requestKey !== "string" ||
       !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
