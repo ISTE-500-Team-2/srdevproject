@@ -175,3 +175,79 @@ test("pending saves cannot be dismissed and clean forms close without a discard 
   fireEvent.keyDown(window, { key: "Escape" });
   expect(close).toHaveBeenCalledOnce();
 });
+
+test("a field marked autoFocus keeps focus, and closing returns focus to the opener", () => {
+  const view = render(<button>Switch account</button>);
+  const trigger = screen.getByRole("button");
+  trigger.focus();
+  view.rerender(
+    <>
+      <button>Switch account</button>
+      <Modal open title="Whose account?" onClose={() => {}}>
+        <input aria-label="Search members" autoFocus />
+      </Modal>
+    </>,
+  );
+  expect(document.activeElement).toBe(screen.getByLabelText("Search members"));
+  view.rerender(
+    <>
+      <button>Switch account</button>
+      <Modal open={false} title="Whose account?" onClose={() => {}}>
+        <input aria-label="Search members" autoFocus />
+      </Modal>
+    </>,
+  );
+  expect(document.activeElement).toBe(trigger);
+});
+
+test("Tab reaches disclosure summaries after the last form control, skipping what closed ones hold", () => {
+  const view = render(
+    <Modal open title="Member record" onClose={() => {}}>
+      <label>
+        <input type="checkbox" /> Show system details
+      </label>
+      <details>
+        <summary>Technical details</summary>
+        <button>Copy record id</button>
+      </details>
+    </Modal>,
+  );
+  const close = screen.getByRole("button", { name: "Close dialog" });
+  const checkbox = screen.getByRole("checkbox");
+  const summary = screen.getByText("Technical details");
+  // Tab from the checkbox is left to the browser, which moves on to the summary.
+  checkbox.focus();
+  expect(fireEvent.keyDown(checkbox, { key: "Tab" })).toBe(true);
+  expect(document.activeElement).toBe(checkbox);
+  // The summary is the last stop: the button inside the closed disclosure can't take focus.
+  close.focus();
+  expect(fireEvent.keyDown(close, { key: "Tab", shiftKey: true })).toBe(false);
+  expect(document.activeElement).toBe(summary);
+  expect(fireEvent.keyDown(summary, { key: "Tab" })).toBe(false);
+  expect(document.activeElement).toBe(close);
+  view.rerender(
+    <Modal open title="Member record" onClose={() => {}}>
+      <label>
+        <input type="checkbox" /> Show system details
+      </label>
+      <details open>
+        <summary>Technical details</summary>
+        <button>Copy record id</button>
+      </details>
+    </Modal>,
+  );
+  expect(fireEvent.keyDown(close, { key: "Tab", shiftKey: true })).toBe(false);
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Copy record id" }));
+});
+
+test("a status message on the page stays announced and dismissible while a dialog is open", () => {
+  const region = document.createElement("div");
+  region.setAttribute("role", "status");
+  region.setAttribute("data-live-region", "");
+  document.body.append(region);
+  const view = render(<Modal open title="Booking" onClose={() => {}}>Details</Modal>);
+  expect(view.container.inert).toBe(true);
+  expect(region.inert).not.toBe(true);
+  view.unmount();
+  region.remove();
+});

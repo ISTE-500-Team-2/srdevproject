@@ -21,7 +21,8 @@ function syncModalBackground() {
   }
   document.body.classList.add("modal-open");
   for (const element of Array.from(document.body.children)) {
-    if (!(element instanceof HTMLElement)) continue;
+    // Status messages (see Toast) stay announced, and can be dismissed, above an open dialog.
+    if (!(element instanceof HTMLElement) || element.hasAttribute("data-live-region")) continue;
     if (!originalInert.has(element)) originalInert.set(element, element.inert);
     element.inert =
       element === top ? (originalInert.get(element) ?? false) : true;
@@ -29,18 +30,18 @@ function syncModalBackground() {
 }
 /**
  * Calculate the current visible tab stops each time, including controls added or removed by
- * conditional dialog content.
+ * conditional dialog content. A <details> summary is a tab stop; what a closed one holds is not.
  */
 function focusable(dialog: HTMLElement) {
   return Array.from(
     dialog.querySelectorAll<HTMLElement>(
-      'button,input,select,textarea,a[href],[tabindex],[contenteditable="true"]',
+      'button,input,select,textarea,a[href],summary,iframe,[tabindex],[contenteditable="true"]',
     ),
   ).filter(
     (element) =>
       !element.matches(":disabled") &&
       element.tabIndex >= 0 &&
-      !element.closest("[hidden],[inert]") &&
+      !element.closest("[hidden],[inert],details:not([open]) > :not(summary)") &&
       getComputedStyle(element).display !== "none" &&
       getComputedStyle(element).visibility !== "hidden",
   );
@@ -82,6 +83,14 @@ export function Modal({
   const backdropRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const titleId = useId();
+  // A field marked autoFocus takes focus while React commits, before the effect below runs, so
+  // the control that had focus is also noted while the dialog renders open.
+  const [opener, setOpener] = useState(() => (open ? document.activeElement : null));
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setOpener(document.activeElement);
+  }
   const onCloseRef = useRef(onClose);
   const requestClose = () => {
     if (!dismissible) return;
@@ -98,10 +107,12 @@ export function Modal({
   useEffect(() => {
     if (!open) return;
     const backdrop = backdropRef.current!;
-    const previousFocus = document.activeElement;
+    // Return focus to the control that opened the dialog, even when autoFocus has moved it inside.
+    const previousFocus = dialogRef.current?.contains(document.activeElement) ? opener : document.activeElement;
     modalStack.push(backdrop);
     syncModalBackground();
-    closeRef.current?.focus();
+    // Start on Close unless a field in the dialog has already taken focus with autoFocus.
+    if (!dialogRef.current?.contains(document.activeElement)) closeRef.current?.focus();
     const handleKey = (event: KeyboardEvent) => {
       if (modalStack.at(-1) !== backdrop) return;
       if (event.key === "Escape") {
