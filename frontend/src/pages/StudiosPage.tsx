@@ -91,6 +91,7 @@ export function StudiosPage() {
   const attempt = useRef<{ signature: string; key: string } | null>(null);
   // Cancelling closes the dialog and moves the row to Past rentals, so the
   // button that opened it is gone. Put focus on the confirmation instead.
+  // A booking that turns out to be paid already closes its pop-up the same way.
   const messageRef = useRef<HTMLParagraphElement>(null),
     announce = useRef(false);
   useEffect(() => {
@@ -155,7 +156,7 @@ export function StudiosPage() {
       attempt.current = { signature, key: crypto.randomUUID() };
     const requestKey = attempt.current.key;
     const send = (key: string) =>
-      api<Rental & { checkoutUrl?: string }>("/studio-rentals", {
+      api<Rental & { checkoutUrl?: string | null }>("/studio-rentals", {
         method: "POST",
         body: {
           studioId: studio.id,
@@ -167,9 +168,20 @@ export function StudiosPage() {
       });
     await action(async () => {
       let r = await send(requestKey);
-      // A reused key replays the earlier booking whatever became of it. If that
-      // hold has since lapsed or been cancelled, this is a new booking.
-      if (!r.checkoutUrl && r.status !== "pending") {
+      // A reused key replays the earlier booking whatever became of it. A card
+      // checkout Stripe has already closed (paid, or timed out before its
+      // webhook arrived) is settled by the server first so its status is real.
+      if (
+        r.status === "pending" &&
+        r.payment_method === "stripe_test" &&
+        (!r.checkoutUrl || new Date(r.hold_until) <= new Date())
+      )
+        r = await api<Rental & { checkoutUrl?: string | null }>(
+          `/studio-rentals/${r.id}/payment-status`,
+          { method: "POST" },
+        );
+      // A hold that lapsed or was cancelled since then means this is a new booking.
+      if (r.status === "expired" || r.status === "cancelled") {
         attempt.current = { signature, key: crypto.randomUUID() };
         r = await send(attempt.current.key);
       }
@@ -178,7 +190,20 @@ export function StudiosPage() {
         return;
       }
       attempt.current = null;
-      setHeld({ ...r, name: studio.name });
+      // Only an unpaid desk hold gets the "held, pay by" panel. A booking that
+      // was paid meanwhile (at the desk, or by card) is already the member's.
+      if (r.status === "pending" && r.payment_method === "manual") {
+        setHeld({ ...r, name: studio.name });
+        return;
+      }
+      setSize(null);
+      setHeld(null);
+      announce.current = true;
+      setMessage(
+        r.status === "confirmed"
+          ? `${studio.name} is booked. It’s listed under Your rentals.`
+          : "Your card payment is still processing. This page updates on its own.",
+      );
     });
   }
   const instructor = !!user?.roles.includes("instructor");

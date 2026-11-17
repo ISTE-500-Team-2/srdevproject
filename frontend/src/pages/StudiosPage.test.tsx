@@ -483,3 +483,69 @@ test("closing the booking pop-up starts the next booking with a new request key"
   await waitFor(() => expect(keys).toHaveLength(2));
   expect(keys[1]).not.toBe(keys[0]);
 });
+
+test("a retried booking that replays a rental paid meanwhile says it is booked instead of booking again", async () => {
+  const keys: string[] = [];
+  api.mockImplementation((path: string, init?: { body?: { requestKey: string } }) => {
+    if (path === "/studios")
+      return Promise.resolve({ studios, cardTestEnabled: false, timeZone: "UTC" });
+    if (path === "/studio-rentals" && init?.body) {
+      keys.push(init.body.requestKey);
+      if (keys.length === 1) return Promise.reject(new Error("Network error"));
+      // The lost hold was paid at the front desk while the pop-up stayed open.
+      return Promise.resolve(rental({ id: 52, hold_until: "2030-01-10T14:30:00Z" }));
+    }
+    return Promise.resolve([]);
+  });
+  mount();
+  const dialog = within(await openSmall());
+  fireEvent.click(dialog.getByRole("button", { name: "Sun, Jan 20, 2030" }));
+  fireEvent.click(dialog.getByRole("button", { name: "Hold studio" }));
+  await dialog.findByText("Network error");
+  fireEvent.click(dialog.getByRole("button", { name: "Hold studio" }));
+  const confirmation = await screen.findByText("Harkonnen is booked. It’s listed under Your rentals.");
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(keys).toEqual([keys[0], keys[0]]);
+  expect(screen.queryByText("Harkonnen is held for you")).toBeNull();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(document.activeElement).toBe(confirmation);
+});
+
+test("a retried card booking whose checkout already closed is settled and booked again, not shown as held", async () => {
+  const assign = vi.fn();
+  vi.stubGlobal("location", { assign });
+  const keys: string[] = [];
+  const card = { payment_method: "stripe_test", status: "pending", payment_status: "unpaid" };
+  api.mockImplementation((path: string, init?: { method?: string; body?: { requestKey: string } }) => {
+    if (path === "/studios")
+      return Promise.resolve({ studios, cardTestEnabled: true, timeZone: "UTC" });
+    if (path === "/studio-rentals" && init?.body) {
+      keys.push(init.body.requestKey);
+      if (keys.length === 1) return Promise.reject(new Error("Network error"));
+      // Stripe let the old checkout time out, but its webhook hasn't arrived.
+      if (keys.length === 2)
+        return Promise.resolve(rental({ ...card, id: 52, checkout_id: "cs_test_old", hold_until: "2030-01-10T14:30:00Z", checkoutUrl: null }));
+      return Promise.resolve(rental({ ...card, id: 53, hold_until: "2030-01-10T15:31:00Z", checkoutUrl: "https://checkout.stripe.com/c/new" }));
+    }
+    if (path === "/studio-rentals/52/payment-status" && init?.method === "POST")
+      return Promise.resolve(rental({ ...card, id: 52, status: "expired", checkoutUrl: null }));
+    return Promise.resolve([]);
+  });
+  try {
+    mount();
+    const dialog = within(await openSmall());
+    fireEvent.click(dialog.getByRole("button", { name: "Sun, Jan 20, 2030" }));
+    fireEvent.click(dialog.getByRole("radio", { name: /Pay now by card/ }));
+    fireEvent.click(dialog.getByRole("button", { name: "Continue to card payment" }));
+    await dialog.findByText("Network error");
+    fireEvent.click(dialog.getByRole("button", { name: "Continue to card payment" }));
+    await waitFor(() => expect(assign).toHaveBeenCalledWith("https://checkout.stripe.com/c/new"));
+    expect(keys).toHaveLength(3);
+    expect(keys[1]).toBe(keys[0]);
+    expect(keys[2]).not.toBe(keys[0]);
+    expect(calls("/studio-rentals/52/payment-status")).toBe(1);
+    expect(screen.queryByText("Harkonnen is held for you")).toBeNull();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
