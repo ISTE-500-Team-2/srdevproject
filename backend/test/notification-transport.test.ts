@@ -32,12 +32,14 @@ test('Brevo forwards signed waiver attachments as named base64 content', async (
 });
 
 test('provider errors classify retry safety and never expose response bodies or fetch errors', async () => {
-  for (const [status, classification] of [[400,'permanent'],[401,'permanent'],[429,'transient'],[500,'ambiguous'],[408,'ambiguous']] as const) {
+  // 401, 402 and 403 refuse the studio's account (key, authorised IPs, credits), not the message.
+  for (const [status, classification] of [[400,'permanent'],[401,'account'],[402,'account'],[403,'account'],[429,'transient'],[500,'ambiguous'],[408,'ambiguous']] as const) {
     const transport = new BrevoTransport(config,fake(async () => new Response('secret echoed by provider', {status,headers:{'retry-after':'60'}})));
     await assert.rejects(transport.send(message), (error: unknown) => {
       assert.ok(error instanceof NotificationTransportError);
       assert.equal(error.classification,classification);
       assert.ok(!error.message.includes('secret'));
+      assert.equal(error.status,status);
       if(status===429) assert.equal(error.retryAfterMs,60_000);
       return true;
     });
