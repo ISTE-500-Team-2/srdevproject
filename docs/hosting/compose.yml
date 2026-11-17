@@ -15,8 +15,10 @@ services:
     secrets: [db_password]
     volumes: [database:/var/lib/postgresql/data]
     networks: [private]
+    # TCP on purpose: the first-boot setup server only listens on the socket, so a
+    # socket check reports ready before POSTGRES_DB exists.
     healthcheck:
-      test: [CMD-SHELL, "pg_isready -U arbor -d arbor"]
+      test: [CMD-SHELL, "pg_isready -h 127.0.0.1 -U arbor -d arbor"]
       interval: 5s
       timeout: 5s
       retries: 20
