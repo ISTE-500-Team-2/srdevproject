@@ -104,7 +104,8 @@ export function Modal({
     closeRef.current?.focus();
     const handleKey = (event: KeyboardEvent) => {
       if (modalStack.at(-1) !== backdrop) return;
-      if (event.key === "Escape") {
+      // A control inside that already used Escape (closing its own list) keeps the dialog open.
+      if (event.key === "Escape" && !event.defaultPrevented) {
         event.preventDefault();
         onCloseRef.current();
       }

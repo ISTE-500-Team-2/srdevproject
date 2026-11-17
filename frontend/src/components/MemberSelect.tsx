@@ -35,6 +35,9 @@ export function MemberSelect({
 }) {
   const id = useId();
   const input = useRef<HTMLInputElement>(null);
+  const changeButton = useRef<HTMLButtonElement>(null);
+  const focusChoice = useRef(false);
+  const [announcement, setAnnouncement] = useState("");
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -47,9 +50,16 @@ export function MemberSelect({
     const timer = window.setTimeout(() => setQuery(search.trim()), 250);
     return () => window.clearTimeout(timer);
   }, [search]);
-  // A parent clearing the value (e.g. after saving) clears the picked person.
+  // A parent clearing the value (e.g. after saving) clears the picked person. A pick unmounts the
+  // search box that had focus, so focus moves to the choice once it shows.
   useEffect(() => {
-    if (!current) setChosen(null);
+    if (!current) {
+      setChosen(null);
+      setAnnouncement("");
+    } else if (focusChoice.current) {
+      focusChoice.current = false;
+      changeButton.current?.focus();
+    }
   }, [current]);
   const result = useApi<{ items: Member[]; hasMore: boolean }>(
     query.length >= 2
@@ -61,6 +71,8 @@ export function MemberSelect({
       : null,
   );
   const options = result.data?.items ?? [];
+  // Matches for what's in the box now; until then the list can still show an earlier, shorter search.
+  const resultsMatch = query === search.trim() && !result.loading;
   // Typed text that wasn't turned into a pick must not pass as a choice.
   useEffect(() => {
     input.current?.setCustomValidity(
@@ -74,11 +86,14 @@ export function MemberSelect({
     onChange?.(String(person.id));
     setSearch("");
     setOpen(false);
+    setAnnouncement(`Selected ${person.name}`);
+    focusChoice.current = true;
   };
   const clear = () => {
     setChosen(null);
     setSelection("");
     onChange?.("");
+    focusChoice.current = false;
     setOpen(true);
     window.setTimeout(() => input.current?.focus());
   };
@@ -102,7 +117,7 @@ export function MemberSelect({
             <b>{displayed?.name ?? `${label} #${current}`}</b>
             {displayed ? <small>{displayed.email}</small> : null}
           </span>
-          <button type="button" className="member-select__change" onClick={clear} aria-label={`Change ${label.toLowerCase()}`}>
+          <button ref={changeButton} type="button" className="member-select__change" onClick={clear} aria-label={`Change ${label.toLowerCase()}`}>
             <X aria-hidden="true" /> Change
           </button>
           {name ? <input type="hidden" name={name} value={current} /> : null}
@@ -142,10 +157,14 @@ export function MemberSelect({
                 event.preventDefault();
                 setActive((i) => Math.max(i - 1, 0));
               } else if (event.key === "Enter") {
-                // Never submit a parent form against a half-typed search.
+                // Never submit a parent form against a half-typed search, and never pick
+                // from results for an earlier search.
                 event.preventDefault();
-                if (showList && options[active]) pick(options[active]);
-              } else if (event.key === "Escape") {
+                if (showList && resultsMatch && options[active]) pick(options[active]);
+              } else if (event.key === "Escape" && showList) {
+                // Close only the suggestions, not a dialog the field sits in.
+                event.preventDefault();
+                event.stopPropagation();
                 setOpen(false);
               }
             }}
@@ -175,6 +194,9 @@ export function MemberSelect({
           ))}
         </ul>
       ) : null}
+      <p className="sr-only" aria-live="polite" aria-atomic="true">
+        {announcement}
+      </p>
       {!current && description ? (
         <p className="member-select__description" id={id + "-description"}>
           {description}
