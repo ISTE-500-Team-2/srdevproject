@@ -224,17 +224,42 @@ test("a payment that is still pending after a minute says it is still processing
   }
 });
 
-test.each(["past_due", "unpaid", "incomplete", "paused"])("a %s renewal asks the member to update their card instead of waiting", (status) => {
-  mount({
-    memberships: [{ id: 9, planId: 1, effectiveStatus: "expired", endsAt: "2020-02-01T00:00:00Z", plan: monthly }],
-    records: [{ id: "b", plan: monthly, status, amountCents: 5000, cancelAtPeriodEnd: false, currentPeriodEnd: "2030-02-01T00:00:00Z" }],
-  });
+const lapsed = [{ id: 9, planId: 1, effectiveStatus: "expired", endsAt: "2020-02-01T00:00:00Z", plan: monthly }];
+const billingRecord = (status: string, extra: object = {}) => ({ id: "b", plan: monthly, status, amountCents: 5000, cancelAtPeriodEnd: false, currentPeriodEnd: "2030-02-01T00:00:00Z", ...extra });
+
+test.each(["past_due", "unpaid", "paused"])("a %s renewal asks the member to update their card instead of waiting", (status) => {
+  mount({ memberships: lapsed, records: [billingRecord(status)] });
   expect(screen.getByRole("heading", { name: "Your last payment didn't go through" })).toBeTruthy();
   expect(screen.getByText("Payment failed")).toBeTruthy();
   expect(screen.queryByText(/being set up|waiting for your payment/)).toBeNull();
   expect(screen.queryByText(/Next charge/)).toBeNull();
   expect(screen.getByText(/a month · payment failed/)).toBeTruthy();
   expect(screen.getByRole("button", { name: "Manage payment method" }).className).toContain("button--primary");
+});
+
+test("a first payment that never cleared asks for a card to start the membership, not keep it", () => {
+  mount({ records: [billingRecord("incomplete")] });
+  expect(screen.getByRole("heading", { name: "Your first payment hasn't gone through" })).toBeTruthy();
+  expect(screen.getByText("Update your payment method to start your membership.")).toBeTruthy();
+  // Same words as the billing history uses for this status.
+  expect(screen.getByText(statusLabel("incomplete"), { selector: ".membership-status .plan-pill" })).toBeTruthy();
+  expect(screen.getByText(/a month · first payment not finished/)).toBeTruthy();
+  expect(screen.queryByText(/Next charge|payment failed|didn't go through/)).toBeNull();
+});
+
+test("stopping auto-renew after a failed payment doesn't promise access the member no longer has", () => {
+  mount({ memberships: lapsed, records: [billingRecord("past_due")] });
+  fireEvent.click(screen.getByRole("button", { name: "Stop auto-renew" }));
+  const dialog = screen.getByRole("dialog", { name: "Stop auto-renew?" });
+  expect(dialog.textContent).not.toMatch(/keep studio access/);
+  expect(dialog.textContent).toContain("you won't have studio access unless you update your payment method");
+});
+
+test("an unconfirmed stop request after a failed payment still says what Try again retries", () => {
+  mount({ memberships: lapsed, records: [billingRecord("past_due", { cancellationEffectiveAt: "2030-03-01T00:00:00Z" })] });
+  expect(screen.getByText(/a month · payment failed/)).toBeTruthy();
+  expect(screen.getByText(/You asked to stop auto-renew from .* We're confirming this with the payment provider\./)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
 });
 
 test("a pass staff put on hold has no Cancel button, and a revoked one is no longer listed", () => {

@@ -139,8 +139,11 @@ export function AccessSummary({ history, billing, passes, busy, act }: Props) {
       >
         <p>
           Cancelling takes effect on the first billing date that's at least
-          30 days from today, so you may be charged one more time. You keep
-          studio access until then, and we'll show your last day here.
+          30 days from today, so you may be charged one more time.{" "}
+          {/* After a failed charge access has already lapsed, so don't promise it. */}
+          {stopping && failedBilling.includes(stopping.status)
+            ? "Your payment didn't go through, so you won't have studio access unless you update your payment method."
+            : "You keep studio access until then, and we'll show your last day here."}
         </p>
         <div className="membership-dialog__actions">
           <button className="button button--quiet" onClick={() => setStopping(null)}>
@@ -279,11 +282,15 @@ function Headline({
       : "Your membership starts soon";
     detail = scheduled.plan?.name ?? "Membership";
   } else if (recurring && failedBilling.includes(recurring.status)) {
+    // Incomplete is a first checkout whose payment never cleared, so there's no membership to keep yet.
+    const first = recurring.status === "incomplete";
     icon = <CreditCard aria-hidden="true" />;
     tone = "warn";
-    pill = "Payment failed";
-    title = "Your last payment didn't go through";
-    detail = "Update your payment method to keep your membership.";
+    pill = first ? "Payment pending" : "Payment failed";
+    title = first
+      ? "Your first payment hasn't gone through"
+      : "Your last payment didn't go through";
+    detail = `Update your payment method to ${first ? "start" : "keep"} your membership.`;
   } else if (pending || recurring) {
     icon = <Clock aria-hidden="true" />;
     tone = "warn";
@@ -351,26 +358,37 @@ function BillingDetails({
   const ending = r.cancellationEffectiveAt;
   // A failed charge has no next charge date to promise; the member needs to fix their card.
   const failed = failedBilling.includes(r.status);
-  let renewal: string;
-  if (failed) renewal = `${r.plan.name} · ${cents(r.amountCents)} a month · payment failed`;
-  else if (ending && r.cancellationConfirmed)
+  // Any stop-auto-renew state still shows beside a failed payment, so "Try again" reads as retrying that.
+  let renewal: string | null = null;
+  if (ending && r.cancellationConfirmed)
     renewal = `Auto-renew is off. Your last day is ${shortDate(ending, true)}.`;
   else if (ending)
     renewal = `You asked to stop auto-renew from ${shortDate(ending, true)}. We're confirming this with the payment provider.`;
   else if (r.cancelAtPeriodEnd) renewal = "Auto-renew is off.";
-  else
+  else if (!failed)
     renewal = r.currentPeriodEnd
       ? `Next charge ${cents(r.amountCents)} on ${shortDate(r.currentPeriodEnd)}`
       : `Renews automatically at ${cents(r.amountCents)} a month`;
   const renewing = !ending && !r.cancelAtPeriodEnd;
   return (
     <div className="membership-billing">
-      <p className="membership-facts">
-        <span>
-          {failed ? <CreditCard aria-hidden="true" /> : <Repeat aria-hidden="true" />}
-          {renewal}
-        </span>
-      </p>
+      {failed ? (
+        <p className="membership-facts">
+          <span>
+            <CreditCard aria-hidden="true" />
+            {r.plan.name} · {cents(r.amountCents)} a month ·{" "}
+            {r.status === "incomplete" ? "first payment not finished" : "payment failed"}
+          </span>
+        </p>
+      ) : null}
+      {renewal ? (
+        <p className="membership-facts">
+          <span>
+            <Repeat aria-hidden="true" />
+            {renewal}
+          </span>
+        </p>
+      ) : null}
       <div className="membership-actions">
         <button
           className={failed ? "button button--primary" : "button button--quiet"}

@@ -85,10 +85,11 @@ test('combined pricing, TOS, paid passes, bounded NFC decisions and policy repla
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM app_pass_checkout')).rows[0].n,1);
 });
 test('a paid pass staff put on hold or revoked is listed with that status, not as paid',async()=>{
-  const pass=(await pool.query('SELECT id,pass_id FROM app_pass_checkout WHERE userid=$1',[member.user.id])).rows[0];
+  const pass=(await pool.query("SELECT id,pass_id FROM app_pass_checkout WHERE userid=$1 AND status='paid' AND pass_id IS NOT NULL",[member.user.id])).rows[0];
+  assert.ok(pass,'Needs the paid pass the previous test issues; run this whole file, not this test alone');
   const listed=async()=>{
     const r=await get('/me/billing/passes');assert.equal(r.status,200);
-    return r.body.data.find((p:any)=>p.id===pass.id).status;
+    return r.body.data.find((p:any)=>p.id===pass.id)?.status;
   };
   const change=async(status:string)=>{
     const {revision}=(await pool.query('SELECT revision FROM day_pass WHERE dayid=$1',[pass.pass_id])).rows[0];
