@@ -142,6 +142,8 @@ export interface WaiverFormField {
 export interface Certification {
   trainedAt?: string|null;
   approvedAt?: string|null;
+  /** When it was last revoked; training on or before this can't be approved. */
+  revokedAt?: string|null;
   instructorName?: string|null;
   equipmentIds?: number[];
   validityDays?: number|null;
