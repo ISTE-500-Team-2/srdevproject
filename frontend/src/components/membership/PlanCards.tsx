@@ -40,12 +40,9 @@ interface Props {
 
 export function PlanCards({ plans, billingEnabled, billing, memberships, today, busy, post, run }: Props) {
   const [date, setDate] = useState("");
-  const policies = useApi<Waiver[]>(billingEnabled ? '/me/waivers?scope=facility' : null, { retainOnReload: true, refreshInterval: 15000 });
-  const policiesReady = !policies.loading && !policies.error && !!policies.data?.length && policies.data.every(policy => policy.signed);
+  // Quote every member, card payments or not: approved free access is issued without them.
   const offers = useApi<Offer[]>(
-    billingEnabled
-      ? "/me/billing/offers" + (date ? "?date=" + encodeURIComponent(date) : "")
-      : null,
+    "/me/billing/offers" + (date ? "?date=" + encodeURIComponent(date) : ""),
     { retainOnReload: true },
   );
   // Changing the visit date re-quotes prices; keep the last quote on screen
@@ -61,6 +58,13 @@ export function PlanCards({ plans, billingEnabled, billing, memberships, today, 
   const visible = plans.filter((p) => p.active);
   const membershipPlans = visible.filter((p) => p.kind === "membership");
   const dayPasses = visible.filter((p) => p.kind === "day_pass");
+  // Without card payments only a free pass is bought here. Once a date is picked its
+  // picker stays, so a date the free access doesn't cover can be changed back.
+  const sellsDayPass = (offer: Offer | undefined): offer is Offer =>
+    !!offer && (billingEnabled || offer.amountCents === 0 || !!date);
+  const dayPassOnline = billingEnabled || dayPasses.some((p) => sellsDayPass(offerFor(p.id)));
+  const policies = useApi<Waiver[]>(dayPassOnline ? '/me/waivers?scope=facility' : null, { retainOnReload: true, refreshInterval: 15000 });
+  const policiesReady = !policies.loading && !policies.error && !!policies.data?.length && policies.data.every(policy => policy.signed);
 
   return (
     <section className="membership-offers" aria-labelledby="get-access-heading">
@@ -79,7 +83,7 @@ export function PlanCards({ plans, billingEnabled, billing, memberships, today, 
         ) : null}
       </div>
       <LoadState {...offers} loading={offers.loading && !lastOffers.current} />
-      {billingEnabled && dayPasses.length ? <>
+      {dayPassOnline && dayPasses.length ? <>
         <LoadState {...policies} />
         {!policies.loading && !policies.error && !policies.data?.length ? (
           <p className="membership-hint">Day passes are unavailable until staff publish the required facility policies.</p>
@@ -99,7 +103,7 @@ export function PlanCards({ plans, billingEnabled, billing, memberships, today, 
                 You're on this plan
               </button>
             );
-          else if (pending && offer && pending.plan.id === plan.id && canCheckout(offer))
+          else if (billingEnabled && pending && offer && pending.plan.id === plan.id && canCheckout(offer))
             action = (
               <button
                 className="button button--primary button--wide"
@@ -122,7 +126,7 @@ export function PlanCards({ plans, billingEnabled, billing, memberships, today, 
                 Claim free month
               </button>
             );
-          else if (offer && canCheckout(offer))
+          else if (billingEnabled && offer && canCheckout(offer))
             action = (
               <button
                 className="button button--primary button--wide"
@@ -150,7 +154,7 @@ export function PlanCards({ plans, billingEnabled, billing, memberships, today, 
           const refundable = !date || lastCancelDate(date) >= today;
           return (
             <PlanCard key={plan.id} plan={plan} offer={offer}>
-              {billingEnabled && offer ? (
+              {sellsDayPass(offer) ? (
                 <>
                   <label className="membership-field">
                     Visit date
@@ -169,29 +173,33 @@ export function PlanCards({ plans, billingEnabled, billing, memberships, today, 
                         : "Can't be cancelled for a refund: day passes need 3 days' notice."}
                     </p>
                   ) : null}
-                  <button
-                    className="button button--primary button--wide"
-                    disabled={busy || !date || quoting || !policiesReady}
-                    onClick={() =>
-                      run(
-                        "/me/billing/passes/checkout",
-                        {
-                          planId: offer.id,
-                          expectedRevision: offer.revision,
-                          pricingRevision: offer.pricingRevision,
-                          amountCents: offer.amountCents,
-                          validDate: date,
-                        },
-                        () => `Your day pass for ${shortDate(date)} is booked.`,
-                      )
-                    }
-                  >
-                    {!date
-                      ? "Choose a date"
-                      : offer.amountCents === 0
-                        ? "Claim free day pass"
-                        : `Buy day pass · ${cents(offer.amountCents)}`}
-                  </button>
+                  {!billingEnabled && offer.amountCents > 0 ? (
+                    <p className="membership-hint">Buy a day pass for this date at the front desk.</p>
+                  ) : (
+                    <button
+                      className="button button--primary button--wide"
+                      disabled={busy || !date || quoting || !policiesReady}
+                      onClick={() =>
+                        run(
+                          "/me/billing/passes/checkout",
+                          {
+                            planId: offer.id,
+                            expectedRevision: offer.revision,
+                            pricingRevision: offer.pricingRevision,
+                            amountCents: offer.amountCents,
+                            validDate: date,
+                          },
+                          () => `Your day pass for ${shortDate(date)} is booked.`,
+                        )
+                      }
+                    >
+                      {!date
+                        ? "Choose a date"
+                        : offer.amountCents === 0
+                          ? "Claim free day pass"
+                          : `Buy day pass · ${cents(offer.amountCents)}`}
+                    </button>
+                  )}
                 </>
               ) : (
                 <p className="membership-hint">Buy a day pass at the front desk.</p>

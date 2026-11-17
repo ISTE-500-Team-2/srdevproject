@@ -25,6 +25,8 @@ interface Data {
   historyPasses?: unknown[];
   passes?: unknown[];
   offers?: unknown[];
+  /** Quotes for a picked visit date, when they differ from the undated ones. */
+  datedOffers?: unknown[];
   accessStatus?: string;
   policies?: { id: number; name: string; signed: boolean; scope: 'facility' | 'equipment' }[];
   policyError?: string;
@@ -36,6 +38,7 @@ function mount(d: Data = {}, url = "/membership") {
     if (cache.has(path)) return cache.get(path);
     const data =
       path === null ? null
+      : path.startsWith("/me/billing/offers?") && d.datedOffers ? d.datedOffers
       : path.startsWith("/me/billing/offers") ? (d.offers ?? [offer(monthly, 5000), offer(dayPass, 1500)])
       : path === '/me/waivers?scope=facility' ? (d.policies ?? [{ id: 1, name: 'Terms of Service', signed: true, scope: 'facility' }])
       : path === "/me/billing/passes" ? (d.passes ?? [])
@@ -79,7 +82,39 @@ test("without online billing, plans still show and point to the front desk", () 
   expect(screen.getByText("$50.00")).toBeTruthy();
   expect(screen.queryByRole("button", { name: /Start membership/ })).toBeNull();
   expect(screen.getByText(/Ask at the front desk to sign up/)).toBeTruthy();
+  expect(screen.queryByLabelText("Visit date")).toBeNull();
+  expect(screen.getByText("Buy a day pass at the front desk.")).toBeTruthy();
   expect(screen.queryByText(/test mode/)).toBeNull();
+});
+
+test("without online billing, approved free access is still claimed here", async () => {
+  mount({ enabled: false, offers: [offer(monthly, 0, "school_partner"), offer(dayPass, 0, "school_partner")] });
+  fireEvent.click(screen.getByRole("button", { name: "Claim free month" }));
+  const dialog = screen.getByRole("dialog", { name: "Claim free month" });
+  api.mockResolvedValue({ issued: true });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Claim free month" }));
+  await waitFor(() => expect(api).toHaveBeenCalledWith("/me/billing/free-membership", { method: "POST", body: { planId: 1, expectedRevision: 2, pricingRevision: 4 } }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  const date = future(10);
+  fireEvent.change(screen.getByLabelText("Visit date"), { target: { value: date } });
+  fireEvent.click(screen.getByRole("button", { name: "Claim free day pass" }));
+  await waitFor(() => expect(api).toHaveBeenCalledWith("/me/billing/passes/checkout", {
+    method: "POST",
+    body: { planId: 3, expectedRevision: 2, pricingRevision: 4, amountCents: 0, validDate: date },
+  }));
+});
+
+test("without online billing, a visit date the free access doesn't cover goes to the front desk", () => {
+  mount({
+    enabled: false,
+    offers: [offer(monthly, 5000), offer(dayPass, 0, "school_partner")],
+    datedOffers: [offer(monthly, 5000), offer(dayPass, 1500)],
+  });
+  fireEvent.change(screen.getByLabelText("Visit date"), { target: { value: future(40) } });
+  expect(screen.queryByRole("button", { name: /^(Buy|Claim free) day pass/ })).toBeNull();
+  expect(screen.getByText("Buy a day pass for this date at the front desk.")).toBeTruthy();
+  // The picker stays, so the member can pick a date their free access covers.
+  expect(screen.getByLabelText("Visit date")).toBeTruthy();
 });
 
 test("stopping auto-renew asks first, then cancels the member's own record", async () => {
