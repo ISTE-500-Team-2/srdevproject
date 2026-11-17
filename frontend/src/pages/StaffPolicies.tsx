@@ -424,7 +424,8 @@ export function StaffPolicies() {
                   <i style={{ width: `${stats.total ? Math.round((stats.compliant / stats.total) * 100) : 100}%` }} />
                 </div>
                 <small>
-                  {stats.compliant} of {stats.total} active members signed
+                  {/* An equipment waiver is only counted for members trained on or booked on equipment that needs it. */}
+                  {stats.compliant} of {stats.total} {shown.scope === "equipment" ? "active equipment users" : "active members"} signed
                 </small>
               </div>
             ) : (

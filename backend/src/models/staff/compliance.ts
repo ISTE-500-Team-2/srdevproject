@@ -118,12 +118,24 @@ export class ComplianceReports {
         WHERE ($4::text='all' OR u.status=$4::text)
       ),
       current_waivers AS (
-        SELECT DISTINCT ON (name) waiverid,name,version
+        SELECT DISTINCT ON (name) waiverid,name,version,policy_scope
         FROM waiver
         WHERE isactive=true AND required=true
           AND (effectivedate IS NULL OR effectivedate<=NOW() AT TIME ZONE 'UTC')
           AND ($1::int IS NULL OR waiverid=$1)
         ORDER BY name,effectivedate DESC NULLS LAST,waiverid DESC
+      ),
+      -- Facility policies bind every member. Equipment waivers are only checked for equipment
+      -- that requires one, so they bind the members who use it: trained on it or booked on it.
+      equipment_waiver_users AS (
+        SELECT uc.userid FROM user_certifications uc
+        JOIN equipment e ON e.certid=uc.certid AND e.waiverrequired=true
+        WHERE uc.status='active'
+          AND NOT EXISTS(SELECT 1 FROM app_equipment_retirement x WHERE x.equipment_id=e.equipmentid)
+        UNION
+        SELECT r.userid FROM reservation r
+        JOIN equipment e ON e.equipmentid=r.equipmentid AND e.waiverrequired=true
+        WHERE r.status IN ('confirmed','pending') AND r.endtime>NOW() AT TIME ZONE 'UTC'
       ),
       report_certifications AS (
         SELECT certid,name,enddate FROM certifications
@@ -143,6 +155,7 @@ export class ComplianceReports {
           WHERE userid=ru.userid AND waiverid=w.waiverid AND approval=true
           ORDER BY signdate DESC,userwaiverid DESC LIMIT 1
         ) sig ON true
+        WHERE w.policy_scope='facility' OR ru.userid IN (SELECT userid FROM equipment_waiver_users)
       ),
       certification_status AS (
         SELECT ru.userid,c.certid,c.name,uc.status,uc.renewaldate,c.enddate,
