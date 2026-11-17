@@ -184,7 +184,7 @@
 }
 .today-block--booked { background: var(--orange-soft); color: #6b3d05; box-shadow: inset 3px 0 0 var(--orange); }
 .today-block--live { background: var(--espresso-2); color: #fff; }
-.today-block--past { border: 1px dashed #c8b8ad; color: #a3938a; font-weight: 500; }
+.today-block--past { border: 1px dashed #c8b8ad; color: var(--ink-soft); font-weight: 500; }
 .today-block--class { background: #e5d9ce; color: #3d2a20; box-shadow: inset 3px 0 0 var(--today-muted); }
 .today-block--conflict { border: 1.5px solid var(--red); background: #fffdfa; color: var(--red); }
 .today-outage {

@@ -86,8 +86,9 @@
     box-shadow var(--hb-hold) linear;
 }
 
+/* Local change: the ring takes the label color, not the fill; a deep fill such as --hold-danger fades on dark dialogs. */
 .hold-button:focus-visible {
-  outline: 2px solid var(--hb-fill);
+  outline: 2px solid var(--hb-text);
   outline-offset: 3px;
 }
 
