@@ -42,13 +42,18 @@ class StaleDialog extends DialogMessage {}
 
 /**
  * A record dialog's Modal. Once staff change anything in it, a stray click outside or Escape asks
- * before throwing the draft away.
+ * before throwing the draft away. `dirty` adds work that no change event reports, such as a captured
+ * card scan.
  */
-function DraftModal({ children, ...props }: Omit<ComponentProps<typeof Modal>, "dirty" | "children"> & { children: ReactNode }) {
-  const [dirty, setDirty] = useState(false);
+function DraftModal({
+  children,
+  dirty = false,
+  ...props
+}: Omit<ComponentProps<typeof Modal>, "children"> & { children: ReactNode }) {
+  const [edited, setEdited] = useState(false);
   return (
-    <Modal {...props} dirty={dirty}>
-      <div className="mr-dialog__draft" onChangeCapture={() => setDirty(true)}>
+    <Modal {...props} dirty={dirty || edited}>
+      <div className="mr-dialog__draft" onChangeCapture={() => setEdited(true)}>
         {children}
       </div>
     </Modal>
@@ -520,8 +525,10 @@ function RolesDialog({
 function AssignDialog({ person, replacement, onClose, onDone }: { person: Person; replacement: NfcCard | null; onClose: () => void; onDone: (m: string) => void }) {
   const setup = useApi<ReaderSetup>("/admin/access/readers");
   const name = `${person.firstName} ${person.lastName}`;
+  // A tapped card arrives by polling, not a change event; closing would release the scan.
+  const [captured, setCaptured] = useState(false);
   return (
-    <DraftModal open width="regular" title={replacement ? `Replace ${replacement.label}` : "Assign an NFC card"} onClose={onClose} className="mr-dialog mr-dialog--scan">
+    <DraftModal open width="regular" title={replacement ? `Replace ${replacement.label}` : "Assign an NFC card"} onClose={onClose} dirty={captured} className="mr-dialog mr-dialog--scan">
       {replacement ? <p className="mr-dialog__lead">{replacement.label} keeps working until the new card is saved.</p> : null}
       {setup.error ? (
         <p role="alert" className="form-error">
@@ -539,6 +546,7 @@ function AssignDialog({ person, replacement, onClose, onDone }: { person: Person
           onCancelReplacement={onClose}
           onSaved={() => onDone(replacement ? `New card assigned. ${replacement.label} revoked.` : `Card assigned to ${person.firstName}.`)}
           onRefresh={() => undefined}
+          onCaptured={setCaptured}
         />
       ) : (
         <p role="status">Loading readers…</p>

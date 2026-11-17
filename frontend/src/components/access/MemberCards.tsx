@@ -1,7 +1,7 @@
 // Member card assignment, labeling and deactivation UI; reader capture remains separate from
 // confirming the assignment.
 
-import { useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useState, type FormEvent } from "react";
 import { api, ApiError, errorMessage } from "../../lib/api";
 import { editingFormRef } from "../../lib/editingForms";
 import { dateTime } from "../../lib/display";
@@ -248,6 +248,7 @@ export function AssignCard({
   onCancelReplacement,
   onSaved,
   onRefresh,
+  onCaptured,
 }: {
   userId: number;
   memberName: string;
@@ -256,8 +257,14 @@ export function AssignCard({
   onCancelReplacement: () => void;
   onSaved: () => void;
   onRefresh: () => void;
+  /** Whether a tapped card is waiting to be confirmed, so a host can guard against losing it. */
+  onCaptured?: (captured: boolean) => void;
 }) {
   const scan = useCardScan("assign", userId);
+  const captured = scan.scan?.status === "captured";
+  useEffect(() => {
+    onCaptured?.(captured);
+  }, [captured, onCaptured]);
   const uidId = useId();
   const [manual, setManual] = useState(false),
     [busy, setBusy] = useState(false),
