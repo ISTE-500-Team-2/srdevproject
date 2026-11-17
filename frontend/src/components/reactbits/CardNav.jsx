@@ -98,6 +98,10 @@ const DEFAULT_ITEMS = [
 ];
 
 const NARROW = 560;
+// Local addition: the open panel stops this far above the bottom of the screen, and its content never shrinks below
+// MIN_ROOM (see fit() below).
+const EDGE = 10;
+const MIN_ROOM = 120;
 const EASE_OUT = 'cubic-bezier(0.22, 1, 0.36, 1)';
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -283,24 +287,45 @@ const CardNav = ({
       }
     };
 
+    // Local addition: in a sticky header, a menu taller than the room below the bar (a phone held sideways) could
+    // never be scrolled into view, so the content is capped there and scrolls on its own. While capped, scrollHeight
+    // is the full height; the cap is only rewritten when it changes, which keeps the scroll position.
+    const fit = () => {
+      const natural = content.style.maxHeight ? content.scrollHeight : content.offsetHeight;
+      const room = Math.max(MIN_ROOM, Math.floor(window.innerHeight - panel.getBoundingClientRect().top - state.bar - EDGE));
+      const cap = natural > room ? `${room}px` : '';
+      if (content.style.maxHeight !== cap) {
+        content.style.maxHeight = cap;
+        content.style.overflowY = cap ? 'auto' : '';
+      }
+      state.height = content.offsetHeight;
+    };
+
     engineRef.current = {
       wake,
       refresh: () => {
-        state.height = content.offsetHeight;
+        fit();
         render();
       }
     };
 
+    fit();
     render();
     const observer = new ResizeObserver(() => {
       state.height = content.offsetHeight;
       render();
     });
     observer.observe(content);
+    const onResize = () => {
+      fit();
+      render();
+    };
+    window.addEventListener('resize', onResize);
 
     return () => {
       cancelAnimationFrame(raf);
       observer.disconnect();
+      window.removeEventListener('resize', onResize);
       engineRef.current = null;
     };
   }, [items.length, hasCta, narrow]);
