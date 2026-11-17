@@ -7,6 +7,7 @@ import { setAccessToken, setCsrfToken } from '../lib/api';
 import { RequireStaff, RequireUser } from './RouteGuards';
 
 let roles = ['member'];
+let person = 1;
 let actorRoles: string[] | null = null;
 let expired = false;
 let unavailable = false;
@@ -17,7 +18,7 @@ let csrfHold: Promise<void> | undefined;
 let calls = 0;
 let hold: Promise<void> | undefined;
 function session() {
-  return { accessToken:'test-token', csrfToken:'test-csrf', user:{id:1,role:'member',roles:[...roles],firstName:'Test'},
+  return { accessToken:'test-token', csrfToken:'test-csrf', user:{id:person,role:'member',roles:[...roles],firstName:'Test'},
     actingAs: actorRoles ? { actor:{id:2,role:'staff',roles:[...actorRoles],firstName:'Staff'} } : null };
 }
 function mount(path='/profile') {
@@ -60,7 +61,7 @@ function Protected() {
 // Each tick in its own act, so React re-arms the countdown between seconds.
 const elapse=async(ms:number)=>{for(let t=0;t<ms;t+=250)await act(()=>vi.advanceTimersByTimeAsync(250));};
 const pageshow=(persisted:boolean)=>fireEvent(window,new PageTransitionEvent('pageshow',{persisted}));
-afterEach(()=>{ cleanup();vi.useRealTimers();vi.unstubAllGlobals();setAccessToken(null);setCsrfToken(null);roles=['member'];actorRoles=null;expired=false;unavailable=false;rateLimited=false;gatewayDown=false;noToken=false;csrfHold=undefined;calls=0;hold=undefined; });
+afterEach(()=>{ cleanup();vi.useRealTimers();vi.unstubAllGlobals();setAccessToken(null);setCsrfToken(null);roles=['member'];person=1;actorRoles=null;expired=false;unavailable=false;rateLimited=false;gatewayDown=false;noToken=false;csrfHold=undefined;calls=0;hold=undefined; });
 
 test('signed-out deep links never render protected content', async()=>{
   expired=true; mount('/admin');
@@ -340,4 +341,72 @@ test('every tab return revalidates anew; a stalled earlier check cannot keep a r
   release();
   await new Promise((r) => setTimeout(r, 0));
   expect(screen.queryByText('Private staff workspace')).toBeNull();
+});
+
+const draft=()=>(screen.getByLabelText('Unsaved name') as HTMLInputElement).value;
+test('a failed background check keeps the page and unsaved edits under a retrying banner',async()=>{
+  mount();await screen.findByText('Private profile');
+  fireEvent.change(screen.getByLabelText('Unsaved name'),{target:{value:'Keep my edit'}});
+  unavailable=true;fireEvent.focus(window);
+  await screen.findByText('Connection lost.');
+  expect(screen.queryByRole('heading',{name:'We can’t reach the server'})).toBeNull();
+  expect(draft()).toBe('Keep my edit');
+  // A link within the page during the outage also retries in the background.
+  fireEvent.click(screen.getByText('Same page link'));
+  await waitFor(()=>expect(calls).toBe(3));
+  await screen.findByRole('button',{name:'Try again'});
+  expect(draft()).toBe('Keep my edit');
+  unavailable=false;fireEvent.click(screen.getByRole('button',{name:'Try again'}));
+  await waitFor(()=>expect(screen.queryByText('Connection lost.')).toBeNull());
+  expect(screen.getByText('Private profile')).toBeTruthy();
+  expect(draft()).toBe('Keep my edit');
+});
+test('a background outage that turns out to be an ended session still goes to sign in',async()=>{
+  mount();await screen.findByText('Private profile');
+  unavailable=true;fireEvent.focus(window);await screen.findByText('Connection lost.');
+  unavailable=false;expired=true;fireEvent.focus(window);
+  await screen.findByText('Sign in');expect(screen.queryByText('Private profile')).toBeNull();
+});
+test('a check the page waits on still shows the outage page when it fails',async()=>{
+  mount();await screen.findByText('Private profile');
+  unavailable=true;fireEvent.click(screen.getByText('Background then blocking check'));
+  await screen.findByRole('heading',{name:'We can’t reach the server'});
+  expect(screen.queryByText('Private profile')).toBeNull();
+});
+
+test('a stale tab whose sign-in was replaced in another tab goes to sign in, not into the other account',async()=>{
+  noToken=true;mount();await screen.findByText('Private profile');
+  // Someone else signed in from another tab: this tab's token is revoked and the
+  // browser's shared refresh cookie now renews as them.
+  const sent:string[]=[];
+  const other={id:2,role:'member',roles:['member'],firstName:'Other'};
+  vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{
+    const bearer=(init?.headers as Record<string,string>|undefined)?.Authorization;
+    if(bearer) sent.push(bearer);
+    if(url==='/api/auth/csrf') return Response.json({data:{csrfToken:'their-csrf'}});
+    if(url==='/api/auth/refresh') return Response.json({data:{accessToken:'their-token',csrfToken:'their-csrf',user:other}});
+    if(bearer==='Bearer their-token') return Response.json({data:{csrfToken:'their-csrf',user:other,actingAs:null}});
+    return Response.json({error:{code:'UNAUTHORIZED',message:'Expired'}},{status:401});
+  }));
+  fireEvent.focus(window);
+  await screen.findByText('Sign in');
+  expect(screen.queryByText('Private profile')).toBeNull();
+  expect(authProbe.current!.user).toBeNull();
+  expect(sent).not.toContain('Bearer their-token');
+});
+test('a page loaded for one person is rebuilt, not kept, when another person is signed in',async()=>{
+  mount();await screen.findByText('Private profile');
+  fireEvent.change(screen.getByLabelText('Unsaved name'),{target:{value:'First person’s draft'}});
+  person=2;fireEvent.focus(window);
+  await waitFor(()=>expect(authProbe.current!.user?.id).toBe(2));
+  await waitFor(()=>expect(draft()).toBe(''));
+});
+test('staff opening a member’s account keep the page in place',async()=>{
+  person=2;roles=['staff'];mount();await screen.findByText('Private profile');
+  fireEvent.change(screen.getByLabelText('Unsaved name'),{target:{value:'Keep my edit'}});
+  // Staff member 2 opens member 1's account.
+  person=1;roles=['member'];actorRoles=['staff'];
+  await act(()=>authProbe.current!.openAccount(1));
+  expect(authProbe.current!.user?.id).toBe(1);
+  expect(draft()).toBe('Keep my edit');
 });
