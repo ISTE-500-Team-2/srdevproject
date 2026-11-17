@@ -2,22 +2,23 @@
 // booking duration.
 
 import { MonthCalendar } from "./MonthCalendar";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 
 const QUICK_DAYS = 14;
 const pad = (n: number) => String(n).padStart(2, "0");
 const dayKey = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const clockKey = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-const nextHalfHour = (d: Date) => {
-  const next = new Date(d);
-  // Always choose a future slot, including when the clock is exactly on a boundary.
-  next.setMinutes(Math.floor(d.getMinutes() / 30) * 30 + 30, 0, 0);
-  return next;
-};
+/**
+ * Slack over the server's rules (a start in the future; 30 minutes ahead when payment is due), so
+ * the earliest start offered is still accepted when the member sends the form a little later.
+ */
+const MARGIN_MINUTES = 2;
+/** The earliest start offered: the first hour or half hour, local time, past the lead time and margin. */
 const minimumStart = (now: Date, leadMinutes: number) => {
-  if (!leadMinutes) return nextHalfHour(now);
-  const minimum = new Date(now.getTime() + leadMinutes * 60000);
-  minimum.setMinutes(Math.ceil(minimum.getMinutes() / 30) * 30, 0, 0);
+  const minimum = new Date(now.getTime() + (leadMinutes + MARGIN_MINUTES) * 60000);
+  // Round up counting seconds too: 10:00:20 is past 10:00.
+  if (minimum.getMinutes() % 30 || minimum.getSeconds() || minimum.getMilliseconds())
+    minimum.setMinutes(Math.floor(minimum.getMinutes() / 30) * 30 + 30, 0, 0);
   return minimum;
 };
 const timeLabel = (minutes: number) =>
@@ -48,6 +49,10 @@ export function StartTimePicker({ name, hours, onPick, children, now: nowProp, c
   const [day, setDay] = useState(() => dayKey(minimumStart(initialNow, minLeadMinutes)));
   const [calendarMonth, setCalendarMonth] = useState(() => dayKey(minimumStart(initialNow, minLeadMinutes)).slice(0, 7));
   const [time, setTime] = useState(() => clockKey(minimumStart(initialNow, minLeadMinutes)));
+  // Until the member chooses a start time, `time` is a suggestion that follows the clock and the free
+  // times. A time they chose is never swapped for another: if it stops fitting, they are told.
+  const [picked, setPicked] = useState(false);
+  const noticeId = useId();
   const minimum = minimumStart(now, minLeadMinutes);
   const days = useMemo(() => Array.from({ length: QUICK_DAYS }, (_, offset) => {
     const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset);
@@ -55,11 +60,11 @@ export function StartTimePicker({ name, hours, onPick, children, now: nowProp, c
   }), [now]);
   const chooseDay = (value: string) => {
     setDay(value);
-    if (value === dayKey(now) && time < clockKey(minimum)) setTime(clockKey(minimum));
     onPick?.();
   };
-  // A dialog can remain open across a slot boundary or midnight.
+  // A dialog can remain open across a slot boundary or midnight: keep the suggestion current.
   useEffect(() => {
+    if (picked) return;
     const next = minimumStart(now, minLeadMinutes);
     const nextDay = dayKey(next);
     if (day && day < nextDay) {
@@ -68,7 +73,7 @@ export function StartTimePicker({ name, hours, onPick, children, now: nowProp, c
     } else if (day === nextDay && time < clockKey(next)) {
       setTime(clockKey(next));
     }
-  }, [now, day, time, minLeadMinutes]);
+  }, [now, day, time, minLeadMinutes, picked]);
   // A calendar checks every half-hour on every visible day. Parse each booking
   // once per availability refresh, not again for every candidate start time.
   const occupiedIntervals = useMemo(() => occupied.map(slot => ({
@@ -87,7 +92,13 @@ export function StartTimePicker({ name, hours, onPick, children, now: nowProp, c
       return !occupiedIntervals.some(slot => start < slot.end && end > slot.start);
     });
   const times = availableTimes(day);
-  const effectiveTime = times.includes(time) ? time : times[0] ?? '';
+  // A suggestion moves on to the next free start; a chosen time that no longer fits leaves nothing chosen.
+  const effectiveTime = times.includes(time) ? time : picked ? '' : times.find(value => value > time) ?? '';
+  const chosenLabel = timeLabel(Number(time.slice(0, 2)) * 60 + Number(time.slice(3)));
+  const notice = !picked || !time || effectiveTime ? '' :
+    day < dayKey(minimum) || (day === dayKey(minimum) && time < clockKey(minimum))
+      ? `${chosenLabel} can no longer be booked. Choose a later start time.`
+      : `${chosenLabel} isn’t available for ${hours} ${hours === 1 ? "hour" : "hours"} on this day. Choose another start time.`;
   const [year, month, date] = day.split("-").map(Number);
   const chosen = new Date(year!, month! - 1, date!);
   const [hour, minute] = effectiveTime.split(":").map(Number);
@@ -121,12 +132,14 @@ export function StartTimePicker({ name, hours, onPick, children, now: nowProp, c
       <label className="form-field">
         <span>Start time</span>
         <select aria-label="Start time" value={effectiveTime} required
-          onChange={(e) => { setTime(e.target.value); onPick?.(); }}>
-          {!times.length && <option value="">No available times</option>}
+          aria-invalid={notice ? true : undefined} aria-describedby={notice ? noticeId : undefined}
+          onChange={(e) => { setTime(e.target.value); setPicked(true); onPick?.(); }}>
+          {!effectiveTime && <option value="">{times.length ? "Choose a start time" : "No available times"}</option>}
           {times.map(value => <option key={value} value={value}>
             {timeLabel(Number(value.slice(0, 2)) * 60 + Number(value.slice(3)))}
           </option>)}
         </select>
+        {notice && <small className="form-field__error" id={noticeId} role="alert">{notice}</small>}
       </label>
       {children}
       <p className="start-picker__hint">{Intl.DateTimeFormat().resolvedOptions().timeZone} · Hour or half-hour starts.{minLeadMinutes ? ` Book at least ${minLeadMinutes} minutes ahead.` : ''}</p>

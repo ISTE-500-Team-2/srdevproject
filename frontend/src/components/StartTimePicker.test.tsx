@@ -7,12 +7,14 @@ afterEach(() => { cleanup(); vi.useRealTimers(); });
 const value = () => (document.querySelector('input[name="start"]') as HTMLInputElement).value;
 const picker = () => screen.getByLabelText("Start time") as HTMLSelectElement;
 
+// The earliest start is at least two minutes away, so it is still in the future when the form is sent.
 test.each([
   [19, 16, "2026-10-27T19:30"],
+  [19, 28, "2026-10-27T19:30"],
   [19, 30, "2026-10-27T20:00"],
-  [19, 59, "2026-10-27T20:00"],
+  [19, 59, "2026-10-27T20:30"],
   [23, 45, "2026-10-28T00:00"],
-])("rounds %i:%i up to the next future half-hour", (hour, minute, expected) => {
+])("rounds %i:%i up to the next half-hour with time to spare", (hour, minute, expected) => {
   render(<StartTimePicker name="start" hours={1} now={new Date(2026, 9, 27, Number(hour), Number(minute))} />);
   expect(value()).toBe(expected);
   expect(picker().value).toBe(String(expected).slice(11));
@@ -24,6 +26,17 @@ test("paid booking lead time rounds up to a slot at least 30 minutes away", () =
   expect(value()).toBe("2026-10-27T20:00");
   expect(picker().options[0]!.value).toBe("20:00");
   expect(screen.getByText(/Book at least 30 minutes ahead/)).toBeTruthy();
+});
+
+test.each([
+  // Seconds count: 10:00 is less than 30 minutes after 9:30:20, so the server would refuse it.
+  [new Date(2026, 9, 27, 9, 30, 20), "10:30"],
+  [new Date(2026, 9, 27, 9, 0, 30), "10:00"],
+  [new Date(2026, 9, 27, 9, 28), "10:00"],
+])("the earliest paid start leaves the 30-minute lead plus a margin (%s)", (now, expected) => {
+  render(<StartTimePicker name="start" hours={1} minLeadMinutes={30} now={now} />);
+  expect(picker().options[0]!.value).toBe(expected);
+  expect(value()).toBe(`2026-10-27T${expected}`);
 });
 
 test("paid booking minimum advances the picker date when the lead crosses midnight", () => {
@@ -42,22 +55,40 @@ test("supports distant dates and preserves a selected half-hour across day chang
   expect(value()).toBe("2026-10-29T18:30");
 });
 
-test("returning to today advances an earlier selected time", () => {
+test("returning to today moves the suggested time on, but never a time the member chose", () => {
   render(<StartTimePicker name="start" hours={1} now={new Date(2026, 9, 27, 19, 16)} />);
   fireEvent.click(screen.getAllByRole("radio")[1]!);
-  fireEvent.change(picker(), { target: { value: "09:00" } });
   fireEvent.click(screen.getAllByRole("radio")[0]!);
   expect(value()).toBe("2026-10-27T19:30");
   expect(picker().options[0]!.value).toBe("19:30");
+  fireEvent.click(screen.getAllByRole("radio")[1]!);
+  fireEvent.change(picker(), { target: { value: "09:00" } });
+  fireEvent.click(screen.getAllByRole("radio")[0]!);
+  // 9 AM has passed today: nothing is chosen until the member picks again.
+  expect(value()).toBe("");
+  expect(picker().value).toBe("");
+  expect(screen.getByRole("alert").textContent).toMatch(/9:00\sAM can no longer be booked/);
+  fireEvent.change(picker(), { target: { value: "20:00" } });
+  expect(value()).toBe("2026-10-27T20:00");
+  expect(screen.queryByRole("alert")).toBeNull();
 });
 
-test("an open picker advances stale selections when the clock passes a slot", () => {
-  vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 9, 27, 19, 29));
+test("an open picker advances a suggested time when the clock passes a slot", () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 9, 27, 19, 27));
   render(<StartTimePicker name="start" hours={1} />);
   expect(value()).toBe("2026-10-27T19:30");
   act(() => vi.advanceTimersByTime(90000));
   expect(value()).toBe("2026-10-27T20:00");
   expect(picker().options[0]!.value).toBe("20:00");
+});
+
+test("a chosen time the clock passes is not moved to a later one", () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 9, 27, 19, 20));
+  render(<StartTimePicker name="start" hours={1} />);
+  fireEvent.change(picker(), { target: { value: "19:30" } });
+  act(() => vi.advanceTimersByTime(9 * 60000));
+  expect(value()).toBe("");
+  expect(screen.getByRole("alert").textContent).toMatch(/7:30\sPM can no longer be booked/);
 });
 
 test("a booking that runs past midnight says so", () => {
@@ -75,7 +106,39 @@ test("hides other members' occupied times, the cooldown and starts that cannot f
  fireEvent.change(picker(),{target:{value:'15:30'}});
  rerender(<StartTimePicker calendar name="start" hours={2} now={new Date(2026,9,27,12)} occupied={occupied}/>);
  expect([...picker().options].map(o=>o.value)).not.toContain('15:30');
- expect(value()).not.toBe('2026-10-27T15:30');
+ // The longer booking no longer fits at 3:30: the member is told, and no other time is put in its place.
+ expect(value()).toBe('');
+ expect(picker().value).toBe('');
+ expect(screen.getByRole('alert').textContent).toMatch(/3:30\sPM isn’t available for 2 hours/);
+ expect(screen.getByText('Choose a date and start time.')).toBeTruthy();
+});
+
+test("a chosen time taken by someone else, or missing on another day, is not swapped for midnight", () => {
+ const now=new Date(2026,9,27,12);
+ const {rerender}=render(<StartTimePicker calendar name="start" hours={1} now={now} occupied={[]}/>);
+ fireEvent.click(screen.getByRole('button',{name:'Fri, Oct 30, 2026'}));
+ fireEvent.change(picker(),{target:{value:'15:00'}});
+ expect(value()).toBe('2026-10-30T15:00');
+ // An availability refresh shows another member booked 3 PM.
+ const taken=[{startTime:new Date(2026,9,30,15).toISOString(),endTime:new Date(2026,9,30,16).toISOString()}];
+ rerender(<StartTimePicker calendar name="start" hours={1} now={now} occupied={taken}/>);
+ expect(value()).toBe('');
+ expect(screen.getByRole('alert').textContent).toMatch(/3:00\sPM isn’t available for 1 hour on this day/);
+ expect(picker().getAttribute('aria-invalid')).toBe('true');
+ // Another day where 3 PM is free brings the chosen time back.
+ fireEvent.click(screen.getByRole('button',{name:'Sat, Oct 31, 2026'}));
+ expect(value()).toBe('2026-10-31T15:00');
+ expect(screen.queryByRole('alert')).toBeNull();
+});
+
+test("a suggested time that is taken moves to the next free start, not back to midnight", () => {
+ const now=new Date(2026,9,27,12);
+ const taken=[{startTime:new Date(2026,9,30,12).toISOString(),endTime:new Date(2026,9,30,14).toISOString()}];
+ render(<StartTimePicker calendar name="start" hours={1} now={now} occupied={taken}/>);
+ fireEvent.click(screen.getByRole('button',{name:'Fri, Oct 30, 2026'}));
+ // The suggestion was 12:30; the booking and its 15-minute gap run to 2:15 PM.
+ expect(value()).toBe('2026-10-30T14:30');
+ expect(screen.queryByRole('alert')).toBeNull();
 });
 
 test("fully occupied days have an unavailable marker and no submittable time; cancellation restores times", () => {
