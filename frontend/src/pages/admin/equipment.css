@@ -79,7 +79,6 @@
 /* The rows respond to the list's own width, not the window's: see the container rules below. */
 .eq-board { container: eq-board / inline-size; border-top: 1px solid #d8cbbf; min-width: 0; }
 .eq-row { display: grid; grid-template-columns: minmax(200px, 1.2fr) 200px minmax(200px, 1.5fr) minmax(120px, .8fr) 64px 18px; align-items: center; gap: 20px; padding: 12px 14px; border-bottom: 1px solid #e3d8cc; color: inherit; text-decoration: none; }
-a.eq-row:hover { background: #fffaf3; }
 .eq-row--head { padding-block: 10px; font-size: var(--text-2xs); font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: #80634f; }
 .eq-row--head > span { font-size: inherit; color: inherit; }
 /* The ticks span the column's full width, as the strips below do, so each label sits over its hour. */
@@ -193,6 +192,26 @@ a.eq-row[aria-current="true"] { position: relative; border-bottom-color: transpa
 a.eq-row[aria-current="true"]::before, a.eq-row[aria-current="true"]::after { content: ""; position: absolute; top: -1px; bottom: -1px; z-index: -1; border: 1px solid var(--eq-join-line); background: var(--eq-join-glass); backdrop-filter: blur(14px); pointer-events: none; }
 a.eq-row[aria-current="true"]::before { left: 0; right: 0; border-right: 0; border-radius: inherit; }
 a.eq-row[aria-current="true"]::after { left: 100%; width: 24px; border-inline: 0; }
+/* Hover previews the selection: the selected row's rounded shape at a fraction of its strength,
+   inset from the dividers, which fade out around it, with the chevron nudging toward the panel.
+   Keyboard focus takes the same shape with a full-strength line in place of the square focus
+   ring. The selected row keeps its own outline. Touch screens skip hover, so a tap leaves no trace. */
+.eq-workspace--board { --eq-hover-line: rgba(196, 127, 53, 0.38); --eq-hover-fill: rgba(196, 127, 53, 0.05); --eq-hover-mark: #b0601c; }
+:root[data-theme="dark"] .eq-workspace--board { --eq-hover-line: rgba(217, 130, 43, 0.32); --eq-hover-fill: rgba(255, 236, 214, 0.045); --eq-hover-mark: #d9822b; }
+a.eq-row { position: relative; transition: border-color .15s; }
+a.eq-row:not([aria-current="true"]) { isolation: isolate; }
+a.eq-row:not([aria-current="true"])::before { content: ""; position: absolute; inset: 3px 0; z-index: -1; border: 1px solid transparent; border-radius: 10px; transition: background-color .15s, border-color .15s; pointer-events: none; }
+.eq-row__chev { transition: transform .15s, color .15s; }
+@media (hover: hover) {
+  a.eq-row:not([aria-current="true"]):hover::before { background: var(--eq-hover-fill); border-color: var(--eq-hover-line); }
+  a.eq-row:not([aria-current="true"]):hover, a.eq-row:has(+ a.eq-row:not([aria-current="true"]):hover) { border-bottom-color: transparent; }
+  a.eq-row:hover .eq-row__chev { transform: translateX(3px); color: var(--eq-hover-mark); }
+}
+a.eq-row:not([aria-current="true"]):focus-visible { outline: none; }
+a.eq-row:not([aria-current="true"]):focus-visible::before { background: var(--eq-hover-fill); border: 2px solid #b8793d; }
+a.eq-row:not([aria-current="true"]):focus-visible, a.eq-row:has(+ a.eq-row:not([aria-current="true"]):focus-visible) { border-bottom-color: transparent; }
+a.eq-row:focus-visible .eq-row__chev { transform: translateX(3px); color: var(--eq-hover-mark); }
+@media (prefers-reduced-motion: reduce) { a.eq-row, a.eq-row::before, .eq-row__chev { transition: none; } }
 
 /* Remove equipment: what stays, and anything that has to be resolved first. */
 .eq-remove { display: grid; gap: 14px; }
