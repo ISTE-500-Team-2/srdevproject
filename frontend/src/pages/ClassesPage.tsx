@@ -251,6 +251,7 @@ export function ClassesPage() {
                 catalogId: c.catalogId ?? undefined,
                 description: c.description,
                 instructorId: c.instructorId,
+                instructorName: c.instructor,
                 roomId: c.roomId,
                 capacity: Math.min(c.capacity, 15),
                 start: hhmm(c.startsAt),

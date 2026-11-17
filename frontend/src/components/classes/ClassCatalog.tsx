@@ -1,7 +1,7 @@
 // Member class discovery, enrollment and cancellation UI with current capacity and payment feedback.
 
 import { AlertTriangle, Award, Ban, Check, Clock3, GraduationCap, Lock, MapPin, Palette, Search, ShieldCheck, UserRound, Users } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ClassThumb, DateRail, SeatMeter } from "./ClassBits";
 import { WorkshopCards } from "./WorkshopTemplates";
@@ -12,8 +12,10 @@ import {
   hasStarted,
   isCancelled,
   isWorkshop,
+  longDate,
   monthLabel,
   registrationPrice,
+  sessionName,
   timeRange,
   WORKSHOP_LABEL,
   type ClassRecord,
@@ -44,8 +46,9 @@ export function ClassCatalog(props: Props) {
   const [certification, setCertification] = useState<string | null>(null);
   const upcoming = useMemo(() => classes.filter((c) => !hasStarted(c)).sort(byStart), [classes]);
   const mine = upcoming.filter((c) => c.myStatus === "enrolled" && !isCancelled(c));
+  // A class the shop cancelled never ran, so it isn't one the member took.
   const past = classes
-    .filter((c) => hasStarted(c) && c.myStatus && c.myStatus !== "cancelled")
+    .filter((c) => hasStarted(c) && !isCancelled(c) && c.myStatus && c.myStatus !== "cancelled")
     .sort((a, b) => byStart(b, a));
   const certifications = useMemo(() => {
     const counts = new Map<string, number>();
@@ -194,12 +197,15 @@ export function ClassCatalog(props: Props) {
                       <DateRail value={c.startsAt} />
                       <div>
                         <strong>{c.title}</strong>
-                        <span>{timeRange(c)}</span>
+                        <span>
+                          <span className="sr-only">{longDate(c.startsAt)}, </span>
+                          {timeRange(c)}
+                        </span>
                         <button
                           type="button"
                           className="button button--quiet button--small"
                           disabled={busyId === c.id}
-                          aria-label={`Withdraw from ${c.title}`}
+                          aria-label={`Withdraw from ${sessionName(c)}`}
                           onClick={() => onWithdraw(c)}
                         >
                           Withdraw
@@ -239,12 +245,13 @@ export function ClassCatalog(props: Props) {
                     <div>
                       <strong>{c.title}</strong>
                       <span>
+                        <span className="sr-only">{longDate(c.startsAt)}, </span>
                         {c.enrolled}/{c.capacity} registered
                       </span>
                       <button
                         type="button"
                         className="button button--quiet button--small"
-                        aria-label={`Roster for ${c.title}`}
+                        aria-label={`Roster for ${sessionName(c)}`}
                         onClick={() => onRoster(c)}
                       >
                         <Users aria-hidden="true" />
@@ -314,6 +321,7 @@ function ClassRow({
   onRegister,
   onDetails,
 }: Props & { c: ClassRecord }) {
+  const dateId = useId();
   const cancelled = isCancelled(c);
   const registered = c.myStatus === "enrolled";
   const holds = c.certificationId !== null && certified.has(c.certificationId);
@@ -352,6 +360,10 @@ function ClassRow({
         <p className="class-meta">
           <span>
             <Clock3 aria-hidden="true" />
+            {/* The date rail is decorative, so screen readers get the day here. */}
+            <span className="sr-only">
+              <span id={dateId}>{longDate(c.startsAt)}</span>,{" "}
+            </span>
             {timeRange(c)}
           </span>
           <span>
@@ -365,9 +377,10 @@ function ClassRow({
             </span>
           )}
         </p>
-        {!registered && <small>{price.trainingFee === null ? 'Training fee not configured'
+        {/* Creative workshops aren't training, so they carry no training fee line. */}
+        {!registered && !isWorkshop(c) && <small>{price.trainingFee === null ? 'Training fee not configured'
           : `${cents(price.trainingFee)} total for training; no extra course fee`}</small>}
-        {!registered && (c.trainingFeeCovered ?? holds) && <small>Training fee already covered</small>}
+        {!registered && !isWorkshop(c) && (c.trainingFeeCovered ?? holds) && <small>Training fee already covered</small>}
       </div>
       {cancelled ? (
         <p className="class-row__cancelled">The shop cancelled this class.</p>
@@ -376,7 +389,13 @@ function ClassRow({
           <SeatMeter capacity={c.capacity} enrolled={c.enrolled} />
           <div className="class-row__actions">
             {action.kind === "registered" ? (
-              <button type="button" className="button button--quiet" aria-label={`Details for ${c.title}`} onClick={() => onDetails(c)}>
+              <button
+                type="button"
+                className="button button--quiet"
+                aria-label={`Details for ${c.title}`}
+                aria-describedby={dateId}
+                onClick={() => onDetails(c)}
+              >
                 Details
               </button>
             ) : action.kind === "full" ? (
@@ -392,14 +411,20 @@ function ClassRow({
                 type="button"
                 className={`button ${holds || action.blocked ? "button--quiet" : "button--primary"}`}
                 disabled={action.disabled}
-                aria-label={action.blocked ? `Register for ${c.title}: ${action.blocked.reason.toLowerCase()}` : `Register for ${c.title}`}
+                aria-label={`Register for ${sessionName(c)}${action.blocked ? `: ${action.blocked.reason.toLowerCase()}` : ""}`}
                 onClick={() => onRegister(c)}
               >
                 {action.again ? "Register again" : "Register"}
               </button>
             )}
             {registered ? null : (
-              <button type="button" className="text-link" aria-label={`Details for ${c.title}`} onClick={() => onDetails(c)}>
+              <button
+                type="button"
+                className="text-link"
+                aria-label={`Details for ${c.title}`}
+                aria-describedby={dateId}
+                onClick={() => onDetails(c)}
+              >
                 Details
               </button>
             )}

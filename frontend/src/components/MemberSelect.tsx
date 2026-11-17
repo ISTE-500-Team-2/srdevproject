@@ -146,6 +146,8 @@ export function MemberSelect({
                 event.preventDefault();
                 if (showList && options[active]) pick(options[active]);
               } else if (event.key === "Escape") {
+                // Escape closes the open suggestions only, not a dialog around the picker.
+                if (showList) event.stopPropagation();
                 setOpen(false);
               }
             }}

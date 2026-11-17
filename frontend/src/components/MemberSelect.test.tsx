@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemberSelect } from "./MemberSelect";
+import { Modal } from "./Modal";
 import { api } from "../lib/api";
 vi.mock("../lib/api", () => ({
   api: vi.fn(),
@@ -69,4 +70,23 @@ test("instructor-only searches keep their scope; errors and capped results are v
   expect(vi.mocked(api).mock.calls[0][0]).toContain("role=instructor");
   await user.click(screen.getByRole("button", { name: "Retry search" }));
   expect(await screen.findByText("More matches exist. Refine your search.")).toBeTruthy();
+});
+
+test("Escape closes the open suggestions without closing the dialog around the picker", async () => {
+  vi.mocked(api).mockResolvedValue({ items: [{ id: 12, name: "Jordan Example", email: "jordan@example.invalid" }], hasMore: false });
+  const user = userEvent.setup();
+  const close = vi.fn();
+  render(
+    <Modal open title="Schedule a class" onClose={close}>
+      <MemberSelect name="instructorId" label="Instructor" instructorsOnly />
+    </Modal>,
+  );
+  await user.type(screen.getByRole("combobox", { name: "Instructor" }), "Jordan");
+  await screen.findByRole("option", { name: /Jordan Example/ });
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("listbox")).toBeNull();
+  expect(close).not.toHaveBeenCalled();
+  // With the suggestions already closed, Escape closes the dialog as usual.
+  await user.keyboard("{Escape}");
+  expect(close).toHaveBeenCalledTimes(1);
 });

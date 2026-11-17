@@ -58,6 +58,8 @@ export function ScheduleClassDialog({
     reason: "",
   });
   const [busy, setBusy] = useState(false);
+  // Closing a form with edits in it asks first, like the other staff forms.
+  const [dirty, setDirty] = useState(false);
   const [error, setError] = useState("");
   const [roomError, setRoomError] = useState("");
   const room = rooms.data?.find((r) => String(r.id) === form.roomId);
@@ -75,6 +77,11 @@ export function ScheduleClassDialog({
           : new Date(`${form.date}T${form.start}`).getTime() <= Date.now()
             ? "Pick a start time in the future."
             : "";
+
+  function edited() {
+    setDirty(true);
+    onDirty(true);
+  }
 
   function set<K extends keyof typeof form>(key: K, value: string) {
     setForm((current) => {
@@ -96,7 +103,7 @@ export function ScheduleClassDialog({
       return next;
     });
     if (key === "roomId" || key === "date" || key === "start" || key === "end") setRoomError("");
-    onDirty(true);
+    edited();
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -145,11 +152,11 @@ export function ScheduleClassDialog({
     setKind(next);
     // Each class type sends only its own link: a certification or a workshop.
     setForm((current) => (next === "training" ? { ...current, catalogId: "" } : { ...current, certificationId: "" }));
-    onDirty(true);
+    edited();
   }
   return (
-    <Modal open title="Schedule a class" onClose={onClose}>
-      <form className="class-form" onSubmit={(e) => void submit(e)}>
+    <Modal open title="Schedule a class" dirty={dirty} dismissible={!busy} onClose={onClose}>
+      {(requestClose) => <form className="class-form" onSubmit={(e) => void submit(e)}>
         {error ? (
           <p className="class-banner class-banner--error" role="alert">
             <AlertTriangle aria-hidden="true" />
@@ -330,6 +337,11 @@ export function ScheduleClassDialog({
               label="Instructor"
               instructorsOnly
               value={form.instructorId}
+              selectedMember={
+                seed.instructorId && seed.instructorName
+                  ? { id: seed.instructorId, name: seed.instructorName, email: "" }
+                  : undefined
+              }
               onChange={(value) => set("instructorId", value)}
             />
           </div>
@@ -346,7 +358,7 @@ export function ScheduleClassDialog({
         </fieldset>
         <div className="class-dialog-actions">
           <span>Members see it once published.</span>
-          <button type="button" className="button button--quiet" onClick={onClose}>
+          <button type="button" className="button button--quiet" onClick={requestClose} disabled={busy}>
             Cancel
           </button>
           <button
@@ -356,7 +368,7 @@ export function ScheduleClassDialog({
             {busy ? "Publishing…" : "Publish class"}
           </button>
         </div>
-      </form>
+      </form>}
     </Modal>
   );
 }
