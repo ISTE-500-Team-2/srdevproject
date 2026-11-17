@@ -9,6 +9,8 @@ import { StaffModel } from '../models/StaffModel.js';
 import { UserModel } from '../models/UserModel.js';
 import { AccessService } from './AccessService.js';
 import { activeEquipmentGrants } from './EquipmentMaintenanceService.js';
+import { stockEquipmentImages } from '../equipmentImages.js';
+import { profilePhotoField } from '../profilePhoto.js';
 
 export function equipmentFields(input: Record<string, unknown>) {
   const name = textField(input.name, 'Name', 100);
@@ -48,6 +50,10 @@ export class EquipmentCatalogService {
       categories: (await this.pool.query<{ name: string }>(`SELECT DISTINCT trim(category) AS name FROM equipment
         WHERE category IS NOT NULL AND trim(category) <> '' ORDER BY name`)).rows.map(row => row.name),
       certifications: (await this.pool.query('SELECT certid AS id,name FROM certifications ORDER BY name')).rows,
+      images: [...new Map([...(await this.pool.query<{ path: string; label: string }>(
+        `SELECT imagepath AS path, min(name) AS label FROM equipment
+         WHERE imagepath IS NOT NULL AND imagepath <> '' GROUP BY imagepath ORDER BY min(name)`,
+      )).rows, ...stockEquipmentImages].map(image => [image.path, image])).values()],
     };
   }
 
@@ -61,10 +67,16 @@ export class EquipmentCatalogService {
 
   async save(actorId: number, id: number | null, input: Record<string, unknown>) {
     const f = equipmentFields(input);
+    const upload = input.imageUpload === undefined ? null : profilePhotoField(input.imageUpload);
     return transaction(this.pool, async db => {
       const before = await this.authorize(db, actorId, id === null ? 'create' : 'update', id, input);
       if (f.certId !== null && !(await db.query('SELECT 1 FROM certifications WHERE certid=$1', [f.certId])).rows.length)
         throw new AppError(400, 'INVALID_INPUT', 'Choose an existing certification.');
+      if (upload) {
+        await db.query(`INSERT INTO app_equipment_image(version,content_type,image) VALUES($1,$2,$3)
+          ON CONFLICT (version) DO NOTHING`, [upload.version, upload.contentType, upload.image]);
+        f.image = `/api/equipment-images/${upload.version}`;
+      }
       const values = [f.name, f.category, f.location, f.image, f.rate, f.certId, f.waiverRequired];
       const after = (await db.query<{ id: number }>(id === null
         ? `INSERT INTO equipment(name,category,location,imagepath,hourlyrate,certid,waiverrequired,status) VALUES($1,$2,$3,$4,$5,$6,$7,'available') RETURNING equipmentid AS id`

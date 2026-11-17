@@ -22,6 +22,7 @@ import type { Pool } from "pg";
 import type { AppConfig } from "./config.js";
 import { AuthController } from "./controllers/AuthController.js";
 import { EquipmentController } from "./controllers/EquipmentController.js";
+import { equipmentImage } from './equipmentImages.js';
 import { ReservationController } from "./controllers/ReservationController.js";
 import { RoomController } from "./controllers/RoomController.js";
 import { MemberController } from "./controllers/MemberController.js";
@@ -77,6 +78,7 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   routes.get("/auth/csrf", auth.csrf);
   routes.post("/auth/refresh", refreshLimit, auth.refresh);
   routes.get("/auth/session", protectedRoute, auth.current);
+  routes.get('/equipment-images/:version', equipmentImage(pool));
   routes.post("/auth/logout", protectedRoute, requireCsrf, auth.logout);
   routes.use(protectedRoute);
   routes.use(trainingClassRoutes(pool,config.timeZone));
