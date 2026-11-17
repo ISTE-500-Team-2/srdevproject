@@ -44,6 +44,8 @@ const headings = {
   sponsor_request_accepted: 'Your sponsor request was accepted',
   sponsor_request_declined: 'Your sponsor request was declined',
   admin_certification_revoked: 'Certification revocation recorded',
+  admin_studio_reservation_confirmed: 'Studio booking recorded',
+  admin_studio_reservation_cancelled: 'Studio cancellation recorded',
 } as const;
 
 
@@ -115,7 +117,9 @@ function text(value: unknown): string {
 
 type Tone = 'success' | 'info' | 'warning' | 'danger';
 interface Facts { item: string; money: string; role: string; refund: string; certificationName: string; memberName: string;
-  adultName: string; minorName: string }
+  adultName: string; minorName: string;
+  /** The refund outcome told to staff rather than to the member. */
+  staffRefund: string }
 interface Copy {
   category: string;
   status: string;
@@ -130,6 +134,7 @@ interface Copy {
 const membership = ['Manage membership', '/membership'] as const;
 const certifications = ['View certifications', '/certifications'] as const;
 const reservations = ['View my reservations', '/equipment'] as const;
+const studioDesk = ['Open the studio desk', '/admin/studios'] as const;
 const booked = (f: Facts) => f.item ? `Your ${f.item} session is booked` : '';
 const received = (f: Facts) => f.money ? `We received your ${f.money} payment` : '';
 const refunded = (f: Facts) => f.money ? `Your ${f.money} refund has been issued` : '';
@@ -235,6 +240,14 @@ const copy: Record<NotificationKind, Copy> = {
     title: f => f.certificationName ? `${f.certificationName} certification revoked` : '',
     intro: f => `${f.memberName ? `${f.memberName}’s` : 'A member’s'} certification was revoked. This copy is for the staff record; the member gets their own notice.`,
     cta: ['Review certifications', '/admin?tab=adminCertWaiver&section=certifications'] },
+  admin_studio_reservation_confirmed: { category: 'Staff notice', status: 'Confirmed', tone: 'success',
+    title: f => `${f.memberName || 'A member'} booked ${f.item || 'a studio'}`,
+    intro: () => 'The rental is paid and confirmed. This copy is for the staff record; the member gets their own confirmation.',
+    cta: studioDesk },
+  admin_studio_reservation_cancelled: { category: 'Staff notice', status: 'Cancelled', tone: 'info',
+    title: f => `${f.memberName || 'A member'} cancelled ${f.item ? `their ${f.item} booking` : 'a studio booking'}`,
+    intro: f => `${f.staffRefund ? f.staffRefund + ' ' : ''}This copy is for the staff record; the member gets their own notice.`,
+    cta: studioDesk },
 };
 
 const tones: Record<Tone, { ink: string; wash: string }> = {
@@ -362,7 +375,9 @@ export function renderNotification(kind: NotificationKind, payload: Notification
   const allDay = /^\d{4}-\d{2}-\d{2}$/.test(start) && /^\d{4}-\d{2}-\d{2}$/.test(end);
   const range = start && end ? displayRange(start, end, timeZone) : '';
   const amount = money(field('amount'), currency);
-  const refundAmount = kind === 'studio_reservation_cancelled' ? field('refundAmount') : '';
+  const studio = kind.startsWith('studio_') || kind.startsWith('admin_studio_');
+  const refundAmount = kind === 'studio_reservation_cancelled' || kind === 'admin_studio_reservation_cancelled'
+    ? field('refundAmount') : '';
   const refund = refundAmount && money(refundAmount, currency);
   const paid = field('paymentStatus');
   const facts: Facts = {
@@ -374,6 +389,12 @@ export function renderNotification(kind: NotificationKind, payload: Notification
           : 'You weren’t charged for this rental, so there’s nothing to refund.'
         : paid === 'refunded' ? `${refund} has been returned to your original payment method.`
           : `We’re returning ${refund} to your original payment method. You’ll get another email once it’s done.`,
+    staffRefund: !refundAmount ? ''
+      : Number(refundAmount) <= 0
+        ? paid === 'paid' ? 'No refund is due under the studio’s cancellation policy.' : 'They hadn’t paid, so no refund is due.'
+        : paid === 'refunded' ? `${refund} has been refunded.`
+          : field('method') === 'manual' ? `${refund} is owed back to them. Record the refund on the studio desk once it’s returned.`
+            : `${refund} is being refunded to their card. A refund that fails shows on the studio desk.`,
   };
   const sourceName = field('name');
 
@@ -394,7 +415,7 @@ export function renderNotification(kind: NotificationKind, payload: Notification
     row('Signed by', signature);
     row('Signed at', displayDate(signedAt, timeZone));
   } else {
-    row(kind.startsWith('studio_') ? 'Studio' : 'Equipment', item);
+    row(studio ? 'Studio' : 'Equipment', item);
     row('Waiver', field('waiverName') || (kind === 'waiver_expiring' ? sourceName : ''));
     row('Certification', field('certificationName') || (kind === 'certification_expiring' ? sourceName : ''));
     row('Membership', field('membershipName') || (kind === 'membership_expiring' || kind === 'membership_renewal' ? sourceName : ''));
@@ -406,7 +427,7 @@ export function renderNotification(kind: NotificationKind, payload: Notification
     row('Date', field('validDate') && displayDate(field('validDate'), timeZone));
     row('Expires', field('expiresAt') && displayDate(field('expiresAt'), timeZone));
     row('Renews', field('renewsAt') && displayDate(field('renewsAt'), timeZone));
-    row(kind.startsWith('studio_') ? 'Rental total' : kind === 'payment_refunded' || kind === 'refund_confirmed' ? 'Refund amount'
+    row(studio ? 'Rental total' : kind === 'payment_refunded' || kind === 'refund_confirmed' ? 'Refund amount'
       : kind === 'payment_receipt' || kind === 'payment_recorded' ? 'Amount paid' : 'Amount', amount);
     row('Refund', refund);
     row('Payment method', field('method') && (methods[field('method')] ?? field('method')));
