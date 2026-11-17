@@ -91,6 +91,23 @@ test('signed waivers show when they run out and warn in the last 30 days; expire
  expect(within(expired).getByText(/Last signed: v2/)).toBeTruthy();
 });
 
+test('a waiver running out within 30 days can be signed again early; one with months left cannot',async()=>{
+ mount({waivers:[
+  waiver({id:1,name:'Shop waiver',signed:true,signedAt:'2026-02-03T12:00:00Z',expiresAt:inDays(200),expiredSignature:false}),
+  waiver({id:3,name:'Laser waiver',signed:true,signedAt:'2026-02-03T12:00:00Z',expiresAt:inDays(10),expiredSignature:false}),
+ ]});
+ expect(within(row('Shop waiver')).queryByRole('button',{name:'Sign again'})).toBeNull();
+ const expiring = row('Laser waiver');
+ expect(within(expiring).getByText(/Sign it again now/)).toBeTruthy();
+ fireEvent.click(within(expiring).getByRole('button',{name:'Sign again'}));
+ expect(screen.queryByText('This version is already signed.')).toBeNull();
+ fireEvent.click(screen.getByRole('checkbox',{name:'I have read and agree to this version of the policy.'}));
+ api.mockResolvedValue({});
+ fireEvent.click(screen.getByRole('button',{name:'Record agreement'}));
+ await waitFor(()=>expect(api).toHaveBeenCalledWith('/me/waivers/3/sign',{method:'POST',body:{accepted:true}}));
+ expect(await screen.findByText('Your agreement has been recorded.')).toBeTruthy();
+});
+
 test('all signed waivers say so and link to signed form copies',()=>{
  mount({waivers:[waiver({signed:true,signedAt:'2026-02-03T12:00:00Z',expiredSignature:false,formFields:[{key:'name',label:'Full name',line:1,type:'text',section:'participant',source:'member',required:true,maxLength:200}]})]});
  expect(screen.getByText('All signed')).toBeTruthy();

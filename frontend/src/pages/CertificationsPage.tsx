@@ -313,6 +313,14 @@ function CertRow({ item }: { item: CertItem }) {
 
 /** A signature this close to running out is flagged so members are not surprised at the door. */
 const EXPIRY_WARNING_DAYS = 30;
+/**
+ * Signed, but running out within the warning window: the server takes a new agreement from then
+ * on (the same 30 days as the expiry reminder email), so members can renew without a gap.
+ */
+const renewable = (item: Waiver) =>
+  item.signed && !!item.expiresAt && new Date(item.expiresAt).getTime() - Date.now() <= EXPIRY_WARNING_DAYS * 86_400_000;
+/** Waiting for the member's agreement: unsigned, out of date, expired, or about to expire. */
+const signable = (item: Waiver) => !item.signed || renewable(item);
 
 function waiverPill(item: Waiver) {
   const terms = item.name === 'Terms of Service';
@@ -396,7 +404,7 @@ export function CertificationsPage() {
       setBusy(false);
     }
   };
-  const agreementControls = selected && !selected.signed ? (
+  const agreementControls = selected && signable(selected) ? (
     <>
       <label className="check-control">
         <input type="checkbox" checked={accepted} disabled={busy}
@@ -559,13 +567,19 @@ export function CertificationsPage() {
                         </span>
                       </div>
                       {!item.signed && <p>{item.scope === 'equipment' ? 'Required before booking or using equipment that requires a waiver' : 'Required for facility access and day passes'}</p>}
-                      {item.signed ? null : item.expiredSignature ? (
+                      {renewable(item) ? (
+                        <p>Sign it again now to keep booking equipment and studios without a gap.</p>
+                      ) : item.signed ? null : item.expiredSignature ? (
                         <p>Your signature has expired. Review and sign again. Last signed: {item.signedVersion}.</p>
                       ) : item.outdatedSignature ? (
                         <p>New version needs your signature. Last signed: {item.signedVersion ?? 'earlier version'}.</p>
                       ) : null}
                     </div>
-                    {item.signed ? (
+                    {renewable(item) ? (
+                      <button type="button" className="button button--primary button--small" onClick={() => open(item)}>
+                        Sign again
+                      </button>
+                    ) : item.signed ? (
                       <button type="button" className="text-link" onClick={() => open(item)}>
                         View policy
                       </button>
@@ -595,7 +609,7 @@ export function CertificationsPage() {
           if (!busy) setSelected(null);
         }}
       >
-        {selected?.formFields?.length && !selected.signed ? (
+        {selected?.formFields?.length && signable(selected) ? (
           <WaiverDocumentForm key={selected.id} waiver={selected} user={user} busy={busy}
             onSubmit={(values, guardianConsent) => void sign(values, guardianConsent)}>
             {agreementControls}
@@ -606,7 +620,7 @@ export function CertificationsPage() {
             <p className="policy-text">
               {selected.description || 'Policy content has not been provided.'}
             </p>
-            {!selected.signed ? agreementControls : (
+            {signable(selected) ? agreementControls : (
               <p>
                 {selected.name === 'Terms of Service'
                   ? 'Terms of Service completed.'
