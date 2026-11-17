@@ -136,6 +136,9 @@ function assertOnlinePayable(rate: string | null, hours: number, clientAmountCen
     throw new AppError(409, 'PRICE_CHANGED', 'The equipment rate changed. Review the updated total and try again.');
 }
 
+const STAFF_CANCELLED_REFUND =
+  "You paid for this booking. Contact the studio to arrange a refund to your original payment method; no refund has been recorded yet.";
+
 /** Effects every cancellation applies after its own guarded status change succeeded. */
 async function applyCancellation(
   db: Database,
@@ -157,15 +160,21 @@ async function applyCancellation(
     before,
     result,
   );
+  // A member who cancelled gets a confirmation; one whose booking staff cancelled is told the
+  // studio did it, and how to get back money already paid (cancelling never refunds it).
+  const byStaff = actorId !== memberId;
+  const paid = byStaff && result.paymentId !== null && (await db.query(
+    "SELECT 1 FROM payment WHERE paymentid=$1 AND paymentstatus='paid'", [result.paymentId])).rowCount === 1;
   await enqueueNotification(db, {
     userId: memberId,
-    kind: "reservation_cancelled",
+    kind: byStaff ? "reservation_cancelled_by_staff" : "reservation_cancelled",
     dedupeKey: `reservation-cancelled:${result.id}`,
     payload: {
       reservationId: result.id,
       resourceName: result.equipmentName,
       startsAt: new Date(result.startTime).toISOString(),
       endsAt: new Date(result.endTime).toISOString(),
+      ...(paid && { instructions: STAFF_CANCELLED_REFUND }),
     },
   });
 }
@@ -519,6 +528,20 @@ export class ReservationService {
           endsAt: end.toISOString(),
         },
       });
+      // Given to another member: the original member loses it and is told, with the booking they had.
+      if (targetId !== before.userId && before.userId !== actorId)
+        await enqueueNotification(db, {
+          userId: before.userId,
+          kind: "reservation_cancelled_by_staff",
+          dedupeKey: `reservation-reassigned:${reservation.id}:${reservation.revision}`,
+          payload: {
+            reservationId: reservation.id,
+            resourceName: before.equipmentName,
+            startsAt: new Date(before.startTime).toISOString(),
+            endsAt: new Date(before.endTime).toISOString(),
+            reason: "Staff moved this booking to another member.",
+          },
+        });
       return reservation;
     });
   }
