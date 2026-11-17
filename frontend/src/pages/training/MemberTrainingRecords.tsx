@@ -4,6 +4,17 @@ import { MemberSelect } from "../../components/MemberSelect";
 import { shortDate } from "../../lib/display";
 import type { Course, Loaded, TrainingRecord, TrainingTarget } from "./trainingTypes";
 
+/**
+ * The record's end date, worded from the date itself: a record that isn't current can
+ * still have a renewal date ahead of it. A revoked record's date no longer applies; the
+ * revocation is shown with the record instead.
+ */
+function expiryText(r: TrainingRecord, now = Date.now()) {
+  if (r.status === "revoked") return null;
+  if (!r.expiresAt) return "No expiry recorded";
+  return `${new Date(r.expiresAt).getTime() < now ? "Expired" : "Expires"} ${shortDate(r.expiresAt, true)}`;
+}
+
 /** Looks a member up and lists their training, with renew, record and revoke actions. */
 export function MemberTrainingRecords({
   memberId,
@@ -53,7 +64,7 @@ export function MemberTrainingRecords({
                   <span className={`cw-tag cw-tag--${r.valid ? "green" : r.status === "revoked" ? "red" : "amber"}`}>
                     {r.valid ? "Current" : "Not current"} · {r.status}
                   </span>
-                  <small>{r.expiresAt ? `${r.valid ? "Expires" : "Expired"} ${shortDate(r.expiresAt, true)}` : "No expiry recorded"}</small>
+                  {expiryText(r) ? <small>{expiryText(r)}</small> : null}
                 </div>
                 <div className="cw-recs__actions">
                   {canApprove ? (

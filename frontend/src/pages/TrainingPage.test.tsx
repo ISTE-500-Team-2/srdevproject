@@ -21,7 +21,7 @@ beforeEach(() => {
     if (path === '/training/catalog') return [course] as never;
     if (path === '/training/users/12') return [record] as never;
     if (path.startsWith('/training/members?')) return { items: [{ id: 12, name: 'Jordan Member', email: 'jordan@example.invalid' }], hasMore: false } as never;
-    if (path.startsWith('/admin/compliance')) return { certificationBreakdown: [] } as never;
+    if (path === '/training/catalog/holders') return [] as never;
     return [] as never;
   });
 });
@@ -186,4 +186,48 @@ test('each workflow has its own busy and error state', async () => {
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(within(revoke).queryByRole('alert')).toBeNull();
   expect(within(revoke).getByRole('button', { name: 'Hold to revoke Laser safety' })).toHaveProperty('disabled', false);
+});
+
+test('certification cards count holders from the real numbers and show the training time and fee once', async () => {
+  const base = vi.mocked(api).getMockImplementation()!;
+  const lathe = { ...course, id: 8, name: 'Lathe safety', trainingMinutes: 90, trainingFeeCents: 5000 };
+  const drill = { ...course, id: 9, name: 'Drill safety' };
+  vi.mocked(api).mockImplementation(async (path, init) =>
+    path === '/training/catalog' ? [course, lathe, drill] as never
+      : path === '/training/catalog/holders' ? [
+        { id: 7, current: 4, expiringSoon: 1, expired: 2, revoked: 1 },
+        { id: 8, current: 3, expiringSoon: 0, expired: 0, revoked: 0 },
+      ] as never
+      : base(path, init));
+  render(<TrainingPage />);
+  const card = (name: string) => screen.getByRole('heading', { name }).closest('article')!;
+  await screen.findByText('4 certified');
+  // Someone current no longer hides the people whose training lapsed.
+  expect(within(card('Laser safety')).getByText('1 expiring soon · 2 expired · 1 revoked')).toBeTruthy();
+  expect(within(card('Lathe safety')).getByText('3 certified')).toBeTruthy();
+  expect(within(card('Lathe safety')).getByText('All current')).toBeTruthy();
+  // Nobody holds it, so it isn't in the counts at all.
+  expect(within(card('Drill safety')).getByText('0 certified')).toBeTruthy();
+  expect(within(card('Drill safety')).getByText('No one trained yet')).toBeTruthy();
+  expect(within(card('Lathe safety')).getAllByText(/90 minutes/)).toHaveLength(1);
+  expect(within(card('Lathe safety')).getByText('90 minutes of training · $50.00 one-time fee when registering for training')).toBeTruthy();
+});
+
+test('training records word the end date from the date: a revocation replaces it, a future date is never "Expired"', async () => {
+  const base = vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation(async (path, init) => path === '/training/users/12' ? [
+    // Revoking leaves the renewal date as it was, still ahead.
+    { ...record, status: 'revoked', valid: false, revokedAt: '2026-11-01T12:00:00Z', expiresAt: '2099-01-01T00:00:00Z' },
+    { ...record, id: 10, certificationId: 8, name: 'Lathe safety', valid: false, expiresAt: '2020-06-01T12:00:00Z' },
+    { ...record, id: 11, certificationId: 9, name: 'Drill safety', valid: false, expiresAt: '2099-06-01T12:00:00Z' },
+  ] as never : base(path, init));
+  render(<TrainingPage />);
+  const user = userEvent.setup();
+  await user.type(screen.getByRole('combobox', { name: 'Member' }), 'Jordan');
+  await user.click(await screen.findByRole('option', { name: /Jordan Member/ }));
+  const revoked = (await screen.findByText(/^Revoked /)).closest('li')!;
+  expect(within(revoked).getByText('Not current · revoked')).toBeTruthy();
+  expect(within(revoked).queryByText(/Expire/)).toBeNull();
+  expect(within(screen.getByText('Lathe safety').closest('li')!).getByText(/^Expired .*2020/)).toBeTruthy();
+  expect(within(screen.getByText('Drill safety').closest('li')!).getByText(/^Expires .*2099/)).toBeTruthy();
 });
