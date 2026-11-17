@@ -32,23 +32,31 @@ interface Props {
   billingEnabled: boolean;
   billing: Billing[];
   memberships: Entitlement[];
+  /** The member's facility access. A member on hold is refused quotes and purchases. */
+  accessStatus: string;
   today: string;
   busy: boolean;
   post: Post;
   run: (path: string, body: unknown, done: (result: Record<string, unknown>) => string) => void;
 }
 
-export function PlanCards({ plans, billingEnabled, billing, memberships, today, busy, post, run }: Props) {
+export function PlanCards({ plans, billingEnabled, billing, memberships, accessStatus, today, busy, post, run }: Props) {
   const [date, setDate] = useState("");
+  // The server refuses quotes and purchases while access is on hold; send those members to the desk.
+  const active = accessStatus === "active";
+  const payByCard = billingEnabled && active;
   // Quote every member, card payments or not: approved free access is issued without them.
+  // Until a visit date is picked, day passes are quoted for today, so free access that ends
+  // within the month still offers a free pass for the dates it covers.
   const offers = useApi<Offer[]>(
-    "/me/billing/offers" + (date ? "?date=" + encodeURIComponent(date) : ""),
+    active ? "/me/billing/offers?date=" + encodeURIComponent(date || today) : null,
     { retainOnReload: true },
   );
   // Changing the visit date re-quotes prices; keep the last quote on screen
   // meanwhile so the cards don't flicker back to list prices.
   const lastOffers = useRef<Offer[] | null>(null);
-  if (offers.data) lastOffers.current = offers.data;
+  if (!active) lastOffers.current = null;
+  else if (offers.data) lastOffers.current = offers.data;
   const quoting = offers.loading || offers.refreshing;
   const [confirming, setConfirming] = useState<Offer | null>(null);
   const offerFor = (id: number) => lastOffers.current?.find((o) => o.id === id);
@@ -61,8 +69,9 @@ export function PlanCards({ plans, billingEnabled, billing, memberships, today, 
   // Without card payments only a free pass is bought here. Once a date is picked its
   // picker stays, so a date the free access doesn't cover can be changed back.
   const sellsDayPass = (offer: Offer | undefined): offer is Offer =>
-    !!offer && (billingEnabled || offer.amountCents === 0 || !!date);
-  const dayPassOnline = billingEnabled || dayPasses.some((p) => sellsDayPass(offerFor(p.id)));
+    !!offer && (payByCard || offer.amountCents === 0 || !!date);
+  const dayPassOnline = payByCard || dayPasses.some((p) => sellsDayPass(offerFor(p.id)));
+  const freeMembership = !hasMembership && !pending && membershipPlans.some((p) => offerFor(p.id)?.amountCents === 0);
   const policies = useApi<Waiver[]>(dayPassOnline ? '/me/waivers?scope=facility' : null, { retainOnReload: true, refreshInterval: 15000 });
   const policiesReady = !policies.loading && !policies.error && !!policies.data?.length && policies.data.every(policy => policy.signed);
 
@@ -71,18 +80,20 @@ export function PlanCards({ plans, billingEnabled, billing, memberships, today, 
       <div className="membership-section-heading">
         <h2 id="get-access-heading">Get access</h2>
         <p>
-          {billingEnabled
+          {payByCard
             ? "Pay by card here, or at the front desk."
-            : "Sign up or buy a pass at the front desk."}
+            : freeMembership || dayPassOnline
+              ? "Claim your approved free access here. Paid plans and passes are sold at the front desk."
+              : "Sign up or buy a pass at the front desk."}
         </p>
-        {billingEnabled ? (
+        {payByCard ? (
           <p className="membership-test-note">
             Payments are in test mode, so you won't be charged. Use card
             4242 4242 4242 4242 with any future expiry date.
           </p>
         ) : null}
       </div>
-      <LoadState {...offers} loading={offers.loading && !lastOffers.current} />
+      {active ? <LoadState {...offers} loading={offers.loading && !lastOffers.current} /> : null}
       {dayPassOnline && dayPasses.length ? <>
         <LoadState {...policies} />
         {!policies.loading && !policies.error && !policies.data?.length ? (
@@ -103,7 +114,7 @@ export function PlanCards({ plans, billingEnabled, billing, memberships, today, 
                 You're on this plan
               </button>
             );
-          else if (billingEnabled && pending && offer && pending.plan.id === plan.id && canCheckout(offer))
+          else if (payByCard && pending && offer && pending.plan.id === plan.id && canCheckout(offer))
             action = (
               <button
                 className="button button--primary button--wide"
@@ -126,7 +137,7 @@ export function PlanCards({ plans, billingEnabled, billing, memberships, today, 
                 Claim free month
               </button>
             );
-          else if (billingEnabled && offer && canCheckout(offer))
+          else if (payByCard && offer && canCheckout(offer))
             action = (
               <button
                 className="button button--primary button--wide"
@@ -173,7 +184,7 @@ export function PlanCards({ plans, billingEnabled, billing, memberships, today, 
                         : "Can't be cancelled for a refund: day passes need 3 days' notice."}
                     </p>
                   ) : null}
-                  {!billingEnabled && offer.amountCents > 0 ? (
+                  {!payByCard && offer.amountCents > 0 ? (
                     <p className="membership-hint">Buy a day pass for this date at the front desk.</p>
                   ) : (
                     <button
