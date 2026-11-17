@@ -767,7 +767,8 @@ test('FR-052/049: staff compliance report filters waivers, certifications and ex
  assert.equal(expiring.status,200,JSON.stringify(expiring.body));
  assert.ok(expiring.body.data.users.items.some((u:any)=>u.id===member.id));
  assert.equal(expiring.body.data.waiverBreakdown[0].total,expiring.body.data.summary.userCount);
- assert.equal(expiring.body.data.certificationBreakdown[0].total,expiring.body.data.summary.userCount);
+ // Only members holding this certification are measured against it.
+ assert.equal(expiring.body.data.certificationBreakdown[0].total,1);
  assert.equal(expiring.body.data.certificationBreakdown[0].expiring,1);
  // Issue details say what is wrong and when: the waiver signed 15 days
  // before expiry shows as expiring with its date, even with no window chosen.

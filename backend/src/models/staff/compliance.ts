@@ -165,8 +165,11 @@ export class ComplianceReports {
               WHEN uc.renewaldate<=c.enddate THEN uc.renewaldate
               ELSE c.enddate
             END)<=NOW() AT TIME ZONE 'UTC'+make_interval(days=>$3::int)) AS expiring
+        -- Training is per machine, not something every member owes: a member is
+        -- only measured against certifications they hold or held. Never having
+        -- trained on a machine is not a lapse; expired or revoked training is.
         FROM report_users ru CROSS JOIN report_certifications c
-        LEFT JOIN LATERAL (
+        JOIN LATERAL (
           SELECT usercertid,status,renewaldate FROM user_certifications
           WHERE userid=ru.userid AND certid=c.certid
           ORDER BY renewaldate DESC NULLS LAST,usercertid DESC LIMIT 1
