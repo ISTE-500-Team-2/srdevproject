@@ -42,6 +42,17 @@ test("explains files it can't read instead of failing silently", async () => {
   await expect(documentText(new File(["   "], "blank.txt", { type: "text/plain" }))).rejects.toThrow(/empty/);
 });
 
+test("a .docx that isn't really a Word file gets advice, not the unzip error", async () => {
+  // An old .doc or a PDF renamed to .docx: mammoth's unzip step fails with a developer link.
+  for (const bytes of ["%PDF-1.4 not a zip", "\xD0\xCF\x11\xE0 old Word binary"]) {
+    const error = await documentText(new File([bytes], "waiver.docx")).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe(
+      "This Word file could not be read. Re-save it as .docx from Word, upload a PDF, or paste the wording.",
+    );
+  }
+});
+
 /** Real small PDF with a proper object table, exercising PDF.js rather than a parser mock. */
 function pdfFile(pages: string[]) {
   const objects = ["<< /Type /Catalog /Pages 2 0 R >>", "", "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"];
