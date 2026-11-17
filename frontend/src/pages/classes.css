@@ -407,6 +407,10 @@
   justify-self: start;
   margin-top: 8px;
 }
+.your-classes .status-pill {
+  justify-self: start;
+  margin-top: 4px;
+}
 .your-classes__past {
   margin-top: 14px;
   padding-top: 12px;

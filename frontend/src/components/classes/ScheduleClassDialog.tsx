@@ -60,6 +60,7 @@ export function ScheduleClassDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [roomError, setRoomError] = useState("");
+  const [instructorError, setInstructorError] = useState("");
   const room = rooms.data?.find((r) => String(r.id) === form.roomId);
   const course = catalog.data?.find(c => String(c.id) === form.certificationId);
   const minutes = duration(form.date, form.start, form.end);
@@ -96,6 +97,7 @@ export function ScheduleClassDialog({
       return next;
     });
     if (key === "roomId" || key === "date" || key === "start" || key === "end") setRoomError("");
+    if (key === "instructorId" || key === "date" || key === "start" || key === "end") setInstructorError("");
     onDirty(true);
   }
 
@@ -105,6 +107,7 @@ export function ScheduleClassDialog({
     setBusy(true);
     setError("");
     setRoomError("");
+    setInstructorError("");
     try {
       await api("/classes", {
         method: "POST",
@@ -126,9 +129,10 @@ export function ScheduleClassDialog({
     } catch (e) {
       if (e instanceof ApiError && roomConflict.has(e.code)) {
         setRoomError("Booked for part of this time");
-        setError(
-          `${room?.name ?? "That room"} is already booked for part of this time. Pick another room or time. Bookings in the same room need 15 minutes between them.`,
-        );
+        setError(`${room?.name ?? "That room"} is already booked for part of this time. Pick another room or time.`);
+      } else if (e instanceof ApiError && e.code === "INSTRUCTOR_CONFLICT") {
+        setInstructorError("Teaching another class at this time");
+        setError("This instructor is already teaching another class at this time. Pick another instructor or time.");
       } else setError(errorMessage(e));
     } finally {
       setBusy(false);
@@ -332,6 +336,12 @@ export function ScheduleClassDialog({
               value={form.instructorId}
               onChange={(value) => set("instructorId", value)}
             />
+            {instructorError ? (
+              <small className="class-field__error">
+                <AlertTriangle aria-hidden="true" />
+                {instructorError}
+              </small>
+            ) : null}
           </div>
           <label className="class-field">
             <span>Reason for change</span>

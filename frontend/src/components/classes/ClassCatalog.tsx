@@ -241,6 +241,11 @@ export function ClassCatalog(props: Props) {
                       <span>
                         {c.enrolled}/{c.capacity} registered
                       </span>
+                      {hasStarted(c) && c.pendingAttendance ? (
+                        <strong className="status-pill status-pill--warn">
+                          {c.pendingAttendance} {c.pendingAttendance === 1 ? "person needs" : "people need"} attendance
+                        </strong>
+                      ) : null}
                       <button
                         type="button"
                         className="button button--quiet button--small"
@@ -287,8 +292,8 @@ export function ClassCatalog(props: Props) {
                 <h2>{eligibility === "eligible" ? "You can register" : "Membership or day pass needed"}</h2>
                 <p>
                   {eligibility === "eligible"
-                    ? "Classes need an active membership or day pass. Yours is active."
-                    : "Registering for a class needs an active membership or day pass."}
+                    ? "Classes need a membership or day pass that covers the class time. Yours is active now."
+                    : "Registering for a class needs a membership or day pass that covers the class time."}
                 </p>
                 {eligibility === "ineligible" ? (
                   <Link className="button button--quiet button--small" to="/membership">

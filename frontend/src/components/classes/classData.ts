@@ -26,6 +26,13 @@ export type ClassRecord = {
   startsAt: string;
   endsAt: string;
   myStatus: string | null;
+  /**
+   * Whether the member's membership or day pass covers this class's time; null once the class
+   * has started or closed. Older servers leave it out.
+   */
+  myEntitled?: boolean | null;
+  /** Registrations with no attendance recorded yet; only for staff and the class's instructor. */
+  pendingAttendance?: number | null;
 };
 export type RosterPerson = { userId: number; name: string; email: string; status: string };
 export type MemberRoster = { items: { name: string }[]; capacity: number; enrolled: number; seatsAvailable: number };

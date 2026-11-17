@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { ClassRecord } from "./classData";
-import { registrationAction, sponsorReason, type Eligibility } from "./registrationAction";
+import { classEligibility, registrationAction, sponsorReason, type Eligibility } from "./registrationAction";
 
 const course: ClassRecord = {
   id: 5,
@@ -37,6 +37,17 @@ test("a full class is full before eligibility, and keeps the sponsor problem for
 
 test("a member without a membership or day pass is sent for one", () => {
   expect(decide({}, "ineligible")).toEqual({ kind: "needs-pass", blocked: null });
+});
+
+test("the class's own time decides: a pass for the class day counts, a membership ending first does not", () => {
+  // No pass today, but the server found one covering this class.
+  expect(decide({ myEntitled: true }, "ineligible")).toMatchObject({ kind: "register", disabled: false });
+  expect(decide({ myEntitled: true }, "unknown")).toMatchObject({ kind: "register" });
+  // Active today, but not on the class day.
+  expect(decide({ myEntitled: false }, "eligible")).toEqual({ kind: "needs-pass", blocked: null });
+  // A sponsor problem still stands in the way, and older servers fall back to today's answer.
+  expect(classEligibility("no-sponsor", { ...course, myEntitled: true })).toBe("no-sponsor");
+  expect(classEligibility("ineligible", { ...course, myEntitled: null })).toBe("ineligible");
 });
 
 test("register is offered, and off while busy, unpriced or blocked by a sponsor problem", () => {

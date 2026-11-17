@@ -40,6 +40,10 @@ export function CancelClassDialog({
       if (e instanceof ApiError && e.code === "STALE_RECORD") {
         setError("This class changed since you opened it. Its details are refreshed. Check them, then cancel again.");
         onStale();
+      } else if (e instanceof ApiError && e.code === "CLASS_CLOSED") {
+        // It started (or was cancelled) while this was open; the list catches up.
+        setError("This class has already started or been cancelled, so it can't be cancelled now.");
+        onStale();
       } else setError(errorMessage(e));
     } finally {
       setBusy(false);
