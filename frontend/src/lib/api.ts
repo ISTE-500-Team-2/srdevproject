@@ -67,10 +67,12 @@ function failure(response: Response, path: string, payload: ErrorBody, fallback:
   if (response.status === 401 && !path.startsWith('/auth/'))
     window.dispatchEvent(new Event('session-expired'));
   const error = payload?.error;
+  // A gateway answering for an app that is down or restarting has no app error to give.
+  const unreachable = [502, 503, 504].includes(response.status) && !error?.message;
   return new ApiError(
     response.status,
-    error?.code ?? 'REQUEST_FAILED',
-    error?.message ?? fallback,
+    error?.code ?? (unreachable ? 'SERVER_UNREACHABLE' : 'REQUEST_FAILED'),
+    error?.message ?? (unreachable ? unreachableMessage : fallback),
     typeof error?.field === 'string' ? error.field : undefined,
   );
 }
@@ -107,10 +109,34 @@ export async function apiText(path: string): Promise<string> {
   }
   return text;
 }
+/** The message for a request that never got an answer from the server. */
+export const unreachableMessage = 'Cannot reach the server. Please try again.';
 export function errorMessage(error: unknown) {
-  return error instanceof ApiError
-    ? error.message
-    : 'Cannot reach the server. Please try again.';
+  return error instanceof ApiError ? error.message : unreachableMessage;
+}
+
+/**
+ * Every request waits on one shared renewal, so a renewal that never answers would hold
+ * them all (and every retry of a failed page). The CSRF read is safe to abandon and
+ * repeat, so it is bounded. The refresh POST is not: the server rotates the refresh
+ * token and treats a second use as replay, revoking the session, so it is never cut
+ * short or re-sent while pending. A refresh that stalls therefore keeps its callers
+ * waiting with no app deadline: a known limit of the current protocol, which only
+ * idempotent rotation on the server would lift.
+ */
+const csrfReadTimeoutMs = 10_000;
+async function readCsrf() {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error('The server did not answer in time.'));
+    }, csrfReadTimeoutMs);
+  });
+  try {
+    return await Promise.race([api<{csrfToken:string|null}>('/auth/csrf', { signal: controller.signal }), timeout]);
+  } finally { clearTimeout(timer); }
 }
 
 async function renew(): Promise<void> {
@@ -118,7 +144,7 @@ async function renew(): Promise<void> {
   refreshing = (async () => {
     try {
       // Read CSRF via same-origin response; refresh credentials remain HttpOnly.
-      const session = await api<{csrfToken:string|null}>('/auth/csrf');
+      const session = await readCsrf();
       // No refresh session: signed out. Skip the refresh call that could only fail.
       if (!session.csrfToken) throw new ApiError(401, 'UNAUTHENTICATED', 'Sign in to continue.');
       csrfToken = session.csrfToken;
