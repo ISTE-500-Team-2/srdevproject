@@ -104,8 +104,10 @@ export function StaffPayments() {
           value={userId}
           onChange={(id) => refilter(() => setUserId(id))}
         />
+        {/* Payments are counted by the day they were recorded, not the day they were later paid or
+            refunded, so the label says so for anyone reconciling a cash drawer. */}
         <label>
-          Period
+          Recorded
           <select
             value={period}
             disabled={!zone}
