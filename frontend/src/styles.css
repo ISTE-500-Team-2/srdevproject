@@ -2175,6 +2175,67 @@ place-items: center;
   font-size: var(--text-lg);
 }
 
+/* Account check failed (server unreachable or erroring). The guard sits above both
+   shells, so the page stands alone: logo, the reset flow's medallion, the primary button. */
+.server-unreachable {
+  min-height: min(62vh, 560px);
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  padding: 24px 0;
+  text-align: center;
+  animation: page-enter 500ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+
+.server-unreachable__logo {
+  width: 168px;
+  margin-bottom: 30px;
+  filter: drop-shadow(0 8px 9px rgba(33, 15, 5, 0.16));
+}
+
+.server-unreachable h1 {
+  max-width: 16ch;
+  margin: 0 auto 12px;
+  font-family: 'Black Ops One', sans-serif;
+  font-size: var(--text-page-title);
+  font-weight: 400;
+  letter-spacing: 0.015em;
+  line-height: 1.05;
+  text-wrap: balance;
+}
+
+.server-unreachable__lede {
+  max-width: 44ch;
+  margin: 0 auto 26px;
+  color: var(--ink-soft);
+  font-size: var(--text-lg);
+  line-height: 1.5;
+  text-wrap: balance;
+}
+
+.server-unreachable .button {
+  min-width: 190px;
+}
+
+.server-unreachable__status {
+  margin: 14px 0 0;
+  color: var(--ink-soft);
+  font-size: var(--text-base-sm);
+}
+
+.server-unreachable__status b {
+  color: var(--ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.server-unreachable__help {
+  max-width: 40ch;
+  margin: 28px auto 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
 /* Baseline for form controls that have no component styling of their own, so
    no page falls back to the browser's tiny default select or date field.
    :where() keeps specificity at zero; any existing rule still wins. */

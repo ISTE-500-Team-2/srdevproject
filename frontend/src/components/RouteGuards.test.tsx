@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Link, MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { setAccessToken, setCsrfToken } from '../lib/api';
@@ -10,6 +10,10 @@ let roles = ['member'];
 let actorRoles: string[] | null = null;
 let expired = false;
 let unavailable = false;
+let rateLimited = false;
+let gatewayDown = false;
+let noToken = false;
+let csrfHold: Promise<void> | undefined;
 let calls = 0;
 let hold: Promise<void> | undefined;
 function session() {
@@ -17,18 +21,21 @@ function session() {
     actingAs: actorRoles ? { actor:{id:2,role:'staff',roles:[...actorRoles],firstName:'Staff'} } : null };
 }
 function mount(path='/profile') {
-  setAccessToken('test-token');
+  setAccessToken(noToken ? null : 'test-token');
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     if (url === '/api/config') return Response.json({data:{demoLogin:false}});
     if (url === '/api/auth/logout') { expired=true; return new Response(null,{status:204}); }
     calls++;
     const captured = session();
     if (hold && url === '/api/auth/session') await hold;
+    if (csrfHold && url === '/api/auth/csrf') await csrfHold;
     if (unavailable) throw new TypeError('offline');
+    if (gatewayDown) return Response.json({error:'Application unavailable'},{status:502});
+    if (rateLimited) return Response.json({error:{code:'RATE_LIMITED',message:'Please try again later.'}},{status:429});
     if (expired) return Response.json({error:{code:'UNAUTHORIZED',message:'Expired'}},{status:401});
     return Response.json({data:captured});
   }));
-  return render(<MemoryRouter initialEntries={[path]}><AuthProvider><Probe /><Routes>
+  return render(<MemoryRouter initialEntries={[path]}><AuthProvider><Probe /><Link to="/admin">Header staff link</Link><Routes>
     <Route path="/login" element={<><h1>Sign in</h1><Where /></>} />
     <Route path="/confirm-email" element={<h1>Public confirmation</h1>} />
     <Route element={<RequireUser />}>
@@ -50,8 +57,10 @@ function Protected() {
     <button onClick={()=>{void refresh();void refresh(true);}}>Background then blocking check</button>
     <button onClick={()=>{void refresh();void refresh(false,{fresh:true});}}>Background then fresh check</button></>;
 }
+// Each tick in its own act, so React re-arms the countdown between seconds.
+const elapse=async(ms:number)=>{for(let t=0;t<ms;t+=250)await act(()=>vi.advanceTimersByTimeAsync(250));};
 const pageshow=(persisted:boolean)=>fireEvent(window,new PageTransitionEvent('pageshow',{persisted}));
-afterEach(()=>{ cleanup();vi.unstubAllGlobals();setAccessToken(null);setCsrfToken(null);roles=['member'];actorRoles=null;expired=false;unavailable=false;calls=0;hold=undefined; });
+afterEach(()=>{ cleanup();vi.useRealTimers();vi.unstubAllGlobals();setAccessToken(null);setCsrfToken(null);roles=['member'];actorRoles=null;expired=false;unavailable=false;rateLimited=false;gatewayDown=false;noToken=false;csrfHold=undefined;calls=0;hold=undefined; });
 
 test('signed-out deep links never render protected content', async()=>{
   expired=true; mount('/admin');
@@ -99,8 +108,106 @@ test('expired session on tab return sends user to login',async()=>{
 });
 test('server failure hides protected content and permits retry, not a false login',async()=>{
   unavailable=true;mount();await screen.findByRole('alert');expect(screen.queryByText('Private profile')).toBeNull();
-  unavailable=false;fireEvent.click(screen.getByText('Retry'));await screen.findByText('Private profile');
+  expect(screen.getByRole('heading',{name:'We can’t reach the server'})).toBeTruthy();
+  unavailable=false;fireEvent.click(screen.getByRole('button',{name:'Try again'}));await screen.findByText('Private profile');
 });
+test('returning to the tab during an outage retries instead of sending the person to sign in',async()=>{
+  unavailable=true;mount();await screen.findByRole('alert');const before=calls;
+  fireEvent.focus(window);await waitFor(()=>expect(calls).toBe(before+1));
+  await screen.findByRole('button',{name:'Try again'});
+  expect(screen.queryByText('Sign in')).toBeNull();
+  expect(screen.getByRole('heading',{name:'We can’t reach the server'})).toBeTruthy();
+  unavailable=false;fireEvent.focus(window);await screen.findByText('Private profile');
+});
+// Fully simulated time: no real-time drift when the suite runs under load.
+async function until(found:()=>unknown){
+  for(let i=0;i<50&&!found();i++)await act(()=>vi.advanceTimersByTimeAsync(0));
+  expect(found()).toBeTruthy();
+}
+test('an outage page retries on its own, waiting longer each time',async()=>{
+  vi.useFakeTimers();
+  unavailable=true;mount();await until(()=>screen.queryByRole('alert'));const before=calls;
+  expect(screen.getByText('0:05')).toBeTruthy();
+  await elapse(4000);expect(calls).toBe(before);
+  await elapse(1000);expect(calls).toBe(before+1);
+  await until(()=>screen.queryByText('0:10'));
+  await elapse(9000);expect(calls).toBe(before+1);
+  await elapse(1000);expect(calls).toBe(before+2);
+  unavailable=false;
+  await elapse(20000);
+  await until(()=>screen.queryByText('Private profile'));expect(calls).toBe(before+3);
+});
+test('a hidden tab pauses automatic retries',async()=>{
+  vi.useFakeTimers();
+  Object.defineProperty(document,'visibilityState',{configurable:true,get:()=>'hidden'});
+  try {
+    unavailable=true;mount();await until(()=>screen.queryByRole('alert'));const before=calls;
+    await elapse(60000);expect(calls).toBe(before);
+  } finally { delete (document as {visibilityState?:string}).visibilityState; }
+});
+test('navigating away during a stalled retry is not held up by it',async()=>{
+  roles=['staff'];unavailable=true;mount();await screen.findByRole('alert');
+  // Retry A stalls; the person then follows a header link, whose own check succeeds.
+  let release!:()=>void;hold=new Promise(r=>release=r);unavailable=false;
+  fireEvent.click(screen.getByRole('button',{name:'Try again'}));
+  await screen.findByRole('button',{name:'Trying again…'});
+  hold=undefined;fireEvent.click(screen.getByText('Header staff link'));
+  await screen.findByText('Private staff workspace');
+  release();await new Promise(r=>setTimeout(r,0));
+  expect(screen.getByText('Private staff workspace')).toBeTruthy();
+});
+test.each([
+  ['a tab return',()=>fireEvent.focus(window)],
+  ['coming back online',()=>fireEvent(window,new Event('online'))],
+])('%s replaces a stalled retry instead of waiting on it',async(_name,recover)=>{
+  unavailable=true;mount();await screen.findByRole('alert');
+  let release!:()=>void;hold=new Promise(r=>release=r);
+  fireEvent.click(screen.getByRole('button',{name:'Try again'}));
+  await screen.findByRole('button',{name:'Trying again…'});
+  // The connection is back; the stalled read has not answered.
+  hold=undefined;unavailable=false;recover();
+  await screen.findByText('Private profile');
+  // When the stalled read finally fails, it cannot undo the newer, successful check.
+  unavailable=true;release();await new Promise(r=>setTimeout(r,0));
+  expect(screen.getByText('Private profile')).toBeTruthy();
+});
+test('an attempt with no answer is replaced after a while',async()=>{
+  vi.useFakeTimers();
+  unavailable=true;mount();await until(()=>screen.queryByRole('alert'));
+  hold=new Promise(()=>{});
+  fireEvent.click(screen.getByRole('button',{name:'Try again'}));
+  await until(()=>screen.queryByRole('button',{name:'Trying again…'}));const stalled=calls;
+  hold=undefined;unavailable=false;
+  await elapse(14000);expect(calls).toBe(stalled);
+  await elapse(1000);
+  await until(()=>screen.queryByText('Private profile'));expect(calls).toBe(stalled+1);
+});
+test('a credential check that never answers does not hold up recovery',async()=>{
+  vi.useFakeTimers();
+  // A fresh load with no access token renews first; that renewal is shared by every request.
+  noToken=true;unavailable=true;mount();await until(()=>screen.queryByRole('alert'));
+  csrfHold=new Promise(()=>{});
+  fireEvent.click(screen.getByRole('button',{name:'Try again'}));
+  await until(()=>screen.queryByRole('button',{name:'Trying again…'}));
+  csrfHold=undefined;unavailable=false;
+  await elapse(25000);
+  await until(()=>screen.queryByText('Private profile'));
+});
+test('coming back online retries at once',async()=>{
+  unavailable=true;mount();await screen.findByRole('alert');
+  unavailable=false;fireEvent(window,new Event('online'));
+  await screen.findByText('Private profile');
+});
+test('a proxy reporting the app as down reads as a connection problem',async()=>{
+  gatewayDown=true;mount();
+  await screen.findByRole('heading',{name:'We can’t reach the server'});
+});
+test('a server error answer shows its message rather than a connection problem',async()=>{
+  rateLimited=true;mount();
+  await screen.findByRole('heading',{name:'Your account didn’t load'});
+  expect(screen.getByText(/Please try again later\./)).toBeTruthy();
+});
+
 test('a member sent to the staff workspace sees a titled access-denied page',async()=>{
   document.title='Login · The Collaboratory';mount('/admin');await screen.findByText('Access denied');
   await waitFor(()=>expect(document.title).toBe('Access denied · The Collaboratory'));

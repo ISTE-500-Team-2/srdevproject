@@ -43,10 +43,24 @@ test('a JSON error body names the invalid field when the server sends one', asyn
 
 test('a JSON error without a body keeps the generic failure', async () => {
   setAccessToken('token');
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('<html>', { status: 502 })));
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('<html>', { status: 500 })));
   await expect(api('/equipment')).rejects.toMatchObject({
-    status: 502, code: 'REQUEST_FAILED', message: 'The request could not be completed.',
+    status: 500, code: 'REQUEST_FAILED', message: 'The request could not be completed.',
   });
+});
+
+test.each([502, 503, 504])('a gateway %i with no app error reads as the server being unreachable', async (status) => {
+  setAccessToken('token');
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('<html>', { status })));
+  await expect(api('/equipment')).rejects.toMatchObject({
+    status, code: 'SERVER_UNREACHABLE', message: 'Cannot reach the server. Please try again.',
+  });
+});
+
+test('a gateway error that carries an app error keeps it', async () => {
+  setAccessToken('token');
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ error: { code: 'MAINTENANCE', message: 'Back at noon.' } }, { status: 503 })));
+  await expect(api('/equipment')).rejects.toMatchObject({ status: 503, code: 'MAINTENANCE', message: 'Back at noon.' });
 });
 
 test.each([
