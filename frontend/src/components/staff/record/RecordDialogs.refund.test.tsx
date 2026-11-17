@@ -54,3 +54,30 @@ test.each(["pending", "requires_action"])("a %s card refund says it is on its wa
 test.each(["failed", "canceled", "unexpected"])("a %s card refund does not claim money moved", async (status) => {
   expect(await refund(status)).toBe("Stripe didn't complete the refund of $50.00. Check it in Stripe.");
 });
+
+test("a typed refund reason survives a stray click outside the dialog until staff discard it", () => {
+  useApi.mockReturnValue({ data: null, loading: false, refreshing: false, error: "", reload: vi.fn() });
+  const onClose = vi.fn();
+  render(
+    <RecordDialogHost
+      dialog={{ kind: "refund", payment }}
+      person={{ id: 3, firstName: "Ada", revision: 1 } as Person}
+      plans={[]}
+      timeZone="America/New_York"
+      supervision={null}
+      onClose={onClose}
+      onDone={vi.fn()}
+      onPerson={vi.fn()}
+      onConflict={vi.fn()}
+    />,
+  );
+  const dialog = screen.getByRole("dialog", { name: "Refund $50.00" });
+  fireEvent.change(screen.getByLabelText(/Reason for refund/), { target: { value: "Duplicate charge" } });
+  fireEvent.mouseDown(dialog.parentElement!);
+  expect(onClose).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+  expect((screen.getByLabelText(/Reason for refund/) as HTMLInputElement).value).toBe("Duplicate charge");
+  fireEvent.keyDown(window, { key: "Escape" });
+  fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+  expect(onClose).toHaveBeenCalledTimes(1);
+});

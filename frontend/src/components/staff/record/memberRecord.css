@@ -160,6 +160,8 @@
 
 /* Dialogs: the app's compact modal around one form. */
 .mr-dialog .modal-card__body { display: grid; gap: 16px; }
+/* Only watches for edits (DraftModal); the dialog body still lays out what's inside. */
+.mr-dialog__draft { display: contents; }
 .mr-dialog__form.management-form { display: grid; gap: 16px; margin: 0; padding: 0; border: 0; }
 .mr-dialog__fields { display: grid; gap: 16px; min-width: 0; margin: 0; padding: 0; border: 0; }
 .mr-dialog__fields .form-field { margin: 0; }

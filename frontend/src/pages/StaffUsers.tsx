@@ -3,7 +3,7 @@
 import { Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { initials, isProtectedAccount } from "../components/admin/people";
+import { initials } from "../components/admin/people";
 import { MemberPhoto } from "../components/MemberPhoto";
 import { rememberAccount } from "../lib/recentAccounts";
 import { useAuth } from "../context/AuthContext";
@@ -38,12 +38,15 @@ export function StaffUsers() {
   useEffect(() => {
     setInput(linkedSearch);
   }, [linkedSearch]);
+  // A return from checkout (?billing= or ?pass=) is news only for the member it came back to.
+  const checkout = (status: string) =>
+    selected?.id === linkedMember && (params.get("billing") === status || params.get("pass") === status);
   const close = () => {
     setSelected(null);
     setOpenError("");
-    if (params.has("member")) {
+    if (["member", "billing", "pass"].some((key) => params.has(key))) {
       const next = new URLSearchParams(params);
-      next.delete("member");
+      for (const key of ["member", "billing", "pass"]) next.delete(key);
       setParams(next, { replace: true });
     }
   };
@@ -90,6 +93,19 @@ export function StaffUsers() {
           />
         </label>
       </div>
+      {/* A link to one member's record: say it's opening, or why it didn't. */}
+      {linkedMember && selected?.id !== linkedMember ? (
+        linked.error ? (
+          <p role="alert" className="form-error">
+            Member #{linkedMember}’s record didn’t open. {linked.error}{" "}
+            <button type="button" onClick={linked.reload}>
+              Retry
+            </button>
+          </p>
+        ) : linked.loading ? (
+          <p role="status">Opening member #{linkedMember}’s record…</p>
+        ) : null
+      ) : null}
       <LoadState {...users} loading={users.loading && !users.data} />
       {users.data ? (
         <KeptResults read={users} ref={results}>
@@ -156,17 +172,13 @@ export function StaffUsers() {
           onChanged={users.reload}
           onClose={close}
           notice={
-            params.get("billing") === "returned" || params.get("pass") === "returned" ? (
+            checkout("returned") ? (
               <p role="status" className="form-notice mr-notice">Returned from Stripe. Confirmed purchases appear under Membership and Payments below; payment verification can take a moment.</p>
-            ) : params.get("billing") === "cancelled" || params.get("pass") === "cancelled" ? (
+            ) : checkout("cancelled") ? (
               <p role="status" className="form-notice mr-notice">Checkout cancelled. No access was issued by returning from checkout.</p>
             ) : undefined
           }
-          viewAs={
-            isProtectedAccount(selected) || selected.status !== "active" || selected.accessStatus !== "active"
-              ? undefined
-              : { onOpen: () => void openMemberAccount(selected), busy: opening, error: openError }
-          }
+          viewAs={{ onOpen: (person) => void openMemberAccount(person), busy: opening, error: openError }}
         />
       ) : null}
     </section>

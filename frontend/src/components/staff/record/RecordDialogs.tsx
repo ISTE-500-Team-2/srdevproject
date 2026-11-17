@@ -1,7 +1,7 @@
 // Focused member-record mutation dialogs carry revisions and reasons so stale edits can be rejected
 // and changes attributed.
 
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useState, type ComponentProps, type FormEvent, type ReactNode } from "react";
 import { api, ApiError, errorMessage } from "../../../lib/api";
 import { editingFormRef } from "../../../lib/editingForms";
 import { dollars } from "../../../lib/display";
@@ -39,6 +39,21 @@ export type DialogState =
 class DialogMessage extends Error {}
 /** The record changed under an open dialog: the dialog stops offering a retry on old data. */
 class StaleDialog extends DialogMessage {}
+
+/**
+ * A record dialog's Modal. Once staff change anything in it, a stray click outside or Escape asks
+ * before throwing the draft away.
+ */
+function DraftModal({ children, ...props }: Omit<ComponentProps<typeof Modal>, "dirty" | "children"> & { children: ReactNode }) {
+  const [dirty, setDirty] = useState(false);
+  return (
+    <Modal {...props} dirty={dirty}>
+      <div className="mr-dialog__draft" onChangeCapture={() => setDirty(true)}>
+        {children}
+      </div>
+    </Modal>
+  );
+}
 
 /** A compact dialog around one form. `onSubmit` returns the sentence the toast shows. */
 function RecordDialog({
@@ -79,7 +94,7 @@ function RecordDialog({
     }
   };
   return (
-    <Modal open width={wide ? "regular" : "compact"} title={title} onClose={() => !busy && onClose()} className="mr-dialog">
+    <DraftModal open width={wide ? "regular" : "compact"} title={title} onClose={onClose} dismissible={!busy} className="mr-dialog">
       {/* editingFormRef: the record's background refresh waits while this is being edited. */}
       <form ref={editingFormRef} className="management-form mr-dialog__form" aria-label={title} onSubmit={submit}>
         <fieldset className="mr-dialog__fields" disabled={busy}>
@@ -99,7 +114,7 @@ function RecordDialog({
           </button>
         </div>
       </form>
-    </Modal>
+    </DraftModal>
   );
 }
 
@@ -343,7 +358,7 @@ export function RecordDialogHost({
     }
     case "sell":
       return (
-        <Modal open width="regular" title={dialog.renewal ? `Renew ${dialog.renewal.plan?.name ?? "membership"}` : "Sell or record a payment"} onClose={onClose} className="mr-dialog">
+        <DraftModal open width="regular" title={dialog.renewal ? `Renew ${dialog.renewal.plan?.name ?? "membership"}` : "Sell or record a payment"} onClose={onClose} className="mr-dialog">
           {dialog.renewal ? <p className="mr-dialog__lead">The renewal starts when the current membership ends, so no days overlap.</p> : null}
           <AssistedPurchase
             heading={false}
@@ -354,17 +369,17 @@ export function RecordDialogHost({
             disabled={false}
             onSaved={() => onDone("Access issued and the payment recorded.")}
           />
-        </Modal>
+        </DraftModal>
       );
     case "payment":
       return (
-        <Modal open width="compact" title={`Payment #${dialog.payment.id}`} onClose={onClose} className="mr-dialog">
+        <DraftModal open width="compact" title={`Payment #${dialog.payment.id}`} onClose={onClose} className="mr-dialog">
           <PaymentEditor payment={dialog.payment} onSaved={(status) => onDone(`Payment #${dialog.payment.id} marked ${paymentStatusName(status).toLowerCase()}.`)} />
-        </Modal>
+        </DraftModal>
       );
     case "refund":
       return (
-        <Modal open width="compact" title={`Refund ${dollars(dialog.payment.amount)}`} onClose={onClose} className="mr-dialog">
+        <DraftModal open width="compact" title={`Refund ${dollars(dialog.payment.amount)}`} onClose={onClose} className="mr-dialog">
           <CardRefund payment={dialog.payment} onRefunded={(status) =>
               onDone(
                 status === "succeeded"
@@ -374,7 +389,7 @@ export function RecordDialogHost({
                     : `Stripe didn't complete the refund of ${dollars(dialog.payment.amount)}. Check it in Stripe.`,
               )
             } />
-        </Modal>
+        </DraftModal>
       );
     case "assign":
       return <AssignDialog person={person} replacement={dialog.replacement ?? null} onClose={onClose} onDone={onDone} />;
@@ -506,7 +521,7 @@ function AssignDialog({ person, replacement, onClose, onDone }: { person: Person
   const setup = useApi<ReaderSetup>("/admin/access/readers");
   const name = `${person.firstName} ${person.lastName}`;
   return (
-    <Modal open width="regular" title={replacement ? `Replace ${replacement.label}` : "Assign an NFC card"} onClose={onClose} className="mr-dialog mr-dialog--scan">
+    <DraftModal open width="regular" title={replacement ? `Replace ${replacement.label}` : "Assign an NFC card"} onClose={onClose} className="mr-dialog mr-dialog--scan">
       {replacement ? <p className="mr-dialog__lead">{replacement.label} keeps working until the new card is saved.</p> : null}
       {setup.error ? (
         <p role="alert" className="form-error">
@@ -528,7 +543,7 @@ function AssignDialog({ person, replacement, onClose, onDone }: { person: Person
       ) : (
         <p role="status">Loading readers…</p>
       )}
-    </Modal>
+    </DraftModal>
   );
 }
 
