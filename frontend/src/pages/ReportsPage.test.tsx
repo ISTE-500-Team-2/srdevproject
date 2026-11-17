@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { ComplianceSummary, ReportsPage } from "./ReportsPage";
 import type { Report } from "../lib/reportContracts";
 import { useApi } from "../lib/useApi";
+import { zoneName } from "../lib/analytics";
 
 vi.mock("../lib/useApi", () => ({ useApi: vi.fn() }));
 afterEach(() => {
@@ -126,6 +127,39 @@ test("each period is named once, machines nobody used wait behind a toggle, and 
   expect(within(live).getByText("2 people")).toBeTruthy();
 });
 
+test("a building reader is the front door, never the machine that shares its number", () => {
+  const live = [
+    { kind: "building", resourceId: 1, activeReaderLeases: 3 },
+    { kind: "room", resourceId: 1, activeReaderLeases: 1 },
+  ];
+  const rooms = [{ id: 1, name: "Wood shop", capacity: 8, distinctVisitors: 1, recordedCheckIns: 1 }];
+  mount("/admin/reports?range=custom&from=2026-09-01&to=2026-09-30&group=weekly", report({ live, rooms }), report({ from: "2026-08-02", to: "2026-08-31" }));
+  const list = screen.getByRole("region", { name: "Signed in at readers" });
+  expect(within(list).queryByText("Laser")).toBeNull();
+  expect(within(list).queryByText("Machine")).toBeNull();
+  expect(within(list).getByText("Front door")).toBeTruthy();
+  expect(within(list).getByText("Building")).toBeTruthy();
+  expect(within(list).getByText("3 people")).toBeTruthy();
+  expect(within(list).getByText("Wood shop")).toBeTruthy();
+});
+
+test("the machine share column says it measures the whole period, not a share of bookings", () => {
+  mount("/admin/reports?range=custom&from=2026-09-01&to=2026-09-30&group=weekly", report(), report({ from: "2026-08-02", to: "2026-08-31" }));
+  const equipment = screen.getByRole("region", { name: "Equipment" });
+  expect(within(equipment).queryByText(/of all hours booked/)).toBeNull();
+  expect(within(equipment).getByRole("columnheader", { name: "Share of the period booked" })).toBeTruthy();
+  expect(within(equipment).getByRole("tooltip", { hidden: true }).textContent).toMatch(/every hour in the dates you picked, including hours when we're closed/);
+});
+
+test("the update time is read on the facility's clock, matching the zone named beside it", () => {
+  // Kathmandu and Kolkata read 1:45 and 1:30, so at least one differs from wherever the tests run.
+  const generatedAt = "2026-09-30T20:00:00Z";
+  const clock = (timeZone?: string) => new Date(generatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone });
+  const facility = ["Asia/Kathmandu", "Asia/Kolkata"].find((zone) => clock(zone) !== clock())!;
+  mount("/admin/reports?range=custom&from=2026-09-01&to=2026-09-30&group=weekly", report({ timeZone: facility, generatedAt }), report({ from: "2026-08-02", to: "2026-08-31" }));
+  expect(screen.getByText(/^Updated /).textContent).toBe(`Updated ${clock(facility)} ${zoneName(facility)}`);
+});
+
 test("a hand-edited link with impossible dates falls back to this month", () => {
   mount("/admin/reports?range=custom&from=2026-01-01&to=2026-09-30", report(), report());
   expect((screen.getByRole("combobox", { name: "Date range" }) as HTMLSelectElement).value).toBe("month");
@@ -135,8 +169,8 @@ test("the readers card explains what it counts behind a circled i", () => {
   mount("/admin/reports?range=custom&from=2026-09-01&to=2026-09-30&group=weekly", report(), report({ from: "2026-08-02", to: "2026-08-31" }));
   const live = screen.getByRole("region", { name: "Signed in at readers" });
   const tip = within(live).getByRole("button", { name: "What this card counts" });
-  expect(screen.getByRole("tooltip", { hidden: true }).textContent).toMatch(/until their booking ends or we close/);
-  expect(tip.getAttribute("aria-describedby")).toBe(screen.getByRole("tooltip", { hidden: true }).id);
+  expect(within(live).getByRole("tooltip", { hidden: true }).textContent).toMatch(/until their booking ends or we close/);
+  expect(tip.getAttribute("aria-describedby")).toBe(within(live).getByRole("tooltip", { hidden: true }).id);
   fireEvent.click(tip);
   expect(tip.getAttribute("aria-expanded")).toBe("true");
   fireEvent.keyDown(document, { key: "Escape" });

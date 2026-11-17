@@ -443,7 +443,7 @@ function ReportBody({ report: d, before, unit, stale }: { report: Report; before
         <span>Grouped by {unitWord}</span>
         <span>Compared with {unit}</span>
         <span>
-          Updated {timeOnly(d.generatedAt)} {zoneName(d.timeZone)}
+          Updated {timeOnly(d.generatedAt, d.timeZone)} {zoneName(d.timeZone)}
         </span>
         <span role="status" className="reports-updating">
           {stale ? "Updating…" : ""}
@@ -637,13 +637,17 @@ function Revenue({ report: d, t }: { report: Report; t: ReturnType<typeof totals
 /** Who holds a reader right now. Ignores the date range. */
 function LiveReaders({ report: d }: { report: Report }) {
   const live = d.live.filter((r) => r.activeReaderLeases > 0);
+  // Building, room and machine numbers overlap, so only look a number up in its own list.
   const name = (r: Report["live"][number]) => {
-    if (r.resourceId === null) return "Front door";
-    const list = r.kind === "room" ? d.rooms : d.equipment;
+    if (r.kind === "building" || r.resourceId === null) return "Front door";
+    const list = r.kind === "room" ? d.rooms : r.kind === "equipment" ? d.equipment : [];
     return list.find((item) => item.id === r.resourceId)?.name ?? `${statusLabel(r.kind)} ${r.resourceId}`;
   };
-  const place = (r: Report["live"][number]) =>
-    r.resourceId === null ? null : r.kind === "room" ? "Room" : r.kind === "equipment" ? "Machine" : statusLabel(r.kind);
+  const place = (r: Report["live"][number]) => {
+    if (r.kind === "building") return "Building";
+    if (r.resourceId === null) return null;
+    return r.kind === "room" ? "Room" : r.kind === "equipment" ? "Machine" : statusLabel(r.kind);
+  };
   // Busiest reader first.
   live.sort((a, b) => b.activeReaderLeases - a.activeReaderLeases);
   return (
@@ -816,7 +820,12 @@ function Equipment({ report: d }: { report: Report }) {
   const booked = machines.reduce((n, e) => n + e.bookedHours, 0);
 
   return (
-    <Panel id="reports-equipment" title="Equipment" aside={<MoreLink to="/admin/equipment">Open Equipment</MoreLink>}>
+    <Panel
+      id="reports-equipment"
+      title="Equipment"
+      info="Share of the period booked compares a machine's booked hours with every hour in the dates you picked, including hours when we're closed."
+      aside={<MoreLink to="/admin/equipment">Open Equipment</MoreLink>}
+    >
       <dl className="analytics-totals">
         <div><dt>Bookings</dt><dd>{count(bookings)}</dd></div>
         <div><dt>Booked hours</dt><dd>{hours(booked)}</dd></div>
@@ -831,7 +840,7 @@ function Equipment({ report: d }: { report: Report }) {
                 <th scope="col">Machine</th>
                 <th scope="col" className="table-number">Bookings</th>
                 <th scope="col" className="table-number">Booked hours</th>
-                <th scope="col">% of all hours booked</th>
+                <th scope="col">Share of the period booked</th>
                 <th scope="col" className="table-number">Hours tapped in</th>
               </tr>
             </thead>
