@@ -116,3 +116,18 @@ test('a record shows its reason, what changed, and the writes saved with it',asy
   assert.equal((await as(admin).get('/admin/audit/abc')).status,400);
   assert.equal((await as(member).get(`/admin/audit/${roleChange.id}`)).status,403);
 });
+
+test('the member filter finds changes made to that person, not changes they made to others',async()=>{
+  // The admin made the role change; the target is the person it changed.
+  const toTarget=await as(admin).get(`/admin/audit?view=staff&subjectId=${target.user.id}`);
+  assert.equal(toTarget.status,200,JSON.stringify(toTarget.body));
+  assert.ok(toTarget.body.data.items.some((i:Item)=>i.id===roleChange.id));
+  assert.ok(toTarget.body.data.items.every((i:Item)=>i.subjectId===target.user.id));
+  const toAdmin=await as(admin).get(`/admin/audit?view=staff&subjectId=${admin.user.id}`);
+  assert.equal(toAdmin.status,200);
+  assert.equal(toAdmin.body.data.items.some((i:Item)=>i.id===roleChange.id),false);
+  // userId keeps matching either side, for older callers.
+  const involving=await as(admin).get(`/admin/audit?view=staff&userId=${admin.user.id}`);
+  assert.ok(involving.body.data.items.some((i:Item)=>i.id===roleChange.id));
+  assert.equal((await as(admin).get('/admin/audit?subjectId=abc')).status,400);
+});

@@ -93,13 +93,17 @@ test("views, periods, people and areas become request filters", () => {
   expect(lists().at(-1)!.has("from")).toBe(false);
   fireEvent.change(screen.getByLabelText("Changed by"), { target: { value: "2" } });
   expect(lists().at(-1)!.get("actorId")).toBe("2");
+  // The member filter asks for changes made to that person, not every change they made.
+  fireEvent.change(screen.getByLabelText("Member"), { target: { value: "14" } });
+  expect(lists().at(-1)!.get("subjectId")).toBe("14");
+  expect(lists().at(-1)!.has("userId")).toBe(false);
   fireEvent.click(screen.getByLabelText("Equipment"));
   expect(lists().at(-1)!.get("actions")).toBe("equipment.updated");
   fireEvent.click(screen.getByLabelText("Notices & email"));
   expect(lists().at(-1)!.get("actions")).toBe("equipment.updated,service_notice.resolved");
   fireEvent.click(screen.getAllByRole("button", { name: "Clear filters" })[0]);
   const cleared = lists().at(-1)!;
-  expect(cleared.has("actions") || cleared.has("actorId")).toBe(false);
+  expect(cleared.has("actions") || cleared.has("actorId") || cleared.has("subjectId")).toBe(false);
   expect(cleared.get("view")).toBe("database");
 });
 
