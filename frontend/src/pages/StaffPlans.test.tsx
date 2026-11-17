@@ -201,3 +201,13 @@ test("a new plan is not created twice when its discount save is retried", async 
     method: "PATCH", body: { studentCents: 5000, partnerFree: true, revision: 3, reason: "New offer" },
   }]);
 });
+
+test("the price field says which prices card checkout can take", async () => {
+  render(<StaffPlans />);
+  await userEvent.click(await screen.findByRole("button", { name: "New plan" }));
+  const price = within(screen.getByRole("form", { name: "Create a plan" })).getByLabelText("Price (USD)") as HTMLInputElement;
+  expect(price.max).toBe("100000");
+  expect(document.getElementById(price.getAttribute("aria-describedby")!)?.textContent).toBe(
+    "$0.00 for free, or $0.50 to $100,000.00: card checkout can't take other amounts.",
+  );
+});

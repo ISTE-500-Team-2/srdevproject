@@ -269,3 +269,10 @@ test("when \"Today\" moves on at midnight, the new day starts from its first pag
   expect(last().get("from")).toBe("2026-12-01T05:00:00.000Z");
   expect(last().get("offset")).toBe("0");
 });
+
+test("the page says studio rentals are kept on the Studios page, not in this list or its totals", () => {
+  mount([desk]);
+  expect(document.querySelector(".payments__intro")?.textContent).toMatch(
+    /Studio\s+rentals are paid and refunded on the Studios page, so they aren't in this list or its totals\./,
+  );
+});
