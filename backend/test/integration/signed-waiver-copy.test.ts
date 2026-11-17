@@ -11,6 +11,7 @@ import {repositoryRoot} from '../../src/scripts/migrate.js';
 import {runNotificationBatch} from '../../src/notifications/worker.js';
 import {notificationJob,renderNotification} from '../../src/notifications/templates.js';
 import {BrevoTransport} from '../../src/notifications/transport.js';
+import {withSignedCopiesUnlocked} from '../helpers/waiver.js';
 const database='arbor_'+randomBytes(6).toString('hex')+'_signed_copy_mvc_test';
 const adminPool=new Pool({connectionTimeoutMillis:5000});
 const pool=new Pool({database,connectionTimeoutMillis:5000});
@@ -24,6 +25,8 @@ async function sign(name:string,text:string) {
   assert.equal((await post(`/me/waivers/${waiverId}/sign`,{accepted:true})).status,200);
   return (await pool.query('SELECT userwaiverid FROM user_waiver WHERE userid=$1 AND waiverid=$2',[member.id,waiverId])).rows[0].userwaiverid as number;
 }
+// Copies are permanent; this recreates older states (missing or edited copies) that predate the lock.
+const beforeLock=(sql:string,params:unknown[])=>withSignedCopiesUnlocked(pool,sql,params);
 before(async()=>{
   if(!process.env.PGHOST||process.env.DATABASE_URL)throw new Error('Use explicit isolated PostgreSQL settings');
   await adminPool.query(`CREATE DATABASE "${database}"`);created=true;await initializeDemo(pool);
@@ -91,7 +94,7 @@ test('signed copy is still listed and downloadable after its notification row is
 
 test('signatures without a stored copy still fall back to the notification row',async()=>{
   const id=await sign('Legacy Fallback Policy','Legacy queued wording.');
-  await pool.query('DELETE FROM app_signed_waiver_copy WHERE userwaiverid=$1',[id]);
+  await beforeLock('DELETE FROM app_signed_waiver_copy WHERE userwaiverid=$1',[id]);
   const listed=(await get('/me/signed-waivers')).body.data.find((w:{id:number})=>w.id===id);
   assert.equal(listed.copyAvailable,true);
   const copy=await get(`/me/signed-waivers/${id}/copy`);
@@ -101,8 +104,8 @@ test('signatures without a stored copy still fall back to the notification row',
 test('migration backfills missing copies from the queue, idempotently and only for the owner',async()=>{
   const id=await sign('Backfill Policy','Backfilled wording.');
   const other=await sign('Untouched Policy','Already copied wording.');
-  await pool.query('DELETE FROM app_signed_waiver_copy WHERE userwaiverid=$1',[id]);
-  await pool.query("UPDATE app_signed_waiver_copy SET payload=payload||'{\"marker\":true}' WHERE userwaiverid=$1",[other]);
+  await beforeLock('DELETE FROM app_signed_waiver_copy WHERE userwaiverid=$1',[id]);
+  await beforeLock("UPDATE app_signed_waiver_copy SET payload=payload||'{\"marker\":true}' WHERE userwaiverid=$1",[other]);
   // A queue row claiming the signature for another account is never copied.
   const stranger=(await pool.query('SELECT userid FROM "user" WHERE userid<>$1 ORDER BY userid LIMIT 1',[member.id])).rows[0].userid;
   await pool.query("UPDATE app_notification_outbox SET userid=$1 WHERE dedupe_key=$2",[stranger,`waiver-signed:${id}`]);
@@ -116,8 +119,22 @@ test('migration backfills missing copies from the queue, idempotently and only f
   assert.equal((await pool.query('SELECT payload FROM app_signed_waiver_copy WHERE userwaiverid=$1',[other])).rows[0].payload.marker,true);
 });
 
-test('deleting a signature removes its stored copy',async()=>{
-  const id=await sign('Cascade Policy','Cascade wording.');
-  await pool.query('DELETE FROM user_waiver WHERE userwaiverid=$1',[id]);
-  assert.equal((await pool.query('SELECT COUNT(*)::int n FROM app_signed_waiver_copy WHERE userwaiverid=$1',[id])).rows[0].n,0);
+test('a signed copy is permanent, and so is the signature it belongs to',async()=>{
+  const id=await sign('Permanent Policy','Permanent wording.');
+  const permanent={code:'55000',message:/permanent records/};
+  await assert.rejects(pool.query(`UPDATE app_signed_waiver_copy SET payload=jsonb_set(payload,'{waiverText}','"Rewritten"') WHERE userwaiverid=$1`,[id]),permanent);
+  await assert.rejects(pool.query('UPDATE app_signed_waiver_copy SET userid=userid WHERE userwaiverid=$1',[id]),permanent);
+  await assert.rejects(pool.query('DELETE FROM app_signed_waiver_copy WHERE userwaiverid=$1',[id]),permanent);
+  // Deleting the signature would cascade to its copy, so it is refused too.
+  await assert.rejects(pool.query('DELETE FROM user_waiver WHERE userwaiverid=$1',[id]),permanent);
+  await assert.rejects(pool.query('TRUNCATE app_signed_waiver_copy'),{code:'55000'});
+  assert.equal((await pool.query('SELECT COUNT(*)::int n FROM user_waiver WHERE userwaiverid=$1',[id])).rows[0].n,1);
+  const copy=await get(`/me/signed-waivers/${id}/copy`);
+  assert.equal(copy.status,200);assert.match(copy.body.data.content,/Permanent wording\./);
+  // Staff still manage the signature's status and expiry, which live on the signature, not the copy.
+  await pool.query("UPDATE user_waiver SET expires_at=NOW()+interval '1 day' WHERE userwaiverid=$1",[id]);
+  // Signing the same version again keeps the original copy instead of failing.
+  const waiverId=(await pool.query('SELECT waiverid FROM user_waiver WHERE userwaiverid=$1',[id])).rows[0].waiverid;
+  assert.equal((await post(`/me/waivers/${waiverId}/sign`,{accepted:true})).status,200);
+  assert.equal((await pool.query('SELECT payload FROM app_signed_waiver_copy WHERE userwaiverid=$1',[id])).rows[0].payload.waiverText,'Permanent wording.');
 });
