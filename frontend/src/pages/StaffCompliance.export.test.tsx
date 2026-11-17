@@ -22,9 +22,9 @@ test("the CSV download keeps its file address until the browser has had time to 
   vi.useFakeTimers();
   useApi.mockImplementation(idle);
   vi.mocked(apiText).mockResolvedValue("name,status\n");
-  const create = vi.fn(() => "blob:compliance");
-  const revoke = vi.fn();
-  Object.assign(URL, { createObjectURL: create, revokeObjectURL: revoke });
+  // Spies, so restoreAllMocks puts the real URL functions back after the test.
+  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:compliance");
+  const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
   const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
     // Firefox only downloads from a link that is part of the page.
     expect(this.isConnected).toBe(true);

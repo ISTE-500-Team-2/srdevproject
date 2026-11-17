@@ -127,7 +127,7 @@ const openNewWaiver = () => {
   fireEvent.click(screen.getByRole('button', { name: 'New waiver' }));
   return screen.getByRole('dialog', { name: 'New waiver' });
 };
-const fileDrag = (file?: File) => ({ dataTransfer: { types: ['Files'], files: file ? [file] : [] } });
+const fileDrag = (file?: File) => ({ dataTransfer: { types: ['Files'], files: file ? [file] : [], dropEffect: '' } });
 
 test('a document dropped anywhere on the form fills the waiver text, even from the preview', async () => {
   vi.mocked(documentText).mockResolvedValue('Wording imported from the approved document.');
@@ -136,7 +136,11 @@ test('a document dropped anywhere on the form fills the waiver text, even from t
   const preview = within(editor).getByText('Nothing to preview yet.');
   const file = new File(['wording'], 'waiver.txt', { type: 'text/plain' });
   // false: the browser's own drop (opening the file in place of the app) was cancelled.
-  expect(fireEvent.dragOver(preview, fileDrag())).toBe(false);
+  const over = fileDrag();
+  expect(fireEvent.dragOver(preview, over)).toBe(false);
+  // The copy cursor and the highlighted pane show the drop will be taken.
+  expect(over.dataTransfer.dropEffect).toBe('copy');
+  expect(preview.closest('.cw-preview')!.classList.contains('is-dragging')).toBe(true);
   expect(fireEvent.drop(preview, fileDrag(file))).toBe(false);
   await waitFor(() => expect(within(editor).getByLabelText('Text members will read')).toHaveProperty('value', 'Wording imported from the approved document.'));
   expect(documentText).toHaveBeenCalledWith(file);
@@ -145,6 +149,12 @@ test('a document dropped anywhere on the form fills the waiver text, even from t
 test('a document dropped beside the form is ignored instead of replacing the page and the draft', () => {
   const editor = openNewWaiver();
   const file = new File(['wording'], 'waiver.pdf', { type: 'application/pdf' });
+  // Outside the form the browser shows the no-drop cursor rather than promising a copy.
+  for (const target of [within(editor).getByRole('heading', { name: 'New waiver' }), document.body]) {
+    const over = fileDrag();
+    expect(fireEvent.dragOver(target, over)).toBe(false);
+    expect(over.dataTransfer.dropEffect).toBe('none');
+  }
   expect(fireEvent.drop(within(editor).getByRole('heading', { name: 'New waiver' }), fileDrag(file))).toBe(false);
   expect(fireEvent.drop(document.body, fileDrag(file))).toBe(false);
   expect(documentText).not.toHaveBeenCalled();
@@ -161,4 +171,21 @@ test('the approval reference is required up front, as the server requires it', (
   expect(reference.required).toBe(true);
   expect(reference.minLength).toBe(3);
   expect(reference.validity.valueMissing).toBe(true);
+});
+
+test.each([
+  ['Approval reference', '  a ', 'Approval reference needs at least 3 characters besides spaces.'],
+  ['Reason for the change log', ' b  ', 'Reason for the change log needs at least 3 characters besides spaces.'],
+])('a %s of spaces is caught before publishing, as the server trims it', (label, value, message) => {
+  const editor = openNewWaiver();
+  fireEvent.change(within(editor).getByLabelText('Waiver'), { target: { value: 'Laser room rules' } });
+  fireEvent.change(within(editor).getByLabelText('Text members will read'), { target: { value: 'Approved laser room wording for this test.' } });
+  fireEvent.change(within(editor).getByLabelText('Approval reference'), { target: { value: 'Board vote' } });
+  fireEvent.change(within(editor).getByLabelText('Reason for the change log'), { target: { value: 'New room rules' } });
+  const field = within(editor).getByLabelText(label);
+  fireEvent.change(field, { target: { value } });
+  fireEvent.submit(field.closest('form')!);
+  expect(within(editor).getByRole('alert').textContent).toBe(message);
+  expect(document.activeElement).toBe(field);
+  expect(api).not.toHaveBeenCalled();
 });

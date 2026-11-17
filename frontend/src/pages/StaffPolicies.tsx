@@ -115,10 +115,12 @@ function PublishPanel({
   };
   // A document dropped anywhere on the form fills the text box, on either tab. Dropped anywhere else,
   // the browser would open the file in place of the app and lose the draft, so the rest of the
-  // screen ignores the drop.
+  // screen refuses the drop and shows the no-drop cursor. Drags the form already took are left alone.
   useEffect(() => {
     const ignore = (event: DragEvent) => {
-      if (carriesFiles(event.dataTransfer)) event.preventDefault();
+      if (event.defaultPrevented || !carriesFiles(event.dataTransfer)) return;
+      event.preventDefault();
+      event.dataTransfer!.dropEffect = "none";
     };
     window.addEventListener("dragover", ignore);
     window.addEventListener("drop", ignore);
@@ -137,6 +139,13 @@ function PublishPanel({
       return;
     }
     const form = new FormData(event.currentTarget);
+    // The browser's length check counts spaces; the server doesn't, so check what will be kept.
+    const tooShort = (["approvalReference", "reason"] as const).find((field) => String(form.get(field) ?? "").trim().length < 3);
+    if (tooShort) {
+      setError(`${tooShort === "reason" ? "Reason for the change log" : "Approval reference"} needs at least 3 characters besides spaces.`);
+      (event.currentTarget.elements.namedItem(tooShort) as HTMLInputElement | null)?.focus();
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -168,6 +177,7 @@ function PublishPanel({
         onDragOver={(e) => {
           if (!carriesFiles(e.dataTransfer)) return;
           e.preventDefault();
+          e.dataTransfer.dropEffect = "copy";
           setDragging(true);
         }}
         onDragLeave={(e) => {
@@ -245,7 +255,7 @@ function PublishPanel({
               placeholder="Paste the approved wording, or drop a PDF, Word or text document here"
             />
           ) : (
-            <div className="cw-preview" aria-labelledby="waiver-text-label">
+            <div className={dragging ? "cw-preview is-dragging" : "cw-preview"} aria-labelledby="waiver-text-label">
               <h4>{name || "Untitled waiver"}</h4>
               <p className="policy-text">{text || "Nothing to preview yet."}</p>
             </div>
@@ -294,7 +304,7 @@ function PublishPanel({
         </p>
         <label className="cw-field">
           <span>Reason for the change log</span>
-          <input name="reason" required maxLength={255} placeholder="e.g. Updated guest policy" />
+          <input name="reason" required minLength={3} maxLength={255} placeholder="e.g. Updated guest policy" />
         </label>
         {error ? (
           <p className="form-error" role="alert">

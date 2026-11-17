@@ -389,6 +389,26 @@ test('a time problem is announced on the time fields, and Publish takes the user
   expect(calls('/classes', 'POST')).toHaveLength(0);
 });
 
+test('a start time that has already passed is announced on Starts, and Publish takes the user there', async () => {
+  await mount();
+  await click('Schedule class');
+  const date = screen.getByLabelText('Date') as HTMLInputElement;
+  const starts = screen.getByLabelText('Starts');
+  const ends = screen.getByLabelText('Ends');
+  // Midnight today (the earliest date the picker allows) has always passed; the length is fine.
+  fireEvent.change(date, { target: { value: date.min } });
+  fireEvent.change(starts, { target: { value: '00:00' } });
+  fireEvent.change(ends, { target: { value: '02:00' } });
+  expect(screen.getByRole('alert').textContent).toBe('Pick a start time in the future.');
+  expect(starts.getAttribute('aria-invalid')).toBe('true');
+  expect(ends.getAttribute('aria-invalid')).toBe('false');
+  expect(starts.getAttribute('aria-describedby')).toBe(screen.getByRole('alert').id);
+  const publish = screen.getByRole('button', { name: 'Publish class' });
+  await act(async () => { fireEvent.submit(publish.closest('form')!); });
+  expect(document.activeElement).toBe(starts);
+  expect(calls('/classes', 'POST')).toHaveLength(0);
+});
+
 test('cancelling sends the record revision and the staff reason', async () => {
   await mount();
   await click('More actions for Safety 5');
