@@ -38,7 +38,8 @@
   font-size: var(--text-base-sm);
   cursor: pointer;
 }
-.studio-cal__day:hover:not(:disabled) {
+/* The selected day keeps its own colors under the pointer, and a tap's sticky hover on phones. */
+.studio-cal__day:hover:not(:disabled):not([aria-pressed="true"]) {
   background: #fff2e6;
 }
 .studio-cal__day:disabled {
@@ -46,8 +47,7 @@
   text-decoration: line-through;
   cursor: default;
 }
-.studio-cal__day[aria-pressed="true"],
-.studio-cal__day[aria-pressed="true"]:hover {
+.studio-cal__day[aria-pressed="true"] {
   background: var(--ink);
   color: #fff;
   font-weight: 700;
