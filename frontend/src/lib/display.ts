@@ -79,5 +79,6 @@ export function statusTone(value: string): StatusTone {
     return "warn";
   return "neutral";
 }
-export const timeOnly = (value: string | Date) =>
-  new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+/** In the viewer's clock unless a time zone is given. */
+export const timeOnly = (value: string | Date, timeZone?: string) =>
+  new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", ...(timeZone && { timeZone }) });

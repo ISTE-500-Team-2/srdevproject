@@ -29,3 +29,5 @@ import './components/staff/reservations/reservations.css';
 import './pages/admin/serviceNotices.css';
 import './pages/admin/changeLog.css';
 import './components/photoEditor.css';
+import './pages/reports.css';
+import './components/InfoTip.css';

@@ -1,0 +1,490 @@
+/* Staff Reports: built on the Analytics page's header, cards and panels
+   (analyticsDashboard.css); this file adds the exact-number tables, checks and heat map.
+   Layout follows the page's own width, not the window's, so the admin sidebar is accounted for. */
+.reports {
+  container: reports / inline-size;
+}
+.reports-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+  min-width: 0;
+}
+.reports .analytics-panel-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: var(--text-base);
+}
+.reports-panel-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.reports-panel {
+  min-width: 0;
+  padding: 20px 22px;
+  /* Clear the sticky section bar when jumped to. */
+  scroll-margin-top: 76px;
+}
+.reports-meta {
+  margin-top: -6px;
+}
+.reports-updating:empty {
+  display: none;
+}
+.reports-updating {
+  color: var(--bronze);
+  font-weight: 600;
+}
+.kpi__note {
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+}
+
+/* Revenue beside what needs checking; both stack once the page is narrow. */
+.reports-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(17rem, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.reports-side {
+  display: grid;
+  gap: 18px;
+  align-content: start;
+  min-width: 0;
+}
+.reports-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(15rem, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+@container reports (max-width: 1080px) {
+  .reports-top,
+  .reports-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .reports-side {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+}
+@container reports (max-width: 680px) {
+  .reports-side {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Export sits with the range controls: same height, quiet. */
+.reports-export {
+  display: inline-flex;
+  gap: 8px;
+}
+.management-page .reports-export .button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  border-radius: 9px;
+  padding: 7px 14px;
+  font-size: var(--text-base-sm);
+}
+.reports-export svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Section bar: stays at the top while scrolling and marks where you are. */
+.reports-jump {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  margin: 0 -6px;
+  border-radius: 12px;
+  padding: 8px 6px;
+  background: color-mix(in srgb, var(--paper) 86%, transparent);
+  backdrop-filter: blur(12px);
+  scrollbar-width: none;
+}
+.reports-jump::-webkit-scrollbar {
+  display: none;
+}
+.management-page .reports-jump button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 14px;
+  background: var(--paper-raised);
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: var(--text-base-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.management-page .reports-jump button:hover {
+  border-color: var(--border-strong);
+  color: var(--ink);
+}
+.management-page .reports-jump button[aria-current] {
+  border-color: transparent;
+  background: linear-gradient(135deg, #2b1306, #59300f);
+  color: #fff;
+}
+.reports-jump em,
+.reports-count {
+  border-radius: 10px;
+  padding: 0 7px;
+  background: var(--orange-soft);
+  color: #6b3d05;
+  font-size: var(--text-xs);
+  font-style: normal;
+  font-weight: 700;
+  line-height: 18px;
+}
+
+/* Tables sit inside a card: no outer margin, quieter rows. */
+.reports .reports-table {
+  margin: 0;
+  font-size: var(--text-base-sm);
+}
+/* Scoped to .reports so it outranks the shared tables' roomier padding in the built stylesheet. */
+.reports .reports-table :is(th, td) {
+  padding: 10px 12px;
+}
+/* Fit every column inside its card instead of the shared tables' wider minimum. */
+.reports .reports-table thead th {
+  min-width: 0;
+}
+.reports-table td:first-child {
+  white-space: nowrap;
+}
+.reports-table tbody tr:last-child :is(th, td) {
+  border-bottom: 0;
+}
+.reports-table tbody tr:hover :is(th, td) {
+  background: rgba(92, 73, 62, 0.04);
+}
+.reports-table tfoot :is(th, td) {
+  border-top: 2px solid var(--border);
+  border-bottom: 0;
+  font-weight: 700;
+}
+/* The same period as the row above: keep it for screen readers, hide the repeat. */
+.reports-table td.reports-repeat {
+  color: transparent;
+}
+/* A week or month the range only partly covers: a quiet second line under its name. */
+.reports-partial {
+  display: block;
+  color: var(--ink-soft);
+  font-size: var(--text-xs);
+}
+.reports-table td.reports-repeat .reports-partial {
+  display: none;
+}
+.reports-nowrap {
+  white-space: nowrap;
+}
+.reports-table tr.is-idle :is(td, th) {
+  color: var(--ink-soft);
+}
+.reports-table tr.is-idle :is(.reports-name, b) {
+  font-weight: 500;
+}
+.reports-name {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: none;
+}
+.reports-name:hover {
+  color: var(--bronze);
+  text-decoration: underline;
+}
+
+.reports-empty {
+  margin: 6px 0;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 18px 16px;
+  color: var(--ink-soft);
+}
+.reports-note {
+  margin: 12px 0 0;
+  color: var(--ink-soft);
+  font-size: var(--text-base-sm);
+}
+.reports-note b {
+  color: var(--ink);
+}
+.reports-note--top {
+  margin: -4px 0 12px;
+}
+.reports-note--flush {
+  margin: 0;
+}
+.reports-muted {
+  color: var(--ink-soft);
+}
+
+/* A share as a short bar with its number. */
+.reports-rate {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.reports-rate small {
+  color: var(--ink-soft);
+}
+.reports-fill {
+  width: 72px;
+  flex: none;
+}
+.reports-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* Records to check: each record that needs a decision, flagged. */
+.reports-checks,
+.reports-live,
+.reports-rooms {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.reports-checks li {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  border-radius: 8px;
+  padding: 9px 12px;
+  background: var(--orange-soft);
+  box-shadow: inset 3px 0 0 var(--orange);
+  font-size: var(--text-base-sm);
+}
+.reports-checks svg {
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  color: #8a4b00;
+}
+.reports-allclear {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-weight: 600;
+}
+.reports-allclear svg {
+  width: 18px;
+  height: 18px;
+  color: #1f6b32;
+}
+
+/* A green dot while someone holds a reader. */
+.reports-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+.reports-pulse.is-on {
+  background: #2f9a4b;
+  box-shadow: 0 0 0 3px rgba(47, 154, 75, 0.18);
+}
+.reports-live li {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  padding: 4px 0 10px;
+}
+.reports-live li:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.reports-live__name {
+  display: grid;
+}
+.reports-live__name small {
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+}
+.reports-live svg {
+  width: 18px;
+  height: 18px;
+  color: var(--bronze);
+}
+
+.reports-rooms {
+  gap: 14px;
+}
+.reports-rooms li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 12px;
+}
+.reports-rooms li .reports-fill {
+  grid-column: 1 / -1;
+  width: auto;
+}
+.reports-rooms__name,
+.reports-rooms__count {
+  display: grid;
+}
+.reports-rooms__count {
+  text-align: right;
+}
+.reports-rooms small {
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+}
+
+/* Busiest times: weekday rows, hour columns, one hue darkening with booked hours. */
+.reports-heat-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 22px 0 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 18px;
+}
+.reports-heat-head h3 {
+  margin: 0;
+  font-size: var(--text-base);
+}
+.management-page .reports-heat-filter select {
+  min-height: 36px;
+  padding: 5px 34px 5px 12px;
+  font-size: var(--text-base-sm);
+}
+.reports-heat-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+}
+.reports-heat-key i {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: var(--chart-net);
+}
+.reports-heat-key i:nth-of-type(1) { opacity: 0.18; }
+.reports-heat-key i:nth-of-type(2) { opacity: 0.45; }
+.reports-heat-key i:nth-of-type(3) { opacity: 0.72; }
+.reports-heat-scroll {
+  /* Holds the grid's screen-reader labels inside the scroll area, so they cannot widen the page. */
+  position: relative;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+.reports-heat {
+  width: 100%;
+  min-width: 520px;
+  border-collapse: separate;
+  border-spacing: 3px;
+  table-layout: fixed;
+}
+.reports-heat th {
+  color: var(--ink-soft);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+.reports-heat thead th {
+  height: 18px;
+  text-align: left;
+  white-space: nowrap;
+}
+.reports-heat thead td,
+.reports-heat tbody th {
+  width: 40px;
+  text-align: left;
+}
+.reports-heat tbody td {
+  position: relative;
+  height: 24px;
+  padding: 0;
+  border-radius: 4px;
+  background: rgba(92, 73, 62, 0.07);
+}
+.reports-heat tbody td i {
+  position: absolute;
+  inset: 0;
+  border-radius: 4px;
+}
+.reports-heat tbody td i.is-on {
+  background: var(--chart-net);
+}
+.reports-heat tbody td.is-hovered {
+  box-shadow: 0 0 0 2px var(--ink);
+}
+.reports-heat-readout {
+  padding-left: 43px;
+}
+
+@media (max-width: 900px) {
+  /* Below the phone top bar. */
+  .reports-jump {
+    top: 64px;
+  }
+  .reports-panel {
+    scroll-margin-top: 140px;
+  }
+}
+@media (max-width: 760px) {
+  .reports-panel {
+    padding: 16px;
+  }
+  .reports-heat-key {
+    margin-left: 0;
+  }
+  .reports-heat-readout {
+    padding-left: 0;
+  }
+}
+
+/* Printing the page: the numbers, without the controls. */
+@media print {
+  .reports .analytics-controls,
+  .reports-jump,
+  .reports .analytics-link,
+  .reports .analytics-more,
+  .reports .analytics-table,
+  .reports-heat-head label,
+  .reports-heat-readout,
+  .reports-updating {
+    display: none !important;
+  }
+  .reports .kept-results[inert] {
+    opacity: 1;
+  }
+  .reports-panel {
+    break-inside: avoid;
+    box-shadow: none;
+  }
+  .reports-top,
+  .reports-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

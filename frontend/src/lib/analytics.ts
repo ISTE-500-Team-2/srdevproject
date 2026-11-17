@@ -139,3 +139,63 @@ export function weekdayCounts(from: string, to: string) {
   for (let date = from; date <= to; date = shiftDay(date, 1)) counts[(new Date(date + "T00:00:00Z").getUTCDay() + 6) % 7]++;
   return counts;
 }
+
+// ---------- Date ranges shared by the Analytics and Reports pages ----------
+export type Preset = "today" | "week" | "month" | "30" | "90" | "custom";
+export type Range = { from: string; to: string; period: RevenuePeriod };
+
+/** "Eastern Time" rather than "America/New_York". */
+export function zoneName(zone: string) {
+  try {
+    return (
+      new Intl.DateTimeFormat("en-US", { timeZone: zone, timeZoneName: "longGeneric" })
+        .formatToParts(new Date())
+        .find((part) => part.type === "timeZoneName")?.value ?? zone
+    );
+  } catch {
+    return zone;
+  }
+}
+
+export const daysBetween = (from: string, to: string) =>
+  Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1;
+
+export function presetRange(preset: Exclude<Preset, "custom">, today: string) {
+  if (preset === "today") return { from: today, to: today };
+  if (preset === "week") {
+    const weekday = (new Date(today + "T00:00:00Z").getUTCDay() + 6) % 7;
+    return { from: shiftDay(today, -weekday), to: today };
+  }
+  if (preset === "month") return { from: today.slice(0, 8) + "01", to: today };
+  return { from: shiftDay(today, preset === "30" ? -29 : -89), to: today };
+}
+
+/**
+ * What the range is compared with. "This week" through Tuesday compares with
+ * Monday and Tuesday of last week, not with the weekend just before it; "This
+ * month" through the 10th compares with the 1st to the 10th of last month.
+ * Always by day, so each bar can be compared with exactly its own days.
+ */
+export function previousRange(range: { from: string; to: string }, preset: Preset): Range {
+  if (preset === "week") return { from: shiftDay(range.from, -7), to: shiftDay(range.to, -7), period: "daily" };
+  if (preset === "month") {
+    const start = new Date(range.from + "T00:00:00Z");
+    start.setUTCMonth(start.getUTCMonth() - 1);
+    const from = start.toISOString().slice(0, 10);
+    const sameDay = shiftDay(from, Number(range.to.slice(8)) - 1);
+    const monthEnd = shiftDay(range.from, -1);
+    return { from, to: sameDay < monthEnd ? sameDay : monthEnd, period: "daily" };
+  }
+  const length = daysBetween(range.from, range.to);
+  return { from: shiftDay(range.from, -length), to: shiftDay(range.from, -1), period: "daily" };
+}
+
+/** "vs last week" on the headline cards; "a week earlier" on a single bar. */
+export function comparison(preset: Preset, range: { from: string; to: string }) {
+  if (preset === "week") return { unit: "last week", earlier: "a week earlier" };
+  if (preset === "month") return { unit: "last month", earlier: "a month earlier" };
+  const length = daysBetween(range.from, range.to);
+  // A one-day range is compared with "the previous day", not "the previous 1 days".
+  if (length === 1) return { unit: "the previous day", earlier: "a day earlier" };
+  return { unit: `the previous ${length} days`, earlier: `${length} days earlier` };
+}
