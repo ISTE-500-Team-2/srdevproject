@@ -167,6 +167,15 @@ export function createApp(
         });
       return;
     }
+    // A value PostgreSQL can't store or read: a number past its column's range, an impossible date,
+    // text that isn't a number, or a NUL character. Validation catches the usual cases; anything it
+    // misses is still the client's input, not a server failure worth logging.
+    if (['22003', '22007', '22008', '22P02', '22021', '22P05'].includes(error?.code)) {
+      res.status(400).json({
+        error: { code: 'INVALID_INPUT', message: 'A value in the request is not valid.' },
+      });
+      return;
+    }
     // Express could not decode a %-escape in the path (e.g. /api/users/%E0).
     // That is a bad request, not a server failure worth logging.
     if (error instanceof URIError && (error as URIError & { status?: number }).status === 400) {
