@@ -432,7 +432,7 @@ export class StaffController {
         "Certification compliant",
         "Missing or expired waivers",
         "Waivers expired or expiring in window",
-        "Missing or expired certifications",
+        "Expired or revoked certifications",
         "Certifications expired or expiring in window",
       ];
       const rows = report.users.map((u: any) => [

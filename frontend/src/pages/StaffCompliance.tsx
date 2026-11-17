@@ -64,7 +64,7 @@ function RequirementCard({ item, kind }: { item: ComplianceBreakdown; kind: stri
         <i style={{ width: `${Math.round(ratio * 100)}%` }} />
       </div>
       <small>
-        {!item.total ? (kind === "Waiver" ? "Nobody needs this yet" : "Nobody trained yet") : `${item.compliant} of ${item.total} current`}
+        {!item.total ? (kind === "Waiver" ? "Nobody needs this yet" : "No holders in this view") : `${item.compliant} of ${item.total} current`}
         {missing ? ` · ${missing} ${kind === "Waiver" ? "haven't signed" : "not current"}` : ""}
         {item.expiring ? ` · ${item.expiring} expiring` : ""}
       </small>

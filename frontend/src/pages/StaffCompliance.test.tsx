@@ -102,5 +102,5 @@ test("revoked training reads as revoked, and a certification nobody holds yet st
   expect(screen.getByText("Revoked · Laser cutting")).toBeTruthy();
   expect(screen.queryByText(/Not trained/)).toBeNull();
   expect(screen.getByText("Router table")).toBeTruthy();
-  expect(screen.getByText("Nobody trained yet")).toBeTruthy();
+  expect(screen.getByText("No holders in this view")).toBeTruthy();
 });
