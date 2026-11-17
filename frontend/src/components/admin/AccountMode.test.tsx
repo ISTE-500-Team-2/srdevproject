@@ -107,6 +107,30 @@ test("the account bar names the member and the staff role, and goes back to the 
   expect(auth.closeAccount).toHaveBeenCalledOnce();
 });
 
+test("with site storage blocked the workspace still renders and the account bar goes back to Today", async () => {
+  const blocked = () => { throw new DOMException("The operation is insecure.", "SecurityError"); };
+  const read = vi.spyOn(Storage.prototype, "getItem").mockImplementation(blocked);
+  const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(blocked);
+  try {
+    auth.user = admin;
+    at(<AdminShell />, "/admin/members");
+    expect(screen.getByRole("navigation", { name: "Staff workspace" })).toBeTruthy();
+    expect(write).toHaveBeenCalled();
+    cleanup();
+
+    auth.user = dana;
+    auth.actor = staff;
+    at(<AccountBar />);
+    fireEvent.click(screen.getByRole("button", { name: "Back to workspace" }));
+    await waitFor(() => expect(screen.getByLabelText("location").textContent).toBe("/admin"));
+    expect(read).toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
+  } finally {
+    read.mockRestore();
+    write.mockRestore();
+  }
+});
+
 test("the account bar is hidden outside account mode", () => {
   auth.user = admin;
   at(<AccountBar />);
