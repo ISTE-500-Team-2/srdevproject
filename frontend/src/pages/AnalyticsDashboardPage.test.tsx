@@ -331,3 +331,64 @@ test('a one-day range compares with "the previous day", not "the previous 1 days
   expect(screen.getByLabelText('Week of Nov 9 (partial: 1 of 7 days): 2 visits; a day earlier: 2')).toBeTruthy();
   expect(document.body.textContent).not.toMatch(/\b1 days\b/);
 });
+
+test('a preset range moves on to the new day when the page is left open past midnight', () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-11-10T16:00:00Z'));
+  vi.mocked(useApi).mockImplementation((url) => (url === '/config' ? state({ timeZone: 'America/New_York' }) : state(null)));
+  const page = () => <MemoryRouter><AnalyticsDashboardPage /></MemoryRouter>;
+  const view = rtlRender(page());
+  expect(requested()).toContain('/admin/reports?from=2026-10-12&to=2026-11-10&period=weekly');
+  // The 30-second refresh renders the page again the next morning.
+  const nextDay = requestsDuring(() => {
+    vi.setSystemTime(new Date('2026-11-11T13:00:00Z'));
+    view.rerender(page());
+  });
+  expect(nextDay).toContain('/admin/reports?from=2026-10-13&to=2026-11-11&period=weekly');
+  expect(nextDay.filter((key) => key.includes('to=2026-11-10&period=weekly'))).toEqual([]);
+  // Custom dates are what staff entered, so they stay put.
+  fireEvent.change(screen.getByLabelText('Date range'), { target: { value: 'custom' } });
+  expect((screen.getByLabelText('Through') as HTMLInputElement).value).toBe('2026-11-11');
+  const dayAfter = requestsDuring(() => {
+    vi.setSystemTime(new Date('2026-11-12T13:00:00Z'));
+    view.rerender(page());
+  });
+  expect(dayAfter).toContain('/admin/reports?from=2026-10-13&to=2026-11-11&period=weekly');
+});
+
+test('the grouping switch is one Tab stop, arrow keys move it, and it only shows a grouping in use', () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-11-10T16:00:00Z'));
+  vi.mocked(useApi).mockImplementation((url) => (url === '/config' ? state({ timeZone: 'America/New_York' }) : state(null)));
+  render(<AnalyticsDashboardPage />);
+  const radios = within(screen.getByRole('radiogroup', { name: 'Group charts by' })).getAllByRole('radio');
+  const checked = () => radios.map((radio) => radio.getAttribute('aria-checked'));
+  expect(radios.map((radio) => radio.tabIndex)).toEqual([-1, 0, -1]);
+  radios[1].focus();
+  const monthly = requestsDuring(() => fireEvent.keyDown(radios[1], { key: 'ArrowRight' }));
+  expect(document.activeElement).toBe(radios[2]);
+  expect(checked()).toEqual(['false', 'false', 'true']);
+  expect(radios.map((radio) => radio.tabIndex)).toEqual([-1, -1, 0]);
+  expect(monthly).toContain('/admin/reports?from=2026-10-12&to=2026-11-10&period=monthly');
+  // The ends wrap around, as in any radio group.
+  fireEvent.keyDown(radios[2], { key: 'ArrowRight' });
+  expect(document.activeElement).toBe(radios[0]);
+  expect(checked()).toEqual(['true', 'false', 'false']);
+  fireEvent.keyDown(radios[0], { key: 'ArrowUp' });
+  expect(checked()).toEqual(['false', 'false', 'true']);
+  // A grouping the half-entered dates can't take is not shown as chosen.
+  fireEvent.change(screen.getByLabelText('Date range'), { target: { value: 'custom' } });
+  fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-01-01' } });
+  fireEvent.click(radios[1]);
+  expect(screen.getByRole('alert').textContent).toMatch(/93 days/);
+  expect(checked()).toEqual(['false', 'false', 'true']);
+});
+
+test('panel titles sit one level under the page heading', () => {
+  serve(report({ revenue: [{ period: '2026-10-26', category: 'membership', method: 'card', receipts: 6, gross: '1018.00', refunds: '95.00', net: '923.00' }] }));
+  render(<AnalyticsDashboardPage />);
+  expect(screen.getByRole('heading', { level: 1, name: 'Analytics' })).toBeTruthy();
+  expect(screen.getByRole('heading', { level: 2, name: 'Revenue by week' })).toBeTruthy();
+  expect(screen.getByRole('heading', { level: 2, name: 'Revenue by source' })).toBeTruthy();
+  expect(screen.queryAllByRole('heading', { level: 3 })).toEqual([]);
+});
