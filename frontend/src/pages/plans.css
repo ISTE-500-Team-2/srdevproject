@@ -2,7 +2,8 @@
    prefixed with plans- so it can't collide with member or management styles. */
 .plans {
   --plans-line: rgba(92, 73, 62, 0.1);
-  --plans-muted: #8b7163;
+  /* A theme token, so hints and small headings keep 4.5:1 on the panel in both themes. */
+  --plans-muted: var(--ink-soft);
   font-variant-numeric: tabular-nums;
 }
 .plans h2, .plans h3, .plans p { margin: 0; }
