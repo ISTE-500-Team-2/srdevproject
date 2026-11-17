@@ -33,8 +33,9 @@ import type { ProfileFields, SupervisedMinors, User, UserProfile } from "../lib/
 import type { SignedWaiver } from "../lib/billingContracts";
 import type { MembershipHistory, Page, Payment } from "../lib/staffContracts";
 import { dollars, shortDate, timeOnly } from "../lib/display";
+import { jumpToSection } from "../lib/sectionJump";
 import { useApi } from "../lib/useApi";
-import { Detail, EditButton, Section, SectionForm } from "./profileSections";
+import { Detail, EditButton, FormMessage, Section, SectionForm, useReturnFocus } from "./profileSections";
 import { SignInSection } from "./ProfileSignIn";
 import "./profile.css";
 
@@ -79,6 +80,20 @@ const SECTIONS: { id: string; label: string; Icon: LucideIcon }[] = [
 
 const text = (fields: ProfileFields | undefined, key: string) => String(fields?.[key] ?? "").trim();
 const digits = (value: string) => value.replace(/\D/g, "");
+/**
+ * The phone number as stored: its digits, keeping a leading "+" for an international number.
+ * Anything else (letters, an extension, too few or too many digits) is refused with a message
+ * rather than having characters silently dropped. The column holds 15 characters.
+ */
+export function phoneToSave(value: string) {
+  const entered = value.trim();
+  const saved = (entered.startsWith("+") ? "+" : "") + digits(entered);
+  if (!/^\+?[\d\s().-]+$/.test(entered))
+    throw new FormMessage("Enter just the number: digits, spaces, dashes or brackets, and a leading + if it’s international. Extensions can’t be saved.");
+  if (digits(entered).length < 7) throw new FormMessage("That phone number is too short. Include the area code.");
+  if (saved.length > 15) throw new FormMessage("That phone number is too long.");
+  return saved;
+}
 /** (410) 555-0182 for ten-digit US numbers; anything else as entered. */
 export function formatPhone(value: string) {
   const d = digits(value);
@@ -138,13 +153,17 @@ function ProfileSection({
   profile,
   save,
   notify,
+  readOnly,
 }: {
   user: User;
   profile: UserProfile | null;
   save: Save;
   notify: (message: string) => void;
+  /** Staff with the member's account open: the server refuses these changes. */
+  readOnly: boolean;
 }) {
   const [editing, setEditing] = useState(false);
+  const opener = useReturnFocus(editing);
   return (
     <Section
       id="profile"
@@ -152,7 +171,9 @@ function ProfileSection({
       note="Your name as staff and instructors see it."
       Icon={UserRound}
       editing={editing}
-      action={!editing && profile ? <EditButton label="Edit profile" onClick={() => setEditing(true)} /> : null}
+      action={
+        !editing && profile && !readOnly ? <EditButton ref={opener} label="Edit profile" onClick={() => setEditing(true)} /> : null
+      }
     >
       {editing ? (
         <SectionForm
@@ -193,8 +214,22 @@ function ProfileSection({
   );
 }
 
-function ContactSection({ user, profile, save }: { user: User; profile: UserProfile | null; save: Save }) {
+function ContactSection({
+  user,
+  profile,
+  save,
+  readOnly,
+  missing,
+}: {
+  user: User;
+  profile: UserProfile | null;
+  save: Save;
+  readOnly: boolean;
+  /** Shown instead of "Not added" while the profile is loading or after it failed to load. */
+  missing?: string;
+}) {
   const [editing, setEditing] = useState(false);
+  const opener = useReturnFocus(editing);
   const address = profile?.address;
   const prefs = profile?.contactPreferences;
   const state = text(address, "State");
@@ -213,7 +248,9 @@ function ContactSection({ user, profile, save }: { user: User; profile: UserProf
       note="How the studio reaches you about bookings and access."
       Icon={Phone}
       editing={editing}
-      action={!editing && profile ? <EditButton label="Edit contact" onClick={() => setEditing(true)} /> : null}
+      action={
+        !editing && profile && !readOnly ? <EditButton ref={opener} label="Edit contact" onClick={() => setEditing(true)} /> : null
+      }
     >
       {editing ? (
         <SectionForm
@@ -222,7 +259,7 @@ function ContactSection({ user, profile, save }: { user: User; profile: UserProf
           onSave={async (form) => {
             const field = (key: string) => String(form.get(key) ?? "").trim();
             await save({
-              phone: digits(field("phone")),
+              phone: phoneToSave(field("phone")),
               // Merge, so keys this page doesn't show (a gate code, an SMS
               // opt-in) survive the save.
               address: {
@@ -248,8 +285,6 @@ function ContactSection({ user, profile, save }: { user: User; profile: UserProf
                 required
                 defaultValue={formatPhone(user.phone ?? "")}
                 autoComplete="tel"
-                pattern="[\d\s()+.\-]{7,20}"
-                title="Enter a phone number, e.g. (410) 555-0182"
                 placeholder="(410) 555-0182"
               />
             </label>
@@ -296,8 +331,12 @@ function ContactSection({ user, profile, save }: { user: User; profile: UserProf
       ) : (
         <dl className="account-details">
           <Detail label="Phone">{user.phone ? formatPhone(user.phone) : ""}</Detail>
-          <Detail label="Address">{line}</Detail>
-          <Detail label="Preferred contact">{how}</Detail>
+          <Detail label="Address" empty={missing}>
+            {line}
+          </Detail>
+          <Detail label="Preferred contact" empty={missing}>
+            {how}
+          </Detail>
         </dl>
       )}
     </Section>
@@ -306,7 +345,8 @@ function ContactSection({ user, profile, save }: { user: User; profile: UserProf
 
 function BillingSection() {
   const history = useApi<MembershipHistory>("/me/memberships");
-  const payments = useApi<Page<Payment>>("/me/payments?offset=0");
+  // Only payments actually made: an abandoned or unfinished checkout leaves a void or pending row.
+  const payments = useApi<Page<Payment>>("/me/payments?offset=0&status=paid");
   const membership = history.data?.memberships.find((m) => m.effectiveStatus === "active");
   const pass = history.data?.passes.find((p) => p.effectiveStatus === "active");
   const current = membership ?? pass;
@@ -323,25 +363,28 @@ function BillingSection() {
         </Link>
       }
     >
-      {history.error ? <p className="form-error">{history.error}</p> : null}
+      {history.error || payments.error ? <p className="form-error">{history.error || payments.error}</p> : null}
       <div className="account-plan">
         <div>
           <strong className="account-plan__name">
-            {current?.plan?.name ?? (history.data ? "No active plan" : "…")}
+            {current?.plan?.name ?? (history.data ? "No active plan" : history.error ? "Plan unavailable" : "…")}
           </strong>
           {current ? (
             <span className="status-pill status-pill--ok">{membership ? "Active" : "Day pass today"}</span>
           ) : null}
         </div>
         <dl className="account-details account-details--inline">
-          <Detail label={membership ? "Current period ends" : "Valid"}>
-            {membership?.endsAt
-              ? shortDate(membership.endsAt, true)
-              : pass?.validDate
-                ? shortDate(pass.validDate, true)
-                : ""}
-          </Detail>
-          <Detail label="Latest payment">
+          {/* With no plan or pass there is no period to show; the name above already says so. */}
+          {current ? (
+            <Detail label={membership ? "Current period ends" : "Valid"}>
+              {membership?.endsAt
+                ? shortDate(membership.endsAt, true)
+                : pass?.validDate
+                  ? shortDate(pass.validDate, true)
+                  : ""}
+            </Detail>
+          ) : null}
+          <Detail label="Latest payment" empty={payments.error ? "Unavailable" : "Loading…"}>
             {last ? `${dollars(last.amount)} · ${shortDate(last.recordedAt)}` : payments.data ? "None yet" : ""}
           </Detail>
         </dl>
@@ -351,13 +394,17 @@ function BillingSection() {
 }
 
 /** Adults link a child's account here; the child accepts in their own account. */
-function MinorsSection({ notify }: { notify: (message: string) => void }) {
+function MinorsSection({ notify, readOnly }: { notify: (message: string) => void; readOnly: boolean }) {
   const state = useApi<SupervisedMinors>("/me/minors", { retainOnReload: true });
   const [adding, setAdding] = useState(false);
+  const opener = useReturnFocus(adding);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   const minors = state.data?.minors ?? [];
   const requests = state.data?.requests ?? [];
+  // The server only takes requests from active adults with a date of birth on file; older
+  // accounts have none, so they're told what to do instead of being offered a form that fails.
+  const canLink = !readOnly && state.data?.canSponsor === true;
   const act = async (key: string, path: string, message: string) => {
     setBusy(key);
     setError("");
@@ -379,8 +426,8 @@ function MinorsSection({ notify }: { notify: (message: string) => void }) {
       Icon={Users}
       editing={adding}
       action={
-        !adding ? (
-          <button type="button" className="button button--quiet account-edit" onClick={() => setAdding(true)}>
+        canLink && !adding ? (
+          <button ref={opener} type="button" className="button button--quiet account-edit" onClick={() => setAdding(true)}>
             <UserPlus aria-hidden="true" /> Link a minor
           </button>
         ) : null
@@ -418,13 +465,25 @@ function MinorsSection({ notify }: { notify: (message: string) => void }) {
           </p>
         </SectionForm>
       ) : null}
+      {state.data && !readOnly && !state.data.canSponsor ? (
+        <p className="account-hint">
+          {state.data.dobOnFile
+            ? "Linking a minor needs an account with active access. Ask staff about your account."
+            : "Linking a minor needs your date of birth, and there isn’t one on file for your account. Ask staff to add it."}
+        </p>
+      ) : null}
       {state.data && !minors.length && !requests.length && !adding ? (
         <p className="account-hint">
-          No minors linked yet.{" "}
-          <button type="button" className="account-hint__action" onClick={() => setAdding(true)}>
-            Link a child’s account
-          </button>{" "}
-          to visit together.
+          No minors linked yet.
+          {canLink ? (
+            <>
+              {" "}
+              <button type="button" className="account-hint__action" onClick={() => setAdding(true)}>
+                Link a child’s account
+              </button>{" "}
+              to visit together.
+            </>
+          ) : null}
         </p>
       ) : null}
       {minors.length || requests.length ? (
@@ -442,22 +501,24 @@ function MinorsSection({ notify }: { notify: (message: string) => void }) {
                     : "Not in the building"}
                 </p>
               </div>
-              <HoldButton
-                className="site-hold-button"
-                disabled={busy !== null}
-                holdTime={1200}
-                radius={9}
-                backgroundColor="var(--hold-danger-bg)"
-                fillColor="var(--hold-danger)"
-                textColor="var(--hold-danger-text)"
-                fillTextColor="var(--hold-danger-ink)"
-                doneLabel="Unlinking…"
-                onHold={() =>
-                  void act(`unlink-${minor.id}`, `/me/minors/${minor.id}/unlink`, `${minor.name} is no longer linked to you.`)
-                }
-              >
-                Hold to unlink
-              </HoldButton>
+              {readOnly ? null : (
+                <HoldButton
+                  className="site-hold-button"
+                  disabled={busy !== null}
+                  holdTime={1200}
+                  radius={9}
+                  backgroundColor="var(--hold-danger-bg)"
+                  fillColor="var(--hold-danger)"
+                  textColor="var(--hold-danger-text)"
+                  fillTextColor="var(--hold-danger-ink)"
+                  doneLabel="Unlinking…"
+                  onHold={() =>
+                    void act(`unlink-${minor.id}`, `/me/minors/${minor.id}/unlink`, `${minor.name} is no longer linked to you.`)
+                  }
+                >
+                  Hold to unlink
+                </HoldButton>
+              )}
             </li>
           ))}
           {requests.map((request) => (
@@ -469,21 +530,23 @@ function MinorsSection({ notify }: { notify: (message: string) => void }) {
                 <b>{request.minorName}</b> <span className="status-pill status-pill--neutral">Pending</span>
                 <p>Sent {shortDate(request.createdAt)} · waiting for them to accept</p>
               </div>
-              <button
-                type="button"
-                className="button button--quiet"
-                disabled={busy !== null}
-                aria-label={`Cancel request to ${request.minorName}`}
-                onClick={() =>
-                  void act(
-                    `cancel-${request.id}`,
-                    `/me/minors/requests/${request.id}/cancel`,
-                    `Request to ${request.minorName} cancelled.`,
-                  )
-                }
-              >
-                {busy === `cancel-${request.id}` ? "Cancelling…" : "Cancel"}
-              </button>
+              {readOnly ? null : (
+                <button
+                  type="button"
+                  className="button button--quiet"
+                  disabled={busy !== null}
+                  aria-label={`Cancel request to ${request.minorName}`}
+                  onClick={() =>
+                    void act(
+                      `cancel-${request.id}`,
+                      `/me/minors/requests/${request.id}/cancel`,
+                      `Request to ${request.minorName} cancelled.`,
+                    )
+                  }
+                >
+                  {busy === `cancel-${request.id}` ? "Cancelling…" : "Cancel"}
+                </button>
+              )}
             </li>
           ))}
         </ul>
@@ -497,7 +560,7 @@ function MinorsSection({ notify }: { notify: (message: string) => void }) {
   );
 }
 
-function NotificationsSection() {
+function NotificationsSection({ readOnly }: { readOnly: boolean }) {
   const [settings, setSettings] = useState<{ enabled: boolean; timeZone: string } | null>(null);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
@@ -554,7 +617,7 @@ function NotificationsSection() {
               aria-checked={settings.enabled}
               aria-labelledby="email-toggle-label"
               className="account-switch"
-              disabled={busy}
+              disabled={busy || readOnly}
               onClick={() => void update({ ...settings, enabled: !settings.enabled })}
             />
           </div>
@@ -566,7 +629,7 @@ function NotificationsSection() {
             <select
               aria-label="Reminder time zone"
               value={settings.timeZone}
-              disabled={busy}
+              disabled={busy || readOnly}
               onChange={(e) => void update({ ...settings, timeZone: e.target.value })}
             >
               {zones.map(([zone, label]) => (
@@ -576,6 +639,7 @@ function NotificationsSection() {
               ))}
             </select>
           </div>
+          {readOnly ? <p className="account-hint">Members change their own notification settings.</p> : null}
         </>
       ) : null}
       {error ? (
@@ -587,8 +651,9 @@ function NotificationsSection() {
   );
 }
 
-function DocumentsSection() {
-  const records = useApi<SignedWaiver[]>("/me/signed-waivers");
+/** `adminOnly`: staff other than administrators can't open signed copies from a member's account. */
+function DocumentsSection({ adminOnly }: { adminOnly: boolean }) {
+  const records = useApi<SignedWaiver[]>(adminOnly ? null : "/me/signed-waivers");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<number | null>(null);
   const download = async (id: number) => {
@@ -612,6 +677,7 @@ function DocumentsSection() {
   };
   return (
     <Section id="documents" title="Documents" note="Copies of the waivers you've signed." Icon={FileText}>
+      {adminOnly ? <p className="account-hint">Only administrators can open signed waiver copies.</p> : null}
       {records.loading && !records.data ? <p role="status">Loading documents…</p> : null}
       {records.error ? <p className="form-error">{records.error}</p> : null}
       {error ? <p role="alert" className="form-error">{error}</p> : null}
@@ -661,7 +727,9 @@ function HelpSection({ profile }: { profile: UserProfile | null }) {
         <LifeBuoy aria-hidden="true" />
       </span>
       <div>
-        <h2 id="help-title">Need a hand?</h2>
+        <h2 id="help-title" tabIndex={-1}>
+          Need a hand?
+        </h2>
         <p>
           Contact {contact?.name ?? "the studio"} with any questions about your account.
         </p>
@@ -705,13 +773,16 @@ function useCurrentSection(sections: typeof SECTIONS) {
 }
 
 export function ProfilePage() {
-  const { user, refresh } = useAuth();
+  const { user, actor, refresh } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const latestProfile = useRef<UserProfile | null>(null);
   const saveQueue = useRef(Promise.resolve());
   const active = useRef(false);
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
+  // Staff with a member's account open see the member's settings but can't change them.
+  const acting = !!actor && !!user && actor.id !== user.id;
   // Only adults sponsor minors; the session says whether this account is under 18.
   const sponsors = user?.isMinor === false;
   const sections = sponsors ? SECTIONS : SECTIONS.filter((s) => s.id !== "minors");
@@ -726,6 +797,11 @@ export function ProfilePage() {
   }, [profile]);
   useEffect(() => {
     active.current = true;
+    return () => {
+      active.current = false;
+    };
+  }, []);
+  useEffect(() => {
     const controller = new AbortController();
     api<UserProfile>("/me/profile", { signal: controller.signal })
       .then((loaded) => {
@@ -736,11 +812,8 @@ export function ProfilePage() {
       .catch((err) => {
         if (!controller.signal.aborted) setError(errorMessage(err));
       });
-    return () => {
-      active.current = false;
-      controller.abort();
-    };
-  }, []);
+    return () => controller.abort();
+  }, [attempt]);
   const updateProfile = (change: Partial<UserProfile>) => {
     if (!latestProfile.current) return;
     latestProfile.current = { ...latestProfile.current, ...change };
@@ -794,9 +867,25 @@ export function ProfilePage() {
           </div>
         </div>
       </section>
+      {acting ? (
+        <p className="account-acting">
+          You’re viewing {user.firstName}’s settings. Members change these themselves; to fix {user.firstName}’s name, phone or date
+          of birth, open <Link to={`/admin/members?member=${user.id}`}>their member record</Link>.
+        </p>
+      ) : null}
       {error ? (
         <p role="alert" className="form-error">
-          {error}
+          {error}{" "}
+          <button
+            type="button"
+            className="button button--quiet button--small"
+            onClick={() => {
+              setError("");
+              setAttempt((value) => value + 1);
+            }}
+          >
+            Try again
+          </button>
         </p>
       ) : null}
       <div className="account-layout">
@@ -805,7 +894,7 @@ export function ProfilePage() {
             <a key={id} href={`#${id}`} className={current === id ? "is-active" : ""} aria-current={current === id ? "true" : undefined}
               onClick={(e) => {
                 e.preventDefault();
-                document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+                jumpToSection(id);
               }}
             >
               <Icon aria-hidden="true" /> {label}
@@ -813,13 +902,19 @@ export function ProfilePage() {
           ))}
         </nav>
         <div className="account-main">
-          <ProfileSection user={user} profile={profile} save={save} notify={setToast} />
-          <ContactSection user={user} profile={profile} save={save} />
+          <ProfileSection user={user} profile={profile} save={save} notify={setToast} readOnly={acting} />
+          <ContactSection
+            user={user}
+            profile={profile}
+            save={save}
+            readOnly={acting}
+            missing={profile ? undefined : error ? "Unavailable" : "Loading…"}
+          />
           <SignInSection profile={profile} onProfile={updateProfile} notify={setToast} />
           <BillingSection />
-          {sponsors ? <MinorsSection notify={setToast} /> : null}
-          <NotificationsSection />
-          <DocumentsSection />
+          {sponsors ? <MinorsSection notify={setToast} readOnly={acting} /> : null}
+          <NotificationsSection readOnly={acting} />
+          <DocumentsSection adminOnly={acting && !actor?.roles.includes("admin")} />
           <HelpSection profile={profile} />
         </div>
       </div>

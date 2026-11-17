@@ -166,16 +166,22 @@ export class StaffService {
     phone: string,
     revision: number,
     reason: string,
+    dob: string | null = null,
   ) {
     return this.write(actorId, false, "user", "update", async (model, actor) => {
       const before = await this.target(model, actor, id);
       this.expectRevision(before.revision, revision);
+      // Staff add a date of birth that was never recorded. Changing one would change who
+      // counts as a minor under existing sponsor links, so that isn't done here.
+      if (dob && before.dobOnFile)
+        throw new AppError(409, "DOB_ON_FILE", "A date of birth is already on file for this account.");
       const after = await model.updatePerson(
         id,
         firstName,
         lastName,
         phone,
         revision,
+        dob,
       );
       if (!after) throw conflict();
       await model.audit(

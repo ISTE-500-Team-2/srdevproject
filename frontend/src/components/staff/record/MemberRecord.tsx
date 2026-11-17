@@ -1,7 +1,7 @@
 // Staff member workspace combines identity, readiness and history; dialog mutations refresh the
 // affected record.
 
-import { Mail, Phone } from "lucide-react";
+import { Cake, Mail, Phone } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../../context/AuthContext";
@@ -154,6 +154,14 @@ export function MemberRecord({
                 "No phone"
               )}
             </span>
+            {u.dobOnFile === false && canManage ? (
+              <span>
+                <Cake aria-hidden="true" />
+                <button type="button" className="today-link mr-add" onClick={() => setDialog({ kind: "profile" })}>
+                  Add date of birth
+                </button>
+              </span>
+            ) : null}
             <span className="mr-sub__id">#{u.id}</span>
           </p>
         ) : null}

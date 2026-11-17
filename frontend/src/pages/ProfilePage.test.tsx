@@ -8,9 +8,13 @@ import { ApiError } from '../lib/api';
 const { api, refresh, auth } = vi.hoisted(() => ({
   api: vi.fn(),
   refresh: vi.fn(),
-  auth: { user: { id: 42, firstName: 'Test', lastName: 'Member', email: 'test@example.com', phone: '4105550182', role: 'member', membership: 'Monthly' } },
+  auth: {
+    user: { id: 42, firstName: 'Test', lastName: 'Member', email: 'test@example.com', phone: '4105550182', role: 'member', membership: 'Monthly' },
+    // Set while a staff member has this account open from the workspace.
+    actor: null as { id: number; firstName: string; roles: string[] } | null,
+  },
 }));
-vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: auth.user, refresh }) }));
+vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: auth.user, actor: auth.actor, refresh }) }));
 vi.mock('../lib/api', async (original) => ({ ...(await original<typeof import('../lib/api')>()), api }));
 vi.mock('../components/reactbits/HoldButton', () => ({
   default: ({ children, onHold, disabled }: { children: ReactNode; onHold: () => void; disabled: boolean }) => (
@@ -20,6 +24,7 @@ vi.mock('../components/reactbits/HoldButton', () => ({
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
+  auth.actor = null;
 });
 
 const profile = {
@@ -199,6 +204,123 @@ test.each([false, true])('legacy contact choices survive a phone edit (replace m
   expect(patches()[0]![1]!.body.contactPreferences).toEqual({ ...legacy.contactPreferences, 'Preferred contact method': replace ? 'Call' : 'SMS' });
 });
 
+test('a phone number with letters or an extension is refused instead of garbled; a leading + is kept', async () => {
+  mount();
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit contact' }));
+  const contact = section('Contact');
+  const phone = within(contact).getByLabelText('Phone');
+  const saveWith = (value: string) => {
+    fireEvent.change(phone, { target: { value } });
+    fireEvent.click(within(contact).getByRole('button', { name: 'Save contact' }));
+  };
+  saveWith('(410) 555-0182 ext 7');
+  expect((await within(contact).findByRole('alert')).textContent).toMatch(/Extensions can’t be saved/);
+  saveWith('555');
+  await waitFor(() => expect(within(contact).getByRole('alert').textContent).toMatch(/too short/));
+  saveWith('+44 20 7946 0958 1234');
+  await waitFor(() => expect(within(contact).getByRole('alert').textContent).toMatch(/too long/));
+  expect(patches()).toHaveLength(0);
+  saveWith('+44 20 7946 0958');
+  await waitFor(() => expect(patches()).toHaveLength(1));
+  expect(patches()[0]![1]!.body.phone).toBe('+442079460958');
+});
+
+test('the latest payment is the latest one actually paid, and there is no empty period row without a plan', async () => {
+  mount({ '/me/memberships': () => ({ memberships: [], passes: [], timeZone: 'UTC', accessStatus: 'active' }) });
+  const billing = section('Membership & billing');
+  expect(await within(billing).findByText('No active plan')).toBeTruthy();
+  expect(await within(billing).findByText(/\$45\.00/)).toBeTruthy();
+  expect(api.mock.calls.some(([p]) => p === '/me/payments?offset=0&status=paid')).toBe(true);
+  expect(within(billing).queryByText('Valid')).toBeNull();
+  expect(within(billing).queryByText('Not added')).toBeNull();
+});
+
+test('billing says when payments could not be loaded instead of showing nothing', async () => {
+  mount({ '/me/payments?offset=0&status=paid': () => Promise.reject(new ApiError(503, 'UNAVAILABLE', 'Payments are unavailable right now.')) });
+  const billing = section('Membership & billing');
+  expect(await within(billing).findByText('Payments are unavailable right now.')).toBeTruthy();
+  expect(within(billing).getByText('Unavailable')).toBeTruthy();
+});
+
+test('a failed profile load says so, keeps the address from reading "Not added", and can be retried', async () => {
+  let fail = true;
+  mount({ '/me/profile': () => (fail ? Promise.reject(new ApiError(502, 'BAD_GATEWAY', 'The server didn’t answer.')) : profile) });
+  const alert = await screen.findByText('The server didn’t answer.');
+  const contact = section('Contact');
+  expect(within(contact).getAllByText('Unavailable')).toHaveLength(2);
+  expect(within(contact).queryByText('Not added')).toBeNull();
+  expect(within(contact).queryByRole('button', { name: 'Edit contact' })).toBeNull();
+  fail = false;
+  fireEvent.click(within(alert).getByRole('button', { name: 'Try again' }));
+  expect(await within(contact).findByText('1 Mill Rd, White Hall, Maryland 21161')).toBeTruthy();
+  expect(within(contact).getByRole('button', { name: 'Edit contact' })).toBeTruthy();
+  expect(screen.queryByText('The server didn’t answer.')).toBeNull();
+});
+
+test('staff with the account open see the settings read-only and are pointed to the member record', async () => {
+  auth.actor = { id: 7, firstName: 'Sam', roles: ['staff'] };
+  Object.assign(auth.user, { isMinor: false });
+  try {
+    mount({ '/me/minors': () => ({ minors: [{ id: 142, name: 'Emma Lin', visit: null }], requests: [{ id: 3, minorName: 'Noah Lin', createdAt: '2026-11-02T12:00:00Z' }], canSponsor: true, dobOnFile: true }) });
+    expect(await screen.findByText('1 Mill Rd, White Hall, Maryland 21161')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'their member record' }).getAttribute('href')).toBe('/admin/members?member=42');
+    expect(screen.queryByRole('button', { name: 'Edit profile' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Edit contact' })).toBeNull();
+    const minorsBox = section('Minors you supervise');
+    expect(await within(minorsBox).findByText('Emma Lin')).toBeTruthy();
+    expect(within(minorsBox).queryByRole('button', { name: 'Link a minor' })).toBeNull();
+    expect(within(minorsBox).queryByRole('button', { name: 'Hold to unlink' })).toBeNull();
+    expect(within(minorsBox).queryByRole('button', { name: 'Cancel request to Noah Lin' })).toBeNull();
+    expect((await screen.findByRole('switch', { name: 'Email me' })).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('combobox', { name: 'Reminder time zone' }).hasAttribute('disabled')).toBe(true);
+    // Signed copies are admin-only here: staff get a note, not a refused request.
+    expect(within(section('Documents')).getByText('Only administrators can open signed waiver copies.')).toBeTruthy();
+    expect(api.mock.calls.some(([p]) => p === '/me/signed-waivers')).toBe(false);
+  } finally {
+    delete (auth.user as { isMinor?: boolean }).isMinor;
+  }
+});
+
+test('an administrator with the account open can still read signed copies', async () => {
+  auth.actor = { id: 1, firstName: 'Ada', roles: ['admin'] };
+  mount();
+  await screen.findByText('1 Mill Rd, White Hall, Maryland 21161');
+  expect(api.mock.calls.some(([p]) => p === '/me/signed-waivers')).toBe(true);
+  expect(screen.queryByText('Only administrators can open signed waiver copies.')).toBeNull();
+});
+
+test('the section menu moves keyboard focus to the section, without animating for reduced motion', async () => {
+  const scroll = vi.fn();
+  Element.prototype.scrollIntoView = scroll;
+  window.matchMedia = vi.fn().mockReturnValue({ matches: true }) as never;
+  try {
+    mount();
+    await screen.findByText('1 Mill Rd, White Hall, Maryland 21161');
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Account sections' })).getByRole('link', { name: 'Notifications' }));
+    const notifications = section('Notifications');
+    expect(scroll.mock.contexts.at(-1)).toBe(notifications);
+    expect(scroll).toHaveBeenLastCalledWith({ behavior: 'auto', block: 'start' });
+    expect(document.activeElement).toBe(within(notifications).getByRole('heading', { name: 'Notifications' }));
+  } finally {
+    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    delete (window as { matchMedia?: unknown }).matchMedia;
+  }
+});
+
+test('opening a section form focuses its first field; closing it returns focus to its Edit button', async () => {
+  mount();
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit contact' }));
+  const contact = section('Contact');
+  expect(document.activeElement).toBe(within(contact).getByLabelText('Phone'));
+  fireEvent.click(within(contact).getByRole('button', { name: 'Cancel' }));
+  expect(document.activeElement).toBe(within(contact).getByRole('button', { name: 'Edit contact' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Edit profile' }));
+  const box = section('Profile');
+  expect(document.activeElement).toBe(within(box).getByLabelText('First name'));
+  fireEvent.click(within(box).getByRole('button', { name: 'Save profile' }));
+  await waitFor(() => expect(document.activeElement).toBe(within(box).getByRole('button', { name: 'Edit profile' })));
+});
+
 describe('minors you supervise', () => {
   const asAdult = (isMinor: boolean | undefined) => Object.assign(auth.user, { isMinor });
   afterEach(() => {
@@ -207,7 +329,10 @@ describe('minors you supervise', () => {
   const minors = {
     minors: [{ id: 142, name: 'Emma Lin', visit: null }],
     requests: [{ id: 3, minorName: 'Noah Lin', createdAt: '2026-11-02T12:00:00Z' }],
+    canSponsor: true,
+    dobOnFile: true,
   };
+  const none = { minors: [], requests: [], canSponsor: true, dobOnFile: true };
 
   test('only adults see the section and its menu entry', async () => {
     asAdult(true);
@@ -220,7 +345,7 @@ describe('minors you supervise', () => {
 
   test('lists linked minors and pending requests; a request can be cancelled', async () => {
     asAdult(false);
-    mount({ '/me/minors': () => minors, '/me/minors/requests/3/cancel': () => ({ minors: minors.minors, requests: [] }) });
+    mount({ '/me/minors': () => minors, '/me/minors/requests/3/cancel': () => ({ ...minors, requests: [] }) });
     const box = section('Minors you supervise');
     expect(screen.getByRole('link', { name: 'Minors' })).toBeTruthy();
     expect(await within(box).findByText('Emma Lin')).toBeTruthy();
@@ -250,7 +375,7 @@ describe('minors you supervise', () => {
   test('linking sends email and date of birth, then confirms', async () => {
     asAdult(false);
     mount({
-      '/me/minors': () => ({ minors: [], requests: [] }),
+      '/me/minors': () => none,
       '/me/minors/requests': () => ({ id: 4, minorName: 'Emma Lin', createdAt: '2026-11-02T12:00:00Z' }),
     });
     const box = section('Minors you supervise');
@@ -268,7 +393,7 @@ describe('minors you supervise', () => {
 
   test('the empty state opens the link form too', async () => {
     asAdult(false);
-    mount({ '/me/minors': () => ({ minors: [], requests: [] }) });
+    mount({ '/me/minors': () => none });
     const box = section('Minors you supervise');
     fireEvent.click(await within(box).findByRole('button', { name: 'Link a child’s account' }));
     expect(within(box).getByLabelText('Their account email')).toBeTruthy();
@@ -278,7 +403,7 @@ describe('minors you supervise', () => {
   test('a mismatch keeps the form open with the server message', async () => {
     asAdult(false);
     mount({
-      '/me/minors': () => ({ minors: [], requests: [] }),
+      '/me/minors': () => none,
       '/me/minors/requests': () =>
         Promise.reject(new ApiError(404, 'NOT_FOUND', 'No under-18 account matches that email and date of birth.')),
     });
@@ -301,5 +426,24 @@ describe('minors you supervise', () => {
     const box = section('Minors you supervise');
     fireEvent.click(await within(box).findByRole('button', { name: 'Hold to unlink' }));
     expect((await within(box).findByRole('alert')).textContent).toBe('Check out the minor before removing your sponsorship.');
+  });
+
+  test('an adult with no date of birth on file is told to ask staff, not offered a form that fails', async () => {
+    asAdult(false);
+    mount({ '/me/minors': () => ({ ...none, canSponsor: false, dobOnFile: false }) });
+    const box = section('Minors you supervise');
+    expect(await within(box).findByText(/there isn’t one on file for your account\. Ask staff to add it\./)).toBeTruthy();
+    expect(within(box).queryByRole('button', { name: 'Link a minor' })).toBeNull();
+    expect(within(box).queryByRole('button', { name: 'Link a child’s account' })).toBeNull();
+  });
+
+  test('closing the link form returns focus to Link a minor', async () => {
+    asAdult(false);
+    mount({ '/me/minors': () => none });
+    const box = section('Minors you supervise');
+    fireEvent.click(await within(box).findByRole('button', { name: 'Link a minor' }));
+    expect(document.activeElement).toBe(within(box).getByLabelText('Their account email'));
+    fireEvent.click(within(box).getByRole('button', { name: 'Cancel' }));
+    expect(document.activeElement).toBe(within(box).getByRole('button', { name: 'Link a minor' }));
   });
 });

@@ -213,6 +213,17 @@
   line-height: 1.45;
 }
 
+/* Staff with a member's account open: these settings are the member's to change. */
+.account-acting {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid #f2c88d;
+  border-radius: 10px;
+  background: #fdf1e1;
+  color: #5b3200;
+  line-height: 1.45;
+}
+
 .account-signin__actions {
   display: flex;
   flex-wrap: wrap;
