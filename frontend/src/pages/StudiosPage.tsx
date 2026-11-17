@@ -77,7 +77,7 @@ export function StudiosPage() {
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [message, setMessage] = useState(""),
-    [cancelling, setCancelling] = useState<Rental | null>(null);
+    [cancellingId, setCancellingId] = useState<number | null>(null);
   const today = new Intl.DateTimeFormat("en-CA", {
     timeZone: zone,
     year: "numeric",
@@ -87,7 +87,17 @@ export function StudiosPage() {
   // One idempotency key per distinct booking: an identical retry (for example
   // after a lost response) reuses it, while a changed studio, date or payment
   // method gets a fresh key so the server doesn't reject it as KEY_REUSED.
+  // Closing the pop-up starts over with a new key.
   const attempt = useRef<{ signature: string; key: string } | null>(null);
+  // Cancelling closes the dialog and moves the row to Past rentals, so the
+  // button that opened it is gone. Put focus on the confirmation instead.
+  const messageRef = useRef<HTMLParagraphElement>(null),
+    announce = useRef(false);
+  useEffect(() => {
+    if (!announce.current || !message) return;
+    announce.current = false;
+    messageRef.current?.focus();
+  }, [message]);
   async function refresh() {
     const [data, rentals] = await Promise.all([
       api<{ studios: Studio[]; cardTestEnabled: boolean; timeZone: string }>(
@@ -144,20 +154,25 @@ export function StudiosPage() {
     if (attempt.current?.signature !== signature)
       attempt.current = { signature, key: crypto.randomUUID() };
     const requestKey = attempt.current.key;
-    await action(async () => {
-      const r = await api<Rental & { checkoutUrl?: string }>(
-        "/studio-rentals",
-        {
-          method: "POST",
-          body: {
-            studioId: studio.id,
-            startDate,
-            paymentMethod,
-            requestKey,
-            expectedRevision: studio.revision,
-          },
+    const send = (key: string) =>
+      api<Rental & { checkoutUrl?: string }>("/studio-rentals", {
+        method: "POST",
+        body: {
+          studioId: studio.id,
+          startDate,
+          paymentMethod,
+          requestKey: key,
+          expectedRevision: studio.revision,
         },
-      );
+      });
+    await action(async () => {
+      let r = await send(requestKey);
+      // A reused key replays the earlier booking whatever became of it. If that
+      // hold has since lapsed or been cancelled, this is a new booking.
+      if (!r.checkoutUrl && r.status !== "pending") {
+        attempt.current = { signature, key: crypto.randomUUID() };
+        r = await send(attempt.current.key);
+      }
       if (r.checkoutUrl) {
         window.location.assign(r.checkoutUrl);
         return;
@@ -193,6 +208,9 @@ export function StudiosPage() {
     .filter((r) => current(r, today))
     .sort((a, b) => a.starts_on.localeCompare(b.starts_on));
   const past = mine.filter((r) => !current(r, today));
+  // The dialog reads the live rental, so it closes once a refresh shows the
+  // rental can no longer be cancelled instead of offering a stale choice.
+  const cancelling = active.find((r) => r.id === cancellingId) ?? null;
   const returning = params.get("payment") === "returned";
   // A return URL is not payment evidence. Match this checkout to a rental
   // returned by the authenticated API; never substitute a historical payment.
@@ -262,7 +280,7 @@ export function StudiosPage() {
             <button
               className="button button--quiet"
               disabled={busy}
-              onClick={() => setCancelling(r)}
+              onClick={() => setCancellingId(r.id)}
             >
               Cancel rental
             </button>
@@ -286,7 +304,11 @@ export function StudiosPage() {
       )}
       {!loaded && !loadError && <p role="status">Loading studios…</p>}
       {error && !size && !cancelling && <p className="form-error" role="alert">{error}</p>}
-      {message && <p className="studio-message" role="status">{message}</p>}
+      {message && (
+        <p className="studio-message" role="status" ref={messageRef} tabIndex={-1}>
+          {message}
+        </p>
+      )}
       {returning && returnedRental?.status === "pending" && (
         <div className="studio-message studio-payment" role="status">
           <StatusMark status="running" size={22} color="#a86008" />
@@ -382,15 +404,25 @@ export function StudiosPage() {
           busy={busy}
           error={error}
           onClose={() => {
-            setCancelling(null);
+            setCancellingId(null);
             setError("");
           }}
           onConfirm={() => {
             const r = cancelling;
             void action(async () => {
-              await api(`/studio-rentals/${r.id}/cancel`, { method: "POST" });
-              setCancelling(null);
-              setMessage(`${r.name} cancelled.`);
+              let note = `${r.name} cancelled.`;
+              try {
+                await api(`/studio-rentals/${r.id}/cancel`, { method: "POST" });
+              } catch (e) {
+                // The server saves the cancellation before it asks for the card
+                // refund, so these mean only the refund failed.
+                const code = (e as { code?: string }).code;
+                if (code !== "REFUND_PENDING" && code !== "REFUND_RECONCILE") throw e;
+                note = `${r.name} cancelled, but the refund didn’t go through. Staff will follow up to return it to your original payment method.`;
+              }
+              setCancellingId(null);
+              announce.current = true;
+              setMessage(note);
             });
           }}
         />
@@ -409,6 +441,7 @@ export function StudiosPage() {
         held={held}
         onClose={() => {
           if (busy) return;
+          attempt.current = null;
           setSize(null);
           setHeld(null);
           setError("");

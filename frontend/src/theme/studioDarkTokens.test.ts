@@ -49,3 +49,21 @@ test('dark desk text keeps body-text contrast on the dark card', () => {
   const resolved = muted?.replace(/^var\((--[\w-]+)\)$/, (_, name: string) => darkRoot.get(name) ?? '');
   expect(contrast(parseColor(resolved ?? '')!, parseColor(darkRoot.get('--dk-card')!)!)).toBeGreaterThanOrEqual(4.5);
 });
+
+test("the occupancy board's Today tag keeps dark ink on its orange tag", () => {
+  // The compiled twin copies `color: var(--ink)`, which turns cream in the dark.
+  // dark.css must repeat the twin's selector so its later rule wins.
+  const tags: string[] = [];
+  read('pages/studios.css').walkRules((rule) => {
+    if (rule.selector.includes('.desk-today-tag')) tags.push(rule.selector);
+  });
+  expect(tags).toHaveLength(1);
+  let ink = '';
+  read('theme/dark.css').walkRules((rule) => {
+    if (rule.selectors.includes(`:root[data-theme='dark'] ${tags[0]}`))
+      rule.walkDecls('color', (decl) => { ink = decl.value; });
+  });
+  expect(ink).not.toBe('');
+  const resolved = ink.replace(/^var\((--[\w-]+)\)$/, (_, name: string) => darkRoot.get(name) ?? '');
+  expect(contrast(parseColor(resolved)!, parseColor(darkRoot.get('--orange')!)!)).toBeGreaterThanOrEqual(4.5);
+});

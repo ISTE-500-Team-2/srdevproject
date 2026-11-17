@@ -348,3 +348,138 @@ test("leaving card checkout explains the hold is kept", async () => {
   mount("/studios?payment=cancelled");
   expect(await screen.findByText(/You left card checkout before paying\. Harkonnen stays held until/)).toBeTruthy();
 });
+
+const stubResizeObserver = () => {
+  globalThis.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+};
+async function holdToCancel() {
+  const open = await screen.findByRole("button", { name: "Cancel rental" });
+  open.focus();
+  fireEvent.click(open);
+  const dialog = screen.getByRole("dialog", { name: "Cancel Harkonnen?" });
+  fireEvent.keyDown(within(dialog).getByRole("button", { name: /Hold to cancel rental/ }), { key: " " });
+}
+
+test("a cancelled rental hands focus to the confirmation instead of dropping it", async () => {
+  stubResizeObserver();
+  let rentals = [rental({})];
+  api.mockImplementation((path: string, init?: { method?: string }) => {
+    if (path === "/studios")
+      return Promise.resolve({ studios, cardTestEnabled: false, timeZone: "UTC" });
+    if (path === "/studio-rentals") return Promise.resolve(rentals);
+    if (path === "/studio-rentals/7/cancel" && init?.method === "POST") {
+      rentals = [rental({ status: "cancelled", payment_status: "refund_pending", refund_cents: 35000 })];
+      return Promise.resolve(rentals[0]);
+    }
+    return Promise.resolve([]);
+  });
+  mount();
+  await holdToCancel();
+  const confirmation = await screen.findByText("Harkonnen cancelled.", {}, { timeout: 2500 });
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Your rentals" })).toBeNull());
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(confirmation);
+});
+
+test("a cancellation whose card refund fails closes the dialog and says the rental is cancelled", async () => {
+  stubResizeObserver();
+  let rentals = [rental({ payment_method: "stripe_test" })];
+  api.mockImplementation((path: string, init?: { method?: string }) => {
+    if (path === "/studios")
+      return Promise.resolve({ studios, cardTestEnabled: true, timeZone: "UTC" });
+    if (path === "/studio-rentals") return Promise.resolve(rentals);
+    if (path === "/studio-rentals/7/cancel" && init?.method === "POST") {
+      // The server commits the cancellation, then the refund call fails.
+      rentals = [rental({ payment_method: "stripe_test", status: "cancelled", payment_status: "refund_failed", refund_cents: 35000 })];
+      return Promise.reject(Object.assign(new Error("Booking cancelled; refund needs retry by staff."), { code: "REFUND_PENDING" }));
+    }
+    return Promise.resolve([]);
+  });
+  mount();
+  await holdToCancel();
+  const confirmation = await screen.findByText(
+    "Harkonnen cancelled, but the refund didn’t go through. Staff will follow up to return it to your original payment method.",
+    {},
+    { timeout: 2500 },
+  );
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(screen.queryByText(/You'll get \$350\.00 back/)).toBeNull();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(document.activeElement).toBe(confirmation);
+});
+
+test("the cancel dialog closes itself once the rental is no longer active", async () => {
+  stubResizeObserver();
+  let rentals = [rental({ status: "pending", payment_status: "unpaid", hold_until: "2030-01-10T15:30:00Z" })];
+  api.mockImplementation((path: string) => {
+    if (path === "/studios")
+      return Promise.resolve({ studios, cardTestEnabled: false, timeZone: "UTC" });
+    if (path === "/studio-rentals") return Promise.resolve(rentals);
+    return Promise.resolve([]);
+  });
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Cancel rental" }));
+  expect(screen.getByRole("dialog", { name: "Cancel Harkonnen?" })).toBeTruthy();
+  // The hold runs out while the dialog is open; the next live update shows it.
+  rentals = [rental({ status: "expired", payment_status: "unpaid", hold_until: "2030-01-10T15:30:00Z" })];
+  act(() => {
+    window.dispatchEvent(new Event("focus"));
+  });
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Cancel Harkonnen?" })).toBeNull());
+});
+
+test("a retried booking that replays a lapsed hold books again instead of claiming it is held", async () => {
+  const keys: string[] = [];
+  api.mockImplementation((path: string, init?: { body?: { requestKey: string } }) => {
+    if (path === "/studios")
+      return Promise.resolve({ studios, cardTestEnabled: false, timeZone: "UTC" });
+    if (path === "/studio-rentals" && init?.body) {
+      keys.push(init.body.requestKey);
+      // The first request's response was lost earlier; its hold has since expired.
+      if (keys.length === 1) return Promise.reject(new Error("Network error"));
+      if (keys.length === 2)
+        return Promise.resolve(rental({ id: 52, status: "expired", payment_status: "unpaid", hold_until: "2030-01-10T14:30:00Z" }));
+      return Promise.resolve(rental({ id: 53, status: "pending", payment_status: "unpaid", hold_until: "2030-01-10T15:30:00Z" }));
+    }
+    return Promise.resolve([]);
+  });
+  mount();
+  const dialog = within(await openSmall());
+  fireEvent.click(dialog.getByRole("button", { name: "Sun, Jan 20, 2030" }));
+  fireEvent.click(dialog.getByRole("button", { name: "Hold studio" }));
+  await dialog.findByText("Network error");
+  fireEvent.click(dialog.getByRole("button", { name: "Hold studio" }));
+  await dialog.findByText("Harkonnen is held for you");
+  expect(keys).toHaveLength(3);
+  expect(keys[1]).toBe(keys[0]);
+  expect(keys[2]).not.toBe(keys[0]);
+  expect(dialog.getByRole("group", { name: "Booking reference 000053" })).toBeTruthy();
+});
+
+test("closing the booking pop-up starts the next booking with a new request key", async () => {
+  const keys: string[] = [];
+  api.mockImplementation((path: string, init?: { body?: { requestKey: string } }) => {
+    if (path === "/studios")
+      return Promise.resolve({ studios, cardTestEnabled: false, timeZone: "UTC" });
+    if (path === "/studio-rentals" && init?.body) {
+      keys.push(init.body.requestKey);
+      return Promise.reject(new Error("Network error"));
+    }
+    return Promise.resolve([]);
+  });
+  mount();
+  let dialog = within(await openSmall());
+  fireEvent.click(dialog.getByRole("button", { name: "Sun, Jan 20, 2030" }));
+  fireEvent.click(dialog.getByRole("button", { name: "Hold studio" }));
+  await dialog.findByText("Network error");
+  fireEvent.click(dialog.getByRole("button", { name: "Close dialog" }));
+  dialog = within(await openSmall());
+  fireEvent.click(dialog.getByRole("button", { name: "Sun, Jan 20, 2030" }));
+  fireEvent.click(dialog.getByRole("button", { name: "Hold studio" }));
+  await waitFor(() => expect(keys).toHaveLength(2));
+  expect(keys[1]).not.toBe(keys[0]);
+});
