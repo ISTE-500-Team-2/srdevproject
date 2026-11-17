@@ -54,7 +54,7 @@ export function AccessManagementPage() {
           <Link
             key={key}
             aria-current={view === key ? "page" : undefined}
-            to={`?${new URLSearchParams({ ...(view === "cards" && member ? { member } : {}), ...(key === "cards" ? {} : { view: key }) })}`}
+            to={`?${new URLSearchParams({ ...(member ? { member } : {}), ...(key === "cards" ? {} : { view: key }) })}`}
           >
             {label}
           </Link>

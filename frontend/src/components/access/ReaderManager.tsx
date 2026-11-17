@@ -1,7 +1,7 @@
 // Staff editor for reader names, resource targets and enabled state, using server revisions to
 // detect stale changes.
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, ApiError, errorMessage } from "../../lib/api";
 import { editingFormRef } from "../../lib/editingForms";
 import { useApi } from "../../lib/useApi";
@@ -28,6 +28,15 @@ export function ReaderManager({
   const [adding,setAdding]=useState(false);
   const discovery=useApi<ReaderDiscovery>(setup.configured?'/admin/access/reader-setup':null,{retainOnReload:true,refreshInterval:5000});
   const detected=discovery.data?.devices.filter(d=>d.connected&&!discovery.data?.jobs.some(j=>j.gatewayId===d.gatewayId&&j.deviceId===d.id&&!['failed','cancelled','expired'].includes(j.status))).length??0;
+  // A reader joins the list only once its guided setup completes, which can happen after the
+  // wizard is closed: reload the readers whenever another setup job finishes.
+  const completed=discovery.data?.jobs.filter(j=>j.status==='complete').map(j=>j.id).join(',');
+  const seenCompleted=useRef(completed);
+  useEffect(()=>{
+    if(completed===undefined) return;
+    if(seenCompleted.current!==undefined&&seenCompleted.current!==completed) reload();
+    seenCompleted.current=completed;
+  },[completed,reload]);
   const [editing, setEditing] = useState<AccessReader | "new" | null>(null),
     [busy, setBusy] = useState(false);
   const [secret, setSecret] = useState<{ id: string; secret: string } | null>(
@@ -77,8 +86,15 @@ export function ReaderManager({
       setEditing(null);
       reload();
     } catch (e) {
-      setError(errorMessage(e));
-      if (e instanceof ApiError && e.status === 409) setEditing(null);
+      const code = e instanceof ApiError ? e.code : "";
+      setError(
+        editing === "new" && code === "ALREADY_EXISTS"
+          ? `A reader with the ID “${String(f.get("id"))}” already exists. Choose a different reader ID.`
+          : errorMessage(e),
+      );
+      // Only a stale edit closes the form, to reopen on the latest settings. Any other
+      // failure keeps what was typed for another try.
+      if (code === "STALE_RECORD") setEditing(null);
       reload();
     } finally {
       setBusy(false);
@@ -200,7 +216,7 @@ export function ReaderManager({
           </article>
         ))}
       </div>
-      <ReaderSetupWizard open={adding} onClose={()=>setAdding(false)} onDone={reload}
+      <ReaderSetupWizard open={adding} onClose={()=>{setAdding(false);reload();}} onDone={reload}
         onManual={()=>{setAdding(false);setEditing('new');setError('');setNotice('');}}/>
       <Modal
         open={!!editing}

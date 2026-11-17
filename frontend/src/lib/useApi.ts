@@ -37,6 +37,7 @@ export function useApi<T>(path: string | null, options: { retainOnReload?: boole
   const arrived = useRef(false);
   const fetching = useRef(false);
   const [error, setError] = useState("");
+  const [errorCode, setErrorCode] = useState("");
   const [revision, setRevision] = useState(0);
   const reload = useCallback(() => setRevision((value) => value + 1), []);
   useEffect(() => {
@@ -74,6 +75,7 @@ export function useApi<T>(path: string | null, options: { retainOnReload?: boole
           const lostAccess = retainOnReload && error instanceof ApiError && [401, 403, 404].includes(error.status);
           if (lostAccess || (retainOnChange && !current)) show(null, null);
           setError(errorMessage(error));
+          setErrorCode(error instanceof ApiError ? error.code : "");
         }
       })
       .finally(() => {
@@ -95,5 +97,6 @@ export function useApi<T>(path: string | null, options: { retainOnReload?: boole
   }, [path, refreshInterval, reload]);
   // Kept results from an earlier page or filter: show them, but don't let anyone act on them.
   const stale = data !== null && path !== null && dataFor !== requestId(path, requestKey);
-  return { data, loading, refreshing, stale, error, reload };
+  // `errorCode`, the server's code for `error`, is present only while there is one.
+  return { data, loading, refreshing, stale, error, ...(error && errorCode ? { errorCode } : {}), reload };
 }

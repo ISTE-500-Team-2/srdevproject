@@ -447,3 +447,14 @@ test("an unknown card's tap opens Find a card and looks that card up", async () 
   expect(await screen.findByText("Card from the selected tap:")).toBeTruthy();
   expect(screen.getByText("No member has been assigned this card.")).toBeTruthy();
 });
+test("returning to Member cards from another tab keeps the member staff were working on", async () => {
+  mount();
+  await screen.findByRole("heading", { name: "NFC cards for Jordan Example" });
+  const tabs = screen.getByRole("navigation", { name: "Reader access sections" });
+  await userEvent.click(within(tabs).getByRole("link", { name: "Tap history" }));
+  expect(await screen.findByRole("heading", { name: "Tap history" })).toBeTruthy();
+  await userEvent.click(within(tabs).getByRole("link", { name: "Member cards" }));
+  expect(
+    await screen.findByRole("heading", { name: "NFC cards for Jordan Example" }),
+  ).toBeTruthy();
+});
