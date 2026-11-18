@@ -483,10 +483,11 @@ test('a booking still in its card checkout can\'t be settled at the desk, so the
   // Newest first, so the hold's payment is on the first page.
   const listed = async () => (await new StaffModel(pool).payments(member)).find(p => p.id === paymentId)!;
   assert.equal((await listed()).onlineCheckout, true);
+  assert.equal((await listed()).checkoutOpenedBy, 'member');
   const staff = new StaffService(pool, 'America/New_York');
   for (const status of ['paid', 'void', 'waived'])
     await assert.rejects(staff.paymentStatus(admin, paymentId, status, 'cash', '', (await listed()).revision, 'Paid at the desk'),
-      {code: 'PROVIDER_PAYMENT', message: /paid by card online/});
+      {code: 'PROVIDER_PAYMENT', message: /^This booking is waiting for online card payment/});
   // Staff can't cancel the booking while its checkout is open either, so both refusals point to the
   // way that works: Cancel checkout from the booking account, opened with View as.
   for (const refusal of [
@@ -517,4 +518,31 @@ test('a booking still in its card checkout can\'t be settled at the desk, so the
   assert.deepEqual([refundable.status, refundable.onlineCheckout], ['paid', false]);
   const refunded = await staff.paymentStatus(admin, deskPaid, 'refunded', 'cash', '', refundable.revision, 'Booking released; cash returned');
   assert.equal(refunded.status, 'refunded');
+});
+
+test('a checkout staff opened for a member is released by that staff member, so staff are told who can cancel it', async () => {
+  const admin = (await pool.query(`SELECT userid FROM "user" WHERE email='demo.admin@collaboratory.invalid'`)).rows[0].userid;
+  const opener = (await pool.query(`INSERT INTO "user"(firstname,lastname,email,password,phone,status,primary_role)
+    VALUES('Opener','Staff','opener-staff@example.invalid','unused','0000000000','active','staff') RETURNING userid`)).rows[0].userid;
+  await pool.query("INSERT INTO user_role(userid,roleid,assignedat) SELECT $1,roleid,NOW() FROM role WHERE role='staff'", [opener]);
+  // Booked for the member without paying at the desk: the staff member's own card checkout pays for it.
+  const result = await service.create(opener, booking(1, {userId: member}));
+  assert.equal(result.status, 'pending');
+  const paymentId = (await pool.query('SELECT payment_id FROM reservation WHERE reservationid=$1', [result.id])).rows[0].payment_id;
+  const listed = async (viewerId: number) =>
+    (await new StaffModel(pool).payments(member, 0, {}, 'staff', viewerId)).find(p => p.id === paymentId)!;
+  assert.deepEqual([(await listed(opener)).checkoutOpenedBy, (await listed(admin)).checkoutOpenedBy], ['viewer', 'staff']);
+  // View as can't open a staff account, and the member's Equipment page has no Cancel checkout for it.
+  const staff = new StaffService(pool, 'America/New_York');
+  const record = async (actor: number) => staff.paymentStatus(actor, paymentId, 'paid', 'cash', '', (await listed(actor)).revision, 'Paid at the desk');
+  await assert.rejects(record(opener), {code: 'PROVIDER_PAYMENT', message: /^You opened an online card checkout for this booking.*Cancel checkout under My reservations/});
+  await assert.rejects(record(admin), (error: Error & {code?: string}) => {
+    assert.equal(error.code, 'PROVIDER_PAYMENT');
+    assert.match(error.message, /another staff member opened, so its payment can’t be recorded at the desk\. They can cancel that checkout from their Equipment page/);
+    assert.doesNotMatch(error.message, /View as/);
+    return true;
+  });
+  // Once that staff member cancels it, nothing is open and the note goes away.
+  await billing.cancelPending(opener, result.id);
+  assert.equal((await listed(admin)).checkoutOpenedBy, null);
 });

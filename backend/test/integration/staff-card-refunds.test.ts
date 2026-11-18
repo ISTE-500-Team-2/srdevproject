@@ -297,3 +297,29 @@ test('a failed staff refund of a pass past its cancel-by date is not the member\
     FROM app_pass_checkout c JOIN day_pass d ON d.dayid=c.pass_id JOIN payment p ON p.paymentid=c.payment_id WHERE c.id=$1`, [id])).rows[0];
   assert.deepEqual(after, { status: 'cancelled', pass: 'cancelled', statusdesc: 'Refunded to the original card', payment: 'refunded' });
 });
+
+test('a day-pass refund that succeeded and then failed leaves the pass cancelled, and staff can retry it', async () => {
+  const { id, intent } = await cardPass(member);
+  nextStatus = 'succeeded';
+  assert.deepEqual(await passes.staffRefund(staff, id, 'Closed for the day'), { status: 'succeeded' });
+  const refund = refunds[0]!;
+  refund.status = 'failed';
+  await passes.webhook(stripeEvent('evt_' + randomUUID(), 'refund.failed', { ...refund }));
+  const state = async () => (await pool.query(`SELECT c.status,c.refund_status,d.status AS pass,p.paymentstatus AS payment
+    FROM app_pass_checkout c JOIN day_pass d ON d.dayid=c.pass_id JOIN payment p ON p.paymentid=c.payment_id WHERE c.id=$1`, [id])).rows[0];
+  assert.deepEqual(await state(), { status: 'cancelled', refund_status: 'failed', pass: 'cancelled', payment: 'paid' });
+  const [notice] = (await notices(`daypass-refund-failed:${id}:%`)).map(row => row.payload.instructions as string);
+  assert.match(notice!, /Your pass stays cancelled; contact staff to complete the refund\./);
+  // The payments list offers staff the retry (a paid card day pass whose refund failed), so it must work.
+  const listed = await ledgerRow(row => row.passCheckoutId === id);
+  assert.deepEqual([listed.method, listed.status, listed.refundStatus, listed.invoiceId], ['card', 'paid', 'failed', null]);
+
+  assert.deepEqual(await passes.staffRefund(staff, id, 'Closed for the day'), { status: 'succeeded' });
+  assert.equal(keys.at(-1), `daypass-refund:${id}:${refund.id}`, 'the retry is a new refund that names the failed one');
+  assert.equal(refunds.filter(f => f.payment_intent === intent).length, 2);
+  assert.deepEqual(await state(), { status: 'cancelled', refund_status: 'succeeded', pass: 'cancelled', payment: 'refunded' });
+  assert.equal((await ledgerRow(row => row.passCheckoutId === id)).status, 'refunded');
+  // A second click changes nothing and refunds nothing more.
+  assert.deepEqual(await passes.staffRefund(staff, id, 'Closed for the day'), { status: 'succeeded' });
+  assert.equal(refunds.filter(f => f.payment_intent === intent).length, 2);
+});

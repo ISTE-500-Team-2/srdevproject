@@ -156,8 +156,8 @@ export class StaffModel {
   updatePayment(id: number, status: string, method: string, reference: string, reason: string, revision: number) {
     return this.paymentRecords.updatePayment(id, status, method, reference, reason, revision);
   }
-  payments(userId: number | null, offset?: number, filters?: PaymentFilters, viewer?: PaymentViewer) {
-    return this.paymentRecords.payments(userId, offset, filters, viewer);
+  payments(userId: number | null, offset?: number, filters?: PaymentFilters, viewer?: PaymentViewer, viewerId?: number | null) {
+    return this.paymentRecords.payments(userId, offset, filters, viewer, viewerId);
   }
   /** Totals for every payment matching the filters, not just the current page. */
   paymentSummary(userId: number | null, filters?: PaymentFilters) {

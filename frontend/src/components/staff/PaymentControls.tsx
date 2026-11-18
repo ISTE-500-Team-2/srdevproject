@@ -41,14 +41,22 @@ export function refundNote(payment: Payment) {
   return null;
 }
 
+// Only whoever opened a booking's checkout can cancel it: the member, or the staff member who booked for them.
+const openCheckoutNotes = {
+  member:
+    "Not paid yet: the member pays through online card checkout. To release the booking, open the account that booked it with View as and choose Cancel checkout on the Equipment page.",
+  viewer:
+    "Not paid yet: you opened an online card checkout for this booking. To release it, choose Cancel checkout under My reservations on the Equipment page.",
+  staff:
+    "Not paid yet: another staff member opened an online card checkout for this booking. They can release it with Cancel checkout on their Equipment page; an unpaid checkout also releases it when it expires.",
+};
+
 /**
  * Why a pending payment has no desk action: its equipment booking is still in online card
  * checkout, which settles it. Null for every other payment.
  */
 export function checkoutNote(payment: Payment) {
-  return payment.onlineCheckout && payment.status === "pending"
-    ? "Not paid yet: the member pays through online card checkout. To release the booking, open the account that booked it with View as and choose Cancel checkout on the Equipment page."
-    : null;
+  return payment.onlineCheckout && payment.status === "pending" ? openCheckoutNotes[payment.checkoutOpenedBy ?? "member"] : null;
 }
 
 /** Whether Stripe took a card refund, done or on its way. Any other status means no money went back. */
@@ -159,6 +167,9 @@ export function PaymentEditor({
 
 /** What else a card refund changes, by what was paid for. */
 function refundEffect(payment: Payment) {
+  // A day-pass checkout that couldn't become a pass (for example, one bought for a date the member already
+  // had a pass for) has no pass of its own, so the refund leaves any pass they hold alone.
+  if (payment.passCheckoutId && !payment.dayPassId) return "No day pass was issued for this payment, so only the charge goes back.";
   if (payment.passCheckoutId) return "The day pass is cancelled once the refund goes through.";
   if (payment.equipmentReservationId)
     return "The booking itself doesn't change. If it shouldn't go ahead, cancel it separately.";

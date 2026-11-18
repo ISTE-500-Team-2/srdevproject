@@ -37,6 +37,11 @@ export interface PaymentListItem {
   refundStatus: string | null;
   /** An equipment booking's online card checkout owns this payment (or is still open for it); staff can't record it at the desk. */
   onlineCheckout: boolean;
+  /**
+   * Who opened the booking's still-open online checkout, and so who can cancel it: the member, the staff
+   * member reading the list ("viewer"), or another staff member. Null when no checkout is open.
+   */
+  checkoutOpenedBy: "member" | "viewer" | "staff" | null;
   planName: string;
 }
 
@@ -125,8 +130,11 @@ export class PaymentRepository {
       )
     ).rows[0];
   }
-  /** A page of payments; `viewer` picks staff or member wording for a possible double charge. */
-  async payments(userId: number | null, offset = 0, filters: PaymentFilters = {}, viewer: PaymentViewer = "member"): Promise<PaymentListItem[]> {
+  /**
+   * A page of payments; `viewer` picks staff or member wording for a possible double charge, and
+   * `viewerId` (the staff member reading) tells their own open checkouts from a colleague's.
+   */
+  async payments(userId: number | null, offset = 0, filters: PaymentFilters = {}, viewer: PaymentViewer = "member", viewerId: number | null = null): Promise<PaymentListItem[]> {
     return (
       await this.db.query<PaymentListItem>(
         `SELECT p.paymentid AS id,p.userid AS "userId",u.firstname || ' ' || u.lastname AS "memberName",
@@ -136,6 +144,8 @@ export class PaymentRepository {
       COALESCE(invoice.refund_status,pass_checkout.refund_status,equipment_checkout.refund_status) AS "refundStatus",
       EXISTS(SELECT 1 FROM app_equipment_checkout c WHERE c.payment_id=p.paymentid
         OR c.reservation_id=booking.reservationid AND c.status='pending') AS "onlineCheckout",
+      (SELECT CASE WHEN c.payer_id=$8::int THEN 'viewer' WHEN c.payer_id=p.userid THEN 'member' ELSE 'staff' END
+        FROM app_equipment_checkout c WHERE c.reservation_id=booking.reservationid AND c.status='pending') AS "checkoutOpenedBy",
       COALESCE(m.plan_snapshot->>'name' || CASE WHEN ${STILL_OVERLAPS} THEN $7::text ELSE '' END,
         d.plan_snapshot->>'name',pass_checkout.plan_snapshot->>'name',t.tiername,
         CASE WHEN booking.reservationid IS NOT NULL THEN 'Equipment: '||machine.name||
@@ -154,7 +164,7 @@ export class PaymentRepository {
       LEFT JOIN app_pass_checkout pass_checkout ON pass_checkout.payment_id=p.paymentid AND pass_checkout.amount_cents>0
       LEFT JOIN app_equipment_checkout equipment_checkout ON equipment_checkout.payment_id=p.paymentid
       WHERE ${PAYMENT_FILTER} ORDER BY p.paymentid DESC LIMIT 51 OFFSET $5`,
-        [userId, filters.status ?? null, filters.from ?? null, filters.to ?? null, offset, OVERLAPPING_CARD_PAYMENT_NOTE, OVERLAP_LABEL[viewer]],
+        [userId, filters.status ?? null, filters.from ?? null, filters.to ?? null, offset, OVERLAPPING_CARD_PAYMENT_NOTE, OVERLAP_LABEL[viewer], viewerId],
       )
     ).rows;
   }

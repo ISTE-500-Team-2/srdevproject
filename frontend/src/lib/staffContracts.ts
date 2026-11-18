@@ -82,6 +82,8 @@ export interface Payment {
   refundStatus?: string | null;
   /** An equipment booking paid by online card checkout: the checkout settles it, not the desk. */
   onlineCheckout?: boolean;
+  /** Who opened the booking's still-open checkout, so who can cancel it: the member, you, or another staff member. */
+  checkoutOpenedBy?: "member" | "viewer" | "staff" | null;
 }
 export interface PaymentSummary {
   count: number;
