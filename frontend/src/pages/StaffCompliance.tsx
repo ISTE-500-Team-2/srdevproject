@@ -95,8 +95,11 @@ export function StaffCompliance() {
       const link = document.createElement("a");
       link.href = url;
       link.download = "compliance-report.csv";
+      document.body.appendChild(link);
       link.click();
-      URL.revokeObjectURL(url);
+      link.remove();
+      // Some browsers start the download after click() returns; revoking at once can cancel it.
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (error) {
       setExportError(errorMessage(error));
     }
@@ -116,7 +119,11 @@ export function StaffCompliance() {
           <Download aria-hidden="true" /> Export CSV
         </button>
       </div>
-      {exportError ? <p className="form-error">{exportError}</p> : null}
+      {exportError ? (
+        <p className="form-error" role="alert">
+          {exportError}
+        </p>
+      ) : null}
       <LoadState {...report} loading={report.loading && !report.data} />
       {data ? (
         <>

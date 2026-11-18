@@ -44,19 +44,32 @@ export async function updateNotificationPreferences(db: Database, userId: number
 }
 export async function enqueueNotification<K extends string>(db: Database, input: NotificationInput<K> & { kind: CheckedKind<K> }): Promise<void> {
   if (!input.kind || !input.dedupeKey) throw new Error('Notification kind and dedupe key are required');
+  await insertOutbox(db, input.userId, input.dedupeKey, input);
+}
+/** Queues one notice for many accounts in a single statement, not one round trip each.
+ * Each account's dedupe key is the prefix followed by its user ID. */
+export async function enqueueNotifications<K extends string>(db: Database, userIds: number[],
+  input: Omit<NotificationInput<K>, 'userId' | 'dedupeKey'> & { kind: CheckedKind<K>; dedupePrefix: string }): Promise<void> {
+  if (!input.kind || !input.dedupePrefix) throw new Error('Notification kind and dedupe key are required');
+  if (userIds.length) await insertOutbox(db, userIds, input.dedupePrefix, input);
+}
+/** For a list of accounts, the dedupe key is a prefix completed with each user ID. */
+async function insertOutbox(db: Database, recipients: number | number[], dedupeKey: string,
+  input: { kind: string; payload: unknown; dueAt?: Date; deadlineAt?: Date; countsForSla?: boolean }) {
+  const many = Array.isArray(recipients);
   const dueAt = input.dueAt ?? new Date();
   // Event notices have a measurable five-minute dispatch target, not a promised delivery SLA.
   const deadlineAt = input.deadlineAt ?? new Date(dueAt.getTime()+5*60_000);
   if (!Number.isFinite(dueAt.getTime()) || !Number.isFinite(deadlineAt.getTime())) throw new Error('Invalid notification date');
-  // Legacy unverified accounts may still receive their confirmation link while held in pending status.
+  // Legacy unverified accounts may still receive their confirmation or password-reset link while held in pending status.
   await db.query(`INSERT INTO app_notification_outbox(userid,kind,dedupe_key,payload,due_at,deadline_at,status,counts_for_sla)
-    SELECT u.userid,$2,$3,$4::jsonb,$5,$6,
-      CASE WHEN (COALESCE(p.enabled,true) OR $2=ANY($8::text[])) AND (u.status='active' OR ($2='account_confirmation' AND u.status='pending')) THEN 'pending' ELSE 'suppressed' END,
-      $7::boolean AND (COALESCE(p.enabled,true) OR $2=ANY($8::text[])) AND (u.status='active' OR ($2='account_confirmation' AND u.status='pending'))
-    FROM "user" u LEFT JOIN app_notification_preferences p USING(userid) WHERE u.userid=$1
+    SELECT u.userid,$2,${many ? '$3::text||u.userid' : '$3'},$4::jsonb,$5,$6,
+      CASE WHEN (COALESCE(p.enabled,true) OR $2=ANY($8::text[])) AND (u.status='active' OR ($2 IN ('account_confirmation','password_reset') AND u.status='pending')) THEN 'pending' ELSE 'suppressed' END,
+      $7::boolean AND (COALESCE(p.enabled,true) OR $2=ANY($8::text[])) AND (u.status='active' OR ($2 IN ('account_confirmation','password_reset') AND u.status='pending'))
+    FROM "user" u LEFT JOIN app_notification_preferences p USING(userid) WHERE ${many ? 'u.userid=ANY($1::int[])' : 'u.userid=$1'}
     ON CONFLICT(dedupe_key) DO UPDATE SET due_at=EXCLUDED.due_at,deadline_at=EXCLUDED.deadline_at,updated_at=NOW()
     WHERE app_notification_outbox.status='pending' AND app_notification_outbox.attempts=0
-      AND EXCLUDED.payload ? 'sourceType'`,[input.userId,input.kind,input.dedupeKey,JSON.stringify(input.payload),dueAt,deadlineAt,input.countsForSla??true,securityKinds]);
+      AND EXCLUDED.payload ? 'sourceType'`,[recipients,input.kind,dedupeKey,JSON.stringify(input.payload),dueAt,deadlineAt,input.countsForSla??true,securityKinds]);
 }
 export async function notificationMetrics(
   db: Database,

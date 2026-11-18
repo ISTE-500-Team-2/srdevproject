@@ -65,6 +65,7 @@ export function registrationPrice(c: ClassRecord, certified: boolean) {
 
 export const isCancelled = (c: ClassRecord) => c.status === "cancelled";
 export const hasStarted = (c: ClassRecord, now = Date.now()) => new Date(c.startsAt).getTime() <= now;
+export const hasEnded = (c: ClassRecord, now = Date.now()) => new Date(c.endsAt).getTime() <= now;
 export const seatsLeft = (c: { capacity: number; enrolled: number }) => Math.max(0, c.capacity - c.enrolled);
 export const byStart = (a: ClassRecord, b: ClassRecord) => a.startsAt.localeCompare(b.startsAt);
 

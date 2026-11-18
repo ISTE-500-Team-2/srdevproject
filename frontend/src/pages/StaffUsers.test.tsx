@@ -41,3 +41,33 @@ test("another search or page keeps the members on screen, out of reach, while th
   fireEvent.click(next);
   expect(useApi.mock.calls.some(([path]) => path?.includes("offset=50"))).toBe(false);
 });
+
+test("the directory names account and access states the way the record's controls do", () => {
+  const people = {
+    items: [
+      staffPerson({ id: 4, firstName: "Casey", lastName: "Held", status: "suspended" }),
+      staffPerson({ id: 5, firstName: "Drew", lastName: "Closed", status: "inactive" }),
+      staffPerson({ id: 6, firstName: "Ellis", lastName: "Barred", accessStatus: "suspended" }),
+    ],
+    nextOffset: null,
+  };
+  useApi.mockImplementation((path: string | null) => ({
+    data: path?.startsWith("/admin/users?") ? people : null,
+    loading: false,
+    refreshing: false,
+    stale: false,
+    error: "",
+    reload: vi.fn(),
+  }));
+  render(
+    <MemoryRouter>
+      <StaffUsers />
+    </MemoryRouter>,
+  );
+  const row = (name: string) => screen.getByRole("button", { name }).closest("tr")!;
+  expect(row("Casey Held").textContent).toContain("On hold");
+  expect(row("Drew Closed").textContent).toContain("Closed");
+  // Facility access set to "Suspended" reads "Suspended", not the member-facing "On hold".
+  expect(row("Ellis Barred").textContent).toContain("Suspended");
+  expect(row("Ellis Barred").textContent).not.toContain("On hold");
+});

@@ -50,6 +50,11 @@
 .class-search input::placeholder {
   color: #8c7f77;
 }
+/* The input drops its own ring, so the underline shows focus. */
+.class-search:focus-within {
+  border-bottom-color: var(--orange);
+  box-shadow: 0 1px 0 var(--orange);
+}
 
 /* Certification filter chips */
 .class-filters {
@@ -203,9 +208,10 @@
   background: rgba(255, 253, 250, 0.5);
   box-shadow: none;
 }
+/* The dashed edge and Cancelled pill mark the row; its text stays readable. */
 .class-row--cancelled h3,
 .class-row--cancelled .class-meta {
-  color: #9a8c84;
+  color: var(--ink-soft);
 }
 .class-row--cancelled .class-thumb {
   filter: grayscale(1);
@@ -1239,6 +1245,16 @@
   .class-table__row > .seat-meter {
     grid-column: 2;
   }
+  /* Actions sit beside the class name and the status beside the seats, so neither drops into the date column. */
+  .class-table__actions {
+    grid-row: 1;
+    grid-column: 3;
+  }
+  .class-table__row > :nth-child(6) {
+    grid-row: 2;
+    grid-column: 3;
+    justify-self: end;
+  }
 }
 
 @media (max-width: 900px) {
@@ -1317,8 +1333,13 @@
     padding: 14px;
   }
   .class-table__row > .seat-meter,
+  .class-table__row > :nth-child(6),
   .class-table__actions {
+    grid-row: auto;
     grid-column: 1 / -1;
+  }
+  .class-table__row > :nth-child(6) {
+    justify-self: start;
   }
   .class-table__actions {
     justify-content: stretch;

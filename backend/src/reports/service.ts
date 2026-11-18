@@ -26,7 +26,7 @@ import type {
 
 const PERIODS: readonly ReportPeriod[] = ["daily", "weekly", "monthly"];
 
-/** Validates the report query: two real ISO dates, at most 93 days inclusive, and a period. */
+/** Validates the report query: two real ISO dates from 2000 on, at most 93 days inclusive, and a period. */
 export function parseReportRequest(query: Record<string, unknown>): ReportRequest {
   const from = typeof query.from === "string" ? query.from : "",
     to = typeof query.to === "string" ? query.to : "",
@@ -34,6 +34,8 @@ export function parseReportRequest(query: Record<string, unknown>): ReportReques
   if (
     !/^\d{4}-\d{2}-\d{2}$/.test(from) ||
     !/^\d{4}-\d{2}-\d{2}$/.test(to) ||
+    // The database has no year 0, and nothing here predates 2000.
+    from < "2000-01-01" ||
     !Number.isFinite(Date.parse(from)) ||
     new Date(from).toISOString().slice(0, 10) !== from ||
     !Number.isFinite(Date.parse(to)) ||
@@ -107,9 +109,12 @@ export function loadReport(
     ).rows;
     const equipment = (
       await db.query<EquipmentUtilizationRow>(
+        // A retired machine stays only while it has confirmed bookings in the window, so a removed
+        // machine leaves 'Machines used' at once and past periods keep its booked hours.
         `SELECT e.equipmentid AS id,e.name,COALESCE(SUM(EXTRACT(EPOCH FROM LEAST(v.endtime AT TIME ZONE 'UTC',$2::timestamptz)-GREATEST(v.starttime AT TIME ZONE 'UTC',$1::timestamptz))) FILTER (WHERE v.reservationid IS NOT NULL)/3600,0)::float AS "bookedHours",COUNT(v.reservationid)::int AS reservations,
  EXTRACT(EPOCH FROM $2::timestamptz-$1::timestamptz)/3600 AS "windowHours",COALESCE(100*SUM(EXTRACT(EPOCH FROM LEAST(v.endtime AT TIME ZONE 'UTC',$2::timestamptz)-GREATEST(v.starttime AT TIME ZONE 'UTC',$1::timestamptz))) FILTER (WHERE v.reservationid IS NOT NULL)/EXTRACT(EPOCH FROM $2::timestamptz-$1::timestamptz),0)::float AS "bookedUtilizationPercent"
- FROM equipment e LEFT JOIN reservation v ON v.equipmentid=e.equipmentid AND v.status='confirmed' AND v.endtime AT TIME ZONE 'UTC'>$1 AND v.starttime AT TIME ZONE 'UTC'<$2 GROUP BY e.equipmentid,e.name ORDER BY e.name`,
+ FROM equipment e LEFT JOIN reservation v ON v.equipmentid=e.equipmentid AND v.status='confirmed' AND v.endtime AT TIME ZONE 'UTC'>$1 AND v.starttime AT TIME ZONE 'UTC'<$2
+ GROUP BY e.equipmentid,e.name HAVING COUNT(v.reservationid)>0 OR NOT EXISTS(SELECT 1 FROM app_equipment_retirement r WHERE r.equipment_id=e.equipmentid) ORDER BY e.name`,
         params.slice(0, 2),
       )
     ).rows;
@@ -124,12 +129,13 @@ export function loadReport(
     ).rows;
     const classes = (
       await db.query<ClassFillRow>(
-        // Enrollment caps legacy larger classes at 15 seats; report the same limit.
-        `SELECT c.id,c.title,LEAST(c.capacity,15) AS capacity,c.status,v.starttime AT TIME ZONE 'UTC' AS "startsAt",room.name AS room,
- COUNT(e.user_id) FILTER(WHERE e.status IN ('enrolled','attended'))::int AS enrolled,COUNT(e.user_id) FILTER(WHERE e.status='attended')::int AS attended,
- 100.0*COUNT(e.user_id) FILTER(WHERE e.status IN ('enrolled','attended'))/LEAST(c.capacity,15) AS "filledPercent"
+        // Enrollment caps legacy larger classes at 15 seats; report the same limit. A legacy class
+        // that already held more people keeps their seats, so no class reads over 100% full.
+        `SELECT id,title,GREATEST(seats,enrolled) AS capacity,status,"startsAt",room,enrolled,attended,100.0*enrolled/GREATEST(seats,enrolled) AS "filledPercent"
+ FROM (SELECT c.id,c.title,LEAST(c.capacity,15) AS seats,c.status,v.starttime AT TIME ZONE 'UTC' AS "startsAt",room.name AS room,
+ COUNT(e.user_id) FILTER(WHERE e.status IN ('enrolled','attended'))::int AS enrolled,COUNT(e.user_id) FILTER(WHERE e.status='attended')::int AS attended
  FROM app_training_class c JOIN reservation v ON v.reservationid=c.reservation_id JOIN room USING(roomid) LEFT JOIN app_training_enrollment e ON e.class_id=c.id
- WHERE v.starttime AT TIME ZONE 'UTC'>=$1 AND v.starttime AT TIME ZONE 'UTC'<$2 GROUP BY c.id,v.starttime,room.name ORDER BY v.starttime`,
+ WHERE v.starttime AT TIME ZONE 'UTC'>=$1 AND v.starttime AT TIME ZONE 'UTC'<$2 GROUP BY c.id,v.starttime,room.name) class_fill ORDER BY "startsAt"`,
         params.slice(0, 2),
       )
     ).rows;
@@ -158,14 +164,15 @@ export function loadReport(
       )
     ).rows;
     // There is no check-out record, so this is who checked in today (each
-    // person's latest check-in), not a live headcount.
+    // person's latest check-in), not a live headcount. A reader check-in stores
+    // the reader's id as its location, so show the reader's name instead.
     const recentCheckIns = (
       await db.query<CheckedInPerson & { total: number }>(
         `SELECT latest.*,COUNT(*) OVER()::int AS total FROM (
- SELECT DISTINCT ON (i.userid) i.userid AS "userId",u.firstname || ' ' || u.lastname AS name,i.location,
+ SELECT DISTINCT ON (i.userid) i.userid AS "userId",u.firstname || ' ' || u.lastname AS name,COALESCE(reader.name,i.location) AS location,
  (SELECT p.version FROM app_user_photo p WHERE p.user_id=i.userid) AS "photoVersion",
  i.checkintime AT TIME ZONE 'UTC' AS at,${checkInOriginSql("i")} AS method
- FROM check_in i JOIN "user" u USING(userid)
+ FROM check_in i JOIN "user" u USING(userid) LEFT JOIN app_access_reader reader ON reader.id=i.location
  WHERE i.status='approved' AND i.checkintime AT TIME ZONE 'UTC'>=date_trunc('day',NOW() AT TIME ZONE $1) AT TIME ZONE $1
  ORDER BY i.userid,i.checkintime DESC,i.checkinid DESC
  ) latest ORDER BY at DESC,"userId" LIMIT 50`,

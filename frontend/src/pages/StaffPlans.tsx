@@ -12,6 +12,7 @@ import type { Plan } from "../lib/staffContracts";
 import type { EligibilityPrice } from "../lib/billingContracts";
 import { ActionForm, Field, LoadState } from "../components/Management";
 import { MemberSelect } from "../components/MemberSelect";
+import { Modal } from "../components/Modal";
 import { cents, dollars } from "../lib/display";
 
 type Selection = { mode: "new" } | { mode: "edit"; id: number } | null;
@@ -23,14 +24,16 @@ const firstBenefit = (benefits: string) =>
   benefits.split(/\r?\n/).map((line) => line.replace(/^[-*•]\s*/, "").trim()).find(Boolean) ?? "";
 
 export function StaffPlans() {
-  const { user } = useAuth();
-  // Student and school-partner rates are admin-only on the server.
-  const isAdmin = !!user?.roles.includes("admin");
+  const { user, actor } = useAuth();
+  // Student and school-partner rates are admin-only on the server. With a member's
+  // account open in another tab, `user` is that member; this page still runs as `actor`.
+  const isAdmin = !!(actor ?? user)?.roles.includes("admin");
   const plans = useApi<Plan[]>("/admin/plans", { retainOnReload: true });
   const prices = useApi<EligibilityPrice[]>(isAdmin ? "/billing-management/pricing" : null, { retainOnReload: true });
   const [selected, setSelected] = useState<Selection>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [notice, setNotice] = useState("");
+  const newPlan = useRef<HTMLButtonElement>(null);
   const all = plans.data ?? [];
   const live = all.filter((p) => p.active);
   const archived = all.filter((p) => !p.active);
@@ -39,6 +42,17 @@ export function StaffPlans() {
   const open = (next: Selection) => {
     setNotice("");
     setSelected(next);
+  };
+  /**
+   * The editor held focus when it closed. Return it to the plan's row, or to "New plan"
+   * when that row isn't listed yet or will move (a new plan, or one put on or off sale).
+   */
+  const returnFocus = (plan: Plan | null) => {
+    const row = plan ? all.find((p) => p.id === plan.id && p.active === plan.active) : undefined;
+    requestAnimationFrame(() => {
+      const button = row ? document.getElementById(`plan-${row.id}-open`) : null;
+      (button ?? newPlan.current)?.focus();
+    });
   };
   const rowProps = {
     isAdmin,
@@ -53,7 +67,7 @@ export function StaffPlans() {
           What members can buy. Changes apply to new purchases; anyone who already
           bought a plan keeps the price and terms they paid for.
         </p>
-        <button className="button button--primary plans-new" onClick={() => open({ mode: "new" })}>
+        <button ref={newPlan} className="button button--primary plans-new" onClick={() => open({ mode: "new" })}>
           <Plus aria-hidden="true" /> New plan
         </button>
       </header>
@@ -104,11 +118,12 @@ export function StaffPlans() {
             priceFor={priceFor}
             isAdmin={isAdmin}
             notice={notice}
-            onClose={() => {
+            onClose={(current) => {
               // A partial save may have persisted the plan while the editor stayed open.
               plans.reload();
               prices.reload();
               open(null);
+              returnFocus(current);
             }}
             onSaved={(saved, problem) => {
               prices.reload();
@@ -120,6 +135,7 @@ export function StaffPlans() {
                 plans.reload();
                 setSelected(null);
                 setNotice(`Saved ${saved.name}.`);
+                returnFocus(saved);
               }
             }}
           />
@@ -169,6 +185,7 @@ function PlanGroup({
                 <div className="plans-row__name">
                   <h3>
                     <button
+                      id={`plan-${plan.id}-open`}
                       className="plans-row__open"
                       aria-current={plan.id === selectedId ? "true" : undefined}
                       onClick={() => onOpen(plan)}
@@ -223,7 +240,8 @@ function PlanEditor({
   priceFor: (id: number) => EligibilityPrice | undefined;
   isAdmin: boolean;
   notice: string;
-  onClose: () => void;
+  /** Gets the plan as last saved by this editor, or null for a new plan that wasn't created. */
+  onClose: (plan: Plan | null) => void;
   onSaved: (plan: Plan, problem?: string) => void;
 }) {
   // Advance the baseline after a successful plan write, even if discounts fail.
@@ -234,6 +252,10 @@ function PlanEditor({
   const [active, setActive] = useState(plan?.active ?? true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(notice);
+  // Edits are only thrown away on purpose: closing a changed form asks first.
+  const [dirty, setDirty] = useState(false);
+  const [confirmingClose, setConfirmingClose] = useState(false);
+  const requestClose = () => (dirty ? setConfirmingClose(true) : onClose(plan));
   const panel = useRef<HTMLElement>(null);
   useEffect(() => {
     // On narrow screens the editor sits above the list; bring it into view.
@@ -311,13 +333,17 @@ function PlanEditor({
       ref={panel}
       className="plans-editor"
       onKeyDown={(e) => {
-        if (e.key === "Escape") onClose();
+        // Presses in the portalled confirmation below are its own. One from the editor must
+        // not also reach the window listener that confirmation adds when it opens.
+        if (e.key !== "Escape" || !e.currentTarget.contains(e.target as Node)) return;
+        e.stopPropagation();
+        requestClose();
       }}
     >
-      <form onSubmit={submit} aria-label={title}>
+      <form onSubmit={submit} onChange={() => setDirty(true)} aria-label={title}>
         <div className="plans-editor__head">
           <h2>{plan ? plan.name : "New plan"}</h2>
-          <button type="button" className="plans-icon-button" aria-label="Close editor" onClick={onClose}>
+          <button type="button" className="plans-icon-button" aria-label="Close editor" onClick={requestClose}>
             <X aria-hidden="true" />
           </button>
         </div>
@@ -341,7 +367,10 @@ function PlanEditor({
                     aria-checked={kind === value}
                     tabIndex={kind === value ? 0 : -1}
                     className={kind === value ? "is-selected" : ""}
-                    onClick={() => setKind(value)}
+                    onClick={() => {
+                      setKind(value);
+                      setDirty(true);
+                    }}
                   >
                     {value === "membership" ? "Membership" : "Day pass"}
                   </button>
@@ -486,12 +515,32 @@ function PlanEditor({
             <button className="button button--primary" type="submit">
               {busy ? "Saving…" : plan ? "Save plan" : "Create plan"}
             </button>
-            <button type="button" className="button button--quiet" onClick={onClose}>
+            <button type="button" className="button button--quiet" onClick={requestClose}>
               Cancel
             </button>
           </div>
         </fieldset>
       </form>
+      {confirmingClose ? (
+        <Modal open width="compact" title="Discard unsaved changes?" onClose={() => setConfirmingClose(false)}>
+          <p>Your changes to this plan haven't been saved. Keep editing to retain your draft.</p>
+          <div className="management-actions">
+            <button type="button" className="button button--primary" onClick={() => setConfirmingClose(false)}>
+              Keep editing
+            </button>
+            <button
+              type="button"
+              className="button button--quiet"
+              onClick={() => {
+                setConfirmingClose(false);
+                onClose(plan);
+              }}
+            >
+              Discard changes
+            </button>
+          </div>
+        </Modal>
+      ) : null}
     </aside>
   );
 }

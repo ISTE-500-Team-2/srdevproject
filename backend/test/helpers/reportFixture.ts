@@ -11,7 +11,7 @@ const cohort = (eligible: number, onTime: number) => ({
  * A report covering the serializer edge cases: spreadsheet-formula prefixes,
  * quotes, nulls, records with different keys, Date values, non-ASCII text,
  * PDF string escapes, lines longer than 95 characters and several PDF pages.
- * Date values render through Date#toString, so compare output with TZ=UTC.
+ * Date values render in the report's time zone (America/New_York).
  */
 export function reportFixture(): ReportData {
   return {

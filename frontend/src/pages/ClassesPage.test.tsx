@@ -348,7 +348,9 @@ test('nobody is pre-marked; saving needs a note and only sends chosen people', a
   expect((radio(panel, 'First Member', 'No show') as HTMLInputElement).checked).toBe(false);
   fireEvent.click(radio(panel, 'First Member', 'Attended'));
   await click('Save 1 change');
-  expect(screen.getByText(/Add a verification note/)).toBeTruthy();
+  // Announced, and focus goes to the field that blocked the save.
+  expect(screen.getByRole('alert').textContent).toMatch(/Add a verification note/);
+  expect(document.activeElement).toBe(screen.getByRole('textbox', { name: /Verification note/, description: /Add a verification note/ }));
   expect(calls('/classes/4/attendance', 'POST')).toHaveLength(0);
   fireEvent.change(screen.getByLabelText(/Verification note/), { target: { value: 'Checked sign-in sheet' } });
   await click('Save 1 change');
@@ -441,6 +443,42 @@ test('a room conflict on publish is shown on the room field and keeps the form',
   expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('Evening laser');
 });
 
+test('a time problem is announced on the time fields, and Publish takes the user to the time to change', async () => {
+  await mount();
+  await click('Schedule class');
+  const ends = screen.getByLabelText('Ends');
+  fireEvent.change(ends, { target: { value: '17:00' } });
+  expect(screen.getByRole('alert').textContent).toBe('End time must be after the start time.');
+  expect(ends.getAttribute('aria-invalid')).toBe('true');
+  expect(screen.getByLabelText('Starts').getAttribute('aria-invalid')).toBe('false');
+  expect(ends.getAttribute('aria-describedby')).toBe(screen.getByRole('alert').id);
+  const publish = screen.getByRole('button', { name: 'Publish class' }) as HTMLButtonElement;
+  expect(publish.disabled).toBe(false);
+  await act(async () => { fireEvent.submit(publish.closest('form')!); });
+  expect(document.activeElement).toBe(ends);
+  expect(calls('/classes', 'POST')).toHaveLength(0);
+});
+
+test('a start time that has already passed is announced on Starts, and Publish takes the user there', async () => {
+  await mount();
+  await click('Schedule class');
+  const date = screen.getByLabelText('Date') as HTMLInputElement;
+  const starts = screen.getByLabelText('Starts');
+  const ends = screen.getByLabelText('Ends');
+  // Midnight today (the earliest date the picker allows) has always passed; the length is fine.
+  fireEvent.change(date, { target: { value: date.min } });
+  fireEvent.change(starts, { target: { value: '00:00' } });
+  fireEvent.change(ends, { target: { value: '02:00' } });
+  expect(screen.getByRole('alert').textContent).toBe('Pick a start time in the future.');
+  expect(starts.getAttribute('aria-invalid')).toBe('true');
+  expect(ends.getAttribute('aria-invalid')).toBe('false');
+  expect(starts.getAttribute('aria-describedby')).toBe(screen.getByRole('alert').id);
+  const publish = screen.getByRole('button', { name: 'Publish class' });
+  await act(async () => { fireEvent.submit(publish.closest('form')!); });
+  expect(document.activeElement).toBe(starts);
+  expect(calls('/classes', 'POST')).toHaveLength(0);
+});
+
 test('cancelling sends the record revision and the staff reason', async () => {
   await mount();
   await click('More actions for Safety 5');
@@ -448,11 +486,12 @@ test('cancelling sends the record revision and the staff reason', async () => {
   expect(screen.getByText(/2 people are registered\./)).toBeTruthy();
   fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: 'Instructor out sick' } });
   const hold = screen.getByRole('button', { name: /Hold to cancel class/ });
-  // A short press does nothing; cancelling needs the full hold.
+  // A short press never cancels on its own: it only asks for a second press. The full hold cancels.
   fireEvent.keyDown(hold, { key: ' ' });
   fireEvent.keyUp(hold, { key: ' ' });
   await act(async () => { await new Promise((r) => setTimeout(r, 300)); });
   expect(calls('/classes/5/cancel', 'POST')).toHaveLength(0);
+  expect(hold.textContent).toContain('Press again to confirm');
   fireEvent.keyDown(hold, { key: ' ' });
   await act(async () => { await new Promise((r) => setTimeout(r, 1500)); });
   expect(calls('/classes/5/cancel', 'POST')[0][1]?.body).toEqual({ expectedRevision: 4, reason: 'Instructor out sick' });
@@ -469,7 +508,10 @@ test('a class that started while the cancel dialog was open is not cancelled, an
     return served(path, options);
   });
   const before = calls('/classes').length;
-  await act(async () => { fireEvent.submit(screen.getByRole('button', { name: /Hold to cancel class/ }).closest('form')!); });
+  // The full hold is the only way to cancel.
+  fireEvent.keyDown(screen.getByRole('button', { name: /Hold to cancel class/ }), { key: ' ' });
+  await act(async () => { await new Promise((r) => setTimeout(r, 1500)); });
+  expect(calls('/classes/5/cancel', 'POST')).toHaveLength(1);
   expect(screen.getByText(/already started or been cancelled/)).toBeTruthy();
   expect(calls('/classes').length).toBeGreaterThan(before);
 });
