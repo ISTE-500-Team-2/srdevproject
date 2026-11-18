@@ -355,7 +355,9 @@ export class StaffController {
         ? null
         : oneOf(req.query.view, AUDIT_VIEWS_LIST, "Audit view");
     const filters = {
+      // Either side of a change; subjectId is only the person it was made to.
       userId: optionalPositiveId(req.query.userId, "User"),
+      subjectId: optionalPositiveId(req.query.subjectId, "Member"),
       actorId: optionalPositiveId(req.query.actorId, "Actor"),
       action: optionalAuditAction(req.query.action),
       actions: optionalAuditActions(req.query.actions),
