@@ -555,7 +555,7 @@ export class StaffService {
         throw new AppError(
           409,
           "CARD_RENEWAL_ACTIVE",
-          `This membership still renews by card. Choose Stop auto-renew on ${member.firstName}’s membership first, so they aren’t charged again, then end access.`,
+          `This membership still renews by card. First choose Stop auto-renew on ${member.firstName}’s membership, then end access. Billing ends on the first billing date at least 30 days away, so there may be one more charge.`,
         );
       const after = await model.changeEntitlement(
         kind,
@@ -609,7 +609,7 @@ export class StaffService {
       // Recording it at the desk would leave the checkout able to charge again, or let the unpaid
       // hold cancel a booking the member paid for.
       if ((await db.query("SELECT 1 FROM reservation r JOIN app_equipment_checkout c ON c.reservation_id=r.reservationid WHERE r.payment_id=$1 AND c.status='pending'",[id])).rowCount)
-        throw new AppError(409,'PROVIDER_PAYMENT','This booking is paid by card online. The member pays through its checkout; if they won’t, cancel the reservation instead.');
+        throw new AppError(409,'PROVIDER_PAYMENT','This booking is paid by card online, so the member pays through its checkout. To release it instead, open the account that booked it with View as and choose Cancel checkout on the Equipment page; an unpaid checkout also releases it when it expires.');
       this.expectRevision(before.revision, revision);
       const transitions: Record<string, string[]> = {
         pending: ["paid", "void", "waived"],

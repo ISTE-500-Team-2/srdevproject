@@ -69,7 +69,7 @@ export function pendingCheckoutRefusal(booking: { userId: number; payerId: numbe
       : 'You opened an online checkout for this booking, so it can’t be changed. Choose Cancel checkout under My reservations on the Equipment page, then book again.'
     : booking.payerId === booking.userId
       ? action === 'cancel'
-        ? 'This booking is waiting for the member’s online payment, so it can’t be cancelled yet. If they pay, you can cancel it then; if their checkout expires unpaid, the booking is released on its own.'
+        ? 'This booking is waiting for the member’s online payment, so it can’t be cancelled yet. To release it now, open the account that booked it with View as and choose Cancel checkout on the Equipment page. If they pay, you can cancel it then; if their checkout expires unpaid, the booking is released on its own.'
         : 'This booking is waiting for the member’s online payment, so it can’t be changed yet.'
       : action === 'cancel'
         ? 'This booking is waiting on an online checkout another staff member opened, so it can’t be cancelled yet. They can cancel that checkout from their Equipment page; if it expires unpaid, the booking is released on its own.'

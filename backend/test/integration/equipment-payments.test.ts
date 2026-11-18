@@ -487,6 +487,16 @@ test('a booking still in its card checkout can\'t be settled at the desk, so the
   for (const status of ['paid', 'void', 'waived'])
     await assert.rejects(staff.paymentStatus(admin, paymentId, status, 'cash', '', (await listed()).revision, 'Paid at the desk'),
       {code: 'PROVIDER_PAYMENT', message: /paid by card online/});
+  // Staff can't cancel the booking while its checkout is open either, so both refusals point to the
+  // way that works: Cancel checkout from the booking account, opened with View as.
+  for (const refusal of [
+    async () => staff.paymentStatus(admin, paymentId, 'void', 'cash', '', (await listed()).revision, 'Paid at the desk'),
+    () => new ReservationModel(pool).cancelAny(result.id),
+  ]) await assert.rejects(refusal, (error: Error) => {
+    assert.match(error.message, /View as and choose Cancel checkout/);
+    assert.doesNotMatch(error.message, /cancel the reservation/);
+    return true;
+  });
   assert.equal((await listed()).status, 'pending');
   // The member's checkout then settles that same payment, once.
   const session = paid(await sessionFor(result.id));
