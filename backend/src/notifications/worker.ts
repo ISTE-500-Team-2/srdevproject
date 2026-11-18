@@ -14,13 +14,15 @@ export interface PendingNotification {
 export class NotificationSendError extends Error {
   constructor(message:string,public options:{retryable:boolean;ambiguous?:boolean;retryAfterMs?:number;reason?:'render_failed'}) {super(message);}
 }
+type Send=(notification:PendingNotification)=>Promise<{messageId:string}>;
+const batchLimit=(size?:number)=>Math.min(100,Math.max(1,size??20));
 /**
  * Claim a bounded batch, recheck eligibility/preferences and send; retry only explicit rejection
  * known not to have accepted the message.
  */
-export async function runNotificationBatch(pool:Pool,send:(notification:PendingNotification)=>Promise<{messageId:string}>,options:{batchSize?:number;maxAttempts?:number;now?:Date}={}) {
+export async function runNotificationBatch(pool:Pool,send:Send,options:{batchSize?:number;maxAttempts?:number;now?:Date}={}) {
   const result={accepted:0,suppressed:0,failed:0,uncertain:0,retried:0,obsolete:0};
-  const batchSize=Math.min(100,Math.max(1,options.batchSize??20));
+  const batchSize=batchLimit(options.batchSize);
   const maxAttempts=Math.min(10,Math.max(1,options.maxAttempts??5));
   const clock=()=>options.now??new Date();
   // A process may have died after provider acceptance. Do not resend lease-expired
@@ -38,7 +40,9 @@ export async function runNotificationBatch(pool:Pool,send:(notification:PendingN
         FROM app_notification_outbox o LEFT JOIN "user" u ON u.userid=o.userid
         LEFT JOIN app_pending_registration r ON r.id=o.registration_id
         LEFT JOIN app_notification_preferences p ON p.userid=o.userid
-        WHERE o.status='pending' AND o.due_at<=$1 ORDER BY o.due_at,o.id
+        -- Nearest deadline first: one person's reset link (five minutes) goes ahead of an
+        -- announcement to every account (an hour) queued before it.
+        WHERE o.status='pending' AND o.due_at<=$1 ORDER BY o.deadline_at,o.id
         LIMIT 1 FOR UPDATE OF o SKIP LOCKED`,[clock()]);
       const item=selected.rows[0];
       if(!item)return null;
@@ -119,4 +123,18 @@ export async function runNotificationBatch(pool:Pool,send:(notification:PendingN
     }
   }
   return result;
+}
+/**
+ * Run batch after batch while full ones come back, so a large announcement is not paced at one batch
+ * per interval. Stops when the queue runs short, the time budget is spent, the runtime is stopping, or
+ * a batch hit a retry or an unconfirmed send, so a struggling provider is not pressed harder.
+ */
+export async function drainNotificationBatches(pool:Pool,send:Send,options:{budgetMs:number;batchSize?:number;stopping?:()=>boolean}) {
+  const started=Date.now();
+  for(;;) {
+    const result=await runNotificationBatch(pool,send,{batchSize:options.batchSize});
+    const claimed=Object.values(result).reduce((sum,count)=>sum+count,0);
+    if(claimed<batchLimit(options.batchSize) || result.retried || result.uncertain || options.stopping?.()
+      || Date.now()-started>=options.budgetMs) return;
+  }
 }

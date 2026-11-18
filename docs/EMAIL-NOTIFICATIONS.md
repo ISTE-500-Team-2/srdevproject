@@ -68,6 +68,12 @@ poll PostgreSQL; they do not send empty requests to Brevo. This reduces queue
 polling latency, not provider or inbox delivery time. Retry/backoff rules and
 daily sending quotas are unchanged.
 
+Each tick sends the due job with the nearest deadline first, and keeps sending
+while full batches of 20 come back, for up to one interval. It stops early after
+a retryable rejection or an unconfirmed send. An administrator's announcement to
+every account is queued in one statement with a one-hour deadline, so personal
+mail (five minutes), such as a password reset, goes ahead of it.
+
 The worker scans expiration sources at startup and daily, and dispatches every
 minute by default. It schedules at 09:00 in the user's zone **eight calendar days**
 before expiration, leaving retry time before the strict seven-elapsed-day deadline.
@@ -106,7 +112,8 @@ authenticated GET/PATCH endpoints at `/api/me/notifications`; PATCH retains norm
 
 Scheduler supports certification renewal/end dates, explicit waiver expiration,
 and membership expiration. Membership expiry is not an auto-renewal charge;
-recurring-billing notices come from the separate billing flow.
+recurring-billing notices come from the separate billing flow, and a card
+subscription still set to renew gets no expiry reminder.
 
 Templates also cover sources not yet wired: account-creation failure, account
 closure, certification changes and role changes. A template alone does not

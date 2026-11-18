@@ -9,7 +9,7 @@ import {membershipTrends} from '../../src/membershipReports.js';
 import {StaffModel} from '../../src/models/StaffModel.js';
 import {MemberModel} from '../../src/models/MemberModel.js';
 import {StaffService} from '../../src/services/StaffService.js';
-import {scheduleExpirationNotifications} from '../../src/notifications/scheduler.js';
+import {expirationSourceCurrent,scheduleExpirationNotifications} from '../../src/notifications/scheduler.js';
 import {checkReaderHealth} from '../../src/serviceNotices.js';
 import {initializeDemo} from '../../src/scripts/init-demo.js';
 import {StudioStripe} from '../../src/studios/stripe.js';
@@ -182,6 +182,33 @@ test('B-015/BR-010: annual waiver reminders enter the scheduling window near exp
  assert.equal((await post(`/me/waivers/${id}/sign`,{accepted:true},member)).status,200);
  await scheduleExpirationNotifications(pool);
  assert.equal((await reminders()).length,1);
+});
+
+test('BR-010: membership reminders skip card subscriptions that renew themselves and name the plan',async()=>{
+ const desk=await freshUser('DeskRenewal'),renewing=await freshUser('AutoRenewal'),stopped=await freshUser('StoppedRenewal');
+ const ids=new Map<number,number>();
+ for(const userId of [desk,renewing,stopped]) ids.set(userId,await membership(userId,-20,5));
+ const card=async(userId:number,cancelAtPeriodEnd:boolean)=>{
+  const membershipId=ids.get(userId)!,billing=randomUUID(),reference='in_remind_'+randomBytes(4).toString('hex');
+  const tier=(await pool.query('SELECT tierid FROM user_membership WHERE membershipid=$1',[membershipId])).rows[0].tierid;
+  const payment=await new StaffModel(pool).createPayment(userId,membershipId,'50.00','paid','card',reference,'Fixture',userId);
+  await pool.query(`INSERT INTO app_membership_billing(id,userid,tierid,plan_snapshot,amount_cents,status,cancel_at_period_end) VALUES($1,$2,$3,'{"name":"x"}',5000,'active',$4)`,[billing,userId,tier,cancelAtPeriodEnd]);
+  await pool.query(`INSERT INTO app_membership_invoice(id,billing_id,membership_id,payment_id,period_start,period_end) VALUES($1,$2,$3,$4,NOW(),NOW()+INTERVAL '1 month')`,[reference,billing,membershipId,payment]);
+ };
+ await card(renewing,false);await card(stopped,true);
+ await scheduleExpirationNotifications(pool);
+ assert.equal((await emails('membership_expiring',renewing)).length,0,'Stripe renews it; the renewal notice covers it');
+ const plan=(await pool.query(`SELECT COALESCE(m.plan_snapshot->>'name',t.tiername) AS name FROM user_membership m JOIN membership_tiers t USING(tierid) WHERE m.membershipid=$1`,[ids.get(desk)])).rows[0].name;
+ assert.ok(plan&&plan!=='Membership');
+ for(const userId of [desk,stopped]) {
+  const sent=await emails('membership_expiring',userId);
+  assert.equal(sent.length,1);assert.equal(sent[0].payload.name,plan);
+ }
+ // Auto-renew back on before the reminder goes out: the queued reminder is withdrawn at dispatch.
+ const queued=(await emails('membership_expiring',stopped))[0].payload;
+ assert.equal(await expirationSourceCurrent(pool,stopped,queued,new Date()),true);
+ await pool.query('UPDATE app_membership_billing SET cancel_at_period_end=false WHERE userid=$1',[stopped]);
+ assert.equal(await expirationSourceCurrent(pool,stopped,queued,new Date()),false);
 });
 
 test('B-016: the report counts signatures with no retained copy',async()=>{
@@ -375,6 +402,30 @@ test('FR-032: an administrator can notify everyone about any issue and then the 
  assert.ok(done);assert.equal(done.resolution,'Reader replaced, the north door works again.');assert.equal(done.resolvedBy,done.openedBy);
  assert.ok(past.body.data.total>=1);
  assert.ok(!(await get('/admin/service-notices?source=reader',administrator)).body.data.items.some((n:any)=>n.id===id));
+});
+test('FR-032: an announcement queues every account at once with an hour to send, and an impossible id is refused',async()=>{
+ const optedOut=await freshUser('NoticeOptOut');
+ await pool.query('INSERT INTO app_notification_preferences(userid,enabled) VALUES($1,false)',[optedOut]);
+ const opened=await post('/admin/service-notices',{summary:'The laser room is closed for cleaning.'},administrator);
+ assert.equal(opened.status,201);
+ const id=opened.body.data.id;
+ const queued=(await pool.query(`SELECT userid,dedupe_key AS key,status,EXTRACT(EPOCH FROM deadline_at-due_at)::float AS seconds
+  FROM app_notification_outbox WHERE kind='system_issue' AND payload->>'noticeId'=$1`,[String(id)])).rows;
+ const active=(await pool.query(`SELECT userid FROM "user" WHERE status='active' ORDER BY userid`)).rows.map(r=>r.userid);
+ assert.deepEqual(queued.map(r=>r.userid).sort((a,b)=>a-b),active);
+ for(const row of queued) {
+  assert.equal(row.key,`system_issue:${id}:${row.userid}`);
+  // Personal mail has five minutes and is sent first; the announcement has an hour.
+  assert.ok(Math.abs(row.seconds-3600)<60,String(row.seconds));
+ }
+ assert.equal(queued.find(r=>r.userid===optedOut).status,'suppressed');
+ assert.equal(queued.find(r=>r.userid===member.id).status,'pending');
+ const resolved=await post(`/admin/service-notices/${id}/resolve`,{message:'The laser room is open again.'},administrator);
+ assert.equal(resolved.status,200);
+ assert.equal((await pool.query(`SELECT COUNT(*)::int AS n FROM app_notification_outbox WHERE kind='service_restored' AND payload->>'noticeId'=$1`,[String(id)])).rows[0].n,active.length);
+ // INTEGER ids stop at 2147483647; a larger one is a bad request, not a server error.
+ const huge=await post('/admin/service-notices/9999999999/resolve',{message:'Nothing to resolve here.'},administrator);
+ assert.equal(huge.status,400);assert.equal(huge.body.error.code,'INVALID_INPUT');
 });
 test('FR-032: an announcement needs no change-log note; filters reject unknown values',async()=>{
  const opened=await post('/admin/service-notices',{summary:'The shop closes at 3 PM today.'},administrator);
