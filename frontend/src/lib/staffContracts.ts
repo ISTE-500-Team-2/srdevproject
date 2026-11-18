@@ -173,13 +173,13 @@ export interface ComplianceUser {
   expiringWaivers: string[];
   missingCertifications: string[];
   expiringCertifications: string[];
-  /** What's wrong, item by item: never signed/trained, expired, or expiring soon. */
+  /** What's wrong, item by item: never signed, expired, revoked, or expiring soon. */
   issues: ComplianceIssue[];
 }
 export interface ComplianceIssue {
   kind: "waiver" | "certification";
   name: string;
-  state: "missing" | "expired" | "expiring";
+  state: "missing" | "expired" | "revoked" | "expiring";
   expiresAt: string | null;
 }
 export interface ComplianceReport {
