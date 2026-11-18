@@ -122,6 +122,8 @@ function CurrentPlan({
 }) {
   const name = item.plan?.name ?? (kind === "membership" ? "Membership" : "Day pass");
   const price = item.plan?.price ? dollars(item.plan.price) : "";
+  // Why it was sold at that price, recorded the same way for desk and online sales.
+  const basis = item.plan?.priceBasis === "student" ? "student price" : item.plan?.priceBasis === "school_partner" ? "school partner" : "";
   const pay = !item.cardBilled ? "paid at the desk" : item.autoRenews === false ? "card, auto-renew off" : "card, renews automatically";
   let bar: ReactNode;
   if (kind === "membership" && item.startsAt && item.endsAt) {
@@ -151,7 +153,7 @@ function CurrentPlan({
           {name}
           <span className={`status-pill status-pill--${entitlementTone(item.effectiveStatus)}`}>{ENTITLEMENT_WORDS[item.effectiveStatus] ?? item.effectiveStatus}</span>
         </span>
-        <span className="mr-plan__price">{[price && (kind === "membership" ? `${price} a month` : price), kind === "membership" ? pay : ""].filter(Boolean).join(" · ")}</span>
+        <span className="mr-plan__price">{[price && (kind === "membership" ? `${price} a month` : price), basis, kind === "membership" ? pay : ""].filter(Boolean).join(" · ")}</span>
       </div>
       {bar}
       {item.cancellationRequestedAt ? <p className="mr-plan__note">{first} asked to cancel; it ends on the date shown and won’t renew.</p> : null}

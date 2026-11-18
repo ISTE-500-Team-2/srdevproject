@@ -29,6 +29,8 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
 });
+/** The issuance requests, leaving out the price lookups the form makes on the way. */
+const posts = () => vi.mocked(api).mock.calls.filter((call) => call[1]?.method === "POST");
 
 function fields() {
   fireEvent.change(screen.getByLabelText("Access plan"), {
@@ -57,7 +59,7 @@ test("failed identical access submissions retain their request id across rerende
   fields();
   fireEvent.submit(screen.getByRole("form"));
   await screen.findByRole("alert");
-  const first = vi.mocked(api).mock.calls[0]![1]!.body as Record<
+  const first = posts()[0]![1]!.body as Record<
     string,
     unknown
   >;
@@ -76,9 +78,9 @@ test("failed identical access submissions retain their request id across rerende
     (screen.getByLabelText("Reason for change") as HTMLInputElement).value,
   ).toBe("Approved access");
   fireEvent.submit(screen.getByRole("form"));
-  await waitFor(() => expect(api).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(posts()).toHaveLength(2));
   await screen.findByRole("alert");
-  const second = vi.mocked(api).mock.calls[1]![1]!.body as Record<
+  const second = posts()[1]![1]!.body as Record<
     string,
     unknown
   >;
@@ -87,8 +89,8 @@ test("failed identical access submissions retain their request id across rerende
     target: { value: "Changed approval" },
   });
   fireEvent.submit(screen.getByRole("form"));
-  await waitFor(() => expect(api).toHaveBeenCalledTimes(3));
-  const third = vi.mocked(api).mock.calls[2]![1]!.body as Record<
+  await waitFor(() => expect(posts()).toHaveLength(3));
+  const third = posts()[2]![1]!.body as Record<
     string,
     unknown
   >;
@@ -115,9 +117,7 @@ test("successful access issuance clears the retry id for the next submission", a
   await screen.findByRole("status");
   fireEvent.submit(screen.getByRole("form"));
   await waitFor(() => expect(saved).toHaveBeenCalledTimes(2));
-  const bodies = vi
-    .mocked(api)
-    .mock.calls.map((call) => call[1]!.body as { requestId: string });
+  const bodies = posts().map((call) => call[1]!.body as { requestId: string });
   expect(bodies[1]!.requestId).not.toBe(bodies[0]!.requestId);
 });
 
@@ -163,4 +163,22 @@ test("only open front-desk records are editable; card payments offer a refund on
   // A booking still in its online card checkout is settled by the checkout, never at the desk.
   expect(paymentAction({ ...payment, method: "unspecified", status: "pending", invoiceId: null, onlineCheckout: true })).toBeNull();
   expect(paymentAction({ ...payment, method: "unspecified", status: "pending", invoiceId: null, onlineCheckout: false })).toBe("update");
+});
+
+test("B-003: the desk form shows the member's student price and promises exactly that price to the server", async () => {
+  const saved = vi.fn();
+  vi.mocked(api).mockImplementation(async (path: string, init?: { method?: string }) =>
+    init?.method === "POST" ? {} : path.startsWith("/admin/users/42/entitlements/quote?planId=7&startsAt=")
+      ? { planId: 7, standardCents: 5000, amountCents: 3000, basis: "student" } : null);
+  render(<IssueAccess id={42} plans={[plan]} timeZone="America/New_York" renewal={null} disabled={false} onSaved={saved} />);
+  fields();
+  expect(await screen.findByText("Price for this member: $30.00")).toBeTruthy();
+  expect(screen.getByText(/Student price \(standard \$50\.00\)/)).toBeTruthy();
+  expect(vi.mocked(api)).toHaveBeenCalledWith(
+    `/admin/users/42/entitlements/quote?planId=7&startsAt=${encodeURIComponent(new Date("2030-01-02T12:00").toISOString())}`,
+    expect.anything(),
+  );
+  fireEvent.submit(screen.getByRole("form"));
+  await waitFor(() => expect(saved).toHaveBeenCalledTimes(1));
+  expect(posts()[0]![1]!.body).toMatchObject({ planId: 7, paymentStatus: "paid", expectedAmountCents: 3000 });
 });

@@ -144,6 +144,8 @@ export interface IssueInput {
   method: string;
   reference: string;
   reason: string;
+  /** The price staff were shown, in cents. A different current price is refused, not recorded. */
+  expectedAmountCents?: number;
 }
 export function issueInput(body: Record<string, unknown>): IssueInput {
   if (
@@ -173,7 +175,13 @@ export function issueInput(body: Record<string, unknown>): IssueInput {
     method,
     reference: textField(body.reference ?? "", "External reference", 100, 0),
     reason: reasonField(body.reason),
+    ...(body.expectedAmountCents == null ? {} : { expectedAmountCents: centsField(body.expectedAmountCents) }),
   };
+}
+function centsField(value: unknown) {
+  if (!Number.isSafeInteger(value) || (value as number) < 0)
+    throw new AppError(400, "INVALID_INPUT", "The expected price must be a whole number of cents.");
+  return value as number;
 }
 export function paymentMethod(value: unknown) {
   return oneOf(

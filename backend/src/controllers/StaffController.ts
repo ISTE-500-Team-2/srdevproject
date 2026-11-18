@@ -12,6 +12,7 @@ import { ProfilePhotoModel } from "../models/ProfilePhotoModel.js";
 import { photoDataUrl } from "../profilePhoto.js";
 import { memberRequirements } from "../memberRequirements.js";
 import {
+  calendarDate,
   instant,
   issueInput,
   oneOf,
@@ -291,6 +292,19 @@ export class StaffController {
       issueInput(req.body),
     );
     res.status(result.replayed ? 200 : 201).json({ data: result });
+  };
+  /** B-003: the price a desk sale would record for this member, so staff can collect it. */
+  quote = async (req: Request, res: Response) => {
+    res.set("Cache-Control", "private, no-store");
+    res.json({
+      data: await this.service.deskQuote(
+        authState(res).user,
+        positiveId(req.params.id),
+        positiveId(req.query.planId, "Plan"),
+        req.query.startsAt == null || req.query.startsAt === "" ? null : instant(req.query.startsAt),
+        req.query.validDate == null || req.query.validDate === "" ? null : calendarDate(req.query.validDate),
+      ),
+    });
   };
   entitlement = async (req: Request, res: Response) => {
     res.json({

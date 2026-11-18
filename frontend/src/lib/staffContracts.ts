@@ -49,7 +49,8 @@ export interface Entitlement {
   startsAt?: string;
   endsAt?: string;
   validDate?: string;
-  plan: Partial<Plan> | null;
+  /** The plan as sold; priceBasis says why its price differs (student, school_partner), when it does. */
+  plan: (Partial<Plan> & { priceBasis?: string }) | null;
   reason: string;
   cancellationRequestedAt?: string | null;
   cardBilled?: boolean;
