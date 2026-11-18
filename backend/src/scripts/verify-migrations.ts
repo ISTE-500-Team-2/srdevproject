@@ -8,6 +8,7 @@ import { pathToFileURL } from "node:url";
 import type { Pool } from "pg";
 import { createPool } from "../db.js";
 import { repositoryRoot } from "./migrate.js";
+import { verifyOnlineMigrations } from "./online-migrations.js";
 // Read-only deployment gate: never runs DDL, seed or repairs.
 export async function verifyMigrations(pool: Pool) {
   const directory = path.join(repositoryRoot, "database/migrations");
@@ -29,6 +30,7 @@ export async function verifyMigrations(pool: Pool) {
     if (existing.checksum !== checksum)
       throw Error(`Migration checksum mismatch: ${name}`);
   }
+  await verifyOnlineMigrations(pool);
 }
 if (
   process.argv[1] &&
@@ -38,7 +40,7 @@ if (
   try {
     await verifyMigrations(pool);
     console.log(
-      "All required migration checksums verified; database unchanged.",
+      "Migration checksums and online work verified; database unchanged.",
     );
   } finally {
     await pool.end();

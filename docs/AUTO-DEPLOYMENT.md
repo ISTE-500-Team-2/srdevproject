@@ -27,8 +27,9 @@ not deploy. The gateway, database containers, volumes, credentials and Pi stay p
 4. Read-only migration/checksum verification runs against both existing databases.
    **It never applies migrations, seeds, recreates volumes or resets data.** If a
    release needs a migration, an operator must review and authorize it separately.
-   Migrations 045 to 052 also need one new runtime grant; see
-   `docs/prewarmed-production-releases.md`.
+   For migrations 045 to 052, keep cutover paused until the owner runner and its
+   read-only verification finish on both databases and the reader compaction
+   grant is in place. [Migration procedure](prewarmed-production-releases.md#applying-migrations-045-to-052)
 5. Fresh public/demo database dumps must succeed and pass `pg_restore --list`.
    This establishes readable archives, not a complete recovery test.
 6. Localhost-only canaries (18082/18081) use the new image with email disabled.

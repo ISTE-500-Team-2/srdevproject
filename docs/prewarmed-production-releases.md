@@ -98,25 +98,40 @@ Schema-changing releases still require separately reviewed backward-compatible
 database changes. This deployer never executes DDL; exact migration checksums
 remain a hard prerequisite.
 
-## Migrations 045 to 052: one new runtime grant
+## Applying migrations 045 to 052
 
-Apply `045_reader_setup_again.sql` through `050_class_room_cooldown.sql` with the
-existing owner migration process on both the public and demo databases. They add
-no tables or sequences. One grant is new: every minute the application now
-compacts ended reader lease renewals (`backend/src/readerLeaseCompaction.ts`),
-which updates and deletes rows in `app_device_access_event`. Before this release
-it only inserted and read them. On each database whose runtime role has only
-the privileges it needed so far, run as the owner:
+1. Pause automatic cutover using the existing [pause procedure](AUTO-DEPLOYMENT.md#pause-recover-and-retry).
+   Leave the previous release serving and take fresh, readable public and demo
+   backups through the reviewed owner process. Use the exact candidate revision.
+2. Run the candidate's `node backend/dist/scripts/migrate.js` with the owner
+   connection for each database from the release image. This applies all eight
+   files, from `045_reader_setup_again.sql` through
+   `052_studio_hold_reconcile_backoff.sql`, including `051_desk_check_in_origin.sql`.
+   Use the runner so the replacement setup index is built before the swap and
+   the lease expiry and refund indexes are built after the schema commits. The
+   runner builds these indexes concurrently on live tables. It also validates
+   the check-in constraint while writes continue and clears previously sent
+   notification links in separate batches. A reader trigger swap fails
+   immediately if its lock is busy. Other schema lock waits in this batch are
+   capped at 250 ms per lock. On a lock conflict, retry in a quieter period.
+   After an interrupted build or cleanup, rerun the same command to finish it.
+3. On each database where the runtime role lacks either privilege, grant both
+   as owner for the new reader lease compaction job.
 
-```sql
-GRANT UPDATE, DELETE ON app_device_access_event TO <runtime role>;
-```
+   ```sql
+   GRANT UPDATE, DELETE ON app_device_access_event TO <runtime role>;
+   ```
 
-Without it nothing else breaks, but every pass fails with permission denied: the
-service log shows `Reader lease compaction failed; retrying on the next interval`
-(code `42501`) once a minute, and the once-a-second renewal rows keep growing as
-they did before. A role that owns the tables, such as the sponsor hosting kit's
-`arbor` user, needs nothing.
+   Substitute the database's actual runtime role. A table owner already has
+   both privileges. These migrations add no tables or sequences. The desk
+   check-in uses the runtime role's existing check-in insert privileges. The
+   payment and studio columns use existing table grants.
+
+4. Run `node backend/dist/scripts/verify-migrations.js` from the same image
+   against both databases using owner connections. Require it to pass before
+   resuming cutover. The automated deployer's checksum check can see the
+   numbered migrations as applied while the online work is still running.
+   After verification, resume using the existing release procedure.
 
 ## Verification
 

@@ -14,6 +14,4 @@ CREATE TRIGGER app_forget_sent_link BEFORE INSERT OR UPDATE OF status ON app_not
   FOR EACH ROW WHEN (NEW.status NOT IN ('pending','sending') AND (NEW.payload ? 'resetUrl' OR NEW.payload ? 'confirmationUrl'))
   EXECUTE FUNCTION app_forget_sent_link();
 
--- Links already left behind by emails sent before this release.
-UPDATE app_notification_outbox SET payload = payload - 'resetUrl' - 'confirmationUrl'
-WHERE status NOT IN ('pending','sending') AND (payload ? 'resetUrl' OR payload ? 'confirmationUrl');
+-- The runner clears previously sent links in batches after this trigger commits.

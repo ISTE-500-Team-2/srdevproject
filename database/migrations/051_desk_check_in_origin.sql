@@ -3,4 +3,5 @@
 -- themselves in on the portal. Widening the check keeps every existing row valid, and the
 -- previous release never writes 'desk', so a blue-green switch is unaffected.
 ALTER TABLE check_in DROP CONSTRAINT app_check_in_origin,
-  ADD CONSTRAINT app_check_in_origin CHECK (origin IN ('nfc','portal','desk'));
+  ADD CONSTRAINT app_check_in_origin CHECK (origin IN ('nfc','portal','desk')) NOT VALID;
+-- New rows are checked immediately. The runner validates existing rows after commit.
