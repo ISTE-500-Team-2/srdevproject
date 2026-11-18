@@ -29,13 +29,16 @@ export function openBilling(records: Billing[]) {
   return records.filter((r) => !closedBilling.includes(r.status));
 }
 
+/** A refund that returned nothing, which the member can retry whatever the visit date. */
+const refundFailed = (p: BillingPass) => p.refundStatus === "failed" || p.refundStatus === "canceled";
+
 /**
  * Show today's and future nonterminal passes in date order, including checkouts whose payment is
- * still pending.
+ * still pending, and any past one whose refund failed so it can still be retried.
  */
 export function upcomingPasses(passes: BillingPass[], today: string) {
   return passes
-    .filter((p) => !closedPass.includes(p.status) && p.validDate >= today)
+    .filter((p) => !closedPass.includes(p.status) && (p.validDate >= today || refundFailed(p)))
     .sort((a, b) => a.validDate.localeCompare(b.validDate));
 }
 

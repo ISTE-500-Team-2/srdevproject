@@ -90,12 +90,13 @@ export function loadReport(
       await db.query<RevenueRow>(
         // Categories use the staff Payments ledger's labels (models/staff/payments.ts), without its refund-due notes.
         `WITH ledger AS (
- SELECT p.paymentdate AT TIME ZONE 'UTC' AS at,COALESCE(m.plan_snapshot->>'name',d.plan_snapshot->>'name',t.tiername,
+ SELECT p.paymentdate AT TIME ZONE 'UTC' AS at,COALESCE(m.plan_snapshot->>'name',d.plan_snapshot->>'name',pass_checkout.plan_snapshot->>'name',t.tiername,
    'Equipment: '||machine.name,'Training class: '||class.title,
    CASE WHEN p.note LIKE 'Equipment booking:%' OR p.note LIKE 'Training class:%' THEN p.note END,'Unclassified payment') AS category,p.method,
  p.price AS gross,CASE WHEN p.paymentstatus='refunded' THEN p.price ELSE 0 END AS refunds
  FROM payment p LEFT JOIN user_membership m USING(membershipid) LEFT JOIN membership_tiers t ON t.tierid=m.tierid
  LEFT JOIN LATERAL(SELECT plan_snapshot FROM day_pass WHERE paymentid=p.paymentid ORDER BY dayid LIMIT 1) d ON true
+ LEFT JOIN app_pass_checkout pass_checkout ON pass_checkout.payment_id=p.paymentid
  LEFT JOIN reservation booking ON booking.payment_id=p.paymentid LEFT JOIN equipment machine ON machine.equipmentid=booking.equipmentid
  LEFT JOIN app_training_enrollment training ON training.payment_id=p.paymentid LEFT JOIN app_training_class class ON class.id=training.class_id
  WHERE p.paymentstatus IN ('paid','refunded')

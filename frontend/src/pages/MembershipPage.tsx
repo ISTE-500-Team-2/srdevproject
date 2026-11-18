@@ -29,6 +29,18 @@ type Message = { text: string; error?: boolean };
  */
 function passCancelMessage(r: Result): string | Message {
   if (r.manualRefundRequired) return "Day pass cancelled. Ask staff at the front desk for your refund.";
+  // A card payment that arrived when no pass could be issued only has a refund to report.
+  if (r.passIssued === false) {
+    if (r.cancelled === true || r.refundStatus === "succeeded") return "Your payment was refunded. No day pass was issued for it.";
+    if (r.refundStatus === "failed" || r.refundStatus === "canceled")
+      return {
+        text: "We couldn't refund this payment. No day pass was issued for it. Please ask staff at the front desk.",
+        error: true,
+      };
+    if (r.refundStatus === "pending" || r.refundStatus === "requires_action")
+      return "Your refund is on its way. No day pass was issued for this payment. We'll email you when it's done.";
+    return "We couldn't confirm your refund. Refresh this page to see its status, or ask staff at the front desk.";
+  }
   if (r.cancelled === true || r.refundStatus === "succeeded") return "Day pass cancelled.";
   if (r.refundStatus === "pending" || r.refundStatus === "requires_action")
     return "Your day pass cancellation is waiting on the refund. We'll email you when it's done.";

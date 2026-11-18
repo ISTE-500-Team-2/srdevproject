@@ -98,7 +98,8 @@ test('desk issuance waits while the member has an open online checkout for that 
   const date = '2034-04-10';
   await passes.checkout(member, await input(date));
   assert.ok((await checkoutRow(date)).checkout_id, 'the checkout has a Stripe session');
-  await assert.rejects(staff.issue(admin, member, desk(date)), { code: 'CHECKOUT_OPEN' });
+  // Staff can clear it themselves from the member's account, so the refusal says how.
+  await assert.rejects(staff.issue(admin, member, desk(date)), { code: 'CHECKOUT_OPEN', message: /View as.*Cancel checkout/ });
   assert.equal(await passCount(date), 0);
   // Once the session can no longer take payment, the desk can issue the pass.
   await pool.query("UPDATE app_pass_checkout SET created_at=now()-interval '23 hours 1 minute' WHERE userid=$1 AND valid_date=$2", [member, date]);
@@ -158,8 +159,11 @@ test('a payment that arrives after the visit date ended is refunded, and a faile
   assert.doesNotMatch(failed.payload.instructions, /still valid/);
 
   // The visit date has passed, but the refund was never the member's late cancellation: it can be retried.
+  // The member is told no pass was issued, not that a pass was cancelled or is still active.
+  assert.deepEqual(await passes.cancel(member, id), { cancelled: false, refundStatus: 'failed', passIssued: false });
   nextRefund = 'succeeded';
-  assert.deepEqual(await passes.cancel(member, id), { cancelled: true, refundStatus: 'succeeded' });
+  assert.deepEqual(await passes.cancel(member, id), { cancelled: true, refundStatus: 'succeeded', passIssued: false });
+  assert.deepEqual(await passes.cancel(member, id), { cancelled: true, passIssued: false });
   row = (await pool.query('SELECT * FROM app_pass_checkout WHERE id=$1', [id])).rows[0];
   assert.deepEqual([row.status, row.refund_status], ['cancelled', 'succeeded']);
   assert.equal((await pool.query('SELECT paymentstatus FROM payment WHERE paymentid=$1', [row.payment_id])).rows[0].paymentstatus, 'refunded');

@@ -25,6 +25,8 @@ export interface PassCheckoutRequest {[field:string]:unknown;validDate?:unknown;
 /** Free monthly membership request; each field is validated by PassBilling.freeMembership. */
 export interface FreeMembershipRequest {[field:string]:unknown;planId?:unknown;expectedRevision?:unknown;pricingRevision?:unknown;}
 const objectId=(v:string|{id:string}|null|undefined):string|undefined=>typeof v==='string'?v:v?.id;
+/** Marks a refunded payment that never became a pass (see refundUnissued), so the member isn't told about a pass. */
+const unissued=(r:Pick<PassCheckoutRow,'pass_id'|'payment_id'>)=>r.payment_id&&!r.pass_id?{passIssued:false as const}:{};
 export class PassBilling {
  constructor(readonly pool:Pool,readonly stripe?:StudioStripe,readonly zone='America/New_York'){}
  provider(){if(!this.stripe)throw new AppError(503,'PAYMENTS_UNAVAILABLE','Card checkout is not configured.');return this.stripe;}
@@ -178,7 +180,7 @@ export class PassBilling {
    if(r.status==='paid'&&!r.cancel_requested_at&&!r.timely)throw new AppError(409,'CANCELLATION_NOTICE','Day passes require at least 3 days cancellation notice.');
    await db.query("UPDATE app_pass_checkout SET cancel_requested_at=COALESCE(cancel_requested_at,now()) WHERE id=$1 AND status='paid'",[id]);return r;
   });
-  if(['cancelled','expired'].includes(row.status))return {cancelled:true};
+  if(['cancelled','expired'].includes(row.status))return {cancelled:true,...unissued(row)};
   if(row.status==='pending'){
    const sdk=this.provider().sdk;
    if(!row.checkout_id)throw new AppError(409,'RECONCILE_REQUIRED','Resume checkout before cancelling.');
@@ -189,9 +191,9 @@ export class PassBilling {
   }
   return transaction(this.pool,async db=>{
    const r=(await db.query<PassCheckoutRow>('SELECT * FROM app_pass_checkout WHERE id::text=$1 FOR UPDATE',[id])).rows[0]!;
-   if(r.status==='cancelled')return {cancelled:true};
+   if(r.status==='cancelled')return {cancelled:true,...unissued(r)};
    if(r.amount_cents===0){await this.finishCancel(db,r);return {cancelled:true};}
-   const f=await this.cardRefund(db,r);return {cancelled:f.status==='succeeded',refundStatus:f.status};
+   const f=await this.cardRefund(db,r);return {cancelled:f.status==='succeeded',refundStatus:f.status,...unissued(r)};
   });
  }
  /** Refunds a paid online checkout to its original card and records the result. */
