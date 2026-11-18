@@ -862,6 +862,12 @@ small {
   width: 21px;
 }
 
+.toast.toast--problem {
+  border-color: var(--hold-danger);
+  background: var(--hold-danger-bg);
+  color: var(--hold-danger-text);
+}
+
 /* Authentication */
 .login-page,
 .loading-page {

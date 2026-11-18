@@ -13,7 +13,7 @@ import { AssignCard } from "../../access/MemberCards";
 import { MemberSelect } from "../../MemberSelect";
 import { Modal } from "../../Modal";
 import { AssistedPurchase } from "../AssistedPurchase";
-import { CardRefund, PaymentEditor, paymentStatusName } from "../PaymentControls";
+import { CardRefund, PaymentEditor, paymentStatusName, refundAccepted } from "../PaymentControls";
 import { ROLES, roleName } from "./recordModel";
 import { MemberPhoto } from "../../MemberPhoto";
 import { initials } from "../../admin/people";
@@ -141,8 +141,8 @@ export function RecordDialogHost({
   timeZone: string;
   supervision: SupervisionSummary | null;
   onClose: () => void;
-  /** A change was saved: show this sentence and refresh the record. */
-  onDone: (message: string) => void;
+  /** A change was saved: show this sentence and refresh the record. `problem`: it saved, but didn't work (a card refund Stripe didn't complete). */
+  onDone: (message: string, problem?: boolean) => void;
   /** A write returned the member's committed record, with its new revision. */
   onPerson: (person: Person) => void;
   /** Someone else saved first; refresh before the next try. */
@@ -369,9 +369,10 @@ export function RecordDialogHost({
               onDone(
                 status === "succeeded"
                   ? `Refunded ${dollars(dialog.payment.amount)}.`
-                  : status === "pending" || status === "requires_action"
+                  : refundAccepted(status)
                     ? `Refund of ${dollars(dialog.payment.amount)} is on its way.`
                     : `Stripe didn't complete the refund of ${dollars(dialog.payment.amount)}. Check it in Stripe.`,
+                !refundAccepted(status),
               )
             } />
         </Modal>

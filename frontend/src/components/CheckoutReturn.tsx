@@ -19,7 +19,8 @@ export function CheckoutReturn({ children }: { children?: ReactNode }) {
       ? /^\d+$/.test(raw) && Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
       : legacyAssistedMember(purchaser?.id);
     const search = new URLSearchParams({ [kind]: status });
-    if (isWorkspaceUser(purchaser) && member) {
+    // Staff who bought for themselves belong on their own membership page, not the member workspace.
+    if (isWorkspaceUser(purchaser) && member && member !== purchaser?.id) {
       search.set('member', String(member));
       return <Navigate replace to={`/admin/members?${search}`} />;
     }
