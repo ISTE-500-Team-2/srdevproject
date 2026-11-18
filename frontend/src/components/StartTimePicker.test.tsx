@@ -208,3 +208,21 @@ test("a large future schedule keeps the same cooldown boundaries after an availa
  expect(options()).toContain('15:30');
  expect(options()).toContain('18:30');
 });
+
+test("a chosen time on a machine that goes out of service is not blamed on the time", () => {
+ const now=new Date(2026,9,27,12);
+ const {rerender}=render(<StartTimePicker calendar name="start" hours={1} now={now} occupied={[]}/>);
+ fireEvent.change(picker(),{target:{value:'15:00'}});
+ expect(value()).toBe('2026-10-27T15:00');
+ // A sibling machine in maintenance, or a catalog refresh, marks the machine out of service.
+ rerender(<StartTimePicker calendar name="start" hours={1} now={now} occupied={[]} unavailable/>);
+ expect(value()).toBe('');
+ expect(picker().options[0]!.text).toBe('No available times');
+ expect(screen.queryByRole('alert')).toBeNull();
+ expect(screen.queryByRole('status')).toBeNull();
+ expect(picker().getAttribute('aria-invalid')).toBeNull();
+ // Back on a machine in service, the chosen time returns.
+ rerender(<StartTimePicker calendar name="start" hours={1} now={now} occupied={[]}/>);
+ expect(value()).toBe('2026-10-27T15:00');
+ expect(screen.queryByRole('alert')).toBeNull();
+});
