@@ -158,6 +158,38 @@ test("Escape closes an unchanged editor at once and returns focus to its plan", 
   await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Day pass" })));
 });
 
+test("opening another plan or New plan asks before throwing away unsaved edits", async () => {
+  render(<StaffPlans />);
+  await userEvent.click(await screen.findByRole("button", { name: "Monthly" }));
+  const form = screen.getByRole("form", { name: "Edit Monthly" });
+  const reason = within(form).getByLabelText("Reason for change") as HTMLInputElement;
+  await userEvent.type(reason, "Fall pricing");
+  // The plan already open keeps its editor and draft, so there is nothing to ask.
+  await userEvent.click(screen.getByRole("button", { name: "Monthly" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Day pass" }));
+  await userEvent.click(
+    within(screen.getByRole("dialog", { name: "Discard unsaved changes?" })).getByRole("button", { name: "Keep editing" }),
+  );
+  expect(screen.getByRole("form", { name: "Edit Monthly" })).toBe(form);
+  expect(reason.value).toBe("Fall pricing");
+  await userEvent.click(screen.getByRole("button", { name: "New plan" }));
+  await userEvent.click(
+    within(screen.getByRole("dialog", { name: "Discard unsaved changes?" })).getByRole("button", { name: "Discard changes" }),
+  );
+  expect(screen.queryByRole("form", { name: "Edit Monthly" })).toBeNull();
+  expect(screen.getByRole("form", { name: "Create a plan" })).toBeTruthy();
+  expect(writes()).toEqual([]);
+});
+
+test("an unchanged editor gives way to another plan at once", async () => {
+  render(<StaffPlans />);
+  await userEvent.click(await screen.findByRole("button", { name: "Day pass" }));
+  await userEvent.click(screen.getByRole("button", { name: "Monthly" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.getByRole("form", { name: "Edit Monthly" })).toBeTruthy();
+});
+
 test("new plans pick their type with a toggle, and day passes have no length", async () => {
   render(<StaffPlans />);
   await userEvent.click(await screen.findByRole("button", { name: "New plan" }));

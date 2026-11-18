@@ -45,7 +45,7 @@ export function refundNote(payment: Payment) {
  */
 export function checkoutNote(payment: Payment) {
   return payment.onlineCheckout && payment.status === "pending"
-    ? "Paid by card online: the member pays through checkout. To release the booking, open the account that booked it with View as and choose Cancel checkout on the Equipment page."
+    ? "Not paid yet: the member pays through online card checkout. To release the booking, open the account that booked it with View as and choose Cancel checkout on the Equipment page."
     : null;
 }
 

@@ -2,7 +2,7 @@
 // preserves revision checks.
 
 import "./plans.css";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useImperativeHandle, useRef, useState, type FormEvent, type Ref } from "react";
 import { ChevronDown, ChevronRight, GraduationCap, Plus, School, X } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
@@ -16,6 +16,8 @@ import { Modal } from "../components/Modal";
 import { cents, dollars } from "../lib/display";
 
 type Selection = { mode: "new" } | { mode: "edit"; id: number } | null;
+/** Runs `then` once the open editor's unsaved changes, if any, are confirmed as discarded. */
+type EditorHandle = { leave: (then: () => void) => void };
 
 const period = (plan: Pick<Plan, "kind" | "months">) =>
   plan.kind === "day_pass" ? "day" : plan.months === 1 ? "month" : `${plan.months} months`;
@@ -43,6 +45,17 @@ export function StaffPlans() {
     setNotice("");
     setSelected(next);
   };
+  const editor = useRef<EditorHandle>(null);
+  const editorKey = selected && (selected.mode === "new" || editing) ? (editing?.id ?? "new") : null;
+  /**
+   * A row or "New plan" while the editor is open. Another plan remounts the editor (see its key),
+   * which would drop the draft, so that goes through the editor's unsaved-changes check first.
+   */
+  const choose = (next: Exclude<Selection, null>) => {
+    const key = next.mode === "edit" ? next.id : "new";
+    if (editor.current && key !== editorKey) editor.current.leave(() => open(next));
+    else open(next);
+  };
   /**
    * The editor held focus when it closed. Return it to the plan's row, or to "New plan"
    * when that row isn't listed yet or will move (a new plan, or one put on or off sale).
@@ -58,7 +71,7 @@ export function StaffPlans() {
     isAdmin,
     selectedId: editing?.id ?? null,
     priceFor,
-    onOpen: (plan: Plan) => open({ mode: "edit", id: plan.id }),
+    onOpen: (plan: Plan) => choose({ mode: "edit", id: plan.id }),
   };
   return (
     <div className="plans">
@@ -67,7 +80,7 @@ export function StaffPlans() {
           What members can buy. Changes apply to new purchases; anyone who already
           bought a plan keeps the price and terms they paid for.
         </p>
-        <button ref={newPlan} className="button button--primary plans-new" onClick={() => open({ mode: "new" })}>
+        <button ref={newPlan} className="button button--primary plans-new" onClick={() => choose({ mode: "new" })}>
           <Plus aria-hidden="true" /> New plan
         </button>
       </header>
@@ -113,7 +126,8 @@ export function StaffPlans() {
         </div>
         {selected && (selected.mode === "new" || editing) ? (
           <PlanEditor
-            key={editing?.id ?? "new"}
+            ref={editor}
+            key={editorKey}
             plan={editing}
             priceFor={priceFor}
             isAdmin={isAdmin}
@@ -229,6 +243,7 @@ function PlanGroup({
 }
 
 function PlanEditor({
+  ref,
   plan: initialPlan,
   priceFor,
   isAdmin,
@@ -236,6 +251,7 @@ function PlanEditor({
   onClose,
   onSaved,
 }: {
+  ref: Ref<EditorHandle>;
   plan: Plan | null;
   priceFor: (id: number) => EligibilityPrice | undefined;
   isAdmin: boolean;
@@ -252,10 +268,13 @@ function PlanEditor({
   const [active, setActive] = useState(plan?.active ?? true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(notice);
-  // Edits are only thrown away on purpose: closing a changed form asks first.
+  // Edits are only thrown away on purpose: closing a changed form, or opening another plan
+  // over it, asks first. `discard` is what to do once staff confirm.
   const [dirty, setDirty] = useState(false);
-  const [confirmingClose, setConfirmingClose] = useState(false);
-  const requestClose = () => (dirty ? setConfirmingClose(true) : onClose(plan));
+  const [discard, setDiscard] = useState<(() => void) | null>(null);
+  const leave = (then: () => void) => (dirty ? setDiscard(() => then) : then());
+  const requestClose = () => leave(() => onClose(plan));
+  useImperativeHandle(ref, () => ({ leave }));
   const panel = useRef<HTMLElement>(null);
   useEffect(() => {
     // On narrow screens the editor sits above the list; bring it into view.
@@ -526,19 +545,19 @@ function PlanEditor({
           </div>
         </fieldset>
       </form>
-      {confirmingClose ? (
-        <Modal open width="compact" title="Discard unsaved changes?" onClose={() => setConfirmingClose(false)}>
+      {discard ? (
+        <Modal open width="compact" title="Discard unsaved changes?" onClose={() => setDiscard(null)}>
           <p>Your changes to this plan haven't been saved. Keep editing to retain your draft.</p>
           <div className="management-actions">
-            <button type="button" className="button button--primary" onClick={() => setConfirmingClose(false)}>
+            <button type="button" className="button button--primary" onClick={() => setDiscard(null)}>
               Keep editing
             </button>
             <button
               type="button"
               className="button button--quiet"
               onClick={() => {
-                setConfirmingClose(false);
-                onClose(plan);
+                setDiscard(null);
+                discard();
               }}
             >
               Discard changes
