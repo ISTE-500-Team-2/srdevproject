@@ -208,9 +208,10 @@
   background: rgba(255, 253, 250, 0.5);
   box-shadow: none;
 }
+/* The dashed edge and Cancelled pill mark the row; its text stays readable. */
 .class-row--cancelled h3,
 .class-row--cancelled .class-meta {
-  color: #9a8c84;
+  color: var(--ink-soft);
 }
 .class-row--cancelled .class-thumb {
   filter: grayscale(1);

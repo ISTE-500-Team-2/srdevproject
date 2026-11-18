@@ -214,6 +214,8 @@
   padding: 0 var(--cn-inset) var(--cn-inset);
   box-sizing: border-box;
   perspective: 900px;
+  /* When CardNav.jsx caps a tall menu to the screen, scrolling to its end stays in the menu. */
+  overscroll-behavior: contain;
 }
 
 .card-nav__content {
