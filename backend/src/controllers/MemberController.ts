@@ -34,7 +34,7 @@ export class MemberController {
       user = authState(res).user;
     const [memberships, passes] = await Promise.all([
       model.memberships(user.id),
-      model.passes(user.id),
+      model.passes(user.id, true),
     ]);
     res.json({
       data: {

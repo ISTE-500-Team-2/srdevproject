@@ -40,6 +40,8 @@ const RETIRED_SESSION_WINDOW=CHECKOUT_RETRY_WINDOW+CHECKOUT_ABANDONMENT_WINDOW;
 const CHECKOUT_SEARCH_PAGES=3;
 const HONORED_REFUND_CAP_DAYS=30;
 const refundPending=(f:{status?:string|null})=>f.status==='pending'||f.status==='requires_action';
+const sameRefund=(a:Stripe.Refund,b:Stripe.Refund)=>a.id===b.id&&a.status===b.status&&a.amount===b.amount&&
+ a.currency===b.currency&&objectId(a.payment_intent)===objectId(b.payment_intent)&&objectId(a.charge)===objectId(b.charge);
 const tooLateToCreate=(expiry:Date)=>Math.floor(expiry.getTime()/1000)*1000-Date.now()<STRIPE_MIN_WINDOW;
 const reviewRequired=(staffReview=false)=>new AppError(409,'RECONCILE_REQUIRED',staffReview
  ?'Check the original charge in Stripe. Wait for any pending refunds to finish. To issue an eligible held pass, choose Honor the visit. If you need to return the rest of a partial refund, refund it in Stripe and complete the review here.'
@@ -274,7 +276,9 @@ export class PassBilling {
   const rows=(await this.pool.query<{id:string}>(`WITH due AS (
     SELECT id FROM app_pass_checkout WHERE refund_reconcile_after<=now()
      OR refund_reconcile_after IS NULL AND (
-      refund_needs_review AND payment_id IS NULL AND checkout_id IS NOT NULL AND payment_intent IS NOT NULL
+      refund_needs_review AND payment_id IS NULL AND (
+       checkout_id IS NOT NULL AND payment_intent IS NOT NULL
+       OR status='pending' AND checkout_id IS NULL AND payment_intent IS NULL)
       OR NOT refund_needs_review AND refund_status IN ('pending','requires_action'))
     ORDER BY refund_reconcile_after LIMIT 20 FOR UPDATE SKIP LOCKED
    ) UPDATE app_pass_checkout c SET refund_reconcile_after=now()+interval '1 minute'
@@ -316,6 +320,12 @@ export class PassBilling {
    const row=(await db.query<PassCheckoutRow>(`SELECT * FROM app_pass_checkout WHERE id=$1
     AND refund_reconcile_after=$2::timestamptz FOR UPDATE`,[id,token])).rows[0];
    if(!row)return false;
+   // A truncated search proves nothing. Keep unbound pending checkouts queued at a low cadence.
+   if(row.status==='pending'&&!row.checkout_id&&!row.payment_intent&&!row.payment_id&&
+      (row.refund_needs_review||error instanceof AppError&&error.code==='CHECKOUT_SEARCH_LIMIT')){
+    await db.query("UPDATE app_pass_checkout SET refund_needs_review=true,refund_reconcile_after=now()+interval '1 hour' WHERE id=$1",[id]);
+    return false;
+   }
    const result=await db.query<{due:Date|null}>(`WITH retry_window AS (
      SELECT COALESCE(honor.created_at,GREATEST(c.created_at,p.paymentdate AT TIME ZONE 'UTC')) AS started,
       CASE WHEN honor.created_at IS NULL THEN $3*interval '1 second' ELSE $4*interval '1 day' END AS duration
@@ -374,6 +384,10 @@ export class PassBilling {
   if(!r.payment_intent||!r.payment_id&&!r.checkout_id){
    const session=await this.reconcileSession(r);
    if(!session){
+    // A complete search after the last possible session expired can release an unbound checkout.
+    if(r.status==='pending'&&!r.checkout_id&&!r.payment_intent&&!r.payment_id&&
+       (await db.query(`UPDATE app_pass_checkout SET status='expired',refund_needs_review=false,refund_reconcile_after=NULL
+        WHERE id=$1 AND now()>=created_at+$2*interval '1 second'`,[id,RETIRED_SESSION_WINDOW/1000])).rowCount)return;
     // An in-flight create can still bind after retirement. Slow down discovery as the row ages.
     const result=await db.query<{refund_reconcile_after:Date|null}>(`UPDATE app_pass_checkout SET
      refund_needs_review=refund_needs_review OR now()>=created_at+$2*interval '1 second',
@@ -389,6 +403,7 @@ export class PassBilling {
    if(session.status!=='complete'||session.payment_status!=='paid'){
     await db.query(`UPDATE app_pass_checkout SET checkout_id=$2,
      status=CASE WHEN status='pending' AND $3='expired' THEN 'expired' ELSE status END,
+     refund_needs_review=refund_needs_review AND NOT (status='pending' AND payment_id IS NULL AND payment_intent IS NULL AND $3 IN ('open','expired')),
      refund_reconcile_after=NULL WHERE id=$1`,[id,session.id,session.status]);
     return;
    }
@@ -561,6 +576,11 @@ export class PassBilling {
   const attempt=refundAttempt('daypass-refund:'+r.id,list);
   const f=await this.provider().sdk.refunds.create({payment_intent:r.payment_intent!,amount:r.amount_cents,...(attempt.metadata?{metadata:attempt.metadata}:{})},
    {idempotencyKey:attempt.key});
+  if(f.status==='succeeded'&&!sameRefund(f,await this.provider().sdk.refunds.retrieve(f.id))){
+   await db.query('UPDATE app_pass_checkout SET refund_id=$2,refund_status=NULL WHERE id=$1',[r.id,f.id]);
+   await this.flagRefundReview(db,r);
+   return {id:f.id,status:'needs_review'};
+  }
   await this.applyRefund(db,f);
   if(refundPending(f))await this.scheduleRefundCheck(db,r);
   return f;
@@ -608,15 +628,16 @@ export class PassBilling {
     const fullyRefunded=outcome==='split'||outcome?.status==='succeeded';
     const partial=outcome&&outcome!=='split'&&'refundIds' in outcome?outcome:undefined;
     const retired=await this.wasRetired(db,r);
-    const duplicates=(await db.query<{paymentid:number;detached:boolean}>(`SELECT p.paymentid,p.membershipid IS NULL
+    const matchingPayments=(await db.query<{paymentid:number;detached:boolean}>(`SELECT p.paymentid,p.membershipid IS NULL
       AND NOT EXISTS (SELECT 1 FROM day_pass WHERE paymentid=p.paymentid)
       AND NOT EXISTS (SELECT 1 FROM app_pass_checkout WHERE payment_id=p.paymentid)
       AND NOT EXISTS (SELECT 1 FROM app_membership_invoice WHERE payment_id=p.paymentid)
       AND NOT EXISTS (SELECT 1 FROM reservation WHERE payment_id=p.paymentid)
       AND NOT EXISTS (SELECT 1 FROM app_equipment_checkout WHERE payment_id=p.paymentid)
       AND NOT EXISTS (SELECT 1 FROM app_training_enrollment WHERE payment_id=p.paymentid) AS detached
-     FROM payment p WHERE p.userid=$1 AND p.paymentid<>$2 AND p.method='card' AND p.paymentstatus IN ('paid','refunded')
-      AND p.reference IN ($3,$4) FOR UPDATE`,[r.userid,r.payment_id,r.checkout_id,r.payment_intent])).rows;
+     FROM payment p WHERE p.paymentid=$2 OR (p.userid=$1 AND p.method='card' AND p.paymentstatus IN ('paid','refunded')
+      AND p.reference IN ($3,$4)) ORDER BY p.paymentdate,p.paymentid FOR UPDATE`,[r.userid,r.payment_id,r.checkout_id,r.payment_intent])).rows;
+    const duplicates=matchingPayments.filter(p=>p.paymentid!==r.payment_id);
     if(duplicates.some(p=>!p.detached))
      throw new AppError(409,'RECONCILE_REQUIRED','A matching Stripe ledger entry is linked to another record. Ask the payments owner to correct the ledger before completing review.');
     const requiresAcceptance=!!usablePass&&(retired||duplicates.length>0);
@@ -625,17 +646,13 @@ export class PassBilling {
       WHERE userid=$1 AND valid_date=$2 AND id<>$3 AND status NOT IN ('expired','cancelled')`,[r.userid,r.valid_date,id])).rowCount;
     const keepExisting=!!usablePass&&!fullyRefunded&&honorVisit;
     let passIssued=false;
-    if(fullyRefunded){
-     // The old handler can relink the checkout to a new paid ledger row and
-     // grant access after this refund ID was already applied.
-     await this.settleRefundLedger(db,r);
-    }else if(partial||requiresAcceptance||canIssue||keepExisting){
+    if(!fullyRefunded&&(partial||requiresAcceptance||canIssue||keepExisting)){
      if(!honorVisit||!verifiedCharge)return {status:'needs_review'};
      if(canIssue){
       await this.issue(db,r,r.checkout_id??r.payment_intent);
       passIssued=true;
      }else if(!usablePass)return {status:'needs_review'};
-    }else if(!r.pass_id){
+    }else if(!fullyRefunded&&!r.pass_id){
      // Staff may retain the charge after reviewing an admission or close the
      // unused visit before issuing a refund. Keep a closed entitlement linked
      // to the charge so the old handler cannot issue a new pass for it.
@@ -643,7 +660,18 @@ export class PassBilling {
      await model.linkPassPayment(pass,r.payment_id);
      await db.query("UPDATE app_pass_checkout SET status='cancelled',pass_id=$2,cancel_requested_at=NULL WHERE id=$1",[id,pass]);
     }
-    const voidPaymentIds=duplicates.map(p=>p.paymentid);
+    // Rollback can replace the checkout's payment link. Keep the original
+    // ledger date and move the entitlement link back before voiding duplicates.
+    const originalPaymentId=matchingPayments[0]!.paymentid;
+    if(originalPaymentId!==r.payment_id){
+     const {pass_id}=(await db.query<{pass_id:number|null}>(
+      'UPDATE app_pass_checkout SET payment_id=$2 WHERE id=$1 RETURNING pass_id',[id,originalPaymentId])).rows[0]!;
+     if(pass_id)await model.linkPassPayment(pass_id,originalPaymentId);
+     if(!fullyRefunded)
+      await db.query("UPDATE payment SET paymentstatus='paid',updated_at=now(),revision=revision+1 WHERE paymentid=$1 AND paymentstatus='refunded'",[originalPaymentId]);
+    }
+    if(fullyRefunded)await this.settleRefundLedger(db,{...r,payment_id:originalPaymentId});
+    const voidPaymentIds=matchingPayments.filter(p=>p.paymentid!==originalPaymentId).map(p=>p.paymentid);
     if(voidPaymentIds.length)
      await db.query("UPDATE payment SET paymentstatus='void',updated_at=now(),revision=revision+1 WHERE paymentid=ANY($1::int[])",[voidPaymentIds]);
     await db.query(`UPDATE app_pass_checkout SET refund_needs_review=false,
@@ -652,7 +680,7 @@ export class PassBilling {
      refund_reconcile_after=CASE WHEN $2 THEN now()+interval '5 minutes' END WHERE id=$1`,[id,!!partial]);
     const settlement=partial?{refundIds:partial.refundIds,refundedCents:partial.amount,retainedCents:r.amount_cents-partial.amount}:{};
     const passCancelled=!!usablePass&&fullyRefunded;
-    await model.audit(actor,r.userid,'billing.refund.reviewed','payment',r.payment_id,explanation,null,{
+    await model.audit(actor,r.userid,'billing.refund.reviewed','payment',originalPaymentId,explanation,null,{
      checkoutId:id,...settlement,...(keepExisting?{keptPassId:r.pass_id}:{}),
      ...(passCancelled?{cancelledPassId:r.pass_id}:{}),...(voidPaymentIds.length?{voidPaymentIds}:{}),
     });
@@ -726,9 +754,13 @@ export class PassBilling {
   console.error('Day-pass refund requires staff reconciliation',{checkoutId:r.id,code:'RECONCILE_REQUIRED'});
  }
  /** Reconcile against the whole payment. A webhook's individual refund can already be superseded. */
- private async observeRefunds(db:Database,r:PassCheckoutRow,list:Stripe.ApiList<Stripe.Refund>,verifiedCharge?:string,staffReview=false):
+ private async observeRefunds(db:Database,r:PassCheckoutRow,list:Stripe.ApiList<Stripe.Refund>&{inconsistent:boolean},verifiedCharge?:string,staffReview=false):
   Promise<'review'|'split'|Pick<Stripe.Refund,'id'|'status'>|{status:'partial';amount:number;refundIds:string[]}|undefined>{
 
+  if(list.inconsistent){
+   await this.flagRefundReview(db,r);
+   return 'review';
+  }
   const live=list.data.filter(f=>!failedRefund(f));
   const settled=live.filter(f=>f.status==='succeeded');
   const total=settled.reduce((amount,f)=>amount+f.amount,0);
@@ -804,20 +836,19 @@ export class PassBilling {
   const sdk=this.provider().sdk;
   const list=await sdk.refunds.list({payment_intent:r.payment_intent!,limit:100});
   const recorded=list.data.find(f=>f.id===r.refund_id);
-  if(!fresh&&r.refund_id&&(!recorded||refundPending(recorded))){
-   fresh=await sdk.refunds.retrieve(r.refund_id);
-   if(fresh.id!==r.refund_id)throw new AppError(400,'PAYMENT_MISMATCH','Refund identity mismatch.');
-  }
-  if(fresh){
-   if(objectId(fresh.payment_intent)!==r.payment_intent)
+  const ids=new Set(list.data.filter(f=>f.status==='succeeded').map(f=>f.id));
+  if(r.refund_id&&(!recorded||refundPending(recorded)))ids.add(r.refund_id);
+  if(fresh)ids.add(fresh.id);
+  let inconsistent=false;
+  for(const id of ids){
+   const current=fresh?.id===id?fresh:await sdk.refunds.retrieve(id);
+   if(current.id!==id||objectId(current.payment_intent)!==r.payment_intent)
     throw new AppError(400,'PAYMENT_MISMATCH','Refund identity mismatch.');
-   const index=list.data.findIndex(f=>f.id===fresh.id);
-   if(index===-1)list.data.push(fresh);
-   // Keep the terminal result if either read has reached it. When both are
-   // terminal, the individual retrieval takes precedence over the list.
-   else if(!refundPending(fresh)||refundPending(list.data[index]!))list.data[index]=fresh;
+   const listed=list.data.find(f=>f.id===id);
+   if(!listed)list.data.push(current);
+   else if(!sameRefund(listed,current))inconsistent=true;
   }
-  return list;
+  return {...list,inconsistent};
  }
  async refundEvent(db:Database,obj:Stripe.Refund){
   const pi=objectId(obj.payment_intent);

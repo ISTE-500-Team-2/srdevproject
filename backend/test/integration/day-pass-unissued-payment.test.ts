@@ -5,8 +5,11 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { after, before, beforeEach, mock, test, type TestContext } from 'node:test';
 import { Pool } from 'pg';
 import Stripe from 'stripe';
+import type { Request, Response } from 'express';
 import { transaction } from '../../src/db.js';
 import { AppError } from '../../src/domain.js';
+import { MemberController } from '../../src/controllers/MemberController.js';
+import { loadReport } from '../../src/reports/service.js';
 import { PassBilling } from '../../src/billing/passes.js';
 import { BillingPricing } from '../../src/billing/pricing.js';
 import { businessToday } from '../../src/businessDate.js';
@@ -190,7 +193,7 @@ test('a payment first reported after the visit date ended requires staff review'
   assert.deepEqual(await passes.staffRefund(admin, id, 'Refund unused visit'), { status: 'succeeded' });
 });
 
-test('a captured visit queued through local midnight is held for staff who may have admitted the member', async t => {
+test('a captured visit queued through local midnight remains in staff audit and stays out of member history', async t => {
   t.mock.timers.enable({ apis: ['Date'], now: new Date('2034-05-16T03:50:00Z') });
   const date = businessToday(zone);
   const { id, session } = await openCheckout(date);
@@ -219,9 +222,23 @@ test('a captured visit queued through local midnight is held for staff who may h
   const closed = await checkoutRow(date);
   assert.equal(closed.refund_needs_review, false);
   assert.equal(closed.status, 'cancelled');
+  const model = new StaffModel(pool, zone);
+  assert.ok((await model.passes(member)).some(p => p.id === closed.pass_id));
+  await oldCheckoutDelivery(stripeEvent('evt_' + randomUUID(), 'checkout.session.completed', session), session);
+  assert.equal((await readCheckout(id)).pass_id, closed.pass_id);
+  const genuine = await openCheckout('2034-05-17');
+  await pay(genuine.session);
+  await passes.staffRefund(admin, genuine.id, 'Refund a real pass');
+  const cancelledPass = (await readCheckout(genuine.id)).pass_id;
+  const json = mock.fn();
+  await new MemberController(pool, zone).memberships({} as Request,
+    { locals: { auth: { user: { id: member } } }, json } as unknown as Response);
+  const history = json.mock.calls[0]!.arguments[0].data.passes as Awaited<ReturnType<StaffModel['passes']>>;
+  assert.ok(!history.some(p => p.id === closed.pass_id));
+  assert.ok(history.some(p => p.id === cancelledPass && p.status === 'cancelled'));
   assert.equal((await pool.query('SELECT status FROM day_pass WHERE dayid=$1', [closed.pass_id])).rows[0].status, 'cancelled');
   assert.equal((await pool.query('SELECT paymentstatus FROM payment WHERE paymentid=$1', [held.payment_id])).rows[0].paymentstatus, 'paid');
-  assert.equal(refundKeys.length, 0);
+  assert.equal(refundKeys.length, 1);
 });
 
 test('a lost automatic refund response leaves the captured charge recorded and the webhook retry reconciles it', async () => {
@@ -686,7 +703,7 @@ test('a delayed replacement capture is refunded even after staff refund the orig
 
 const rollbackQuery = () => readFile(new URL('../../../database/fixes/list-day-pass-rollback-payments.sql', import.meta.url), 'utf8');
 
-test('staff close an old-webhook reissue after a full refund and the worker leaves it closed', async () => {
+test('review of a refunded old-webhook reissue keeps the original ledger period', async () => {
   const date = '2034-08-03';
   const { id, session } = await openCheckout(date);
   const event = capture(session);
@@ -700,6 +717,8 @@ test('staff close an old-webhook reissue after a full refund and the worker leav
   await oldCheckoutDelivery(stripeEvent('evt_' + randomUUID(), 'checkout.session.completed', session), session, fullRefund);
   const reissued = await readCheckout(id);
   assert.equal(reissued.status, 'paid');
+  await pool.query("UPDATE payment SET paymentdate='2033-01-05 12:00:00' WHERE paymentid=$1", [cancelled.payment_id]);
+  await pool.query("UPDATE payment SET paymentdate='2033-02-05 12:00:00' WHERE paymentid=$1", [reissued.payment_id]);
   assert.equal(reissued.refund_reconcile_after, null);
   assert.equal(await passCount(date), 1);
   await passes.reconcileRefunds();
@@ -719,8 +738,13 @@ test('staff close an old-webhook reissue after a full refund and the worker leav
   await passes.reconcileRefunds();
   const reviewed = await readCheckout(id);
   assert.deepEqual([reviewed.status, reviewed.refund_needs_review, await passCount(date)], ['cancelled', false, 0]);
-  assert.equal((await new StaffModel(pool).payments(member)).find(p => p.id === reissued.payment_id)?.status, 'refunded');
-  assert.equal((await new StaffModel(pool).payments(member)).find(p => p.id === cancelled.payment_id)?.status, 'void');
+  const report = await loadReport(pool, zone, { from: '2033-01-01', to: '2033-02-28', period: 'monthly' });
+  assert.deepEqual(report.revenue.filter(row => row.method === 'card').map(row => [row.period, Number(row.gross), Number(row.refunds)]),
+    [['2033-01-01', 15, 15]]);
+  assert.equal(reviewed.payment_id, cancelled.payment_id);
+  assert.equal((await pool.query('SELECT paymentid FROM day_pass WHERE dayid=$1', [reviewed.pass_id])).rows[0].paymentid, cancelled.payment_id);
+  assert.equal((await new StaffModel(pool).payments(member)).find(p => p.id === cancelled.payment_id)?.status, 'refunded');
+  assert.equal((await new StaffModel(pool).payments(member)).find(p => p.id === reissued.payment_id)?.status, 'void');
   assert.ok(!(await pool.query(await rollbackQuery())).rows.some(r => r.checkout_id === id));
   assert.equal(refundKeys.length, 0);
 });
@@ -985,7 +1009,7 @@ test('staff must explicitly honor a held visit even when all refunds have failed
 });
 
 
-test('the fresher refund retrieval wins when Stripe lists the same refund as pending', async t => {
+test('a refund webhook holds access while the Stripe list disagrees with retrieval', async t => {
   const date = '2034-08-11';
   const { id, session } = await openCheckout(date);
   await pay(session);
@@ -995,7 +1019,10 @@ test('the fresher refund retrieval wins when Stripe lists the same refund as pen
   stripe.refundList(async () => ({ data: [{ ...refund, status: 'pending' }], has_more: false }));
   t.after(() => stripe.refundList(listRefunds));
   await passes.webhook(stripeEvent('evt_' + randomUUID(), 'refund.updated', refund));
+  const held = await readCheckout(id);
+  assert.deepEqual([held.status, held.refund_needs_review, await passCount(date)], ['paid', true, 1]);
   stripe.refundList(listRefunds);
+  await pool.query('UPDATE app_pass_checkout SET refund_reconcile_after=now() WHERE id=$1', [id]);
   await passes.reconcileRefunds();
   const row = await readCheckout(id);
   assert.deepEqual([row.status, row.refund_status, await passCount(date)], ['cancelled', 'succeeded', 0]);
@@ -1015,6 +1042,46 @@ test('a pending refund on an issued pass stays queued until Stripe settles it', 
   await pool.query('UPDATE app_pass_checkout SET refund_reconcile_after=now() WHERE id=$1', [id]);
   await passes.reconcileRefunds();
   assert.deepEqual([(await readCheckout(id)).status, await passCount(date)], ['cancelled', 0]);
+});
+
+test('staff review and the worker hold a successful list refund when individual retrieval shows failure', async t => {
+  const date = '2034-08-19';
+  const { id, session } = await openCheckout(date);
+  await pay(session);
+  const refund: Refund = { id: 're_' + randomUUID(), amount: 1500, currency: 'usd', status: 'failed',
+    payment_intent: session.payment_intent as string };
+  refunds.unshift(refund);
+  stripe.refundList(async params => params?.payment_intent === session.payment_intent
+    ? { data: [{ ...refund, status: 'succeeded' }], has_more: false } : listRefunds(params));
+  t.after(() => stripe.refundList(listRefunds));
+  await pool.query(`UPDATE app_pass_checkout SET refund_id=$2,refund_needs_review=true,
+    refund_reconcile_after=now() WHERE id=$1`, [id, refund.id]);
+
+  const before = await readCheckout(id);
+  await assert.rejects(passes.staffRefund(admin, id, 'Check the refund', true), { code: 'RECONCILE_REQUIRED' });
+  assert.deepEqual((await readCheckout(id)).refund_reconcile_after, before.refund_reconcile_after);
+  await passes.reconcileRefunds();
+  const held = await readCheckout(id);
+  assert.deepEqual([held.status, held.refund_needs_review, await passCount(date)], ['paid', true, 1]);
+  assert.equal((await new StaffModel(pool).payments(member)).find(p => p.id === held.payment_id)?.status, 'paid');
+  stripe.refundList(listRefunds);
+  refund.status = 'succeeded';
+  assert.deepEqual(await passes.staffRefund(admin, id, 'Both reads confirm the refund', true),
+    { status: 'reviewed', passCancelled: true });
+  assert.equal(await passCount(date), 0);
+});
+
+test('a successful refund creation does not cancel access when retrieval disagrees', async t => {
+  const date = '2034-08-20';
+  const { id, session } = await openCheckout(date);
+  await pay(session);
+  const retrieve = provider.sdk.refunds.retrieve;
+  t.after(() => { provider.sdk.refunds.retrieve = retrieve; });
+  stripe.refundRetrieve(async refundId => ({ ...refunds.find(f => f.id === refundId), status: 'failed' }));
+  await assert.rejects(passes.staffRefund(admin, id, 'Refund the visit'), { code: 'RECONCILE_REQUIRED' });
+  const held = await readCheckout(id);
+  assert.deepEqual([held.status, held.refund_needs_review, await passCount(date)], ['paid', true, 1]);
+  assert.equal((await new StaffModel(pool).payments(member)).find(p => p.id === held.payment_id)?.status, 'paid');
 });
 
 test('a terminal refund lookup failure leaves a captured charge that staff can resolve', async t => {
@@ -1039,7 +1106,7 @@ test('a terminal refund lookup failure leaves a captured charge that staff can r
 });
 
 for (const [action, date] of [['resume', '2034-08-14'], ['cancel', '2034-08-15']]) {
-  test(`member ${action} schedules bounded checkout discovery for worker review`, async t => {
+  test(`worker releases checkout after capped member ${action} discovery once Stripe confirms no session`, async t => {
     const { id, session } = await openCheckout(date!);
     sessions.delete(session.id!);
     await pool.query("UPDATE app_pass_checkout SET checkout_id=NULL,created_at=now()-interval '25 hours' WHERE id=$1", [id]);
@@ -1051,8 +1118,20 @@ for (const [action, date] of [['resume', '2034-08-14'], ['cancel', '2034-08-15']
     assert.ok((await readCheckout(id)).refund_reconcile_after);
     await passes.reconcileRefunds();
     const flagged = await readCheckout(id);
-    assert.deepEqual([flagged.refund_needs_review, flagged.refund_reconcile_after], [true, null]);
+    assert.equal(flagged.refund_needs_review, true);
+    assert.ok(flagged.refund_reconcile_after?.getTime() > Date.now() + 30 * 60 * 1000);
     assert.ok((await pool.query(await rollbackQuery())).rows.some(r => r.checkout_id === id));
+    await assert.rejects(staff.issue(admin, member, desk(date!)), { code: 'CHECKOUT_OPEN' });
+    // Exercise a row already stuck before the fix as well as a newly scheduled retry.
+    await pool.query(`UPDATE app_pass_checkout SET created_at=now()-interval '48 hours',
+      refund_reconcile_after=CASE WHEN $2 THEN NULL ELSE now() END WHERE id=$1`, [id, action === 'resume']);
+    stripe.checkoutSessionList(async () => ({ data: [], has_more: false }));
+    await passes.reconcileRefunds();
+    const expired = await readCheckout(id);
+    assert.deepEqual([expired.status, expired.refund_needs_review, expired.refund_reconcile_after, expired.payment_id],
+      ['expired', false, null, null]);
+    if (action === 'resume') assert.ok((await passes.checkout(member, body)).checkoutUrl);
+    else await staff.issue(admin, member, desk(date!));
   });
 }
 

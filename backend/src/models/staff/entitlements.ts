@@ -93,15 +93,21 @@ export class EntitlementRepository {
       )
     ).rows;
   }
-  async passes(userId: number): Promise<DayPassRecord[]> {
+  async passes(userId: number, memberHistory = false): Promise<DayPassRecord[]> {
     return (
       await this.db.query<DayPassRecord>(
         `SELECT d.dayid AS id,d.userid AS "userId",d.tierid AS "planId",d.status,d.statusdesc AS reason,d.revision,
       to_char(d.validdate,'YYYY-MM-DD') AS "validDate",d.paymentid AS "paymentId",d.plan_snapshot AS plan,
       CASE WHEN d.status<>'active' THEN d.status WHEN d.validdate::date<(NOW() AT TIME ZONE $2)::date THEN 'expired'
         WHEN d.validdate::date>(NOW() AT TIME ZONE $2)::date THEN 'scheduled' ELSE 'active' END AS "effectiveStatus"
-      FROM day_pass d WHERE d.userid=$1 ORDER BY d.validdate DESC,d.dayid DESC LIMIT 100`,
-        [userId, this.timeZone],
+      FROM day_pass d WHERE d.userid=$1 AND (NOT $3 OR NOT EXISTS (
+        -- An audit-only pass is created by the reviewer in the same transaction as the review.
+        SELECT 1 FROM app_pass_checkout c JOIN app_staff_audit a ON a.subject_id=c.userid
+        WHERE c.pass_id=d.dayid AND a.action='billing.refund.reviewed' AND a.entity_type='payment'
+          AND a.after_state->>'checkoutId'=c.id::text AND a.actor_id=d.issued_by
+          AND a.created_at=d.purchasedate AT TIME ZONE 'UTC'
+      )) ORDER BY d.validdate DESC,d.dayid DESC LIMIT 100`,
+        [userId, this.timeZone, memberHistory],
       )
     ).rows;
   }

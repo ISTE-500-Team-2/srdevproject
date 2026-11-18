@@ -284,8 +284,11 @@ on duplicate Checkout deliveries while a retry deadline remains. When the
 retry window ends or the refund lookup returns a terminal error, the compatible
 release records a verified capture in Payments with **Review refund**. Use
 that action rather than replaying the event. A flag without a ledger payment
-means session discovery could not verify a capture. Finance should match the
-checkout to a Stripe session and recover it from the corresponding paid event.
+means session discovery could not verify a capture. After a capped search the
+worker retries pending checkouts hourly. Once the session window has passed, a
+complete search that finds no session lets the worker expire the checkout.
+Finance can match a checkout to a Stripe session and recover a capture from
+the corresponding paid event.
 Keep event receipts intact. When the compatible release returns, rerun the
 query and verify each open item against Stripe and the staff ledger, including
 any manual admissions or refunds.

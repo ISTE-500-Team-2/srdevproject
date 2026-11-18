@@ -107,8 +107,8 @@ export class StaffModel {
   memberships(userId: number) {
     return this.entitlements.memberships(userId);
   }
-  passes(userId: number) {
-    return this.entitlements.passes(userId);
+  passes(userId: number, memberHistory = false) {
+    return this.entitlements.passes(userId, memberHistory);
   }
   entitlement(kind: EntitlementKind, id: number) {
     return this.entitlements.entitlement(kind, id);
