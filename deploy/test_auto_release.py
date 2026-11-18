@@ -382,5 +382,22 @@ class RolloutTests(unittest.TestCase):
                 self.assertIn('no automatic deletion',state['reason'])
 
 
+
+class DumpTimeoutTests(unittest.TestCase):
+    def test_only_the_database_dump_gets_the_longer_timeout(self):
+        seen = []
+
+        def fake(args, **kwargs):
+            seen.append((args, kwargs['timeout']))
+            if 'pg_dump' in args:
+                kwargs['stdout'].write(b'PGDMP fixture')
+        with tempfile.TemporaryDirectory() as temporary, patch.object(release.subprocess, 'run', fake):
+            release.dump_database('db', 'owner', 'arbor', Path(temporary) / 'arbor.dump')
+            release.run('docker', 'ps')
+        self.assertEqual(release.DUMP_TIMEOUT_SECONDS, 15 * 60)
+        self.assertEqual([('pg_dump' in a, 'pg_restore' in a, t) for a, t in seen], [
+            (True, False, release.DUMP_TIMEOUT_SECONDS), (False, True, 120), (False, False, 120)])
+
+
 if __name__ == '__main__':
     unittest.main()

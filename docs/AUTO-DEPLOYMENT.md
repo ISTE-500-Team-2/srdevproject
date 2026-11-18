@@ -191,6 +191,22 @@ cannot confirm or resend a usable link for staged sign-ups created, replaced or
 resent by the new release. Those members can continue once the password-aware
 release returns, or sign up again if their request has expired.
 
+**Studio readers (migration 057).** Releases before studio readers treat a reader
+kind they don't know as equipment, so a studio reader would check the equipment
+item that happens to share its number. Before rolling the application back past
+the release that added studio readers, turn every studio reader off: in the
+staff **Readers** list, choose **Manage** on each reader whose location is a
+studio and turn it off, or run this against each affected database with the
+owner connection:
+
+```sql
+UPDATE app_access_reader SET enabled=false,revision=revision+1 WHERE kind='studio' AND enabled;
+```
+
+Also remove any `"kind": "studio"` entries from `ACCESS_READERS_JSON` in the
+environment the previous release will start with. Turned-off readers stay off
+when the release returns; an administrator turns each one back on afterwards.
+
 For an operator-directed manual rollback, keep the timer paused, restore the
 recorded previous Compose file (save the current one first), then run:
 

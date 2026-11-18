@@ -49,12 +49,24 @@ export const automaticRolesSql = (user: string, zone: string) => `ARRAY_REMOVE(A
   CASE WHEN EXISTS(SELECT 1 FROM day_pass ad WHERE ad.userid=${user} AND ad.status='active'
     AND ad.validdate::date>=(NOW() AT TIME ZONE ${zone})::date) THEN 'day_pass' END]::text[],NULL)`;
 
+/**
+ * Roles as stored, minus subscriber and day-pass customer: those are computed now
+ * (automaticRolesSql), and a previous app version still running during a blue/green release can
+ * write them after migration 062. A primary role left on one of them reads as community member,
+ * which is then listed too, so every account still shows exactly one valid primary role (BR-004).
+ */
+export const primaryRoleSql = (user: string) =>
+  `CASE WHEN ${user}.primary_role IN ('subscriber','day_pass') THEN 'member' ELSE ${user}.primary_role END`;
+export const storedRolesSql = (user: string) => `COALESCE((SELECT json_agg(k.role ORDER BY k.role) FROM (
+    SELECT r.role FROM user_role ur JOIN role r USING(roleid) WHERE ur.userid=${user}.userid AND r.role NOT IN ('subscriber','day_pass')
+    UNION SELECT 'member' WHERE ${user}.primary_role IN ('subscriber','day_pass')) k),'[]')`;
+
 const personColumns = (zone: string) => `u.userid AS id,u.firstname AS "firstName",u.lastname AS "lastName",u.email,u.phone,u.status,u.statusdesc AS "accountReason",
-  u.primary_role AS "primaryRole",u.is_student AS "isStudent",u.accessstatus AS "accessStatus",u.accessreason AS "accessReason",u.revision,
+  ${primaryRoleSql("u")} AS "primaryRole",u.is_student AS "isStudent",u.accessstatus AS "accessStatus",u.accessreason AS "accessReason",u.revision,
   COALESCE(u.conductflag,false) AS "conductFlag",u.dob IS NOT NULL AS "dobOnFile",
   u.registration_date AT TIME ZONE 'UTC' AS "createdAt",u.updated_at AS "updatedAt",
   u.profile_address AS address,u.contact_preferences AS "contactPreferences",
-  COALESCE((SELECT json_agg(r.role ORDER BY r.role) FROM user_role ur JOIN role r USING(roleid) WHERE ur.userid=u.userid),'[]') AS roles,
+  ${storedRolesSql("u")} AS roles,
   ${automaticRolesSql("u.userid", zone)} AS "automaticRoles"`;
 
 /** User directory, account state and role assignments. */
@@ -122,6 +134,8 @@ export class PeopleRepository {
   async setRole(id: number, role: string, roles?: string[], isStudent?: boolean): Promise<StaffPerson | undefined> {
     if (roles) {
       // Explicit multi-role editor replaces managed roles only; retain unknown legacy classifications.
+      // This also drops subscriber/day-pass rows an older app version wrote (they're computed now);
+      // the caller never assigns them, and a primary role is always one of the assigned roles.
       await this.db.query(
         `DELETE FROM user_role WHERE userid=$1 AND roleid IN
         (SELECT roleid FROM role WHERE role IN ('member','admin','staff','subscriber','day_pass','instructor','student'))`,

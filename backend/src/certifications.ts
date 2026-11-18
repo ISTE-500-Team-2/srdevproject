@@ -397,14 +397,17 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
         );
         const userId = positiveId(req.params.userId),
           id = positiveId(req.params.id);
-        const before = (
+        // Whether the record was letting the member in: active and not past its renewal date.
+        const found = (
           await db.query(
-            "SELECT * FROM user_certifications WHERE userid=$1 AND certid=$2 FOR UPDATE",
+            `SELECT *,(status='active' AND (renewaldate IS NULL OR renewaldate>=NOW() AT TIME ZONE 'UTC')) AS app_granting
+            FROM user_certifications WHERE userid=$1 AND certid=$2 FOR UPDATE`,
             [userId, id],
           )
         ).rows[0];
-        if (!before)
+        if (!found)
           throw new AppError(404, "NOT_FOUND", "Training record not found.");
+        const { app_granting: granting, ...before } = found;
         if (
           before.revision !== positiveId(req.body.expectedRevision, "Revision")
         )
@@ -434,8 +437,9 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
           before,
           after,
         );
-        // Revoking an already revoked record changes only the staff note; the member knows already.
-        if (before.status !== "revoked")
+        // Only a certification that was in force is news to the member. Revoking a pending,
+        // expired or already revoked record changes only the staff note.
+        if (granting)
           await queueCertificationRevoked(db, { userid: userId, certid: id, usercertid: before.usercertid, revision: after!.revision });
         return after;
       });

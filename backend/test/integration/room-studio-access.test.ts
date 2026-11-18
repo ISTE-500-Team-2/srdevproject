@@ -111,6 +111,16 @@ test('a class room admits its instructor and registered students during the clas
   await pool.query(`UPDATE app_training_enrollment SET status='attended' WHERE class_id=$1 AND user_id=$2`, [classId, memberId]);
   assert.equal(await reason('room', room, memberId), 'ELIGIBLE', 'attendance keeps access');
 
+  // Supervised access never rides on the class's booking: it would look granted while the reader
+  // refuses the scheduler. The room is the class's for now, so staff are told to register them.
+  const outsiderOverrides = await pool.query('SELECT COUNT(*)::int AS n FROM app_access_override');
+  for (const id of [adminId, outsider]) {
+    const supervised = await staffPost('/admin/access/overrides', { userId: id, kind: 'room', resourceId: room, durationMinutes: 15, reason: 'Supervised during class' });
+    assert.equal(supervised.status, 409, JSON.stringify(supervised.body));
+    assert.equal(supervised.body.error.code, 'CLASS_IN_PROGRESS');
+  }
+  assert.deepEqual((await pool.query('SELECT COUNT(*)::int AS n FROM app_access_override')).rows, outsiderOverrides.rows);
+
   // Every other check still applies to class access.
   await pool.query("UPDATE user_membership SET status='suspended' WHERE userid=$1", [memberId]);
   assert.equal(await reason('room', room, memberId), 'ENTITLEMENT_REQUIRED');

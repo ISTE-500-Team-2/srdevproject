@@ -11,8 +11,7 @@ import { errorMessage } from "../lib/api";
 import { KeptResults, useResultsPaging } from "../components/KeptResults";
 import { LoadState, Pager } from "../components/Management";
 import { MemberRecord } from "../components/staff/record/MemberRecord";
-import { accessWords, accountWords } from "../components/staff/record/recordModel";
-import { statusLabel } from "../lib/display";
+import { accessWords, accountWords, roleName } from "../components/staff/record/recordModel";
 import type { Page, Person, Plan } from "../lib/staffContracts";
 import { useApi } from "../lib/useApi";
 
@@ -137,7 +136,10 @@ export function StaffUsers() {
                         </span>
                       </td>
                       <td>{p.email}</td>
-                      <td>{p.roles.map((r) => statusLabel(r)).join(", ")}</td>
+                      <td>
+                        {/* Named as on the member record; subscriber and day-pass follow purchases. */}
+                        {[...p.roles.map(roleName), ...(p.automaticRoles ?? []).map((r) => `${roleName(r)} (automatic)`)].join(", ")}
+                      </td>
                       <td>
                         <span className={`status-pill status-pill--${p.status === "active" ? "ok" : "neutral"}`}>
                           {accountWords(p.status)}

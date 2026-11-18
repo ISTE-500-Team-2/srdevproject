@@ -976,7 +976,7 @@ test('customer roles have personal permissions without receiving staff powers or
  const admin=client(),user=client();await admin.demo("admin");await user.register();
  for(const role of ['member','subscriber','day_pass']) {
   // Subscriber and day-pass assignments can't be made any more (migration 062 removed the stored
-  // ones), but a database still holding one must grant only personal scope.
+  // ones). One an older app version still writes counts as community member: personal scope only.
   await pool.query('DELETE FROM user_role WHERE userid=$1',[user.id]);
   await pool.query('INSERT INTO user_role(userid,roleid) SELECT $1,roleid FROM role WHERE role=$2',[user.id,role]);
   await pool.query('UPDATE "user" SET primary_role=$2 WHERE userid=$1',[user.id,role]);
@@ -988,9 +988,9 @@ test('customer roles have personal permissions without receiving staff powers or
   assert.equal((await user.post('/reservations',{})).status,400,'authorized route reaches validation, not a privilege bypass');
  }
  // Explicit personal deny is consulted before the handler and takes effect without logging in again.
- await pool.query(`UPDATE role_permission SET isallowed=false WHERE roleid=(SELECT roleid FROM role WHERE role='day_pass') AND resourcename='equipment' AND permissionid=2`);
+ await pool.query(`UPDATE role_permission SET isallowed=false WHERE roleid=(SELECT roleid FROM role WHERE role='member') AND resourcename='equipment' AND permissionid=2`);
  assert.equal((await user.get('/equipment')).status,403);
- await pool.query(`UPDATE role_permission SET isallowed=true WHERE roleid=(SELECT roleid FROM role WHERE role='day_pass') AND resourcename='equipment' AND permissionid=2`);
+ await pool.query(`UPDATE role_permission SET isallowed=true WHERE roleid=(SELECT roleid FROM role WHERE role='member') AND resourcename='equipment' AND permissionid=2`);
 });
 
 test("bootstrap preserves removed demo administrator permissions and renamed/archived demo plans", async () => {

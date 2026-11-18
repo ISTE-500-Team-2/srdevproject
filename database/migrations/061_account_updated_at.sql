@@ -4,14 +4,25 @@
 -- Password changes, email confirmation and sign-in housekeeping do not.
 ALTER TABLE "user" ADD COLUMN updated_at TIMESTAMPTZ;
 
--- Existing accounts: the latest change log entry about the account record itself (the database
--- trigger has logged every row change since 016), else the sign-up date. Accounts with neither
--- stay empty rather than show a made-up date. Computed before the trigger exists, so this
--- backfill does not stamp every account with the migration time.
+-- Existing accounts: the latest staff account change in the change log (profile, account status,
+-- facility access, conduct flag or roles, each logged by the application under its own action),
+-- else the sign-up date. Accounts with neither stay empty rather than show a made-up date.
+-- The database trigger's generic "Database change" rows are not used: they can't tell a profile
+-- edit from a password rehash, reset or email confirmation, which don't count. So a member's own
+-- profile edits before this release aren't reflected, and backfilled dates are approximate (never
+-- later than the real last change). Computed before the trigger below exists, so this backfill
+-- does not stamp every account with the migration time.
+-- The audit capture trigger is paused for the backfill only: it would otherwise add a permanent
+-- "Database change" row for every account. Migrations run as the table owner, as for 052/053.
+ALTER TABLE "user" DISABLE TRIGGER app_capture_change;
 UPDATE "user" u SET updated_at=COALESCE(
   (SELECT MAX(a.created_at) FROM app_staff_audit a
-    WHERE a.subject_id=u.userid AND a.entity_type='user' AND a.entity_id=u.userid),
+    WHERE a.subject_id=u.userid AND a.entity_type='user' AND a.entity_id=u.userid
+      AND a.source='application'
+      AND (a.action IN ('user.profile_updated','user.role_changed')
+        OR a.action LIKE 'user.account\_%' OR a.action LIKE 'user.access\_%' OR a.action LIKE 'user.conduct\_%')),
   u.registration_date AT TIME ZONE 'UTC');
+ALTER TABLE "user" ENABLE TRIGGER app_capture_change;
 
 -- New accounts start out updated when they were made.
 ALTER TABLE "user" ALTER COLUMN updated_at SET DEFAULT NOW();

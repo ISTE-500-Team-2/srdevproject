@@ -165,6 +165,8 @@ Existing user IDs, memberships, payment history and signatures are preserved. Th
 
 Before any future migration of the actual team database: back up, inspect legacy status names, password formats, date semantics, duplicate emails/policies/waivers and reservation overlaps. This branch has **not** been applied to that original data. A code rollback does not undo migration 002 or later business changes; database restoration is an explicit separate operation, not an automatic startup action.
 
+Migration 061 adds each account's "Last updated" date (FR-023). For existing accounts it is approximate: it is filled from the latest staff account change in the change log (profile, account status, facility access, conduct flag or roles), else the sign-up date. A member's own profile edits before that release were logged only as generic database changes, indistinguishable from password and email-confirmation housekeeping, so they aren't counted; a backfilled date can be earlier than the real last change, never later. Changes after the release are stamped exactly. The backfill pauses the audit capture trigger on `"user"` so it doesn't add a change-log row per account.
+
 ### This deployment and rollback checkpoint
 
 - Isolated VM source: `/home/student/arbor-mvc`; app loopback port 8081, isolated database loopback port 25432.

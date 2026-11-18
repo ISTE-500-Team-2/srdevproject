@@ -82,9 +82,21 @@ test("the migration fills existing accounts from their change log, else their si
      VALUES (NULL,$1,'user.conduct_flagged','user',$1,'Test',$2),(NULL,$1,'payment.void','payment',1,'Test','2024-09-09T00:00:00Z')`,
     [logged, "2023-06-07T08:09:10Z"],
   );
+  // A later generic row (a password rehash, reset or email confirmation looks just like this)
+  // doesn't count as an account change.
+  await pool.query(
+    `INSERT INTO app_staff_audit(actor_id,subject_id,action,entity_type,entity_id,reason,source,created_at)
+     VALUES (NULL,$1,'user.update','user',$1,'Database change','database','2024-10-10T00:00:00Z')`,
+    [logged],
+  );
+  const auditRows = async () => (await pool.query(`SELECT COUNT(*)::int AS n FROM app_staff_audit`)).rows[0].n;
+  const rowsBefore = await auditRows();
   await migrate(pool);
   assert.equal((await age(logged)).toISOString(), "2023-06-07T08:09:10.000Z");
   assert.equal((await age(quiet)).toISOString(), "2021-03-04T05:06:07.000Z");
+  // The backfill leaves no change-log row behind, and the capture trigger is back on.
+  assert.equal(await auditRows(), rowsBefore);
+  assert.deepEqual((await pool.query(`SELECT tgenabled FROM pg_trigger WHERE tgrelid='"user"'::regclass AND tgname='app_capture_change'`)).rows, [{ tgenabled: "O" }]);
   // A new account after the migration is stamped when it is made.
   assert.ok((await age(await member("Fresh"))).getTime() > Date.parse("2025-01-01"));
 });

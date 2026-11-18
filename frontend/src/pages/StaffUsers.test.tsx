@@ -131,3 +131,25 @@ test("the directory names account and access states the way the record's control
   expect(row("Ellis Barred").textContent).toContain("Suspended");
   expect(row("Ellis Barred").textContent).not.toContain("On hold");
 });
+
+test("the directory lists the subscriber and day-pass labels that follow purchases, as the record does", () => {
+  const people = {
+    items: [staffPerson({ id: 4, firstName: "Casey", lastName: "Member", roles: ["member", "instructor"], automaticRoles: ["subscriber", "day_pass"] })],
+    nextOffset: null,
+  };
+  useApi.mockImplementation((path: string | null) => ({
+    data: path?.startsWith("/admin/users?") ? people : null,
+    loading: false,
+    refreshing: false,
+    stale: false,
+    error: "",
+    reload: vi.fn(),
+  }));
+  render(
+    <MemoryRouter>
+      <StaffUsers />
+    </MemoryRouter>,
+  );
+  const row = screen.getByRole("button", { name: "Casey Member" }).closest("tr")!;
+  expect(row.textContent).toContain("Community member, Instructor, Subscriber (automatic), Day-pass customer (automatic)");
+});

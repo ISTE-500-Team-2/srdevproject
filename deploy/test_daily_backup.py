@@ -23,10 +23,12 @@ class DailyBackupTests(unittest.TestCase):
         (self.root / 'auto-deploy').mkdir(mode=0o700)
         self.daily = self.root / 'auto-deploy/daily-backups'
         self.calls = []
+        self.timeouts = []
 
     def fake_run(self, failure=None):
         def run(*args, **kwargs):
             self.calls.append(args)
+            self.timeouts.append((args, kwargs.get('timeout')))
             if 'pg_dump' in args:
                 if failure and failure in args:
                     raise release.subprocess.CalledProcessError(1, args)
@@ -69,6 +71,9 @@ class DailyBackupTests(unittest.TestCase):
         self.assertEqual([c[2] for c in dumps], [container for container, _, _ in release.DATABASES])
         self.assertTrue(all('--format=custom' in c for c in dumps))
         self.assertEqual(len([c for c in self.calls if 'pg_restore' in c]), len(release.DATABASES))
+        # A large dump gets its own longer limit; the archive check keeps run()'s default.
+        self.assertEqual({t for c, t in self.timeouts if 'pg_dump' in c}, {release.DUMP_TIMEOUT_SECONDS})
+        self.assertEqual({t for c, t in self.timeouts if 'pg_restore' in c}, {None})
         self.assertEqual(self.status()['lastSuccess'], name)
         self.assertFalse(any(p.name.endswith('.partial') for p in self.daily.iterdir()))
 

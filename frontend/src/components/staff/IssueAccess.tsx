@@ -60,16 +60,20 @@ export function IssueAccess({
     selected && when ? `/admin/users/${id}/entitlements/quote?planId=${selected.id}&${when}` : null,
     { retainOnChange: true },
   );
-  // Only a price for exactly these choices is promised to the server.
+  // Only a price for exactly these choices is promised to the server, and nothing is issued
+  // until staff have seen it.
   const price = quote.data && !quote.stale && !quote.refreshing && quote.data.planId === selected?.id ? quote.data : null;
   return (
     <ActionForm
       title="Record external payment or waive payment"
       submitLabel="Record payment and issue access"
       disabled={disabled}
+      submitDisabled={Boolean(selected) && !price}
       onSubmit={async (f) => {
         if (!selected)
           throw new ApiError(400, "INVALID_INPUT", "Choose an active plan.");
+        if (!price)
+          throw new ApiError(409, "PRICE_CHANGED", "Wait for this member's price to load before issuing access.");
         const body = {
           planId: selected.id,
           startsAt:
@@ -82,15 +86,20 @@ export function IssueAccess({
           method: f.get("method"),
           reference: f.get("reference"),
           reason: f.get("reason"),
-          ...(price ? { expectedAmountCents: price.amountCents } : {}),
+          expectedAmountCents: price.amountCents,
         };
         const fingerprint = JSON.stringify(body);
         if (retry.current?.fingerprint !== fingerprint)
           retry.current = { fingerprint, requestId: crypto.randomUUID() };
-        await api(`/admin/users/${id}/entitlements`, {
-          method: "POST",
-          body: { ...body, requestId: retry.current.requestId },
-        });
+        try {
+          await api(`/admin/users/${id}/entitlements`, {
+            method: "POST",
+            body: { ...body, requestId: retry.current.requestId },
+          });
+        } catch (err) {
+          if (err instanceof ApiError && err.code === "PRICE_CHANGED") quote.reload();
+          throw err;
+        }
         retry.current = null;
         onSaved();
       }}
@@ -105,7 +114,8 @@ export function IssueAccess({
           <option value="">Choose a plan</option>
           {plans.map((p) => (
             <option key={p.id} value={p.id}>
-              {p.name} · {dollars(p.price)}
+              {/* Only the chosen plan's price is worked out for this member. */}
+              {p.name} · {price && p.id === price.planId ? cents(price.amountCents) : `${dollars(p.price)} standard`}
             </option>
           ))}
         </select>
@@ -139,7 +149,12 @@ export function IssueAccess({
               <strong>Price for this member: {cents(price.amountCents)}</strong> · {priceReason(price)}
             </>
           ) : quote.error ? (
-            `Couldn't load this member's price (${quote.error}). It's worked out again when you save.`
+            <>
+              Couldn't load this member's price ({quote.error}). Access can't be issued until it loads.{" "}
+              <button type="button" className="button" onClick={quote.reload}>
+                Try again
+              </button>
+            </>
           ) : (
             "Working out this member's price…"
           )}

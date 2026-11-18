@@ -32,6 +32,17 @@ afterEach(() => {
 /** The issuance requests, leaving out the price lookups the form makes on the way. */
 const posts = () => vi.mocked(api).mock.calls.filter((call) => call[1]?.method === "POST");
 
+const standardQuote = { planId: 7, standardCents: 5000, amountCents: 5000, basis: "standard" };
+/** Price lookups answer with the standard price; issuance requests go to `post`. */
+function mockApi(post: () => Promise<unknown>) {
+  vi.mocked(api).mockImplementation(async (_path: string, init?: { method?: string }) =>
+    init?.method === "POST" ? post() : standardQuote);
+}
+/** Issuing waits for the member's price to load. */
+async function priceShown() {
+  await screen.findByText("Price for this member: $50.00");
+}
+
 function fields() {
   fireEvent.change(screen.getByLabelText("Access plan"), {
     target: { value: "7" },
@@ -46,7 +57,7 @@ function fields() {
 }
 
 test("failed identical access submissions retain their request id across rerenders; changed payload gets a fresh id", async () => {
-  vi.mocked(api).mockRejectedValue(new Error("Offline"));
+  mockApi(() => Promise.reject(new Error("Offline")));
   const props = {
     id: 42,
     plans: [plan],
@@ -57,6 +68,7 @@ test("failed identical access submissions retain their request id across rerende
   };
   const view = render(<IssueAccess {...props} />);
   fields();
+  await priceShown();
   fireEvent.submit(screen.getByRole("form"));
   await screen.findByRole("alert");
   const first = posts()[0]![1]!.body as Record<
@@ -65,6 +77,7 @@ test("failed identical access submissions retain their request id across rerende
   >;
   expect(first).toMatchObject({
     planId: 7,
+    expectedAmountCents: 5000,
     validDate: null,
     paymentStatus: "paid",
     method: "cash",
@@ -74,6 +87,7 @@ test("failed identical access submissions retain their request id across rerende
   expect(first.startsAt).toBe(new Date("2030-01-02T12:00").toISOString());
   expect(first.requestId).toEqual(expect.any(String));
   view.rerender(<IssueAccess {...props} plans={[{ ...plan }]} />);
+  await priceShown();
   expect(
     (screen.getByLabelText("Reason for change") as HTMLInputElement).value,
   ).toBe("Approved access");
@@ -99,7 +113,7 @@ test("failed identical access submissions retain their request id across rerende
 });
 
 test("successful access issuance clears the retry id for the next submission", async () => {
-  vi.mocked(api).mockResolvedValue({});
+  mockApi(async () => ({}));
   const saved = vi.fn();
   render(
     <IssueAccess
@@ -112,6 +126,7 @@ test("successful access issuance clears the retry id for the next submission", a
     />,
   );
   fields();
+  await priceShown();
   fireEvent.submit(screen.getByRole("form"));
   await waitFor(() => expect(saved).toHaveBeenCalledTimes(1));
   await screen.findByRole("status");
@@ -181,4 +196,33 @@ test("B-003: the desk form shows the member's student price and promises exactly
   fireEvent.submit(screen.getByRole("form"));
   await waitFor(() => expect(saved).toHaveBeenCalledTimes(1));
   expect(posts()[0]![1]!.body).toMatchObject({ planId: 7, paymentStatus: "paid", expectedAmountCents: 3000 });
+});
+
+test("B-003: nothing is issued until the member's price loads; a failed lookup can be retried", async () => {
+  const saved = vi.fn();
+  let quoteFails = true;
+  vi.mocked(api).mockImplementation(async (_path: string, init?: { method?: string }) => {
+    if (init?.method === "POST") return {};
+    if (quoteFails) throw new Error("Offline");
+    return { planId: 7, standardCents: 5000, amountCents: 3000, basis: "student" };
+  });
+  render(<IssueAccess id={42} plans={[plan, { ...plan, id: 8, name: "Yearly", price: "500.00" }]} timeZone="America/New_York" renewal={null} disabled={false} onSaved={saved} />);
+  fields();
+  expect(await screen.findByText(/Couldn't load this member's price/)).toBeTruthy();
+  const submit = screen.getByRole("button", { name: "Record payment and issue access" }) as HTMLButtonElement;
+  expect(submit.disabled).toBe(true);
+  fireEvent.submit(screen.getByRole("form"));
+  // Before a price is shown the plan list only offers standard prices, labelled as such.
+  expect(screen.getByRole("option", { name: "Monthly · $50.00 standard" })).toBeTruthy();
+  quoteFails = false;
+  fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+  expect(await screen.findByText("Price for this member: $30.00")).toBeTruthy();
+  expect(posts()).toHaveLength(0);
+  // The chosen plan now lists this member's price; the others stay standard.
+  expect(screen.getByRole("option", { name: "Monthly · $30.00" })).toBeTruthy();
+  expect(screen.getByRole("option", { name: "Yearly · $500.00 standard" })).toBeTruthy();
+  expect(submit.disabled).toBe(false);
+  fireEvent.submit(screen.getByRole("form"));
+  await waitFor(() => expect(saved).toHaveBeenCalledTimes(1));
+  expect(posts()[0]![1]!.body).toMatchObject({ expectedAmountCents: 3000 });
 });

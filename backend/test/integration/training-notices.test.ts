@@ -159,6 +159,22 @@ test('a revoked certification emails the member once, without the staff reason',
   assert.doesNotMatch(email.textContent + email.htmlContent, /Private incident note/);
 });
 
+test('revoking training the member never held in force sends no revocation email', async () => {
+  const revoke = async () => {
+    const {revision} = (await pool.query('SELECT revision FROM user_certifications WHERE certid=$1', [cert])).rows[0];
+    const response = await as(admin).post(`/training/users/${member.user.id}/certifications/${cert}/revoke`,
+      {expectedRevision: revision, reason: 'Not approved'});
+    assert.equal(response.status, 200, response.text);
+  };
+  // Awaiting approval, then lapsed: neither was letting them in.
+  await pool.query(`INSERT INTO user_certifications(usercertid,userid,certid,renewaldate,status) VALUES(88001,$1,$2,now()+interval '1 year','pending')`,
+    [member.user.id, cert]);
+  await revoke();
+  await pool.query(`UPDATE user_certifications SET status='active',renewaldate=now()-interval '1 day' WHERE certid=$1`, [cert]);
+  await revoke();
+  assert.equal((await notices('certification_revoked')).length, 0);
+});
+
 test('migration 060 adds studio booking alerts, on for every existing account', async () => {
   const sql = await readFile(new URL('../../../database/migrations/060_staff_studio_booking_alerts.sql', import.meta.url), 'utf8');
   await pool.query('BEGIN');

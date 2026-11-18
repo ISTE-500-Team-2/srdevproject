@@ -480,11 +480,30 @@ export function cardManagement(
             "RESOURCE_UNAVAILABLE",
             "This resource is unavailable.",
           );
+        // A class's booking is held by whoever scheduled it but never admits them (AccessService),
+        // so it can't carry an override. While a class has the room, nobody else can book it either.
+        if (
+          (
+            await db.query(
+              `SELECT 1 FROM reservation r JOIN app_training_class c ON c.reservation_id=r.reservationid
+              WHERE r.${key}=$1 AND r.status IN ('confirmed','pending') AND r.starttime<$2::timestamptz AT TIME ZONE 'UTC'
+              AND r.endtime>NOW() AT TIME ZONE 'UTC' LIMIT 1`,
+              [id, ends],
+            )
+          ).rowCount
+        )
+          throw new AppError(
+            409,
+            "CLASS_IN_PROGRESS",
+            "A class has this room booked now. Its instructor and registered students can already open it; register the member for the class to let them in.",
+          );
         const current = (
           await db.query<{ id: number; endsAt: Date }>(
-            `SELECT reservationid AS id,endtime AT TIME ZONE 'UTC' AS "endsAt" FROM reservation
+            `SELECT reservationid AS id,endtime AT TIME ZONE 'UTC' AS "endsAt" FROM reservation r
             WHERE userid=$1 AND ${key}=$2 AND status='confirmed' AND starttime<=NOW() AT TIME ZONE 'UTC'
-            AND endtime>NOW() AT TIME ZONE 'UTC' ORDER BY endtime LIMIT 1 FOR UPDATE`,
+            AND endtime>NOW() AT TIME ZONE 'UTC'
+            AND NOT EXISTS (SELECT 1 FROM app_training_class c WHERE c.reservation_id=r.reservationid)
+            ORDER BY endtime LIMIT 1 FOR UPDATE`,
             [userId, id],
           )
         ).rows[0];

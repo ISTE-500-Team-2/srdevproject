@@ -532,12 +532,21 @@ export class StaffService {
    * access), using eligibility through the access's last day. The issued plan records the price
    * and why, as online purchases do; a waiver still records zero paid.
    */
-  private async deskPrice(db: Database, userId: number, plan: Plan, input: Pick<IssueInput, "expectedAmountCents">, through: Date | string) {
+  private async deskPrice(db: Database, userId: number, plan: Plan, input: Pick<IssueInput, "expectedAmountCents" | "paymentStatus"> | null, through: Date | string) {
     const day = typeof through === "string" ? through : through.toISOString().slice(0, 10);
     const offer = await quote(db, userId, plan, day);
     // Staff took payment for the price on screen; never record a different one.
-    if (input.expectedAmountCents != null && input.expectedAmountCents !== offer.amountCents)
+    if (input?.expectedAmountCents != null && input.expectedAmountCents !== offer.amountCents)
       throw new AppError(409, "PRICE_CHANGED", "This member's price changed. Review the new price before issuing access.");
+    // A page that didn't show the member's price (still loading, failed, or an older app version
+    // during a release) only showed the standard price. Recording anything else, or turning a
+    // recorded payment into a waiver, would misrecord what staff collected.
+    if (
+      input && input.expectedAmountCents == null &&
+      (offer.amountCents !== Math.round(Number(plan.price) * 100) ||
+        (offer.basis === "school_partner" && input.paymentStatus !== "waived"))
+    )
+      throw new AppError(409, "PRICE_CHANGED", "This member has a different price from the standard one. Reload the page, review their price, then issue access.");
     return {
       ...offer,
       plan: { ...plan, price: (offer.amountCents / 100).toFixed(2), priceBasis: offer.basis },
@@ -560,7 +569,7 @@ export class StaffService {
         if (!validDate) throw new AppError(400, "INVALID_INPUT", "Choose the pass date.");
         through = validDate;
       }
-      const { amountCents, basis } = await this.deskPrice(db, userId, plan, {}, through);
+      const { amountCents, basis } = await this.deskPrice(db, userId, plan, null, through);
       return { planId: plan.id, standardCents: Math.round(Number(plan.price) * 100), amountCents, basis };
     });
   }

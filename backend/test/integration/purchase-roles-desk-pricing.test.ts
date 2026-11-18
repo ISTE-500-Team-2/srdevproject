@@ -126,6 +126,40 @@ test('FR-006/FR-008: upgrading drops hand-set purchase roles, keeps one valid pr
   assert.equal((await pool.query(`SELECT COUNT(*)::int AS n FROM app_staff_audit WHERE action='user.role_changed' AND subject_id=ANY($1::int[])`, [[customer.id, staffer.id]])).rows[0].n, 2);
 });
 
+test('FR-006/BR-004: purchase roles an older app version stores after the upgrade are ignored and dropped on the next role change', async () => {
+  const admin = client(), customer = client(), staffer = client();
+  await admin.demo('admin'); await customer.register(); await staffer.register();
+  // The previous version, still serving during a blue/green release, writes them by hand.
+  const stale = async (userId: number, primary: string, roles: string[]) => {
+    await pool.query('DELETE FROM user_role WHERE userid=$1', [userId]);
+    await pool.query('INSERT INTO user_role(userid,roleid) SELECT $1,roleid FROM role WHERE role=ANY($2::text[])', [userId, roles]);
+    await pool.query('UPDATE "user" SET primary_role=$2 WHERE userid=$1', [userId, primary]);
+  };
+  await stale(customer.id, 'subscriber', ['subscriber']);
+  await stale(staffer.id, 'staff', ['staff', 'day_pass']);
+
+  // Read back without them, with exactly one valid primary role that is also listed.
+  let person = await record(admin, customer.id);
+  assert.equal(person.primaryRole, 'member'); assert.deepEqual(person.roles, ['member']); assert.deepEqual(person.automaticRoles, []);
+  const session = (await customer.get('/auth/session')).body.data.user;
+  assert.equal(session.primaryRole, 'member'); assert.deepEqual(session.roles, ['member']);
+  const staffRecord = await record(admin, staffer.id);
+  assert.equal(staffRecord.primaryRole, 'staff'); assert.deepEqual(staffRecord.roles, ['staff']);
+
+  // Saving a role change drops the stored copies.
+  const stored = async (userId: number) => (await pool.query(`SELECT u.primary_role AS primary,
+    (SELECT array_agg(r.role ORDER BY r.role) FROM user_role ur JOIN role r USING(roleid) WHERE ur.userid=u.userid) AS roles
+    FROM "user" u WHERE u.userid=$1`, [userId])).rows[0];
+  let r = await admin.post(`/admin/users/${customer.id}/role`, { primaryRole: 'member', roles: ['member', 'instructor'], revision: person.revision, reason: 'Teaches classes' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(await stored(customer.id), { primary: 'member', roles: ['instructor', 'member'] });
+  // The older single-role request keeps the other stored roles, minus the computed ones.
+  person = await record(admin, staffer.id);
+  r = await admin.post(`/admin/users/${staffer.id}/role`, { role: 'instructor', revision: person.revision, reason: 'Moved to teaching' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(await stored(staffer.id), { primary: 'instructor', roles: ['instructor'] });
+});
+
 test('B-003: a desk sale charges a student the student price, shows why, and records it like online checkout', async () => {
   const admin = client(), student = client(), other = client();
   await admin.demo('admin'); await student.register(); await other.register(); await signPolicies(student);
@@ -165,7 +199,12 @@ test('B-003: a desk sale charges a student the student price, shows why, and rec
   assert.equal(receipt.length, 1); assert.equal(receipt[0].payload.amount, '30.00');
 
   // Waiving still records zero paid; the issued pass keeps the student price it was offered at.
+  // A page that never showed the member's price (loading, failed, or an older app) is refused
+  // rather than silently recording a price staff didn't see.
   r = await issue(admin, student.id, { planId: pass.id, validDate: dayOffset(2), paymentStatus: 'waived', method: 'unspecified' });
+  assert.equal(r.status, 409); assert.equal(r.body.error.code, 'PRICE_CHANGED');
+  assert.match(r.body.error.message, /Reload/);
+  r = await issue(admin, student.id, { planId: pass.id, validDate: dayOffset(2), paymentStatus: 'waived', method: 'unspecified', expectedAmountCents: 1200 });
   assert.equal(r.status, 201, JSON.stringify(r.body));
   assert.equal((await pool.query('SELECT plan_snapshot FROM day_pass WHERE dayid=$1', [r.body.data.id])).rows[0].plan_snapshot.price, '12.00');
   assert.deepEqual((await payments(student.id)).at(-1), { price: '0.00', paymentstatus: 'waived' });
@@ -188,6 +227,10 @@ test('B-003: school-partner free access is free at the desk too, only while veri
   const quoted = await admin.get(`/admin/users/${partner.id}/entitlements/quote?planId=${monthly.id}&startsAt=${encodeURIComponent(startsAt)}`);
   assert.deepEqual(quoted.body.data, { planId: monthly.id, standardCents: 5000, amountCents: 5000, basis: 'standard' });
   await pool.query('UPDATE app_partner_eligibility SET valid_until=$2 WHERE userid=$1', [partner.id, dayOffset(60)]);
+  // Without the price staff saw, a recorded cash payment isn't quietly turned into a waiver.
+  const stale = await issue(admin, partner.id, { planId: monthly.id, startsAt });
+  assert.equal(stale.status, 409); assert.equal(stale.body.error.code, 'PRICE_CHANGED');
+  assert.deepEqual((await pool.query('SELECT 1 FROM payment WHERE userid=$1', [partner.id])).rows, []);
   const r = await issue(admin, partner.id, { planId: monthly.id, startsAt, expectedAmountCents: 0 });
   assert.equal(r.status, 201, JSON.stringify(r.body));
   assert.equal(r.body.data.plan.priceBasis, 'school_partner');

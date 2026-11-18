@@ -31,6 +31,8 @@ MAIN_PUSH_WORKFLOWS = ('.github/workflows/mvc-verify.yml', '.github/workflows/de
 CI_POLL_SECONDS = 240
 REFUND_MIGRATION = '053_checkout_refund_reconciliation.sql'
 REGISTRATION_MIGRATION = '055_pending_registration_password_confirmation.sql'
+# pg_dump of a whole database can outgrow run()'s two-minute default; only the dump gets longer.
+DUMP_TIMEOUT_SECONDS = 15 * 60
 
 
 class ReleaseCheckError(RuntimeError):
@@ -329,8 +331,9 @@ def dump_database(container, user, database, backup):
     with backup.open('wb') as stream:
         backup.chmod(0o600)
         run('docker', 'exec', container, 'pg_dump', '-U', user, '-d', database,
-            '--format=custom', '--no-owner', stdout=stream)
+            '--format=custom', '--no-owner', stdout=stream, timeout=DUMP_TIMEOUT_SECONDS)
     require(backup.stat().st_size > 0, 'Empty backup')
+    # Listing reads only the archive's table of contents, so it keeps the default timeout.
     with backup.open('rb') as stream:
         run('docker', 'exec', '-i', container, 'pg_restore', '--list', stdin=stream, stdout=subprocess.DEVNULL)
 
