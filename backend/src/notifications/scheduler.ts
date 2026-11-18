@@ -4,6 +4,7 @@
 import type { Database } from '../db.js';
 import { enqueueNotification } from './store.js';
 import { reminderDates } from './reminderTiming.js';
+import { AUTO_RENEWING_PERIODS } from '../billing/policy.js';
 
 export { reminderDates };
 
@@ -18,8 +19,10 @@ export async function scheduleExpirationNotifications(db:Database,now=new Date()
     SELECT uw.userid,'waiver',uw.userwaiverid,uw.expires_at,uw.signdate AT TIME ZONE 'UTC',w.name
     FROM user_waiver uw JOIN waiver w USING(waiverid) WHERE uw.approval=true AND w.isactive=true
     UNION ALL
-    SELECT um.userid,'membership',um.membershipid,um.end_date AT TIME ZONE 'UTC',um.startdate AT TIME ZONE 'UTC','Membership'
-    FROM user_membership um WHERE um.status='active'
+    SELECT um.userid,'membership',um.membershipid,um.end_date AT TIME ZONE 'UTC',um.startdate AT TIME ZONE 'UTC',
+      COALESCE(um.plan_snapshot->>'name',t.tiername,'Membership')
+    -- Stripe renews a card period still set to renew, so it gets the billing flow's renewal notice instead.
+    FROM user_membership um LEFT JOIN membership_tiers t USING(tierid) WHERE um.status='active' AND um.membershipid NOT IN (${AUTO_RENEWING_PERIODS})
   ) SELECT e.userid AS "userId",source_type AS "sourceType",source_id AS "sourceId",expires_at AS "expiresAt",granted_at AS "grantedAt",name,
     COALESCE(p.time_zone,'America/New_York') AS "timeZone"
     FROM expirations e JOIN "user" u USING(userid) LEFT JOIN app_notification_preferences p USING(userid)
@@ -46,7 +49,8 @@ export async function expirationSourceCurrent(db:Database,userId:number,payload:
     WHERE uc.userid=$1 AND uc.usercertid=$2 AND uc.status='active' AND date_trunc('milliseconds',LEAST(uc.renewaldate,c.enddate) AT TIME ZONE 'UTC')=$3`
     :payload.sourceType==='waiver' ? `SELECT 1 FROM user_waiver uw JOIN waiver w USING(waiverid)
     WHERE uw.userid=$1 AND uw.userwaiverid=$2 AND uw.approval=true AND w.isactive=true AND date_trunc('milliseconds',uw.expires_at)=$3`
-    :payload.sourceType==='membership' ? `SELECT 1 FROM user_membership WHERE userid=$1 AND membershipid=$2 AND status='active' AND date_trunc('milliseconds',end_date AT TIME ZONE 'UTC')=$3`
+    :payload.sourceType==='membership' ? `SELECT 1 FROM user_membership um WHERE um.userid=$1 AND um.membershipid=$2 AND um.status='active'
+    AND date_trunc('milliseconds',um.end_date AT TIME ZONE 'UTC')=$3 AND um.membershipid NOT IN (${AUTO_RENEWING_PERIODS})`
     :null;
   return sql ? (await db.query(sql,values)).rows.length>0 : false;
 }

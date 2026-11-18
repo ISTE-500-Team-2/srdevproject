@@ -882,8 +882,12 @@ function Equipment({ report: d }: { report: Report }) {
 function BusiestTimes({ patterns: all }: { patterns: Report["patterns"] }) {
   const [machine, setMachine] = useState("");
   const [hovered, setHovered] = useState<string | null>(null);
-  const patterns = all.filter((p) => !machine || String(p.id) === machine);
   const machineList = [...new Map(all.map((p) => [p.id, p.name])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  // A machine that drops out of the data (its booking cancelled, a new range) ends its filter,
+  // rather than leaving "No bookings" behind a select that can't show or clear it.
+  const filtered = machineList.some(([id]) => String(id) === machine);
+  if (machine && !filtered) setMachine("");
+  const patterns = all.filter((p) => !filtered || String(p.id) === machine);
   const cells = new Map<string, number>();
   for (const p of patterns) cells.set(`${p.weekday}-${p.hour}`, (cells.get(`${p.weekday}-${p.hour}`) ?? 0) + Number(p.bookedHours));
   const busiest = Math.max(0, ...cells.values());
@@ -902,7 +906,7 @@ function BusiestTimes({ patterns: all }: { patterns: Report["patterns"] }) {
     <>
       <div className="reports-heat-head">
         <h3>Busiest times</h3>
-        {machineList.length > 1 ? (
+        {machineList.length > 1 || filtered ? (
           <label className="analytics-range reports-heat-filter">
             <select value={machine} aria-label="Machine" onChange={(e) => setMachine(e.target.value)}>
               <option value="">All machines</option>

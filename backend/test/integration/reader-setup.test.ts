@@ -279,10 +279,14 @@ test("completion requires the new reader credential, a fresh real heartbeat and 
     command = (await report([d])).body.data.jobs.find(
       (j: any) => j.id === job.id,
     );
+  const unverified = await report(
+    [d],
+    [{ id: job.id, status: "complete", readerReady: true }],
+  );
+  assert.equal(unverified.status, 200);
   assert.equal(
-    (await report([d], [{ id: job.id, status: "complete", readerReady: true }]))
-      .status,
-    409,
+    unverified.body.data.jobs.find((j: any) => j.id === job.id).status,
+    "verifying",
   );
   assert.equal(
     (await heartbeat(job.readerId, "incorrect".repeat(8))).status,
@@ -291,14 +295,14 @@ test("completion requires the new reader credential, a fresh real heartbeat and 
   const h = await heartbeat(job.readerId, command.readerSecret);
   assert.equal(h.body.data.mode, "disabled");
   assert.equal(h.body.data.allowed, false);
+  const notReady = await report(
+    [d],
+    [{ id: job.id, status: "complete", readerReady: false }],
+  );
+  assert.equal(notReady.status, 200);
   assert.equal(
-    (
-      await report(
-        [d],
-        [{ id: job.id, status: "complete", readerReady: false }],
-      )
-    ).status,
-    409,
+    notReady.body.data.jobs.find((j: any) => j.id === job.id).status,
+    "verifying",
   );
   assert.equal(
     (
@@ -344,7 +348,10 @@ test("completion requires the new reader credential, a fresh real heartbeat and 
     ).rows[0].payload_encrypted,
     null,
   );
-  assert.ok(!(await get()).body.data.devices.some((v: any) => v.id === d.id));
+  assert.equal(
+    (await get()).body.data.devices.find((v: any) => v.id === d.id).readerName,
+    "Workshop mini",
+  );
 });
 test("cancel is idempotent, clears Wi-Fi payload, and late completion cannot re-enable the reader", async () => {
   const d = await device(),
@@ -454,5 +461,98 @@ test("expiry and worker failure retain disabled readers; completed setup cannot 
       ])
     ).rows[0].enabled,
     false,
+  );
+});
+test("an unverified completion leaves the rest of the gateway's report in place", async () => {
+  const d = await device(),
+    other = await device(),
+    job = await start(d),
+    second = await start(other);
+  await pool.query(
+    "UPDATE app_reader_setup_gateway SET last_seen_at=NOW()-INTERVAL '1 minute' WHERE id='pi'",
+  );
+  const added = {
+    id: "usb-" + "e".repeat(24),
+    model: "ESP32-C3 mini",
+    firmware: "1.7.1-c3-checkin",
+    transport: "usb",
+  };
+  // No heartbeat from the new reader yet, alongside another job's progress and a new device.
+  const r = await report(
+    [d, other, added],
+    [
+      { id: job.id, status: "complete", readerReady: true },
+      { id: second.id, status: "connecting" },
+    ],
+  );
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const jobs = r.body.data.jobs;
+  assert.equal(jobs.find((j: any) => j.id === job.id).status, "verifying");
+  assert.equal(jobs.find((j: any) => j.id === second.id).status, "connecting");
+  const discovery = (await get()).body.data;
+  assert.equal(discovery.gateways.find((g: any) => g.id === "pi").online, true);
+  assert.ok(discovery.devices.some((v: any) => v.id === added.id));
+  assert.equal(
+    (
+      await pool.query("SELECT enabled FROM app_access_reader WHERE id=$1", [
+        job.readerId,
+      ])
+    ).rows[0].enabled,
+    false,
+  );
+});
+test("a reader that finished setup can be set up again; finishing the new setup retires the old reader", async () => {
+  const d = await device();
+  async function complete(job: any) {
+    const command = (await report([d])).body.data.jobs.find(
+      (j: any) => j.id === job.id,
+    );
+    await heartbeat(job.readerId, command.readerSecret);
+    const r = await report(
+      [d],
+      [{ id: job.id, status: "complete", readerReady: true }],
+    );
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    return command.readerSecret as string;
+  }
+  const enabled = async (id: string) =>
+    (await pool.query("SELECT enabled FROM app_access_reader WHERE id=$1", [id]))
+      .rows[0].enabled;
+  const first = await start(d),
+    firstSecret = await complete(first);
+  assert.equal(await enabled(first.readerId), true);
+  // A failed second attempt leaves the working reader alone.
+  const failed = await start(d);
+  await report([d], [{ id: failed.id, status: "failed", errorCode: "wifi_failed" }]);
+  assert.equal(await enabled(first.readerId), true);
+  const again = await post("/admin/access/reader-setup", {
+    ...details(d),
+    name: "Wood shop door",
+    kind: "room",
+    resourceId: (await pool.query("SELECT roomid FROM room ORDER BY roomid LIMIT 1")).rows[0].roomid,
+    reason: "Moved to the wood shop",
+  });
+  assert.equal(again.status, 201, JSON.stringify(again.body));
+  // Only one setup at a time for the device.
+  assert.equal(
+    (await post("/admin/access/reader-setup", details(d))).body.error.code,
+    "SETUP_IN_PROGRESS",
+  );
+  assert.equal(await enabled(first.readerId), true);
+  await complete(again.body.data);
+  assert.equal(await enabled(again.body.data.readerId), true);
+  assert.equal(await enabled(first.readerId), false);
+  assert.equal(
+    (await heartbeat(first.readerId, firstSecret)).body.data.mode,
+    "disabled",
+  );
+  const readers = (await get("/admin/access/readers")).body.data.readers;
+  assert.equal(
+    readers.find((r: any) => r.id === again.body.data.readerId).kind,
+    "room",
+  );
+  assert.equal(
+    (await get()).body.data.devices.find((v: any) => v.id === d.id).readerName,
+    "Wood shop door",
   );
 });

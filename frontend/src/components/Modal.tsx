@@ -3,7 +3,7 @@
 
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from "react";
 
 const modalStack: HTMLElement[] = [];
 const originalInert = new Map<HTMLElement, boolean>();
@@ -82,76 +82,15 @@ export function Modal({
   const backdropRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const titleId = useId();
-  const onCloseRef = useRef(onClose);
   const requestClose = () => {
     if (!dismissible) return;
     if (dirty) setConfirmingClose(true);
     else onClose();
   };
   useEffect(() => {
-    onCloseRef.current = requestClose;
-  });
-  useEffect(() => {
     if (!open) setConfirmingClose(false);
   }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const backdrop = backdropRef.current!;
-    const previousFocus = document.activeElement;
-    modalStack.push(backdrop);
-    syncModalBackground();
-    closeRef.current?.focus();
-    const handleKey = (event: KeyboardEvent) => {
-      if (modalStack.at(-1) !== backdrop) return;
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onCloseRef.current();
-      }
-      if (event.key === "Tab" && dialogRef.current) {
-        const items = focusable(dialogRef.current);
-        const first = items[0] ?? dialogRef.current;
-        const last = items.at(-1) ?? first;
-        if (
-          event.shiftKey &&
-          (document.activeElement === first ||
-            !dialogRef.current.contains(document.activeElement))
-        ) {
-          event.preventDefault();
-          last.focus();
-        } else if (
-          !event.shiftKey &&
-          (document.activeElement === last ||
-            !dialogRef.current.contains(document.activeElement))
-        ) {
-          event.preventDefault();
-          first.focus();
-        }
-      }
-    };
-    const containFocus = (event: FocusEvent) => {
-      if (
-        modalStack.at(-1) === backdrop &&
-        dialogRef.current &&
-        !dialogRef.current.contains(event.target as Node)
-      )
-        (focusable(dialogRef.current)[0] ?? dialogRef.current).focus();
-    };
-    window.addEventListener("keydown", handleKey);
-    document.addEventListener("focusin", containFocus);
-    return () => {
-      window.removeEventListener("keydown", handleKey);
-      document.removeEventListener("focusin", containFocus);
-      modalStack.splice(modalStack.indexOf(backdrop), 1);
-      syncModalBackground();
-      if (
-        previousFocus instanceof HTMLElement &&
-        previousFocus.isConnected &&
-        !previousFocus.closest("[inert]")
-      )
-        previousFocus.focus();
-    };
-  }, [open]);
+  useModalLayer(open, { layer: backdropRef, dialog: dialogRef, initialFocus: closeRef }, requestClose);
 
   if (!open) return null;
 
@@ -203,4 +142,83 @@ export function Modal({
       ) : null}
     </>
   );
+}
+
+/**
+ * While `open`, makes `layer` (rendered straight into document.body) the top modal layer: the rest
+ * of the page is inert, Tab stays inside `dialog`, Escape calls `onEscape`, and focus returns to
+ * where it was once the layer closes. `initialFocus` takes focus when it opens.
+ */
+export function useModalLayer(
+  open: boolean,
+  { layer, dialog, initialFocus }: {
+    layer: RefObject<HTMLElement | null>;
+    dialog: RefObject<HTMLElement | null>;
+    initialFocus?: RefObject<HTMLElement | null>;
+  },
+  onEscape: () => void,
+) {
+  const onEscapeRef = useRef(onEscape);
+  useEffect(() => {
+    onEscapeRef.current = onEscape;
+  });
+
+  useEffect(() => {
+    if (!open) return;
+    const backdrop = layer.current!;
+    const previousFocus = document.activeElement;
+    modalStack.push(backdrop);
+    syncModalBackground();
+    initialFocus?.current?.focus();
+    const handleKey = (event: KeyboardEvent) => {
+      if (modalStack.at(-1) !== backdrop) return;
+      // A control inside that already used Escape (closing its own list) keeps the dialog open.
+      if (event.key === "Escape" && !event.defaultPrevented) {
+        event.preventDefault();
+        onEscapeRef.current();
+      }
+      if (event.key === "Tab" && dialog.current) {
+        const items = focusable(dialog.current);
+        const first = items[0] ?? dialog.current;
+        const last = items.at(-1) ?? first;
+        if (
+          event.shiftKey &&
+          (document.activeElement === first ||
+            !dialog.current.contains(document.activeElement))
+        ) {
+          event.preventDefault();
+          last.focus();
+        } else if (
+          !event.shiftKey &&
+          (document.activeElement === last ||
+            !dialog.current.contains(document.activeElement))
+        ) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    const containFocus = (event: FocusEvent) => {
+      if (
+        modalStack.at(-1) === backdrop &&
+        dialog.current &&
+        !dialog.current.contains(event.target as Node)
+      )
+        (focusable(dialog.current)[0] ?? dialog.current).focus();
+    };
+    window.addEventListener("keydown", handleKey);
+    document.addEventListener("focusin", containFocus);
+    return () => {
+      window.removeEventListener("keydown", handleKey);
+      document.removeEventListener("focusin", containFocus);
+      modalStack.splice(modalStack.indexOf(backdrop), 1);
+      syncModalBackground();
+      if (
+        previousFocus instanceof HTMLElement &&
+        previousFocus.isConnected &&
+        !previousFocus.closest("[inert]")
+      )
+        previousFocus.focus();
+    };
+  }, [open]);
 }

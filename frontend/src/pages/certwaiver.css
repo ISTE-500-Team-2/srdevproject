@@ -672,7 +672,8 @@
   align-items: center;
   gap: 8px;
 }
-.cw-field textarea.is-dragging {
+.cw-field textarea.is-dragging,
+.cw-field .cw-preview.is-dragging {
   border-color: var(--orange);
   background: #fff8ee;
   box-shadow: 0 0 0 3px rgba(247, 150, 29, 0.25);

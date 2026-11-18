@@ -684,6 +684,13 @@ test('FR-001/035: staff and admins bulk manage reservations with audit trail',as
  assert.equal(notices.rows[1].userid,other.id);
  assert.equal(notices.rows[1].status,'pending');
  assert.equal(new Date(notices.rows[1].payload.startsAt).toISOString(),newerStart.toISOString());
+ // The member who lost the booking is told, with the booking as they had it.
+ const lost=await pool.query("SELECT userid,kind,payload FROM app_notification_outbox WHERE dedupe_key=$1",[`reservation-reassigned:${id}:${reassigned.body.data.revision}`]);
+ assert.equal(lost.rowCount,1);
+ assert.equal(lost.rows[0].userid,member.id);
+ assert.equal(lost.rows[0].kind,'reservation_cancelled_by_staff');
+ assert.equal(new Date(lost.rows[0].payload.startsAt).toISOString(),newStart.toISOString());
+ assert.equal(lost.rows[0].payload.reason,'Staff moved this booking to another member.');
  const auditUpdate=await pool.query("SELECT actor_id,subject_id,before_state,after_state FROM app_staff_audit WHERE action='reservation.override.updated' AND entity_id=$1 ORDER BY id ASC",[id]);
  assert.equal(auditUpdate.rows[0].actor_id,staff.id);
  assert.equal(auditUpdate.rows[0].subject_id,member.id);

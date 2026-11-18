@@ -57,6 +57,7 @@ test('member finds grouped equipment, avoids occupied slots and cooldown, and ca
  const mine=screen.getByRole('region',{name:'My reservations'});
  await waitFor(()=>expect(within(mine).getAllByRole('button',{name:'Cancel reservation'})).toHaveLength(2));
  await user.click(within(mine).getAllByRole('button',{name:'Cancel reservation'})[0]);
+ await user.click(within(screen.getByRole('dialog',{name:'Cancel this reservation?'})).getByRole('button',{name:'Cancel reservation'}));
  await screen.findByText('Reservation cancelled.');
  expect((await bridge.pool.query("SELECT reservationid FROM reservation WHERE status='cancelled'")).rowCount).toBe(1);
  // A booking less than 24h away remains non-cancellable in both UI and API.

@@ -13,6 +13,7 @@ import {
   nextMonth,
   calendarDate,
   conflictFor,
+  dateOnly,
   freeFor,
   money,
   nextOpening,
@@ -35,9 +36,12 @@ export function StudioBooking({
   blockedReason,
   busy,
   error,
+  notice,
   held,
+  mine,
   onClose,
   onBook,
+  onFinish,
 }: {
   size: string | null;
   studios: Studio[];
@@ -47,9 +51,14 @@ export function StudioBooking({
   blockedReason: string;
   busy: boolean;
   error: string;
+  /** The outcome of an action taken in this pop-up, such as Finish card payment. */
+  notice: string;
   held: Rental | null;
+  /** The member's own rentals, so their own new hold never reads as taken by someone else. */
+  mine: Rental[];
   onClose: () => void;
   onBook: (request: BookingRequest) => void;
+  onFinish: (rental: Rental) => void;
 }) {
   const opening = useMemo(
     () => nextOpening(studios, today) ?? today,
@@ -61,6 +70,19 @@ export function StudioBooking({
   const [method, setMethod] = useState<"manual" | "stripe_test">("manual");
   const end = nextMonth(start);
   const choice = studios.find((s) => s.id === studioId) ?? null;
+  // The member's own rental for exactly this choice (a card checkout they started, or a booking
+  // whose reply was lost after the server saved it) is theirs, not "just taken": show it.
+  const yours =
+    held ??
+    (choice && start
+      ? mine.find(
+          (r) =>
+            ["pending", "confirmed"].includes(r.status) &&
+            r.studio_id === choice.id &&
+            dateOnly(r.starts_on) === start,
+        )
+      : null) ??
+    null;
   // Availability refreshes while the pop-up is open; re-check the current
   // choice so a studio someone else just took can't be submitted.
   const dateTaken = !!start && !studios.some((s) => freeFor(s, start));
@@ -78,32 +100,65 @@ export function StudioBooking({
   const label = size ? sizeLabel(size).toLowerCase() : "";
   return (
     <Modal open={!!size} title={`Reserve a ${label} studio`} onClose={onClose}>
-      {held ? (
+      {notice && (
+        <p className="studio-message studio-booking__notice" role="status">
+          {notice}
+        </p>
+      )}
+      {yours ? (
         <div className="studio-held" role="status">
           <div className="studio-held__head">
             <div>
-              <h3>{held.name} is held for you</h3>
+              <h3>
+                {yours.name} is {yours.status === "confirmed" ? "booked" : "held"} for you
+              </h3>
               <p>
-                {rentalRange(held.starts_on, held.ends_on)} · {money(held.amount_cents)}
+                {rentalRange(yours.starts_on, yours.ends_on)} · {money(yours.amount_cents)}
               </p>
             </div>
-            <BookingReference id={held.id} />
+            <BookingReference id={yours.id} />
           </div>
-          <p className="form-notice">
-            <CircleAlert aria-hidden="true" />
-            <span>
-              Pay at the front desk by{" "}
-              <strong>
-                {new Date(held.hold_until).toLocaleTimeString([], {
-                  hour: "numeric",
-                  minute: "2-digit",
-                })}
-              </strong>{" "}
-              and give them your booking reference. After that the hold is released.
-            </span>
-          </p>
+          {yours.status === "pending" && (
+            <p className="form-notice">
+              <CircleAlert aria-hidden="true" />
+              <span>
+                {yours.payment_method === "manual"
+                  ? "Pay at the front desk by "
+                  : "Card payment isn’t finished. Pay by "}
+                <strong>
+                  {new Date(yours.hold_until).toLocaleTimeString([], {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}
+                </strong>{" "}
+                {yours.payment_method === "manual"
+                  ? "and give them your booking reference. After that the hold is released."
+                  : "or the hold is released."}
+              </span>
+            </p>
+          )}
+          {error && (
+            <p className="form-error" role="alert">
+              {error}
+            </p>
+          )}
           <div className="studio-booking__foot">
-            <span>It’s listed under Your rentals until it’s paid.</span>
+            <span>
+              {yours.status === "pending"
+                ? "It’s listed under Your rentals until it’s paid."
+                : "It’s listed under Your rentals."}
+            </span>
+            {yours.status === "pending" && yours.payment_method === "stripe_test" && (
+              <button
+                type="button"
+                className="button button--quiet"
+                disabled={busy}
+                onClick={() => onFinish(yours)}
+              >
+                <CreditCard aria-hidden="true" />
+                Finish card payment
+              </button>
+            )}
             <button type="button" className="button button--primary" onClick={onClose}>
               Done
             </button>
@@ -154,6 +209,8 @@ export function StudioBooking({
                 <div>
                   {studios.map((s) => {
                     const blocked = start ? conflictFor(s, start, end) : undefined;
+                    // Back-to-back or later rentals can keep it busy past the first one found.
+                    const free = blocked ? nextOpening([s], start) : null;
                     return (
                       <label
                         key={s.id}
@@ -170,7 +227,9 @@ export function StudioBooking({
                           <strong>{s.name}</strong>
                           <small>
                             {blocked
-                              ? `Taken until ${calendarDate(addDays(blocked.ends_on, -1), { month: "short", day: "numeric" })}`
+                              ? free
+                                ? `Next opening ${calendarDate(free, { month: "short", day: "numeric" })}`
+                                : "Fully booked"
                               : money(s.monthly_cents ?? 0) + " / month"}
                           </small>
                         </span>
@@ -226,15 +285,19 @@ export function StudioBooking({
               )}
             </div>
           </div>
-          {(stale || error) && (
+          {/* A server error always shows. It already explains a conflict, so the
+              stale notice only speaks when there is no error. */}
+          {(error || stale) && (
             <p className="form-error" role="alert">
-              {stale || error}
+              {error || stale}
             </p>
           )}
           <div className="studio-booking__foot">
             <span>
               {choice?.cancellation_policy === "full_before_start" && start
-                ? `Full refund if you cancel before ${calendarDate(start, { month: "short", day: "numeric" })}.`
+                ? start <= today
+                  ? "No refund: this rental starts today."
+                  : `Full refund if you cancel before ${calendarDate(start, { month: "short", day: "numeric" })}.`
                 : choice?.cancellation_policy === "no_refunds"
                   ? "No refunds once booked."
                   : ""}
