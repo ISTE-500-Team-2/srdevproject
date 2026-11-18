@@ -180,29 +180,33 @@ function refundEffect(payment: Payment) {
 }
 
 /** Checks Stripe and records the staff decision without submitting a refund. */
-export function RefundReview({ payment, onReviewed }: { payment: Payment; onReviewed: (passIssued: boolean) => void }) {
+export function RefundReview({ payment, onReviewed }: { payment: Payment; onReviewed: (message: string) => void }) {
   return (
     <ActionForm
       title={`Review refund for payment #${payment.id}`}
       submitLabel="Complete review"
       onSubmit={async (f) => {
-        const result = await api<{ passIssued?: boolean }>(cardRefundPath(payment) ?? "", {
+        const result = await api<{ passIssued?: boolean; passCancelled?: boolean; passKept?: boolean }>(cardRefundPath(payment) ?? "", {
           method: "POST",
           body: { reason: f.get("reason"), review: true, ...(f.has("honorVisit") ? { honorVisit: true } : {}) },
         });
-        onReviewed(result?.passIssued === true);
+        const effect = result?.passCancelled ? "Day pass cancelled"
+          : result?.passKept ? "Existing day pass kept as approved"
+          : result?.passIssued ? "Day pass issued"
+          : "Refund review completed";
+        onReviewed(`${effect} for payment #${payment.id}.`);
       }}
     >
       <p>
-        Check the visit record and the refund in Stripe first. This action rechecks Stripe without sending money.
-        If the full payment was refunded, the ledger records it. If no amount was refunded, the payment stays
-        on the ledger. Wait for any pending refunds to finish. If you want to return the rest of a partial
-        refund, refund the remaining amount in Stripe and then complete this review.
+        Check the visit record and Stripe before completing review. A confirmed full refund closes the day pass
+        and marks the charge refunded. To keep a replacement pass issued during a release rollback, choose
+        Honor the visit. To refund that replacement or return the rest of a partial refund, do so in Stripe
+        before completing review. Wait for any pending refunds to finish.
       </p>
       {payment.passCheckoutId && (
         <label className="payment-editor__confirm">
           <input type="checkbox" name="honorVisit" />
-          <span>Honor the visit if no refund went through or only part of the payment was refunded. Issue a held pass if the visit can still go ahead.</span>
+          <span>Honor the visit. Keep the existing pass or issue an eligible held pass if Stripe confirms the full or remaining charge.</span>
         </label>
       )}
       <ReasonField label="Reason for closing review" />

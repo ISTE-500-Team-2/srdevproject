@@ -128,8 +128,8 @@ export class StaffModel {
   createMembership(userId: number, plan: Plan, startsAt: string, endsAt: Date, actorId: number, reason: string) {
     return this.entitlements.createMembership(userId, plan, startsAt, endsAt, actorId, reason);
   }
-  createPass(userId: number, plan: Plan, date: string, actorId: number, reason: string) {
-    return this.entitlements.createPass(userId, plan, date, actorId, reason);
+  createPass(userId: number, plan: Plan, date: string, actorId: number, reason: string, status?: "active" | "cancelled") {
+    return this.entitlements.createPass(userId, plan, date, actorId, reason, status);
   }
   changeEntitlement(kind: EntitlementKind, id: number, status: string, reason: string, revision: number) {
     return this.entitlements.changeEntitlement(kind, id, status, reason, revision);

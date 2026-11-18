@@ -191,6 +191,20 @@ test("staff can choose to honor a visit and see when the day pass is issued", as
   expect(await screen.findByText("Day pass issued for payment #209.")).toBeTruthy();
 });
 
+test.each([
+  [{ passCancelled: true }, "Day pass cancelled for payment #209."],
+  [{ passKept: true }, "Existing day pass kept as approved for payment #209."],
+])("staff see the outcome of a reviewed overlap (%j)", async (effect, message) => {
+  vi.mocked(api).mockResolvedValue({ status: "reviewed", ...effect });
+  mount([{ ...card, dayPassId: 42, invoiceId: null, passCheckoutId: "pc-1", refundStatus: "needs_review" }]);
+  fireEvent.click(screen.getByRole("button", { name: /^Review refund payment #209/ }));
+  expect(screen.getByText(/A confirmed full refund closes the day pass/)).toBeTruthy();
+  if ("passKept" in effect) fireEvent.click(screen.getByRole("checkbox", { name: /Honor the visit/ }));
+  fireEvent.change(screen.getByLabelText("Reason for closing review"), { target: { value: "Checked the original Stripe charge" } });
+  fireEvent.click(screen.getByRole("button", { name: "Complete review" }));
+  expect(await screen.findByText(message)).toBeTruthy();
+});
+
 test("a failed day-pass refund can be retried, so staff are told to use Refund again", () => {
   mount([{ ...card, invoiceId: null, passCheckoutId: "pc-1", refundStatus: "failed" } as unknown as Payment]);
   expect(screen.getByText("Refund failed")).toBeTruthy();

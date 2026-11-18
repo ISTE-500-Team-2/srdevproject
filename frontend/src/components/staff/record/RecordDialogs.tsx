@@ -444,7 +444,7 @@ export function RecordDialogHost({
       if (dialog.payment.refundStatus === "needs_review") {
         return (
           <DraftModal open width="compact" title="Review refund" onClose={onClose} className="mr-dialog">
-            <RefundReview payment={dialog.payment} onReviewed={(passIssued) => onDone(passIssued ? `Day pass issued for payment #${dialog.payment.id}.` : `Refund review completed for payment #${dialog.payment.id}.`)} />
+            <RefundReview payment={dialog.payment} onReviewed={onDone} />
           </DraftModal>
         );
       }

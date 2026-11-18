@@ -23,8 +23,14 @@ LEFT JOIN LATERAL (
     AND other.reference IN (c.checkout_id, c.payment_intent)
 ) ledger ON true
 WHERE c.refund_needs_review
-   OR (c.payment_intent IS NOT NULL AND c.status = 'pending' AND c.pass_id IS NULL)
+   OR (c.payment_intent IS NOT NULL AND c.pass_id IS NULL AND
+       (c.payment_id IS NULL OR p.paymentstatus = 'paid'))
    OR (c.refund_reconcile_after IS NOT NULL AND c.refund_status IS DISTINCT FROM 'partial')
    OR cardinality(ledger.payment_ids) > 1
-   OR (d.status = 'active' AND (retired.original_checkout_id IS NOT NULL OR c.refund_status = 'succeeded'))
+   OR (c.refund_status = 'succeeded' AND (d.status IN ('active', 'suspended') OR p.paymentstatus IS DISTINCT FROM 'refunded'))
+   OR (d.status IN ('active', 'suspended') AND retired.original_checkout_id IS NOT NULL AND NOT EXISTS (
+       SELECT 1 FROM app_staff_audit a
+       WHERE a.subject_id = c.userid AND a.entity_type = 'payment' AND a.entity_id = c.payment_id
+         AND a.action = 'billing.refund.reviewed' AND a.after_state->>'checkoutId' = c.id::text
+         AND a.after_state->>'keptPassId' = c.pass_id::text))
 ORDER BY c.valid_date, c.id;

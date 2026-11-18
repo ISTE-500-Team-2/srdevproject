@@ -141,11 +141,14 @@ export class EntitlementRepository {
     return (
       await this.db.query<{ reason: "review" | "processing" | "open" }>(
         `SELECT CASE WHEN refund_needs_review THEN 'review' WHEN payment_id IS NOT NULL OR refund_reconcile_after IS NOT NULL THEN 'processing' ELSE 'open' END AS reason
-      FROM app_pass_checkout WHERE userid=$1 AND valid_date=$2::date AND status='pending'
-      AND checkout_id IS NOT NULL AND (
-        payment_id IS NOT NULL OR refund_reconcile_after IS NOT NULL OR now()<COALESCE(checkout_expires_at,CASE WHEN checkout_has_expiry THEN ${legacyPassCheckoutPayBy("$3")}
-          ELSE created_at+INTERVAL '24 hours' END)
-      )`,
+      FROM app_pass_checkout WHERE userid=$1 AND valid_date=$2::date AND (
+        pass_id IS NULL AND payment_intent IS NOT NULL AND refund_status IS DISTINCT FROM 'succeeded'
+          AND (refund_needs_review OR refund_reconcile_after IS NOT NULL)
+        OR refund_needs_review AND status='pending'
+        OR status='pending' AND (payment_id IS NOT NULL OR refund_reconcile_after IS NOT NULL OR checkout_id IS NOT NULL AND
+          now()<COALESCE(checkout_expires_at,CASE WHEN checkout_has_expiry THEN ${legacyPassCheckoutPayBy("$3")}
+            ELSE created_at+INTERVAL '24 hours' END))
+      ) ORDER BY refund_needs_review DESC LIMIT 1`,
         [userId, date, this.timeZone],
       )
     ).rows[0]?.reason;
@@ -191,12 +194,13 @@ export class EntitlementRepository {
     date: string,
     actorId: number,
     reason: string,
+    status: "active" | "cancelled" = "active",
   ): Promise<number> {
     return (
       await this.db.query<{ id: number }>(
         `INSERT INTO day_pass(userid,tierid,validdate,purchasedate,status,statusdesc,plan_snapshot,issued_by)
-      VALUES($1,$2,$3::date,NOW() AT TIME ZONE 'UTC','active',$4,$5,$6) RETURNING dayid AS id`,
-        [userId, plan.id, date, reason, JSON.stringify(plan), actorId],
+      VALUES($1,$2,$3::date,NOW() AT TIME ZONE 'UTC',$7,$4,$5,$6) RETURNING dayid AS id`,
+        [userId, plan.id, date, reason, JSON.stringify(plan), actorId, status],
       )
     ).rows[0]!.id;
   }
