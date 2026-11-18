@@ -256,3 +256,59 @@ test('while machines or bookings load, rows are outlined instead of claiming a s
   expect(within(panel).getByRole('status', { name: 'Loading today’s bookings' })).toBeTruthy();
   expect(panel.textContent).not.toMatch(/Not in use|Loading bookings…/);
 });
+
+/** An administrator's board: the Add equipment button, its catalog options, and a save that lists the new machine. */
+function canAdd() {
+  const read = api.getMockImplementation()!;
+  api.mockImplementation((path: string, options?: { method?: string }) => {
+    if (path === '/admin/equipment/catalog-options') return Promise.resolve({ canManage: true, categories: ['Laser engraver'], certifications: [],
+      groups: [{ name: 'Laser engraver', machines: machines.map(m => ({ id: m.id, name: m.name, image: m.image })) }] });
+    if (path === '/admin/equipment' && options?.method === 'POST') { machines.push(machine(6, 'Glowforge Pro')); return Promise.resolve({ id: 6 }); }
+    return read(path);
+  });
+}
+async function startAdding(name: string) {
+  fireEvent.click(await screen.findByRole('button', { name: 'Add equipment' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Add equipment' });
+  await waitFor(() => expect((within(dialog).getByRole('combobox', { name: 'Required certification' }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: name } });
+  return dialog;
+}
+
+test('after adding, the board stays open with the new machine marked and the next step offered', async () => {
+  canAdd();
+  mount();
+  const dialog = await startAdding('Glowforge Pro');
+  const category = within(dialog).getByRole('combobox', { name: 'Category' });
+  fireEvent.focus(category); fireEvent.change(category, { target: { value: 'laser engraver' } }); fireEvent.blur(category);
+  fireEvent.change(within(dialog).getByLabelText('Hourly rate in dollars'), { target: { value: '20' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Add equipment' }));
+  expect((await screen.findByText(/was added/)).textContent).toBe('Glowforge Pro was added. Members can book it now.');
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(screen.getByRole('heading', { level: 1, name: 'Equipment' })).toBeTruthy();
+  await waitFor(async () => expect((await row('Glowforge Pro')).textContent).toMatch(/^Glowforge ProNew/));
+  expect((await row('Glowforge Pro')).className).toContain('eq-row--new');
+  fireEvent.click(screen.getByRole('button', { name: 'Add another' }));
+  expect(await screen.findByRole('dialog', { name: 'Add equipment' })).toBeTruthy();
+  expect(screen.queryByText(/was added/)).toBeNull();
+});
+
+test('an unsaved Add equipment form survives the midnight refresh of the board', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const tomorrow = new Date(`${todayKey()}T12:00:00Z`); tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    const tomorrowKey = tomorrow.toISOString().slice(0, 10);
+    vi.setSystemTime(localHour(tomorrowKey, 0, ZONE) - 30000);
+    canAdd();
+    mount();
+    await startAdding('Midnight laser');
+    await act(() => vi.advanceTimersByTimeAsync(61000));
+    // The board moved to the new day...
+    await waitFor(() => expect(api).toHaveBeenCalledWith(`/admin/reservations?date=${tomorrowKey}`, expect.anything()));
+    // ...and the draft is still there.
+    const dialog = screen.getByRole('dialog', { name: 'Add equipment' });
+    expect((within(dialog).getByLabelText('Name') as HTMLInputElement).value).toBe('Midnight laser');
+  } finally {
+    vi.useRealTimers();
+  }
+});

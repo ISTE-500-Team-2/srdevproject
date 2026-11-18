@@ -3,7 +3,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowUpRight, ChevronRight, Search, Wrench } from 'lucide-react';
+import { ArrowUpRight, CheckCircle2, ChevronRight, Search, Wrench, X } from 'lucide-react';
 import { useApi } from '../../lib/useApi';
 import { LoadState } from '../../components/Management';
 import { Skeleton, SkeletonGroup } from '../../components/Skeleton';
@@ -13,7 +13,8 @@ import type { Reservation } from '../../lib/contracts';
 import { bookingBlock, dayKey, formatTime, localHour, machineStatus, mergeBookings, previousDay, timeWindow } from '../../lib/today';
 import { equipmentRate, equipmentTime, maintenanceReasons, type EquipmentDetail, type ManagedEquipment } from '../../lib/equipmentMaintenance';
 import { useDayBookings } from '../../lib/useDayBookings';
-import { EquipmentEditor, type CatalogOptions } from './EquipmentEditor';
+import type { CatalogOptions } from './EquipmentEditor';
+import { EquipmentAdd, type Added } from './EquipmentAdd';
 
 const refresh = { retainOnReload: true, refreshInterval: 15000 };
 const bookingRefresh = { retainOnReload: true, refreshInterval: 60000 };
@@ -41,14 +42,27 @@ export function EquipmentBoard() {
   }, []);
   const zone = config.data?.timeZone;
   const day = zone ? dayKey(now, zone) : '';
-  // Remounts at midnight so the schedule never mixes two days.
-  return <BoardContent key={day} day={day} zone={zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone} now={now} machines={machines} />;
+  const navigate = useNavigate();
+  // Kept out here so an Add equipment draft survives the midnight remount below.
+  const [adding, setAdding] = useState(false);
+  const [added, setAdded] = useState<Added | null>(null);
+  const add = () => { setAdded(null); setAdding(true); };
+  return <>
+    {/* Remounts at midnight so the schedule never mixes two days. */}
+    <BoardContent key={day} day={day} zone={zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone} now={now} machines={machines} onAdd={add} added={added} />
+    {adding && <EquipmentAdd onClose={() => setAdding(false)} onAdded={item => { setAdding(false); setAdded(item); machines.reload(); }} />}
+    {added && <div className="eqa-toast" role="status">
+      <CheckCircle2 aria-hidden="true" />
+      <p><b>{added.name}</b> was added. {added.note}</p>
+      <button type="button" className="button button--quiet" onClick={() => navigate(`/admin/equipment/${added.id}`)}>Open machine</button>
+      <button type="button" className="button button--quiet" onClick={add}>Add another</button>
+      <button type="button" className="icon-button icon-button--small" aria-label="Dismiss notification" onClick={() => setAdded(null)}><X aria-hidden="true" /></button>
+    </div>}
+  </>;
 }
 
-function BoardContent({ day, zone, now, machines }: { day: string; zone: string; now: number; machines: ReturnType<typeof useApi<ManagedEquipment[]>> }) {
+function BoardContent({ day, zone, now, machines, onAdd, added }: { day: string; zone: string; now: number; machines: ReturnType<typeof useApi<ManagedEquipment[]>>; onAdd: () => void; added: Added | null }) {
   const catalog = useApi<CatalogOptions>('/admin/equipment/catalog-options');
-  const [adding, setAdding] = useState(false);
-  const navigate = useNavigate();
   // The bookings list matches by start date, so a booking running past midnight is
   // in yesterday's list: read both and keep what reaches into today.
   const today = useDayBookings(day, bookingRefresh);
@@ -60,6 +74,13 @@ function BoardContent({ day, zone, now, machines }: { day: string; zone: string;
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [selected, setSelected] = useState<number | null>(null);
+  // A machine just added opens beside the list (on a wide screen) and scrolls into view once listed.
+  const addedListed = !!added && !!machines.data?.some(m => m.id === added.id);
+  useEffect(() => {
+    if (!added || !addedListed) return;
+    setSelected(added.id);
+    document.querySelector('.eq-row--new')?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+  }, [added, addedListed]);
   const [workspace, width] = useWidth();
   const split = width >= SPLIT_WIDTH;
 
@@ -78,11 +99,10 @@ function BoardContent({ day, zone, now, machines }: { day: string; zone: string;
   const board = useJoin(active && `${active.machine.id}:${visible.map(r => r.machine.id).join(',')}`);
   const filters: [Filter, string][] = [['all', 'All'], ['use', 'In use'], ['booked', 'Booked today'], ['down', 'Out of service']];
 
-  return <div className="eq-workspace eq-workspace--board" ref={workspace}>
+  return <div className={`eq-workspace eq-workspace--board${added ? ' eq-workspace--added' : ''}`} ref={workspace}>
     {today.loaders}
     {yesterday.loaders}
-    <header className="eq-heading"><div><p className="eq-eyebrow">Operations</p><h1 className="admin-title">Equipment</h1><p>Keep the shop ready for what’s next.</p></div>{catalog.data?.canManage && <button className="button button--primary" onClick={() => setAdding(true)}>Add equipment</button>}</header>
-    {adding && <EquipmentEditor onClose={() => setAdding(false)} onSaved={id => { setAdding(false); machines.reload(); navigate(`/admin/equipment/${id}`); }} />}
+    <header className="eq-heading"><div><p className="eq-eyebrow">Operations</p><h1 className="admin-title">Equipment</h1><p>Keep the shop ready for what’s next.</p></div>{catalog.data?.canManage && <button className="button button--primary" onClick={onAdd}>Add equipment</button>}</header>
     <div className="eq-toolbar">
       <label className="eq-search"><Search aria-hidden="true" /><span className="sr-only">Find equipment</span><input placeholder="Find a machine…" value={search} onChange={e => setSearch(e.target.value)} /></label>
       <div className="eq-filters" role="group" aria-label="Show equipment">
@@ -96,8 +116,8 @@ function BoardContent({ day, zone, now, machines }: { day: string; zone: string;
     {machines.data && <div className={`eq-split${active ? ' eq-split--open' : ''}`}>
       <div className="eq-board" ref={board}>
         <BoardHead win={win} />
-        {visible.map(row => <Link key={row.machine.id} to={`/admin/equipment/${row.machine.id}`} className="eq-row" onClick={choose(row.machine.id)} aria-current={active?.machine.id === row.machine.id ? 'true' : undefined}>
-          <span className="eq-row__name"><img src={row.machine.image} alt="" /><span><strong>{row.machine.name}</strong><small>{row.machine.type} · {row.machine.location}</small></span></span>
+        {visible.map(row => <Link key={row.machine.id} to={`/admin/equipment/${row.machine.id}`} className={`eq-row${added?.id === row.machine.id ? ' eq-row--new' : ''}`} onClick={choose(row.machine.id)} aria-current={active?.machine.id === row.machine.id ? 'true' : undefined}>
+          <span className="eq-row__name"><img src={row.machine.image} alt="" /><span><strong>{row.machine.name}{added?.id === row.machine.id && <span className="eqa-new">New</span>}</strong><small>{row.machine.type} · {row.machine.location}</small></span></span>
           <span className="eq-row__status">{row.pending
             ? <><Skeleton round width={104} height={27} /><Skeleton className="eq-row__detail" width={120} height={12} /></>
             : <><span className={`eq-pill eq-pill--${row.tone}`}>{row.label}</span><small>{row.detail}</small></>}</span>

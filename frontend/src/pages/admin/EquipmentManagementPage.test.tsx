@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { EquipmentManagementPage } from './EquipmentManagementPage';
 import type { EquipmentDetail } from '../../lib/equipmentMaintenance';
@@ -11,7 +11,8 @@ beforeEach(() => {
   machine = { id: 1, name: 'Phoebe', type: '3D printer', location: 'Print lab', certification: null, certId: null, waiverRequired: false, rate: 12, image: '/machine.webp', imagePath: null, status: 'available', availabilityRevision: 1, outage: null,
     history: [], activeGrants: [], checkedAt: new Date().toISOString(), timeZone: 'America/New_York', canManage: true, canReadBookings: true, canManageBookings: true };
   api.mockImplementation((path: string) => {
-    if (path === '/admin/equipment/catalog-options') return Promise.resolve({ canManage: machine.canManage, categories: ['Laser', '3D printer'], certifications: [{ id: 3, name: 'Laser safety' }] });
+    if (path === '/admin/equipment/catalog-options') return Promise.resolve({ canManage: machine.canManage, categories: ['Laser', '3D printer'], certifications: [{ id: 3, name: 'Laser safety', state: 'now', holders: 4 }],
+      groups: [{ name: '3D printer', machines: [{ id: 1, name: 'Phoebe', image: '/machine.webp' }] }, { name: 'Laser', machines: [{ id: 2, name: 'Darth Vader', image: '/laser.webp' }] }] });
     if (path === '/admin/equipment/1') return Promise.resolve(structuredClone(machine));
     if (path === '/admin/equipment') return Promise.resolve([structuredClone(machine)]);
     if (path.includes('/bookings')) return Promise.resolve({ items: [], nextOffset: null });
@@ -29,14 +30,16 @@ test('Equipment list links to a permanent machine detail', async () => {
 test('admins can add equipment from the board and edit rates in the equipment window', async () => {
   mount('/admin/equipment');
   fireEvent.click(await screen.findByRole('button', { name: 'Add equipment' }));
-  expect(await screen.findByRole('dialog', { name: 'Add equipment' })).toBeTruthy();
-  await screen.findByRole('option', { name: 'Laser' });
-  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'New laser' } });
-  fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'Laser' } });
-  fireEvent.change(screen.getByLabelText(/Hourly rate/), { target: { value: '18.50' } });
-  fireEvent.change(screen.getByLabelText('Required certification'), { target: { value: '3' } });
-  fireEvent.submit(screen.getByLabelText('Name').closest('form')!);
-  await waitFor(() => expect(api).toHaveBeenCalledWith('/admin/equipment', expect.objectContaining({ method: 'POST', body: expect.objectContaining({ name: 'New laser', rate: 18.5, certId: 3 }) })));
+  const dialog = await screen.findByRole('dialog', { name: 'Add equipment' });
+  fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'New laser' } });
+  const category = within(dialog).getByRole('combobox', { name: 'Category' });
+  fireEvent.focus(category); fireEvent.change(category, { target: { value: 'las' } });
+  fireEvent.click(await screen.findByRole('option', { name: /^Laser/ }));
+  fireEvent.change(within(dialog).getByLabelText('Hourly rate in dollars'), { target: { value: '18.50' } });
+  fireEvent.click(within(dialog).getByRole('combobox', { name: 'Required certification' }));
+  fireEvent.click(await screen.findByRole('option', { name: /^Laser safety/ }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Add equipment' }));
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/admin/equipment', expect.objectContaining({ method: 'POST', body: expect.objectContaining({ name: 'New laser', type: 'Laser', rate: 18.5, certId: 3 }) })));
   cleanup(); mount();
   fireEvent.click(await screen.findByRole('button', { name: 'Edit equipment' }));
   await screen.findByRole('option', { name: 'Laser safety' });

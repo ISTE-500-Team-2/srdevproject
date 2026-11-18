@@ -9,6 +9,24 @@ import { StaffModel } from '../models/StaffModel.js';
 import { UserModel } from '../models/UserModel.js';
 import { AccessService } from './AccessService.js';
 import { activeEquipmentGrants } from './EquipmentMaintenanceService.js';
+import { MAX_BOOKING_CENTS, MAX_BOOKING_HOURS, MIN_CARD_PAYMENT_CENTS } from '../equipmentPricing.js';
+
+/** Removed machines keep their history but are no longer part of the catalog. */
+const active = 'NOT EXISTS(SELECT 1 FROM app_equipment_retirement r WHERE r.equipment_id=e.equipmentid)';
+/** The highest hourly rate whose longest booking stays within the booking limit: $4,166.66. */
+export const MAX_HOURLY_RATE_CENTS = Math.floor(MAX_BOOKING_CENTS / MAX_BOOKING_HOURS);
+const dollars = (cents: number) => '$' + (cents / 100).toLocaleString('en-US', { minimumFractionDigits: cents % 100 ? 2 : 0, maximumFractionDigits: 2 });
+
+/** A rate booking can charge: free, or a card payment that works from one hour up to a full day. */
+function assertBookableRate(rate: number | null) {
+  if (rate === null)
+    throw new AppError(400, 'INVALID_INPUT', 'Set an hourly rate, or 0 if the equipment is free to use.');
+  const cents = Math.round(rate * 100);
+  if (cents > 0 && cents < MIN_CARD_PAYMENT_CENTS)
+    throw new AppError(400, 'INVALID_INPUT', `Card payments start at ${dollars(MIN_CARD_PAYMENT_CENTS)}. Use ${dollars(MIN_CARD_PAYMENT_CENTS)} an hour or more, or 0 if the equipment is free to use.`);
+  if (cents > MAX_HOURLY_RATE_CENTS)
+    throw new AppError(400, 'INVALID_INPUT', `Use ${dollars(MAX_HOURLY_RATE_CENTS)} an hour or less so a ${MAX_BOOKING_HOURS}-hour booking stays within the ${dollars(MAX_BOOKING_CENTS)} limit.`);
+}
 
 export function equipmentFields(input: Record<string, unknown>) {
   const name = textField(input.name, 'Name', 100);
@@ -19,7 +37,7 @@ export function equipmentFields(input: Record<string, unknown>) {
     throw new AppError(400, 'INVALID_INPUT', 'Use an image path starting with / or an HTTPS URL.');
   const rate = input.rate === null ? null : input.rate;
   if (rate !== null && (typeof rate !== 'number' || !Number.isFinite(rate) || rate < 0 || rate > 99999999.99 || Math.abs(rate * 100 - Math.round(rate * 100)) > 0.000001))
-    throw new AppError(400, 'INVALID_INPUT', 'Hourly rate must be a nonnegative amount with at most two decimal places, or blank.');
+    throw new AppError(400, 'INVALID_INPUT', 'Hourly rate must be a nonnegative amount with at most two decimal places.');
   const certId = input.certId === null ? null : positiveId(input.certId, 'Certification');
   if (typeof input.waiverRequired !== 'boolean') throw new AppError(400, 'INVALID_INPUT', 'Choose whether waivers are required.');
   return { name, category, location, image: image || null, rate, certId, waiverRequired: input.waiverRequired };
@@ -41,13 +59,36 @@ export async function removalBlockers(db: Database, id: number) {
 export class EquipmentCatalogService {
   constructor(private pool: Pool, private timeZone: string) {}
 
-  /** What the add/edit window offers. Categories are the ones already in use. */
+  /**
+   * What the add/edit window offers: the categories of machines still in the catalog (one spelling
+   * each) with their machines, and every certification with whether it is in effect and who holds it.
+   */
   async options(user: UserView) {
+    const [groups, certifications] = await Promise.all([
+      this.pool.query<{ name: string; machines: { id: number; name: string; image: string }[] }>(`
+        SELECT mode() WITHIN GROUP (ORDER BY trim(e.category)) AS name,
+          json_agg(json_build_object('id',e.equipmentid,'name',e.name,'image',COALESCE(e.imagepath,'/assets/3d-printer.webp'))
+            ORDER BY e.equipmentid) AS machines
+        FROM equipment e WHERE trim(COALESCE(e.category,'')) <> '' AND ${active}
+        GROUP BY lower(trim(e.category)) ORDER BY 1`),
+      // Holders pass the same test booking uses (EligibilityModel.certification) and have active access.
+      this.pool.query(`
+        SELECT c.certid AS id,c.name,
+          CASE WHEN c.enddate IS NOT NULL AND c.enddate<NOW() AT TIME ZONE 'UTC' THEN 'ended'
+               WHEN c.effectivedate IS NOT NULL AND c.effectivedate>NOW() AT TIME ZONE 'UTC' THEN 'later'
+               ELSE 'now' END AS state,
+          to_char((c.effectivedate AT TIME ZONE 'UTC') AT TIME ZONE $1,'YYYY-MM-DD') AS "startsOn",
+          to_char((c.enddate AT TIME ZONE 'UTC') AT TIME ZONE $1,'YYYY-MM-DD') AS "endedOn",
+          (SELECT count(DISTINCT uc.userid)::int FROM user_certifications uc JOIN "user" u ON u.userid=uc.userid
+            WHERE uc.certid=c.certid AND uc.status='active' AND u.accessstatus='active'
+              AND (uc.renewaldate IS NULL OR uc.renewaldate>=NOW() AT TIME ZONE 'UTC')) AS holders
+        FROM certifications c ORDER BY c.name`, [this.timeZone]),
+    ]);
     return {
       canManage: user.roles.includes('admin'),
-      categories: (await this.pool.query<{ name: string }>(`SELECT DISTINCT trim(category) AS name FROM equipment
-        WHERE category IS NOT NULL AND trim(category) <> '' ORDER BY name`)).rows.map(row => row.name),
-      certifications: (await this.pool.query('SELECT certid AS id,name FROM certifications ORDER BY name')).rows,
+      categories: groups.rows.map(group => group.name),
+      certifications: certifications.rows,
+      groups: groups.rows,
     };
   }
 
@@ -63,8 +104,26 @@ export class EquipmentCatalogService {
     const f = equipmentFields(input);
     return transaction(this.pool, async db => {
       const before = await this.authorize(db, actorId, id === null ? 'create' : 'update', id, input);
-      if (f.certId !== null && !(await db.query('SELECT 1 FROM certifications WHERE certid=$1', [f.certId])).rows.length)
-        throw new AppError(400, 'INVALID_INPUT', 'Choose an existing certification.');
+      // New and changed values must be bookable; an edit that leaves an older value alone still saves.
+      const rateChanged = !before || (before.rate === null ? f.rate !== null : f.rate === null || Number(before.rate) !== f.rate);
+      if (rateChanged) assertBookableRate(f.rate);
+      if (f.certId !== null) {
+        const cert = (await db.query<{ ended: boolean }>(`SELECT enddate IS NOT NULL AND enddate<NOW() AT TIME ZONE 'UTC' AS ended
+          FROM certifications WHERE certid=$1`, [f.certId])).rows[0];
+        if (!cert) throw new AppError(400, 'INVALID_INPUT', 'Choose an existing certification.');
+        if (cert.ended && before?.certId !== f.certId)
+          throw new AppError(400, 'INVALID_INPUT', 'That certification has ended, so no one could book this equipment. Choose one that is in effect.');
+      }
+      // One category, one spelling: "3d printer" joins the existing "3D printer".
+      const spelling = (await db.query<{ name: string }>(`SELECT trim(e.category) AS name FROM equipment e
+        WHERE lower(trim(e.category))=lower($1) AND e.equipmentid IS DISTINCT FROM $2 AND ${active}
+        GROUP BY 1 ORDER BY count(*) DESC,1 LIMIT 1`, [f.category, id])).rows[0];
+      if (spelling) f.category = spelling.name;
+      // Members pick a machine by name within its category, so two there can't share one.
+      if ((!before || before.name !== f.name || before.type !== f.category) && (await db.query(`SELECT 1 FROM equipment e
+        WHERE lower(trim(e.name))=lower($1) AND lower(trim(e.category))=lower($2) AND e.equipmentid IS DISTINCT FROM $3 AND ${active}`,
+        [f.name, f.category, id])).rows.length)
+        throw new AppError(409, 'DUPLICATE_NAME', `Another ${f.category} is already called ${f.name}. Give this one a different name, like ${f.name} #2.`);
       const values = [f.name, f.category, f.location, f.image, f.rate, f.certId, f.waiverRequired];
       const after = (await db.query<{ id: number }>(id === null
         ? `INSERT INTO equipment(name,category,location,imagepath,hourlyrate,certid,waiverrequired,status) VALUES($1,$2,$3,$4,$5,$6,$7,'available') RETURNING equipmentid AS id`

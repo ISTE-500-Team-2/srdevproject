@@ -133,11 +133,14 @@ export class ReaderRegistry {
     ).rows;
   }
 }
+// Removed machines keep their history but can't be chosen as a reader location.
+const activeEquipment =
+  "NOT EXISTS(SELECT 1 FROM app_equipment_retirement r WHERE r.equipment_id=e.equipmentid)";
 export async function accessResources(db: Database) {
   return (
     await db.query(`SELECT buildingid AS id,name,'building' AS kind FROM building
     UNION ALL SELECT roomid,name,'room' FROM room
-    UNION ALL SELECT equipmentid,name,'equipment' FROM equipment ORDER BY kind,name,id`)
+    UNION ALL SELECT equipmentid,name,'equipment' FROM equipment e WHERE ${activeEquipment} ORDER BY kind,name,id`)
   ).rows;
 }
 export async function assertReaderTarget(
@@ -161,9 +164,10 @@ export async function assertReaderTarget(
     );
   if (
     !(
-      await db.query(`SELECT 1 FROM ${table} WHERE ${table}id=$1 FOR SHARE`, [
-        id,
-      ])
+      await db.query(
+        `SELECT 1 FROM ${table} e WHERE ${table}id=$1${table === "equipment" ? ` AND ${activeEquipment}` : ""} FOR SHARE`,
+        [id],
+      )
     ).rowCount
   )
     throw new AppError(404, "NOT_FOUND", "Reader location not found.");
