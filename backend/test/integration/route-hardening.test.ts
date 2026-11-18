@@ -158,3 +158,50 @@ test('only page routes get the app shell; files and dot paths are real 404s', as
   assert.match(robots.text, /Disallow: \//);
   assert.equal((await request(app).get('/assets/app-1234.js')).status, 200);
 });
+
+test('no other site may frame the app, and production asks browsers to stay on HTTPS', async () => {
+  for (const url of ['/', '/admin/users', '/api/auth/csrf', '/api/nope']) {
+    const res = await request(app).get(url);
+    assert.equal(res.headers['content-security-policy'], "frame-ancestors 'none'", url);
+    assert.equal(res.headers['x-frame-options'], 'DENY', url);
+    assert.equal(res.headers['strict-transport-security'], undefined, 'plain-HTTP development never pins HTTPS');
+  }
+  const secure = createApp(pool, { ...config, secureCookies: true }, frontend);
+  assert.equal((await request(secure).get('/admin/users')).headers['strict-transport-security'], 'max-age=31536000');
+});
+
+test('a body the server cannot read is a 4xx for the client, not a logged server error', async () => {
+  const logged: unknown[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => { logged.push(args); };
+  try {
+    const charset = await request(app).post('/api/auth/login')
+      .set('Content-Type', 'application/json; charset=latin1').send('{"email":"a@example.invalid"}');
+    assert.equal(charset.status, 415);
+    assert.equal(charset.body.error.code, 'UNSUPPORTED_MEDIA_TYPE');
+    const encoding = await request(app).post('/api/auth/login')
+      .set('Content-Type', 'application/json').set('Content-Encoding', 'compress').send('{"email":"a@example.invalid"}');
+    assert.equal(encoding.status, 415);
+    assert.equal(encoding.body.error.code, 'UNSUPPORTED_MEDIA_TYPE');
+    assert.equal(encoding.headers['cache-control'], 'no-store');
+  } finally {
+    console.error = original;
+  }
+  assert.deepEqual(logged, []);
+});
+
+test('a server-side AppError (5xx) is logged by code, without its message', async () => {
+  const logged: unknown[][] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => { logged.push(args); };
+  try {
+    // No Brevo token is configured here, so the callback is unavailable.
+    const res = await request(app).post('/api/webhooks/brevo').set('Authorization', 'Bearer secret-value').send([]);
+    assert.equal(res.status, 503);
+    assert.equal(res.body.error.code, 'WEBHOOK_DISABLED');
+    assert.equal((await request(app).get('/api/nope')).status, 404);
+  } finally {
+    console.error = original;
+  }
+  assert.deepEqual(logged, [['Request failed', { status: 503, code: 'WEBHOOK_DISABLED' }]]);
+});

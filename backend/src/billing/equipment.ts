@@ -74,7 +74,7 @@ export class EquipmentBilling {
             await db.query("UPDATE payment SET paymentstatus='void',revision=revision+1,updated_at=now() WHERE paymentid=(SELECT payment_id FROM reservation WHERE reservationid=$1) AND paymentstatus='pending'", [id]);
           }
         });
-      throw new AppError(503, 'CHECKOUT_UNAVAILABLE', 'Stripe checkout could not be opened. Refresh your reservations and resume payment to try again.');
+      throw new AppError(503, 'CHECKOUT_UNAVAILABLE', 'Stripe checkout could not be opened. Refresh your reservations and resume payment to try again.', undefined, { cause: error });
     }
     if (session.metadata?.equipmentReservationId !== String(id))
       throw new AppError(400, 'PAYMENT_MISMATCH', 'Equipment checkout identity mismatch.');

@@ -160,7 +160,9 @@ test('a definitive checkout creation rejection releases the unpaid hold', async 
   const fail = mock.method(provider.sdk.checkout.sessions, 'create', async () => {
     throw new Stripe.errors.StripeInvalidRequestError({message: 'Invalid expiry', type: 'invalid_request_error'});
   });
-  try { await assert.rejects(service.create(member, data), {code: 'CHECKOUT_UNAVAILABLE'}); }
+  // The provider's failure stays attached so the error handler can log what it was.
+  try { await assert.rejects(service.create(member, data), (error: any) =>
+    error.code === 'CHECKOUT_UNAVAILABLE' && error.cause instanceof Stripe.errors.StripeInvalidRequestError); }
   finally { fail.mock.restore(); }
   const row = (await pool.query('SELECT reservation_id FROM app_equipment_checkout WHERE request_key=$1', [data.requestKey])).rows[0];
   assert.equal((await state(row.reservation_id)).status, 'cancelled');

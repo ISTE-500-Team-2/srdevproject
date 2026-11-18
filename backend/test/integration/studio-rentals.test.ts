@@ -299,7 +299,9 @@ test("test checkout reconciles paid sessions; refund failures stay visible and r
     ).rows[0].status,
     "confirmed",
   );
-  await assert.rejects(svc.cancel(member, r.id), { code: "REFUND_PENDING" });
+  // The provider's failure stays attached so the error handler can log what it was.
+  await assert.rejects(svc.cancel(member, r.id), (error: any) =>
+    error.code === "REFUND_PENDING" && error.cause?.message === "network failed");
   assert.equal(
     (
       await pool.query(

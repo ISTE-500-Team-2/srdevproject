@@ -442,11 +442,13 @@ export class StudioService {
       session = r.checkout_id
         ? await this.stripe.sdk.checkout.sessions.retrieve(r.checkout_id)
         : await this.stripe.checkout(this.dates(r));
-    } catch {
+    } catch (error) {
       throw new AppError(
         502,
         "PAYMENT_RECONCILE",
         "Could not reconcile this checkout. The hold is preserved to prevent double booking; contact staff.",
+        undefined,
+        { cause: error },
       );
     }
     await this.pool.query(
@@ -517,6 +519,8 @@ export class StudioService {
         502,
         "REFUND_PENDING",
         "Booking cancelled; refund needs retry by staff.",
+        undefined,
+        { cause: error },
       );
     }
   }

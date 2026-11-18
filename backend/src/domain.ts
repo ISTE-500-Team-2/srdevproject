@@ -71,8 +71,10 @@ export class AppError extends Error {
     message: string,
     /** The request-body property the error is about, when a form can point at it. */
     public field?: string,
+    /** `cause`: the provider or library failure behind it, logged by class and code only. */
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
   }
 }
 
