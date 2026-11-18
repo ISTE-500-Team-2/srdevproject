@@ -9,8 +9,10 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { ReaderSetupWizard, type ReaderDiscovery } from "./ReaderSetupWizard";
+import { ApiError } from "../../lib/api";
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
-vi.mock("../../lib/api", () => ({
+vi.mock("../../lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/api")>()),
   api,
   errorMessage: (e: Error) => e.message,
 }));
@@ -253,6 +255,131 @@ test("discovery refresh preserves an edited form and stale disconnected reports 
     (screen.getByLabelText("Wi-Fi network") as HTMLInputElement).value,
   ).toBe("Workshop");
 });
+
+const discoveryReads = () =>
+  api.mock.calls.filter(([p, o]) => p === "/admin/access/reader-setup" && !o?.method)
+    .length;
+const failDiscovery = () => {
+  const original = api.getMockImplementation()!;
+  api.mockImplementation((path: string, options?: { method?: string }) =>
+    path === "/admin/access/reader-setup" && !options?.method
+      ? Promise.reject(new ApiError(500, "server_error", "Discovery failed"))
+      : original(path, options),
+  );
+  return original;
+};
+test("manual setup stays reachable when reader discovery cannot load", async () => {
+  failDiscovery();
+  const onManual = vi.fn();
+  render(
+    <ReaderSetupWizard open onClose={vi.fn()} onDone={vi.fn()} onManual={onManual} />,
+  );
+  expect((await screen.findByRole("alert")).textContent).toContain(
+    "Discovery failed",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Advanced manual setup" }));
+  expect(onManual).toHaveBeenCalledTimes(1);
+});
+test("a failing discovery check retries every 10 seconds without repeating its alert, and recovers on its own", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  const original = failDiscovery();
+  mount();
+  const alert = await screen.findByRole("alert");
+  await act(() => vi.advanceTimersByTimeAsync(7000));
+  expect(discoveryReads()).toBe(1);
+  // The background retry comes 10 seconds after the failure. While it is on its way, and
+  // after it fails again, the same alert stays put rather than being removed and announced again.
+  let failAgain!: (e: Error) => void;
+  api.mockImplementation((path: string, options?: { method?: string }) =>
+    path === "/admin/access/reader-setup" && !options?.method
+      ? new Promise((_, reject) => (failAgain = reject))
+      : original(path, options),
+  );
+  await act(() => vi.advanceTimersByTimeAsync(3100));
+  expect(discoveryReads()).toBe(2);
+  expect(screen.getByRole("alert")).toBe(alert);
+  expect(screen.queryByText("Loading records…")).toBeNull();
+  await act(async () =>
+    failAgain(new ApiError(500, "server_error", "Discovery failed")),
+  );
+  expect(screen.getByRole("alert")).toBe(alert);
+  // Once the network is back, the next background check clears the alert without a click.
+  api.mockImplementation(original);
+  await act(() => vi.advanceTimersByTimeAsync(10_100));
+  expect(discoveryReads()).toBe(3);
+  expect(
+    await screen.findByRole("button", { name: "Set up ESP32-C3 mini" }),
+  ).toBeTruthy();
+  expect(screen.queryByRole("alert")).toBeNull();
+  await act(() => vi.advanceTimersByTimeAsync(2100));
+  expect(discoveryReads()).toBe(4);
+}, 20_000);
+test("Retry checks discovery again at once", async () => {
+  const original = failDiscovery();
+  mount();
+  await screen.findByRole("alert");
+  api.mockImplementation(original);
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  expect(
+    await screen.findByRole("button", { name: "Set up ESP32-C3 mini" }),
+  ).toBeTruthy();
+  expect(discoveryReads()).toBe(2);
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+test("a slow discovery answer is waited for, not cut off by the next check", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  const original = api.getMockImplementation()!;
+  const reads: { signal: AbortSignal; answer: (d: ReaderDiscovery) => void }[] = [];
+  api.mockImplementation(
+    (path: string, options?: { method?: string; signal?: AbortSignal }) =>
+      path === "/admin/access/reader-setup" && !options?.method
+        ? new Promise<ReaderDiscovery>((answer) =>
+            reads.push({ signal: options!.signal!, answer }),
+          )
+        : original(path, options),
+  );
+  mount();
+  await act(() => vi.advanceTimersByTimeAsync(7000));
+  expect(reads).toHaveLength(1);
+  expect(reads[0]!.signal.aborted).toBe(false);
+  await act(async () => reads[0]!.answer(structuredClone(data)));
+  expect(
+    await screen.findByRole("button", { name: "Set up ESP32-C3 mini" }),
+  ).toBeTruthy();
+  // The next check comes 2 seconds after the answer.
+  await act(() => vi.advanceTimersByTimeAsync(2100));
+  expect(reads).toHaveLength(2);
+}, 15_000);
+test("a finished setup stops checking until the admin tries again", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  data.jobs = [
+    {
+      id: "job",
+      readerId: "auto-reader",
+      deviceId: "usb-device",
+      gatewayId: "pi",
+      name: "Mini reader",
+      status: "connecting",
+      errorCode: null,
+    },
+  ];
+  mount();
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Continue setup: Mini reader" }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Cancel setup" }));
+  expect(
+    await screen.findByRole("heading", { name: "Setup cancelled" }),
+  ).toBeTruthy();
+  const settled = discoveryReads();
+  await act(() => vi.advanceTimersByTimeAsync(7000));
+  expect(discoveryReads()).toBe(settled);
+  fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+  expect(discoveryReads()).toBe(settled + 1);
+  await waitFor(() => expect(discoveryReads()).toBe(settled + 2), {
+    timeout: 3500,
+  });
+}, 15_000);
 test("a reader that already finished setup can be set up again, and says which reader it replaces", async () => {
   data.devices[0]!.readerName = "Front door";
   mount();

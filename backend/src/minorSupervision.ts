@@ -10,6 +10,7 @@ import { authRateLimit, authState, requireCsrf, requireStaff } from './middlewar
 import { requirePermission } from './middleware/permissions.js';
 import { StaffModel } from './models/StaffModel.js';
 import { EligibilityModel } from './models/EligibilityModel.js';
+import { MemberModel } from './models/MemberModel.js';
 import { enqueueNotification } from './notifications/store.js';
 import { DEFAULT_BUILDING_ID } from './facility.js';
 
@@ -320,9 +321,11 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
         if (!entitlement.membership && !entitlement.dayPass) throw new AppError(403,'MEMBERSHIP_REQUIRED','Each visitor needs a membership or day pass.');
         if (!waivers.length || waivers.some(w=>!w.signed)) throw new AppError(403,'WAIVER_REQUIRED','Sign current required policies first.');
         const building=req.body.buildingId==null ? await service.arrivalBuilding(id) : positiveId(req.body.buildingId);
-        if (!(await db.query("SELECT buildingid FROM building WHERE buildingid=$1 AND status='available' FOR SHARE",[building])).rowCount)
-          throw new AppError(409,'RESOURCE_UNAVAILABLE','This building is unavailable.');
-        await service.startVisit(id,building);
+        const place=(await db.query<{name:string}>("SELECT name FROM building WHERE buildingid=$1 AND status='available' FOR SHARE",[building])).rows[0];
+        if (!place) throw new AppError(409,'RESOURCE_UNAVAILABLE','This building is unavailable.');
+        // Record the arrival as reader and portal check-ins do, so it counts in "Checked in
+        // today", attendance reports and recent check-ins. This also starts the visit.
+        await new MemberModel(db,zone).createCheckIn(id,place.name,null,building,null,null,'Checked in at the front desk');
       } else await service.checkout(id);
       await new StaffModel(db,zone).audit(authState(res).user.id,id,`visit.${action}`,'user',id,reason,null,{action});
       return service.summary(id);

@@ -226,8 +226,15 @@ export function requirements(p: Person, req: MemberRequirements | null): Require
 }
 
 /** Raw database echoes the change log keeps for audits; the record shows people's actions. */
-const isNoise = (a: Audit) =>
+const isEcho = (a: Audit) =>
   /\.(insert|update|delete)$/.test(a.action) && !["app_device_access_event", "check_in"].includes(a.entityType);
+/**
+ * Check-ins staff record (at the desk, or with the member's account open) write their own row
+ * beside the database copy of the check_in row. Rows saved in one transaction share createdAt
+ * exactly, so a copy with a staff row at the same moment is a repeat. A copy on its own was
+ * written by a card tap at a reader.
+ */
+const STAFF_CHECK_INS = ["visit.check-in", "check_in.created"];
 const CHANGE_TITLES: Record<string, [string, ActivityRow["icon"], ActivityRow["tone"]?]> = {
   "user.account_suspended": ["Account put on hold", "pause", "alert"],
   "user.account_inactive": ["Account closed", "x", "alert"],
@@ -253,6 +260,8 @@ const CHANGE_TITLES: Record<string, [string, ActivityRow["icon"], ActivityRow["t
   "payment.recorded": ["Payment recorded", "receipt"],
 };
 export function activity(audit: Audit[]): ActivityRow[] {
+  const staffCheckIns = new Set(audit.filter((a) => STAFF_CHECK_INS.includes(a.action)).map((a) => a.createdAt));
+  const isNoise = (a: Audit) => isEcho(a) || (a.action === "check_in.insert" && staffCheckIns.has(a.createdAt));
   return audit.filter((a) => !isNoise(a)).map((a): ActivityRow => {
     const reason = a.reason && a.reason !== "Database change" ? a.reason : "";
     const by = a.actorName && a.actorName !== "System" ? `by ${a.actorName}` : "";
@@ -270,13 +279,14 @@ export function activity(audit: Audit[]): ActivityRow[] {
     }
     if (a.action === "visit.check-in" || a.action === "visit.check-out" || a.entityType === "check_in") {
       const out = a.action === "visit.check-out";
+      const reader = a.action === "check_in.insert";
       return {
         id: a.id,
         type: "visit",
         tone: out ? "neutral" : "ok",
         icon: out ? "logout" : "login",
-        title: out ? "Checked out" : a.entityType === "check_in" ? "Checked in at a reader" : "Checked in",
-        detail: [a.resourceName, by].filter(Boolean).join(" · ") || "Front desk",
+        title: out ? "Checked out" : reader ? "Checked in at a reader" : "Checked in",
+        detail: [a.resourceName, by].filter(Boolean).join(" · ") || (reader ? "Card tap" : "Front desk"),
         at: a.createdAt,
       };
     }

@@ -592,6 +592,48 @@ test("card metadata records the last successful physical tap, excluding renewal 
     ),
   );
 });
+test("a card scan cannot start on a reader someone is using, and counts down by the server's clock", async () => {
+  // The previous test left an allowed check-in tap on "front", a building reader.
+  const place = (
+    await pool.query(
+      "SELECT location FROM check_in WHERE userid=$1 AND origin='nfc' ORDER BY checkinid DESC LIMIT 1",
+      [memberId],
+    )
+  ).rows[0].location;
+  const building = (
+    await pool.query("SELECT name FROM building WHERE buildingid=1")
+  ).rows[0].name;
+  assert.equal(place, building, "check-ins name the place, not the reader ID");
+  // A member's session renews its lease every second.
+  assert.equal(
+    (await tap("AA998877", { renewal: true })).body.data.allowed,
+    true,
+  );
+  const busy = await post("/admin/access/enrollments", {
+    purpose: "assign",
+    readerId: "front",
+    userId: memberId,
+  });
+  assert.equal(busy.status, 409, JSON.stringify(busy.body));
+  assert.equal(busy.body.error.code, "READER_IN_USE");
+  // Their next renewal still keeps the door or machine on.
+  const renewed = await tap("AA998877", { renewal: true });
+  assert.equal(renewed.body.data.allowed, true);
+  assert.equal(renewed.body.data.mode, "access");
+  // Once the renewals stop, the lease lapses and the scan can start.
+  await pool.query(
+    "UPDATE app_device_access_event SET created_at=created_at-INTERVAL '1 minute' WHERE reader_id='front'",
+  );
+  const session = await start();
+  assert.ok(
+    session.expiresInMs > 110000 && session.expiresInMs <= 120000,
+    JSON.stringify(session),
+  );
+  const polled = (await get(`/admin/access/enrollments/${session.id}`)).body
+    .data;
+  assert.ok(polled.expiresInMs > 0 && polled.expiresInMs <= session.expiresInMs);
+  await cancel(session.id);
+});
 test("a reader can be moved to another location; the move is checked and recorded", async () => {
   const created = await post("/admin/access/readers", {
     id: "movable",

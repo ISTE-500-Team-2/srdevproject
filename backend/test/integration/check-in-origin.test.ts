@@ -116,6 +116,8 @@ test('portal and reader check-ins record their origin', async () => {
   const tap = await request(app).post('/api/devices/decision').set('Content-Type', 'application/json').set('X-Reader-ID', 'origin')
     .set('X-Reader-Timestamp', stamp).set('X-Reader-Signature', createHmac('sha256', secret).update(stamp + '\n' + body).digest('hex')).send(body);
   assert.equal(tap.body.data.allowed, true, JSON.stringify(tap.body));
-  const reader = (await pool.query("SELECT origin FROM check_in WHERE userid=$1 AND location='origin'", [member.user.id])).rows;
-  assert.deepEqual(reader, [{ origin: 'nfc' }]);
+  // The location is where the member checked in, named as a desk check-in names it, not
+  // the reader's internal ID ('origin').
+  const reader = (await pool.query("SELECT location,origin FROM check_in WHERE userid=$1 AND origin='nfc'", [member.user.id])).rows;
+  assert.deepEqual(reader, [{ location: 'Origin room - Test', origin: 'nfc' }]);
 });
