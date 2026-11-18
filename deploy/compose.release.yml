@@ -9,6 +9,8 @@ services:
       HOST: 0.0.0.0
       PORT: 8080
       ENABLE_DEMO_LOGIN: 'false'
+      # The RLES edge names the client in X-Forwarded-For (deploy/rles-edge.mjs).
+      TRUST_PROXY: '1'
       # Production refuses to start without its signing key; the image ships none.
       JWT_SECRET_FILE: /run/secrets/jwt_key
     secrets: [jwt_key]

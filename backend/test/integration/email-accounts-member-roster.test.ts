@@ -50,9 +50,11 @@ test('login requires an email field and rejects removed account identifiers',asy
 
 test('duplicate emails, including concurrent case-only duplicates, cannot create multiple accounts',async()=>{
   for(const email of [input.email,input.email.toUpperCase(),' '+input.email+' ']){
+    // Answered like any sign-up, so the address's membership stays private; nothing is staged.
     const duplicate=await request(app).post('/api/auth/register').send({...input,email});
-    assert.equal(duplicate.status,409);assert.equal(duplicate.body.error.code,'EMAIL_ALREADY_REGISTERED');
+    assert.equal(duplicate.status,202);
   }
+  assert.equal((await pool.query('SELECT COUNT(*)::int AS n FROM app_pending_registration WHERE lower(email)=lower($1)',[input.email])).rows[0].n,0);
   const race=await Promise.all(['Race.Email@example.invalid','RACE.EMAIL@EXAMPLE.INVALID'].map(email=>request(app).post('/api/auth/register').send({...input,email})));
   assert.deepEqual(race.map(r=>r.status).sort(),[202,202]);
   assert.equal((await pool.query(`SELECT COUNT(*)::int AS n FROM app_pending_registration WHERE email='race.email@example.invalid'`)).rows[0].n,1);

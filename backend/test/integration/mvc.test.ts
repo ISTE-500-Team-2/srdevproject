@@ -135,8 +135,12 @@ test('registration, DB session recovery, profile persistence and logout', async 
       phone: '0000000000',
       dob: '2000-01-01',
     });
-  assert.equal(duplicate.status, 409);
-  assert.equal(duplicate.body.error.code, 'EMAIL_ALREADY_REGISTERED');
+  // The same answer as a new sign-up, so the address's membership stays private.
+  assert.equal(duplicate.status, 202);
+  assert.equal(
+    (await pool.query('SELECT COUNT(*)::int AS n FROM "user" WHERE lower(email)=lower($1)', [email])).rows[0].n,
+    1,
+  );
 });
 
 test('unauthenticated, missing CSRF, cross-origin and malformed writes are rejected', async () => {

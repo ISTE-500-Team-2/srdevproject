@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from 'vitest';
-import { api, apiText, setAccessToken, setCsrfToken } from './api';
+import { api, apiText, setAccessToken, setAccountSubject, setCsrfToken } from './api';
 
 afterEach(() => { vi.unstubAllGlobals(); setAccessToken(null); setCsrfToken(null); });
 test.each(['/auth/password-reset', '/auth/password-reset/check', '/auth/password-reset/confirm'])(
@@ -159,6 +159,32 @@ test('a text download with a plain error body shows it as sent', async () => {
   await expect(apiText('/admin/compliance?format=csv')).rejects.toMatchObject({
     message: 'The request could not be completed.',
   });
+});
+
+test('changes name the account the tab is showing, and a changed account asks for the open one', async () => {
+  setAccessToken('token'); setCsrfToken('csrf'); setAccountSubject(42);
+  const fetch = vi.fn()
+    .mockResolvedValueOnce(Response.json({ data: [] }))
+    .mockResolvedValueOnce(Response.json({ data: { id: 1 } }))
+    .mockResolvedValueOnce(error(409, { error: { code: 'ACCOUNT_CHANGED', message: 'A different account is open now.' } }));
+  vi.stubGlobal('fetch', fetch);
+  const changed = vi.fn();
+  window.addEventListener('account-changed', changed);
+  try {
+    await api('/reservations');
+    await api('/reservations', { method: 'POST', body: {} });
+    const headers = (call: unknown[]) => (call[1] as RequestInit & { headers: Record<string, string> }).headers;
+    // Reads never carry it; they follow whatever account is open.
+    expect(headers(fetch.mock.calls[0]!)['X-Account-Subject']).toBeUndefined();
+    expect(headers(fetch.mock.calls[1]!)['X-Account-Subject']).toBe('42');
+    expect(changed).not.toHaveBeenCalled();
+    await expect(api('/reservations', { method: 'POST', body: {} })).rejects.toMatchObject({ status: 409, code: 'ACCOUNT_CHANGED' });
+    expect(changed).toHaveBeenCalledTimes(1);
+    setAccountSubject(null);
+    fetch.mockResolvedValueOnce(Response.json({ data: { id: 2 } }));
+    await api('/reservations', { method: 'POST', body: {} });
+    expect(headers(fetch.mock.calls[3]!)['X-Account-Subject']).toBeUndefined();
+  } finally { window.removeEventListener('account-changed', changed); setAccountSubject(null); }
 });
 
 test('two tabs renew one after the other, each sending the cookie the last renewal set', async () => {

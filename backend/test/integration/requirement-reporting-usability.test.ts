@@ -67,13 +67,15 @@ test("legitimate rotations do not consume sign-in budget; refresh remains bounde
     ).status,
     401,
   );
-  // Failed sign-ins still share the original 30/15min bucket, independently.
-  for (let n = 0; n < 28; n++)
+  // Failed sign-ins have their own 30/15min budget per address; demo sign-ins and session
+  // renewals never spend it. Each attempt names another account, so the smaller per-account
+  // budget never comes into play.
+  for (let n = 0; n < 30; n++)
     assert.equal(
       (
         await browser
           .post("/api/auth/login")
-          .send({ email: "missing@example.invalid", password: "BadPassword!1" })
+          .send({ email: `missing${n}@example.invalid`, password: "BadPassword!1" })
       ).status,
       401,
     );

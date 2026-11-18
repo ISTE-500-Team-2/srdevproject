@@ -13,7 +13,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useLocation } from 'react-router-dom';
-import { api, ApiError, errorMessage, setCsrfToken, setAccessToken } from '../lib/api';
+import { api, ApiError, errorMessage, setAccountSubject, setCsrfToken, setAccessToken } from '../lib/api';
 import type { NotificationMessage, Registration, Session, User } from '../lib/contracts';
 import type { UserRole } from '../types';
 import { forgetRecentAccounts } from '../lib/recentAccounts';
@@ -72,6 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSignedOut(false);
     if (session.accessToken) setAccessToken(session.accessToken);
     setCsrfToken(session.csrfToken);
+    setAccountSubject(session.user.id);
     setUser(session.user);
     setActor(session.actingAs?.actor ?? null);
     if (session.notification) setNotification(session.notification);
@@ -94,6 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       if (requestRevision !== revision.current) return;
       if (err instanceof ApiError && err.status === 401) {
+        setAccountSubject(null);
         setUser(null);
         setActor(null);
         setCsrfToken(null);
@@ -134,13 +136,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
       setError('');
       setNotification(null);
+      setAccountSubject(null);
       setUser(null);
       setActor(null);
       setCsrfToken(null);
         setAccessToken(null);
     };
+    const changed = () => void refresh(false, { fresh: true });
     window.addEventListener('session-expired', expired);
-    return () => window.removeEventListener('session-expired', expired);
+    window.addEventListener('account-changed', changed);
+    return () => {
+      window.removeEventListener('session-expired', expired);
+      window.removeEventListener('account-changed', changed);
+    };
   }, [refresh]);
   const login = useCallback(
     async (email: string, password: string, remember: boolean) =>
@@ -174,6 +182,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAccessToken(null);
     // Same render as clearing the user, so the route guard never sees one without the other.
     setSignedOut(true);
+    setAccountSubject(null);
     setUser(null);
     setActor(null);
     setNotification(null);

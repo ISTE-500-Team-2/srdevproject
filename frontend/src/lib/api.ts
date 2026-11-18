@@ -22,6 +22,10 @@ let csrfToken: string | null = null;
 export function setCsrfToken(value: string | null) {
   csrfToken = value;
 }
+// Whose account this tab is showing. Changes carry it, so a server whose open account has
+// since changed (in another tab, say) refuses them instead of changing someone else's.
+let accountSubject: number | null = null;
+export function setAccountSubject(value: number | null) { accountSubject = value; }
 // Sign-in, recovery and public config requests work without a session: they
 // never renew it first or retry after a 401.
 const SESSIONLESS = new Set(['/auth/login','/auth/register','/auth/confirm','/auth/confirmation','/auth/password-reset','/auth/password-reset/check','/auth/password-reset/confirm','/auth/email-change/confirm','/auth/demo','/auth/csrf','/auth/refresh','/config']);
@@ -50,6 +54,7 @@ async function send(
       ...(accessToken ? {Authorization: `Bearer ${accessToken}`} : {}),
       ...(mutation ? { 'Content-Type': 'application/json' } : {}),
       ...(mutation && csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+      ...(mutation && accountSubject !== null ? { 'X-Account-Subject': String(accountSubject) } : {}),
     },
     ...(mutation ? { body: JSON.stringify(body ?? {}) } : {}),
   });
@@ -80,6 +85,9 @@ function failure(response: Response, path: string, payload: ErrorBody, fallback:
   if (response.status === 401 && !path.startsWith('/auth/'))
     window.dispatchEvent(new Event('session-expired'));
   const error = payload?.error;
+  // The open account changed under this tab: show the account that is open now.
+  if (error?.code === 'ACCOUNT_CHANGED' || error?.code === 'ACCOUNT_MODE_CLOSED')
+    window.dispatchEvent(new Event('account-changed'));
   // A gateway answering for an app that is down or restarting has no app error to give.
   const unreachable = [502, 503, 504].includes(response.status) && !error?.message;
   return new ApiError(

@@ -42,8 +42,13 @@ test('portal, all reader IDs and health use one upstream; signed bytes survive u
       assert.equal(received.headers['x-reader-timestamp'],headers['X-Reader-Timestamp']);
       assert.equal(received.headers['x-forwarded-proto'],'https');
       assert.equal(received.headers.forwarded,undefined);
-      assert.equal(received.headers['x-forwarded-for'],undefined);
+      // Not an address: the app is told the peer the edge saw instead.
+      assert.equal(received.headers['x-forwarded-for'],'127.0.0.1');
     }
+    // Until the front proxy's header handling is checked and trusted, none of it is believed.
+    await fetch(base+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json',
+      'X-Forwarded-For':'198.51.100.7, 203.0.113.9'},body:'{}'});
+    assert.equal(seen.at(-1).headers['x-forwarded-for'],'127.0.0.1');
     const count=seen.length;
     assert.equal((await fetch(base+'/api/gateway/health')).status,401);
     assert.equal((await fetch(base+'/api/gateway/unknown')).status,404);
@@ -60,6 +65,24 @@ test('portal, all reader IDs and health use one upstream; signed bytes survive u
     assert.equal((await fetch(base+'/api/devices/decision',{method:'POST'})).status,502,
       'upstream failure must never fall back to demo');
   } finally {await close(edge);await close(app);await rm(dir,{recursive:true,force:true});}
+});
+test('once trusted, the front proxy\'s own entry (the last) names the visitor',async()=>{
+  const seen=[];
+  const app=http.createServer((req,res)=>{seen.push(req.headers['x-forwarded-for']);req.resume();res.end('{}');});
+  const edge=createEdge({digest:'a'.repeat(64),allowedPeers:['127.0.0.1'],stateFile:'unused',
+    applicationPort:await listen(app),trustForwardedFor:true});
+  const base=`http://127.0.0.1:${await listen(edge)}`;
+  try {
+    for(const forwarded of ['198.51.100.7, 203.0.113.9','203.0.113.9']) {
+      await fetch(base+'/api/auth/login',{method:'POST',headers:{'X-Forwarded-For':forwarded},body:'{}'});
+      assert.equal(seen.at(-1),'203.0.113.9');
+    }
+    // A direct peer, or a last entry that isn't an address, is named as the peer.
+    for(const headers of [{},{'X-Forwarded-For':'203.0.113.9, spoofed'}]) {
+      await fetch(base+'/api/me',{headers});
+      assert.equal(seen.at(-1),'127.0.0.1');
+    }
+  } finally {await close(edge);await close(app);}
 });
 test('untrusted network peer cannot reach application or health',async()=>{
   const edge=createEdge({digest:'a'.repeat(64),allowedPeers:[],stateFile:'unused'});
