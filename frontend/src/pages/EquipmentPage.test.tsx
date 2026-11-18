@@ -28,7 +28,7 @@ beforeEach(()=>{
   if(path==='/equipment')return [machine,{...machine,id:5,name:'Wood Lathe',type:'Wood turning'}];
   if(path==='/reservations')return records;
     if(path.includes('/quote?'))return quoteFor(path);
-  return unexpected(path);
+  return otherRoute(path);
  });
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();vi.unstubAllGlobals();});
@@ -42,6 +42,8 @@ async function open(){await act(async()=>{fireEvent.click(screen.getByRole('butt
 }
 /** Every request a test does not route fails loudly instead of receiving a made-up reply. */
 function unexpected(path:string):never{throw new Error('Unexpected request '+path);}
+/** The room list shown under the equipment, empty unless a test lists rooms itself. */
+function otherRoute(path:string){return path==='/rooms'?[]:unexpected(path);}
 const submits=()=>vi.mocked(api).mock.calls.filter(([p,o])=>p==='/reservations'&&o?.method==='POST');
 
 test('reviews hourly equipment charges without adding the configured training fee',async()=>{
@@ -51,7 +53,7 @@ test('reviews hourly equipment charges without adding the configured training fe
   if(path==='/equipment')return [{...machine,trainingFeeCents:2000,trainingMinutes:60}];
   if(path==='/reservations')return [];
   if(path.includes('/quote?')){const hours=Number(path.split('hours=')[1]);return {currency:'USD',hours,hourlyRateCents:700,equipmentCents:hours*700,trainingFeeCents:0,totalCents:hours*700,certificationId:9,certificationRevision:1} satisfies EquipmentPrice;}
-  return unexpected(path);
+  return otherRoute(path);
  });
  await mount();await open();
  fireEvent.change(screen.getByLabelText('Duration'),{target:{value:'2'}});
@@ -264,7 +266,7 @@ test('groups named printers while preserving per-machine prices, access and book
   if(path==='/equipment') return catalog();
     if(path.includes('/quote?'))return quoteFor(path,catalog());
   if(path==='/reservations') return [];
-  return unexpected(path);
+  return otherRoute(path);
  });
  await mount();
  expect(document.querySelectorAll('.equipment-card')).toHaveLength(2);
@@ -306,7 +308,7 @@ test('picking another machine keeps the tiles behind the dialog and the price on
   if(path==='/equipment')return hold(catalog);
   if(path.includes('/quote?'))return hold(quoteFor(path,catalog));
   if(path==='/reservations')return [];
-  return unexpected(path);
+  return otherRoute(path);
  });
  await mount();await open();
  const price=()=>screen.getByRole('region',{name:'Booking price breakdown'});
@@ -370,7 +372,7 @@ test('without card checkout, a priced booking says it is paid at the front desk'
   if(path==='/equipment')return [{...machine,cardCheckout:false}];
   if(path==='/reservations')return [];
   if(path.includes('/quote?'))return quoteFor(path);
-  return unexpected(path);
+  return otherRoute(path);
  });
  await mount();await open();
  expect(await screen.findByText('Your reservation is confirmed when you book. Payment is recorded at the front desk.')).toBeTruthy();
@@ -383,7 +385,7 @@ test('without card checkout, a priced booking says it is paid at the front desk'
 
 test('a machine that cannot be booked points to the fix for its reason',async()=>{
  const blocked=(fields:Partial<LiveEquipment>)=>mockApi(async path=>path==='/equipment'?[{...machine,canReserve:false,...fields}]
-  :path.includes('/quote?')?quoteFor(path):path==='/reservations'?[]:unexpected(path));
+  :path.includes('/quote?')?quoteFor(path):path==='/reservations'?[]:otherRoute(path));
  const notice=async(text:RegExp)=>{
   await mount();
   await act(async()=>{fireEvent.click(screen.getByRole('button',{name:/^3D Printer/}));});
@@ -405,7 +407,7 @@ test('a machine that cannot be booked points to the fix for its reason',async()=
 });
 
 test('missing equipment rate prevents checkout',async()=>{
- mockApi(async(path)=>path==='/equipment'?[{...machine,rate:null}]:path.includes('/quote?')?null:path==='/reservations'?[]:unexpected(path));
+ mockApi(async(path)=>path==='/equipment'?[{...machine,rate:null}]:path.includes('/quote?')?null:path==='/reservations'?[]:otherRoute(path));
  await mount();await open();
  await waitFor(()=>expect((screen.getByRole('button',{name:'Confirm reservation'}) as HTMLButtonElement).disabled).toBe(true));
  expect((screen.getByRole('button',{name:'Confirm reservation'}) as HTMLButtonElement).disabled).toBe(true);
@@ -414,7 +416,7 @@ test('missing equipment rate prevents checkout',async()=>{
 
 
 test('missing required waivers disable payment and block programmatic form submission',async()=>{
- mockApi(async(path)=>path==='/equipment'?[{...machine,waiverRequired:true,canReserve:false,availability:'Signed waivers required',reasonCodes:['WAIVER_REQUIRED']}]:path.includes('/quote?')?quoteFor(path):path==='/reservations'?[]:unexpected(path));
+ mockApi(async(path)=>path==='/equipment'?[{...machine,waiverRequired:true,canReserve:false,availability:'Signed waivers required',reasonCodes:['WAIVER_REQUIRED']}]:path.includes('/quote?')?quoteFor(path):path==='/reservations'?[]:otherRoute(path));
  await mount();await open();
  const pay=screen.getByRole('button',{name:'Pay $7.00 & confirm reservation'});
  expect((pay as HTMLButtonElement).disabled).toBe(true);
@@ -426,7 +428,7 @@ test('missing required waivers disable payment and block programmatic form submi
 
 test('live waiver eligibility changes disable payment even when the selected machine object is stale',async()=>{
  await mount();await open();
- mockApi(async(path)=>path==='/equipment'?[{...machine,waiverRequired:true,canReserve:false,availability:'Signed waivers required',reasonCodes:['WAIVER_REQUIRED']}]:path.includes('/quote?')?quoteFor(path):path==='/reservations'?[]:unexpected(path));
+ mockApi(async(path)=>path==='/equipment'?[{...machine,waiverRequired:true,canReserve:false,availability:'Signed waivers required',reasonCodes:['WAIVER_REQUIRED']}]:path.includes('/quote?')?quoteFor(path):path==='/reservations'?[]:otherRoute(path));
  await act(async()=>{window.dispatchEvent(new Event('focus'));});
  expect((screen.getByRole('button',{name:'Pay $7.00 & confirm reservation'}) as HTMLButtonElement).disabled).toBe(true);
  expect(screen.getByRole('link',{name:'Review your waivers and certifications'})).toBeTruthy();
@@ -435,7 +437,7 @@ test('live waiver eligibility changes disable payment even when the selected mac
 test('pending checkout cannot be resumed while its owner needs to sign required waivers',async()=>{
  const start=Date.now()+3*86400000;
  records=[reservation({id:8,equipmentId:4,userId:1,payerId:1,equipmentName:'3D Printer',startTime:new Date(start).toISOString(),endTime:new Date(start+3600000).toISOString(),status:'pending',paymentStatus:'pending',amountCents:700})];
- mockApi(async(path)=>path==='/equipment'?[{...machine,waiverRequired:true,canReserve:false,availability:'Signed waivers required',reasonCodes:['WAIVER_REQUIRED']}]:path==='/reservations'?records:unexpected(path));
+ mockApi(async(path)=>path==='/equipment'?[{...machine,waiverRequired:true,canReserve:false,availability:'Signed waivers required',reasonCodes:['WAIVER_REQUIRED']}]:path==='/reservations'?records:otherRoute(path));
  await mount();
  expect((screen.getByRole('button',{name:'Pay $7.00'}) as HTMLButtonElement).disabled).toBe(true);
  expect(screen.getByRole('link',{name:'Review your waivers and certifications'})).toBeTruthy();
@@ -491,7 +493,7 @@ test('reservations split into upcoming and past, with cancelled and expired book
  expect(within(card('Later')).getByText('Confirmed · Paid')).toBeTruthy();
  expect(within(card('Later')).getByText('3D Printer · Makerspace')).toBeTruthy();
  expect(within(card('For a member')).getByText('For Dana Whitfield')).toBeTruthy();
- expect(within(card('Wood Shop')).getByText('Studio · Instructor-led training')).toBeTruthy();
+ expect(within(card('Wood Shop')).getByText('Room · Instructor-led training')).toBeTruthy();
  expect(within(card('Ended paid')).getByText('Ended · Paid')).toBeTruthy();
  expect(within(card('Ended paid')).queryByText(/online cancellation/i)).toBeNull();
  expect(within(mine).queryByRole('heading',{name:'Expired checkout'})).toBeNull();

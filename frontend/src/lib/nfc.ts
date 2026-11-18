@@ -15,7 +15,7 @@ export type NfcCard = {
 export type AccessReader = {
   id: string;
   name: string;
-  kind: "building" | "room" | "equipment";
+  kind: "building" | "room" | "equipment" | "studio";
   resourceId: number;
   resourceName: string;
   enabled: boolean;
@@ -88,7 +88,7 @@ export type ReaderHealthDetail = ReaderHealthSummary & {
 };
 export type AccessResource = {
   id: number;
-  kind: "building" | "room" | "equipment";
+  kind: "building" | "room" | "equipment" | "studio";
   name: string;
 };
 export type CardAssignment = {

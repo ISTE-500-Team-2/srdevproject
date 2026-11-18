@@ -7,10 +7,11 @@ import { AppError } from "../domain.js";
 import { UserModel } from "../models/UserModel.js";
 import { AccessService, type AccessTarget } from "./AccessService.js";
 import { DEFAULT_BUILDING_ID } from "../facility.js";
+import type { ReaderKind } from "../readerRegistry.js";
 
 // No credentials here: staff previews and signed device decisions share this exact evaluator.
 export interface ReaderTarget {
-  kind: "building" | "room" | "equipment";
+  kind: ReaderKind;
   resourceId?: number;
 }
 
@@ -34,8 +35,11 @@ export async function evaluateReaderAccess(db: Database, tz: string, r: ReaderTa
   if (r.kind !== 'building' && (!Number.isInteger(r.resourceId) || r.resourceId! <= 0))
     return deny('RESOURCE_UNAVAILABLE');
   const now = new Date();
-  const target: AccessTarget = r.kind === 'building' ? {buildingId:r.resourceId ?? DEFAULT_BUILDING_ID}
-    : r.kind === 'room' ? {roomId:r.resourceId} : {equipmentId:r.resourceId};
+  const target: AccessTarget | null = r.kind === 'building' ? {buildingId:r.resourceId ?? DEFAULT_BUILDING_ID}
+    : r.kind === 'room' ? {roomId:r.resourceId} : r.kind === 'studio' ? {studioId:r.resourceId}
+    : r.kind === 'equipment' ? {equipmentId:r.resourceId} : null;
+  // An unknown kind must never fall back to building entry either.
+  if (!target) return deny('RESOURCE_UNAVAILABLE');
   let grant: Awaited<ReturnType<AccessService['accessForTarget']>>;
   try {
     grant = await new AccessService(db,tz).accessForTarget(userId,target,now);

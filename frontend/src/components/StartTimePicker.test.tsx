@@ -112,6 +112,15 @@ test("a booking that runs past midnight says so", () => {
 });
 
 
+test("a booking's own gap replaces the equipment cooldown: none for another member's room booking", () => {
+ const at=(hour:number)=>new Date(2026,9,27,hour).toISOString();
+ render(<StartTimePicker calendar name="start" hours={1} now={new Date(2026,9,27,12)}
+  occupied={[{startTime:at(14),endTime:at(15),gapMinutes:0},{startTime:at(17),endTime:at(18),gapMinutes:15}]}/>);
+ const options=[...picker().options].map(o=>o.value);
+ expect(options).toContain('13:00'); expect(options).toContain('15:00'); expect(options).not.toContain('14:00');
+ expect(options).not.toContain('16:00'); expect(options).not.toContain('18:00'); expect(options).toContain('18:30');
+});
+
 test("hides other members' occupied times, the cooldown and starts that cannot fit the duration", () => {
  const occupied=[{startTime:new Date(2026,9,27,17).toISOString(),endTime:new Date(2026,9,27,18).toISOString()}];
  const {rerender}=render(<StartTimePicker calendar name="start" hours={1} now={new Date(2026,9,27,12)} occupied={occupied}/>);

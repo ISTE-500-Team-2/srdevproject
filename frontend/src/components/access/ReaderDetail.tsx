@@ -31,7 +31,7 @@ import {
   type Tone,
 } from "./readerHealthText";
 
-const kindLabel = { building: "Building entry", room: "Room", equipment: "Equipment" };
+const kindLabel = { building: "Building entry", room: "Room", equipment: "Equipment", studio: "Studio" };
 
 function when(value: string, timeZone: string) {
   const date = new Date(value);

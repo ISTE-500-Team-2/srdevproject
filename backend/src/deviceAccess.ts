@@ -19,6 +19,7 @@ import { authState, requireCsrf } from "./middleware/auth.js";
 import { requirePermission } from "./middleware/permissions.js";
 import {
   cardIdentity,
+  READER_KINDS,
   ReaderRegistry,
   readerColumns,
   requireDeviceConfig,
@@ -61,7 +62,7 @@ export function readDeviceConfig(env: NodeJS.ProcessEnv = process.env): DeviceCo
       ids.has(r.id) ||
       typeof r.secret !== "string" ||
       r.secret.length < 32 ||
-      !["building", "room", "equipment"].includes(r.kind) ||
+      !READER_KINDS.includes(r.kind) ||
       ((r.kind !== "building" || r.resourceId !== undefined) &&
         (!Number.isSafeInteger(r.resourceId) || r.resourceId < 1))
     )
