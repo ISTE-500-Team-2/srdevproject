@@ -203,6 +203,18 @@ def health_report(reachable, last_contact_ms=None, state=None, address=None):
     return {'reader': reader}
 
 
+def bridge_report(now, started, attempted, last_contact, last_state, address):
+    """The classic bridge's health report, or None before the reader has had a chance to answer.
+
+    Without the grace period every bridge restart would be recorded as a short outage.
+    """
+    if not attempted and now - started < 10:
+        return None
+    reachable = last_contact is not None and now - last_contact < 3
+    age_ms = None if last_contact is None else (now - last_contact) * 1000
+    return health_report(reachable, age_ms, last_state, address)
+
+
 def decision_message(state, result, now=None):
     now = time.monotonic() if now is None else now
     message = {'type': 'access_decision', 'scan_id': state['scan_id'], 'decision': 'approved' if result['allowed'] else 'denied'}
@@ -238,21 +250,20 @@ def run(config, stop):
     last_result = None;logged = None
     # The latest authenticated reader state and when it arrived, for health reports.
     reader_address = urlsplit(reader.url).hostname
-    last_state = None;last_contact = None
+    last_state = None;last_contact = None;attempted = False;started = time.monotonic()
     with ThreadPoolExecutor(max_workers=1) as executor:
         while not stop.is_set():
             state = None;reader_ok = False
             try:
                 now = time.monotonic()
                 if backend and now >= health_at:
-                    reachable = last_contact is not None and now - last_contact < 3
-                    age_ms = None if last_contact is None else (now - last_contact) * 1000
                     try:
-                        backend_ok = backend.health(health_report(reachable, age_ms, last_state, reader_address))
+                        backend_ok = backend.health(bridge_report(now, started, attempted, last_contact, last_state, reader_address))
                         reason = 'ready' if backend_ok else 'backend_unhealthy'
                     except Exception:
                         backend_ok = False;reason = 'backend_unavailable'
                     health_at = now + 10
+                attempted = True
                 state = reader.state();reader_ok = True
                 last_state = state;last_contact = time.monotonic()
                 if state['session'] != last_session:

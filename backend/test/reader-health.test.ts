@@ -106,15 +106,27 @@ test("status separates a silent gateway from an unreachable reader", () => {
     readerStatus({ enabled: true, lastSeenAt: fresh, health: report(), healthReportedAt: fresh, ...change }, NOW);
   assert.equal(status({}), "working");
   assert.equal(status({ enabled: false }), "disabled");
-  assert.equal(status({ lastSeenAt: null }), "never_connected");
-  assert.equal(status({ lastSeenAt: ago(5) }), "not_reporting");
-  assert.equal(status({ health: report({ reachable: false }) }), "unreachable");
+  assert.equal(status({ lastSeenAt: null, health: null, healthReportedAt: null }), "never_connected");
+  assert.equal(status({ lastSeenAt: ago(5), healthReportedAt: ago(5) }), "not_reporting");
+  // An unreachable reader no longer refreshes last_seen_at, but its gateway still reports.
+  assert.equal(status({ lastSeenAt: ago(30), health: report({ reachable: false }) }), "unreachable");
+  assert.equal(status({ lastSeenAt: null, health: report({ reachable: false }) }), "unreachable");
   assert.equal(status({ health: report({ ready: false }) }), "reader_fault");
   assert.equal(status({ health: report({ rssi: -84 }) }), "weak_signal");
   assert.equal(status({ health: report({ rssi: -80 }) }), "working");
   // Older gateways send heartbeats without health; a stale report is not current either.
   assert.equal(status({ health: null, healthReportedAt: null }), "online");
   assert.equal(status({ healthReportedAt: ago(5) }), "online");
+  assert.equal(status({ lastSeenAt: ago(5), health: report({ reachable: false }), healthReportedAt: ago(5) }), "not_reporting");
+});
+
+test("the uptime counter rolling over is not a restart", () => {
+  const wrapEnd = 2 ** 32 - 60_000;
+  assert.deepEqual(healthEvents(sample(1, { uptimeMs: wrapEnd }), sample(1, { uptimeMs: wrapEnd }), report({ uptimeMs: 30_000 })), []);
+  assert.deepEqual(
+    healthEvents(sample(1, { uptimeMs: 2 ** 31 }), sample(1, { uptimeMs: 2 ** 31 }), report({ uptimeMs: 30_000 })).map((e) => e.kind),
+    ["restarted"],
+  );
 });
 
 test("the day strip covers 24 hours, merges runs and shows gaps as unknown", () => {

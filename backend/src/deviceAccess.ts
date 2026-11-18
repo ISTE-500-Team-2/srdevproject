@@ -161,11 +161,15 @@ export function deviceDecision(
         reservationId: null,
       });
       if (body.action === "heartbeat") {
-        await db.query('UPDATE app_access_reader SET last_seen_at=NOW() WHERE id=$1', [reader.id]);
         // The gateway's view of the reader itself; absent from older gateways.
+        const health = parseHealthReport(body.health);
+        // last_seen_at means the reader itself is alive: outage notices and the
+        // staff scan controls rely on that. A gateway reporting an unreachable
+        // reader is alive, but its reader is not.
+        if (!health || health.reachable)
+          await db.query('UPDATE app_access_reader SET last_seen_at=NOW() WHERE id=$1', [reader.id]);
         // Telemetry must never cost a reader its access decisions, so a failed
         // write is rolled back on its own and the heartbeat still succeeds.
-        const health = parseHealthReport(body.health);
         if (health) {
           await db.query("SAVEPOINT reader_health");
           try {

@@ -92,7 +92,16 @@ test("an unreachable reader is reported while the gateway stays up, then recover
   await heartbeat("shop", reachable({ rssi: -84 })).expect(200);
   assert.equal(reader(await board(), "shop").status, "weak_signal");
   await ageSamples("shop");
+  await pool.query("UPDATE app_access_reader SET last_seen_at=NOW()-INTERVAL '5 minutes' WHERE id='shop'");
   await heartbeat("shop", { reader: { reachable: false, lastContactMs: 21_000 } }).expect(200);
+  // The gateway's heartbeat no longer counts as the reader being seen, so the
+  // existing outage notices and scan controls see this reader as offline.
+  const seen = (await pool.query("SELECT last_seen_at>NOW()-INTERVAL '1 minute' AS fresh FROM app_access_reader WHERE id='shop'")).rows[0];
+  assert.equal(seen.fresh, false);
+  const listed = (
+    await request(app).get("/api/admin/access/readers").set("Authorization", `Bearer ${token}`).expect(200)
+  ).body.data.readers.find((r: { id: string }) => r.id === "shop");
+  assert.equal(listed.online, false);
   const down = reader(await board(), "shop");
   assert.equal(down.status, "unreachable");
   assert.ok(down.since);
@@ -134,6 +143,8 @@ test("a gateway that stops reporting is not shown as a working reader", async ()
   const front = reader(await board(), "front");
   assert.equal(front.status, "not_reporting");
   assert.ok(front.since);
+  // An old report is never shown as current.
+  assert.equal(front.health, null);
   const data = await board();
   assert.equal(data.gateway.total, 3);
   assert.equal(data.gateway.reachable, 1);

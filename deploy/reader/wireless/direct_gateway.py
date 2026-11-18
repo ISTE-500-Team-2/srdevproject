@@ -39,6 +39,9 @@ class PollProtocol:
         self.last_seen = 0
         self.last_scan = None
         self.started = time.monotonic()
+        # At most one health heartbeat per reader in flight: see report_offline().
+        self.offline_reporting = False
+        self.returned_during_report = False
 
     # Separate protocol message domains so a valid signature for one message type cannot authorize
     # another.
@@ -76,7 +79,10 @@ class PollProtocol:
             if self.last_seen and now - self.last_seen > 4:
                 self.health_at = 0
             self.last_seen = now
-            if now >= self.health_at:
+            if self.offline_reporting:
+                # Report the return only after the offline report has landed.
+                self.returned_during_report = True
+            elif now >= self.health_at:
                 try:
                     self.healthy = self.backend.health(health_report(True, 0, v, peer))
                 except EXPECTED_FAULTS:
@@ -133,9 +139,12 @@ class PollProtocol:
         with self.lock:
             now = time.monotonic()
             # Give a freshly started gateway time to hear from its reader first.
-            if now - self.last_seen <= 4 or now - self.started < 10 or now < self.health_at:
+            if (self.offline_reporting or now - self.last_seen <= 4 or now - self.started < 10
+                    or now < self.health_at):
                 return
             self.health_at = now + 10
+            self.offline_reporting = True
+            self.returned_during_report = False
             age_ms = (now - self.last_seen) * 1000 if self.last_seen else None
         try:
             self.backend.health(health_report(False, age_ms))
@@ -143,6 +152,11 @@ class PollProtocol:
             pass
         except Exception as error:
             report_fault('offline_health', error)
+        finally:
+            with self.lock:
+                self.offline_reporting = False
+                if self.returned_during_report:
+                    self.health_at = 0
 
     def offline_watchdog(self, stop):
         while not stop.wait(1):

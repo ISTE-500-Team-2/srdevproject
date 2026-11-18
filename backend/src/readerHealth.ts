@@ -93,6 +93,10 @@ export function parseHealthReport(raw: unknown): HealthReport | null {
 }
 
 const weak = (rssi: number | null) => rssi !== null && rssi < WEAK_SIGNAL_DBM;
+const UPTIME_WRAP = 2 ** 32, WRAP_MARGIN_MS = 15 * 60_000;
+/** The reader's 32-bit millisecond counter rolls over about every 49.7 days. */
+const uptimeWrapped = (before: number, after: number) =>
+  before > UPTIME_WRAP - WRAP_MARGIN_MS && after < WRAP_MARGIN_MS;
 
 /**
  * Changes worth a line in the reader's activity. `previous` is the latest sample, `known` the latest
@@ -113,7 +117,8 @@ export function healthEvents(
     events.push({ kind: "address_changed", detail: { from: known.address, to: report.address } });
   if (known?.firmware && report.firmware && known.firmware !== report.firmware)
     events.push({ kind: "firmware_changed", detail: { from: known.firmware, to: report.firmware } });
-  if (known?.uptimeMs != null && report.uptimeMs !== null && report.uptimeMs < known.uptimeMs)
+  if (known?.uptimeMs != null && report.uptimeMs !== null && report.uptimeMs < known.uptimeMs
+      && !uptimeWrapped(known.uptimeMs, report.uptimeMs))
     events.push({ kind: "restarted", detail: {} });
   if (weak(report.rssi) && !weak(known?.rssi ?? null))
     events.push({ kind: "weak_signal", detail: { rssi: report.rssi } });
@@ -202,17 +207,22 @@ export function readerStatus(
   now: Date,
 ): ReaderStatus {
   if (!reader.enabled) return "disabled";
-  if (!reader.lastSeenAt) return "never_connected";
-  if (now.getTime() - reader.lastSeenAt.getTime() >= FRESH_MS) return "not_reporting";
   const report = reader.health;
-  // A gateway that predates health reports only proves itself to be up.
-  if (!report || !reader.healthReportedAt || now.getTime() - reader.healthReportedAt.getTime() >= FRESH_MS)
-    return "online";
-  if (!report.reachable) return "unreachable";
-  if (report.ready === false) return "reader_fault";
-  if (weak(report.rssi)) return "weak_signal";
-  return "working";
+  // A current report from the gateway says what the reader is doing.
+  if (report && isFresh(reader.healthReportedAt, now)) {
+    if (!report.reachable) return "unreachable";
+    if (report.ready === false) return "reader_fault";
+    if (weak(report.rssi)) return "weak_signal";
+    return "working";
+  }
+  // A gateway that predates health reports only proves the reader is up.
+  if (isFresh(reader.lastSeenAt, now)) return "online";
+  if (!reader.lastSeenAt && !reader.healthReportedAt) return "never_connected";
+  return "not_reporting";
 }
+
+export const isFresh = (at: Date | null, now: Date) => !!at && now.getTime() - at.getTime() < FRESH_MS;
+const later = (a: Date | null, b: Date | null) => (!a ? b : !b ? a : a > b ? a : b);
 
 const segmentState = (sample: HealthSample): SegmentState =>
   !sample.reachable ? "down" : sample.ready === false || weak(sample.rssi) ? "degraded" : "ok";
@@ -343,9 +353,10 @@ async function summaries(db: Database, readerId: string | null) {
           status === "unreachable"
             ? (since.find((event) => event.readerId === reader.id)?.occurredAt ?? reader.healthReportedAt)
             : status === "not_reporting"
-              ? reader.lastSeenAt
+              ? later(reader.lastSeenAt, reader.healthReportedAt)
               : null,
-        health: status === "online" || status === "not_reporting" ? null : reader.health,
+        // Never show an old report as current, whatever the status.
+        health: isFresh(reader.healthReportedAt, now) ? reader.health : null,
         lastReport: reader.healthReportedAt,
         lastSeenAt: reader.lastSeenAt,
         lastTap: lastTap ? { at: lastTap.at, allowed: lastTap.allowed, reason: lastTap.reason } : null,
@@ -362,8 +373,7 @@ export function readerHealthRoutes(pool: Pool) {
     const { now, readers } = await summaries(pool, null);
     const enabled = readers.filter((reader) => reader.status !== "disabled");
     const lastHeartbeat = readers.reduce<Date | null>(
-      (latest, reader) =>
-        reader.lastSeenAt && (!latest || reader.lastSeenAt > latest) ? reader.lastSeenAt : latest,
+      (latest, reader) => later(latest, later(reader.lastSeenAt, reader.lastReport)),
       null,
     );
     res.json({
