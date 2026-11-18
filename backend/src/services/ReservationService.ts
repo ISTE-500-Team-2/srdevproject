@@ -11,7 +11,7 @@ import { PermissionModel } from "../models/PermissionModel.js";
 import { enqueueNotification } from "../notifications/store.js";
 import type { Pool } from "pg";
 import { transaction, type Database } from "../db.js";
-import { AppError, positiveId, reservationWindow } from "../domain.js";
+import { AppError, integerId, positiveId, reservationWindow } from "../domain.js";
 import { EquipmentModel } from "../models/EquipmentModel.js";
 import {
   ReservationModel,
@@ -21,7 +21,7 @@ import {
 } from "../models/ReservationModel.js";
 import { RoomModel } from "../models/RoomModel.js";
 import { AccessService } from "./AccessService.js";
-import { equipmentPrice, reviewEquipmentPrice, saveReservationPrice, cancelReservationPayment } from '../equipmentPricing.js';
+import { equipmentPrice, reviewEquipmentPrice, checkReservationPrice, saveReservationPrice, cancelReservationPayment } from '../equipmentPricing.js';
 
 /** Whole hours in a reservation window; reservationWindow already caps it at 24. */
 function bookedHours(start: Date, end: Date): number {
@@ -210,13 +210,13 @@ export class ReservationService {
       );
 
     const resourceRef: ReservationResource = hasEquipment
-      ? { equipmentId: positiveId(input.equipmentId, "Equipment") }
-      : { roomId: positiveId(input.roomId, "Room") };
+      ? { equipmentId: integerId(input.equipmentId, "Equipment") }
+      : { roomId: integerId(input.roomId, "Room") };
     const equipmentId = resourceRef.equipmentId ?? null;
     const roomId = resourceRef.roomId ?? null;
     const { start, end } = reservationWindow(input.startTime, input.endTime);
     const targetId =
-      input.userId == null ? userId : positiveId(input.userId, "Member");
+      input.userId == null ? userId : integerId(input.userId, "Member");
     const hours = bookedHours(start, end);
 
     const requestKey = input.requestKey ?? randomUUID();
@@ -404,8 +404,13 @@ export class ReservationService {
           "CLASS_WORKFLOW_REQUIRED",
           "Cancel and reschedule this training through Classes to preserve enrollment records.",
         );
-      if ((await db.query('SELECT 1 FROM app_equipment_checkout WHERE reservation_id=$1', [reservationId])).rowCount)
-        throw new AppError(409, 'PAYMENT_WORKFLOW_REQUIRED', 'Contact staff to reconcile payment before changing a paid reservation.');
+      // Online checkout bought this machine and these hours, so staff can't change them (see
+      // docs/equipment-payments.md). Only staff reach here, so the message speaks to them.
+      const checkout = (await db.query('SELECT status FROM app_equipment_checkout WHERE reservation_id=$1', [reservationId])).rows[0];
+      if (checkout)
+        throw new AppError(409, 'PAYMENT_WORKFLOW_REQUIRED', checkout.status === 'pending'
+          ? 'This booking is waiting for the member’s online payment, so it can’t be changed yet.'
+          : 'This booking was paid online, so its time, machine and member can’t be changed. Cancel it and rebook with the member instead; refunds aren’t automatic.');
       const expectedRevision = positiveId(input.expectedRevision, "revision");
       if (before.revision !== expectedRevision)
         throw new AppError(
@@ -420,7 +425,7 @@ export class ReservationService {
       const targetId =
         input.userId == null
           ? before.userId
-          : positiveId(input.userId, "Member");
+          : integerId(input.userId, "Member");
       if (
         !(await new PermissionModel(db).allows(
           actor,
@@ -440,13 +445,13 @@ export class ReservationService {
           ? before.equipmentId
           : input.equipmentId === null
             ? null
-            : positiveId(input.equipmentId, "Equipment");
+            : integerId(input.equipmentId, "Equipment");
       const roomId =
         input.roomId === undefined
           ? before.roomId
           : input.roomId === null
             ? null
-            : positiveId(input.roomId, "Room");
+            : integerId(input.roomId, "Room");
       if (!!equipmentId === !!roomId)
         throw new AppError(
           400,
@@ -483,11 +488,15 @@ export class ReservationService {
         const target = await new EquipmentModel(db).findForUpdate(equipmentId!);
         const rate = target!.rate === null ? null : Number(target!.rate);
         const source = (await db.query('SELECT hourlyrate FROM equipment WHERE equipmentid=$1', [maintenance.sourceEquipmentId])).rows[0];
-        if (maintenance.preview) return {
-          reservationId, expectedRevision, equipmentId, equipmentName: resource.name,
-          startTime: start.toISOString(), endTime: end.toISOString(),
-          oldRate: source.hourlyrate === null ? null : Number(source.hourlyrate), rate, priceSnapshot: price,
-        };
+        if (maintenance.preview) {
+          // Refuse here what confirming would refuse when it saves the new price.
+          await checkReservationPrice(db, reservationId, targetId, price);
+          return {
+            reservationId, expectedRevision, equipmentId, equipmentName: resource.name,
+            startTime: start.toISOString(), endTime: end.toISOString(),
+            oldRate: source.hourlyrate === null ? null : Number(source.hourlyrate), rate, priceSnapshot: price,
+          };
+        }
         if (maintenance.expectedRate !== rate)
           throw new AppError(409, "RATE_CHANGED", "The hourly rate changed. Review this move again before confirming.");
       }

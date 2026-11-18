@@ -6,14 +6,14 @@ import type { Pool } from "pg";
 import { EquipmentModel } from "../models/EquipmentModel.js";
 import { EligibilityModel } from "../models/EligibilityModel.js";
 import { authState } from "../middleware/auth.js";
-import { positiveId } from '../domain.js';
+import { integerId } from '../domain.js';
 import { equipmentPrice } from '../equipmentPricing.js';
 import { equipmentEligibility, equipmentReasonText } from '../eligibility.js';
 
 export class EquipmentController {
   quote = async (req: Request, res: Response) => {
     const hours = typeof req.query.hours === 'string' && /^\d+$/.test(req.query.hours) ? Number(req.query.hours) : NaN;
-    res.json({ data: await equipmentPrice(this.pool, positiveId(req.params.id), hours) });
+    res.json({ data: await equipmentPrice(this.pool, integerId(req.params.id, 'Equipment'), hours) });
   };
   constructor(
     private pool: Pool,
