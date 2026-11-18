@@ -39,3 +39,18 @@ test('a failed pass is logged by class only and retried on the next interval', a
     error.mock.restore();
   }
 });
+
+test('the tick runs day-pass refund recovery even if equipment reconciliation fails', async () => {
+  const error = mock.method(console, 'error', () => {});
+  const passes = { reconcileRefunds: mock.fn(async () => {}) };
+  const runtime = startEquipmentReconciliation({
+    reconcile: async () => { throw new Error('equipment connection failed'); },
+  }, 60_000, passes);
+  try {
+    await runtime.stop();
+    assert.equal(passes.reconcileRefunds.mock.callCount(), 1);
+    assert.equal(error.mock.callCount(), 1);
+  } finally {
+    error.mock.restore();
+  }
+});

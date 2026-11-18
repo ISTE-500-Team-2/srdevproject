@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { after, before, beforeEach, test } from 'node:test';
+import { after, before, beforeEach, mock, test } from 'node:test';
 import { Pool } from 'pg';
 import type Stripe from 'stripe';
 import { PassBilling } from '../../src/billing/passes.js';
@@ -26,6 +26,7 @@ let created = false, member: number, admin: number, dayPlan: number;
 const sessions = new Map<string, Session>();
 let sessionParams: Stripe.Checkout.SessionCreateParams[] = [];
 let refunds: Refund[] = [], refundKeys: string[] = [], nextRefund: Stripe.Refund['status'] = 'succeeded';
+let lostRefundResponse = false;
 const byKey = new Map<string, Refund>();
 stripe.checkoutSessionCreate(async params => {
   sessionParams.push(params!);
@@ -36,7 +37,9 @@ stripe.checkoutSessionCreate(async params => {
   return session;
 });
 stripe.checkoutSessionRetrieve(async id => sessions.get(id)!);
-stripe.refundList(async params => ({ data: refunds.filter(f => f.payment_intent === params?.payment_intent), has_more: false }));
+const listRefunds = async (params?: Stripe.RefundListParams) =>
+  ({ data: refunds.filter(f => f.payment_intent === params?.payment_intent), has_more: false });
+stripe.refundList(listRefunds);
 stripe.refundRetrieve(async id => refunds.find(f => f.id === id)!);
 stripe.refundCreate(async (params, options) => {
   const key = options!.idempotencyKey!;
@@ -45,6 +48,7 @@ stripe.refundCreate(async (params, options) => {
   const refund: Refund = { id: 're_' + randomBytes(4).toString('hex'), object: 'refund', status: nextRefund, amount: params!.amount!, currency: 'usd',
     payment_intent: params!.payment_intent as string, metadata: params!.metadata as Record<string, string> ?? {} };
   refunds.unshift(refund); byKey.set(key, refund);
+  if (lostRefundResponse) throw new Error('Stripe refund response lost');
   return refund;
 });
 
@@ -170,6 +174,96 @@ test('a payment that arrives after the visit date ended is refunded, and a faile
   row = (await pool.query('SELECT * FROM app_pass_checkout WHERE id=$1', [id])).rows[0];
   assert.deepEqual([row.status, row.refund_status], ['cancelled', 'succeeded']);
   assert.equal((await pool.query('SELECT paymentstatus FROM payment WHERE paymentid=$1', [row.payment_id])).rows[0].paymentstatus, 'refunded');
+});
+
+test('a lost automatic refund response leaves the captured charge recorded and the webhook retry reconciles it', async () => {
+  const date = '2034-05-11';
+  await staff.issue(admin, member, desk(date));
+  const { id, session } = await openCheckout(date);
+  Object.assign(session, { status: 'complete', payment_status: 'paid', payment_intent: 'pi_' + randomUUID() });
+  const event = stripeEvent('evt_' + randomUUID(), 'checkout.session.completed', { ...session });
+
+  lostRefundResponse = true;
+  try {
+    await assert.rejects(passes.webhook(event), /Stripe refund response lost/);
+  } finally {
+    lostRefundResponse = false;
+  }
+  assert.equal((await pool.query('SELECT id FROM app_pass_stripe_event WHERE id=$1', [event.id])).rowCount, 1);
+  const captured = await checkoutRow(date);
+  assert.equal(captured.id, id);
+  assert.equal(captured.status, 'paid');
+  assert.equal(captured.pass_id, null);
+  assert.equal(captured.payment_intent, session.payment_intent);
+  assert.ok(captured.cancel_requested_at, 'refund intent is durable');
+  assert.ok(captured.payment_id, 'the captured charge is visible in Payments');
+  assert.equal((await pool.query('SELECT paymentstatus FROM payment WHERE paymentid=$1', [captured.payment_id])).rows[0].paymentstatus, 'paid');
+
+  await passes.webhook(event);
+  await passes.webhook(event);
+  const reconciled = await checkoutRow(date);
+  assert.equal(reconciled.payment_id, captured.payment_id);
+  assert.deepEqual([reconciled.status, reconciled.refund_status], ['cancelled', 'succeeded']);
+  assert.deepEqual(refundKeys, [`daypass-refund:${id}`]);
+  assert.equal(await passCount(date), 1);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM payment WHERE reference=$1', [session.id])).rows[0].n, 1);
+});
+
+test('the reconciliation tick submits a missed automatic refund and backs off failures', async () => {
+  const date = '2034-05-12';
+  await staff.issue(admin, member, desk(date));
+  const { id, session } = await openCheckout(date);
+  Object.assign(session, { status: 'complete', payment_status: 'paid', payment_intent: 'pi_' + randomUUID() });
+  const event = stripeEvent('evt_' + randomUUID(), 'checkout.session.completed', { ...session });
+
+  const error = mock.method(console, 'error', () => {});
+  stripe.refundList(async () => { throw new Error('Stripe is unavailable'); });
+  try {
+    await assert.rejects(passes.webhook(event), /Stripe is unavailable/);
+    assert.equal((await checkoutRow(date)).refund_id, null);
+    assert.equal(refundKeys.length, 0, 'the automatic refund was never submitted');
+    await passes.reconcileRefunds();
+    assert.equal(error.mock.callCount(), 1);
+    await passes.reconcileRefunds();
+    assert.equal(error.mock.callCount(), 1, 'a failed lookup waits before being retried');
+
+    stripe.refundList(listRefunds);
+    await pool.query("UPDATE app_pass_checkout SET refund_reconcile_after=now()-interval '1 second' WHERE id=$1", [id]);
+    await Promise.all([passes.reconcileRefunds(), passes.reconcileRefunds()]);
+    const row = await checkoutRow(date);
+    assert.deepEqual([row.status, row.refund_id, row.refund_status, row.refund_reconcile_after], ['cancelled', refunds[0]!.id, 'succeeded', null]);
+    assert.deepEqual(refundKeys, [`daypass-refund:${id}`], 'the sweep submits the refund once');
+    assert.equal(await passCount(date), 1);
+  } finally {
+    stripe.refundList(listRefunds);
+    error.mock.restore();
+  }
+});
+
+test('an early partial Stripe refund leaves the day pass, captured payment and checkout event recorded', async () => {
+  const date = '2034-05-13';
+  const { id, session } = await openCheckout(date);
+  const intent = 'pi_' + randomUUID();
+  Object.assign(session, { status: 'complete', payment_status: 'paid', payment_intent: intent });
+  const refund: Refund = { id: 're_' + randomUUID(), object: 'refund', status: 'succeeded', amount: 500, currency: 'usd', payment_intent: intent };
+  refunds.unshift(refund);
+  await passes.webhook(stripeEvent('evt_' + randomUUID(), 'refund.created', refund));
+  const event = stripeEvent('evt_' + randomUUID(), 'checkout.session.completed', session);
+  const error = mock.method(console, 'error', () => {});
+  try {
+    await passes.webhook(event);
+    await passes.webhook(event);
+    assert.deepEqual(error.mock.calls.map(call => call.arguments[1].code), ['RECONCILE_REQUIRED']);
+  } finally {
+    error.mock.restore();
+  }
+  const row = await checkoutRow(date);
+  assert.equal(row.id, id);
+  assert.ok(row.pass_id);
+  assert.equal(await passCount(date), 1);
+  assert.equal((await pool.query('SELECT paymentstatus FROM payment WHERE paymentid=$1', [row.payment_id])).rows[0].paymentstatus, 'paid');
+  assert.equal((await pool.query('SELECT id FROM app_pass_stripe_event WHERE id=$1', [event.id])).rowCount, 1);
+  assert.equal(refundKeys.length, 0);
 });
 
 test('card checkout stops taking payment when the visit date ends', async () => {

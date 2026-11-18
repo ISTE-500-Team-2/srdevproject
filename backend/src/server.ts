@@ -9,6 +9,7 @@ import { createApp } from './app.js';
 import { startNotificationRuntime } from './notifications/runtime.js';
 import { startPolicyRuntime } from './policyLifecycle.js';
 import { EquipmentBilling } from './billing/equipment.js';
+import { PassBilling } from './billing/passes.js';
 import { startEquipmentReconciliation } from './equipmentReconciliation.js';
 import { startReaderLeaseCompaction } from './readerLeaseCompaction.js';
 import { StudioStripe } from './studios/stripe.js';
@@ -25,8 +26,9 @@ await pool.query('SELECT NOW() AT TIME ZONE $1', [config.timeZone]).catch((error
 });
 const notifications = startNotificationRuntime(pool, config.notifications);
 const policies = startPolicyRuntime(pool);
-const equipmentPayments = startEquipmentReconciliation(new EquipmentBilling(pool,
-  config.studioStripe ? new StudioStripe(config.studioStripe) : undefined, config.timeZone));
+const stripe = config.studioStripe ? new StudioStripe(config.studioStripe) : undefined;
+const equipmentPayments = startEquipmentReconciliation(
+  new EquipmentBilling(pool, stripe, config.timeZone), undefined, new PassBilling(pool, stripe, config.timeZone));
 const studioHolds = startStudioHoldReconciliation(new StudioService(pool, config.timeZone,
   config.studioStripe ? new StudioStripe(config.studioStripe) : undefined));
 const readerLeases = startReaderLeaseCompaction(pool);
