@@ -9,6 +9,7 @@ import { StaffModel } from "../models/StaffModel.js";
 import { UserModel } from "../models/UserModel.js";
 import { PermissionModel } from "../models/PermissionModel.js";
 import { enqueueNotification } from "../notifications/store.js";
+import { noticeCertificationRefusal } from "../notifications/certificationNotices.js";
 import type { Pool } from "pg";
 import { transaction, type Database } from "../db.js";
 import { AppError, integerId, positiveId, reservationWindow } from "../domain.js";
@@ -230,7 +231,10 @@ export class ReservationService {
     const payAtDesk = input.payAtDesk === true;
     const billing = new EquipmentBilling(this.pool, this.stripe, this.timeZone);
     if (equipmentId) await billing.reconcile(userId);
-    const created = await transaction(this.pool, async (db) => {
+    // A member refused for missing training is emailed how to get it; staff booking for someone
+    // else see the refusal at the desk, so the member isn't mailed about an attempt they didn't make.
+    const created = await noticeCertificationRefusal(this.pool, this.timeZone,
+      { memberId: targetId, equipmentId: targetId === userId ? equipmentId : null }, () => transaction(this.pool, async (db) => {
       const access = new AccessService(db, this.timeZone);
       await access.assertActiveUser(userId);
 
@@ -354,7 +358,7 @@ export class ReservationService {
         },
       });
       return reservation;
-    });
+    }));
     if (!created) throw new AppError(404, 'NOT_FOUND', 'Reservation not found.');
     if (equipmentId && (await this.pool.query('SELECT 1 FROM app_equipment_checkout WHERE reservation_id=$1', [created.id])).rowCount)
       return billing.checkout(userId, created.id);
