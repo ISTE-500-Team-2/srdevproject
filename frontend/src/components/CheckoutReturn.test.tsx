@@ -22,11 +22,19 @@ for (const kind of ['billing','pass']) {
     auth.user = {id:7,roles:['staff']}; mount(`/checkout-return?member=42&${kind}=cancelled`);
     expect(screen.getByText(`/admin/members?${kind}=cancelled&member=42`)).toBeTruthy();
   });
+  test(`${kind}: staff paying for their own membership return to their own membership page`, () => {
+    auth.user = {id:7,roles:['staff']}; mount(`/checkout-return?member=7&${kind}=returned`);
+    expect(screen.getByText(`/membership?${kind}=returned`)).toBeTruthy();
+  });
   test(`${kind}: existing pending sessions with the old member callback preserve staff context`, () => {
     auth.actor = {id:7,roles:['admin']}; rememberAssistedReturn(7,42); mount(`/membership?${kind}=returned`);
     expect(screen.getByText(`/admin/members?${kind}=returned&member=42`)).toBeTruthy();
   });
 }
+test('a pass return keeps the checkout it came from so the page waits on that one', () => {
+  mount('/checkout-return?member=42&pass=returned&checkout=abc-123');
+  expect(screen.getByText('/membership?pass=returned&checkout=abc-123')).toBeTruthy();
+});
 test('stored context cannot send a member or a different signed-in staff account to another member', () => {
   rememberAssistedReturn(7,99); mount('/membership?billing=returned');
   expect(screen.getByText('/membership?billing=returned')).toBeTruthy();

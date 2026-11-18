@@ -277,3 +277,15 @@ test("a status message on the page stays announced and dismissible while a dialo
   view.unmount();
   region.remove();
 });
+
+test("Escape that a control inside already handled leaves the dialog open", () => {
+  const close = vi.fn();
+  render(<Modal open title="Booking" onClose={close}><input aria-label="Booking name" /></Modal>);
+  const input = screen.getByLabelText("Booking name");
+  // Like a suggestion list closing itself on Escape.
+  input.addEventListener("keydown", (event) => event.preventDefault());
+  fireEvent.keyDown(input, { key: "Escape" });
+  expect(close).not.toHaveBeenCalled();
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(close).toHaveBeenCalledOnce();
+});

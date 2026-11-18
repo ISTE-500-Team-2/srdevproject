@@ -6,7 +6,7 @@ import type { Pool } from 'pg';
 import type { NotificationConfig } from './config.js';
 import { BrevoTransport, NotificationTransportError } from './transport.js';
 import { notificationJob, renderNotification } from './templates.js';
-import { runNotificationBatch, NotificationSendError } from './worker.js';
+import { drainNotificationBatches, NotificationSendError } from './worker.js';
 import { scheduleExpirationNotifications } from './scheduler.js';
 import { checkReaderHealth } from '../serviceNotices.js';
 import { errorIdentifier } from '../logSafety.js';
@@ -32,7 +32,9 @@ export function startNotificationRuntime(pool: Pool, config?: NotificationConfig
         lastScan = Date.now();
       }
       stage = 'dispatch_batch';
-      await runNotificationBatch(pool, async job => {
+      // Keeps sending while full batches come back. The budget leaves a quarter of the interval for
+      // the last batch and the reader check, so the next tick is not skipped.
+      await drainNotificationBatches(pool, async job => {
         let content: ReturnType<typeof renderNotification>;
         try {
           // A malformed stored job (unknown kind, or a field that would render blank) fails here as unrenderable.
@@ -61,7 +63,7 @@ export function startNotificationRuntime(pool: Pool, config?: NotificationConfig
             });
           throw error;
         }
-      });
+      }, { budgetMs: Math.floor(config.intervalMs * 3 / 4), stopping: () => stopped });
       stage = 'reader_health';
       await checkReaderHealth(pool);
     })().catch(error => {

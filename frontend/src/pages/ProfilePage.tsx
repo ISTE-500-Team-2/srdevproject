@@ -34,6 +34,7 @@ import type { SignedWaiver } from "../lib/billingContracts";
 import type { MembershipHistory, Page, Payment } from "../lib/staffContracts";
 import { dollars, shortDate, timeOnly } from "../lib/display";
 import { useApi } from "../lib/useApi";
+import { phoneDigits as digits } from "../lib/phone";
 import { Detail, EditButton, Section, SectionForm } from "./profileSections";
 import { SignInSection } from "./ProfileSignIn";
 import "./profile.css";
@@ -78,7 +79,6 @@ const SECTIONS: { id: string; label: string; Icon: LucideIcon }[] = [
 ];
 
 const text = (fields: ProfileFields | undefined, key: string) => String(fields?.[key] ?? "").trim();
-const digits = (value: string) => value.replace(/\D/g, "");
 /** (410) 555-0182 for ten-digit US numbers; anything else as entered. */
 export function formatPhone(value: string) {
   const d = digits(value);
