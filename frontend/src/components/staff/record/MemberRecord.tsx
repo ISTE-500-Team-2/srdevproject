@@ -79,13 +79,14 @@ export function MemberRecord({
   // Adopt a committed write's revision before the refresh lands, so a second save isn't stale.
   const [confirmed, setConfirmed] = useState<Person | null>(null);
   const [dialog, setDialog] = useState<DialogState | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ text: string; problem: boolean } | null>(null);
   const [actionError, setActionError] = useState("");
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState<ActivityFilter>("all");
   const [allEarlier, setAllEarlier] = useState(false);
   useEffect(() => {
-    if (!toast) return;
+    // A failure stays until staff dismiss it.
+    if (!toast || toast.problem) return;
     const timer = window.setTimeout(() => setToast(null), 6000);
     return () => window.clearTimeout(timer);
   }, [toast]);
@@ -105,9 +106,9 @@ export function MemberRecord({
     overrides.reload();
     onChanged();
   };
-  const done = (message: string) => {
+  const done = (message: string, problem = false) => {
     setDialog(null);
-    setToast(message);
+    setToast({ text: message, problem });
     reloadAll();
   };
   const visitAction = async (action: "check-in" | "check-out") => {
@@ -261,7 +262,7 @@ export function MemberRecord({
           onConflict={reloadAll}
         />
       ) : null}
-      <Toast message={toast} onClose={() => setToast(null)} />
+      <Toast message={toast?.text ?? null} tone={toast?.problem ? "problem" : "done"} onClose={() => setToast(null)} />
     </Modal>
   );
 }

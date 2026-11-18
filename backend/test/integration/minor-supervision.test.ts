@@ -525,3 +525,32 @@ test('an adult with no date of birth on file is told they cannot sponsor yet, an
  assert.equal(await dob(),'1980-06-15');
  assert.deepEqual((await get(legacy,'/me/minors')).body.data,{minors:[],requests:[],canSponsor:true,dobOnFile:true});
 });
+test("a desk check-in with no building named follows the visit under way, or a minor's present sponsor",async()=>{
+ const parent=await account('desk.parent@example.invalid','1980-01-01'),kid=await account('desk.kid@example.invalid','2012-01-01');
+ for(const who of [parent,kid]){
+  await pool.query(`INSERT INTO user_membership(userid,tierid,startdate,end_date,status)
+   VALUES($1,1,(now()-interval '1 day') AT TIME ZONE 'UTC',(now()+interval '30 days') AT TIME ZONE 'UTC','active')`,[who.user.id]);
+  await sign(who);
+ }
+ await pool.query('INSERT INTO app_minor_sponsor(minor_id,adult_id) VALUES($1,$2)',[kid.user.id,parent.user.id]);
+ const other=(await pool.query("INSERT INTO building(name) VALUES('Desk second building') RETURNING buildingid")).rows[0].buildingid;
+ await transaction(pool,db=>new MinorSupervision(db).startVisit(parent.user.id,other));
+ // The minor joins their sponsor's building instead of being refused at the default one.
+ const kidIn=await post(admin,`/admin/users/${kid.user.id}/supervision/check-in`,{});
+ assert.equal(kidIn.status,200,JSON.stringify(kidIn.body));
+ assert.equal(kidIn.body.data.visit.buildingId,other);
+ // Repeating the adult's arrival keeps them, and the minor with them, where they are.
+ const again=await post(admin,`/admin/users/${parent.user.id}/supervision/check-in`,{});
+ assert.equal(again.status,200,JSON.stringify(again.body));
+ const visits=(await pool.query('SELECT building_id FROM app_facility_visit WHERE user_id=ANY($1::int[]) AND checked_out_at IS NULL',[[parent.user.id,kid.user.id]])).rows;
+ assert.deepEqual(visits.map(v=>v.building_id),[other,other]);
+ // With no visit under way, an adult arrives at the default building; a named one still wins.
+ await transaction(pool,db=>new MinorSupervision(db).checkout(parent.user.id));
+ const fresh=await post(admin,`/admin/users/${parent.user.id}/supervision/check-in`,{});
+ assert.equal(fresh.status,200,JSON.stringify(fresh.body));
+ assert.equal(fresh.body.data.visit.buildingId,1);
+ await transaction(pool,db=>new MinorSupervision(db).checkout(parent.user.id));
+ const named=await post(admin,`/admin/users/${parent.user.id}/supervision/check-in`,{buildingId:other});
+ assert.equal(named.body.data.visit.buildingId,other);
+ await transaction(pool,db=>new MinorSupervision(db).checkout(parent.user.id));
+});

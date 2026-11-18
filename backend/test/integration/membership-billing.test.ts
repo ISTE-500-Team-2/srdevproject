@@ -125,13 +125,15 @@ test('concurrent duplicate deliveries issue exactly one period and receipt',asyn
  assert.equal((await pool.query("SELECT * FROM app_notification_outbox WHERE dedupe_key='membership-receipt:in_parallel'")).rowCount,1);
 });
 
-test('wrong quote, currency, subscription and overlapping period fail closed and remain retryable',async()=>{
+test('wrong quote, currency, subscription and a second invoice for a recorded period fail closed and remain retryable',async()=>{
  const good=invoice;
  for(const [label,patch] of Object.entries({amount:{amount_paid:1},currency:{currency:'eur'},subscription:{parent:{subscription_details:{subscription:'sub_other'}}},lines:{lines:{has_more:false,data:[{amount:1,period:good.lines!.data![0]!.period}]}}})) {
   invoice={...good,...patch,id:'in_invalid_'+label};
   await assert.rejects(service.webhook(event('evt_invalid_'+label,'invoice.paid',{...invoice,parent:good.parent})),{code:'PAYMENT_MISMATCH'});
   assert.equal((await pool.query('SELECT id FROM app_membership_stripe_event WHERE id=$1',['evt_invalid_'+label])).rowCount,0);
  }
+ // The same subscription period paid twice. (A charge overlapping a different membership is
+ // recorded and flagged instead: see card-billing-overlap.test.ts.)
  invoice={...good,id:'in_overlap'};
  await assert.rejects(service.webhook(event('evt_overlap','invoice.paid',invoice)),{code:'MEMBERSHIP_OVERLAP'});
  assert.equal((await pool.query("SELECT id FROM app_membership_invoice WHERE id LIKE 'in_invalid_%' OR id='in_overlap'")).rowCount,0);

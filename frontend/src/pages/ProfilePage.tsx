@@ -35,6 +35,7 @@ import type { MembershipHistory, Page, Payment } from "../lib/staffContracts";
 import { dollars, shortDate, timeOnly } from "../lib/display";
 import { jumpToSection } from "../lib/sectionJump";
 import { useApi } from "../lib/useApi";
+import { phoneDigits as digits } from "../lib/phone";
 import { Detail, EditButton, FormMessage, Section, SectionForm, useReturnFocus } from "./profileSections";
 import { SignInSection } from "./ProfileSignIn";
 import "./profile.css";
@@ -79,7 +80,6 @@ const SECTIONS: { id: string; label: string; Icon: LucideIcon }[] = [
 ];
 
 const text = (fields: ProfileFields | undefined, key: string) => String(fields?.[key] ?? "").trim();
-const digits = (value: string) => value.replace(/\D/g, "");
 /**
  * The phone number as stored: its digits, keeping a leading "+" for an international number.
  * Anything else (letters, an extension, too few or too many digits) is refused with a message

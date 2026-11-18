@@ -46,6 +46,6 @@ test('administrator takes equipment down, reviews and moves one booking, cancels
   const saved = (await bridge.pool.query('SELECT equipmentid,status FROM reservation WHERE reservationid=ANY($1) ORDER BY reservationid', [bookings.map(b => b.reservationid)])).rows;
   expect(saved).toEqual([{ equipmentid: target, status: 'confirmed' }, { equipmentid: source, status: 'cancelled' }]);
   const notices = (await bridge.pool.query("SELECT kind FROM app_notification_outbox WHERE payload->>'reservationId'=ANY($1) ORDER BY kind", [bookings.map(b => String(b.reservationid))])).rows;
-  expect(notices.map(n => n.kind)).toEqual(['reservation_cancelled', 'reservation_updated']);
+  expect(notices.map(n => n.kind)).toEqual(['reservation_cancelled_by_staff', 'reservation_updated']);
   expect((await bridge.pool.query('SELECT return_note FROM app_equipment_outage WHERE equipment_id=$1', [source])).rows[0].return_note).toBe('Bearing replaced and tested');
 });

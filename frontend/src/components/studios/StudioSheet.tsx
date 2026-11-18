@@ -19,7 +19,8 @@ import {
 } from "../../lib/studioDisplay";
 import { initials, tone } from "../../lib/today";
 import { Modal } from "../Modal";
-import { holdDate } from "./OccupancyBoard";
+import { bookingReference } from "./BookingReference";
+import { holdTime } from "./OccupancyBoard";
 
 const policies = [
   { key: "no_refunds", label: "No refunds", detail: "Cancelling frees the studio. Nothing is refunded." },
@@ -79,15 +80,19 @@ export function StudioSheet({
 
         <section className="studio-sheet__section" aria-labelledby="sheet-next">
           <h3 id="sheet-next">Next</h3>
-          {upcoming.map((slot) => (
-            <p key={slot.starts_on} className="studio-sheet__next">
-              <strong>{memberName(rentalFor(s, slot, rentals))}</strong>
-              <span>
-                {rentalRange(slot.starts_on, slot.ends_on)} ·{" "}
-                {slot.status === "pending" ? `held, pay by ${holdDate(slot.hold_until, timeZone)}` : "booked"}
-              </span>
-            </p>
-          ))}
+          {upcoming.map((slot) => {
+            const booking = rentalFor(s, slot, rentals);
+            return (
+              <p key={slot.starts_on} className="studio-sheet__next">
+                <strong>{memberName(booking)}</strong>
+                <span>
+                  {rentalRange(slot.starts_on, slot.ends_on)} ·{" "}
+                  {slot.status === "pending" ? `held, pay by ${holdTime(slot.hold_until, timeZone, today)}` : "booked"}
+                  {booking ? ` · ref ${bookingReference(booking.id)}` : ""}
+                </span>
+              </p>
+            );
+          })}
           <p className="studio-sheet__free">
             <CalendarCheck aria-hidden="true" />
             {state === "off"
@@ -158,7 +163,7 @@ function Renter({
         </div>
         <div className="studio-sheet__when">
           {rentalRange(slot.starts_on, slot.ends_on)}
-          <small>{slot.status === "pending" ? `Hold ends ${holdDate(slot.hold_until, timeZone)}` : `${left} ${left === 1 ? "day" : "days"} left`}</small>
+          <small>{slot.status === "pending" ? `Hold ends ${holdTime(slot.hold_until, timeZone, today)}` : `${left} ${left === 1 ? "day" : "days"} left`}</small>
         </div>
       </div>
       {rental ? (
@@ -170,6 +175,10 @@ function Renter({
           <div>
             <dt>Refunds</dt>
             <dd>{policyShort(rental.cancellation_policy)}</dd>
+          </div>
+          <div>
+            <dt>Booking reference</dt>
+            <dd>{bookingReference(rental.id)}</dd>
           </div>
         </dl>
       ) : null}
