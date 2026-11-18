@@ -10,8 +10,8 @@ export type AuditField = { field: string; before: unknown; after: unknown };
 export type AuditChanges = { changed: AuditField[]; unchanged: AuditField[] };
 
 const SECRET = /password|passcode|hash|token|secret|encrypt|signing|credential|private_?key/i;
-// A revision number moves on every save. It is bookkeeping, not a change anyone made.
-const BOOKKEEPING = /^(revision|.*_revision|.*Revision)$/;
+// A revision number (or last-updated time) moves on every save. It is bookkeeping, not a change anyone made.
+const BOOKKEEPING = /^(revision|.*_revision|.*Revision|updatedAt|updated_at)$/;
 
 // Nested objects (a profile's address, contact preferences) can hold keys nobody vetted,
 // so secrets are dropped at every depth, not just at the top.

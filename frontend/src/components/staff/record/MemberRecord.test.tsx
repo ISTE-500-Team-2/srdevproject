@@ -121,6 +121,19 @@ test("the name is said once and the verdict leads with the desk action", async (
   expect(await screen.findByText("Casey checked in.")).toBeTruthy();
 });
 
+test("the account panel says when the member joined and when the account last changed", () => {
+  // Late evening UTC: still the 2nd in New York, the facility's time zone.
+  state.detail = { ...state.detail, user: user({ createdAt: "2025-03-03T02:30:00Z", updatedAt: "2026-11-02T15:00:00Z" }) };
+  mount();
+  expect(screen.getByText("Joined Mar 2, 2025 · Last updated Nov 2, 2026")).toBeTruthy();
+  cleanup();
+  // A legacy account with no sign-up date shows only what is known.
+  state.detail = { ...state.detail, user: user({ createdAt: null, updatedAt: "2026-11-02T15:00:00Z" }) };
+  mount();
+  expect(screen.getByText("Last updated Nov 2, 2026")).toBeTruthy();
+  expect(screen.queryByText(/Joined/)).toBeNull();
+});
+
 test("the cleared verdict sets the training gap apart from where the member is", () => {
   state.req = { ...state.req, training: { required: 3, held: 1, missing: ["CNC Machine", "Laser"] } };
   mount();
