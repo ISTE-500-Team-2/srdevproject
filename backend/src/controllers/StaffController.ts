@@ -3,7 +3,7 @@
 
 import type { Request, Response } from "express";
 import type { Pool } from "pg";
-import { AppError, bigintId, positiveId, textField } from "../domain.js";
+import { AppError, bigintId, integerId, positiveId, textField } from "../domain.js";
 import { authState } from "../middleware/auth.js";
 import { AUDIT_VIEWS_LIST, COMPLIANCE_EXPORT_LIMIT, StaffModel } from "../models/StaffModel.js";
 import { auditChanges } from "../auditChanges.js";
@@ -29,6 +29,11 @@ import { page } from "../pagination.js";
 function optionalPositiveId(value: unknown, name: string) {
   if (value == null || value === "") return null;
   return positiveId(value, name);
+}
+/** For a filter compared with an INTEGER column: a larger number is a bad request, not a server error. */
+function optionalIntegerId(value: unknown, name: string) {
+  if (value == null || value === "") return null;
+  return integerId(value, name);
 }
 function optionalDays(value: unknown) {
   if (value == null || value === "") return null;
@@ -355,8 +360,10 @@ export class StaffController {
         ? null
         : oneOf(req.query.view, AUDIT_VIEWS_LIST, "Audit view");
     const filters = {
-      userId: optionalPositiveId(req.query.userId, "User"),
-      actorId: optionalPositiveId(req.query.actorId, "Actor"),
+      // Either side of a change; subjectId is only the person it was made to.
+      userId: optionalIntegerId(req.query.userId, "User"),
+      subjectId: optionalIntegerId(req.query.subjectId, "Member"),
+      actorId: optionalIntegerId(req.query.actorId, "Actor"),
       action: optionalAuditAction(req.query.action),
       actions: optionalAuditActions(req.query.actions),
       search:

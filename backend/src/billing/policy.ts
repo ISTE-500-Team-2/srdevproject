@@ -13,3 +13,8 @@ export function cancellationBoundary(periodEnd:number,anchor:number,requestedAt:
  if(boundary<deadline) throw new Error('Invalid billing period');
  return boundary;
 }
+/** SQL: user_membership ids of card-paid periods that Stripe will renew. Turning off auto-renew in the
+ * app sets a cancellation date on a later period boundary (Stripe cancel_at) and leaves
+ * cancel_at_period_end false, so only a period ending before that date renews. */
+export const AUTO_RENEWING_PERIODS=`SELECT i.membership_id FROM app_membership_invoice i JOIN app_membership_billing b ON b.id=i.billing_id
+  WHERE b.status='active' AND NOT b.cancel_at_period_end AND (b.cancellation_effective_at IS NULL OR b.cancellation_effective_at>i.period_end)`;

@@ -19,7 +19,7 @@ const headings = {
   certification_revoked: 'Your certification has been revoked',
   certification_required: 'Training is required before booking',
   membership_renewal: 'Your membership renewal is approaching',
-  membership_expiring: 'Your membership expiration or renewal is approaching',
+  membership_expiring: 'Your membership is ending soon',
   membership_confirmed: 'Your membership is confirmed',
   membership_issued: 'Your membership is confirmed',
   membership_cancelled: 'Auto-renew is off for your membership',
@@ -68,6 +68,8 @@ type Details = { [F in RenderedField]?: Shown | null };
 /** Read by the worker and scheduler, or kept for the record; never rendered. */
 interface Bookkeeping {
   sourceType?: string; sourceId?: number; confirmationHash?: string; resetHash?: string; noticeId?: number; readerId?: string;
+  /** An announcement to every account: the worker sends one person's mail ahead of it. */
+  broadcast?: true;
   /** Email-change notices go to a fixed address rather than the account's current one. */
   changeHash?: string; recipientEmail?: string;
   waiverId?: number; membershipId?: number; memberId?: number; formValues?: unknown; guardianConsent?: unknown;
@@ -174,8 +176,11 @@ const copy: Record<NotificationKind, Copy> = {
     intro: f => `You need to finish training before you can book ${f.item || 'this equipment'}.`, cta: ['See training', '/training'] },
   membership_renewal: { category: 'Membership', status: 'Renewal coming up', tone: 'warning',
     intro: () => 'Check the details below so there are no surprises.', cta: membership },
+  // Card subscriptions that renew themselves get no reminder. Online checkout opens once this one
+  // ends, so before then only staff can extend it.
   membership_expiring: { category: 'Membership', status: 'Expiring soon', tone: 'warning',
-    intro: () => 'Renew it to keep your studio access.', cta: membership },
+    intro: () => 'It won’t renew on its own. To keep your studio access without a break, ask staff to renew it, or choose a new plan once it ends.',
+    cta: membership },
   membership_confirmed: { category: 'Membership', status: 'Active', tone: 'success',
     intro: () => 'You’re all set. Here are the details.', cta: membership },
   membership_issued: { category: 'Membership', status: 'Active', tone: 'success',

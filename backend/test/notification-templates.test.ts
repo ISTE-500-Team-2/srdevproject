@@ -78,6 +78,10 @@ test('scheduler membership payload renders plan and expiry in user timezone with
   assert.ok(result.textContent.includes('Expires: Tue, Jan 1, 2030 at 5:00 PM PST'));
   assert.ok(result.textContent.includes('Starts: Tue, Jan 1, 2030'));
   assert.ok(!result.textContent.includes('2030-01-02T01:00:00Z'));
+  // Only memberships that won't renew on their own get this; online checkout is closed until it ends.
+  assert.ok(result.subject.endsWith(': Your membership is ending soon'));
+  assert.ok(result.textContent.includes('ask staff to renew it, or choose a new plan once it ends'));
+  assert.ok(!/Renew it to keep/.test(result.textContent));
 });
 
 test('studio cancellation reads as a receipt, not a field dump', () => {

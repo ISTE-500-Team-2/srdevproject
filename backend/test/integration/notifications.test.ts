@@ -3,8 +3,8 @@ import {randomBytes} from 'node:crypto';
 import {before,after,test} from 'node:test';
 import {Pool} from 'pg';
 import {initializeDemo} from '../../src/scripts/init-demo.js';
-import {enqueueNotification,notificationMetrics,updateNotificationPreferences} from '../../src/notifications/store.js';
-import {runNotificationBatch,NotificationSendError} from '../../src/notifications/worker.js';
+import {enqueueNotification,enqueueNotifications,notificationMetrics,updateNotificationPreferences} from '../../src/notifications/store.js';
+import {drainNotificationBatches,runNotificationBatch,NotificationSendError} from '../../src/notifications/worker.js';
 import {scheduleExpirationNotifications} from '../../src/notifications/scheduler.js';
 const database='arbor_'+randomBytes(6).toString('hex')+'_notification_mvc_test';
 const admin=new Pool({connectionTimeoutMillis:5000});
@@ -47,6 +47,42 @@ test('expired lease uncertain; late/failed events remain in metric denominator',
  await reset();await enqueue('crash',{deadlineAt:new Date(Date.now()-1000)});
  await pool.query("UPDATE app_notification_outbox SET status='sending',lease_until=NOW()-INTERVAL '1 minute'");await runNotificationBatch(pool,async()=>{throw new Error('must not resend');});
  const metric=await notificationMetrics(pool);assert.equal(metric.uncertain,1);assert.equal(metric.eligible,1);assert.equal(metric.onTimePercent,0);
+});
+test('an announcement to everyone queues once per account and gives way to one person\'s mail queued after it',async()=>{
+ await reset();
+ const everyone=(await pool.query(`SELECT userid FROM "user" WHERE status='active' ORDER BY userid`)).rows.map(r=>r.userid as number);
+ // Still sending after its hour: the deadline has passed, and one person's mail still goes first.
+ const announce=()=>enqueueNotifications(pool,everyone,{kind:'system_issue',dedupePrefix:'notice:1:',payload:{reason:'Shop closed',broadcast:true},
+  dueAt:new Date(Date.now()-3_700_000),deadlineAt:new Date(Date.now()-100_000)});
+ await announce();await announce();
+ const queued=(await pool.query("SELECT userid,dedupe_key FROM app_notification_outbox WHERE kind='system_issue' ORDER BY userid")).rows;
+ assert.deepEqual(queued.map(r=>r.userid),everyone);
+ assert.ok(queued.every(r=>r.dedupe_key===`notice:1:${r.userid}`));
+ await enqueue('personal');
+ // A reader alert to a few staff is not a broadcast, so it goes ahead too.
+ await enqueueNotifications(pool,[userId],{kind:'system_issue',dedupePrefix:'reader-alert:',payload:{reason:'Reader offline',readerId:'r1'}});
+ const sent:string[]=[];
+ await runNotificationBatch(pool,async row=>{sent.push(row.dedupeKey);return {messageId:row.dedupeKey};},{batchSize:3});
+ assert.deepEqual(sent.slice(0,2),['personal',`reader-alert:${userId}`]);
+ assert.match(sent[2]!,/^notice:1:/);
+});
+test('full batches keep draining within the budget, and a retry stops the drain',async()=>{
+ await reset();
+ for(let n=0;n<45;n++) await enqueue('drain-'+n);
+ let sends=0;
+ await drainNotificationBatches(pool,async row=>{sends++;return {messageId:row.dedupeKey};},{budgetMs:60_000});
+ assert.equal(sends,45);
+ await reset();
+ for(let n=0;n<45;n++) await enqueue('busy-'+n);
+ await drainNotificationBatches(pool,async()=>{throw new NotificationSendError('rate limited',{retryable:true});},{budgetMs:60_000});
+ const counts=(await pool.query(`SELECT COUNT(*) FILTER (WHERE attempts=1)::int AS tried,COUNT(*) FILTER (WHERE attempts=0)::int AS waiting
+  FROM app_notification_outbox WHERE status='pending'`)).rows[0];
+ assert.deepEqual(counts,{tried:20,waiting:25});
+ await reset();
+ for(let n=0;n<45;n++) await enqueue('stop-'+n);
+ sends=0;
+ await drainNotificationBatches(pool,async row=>{sends++;return {messageId:row.dedupeKey};},{budgetMs:60_000,stopping:()=>true});
+ assert.equal(sends,20,'a stopping runtime finishes its batch and goes no further');
 });
 test('scheduler deduplicates and cancels stale renewed certifications',async()=>{
  await reset();const now=new Date();const expiry=new Date(now.getTime()+4*86400000);
