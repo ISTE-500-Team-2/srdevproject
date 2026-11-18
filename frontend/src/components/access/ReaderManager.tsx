@@ -1,5 +1,5 @@
 // Staff editor for reader names, resource targets and enabled state, using server revisions to
-// detect stale changes.
+// detect stale changes. Only admins add, change or turn on readers; other staff can turn one off.
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -28,6 +28,7 @@ export function ReaderManager({
 }) {
   const [params] = useSearchParams();
   const selected = params.get("reader");
+  const { canConfigure } = setup;
   const resources = useApi<AccessResource[]>("/admin/access/resources");
   // Live: the board refreshes itself, so there is no manual refresh control.
   const health = useApi<HealthBoard>(setup.configured && !selected ? "/admin/access/reader-health" : null, {
@@ -111,7 +112,7 @@ export function ReaderManager({
             reason: f.get("reason"),
           },
         });
-        setNotice("Reader settings saved.");
+        setNotice(canConfigure ? "Reader settings saved." : "Reader turned off.");
       }
       setEditing(null);
       reload();
@@ -137,8 +138,10 @@ export function ReaderManager({
   };
   const dialogs = (
     <>
-      <ReaderSetupWizard open={adding} onClose={()=>{setAdding(false);reload();}} onDone={reload}
-        onManual={()=>{setAdding(false);setEditing('new');setError('');setNotice('');}}/>
+      {canConfigure ? (
+        <ReaderSetupWizard open={adding} onClose={()=>{setAdding(false);reload();}} onDone={reload}
+          onManual={()=>{setAdding(false);setEditing('new');setError('');setNotice('');}}/>
+      ) : null}
       <Modal
         open={!!editing}
         title={
@@ -152,7 +155,11 @@ export function ReaderManager({
         width="compact"
       >
         {editing ? (
-          <ReaderForm editing={editing} location={location} busy={busy} error={error} resources={resources} onSubmit={save} />
+          canConfigure ? (
+            <ReaderForm editing={editing} location={location} busy={busy} error={error} resources={resources} onSubmit={save} />
+          ) : editing !== "new" ? (
+            <TurnOffForm reader={editing} location={location} busy={busy} error={error} onSubmit={save} />
+          ) : null
         ) : null}
       </Modal>
     </>
@@ -185,7 +192,8 @@ export function ReaderManager({
           <button
             type="button"
             className="button button--primary"
-            disabled={!setup.configured}
+            disabled={!setup.configured || !canConfigure}
+            aria-describedby={canConfigure ? undefined : "reader-admin-only"}
             onClick={() => {
               setAdding(true);
               setError("");
@@ -196,7 +204,12 @@ export function ReaderManager({
           </button>
         </div>
       </div>
-      {detected?<p className="form-notice" role="status">{detected===1?'A new reader is connected':'New readers are connected'}. Choose Add reader to finish setup.</p>:null}
+      {!canConfigure ? (
+        <p className="nfc-help" id="reader-admin-only">
+          Only an admin can add or turn on readers. You can turn a reader off from Manage.
+        </p>
+      ) : null}
+      {detected?<p className="form-notice" role="status">{detected===1?'A new reader is connected':'New readers are connected'}. {canConfigure?'Choose Add reader to finish setup.':'Ask an admin to finish setup.'}</p>:null}
       {!setup.configured ? (
         <p className="form-error" role="alert">
           NFC setup is incomplete. Ask the system administrator to configure the
@@ -245,7 +258,9 @@ export function ReaderManager({
       ) : null}
       {!setup.readers.length ? (
         <p className="empty-state">
-          No readers yet. Connect a reader to the Pi, then choose Add reader.
+          {canConfigure
+            ? "No readers yet. Connect a reader to the Pi, then choose Add reader."
+            : "No readers yet. An admin adds them."}
         </p>
       ) : null}
       {health.data ? (
@@ -289,6 +304,63 @@ function ReaderList({ readers, onManage }: { readers: AccessReader[]; onManage: 
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * What staff without reader configuration see under Manage: the reader as it is, and a way to
+ * turn it off. The fields submit the current name and location unchanged, so the save is a
+ * turn-off and nothing else.
+ */
+function TurnOffForm({
+  reader,
+  location,
+  busy,
+  error,
+  onSubmit,
+}: {
+  reader: AccessReader;
+  location: string;
+  busy: boolean;
+  error: string;
+  onSubmit: (e: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <form ref={editingFormRef} className="management-form nfc-reader-form" onSubmit={onSubmit}>
+      <fieldset disabled={busy}>
+        <p className="nfc-help">
+          Only an admin can add or turn on readers, or change a reader’s name or location.
+        </p>
+        <input type="hidden" name="name" value={reader.name} />
+        <input type="hidden" name="resource" value={location} />
+        <dl className="reader-facts">
+          <dt>Reader</dt>
+          <dd>{reader.name}</dd>
+          <dt>Location</dt>
+          <dd>{reader.resourceName}</dd>
+          <dt>Status</dt>
+          <dd>{reader.enabled ? "On" : "Off"}</dd>
+        </dl>
+        {reader.enabled ? (
+          <>
+            <label>
+              Reason for turning off
+              <input name="reason" required maxLength={500} />
+            </label>
+            {error ? (
+              <p className="form-error" role="alert">
+                {error}
+              </p>
+            ) : null}
+            <button className="button button--danger-action">
+              {busy ? "Turning reader off…" : "Turn reader off"}
+            </button>
+          </>
+        ) : (
+          <p className="nfc-help">This reader is off. Ask an admin to turn it back on.</p>
+        )}
+      </fieldset>
+    </form>
   );
 }
 

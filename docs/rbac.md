@@ -40,6 +40,14 @@ except the existing super-administrator bypass. Staff writes keep their existing
 transaction-time permission and target-account checks. Equipment booking also
 rechecks assignments/permissions under the locked user row.
 
+Card readers are hardware, and hardware changes need administrative approval (CON-001).
+Adding a reader, renaming or moving it, turning it on, and starting or cancelling guided
+reader setup check `reader:update`, which migration 059 grants only to administrators. Staff
+keep `user_access:update` for day-to-day card work (card scans, assigning, revoking and
+reactivating cards, supervised access) and may still turn a reader off, as a safety action
+that changes nothing else; turning it back on needs an administrator. To delegate reader
+configuration, grant `reader:update` to that role.
+
 Customer-role labels do not create paid entitlement. Existing membership/day-pass,
 waiver, training, suspension, conflict, and ownership checks remain in place.
 Instructor presence denies reservation creation even alongside a customer/admin

@@ -84,7 +84,7 @@ const mount = (
 ) =>
   render(
     <MemoryRouter initialEntries={[`/admin/access${search}`]}>
-      <ReaderManager setup={{ configured, timeZone: "America/New_York", readers }} reload={reload} />
+      <ReaderManager setup={{ configured, canConfigure: true, timeZone: "America/New_York", readers }} reload={reload} />
     </MemoryRouter>,
   );
 

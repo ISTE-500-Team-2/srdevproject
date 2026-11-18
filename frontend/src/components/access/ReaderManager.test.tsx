@@ -15,7 +15,7 @@ const front = {
   id: "front", name: "Front door", kind: "building", resourceId: 1, resourceName: "Main building",
   enabled: true, online: true, revision: 2, lastSeenAt: "2026-10-01T12:00:00Z",
 } satisfies ReaderSetup["readers"][number];
-const setup = { configured: true, timeZone: "America/New_York", readers: [front] } satisfies ReaderSetup;
+const setup = { configured: true, canConfigure: true, timeZone: "America/New_York", readers: [front] } satisfies ReaderSetup;
 let discovery: ReaderDiscovery;
 let save: (path: string, body: unknown) => Promise<unknown>;
 beforeEach(() => {
@@ -156,7 +156,7 @@ describe("moving a reader", () => {
   async function manage() {
     render(
       <ReaderManager
-        setup={{ configured: true, timeZone: "America/New_York", readers: [reader] }}
+        setup={{ configured: true, canConfigure: true, timeZone: "America/New_York", readers: [reader] }}
         reload={vi.fn()}
       />,
     );
@@ -209,5 +209,46 @@ describe("moving a reader", () => {
       expectedRevision: 4,
       reason: "Reader change",
     });
+  });
+});
+
+// Staff without reader configuration (CON-001): adding, changing and turning on are admin-only.
+describe("staff without reader configuration", () => {
+  const staffSetup = { ...setup, canConfigure: false } satisfies ReaderSetup;
+
+  test("Add reader is off, with the reason shown, and a new device asks for an admin", async () => {
+    discovery.devices = [{ id: "usb-new", gatewayId: "pi", model: "ESP32-C3 mini", firmware: "1.7.1", transport: "usb", connected: true, readerName: null }];
+    render(<ReaderManager setup={staffSetup} reload={vi.fn()} />);
+    const add = screen.getByRole("button", { name: "Add reader" }) as HTMLButtonElement;
+    expect(add.disabled).toBe(true);
+    expect(add.getAttribute("aria-describedby")).toBe("reader-admin-only");
+    expect(document.getElementById("reader-admin-only")?.textContent).toContain("Only an admin can add or turn on readers.");
+    expect((await screen.findByText(/new reader is connected/i)).textContent).toContain("Ask an admin to finish setup.");
+  });
+
+  test("Manage only turns the reader off, keeping its name and location", async () => {
+    render(<ReaderManager setup={staffSetup} reload={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Manage Front door" }));
+    const dialog = screen.getByRole("dialog", { name: "Manage reader" });
+    expect(within(dialog).queryByLabelText("Reader name")).toBeNull();
+    expect(within(dialog).queryByLabelText("Reader location")).toBeNull();
+    expect(within(dialog).queryByLabelText("Reader enabled")).toBeNull();
+    expect(within(dialog).getByText(/Only an admin can add or turn on readers/)).toBeTruthy();
+    fireEvent.change(field(dialog, "Reason for turning off"), { target: { value: "Door jammed open" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Turn reader off" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Manage reader" })).toBeNull());
+    expect(api).toHaveBeenCalledWith("/admin/access/readers/front", {
+      method: "PATCH",
+      body: { name: "Front door", enabled: false, expectedRevision: 2, reason: "Door jammed open" },
+    });
+    expect(screen.getByRole("status").textContent).toContain("Reader turned off.");
+  });
+
+  test("a reader that is already off has nothing staff can save", async () => {
+    render(<ReaderManager setup={{ ...staffSetup, readers: [{ ...front, enabled: false }] }} reload={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Manage Front door" }));
+    const dialog = screen.getByRole("dialog", { name: "Manage reader" });
+    expect(within(dialog).getByText("This reader is off. Ask an admin to turn it back on.")).toBeTruthy();
+    expect(within(dialog).queryByRole("button", { name: /Turn reader|Save reader/ })).toBeNull();
   });
 });

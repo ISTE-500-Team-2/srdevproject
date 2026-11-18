@@ -320,14 +320,19 @@ def backup_databases(release, source):
             require(password_check_validated == 't',
                     'Complete the reviewed online migration phase before rollout: pending registration constraint needs validation')
     for container, user, database in DATABASES:
-        backup = release / (database + '.dump')
-        with backup.open('wb') as stream:
-            backup.chmod(0o600)
-            run('docker', 'exec', container, 'pg_dump', '-U', user, '-d', database,
-                '--format=custom', '--no-owner', stdout=stream)
-        require(backup.stat().st_size > 0, 'Empty backup')
-        with backup.open('rb') as stream:
-            run('docker', 'exec', '-i', container, 'pg_restore', '--list', stdin=stream, stdout=subprocess.DEVNULL)
+        dump_database(container, user, database, release / (database + '.dump'))
+
+
+# One owner-only custom-format dump, accepted only once pg_restore can read its table of contents.
+# Shared with daily_backup.py so scheduled backups match release backups exactly.
+def dump_database(container, user, database, backup):
+    with backup.open('wb') as stream:
+        backup.chmod(0o600)
+        run('docker', 'exec', container, 'pg_dump', '-U', user, '-d', database,
+            '--format=custom', '--no-owner', stdout=stream)
+    require(backup.stat().st_size > 0, 'Empty backup')
+    with backup.open('rb') as stream:
+        run('docker', 'exec', '-i', container, 'pg_restore', '--list', stdin=stream, stdout=subprocess.DEVNULL)
 
 
 def deploy(root, sha):

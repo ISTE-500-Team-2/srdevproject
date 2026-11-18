@@ -74,6 +74,7 @@ test("a revoke that lost a race says the card changed, loads the latest and stop
 
 const readers = {
   configured: true,
+  canConfigure: true,
   timeZone: "America/New_York",
   readers: [{
     id: "front", name: "Front door", kind: "building", resourceId: 1, resourceName: "Main building",

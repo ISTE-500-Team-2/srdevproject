@@ -46,6 +46,7 @@ type MemberSearch = {
 };
 const setup = {
   configured: true,
+  canConfigure: true,
   timeZone: "America/New_York",
   readers: [
     {

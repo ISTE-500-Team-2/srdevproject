@@ -1,5 +1,5 @@
-// Coordinates expiring setup jobs between the staff wizard and authenticated gateways; polling
-// advances the persisted job state.
+// Coordinates expiring setup jobs between the administrator wizard and authenticated gateways;
+// polling advances the persisted job state.
 
 import {
   createHmac,
@@ -281,7 +281,9 @@ export function readerSetupRoutes(
 ) {
   const routes = Router(),
     read = requirePermission(pool, "user", "read"),
-    write = requirePermission(pool, "user_access", "update");
+    // Guided setup ends with the gateway turning the new reader on, so starting or cancelling
+    // it is hardware configuration (CON-001): administrators only, like adding a reader.
+    configure = requirePermission(pool, "reader", "update");
   routes.get("/admin/access/reader-setup", read, async (_req, res) => {
     const gateways = registry.config?.setupGateways ?? [];
     // With no installed gateway, do not pretend to scan the browser's LAN.
@@ -339,7 +341,7 @@ export function readerSetupRoutes(
   });
   routes.post(
     "/admin/access/reader-setup",
-    write,
+    configure,
     requireCsrf,
     async (req, res) => {
       requireDeviceConfig(registry.config);
@@ -447,7 +449,7 @@ export function readerSetupRoutes(
   );
   routes.post(
     "/admin/access/reader-setup/:id/cancel",
-    write,
+    configure,
     requireCsrf,
     async (req, res) => {
       if (!uuid.test(String(req.params.id)))

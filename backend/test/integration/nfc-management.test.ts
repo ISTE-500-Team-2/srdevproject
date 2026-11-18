@@ -20,6 +20,7 @@ let app: ReturnType<typeof createApp>,
   config: AppConfig,
   token: string,
   staffToken: string,
+  deskToken: string,
   memberToken: string,
   memberId: number,
   otherId: number,
@@ -77,6 +78,25 @@ before(async () => {
   );
   staffToken = other.token;
   csrf.set(staffToken, other.csrfToken);
+  // A real staff account: card work yes, reader configuration no.
+  const deskId = await new UserModel(pool).create({
+    firstName: "Desk",
+    lastName: "NFC",
+    email: "desk-nfc@example.invalid",
+    phone: "555-0101",
+    password: "unused-test-credential",
+    dob: "1990-01-01",
+  });
+  await pool.query(
+    "INSERT INTO user_role(userid,roleid,assignedat) SELECT $1,roleid,NOW() AT TIME ZONE 'UTC' FROM role WHERE role='staff'",
+    [deskId],
+  );
+  const desk = await new SessionModel(pool, config.jwtKey).create(
+    deskId,
+    false,
+  );
+  deskToken = desk.token;
+  csrf.set(deskToken, desk.csrfToken);
 });
 after(async () => {
   await pool.end();
@@ -492,6 +512,82 @@ test("reader mutations and card enrollment require staff permissions and invalid
     "waiting",
   );
   await cancel(session.id);
+});
+test("only an admin adds, changes or turns on a reader; staff can turn one off and still scan cards", async () => {
+  assert.equal(
+    (await get("/admin/access/readers")).body.data.canConfigure,
+    true,
+  );
+  const view = await get("/admin/access/readers", deskToken);
+  assert.equal(view.status, 200);
+  assert.equal(view.body.data.canConfigure, false);
+  const reader = {
+    id: "desk-door",
+    name: "Desk door",
+    kind: "building",
+    resourceId: 1,
+    reason: "New reader",
+  };
+  const refused = await post("/admin/access/readers", reader, deskToken);
+  assert.equal(refused.status, 403);
+  assert.equal(refused.body.error.code, "PERMISSION_REQUIRED");
+  assert.equal(
+    (
+      await pool.query("SELECT 1 FROM app_access_reader WHERE id='desk-door'")
+    ).rowCount,
+    0,
+  );
+  assert.equal((await post("/admin/access/readers", reader)).status, 201);
+  const patch = (body: object, auth = deskToken) =>
+    request(app)
+      .patch("/api/admin/access/readers/desk-door")
+      .set("Authorization", "Bearer " + auth)
+      .set("X-CSRF-Token", csrf.get(auth)!)
+      .send({ name: "Desk door", reason: "Desk change", ...body });
+  const room = (
+    await pool.query(
+      "INSERT INTO room(name,location,status) VALUES('Desk reader room','Test','available') RETURNING roomid",
+    )
+  ).rows[0].roomid;
+  for (const change of [
+    { enabled: true, expectedRevision: 1, name: "Renamed door" },
+    { enabled: true, expectedRevision: 1, kind: "room", resourceId: room },
+    { enabled: false, expectedRevision: 1, name: "Renamed door" },
+    { enabled: false, expectedRevision: 1, kind: "room", resourceId: room },
+  ])
+    assert.equal((await patch(change)).status, 403, JSON.stringify(change));
+  // Turning a reader off is a safety action staff keep.
+  const off = await patch({ enabled: false, expectedRevision: 1 });
+  assert.equal(off.status, 200, JSON.stringify(off.body));
+  assert.equal(off.body.data.enabled, false);
+  const on = await patch({ enabled: true, expectedRevision: 2 });
+  assert.equal(on.status, 403);
+  assert.match(on.body.error.message, /Only an admin can add or turn on readers/);
+  const again = await patch({ enabled: true, expectedRevision: 2 }, token);
+  assert.equal(again.status, 200, JSON.stringify(again.body));
+  assert.equal(again.body.data.enabled, true);
+  // Day-to-day card work is unchanged for staff.
+  const scan = await post(
+    "/admin/access/enrollments",
+    { purpose: "lookup", readerId: "desk-door" },
+    deskToken,
+  );
+  assert.equal(scan.status, 201, JSON.stringify(scan.body));
+  assert.equal(
+    (await get(`/admin/access/enrollments/${scan.body.data.id}`, deskToken))
+      .status,
+    200,
+  );
+  assert.equal(
+    (
+      await post(
+        `/admin/access/enrollments/${scan.body.data.id}/cancel`,
+        {},
+        deskToken,
+      )
+    ).status,
+    200,
+  );
 });
 test("repeat override revocation is idempotent and duration is bounded server-side", async () => {
   const equipment = (
