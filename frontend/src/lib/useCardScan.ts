@@ -6,6 +6,16 @@ import { api, errorMessage } from "./api";
 import type { CardScan } from "./nfc";
 
 /**
+ * When a scan ends by this browser's clock: counted from the time the server says is left, so a
+ * computer whose clock is off neither expires a scan at once nor shows the wrong time remaining.
+ * expiresAt alone is only a fallback.
+ */
+const deadlineOf = (result: CardScan, received = Date.now()) =>
+  typeof result.expiresInMs === "number"
+    ? received + result.expiresInMs
+    : Date.parse(result.expiresAt);
+
+/**
  * Manage a single capture session; generation checks prevent late start responses from restoring a
  * canceled scan.
  */
@@ -15,9 +25,8 @@ export function useCardScan(purpose: "assign" | "lookup", userId?: number) {
     [busy, setBusy] = useState(false);
   const [retry, setRetry] = useState(0),
     [now, setNow] = useState(Date.now());
-  // When the scan ends by this browser's clock. It counts from the time the server says is
-  // left, so a computer whose clock is off neither expires a scan at once nor shows the
-  // wrong time remaining; expiresAt alone is only a fallback.
+  // When the scan ends by this browser's clock (see deadlineOf). Every answer from the server
+  // resets it, so a tap that lands late in the window counts down from the time actually left.
   const [deadline, setDeadline] = useState(0);
   const active = useRef<string | null>(null),
     generation = useRef(0);
@@ -47,11 +56,7 @@ export function useCardScan(purpose: "assign" | "lookup", userId?: number) {
       }
       active.current = result.id;
       const received = Date.now();
-      setDeadline(
-        typeof result.expiresInMs === "number"
-          ? received + result.expiresInMs
-          : Date.parse(result.expiresAt),
-      );
+      setDeadline(deadlineOf(result, received));
       setNow(received);
       setScan(result);
     } catch (e) {
@@ -79,6 +84,7 @@ export function useCardScan(purpose: "assign" | "lookup", userId?: number) {
           `/admin/access/enrollments/${scan.id}`,
         );
         if (!live) return;
+        setDeadline(deadlineOf(result));
         setScan(result);
         setError("");
         if (result.status === "waiting") timer = setTimeout(poll, 1000);
