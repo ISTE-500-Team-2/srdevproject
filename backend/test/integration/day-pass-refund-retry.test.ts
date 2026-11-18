@@ -74,8 +74,10 @@ test('retrying a failed day-pass refund submits a new refund, and the failure em
   assert.deepEqual(await passes.cancel(member, pass.id), { cancelled: false, refundStatus: 'failed' });
   assert.deepEqual(await pass.state(), { checkout: 'paid', refund_id: refunds[0]!.id, refund_status: 'failed', pass: 'active', payment: 'paid' });
   const [email] = await pass.emails();
-  assert.match(email!, /has not been cancelled and is still valid/);
+  assert.match(email!, /has not been cancelled and is still valid\. Retry the refund/);
   assert.doesNotMatch(email!, /remains cancelled/);
+  // The member asked to cancel, so Membership & passes offers them the retry.
+  assert.equal((await passes.mine(member)).find(p => p.id === pass.id)!.cancelRequested, true);
 
   const failed = refunds[0]!.id!;
   nextStatus = 'succeeded';

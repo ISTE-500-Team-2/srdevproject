@@ -53,7 +53,8 @@ test('a desk membership is refused while a card checkout or renewing subscriptio
  await billing.checkout(member,monthly());
  await assert.rejects(desk(member,start),{code:'CARD_BILLING_ACTIVE',message:/checkout in progress/});
  await pool.query("UPDATE app_membership_billing SET status='active',subscription_id='sub_desk',customer_id='cus_desk' WHERE userid=$1",[member]);
- await assert.rejects(desk(member,start),{code:'CARD_BILLING_ACTIVE',message:/pays monthly by card/});
+ // Staff are pointed to the action on the member record that unblocks the sale, not only to the member.
+ await assert.rejects(desk(member,start),{code:'CARD_BILLING_ACTIVE',message:/pays monthly by card.*Choose Stop auto-renew on their membership/});
  // Renewal is being turned off: a desk membership may start when card billing ends, once Stripe confirms it.
  const ends=new Date(Date.now()+40*86400_000);
  await pool.query('UPDATE app_membership_billing SET cancellation_effective_at=$2 WHERE userid=$1',[member,ends]);
