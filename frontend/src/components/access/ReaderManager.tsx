@@ -2,6 +2,7 @@
 // detect stale changes.
 
 import { useState, type FormEvent } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api, ApiError, errorMessage } from "../../lib/api";
 import { editingFormRef } from "../../lib/editingForms";
 import { useApi } from "../../lib/useApi";
@@ -9,22 +10,30 @@ import {
   facilityTime,
   type AccessReader,
   type AccessResource,
+  type ReaderHealthBoard as HealthBoard,
   type ReaderSetup,
 } from "../../lib/nfc";
 import { LoadState } from "../Management";
 import { Modal } from "../Modal";
 import {ReaderSetupWizard,type ReaderDiscovery} from './ReaderSetupWizard';
+import { ReaderHealthBoard } from "./ReaderHealthBoard";
+import { ReaderDetail } from "./ReaderDetail";
 
 export function ReaderManager({
   setup,
   reload,
-  refreshing = false,
 }: {
   setup: ReaderSetup;
   reload: () => void;
-  refreshing?: boolean;
 }) {
+  const [params] = useSearchParams();
+  const selected = params.get("reader");
   const resources = useApi<AccessResource[]>("/admin/access/resources");
+  // Live: the board refreshes itself, so there is no manual refresh control.
+  const health = useApi<HealthBoard>(setup.configured && !selected ? "/admin/access/reader-health" : null, {
+    retainOnReload: true,
+    refreshInterval: 5000,
+  });
   const [adding,setAdding]=useState(false);
   const discovery=useApi<ReaderDiscovery>(setup.configured?'/admin/access/reader-setup':null,{retainOnReload:true,refreshInterval:5000});
   const detected=discovery.data?.devices.filter(d=>d.connected&&!discovery.data?.jobs.some(j=>j.gatewayId===d.gatewayId&&j.deviceId===d.id&&!['failed','cancelled','expired'].includes(j.status))).length??0;
@@ -84,19 +93,58 @@ export function ReaderManager({
       setBusy(false);
     }
   }
+  const manage = (reader: AccessReader) => {
+    setEditing(reader);
+    setError("");
+    setNotice("");
+  };
+  const dialogs = (
+    <>
+      <ReaderSetupWizard open={adding} onClose={()=>setAdding(false)} onDone={reload}
+        onManual={()=>{setAdding(false);setEditing('new');setError('');setNotice('');}}/>
+      <Modal
+        open={!!editing}
+        title={
+          editing === "new"
+            ? "Add reader"
+            : "Manage reader"
+        }
+        onClose={() => {
+          if (!busy) setEditing(null);
+        }}
+        width="compact"
+      >
+        {editing ? (
+          <ReaderForm editing={editing} busy={busy} error={error} resources={resources} onSubmit={save} />
+        ) : null}
+      </Modal>
+    </>
+  );
+  if (selected)
+    return (
+      <section className="nfc-section" aria-label="Reader">
+        {notice ? (
+          <p className="form-notice" role="status">
+            {notice}{" "}
+            <button className="nfc-dismiss" onClick={() => setNotice("")}>
+              Dismiss
+            </button>
+          </p>
+        ) : null}
+        <ReaderDetail
+          id={selected}
+          reader={setup.readers.find((reader) => reader.id === selected)}
+          timeZone={setup.timeZone}
+          onManage={manage}
+        />
+        {dialogs}
+      </section>
+    );
   return (
     <section className="nfc-section" aria-label="Readers">
       <div className="nfc-section__heading">
         <h2>Readers</h2>
         <div className="management-actions">
-          <button
-            type="button"
-            className="button button--quiet"
-            onClick={reload}
-            disabled={refreshing}
-          >
-            {refreshing ? "Refreshing readers…" : "Refresh readers"}
-          </button>
           <button
             type="button"
             className="button button--primary"
@@ -112,10 +160,6 @@ export function ReaderManager({
         </div>
       </div>
       {detected?<p className="form-notice" role="status">{detected===1?'A new reader is connected':'New readers are connected'}. Choose Add reader to finish setup.</p>:null}
-      <p className="nfc-help">
-        Online means an authenticated tap or heartbeat arrived in the last 45
-        seconds. Idle readers should send a heartbeat every 15 seconds.
-      </p>
       {!setup.configured ? (
         <p className="form-error" role="alert">
           NFC setup is incomplete. Ask the system administrator to configure the
@@ -167,128 +211,107 @@ export function ReaderManager({
           No readers yet. Connect a reader to the Pi, then choose Add reader.
         </p>
       ) : null}
-      <div className="nfc-card-list">
-        {setup.readers.map((r) => (
-          <article className="nfc-card" key={r.id}>
-            <div className="nfc-section__heading">
-              <h3>{r.name}</h3>
-              <span
-                className={`activity-badge is-${!r.enabled ? "neutral" : r.online ? "allowed" : "denied"}`}
-              >
-                {!r.enabled ? "Disabled" : r.online ? "Online" : "Offline"}
-              </span>
-            </div>
-            <p>
-              {r.resourceName} · {r.kind}
-            </p>
-            <p className="nfc-help">Reader ID: {r.id}</p>
-            <p className="nfc-help">
-              {r.lastSeenAt
-                ? `Last seen ${facilityTime(r.lastSeenAt, setup.timeZone)}`
-                : "No connection recorded yet."}
-            </p>
-            <button
-              className="button button--quiet"
-              onClick={() => {
-                setEditing(r);
-                setError("");
-                setNotice("");
-              }}
-            >
-              Manage {r.name}
-            </button>
-          </article>
-        ))}
-      </div>
-      <ReaderSetupWizard open={adding} onClose={()=>setAdding(false)} onDone={reload}
-        onManual={()=>{setAdding(false);setEditing('new');setError('');setNotice('');}}/>
-      <Modal
-        open={!!editing}
-        title={
-          editing === "new"
-            ? "Add reader"
-            : "Manage reader"
-        }
-        onClose={() => {
-          if (!busy) setEditing(null);
-        }}
-        width="compact"
-      >
-        {editing ? (
-          <form ref={editingFormRef} className="management-form nfc-reader-form" onSubmit={save}>
-            <fieldset disabled={busy}>
-              <label>
-                Reader name
-                <input
-                  name="name"
-                  required
-                  maxLength={100}
-                  defaultValue={editing === "new" ? "" : editing.name}
-                  placeholder="For example, Front door"
-                />
-              </label>
-              {editing === "new" ? (
-                <>
-                  <label>
-                    Reader ID
-                    <input
-                      name="id"
-                      required
-                      pattern="[a-zA-Z0-9_-]{1,64}"
-                      maxLength={64}
-                      autoComplete="off"
-                    />
-                    <small className="nfc-help">
-                      A unique ID for the reader configuration, such as
-                      front-door.
-                    </small>
-                  </label>
-                  <LoadState {...resources} />
-                  <label>
-                    Reader location
-                    <select name="resource" required defaultValue="">
-                      <option value="">Choose a location</option>
-                      {resources.data?.map((r) => (
-                        <option
-                          key={`${r.kind}:${r.id}`}
-                          value={`${r.kind}:${r.id}`}
-                        >
-                          {r.name} · {r.kind}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </>
-              ) : (
-                <label className="nfc-checkbox">
-                  <input
-                    name="enabled"
-                    type="checkbox"
-                    defaultChecked={editing.enabled}
-                  />
-                  Reader enabled
-                </label>
-              )}
-              <label>
-                Reason for change
-                <input name="reason" required maxLength={500} />
-              </label>
-              {error ? (
-                <p className="form-error" role="alert">
-                  {error}
-                </p>
-              ) : null}
-              <button className="button button--primary">
-                {busy
-                  ? "Saving reader…"
-                  : editing === "new"
-                    ? "Create reader"
-                    : "Save reader"}
-              </button>
-            </fieldset>
-          </form>
-        ) : null}
-      </Modal>
+      {health.data ? (
+        <ReaderHealthBoard
+          board={health.data}
+          readers={setup.readers}
+          timeZone={setup.timeZone}
+          stale={!!health.error}
+        />
+      ) : (
+        <LoadState {...health} />
+      )}
+      {dialogs}
     </section>
+  );
+}
+
+/** The add/manage form, unchanged; shared by the reader list and the reader page. */
+function ReaderForm({
+  editing,
+  busy,
+  error,
+  resources,
+  onSubmit,
+}: {
+  editing: AccessReader | "new";
+  busy: boolean;
+  error: string;
+  resources: ReturnType<typeof useApi<AccessResource[]>>;
+  onSubmit: (e: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <form ref={editingFormRef} className="management-form nfc-reader-form" onSubmit={onSubmit}>
+      <fieldset disabled={busy}>
+        <label>
+          Reader name
+          <input
+            name="name"
+            required
+            maxLength={100}
+            defaultValue={editing === "new" ? "" : editing.name}
+            placeholder="For example, Front door"
+          />
+        </label>
+        {editing === "new" ? (
+          <>
+            <label>
+              Reader ID
+              <input
+                name="id"
+                required
+                pattern="[a-zA-Z0-9_-]{1,64}"
+                maxLength={64}
+                autoComplete="off"
+              />
+              <small className="nfc-help">
+                A unique ID for the reader configuration, such as
+                front-door.
+              </small>
+            </label>
+            <LoadState {...resources} />
+            <label>
+              Reader location
+              <select name="resource" required defaultValue="">
+                <option value="">Choose a location</option>
+                {resources.data?.map((r) => (
+                  <option
+                    key={`${r.kind}:${r.id}`}
+                    value={`${r.kind}:${r.id}`}
+                  >
+                    {r.name} · {r.kind}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        ) : (
+          <label className="nfc-checkbox">
+            <input
+              name="enabled"
+              type="checkbox"
+              defaultChecked={editing.enabled}
+            />
+            Reader enabled
+          </label>
+        )}
+        <label>
+          Reason for change
+          <input name="reason" required maxLength={500} />
+        </label>
+        {error ? (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <button className="button button--primary">
+          {busy
+            ? "Saving reader…"
+            : editing === "new"
+              ? "Create reader"
+              : "Save reader"}
+        </button>
+      </fieldset>
+    </form>
   );
 }

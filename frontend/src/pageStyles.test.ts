@@ -62,6 +62,7 @@ const SHIPPED_ORDER = [
   'components/photoEditor.css',
   'pages/reports.css',
   'components/InfoTip.css',
+  'components/access/readerHealth.css',
 ];
 
 test('page styles keep their shipped order, ahead of the app and the global sheets', () => {

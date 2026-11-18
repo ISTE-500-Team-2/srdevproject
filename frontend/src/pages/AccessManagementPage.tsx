@@ -107,11 +107,7 @@ export function AccessManagementPage() {
           ) : null}
           {setup.data ? (
             view === "readers" ? (
-              <ReaderManager
-                setup={setup.data}
-                reload={setup.reload}
-                refreshing={setup.refreshing}
-              />
+              <ReaderManager setup={setup.data} reload={setup.reload} />
             ) : view === "lookup" ? (
               <CardLookup key={tap} setup={setup.data} tapId={tap} />
             ) : (
