@@ -45,7 +45,8 @@ export function startNotificationRuntime(pool: Pool, config?: NotificationConfig
             senderName: config.senderName,
             senderEmail: config.senderEmail,
             postalAddress: config.postalAddress,
-            preferencesUrl: `${config.appOrigin}/profile`,
+            // The opt-out setting itself, not the top of the profile.
+            preferencesUrl: `${config.appOrigin}/profile#notifications`,
           });
         } catch {
           // Rendering happens before any provider request, and the same stored
@@ -55,6 +56,12 @@ export function startNotificationRuntime(pool: Pool, config?: NotificationConfig
         try {
           return await transport.send({ recipientEmail: job.email, recipientName: job.firstName, ...content });
         } catch (error) {
+          if (error instanceof NotificationTransportError && error.classification === 'account') {
+            // Every email waits until this is fixed, so say so. The status alone names the problem.
+            console.error('Email provider refused the studio account (check the Brevo key, authorised IPs and credits); emails stay queued',
+              { status: error.status });
+            throw new NotificationSendError('Email provider refused the account', { retryable: false, account: true });
+          }
           if (error instanceof NotificationTransportError)
             throw new NotificationSendError('Email provider request was not confirmed', {
               retryable: error.classification === 'transient',

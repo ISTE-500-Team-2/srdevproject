@@ -1,5 +1,10 @@
 /** https://developers.brevo.com/reference/send-transac-email */
-export type TransportFailure = 'transient' | 'permanent' | 'ambiguous';
+/**
+ * 'account' is the provider refusing the studio's own account (a revoked or rotated key, a
+ * server address Brevo hasn't authorised, no credits) rather than this message: nothing was
+ * accepted, and every other message would be refused the same way until someone fixes it.
+ */
+export type TransportFailure = 'transient' | 'permanent' | 'ambiguous' | 'account';
 export class NotificationTransportError extends Error {
   constructor(public readonly classification: TransportFailure, public readonly status?: number,
     public readonly retryAfterMs?: number) {
@@ -57,7 +62,8 @@ export class BrevoTransport {
           retry ? Math.max(0, Date.parse(retry) - Date.now()) : undefined;
         // Don't retain provider response bodies: errors may echo recipient/content/secrets.
         const classification = response.status === 429 ? 'transient' :
-          response.status >= 500 || response.status === 408 ? 'ambiguous' : 'permanent';
+          response.status >= 500 || response.status === 408 ? 'ambiguous' :
+          [401, 402, 403].includes(response.status) ? 'account' : 'permanent';
         throw new NotificationTransportError(classification, response.status,
           retryMs !== undefined && Number.isFinite(retryMs) ? retryMs : undefined);
       }

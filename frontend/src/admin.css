@@ -286,7 +286,8 @@ button.admin-nav__item { width: 100%; border: 0; background: transparent; text-a
   gap: 32px;
   align-items: start;
 }
-.account-snapshot { padding: 0; }
+/* Comes after the page's h1 in the markup; shown first, in the left column. */
+.account-snapshot { order: -1; padding: 0; }
 .account-snapshot__head { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid rgba(92, 73, 62, 0.12); padding: 18px 20px; }
 .account-snapshot__head h2 { margin: 0; font-size: var(--text-lg); font-weight: 600; }
 .account-snapshot__head p { margin: 0; overflow-wrap: anywhere; color: var(--ink-soft); font-size: var(--text-sm); }

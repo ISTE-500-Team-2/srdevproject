@@ -83,6 +83,16 @@ test('full batches keep draining within the budget, and a retry stops the drain'
  sends=0;
  await drainNotificationBatches(pool,async row=>{sends++;return {messageId:row.dedupeKey};},{budgetMs:60_000,stopping:()=>true});
  assert.equal(sends,20,'a stopping runtime finishes its batch and goes no further');
+ await reset();
+ for(let n=0;n<45;n++) await enqueue('refused-'+n);
+ sends=0;
+ // The account is refused partway through a full batch: no further batch is tried this tick.
+ await drainNotificationBatches(pool,async row=>{
+  if(++sends>=20) throw new NotificationSendError('Email provider refused the account',{retryable:false,account:true});
+  return {messageId:row.dedupeKey};
+ },{budgetMs:60_000});
+ assert.equal(sends,20,'a refused account stops the drain');
+ assert.equal((await pool.query(`SELECT COUNT(*)::int n FROM app_notification_outbox WHERE status='pending'`)).rows[0].n,26);
 });
 test('scheduler deduplicates and cancels stale renewed certifications',async()=>{
  await reset();const now=new Date();const expiry=new Date(now.getTime()+4*86400000);

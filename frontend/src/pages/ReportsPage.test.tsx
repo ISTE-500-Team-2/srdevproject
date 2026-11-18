@@ -110,7 +110,7 @@ test("each period is named once, machines nobody used wait behind a toggle, and 
   mount("/admin/reports?range=custom&from=2026-09-01&to=2026-09-30&group=weekly", report(), report({ from: "2026-08-02", to: "2026-08-31" }));
   const revenue = screen.getByRole("region", { name: "Revenue" });
   const cells = within(revenue).getAllByText((_, el) => el?.tagName === "TD" && el.textContent!.startsWith("Week of Aug 31"));
-  expect(cells[1].className).toBe("reports-repeat");
+  expect(cells[1].classList.contains("reports-repeat")).toBe(true);
   // The range starts Sep 1, so the week of Aug 31 is only partly in it.
   expect(cells[0].textContent).toBe("Week of Aug 31Partial week");
   // Gross and net on the total row.
@@ -265,6 +265,26 @@ test("new dates keep the last report on screen, out of reach, while the date con
   expect(screen.getByRole("status").textContent).toBe("Updating…");
   expect(results.contains(screen.getByRole("combobox", { name: "Date range" }))).toBe(false);
   expect((screen.getByRole("button", { name: "Export CSV" }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+test("the grouping switch is one Tab stop and arrow keys move it", () => {
+  mount("/admin/reports?range=custom&from=2026-09-01&to=2026-09-30&group=weekly", report(), report({ from: "2026-08-02", to: "2026-08-31" }));
+  const radios = within(screen.getByRole("radiogroup", { name: "Group results by" })).getAllByRole("radio");
+  expect(radios.map((radio) => radio.tabIndex)).toEqual([-1, 0, -1]);
+  radios[1].focus();
+  fireEvent.keyDown(radios[1], { key: "ArrowLeft" });
+  expect(document.activeElement).toBe(radios[0]);
+  expect(radios.map((radio) => radio.getAttribute("aria-checked"))).toEqual(["true", "false", "false"]);
+  expect(vi.mocked(useApi).mock.calls.map(([url]) => String(url))).toContain("/admin/reports?from=2026-09-01&to=2026-09-30&period=daily");
+});
+
+test("period names stay on one line; long names in the other tables are free to wrap", () => {
+  mount("/admin/reports?range=custom&from=2026-09-01&to=2026-09-30&group=weekly", report(), report({ from: "2026-08-02", to: "2026-08-31" }));
+  const revenue = screen.getByRole("region", { name: "Revenue" });
+  const periods = within(revenue).getAllByText((_, el) => el?.tagName === "TD" && el.textContent!.startsWith("Week of Aug 31"));
+  expect(periods.every((cell) => cell.classList.contains("reports-nowrap"))).toBe(true);
+  const machine = within(screen.getByRole("region", { name: "Equipment" })).getByRole("link", { name: "Laser" }).closest("td")!;
+  expect(machine.classList.contains("reports-nowrap")).toBe(false);
 });
 
 test("a busiest-times machine that drops out of the data clears its filter instead of claiming no bookings", () => {

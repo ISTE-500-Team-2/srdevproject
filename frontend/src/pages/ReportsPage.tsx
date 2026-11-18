@@ -21,6 +21,7 @@ import { InfoTip } from "../components/InfoTip";
 import { Delta, Kpi } from "../components/Kpi";
 import { KeptResults } from "../components/KeptResults";
 import { LoadState } from "../components/Management";
+import { PeriodSwitch } from "../components/PeriodSwitch";
 import { TableScroll } from "../components/TableScroll";
 import { api, errorMessage } from "../lib/api";
 import {
@@ -38,7 +39,6 @@ import { useFacilityZone } from "../lib/facilityZone";
 import type { Report } from "../lib/reportContracts";
 import { jumpToSection } from "../lib/sectionJump";
 import { useApi } from "../lib/useApi";
-import { onArrowKeys } from "../lib/rovingFocus";
 import "../assets/css/analyticsDashboard.css";
 import "./reports.css";
 
@@ -358,14 +358,7 @@ function ReportsView({ today }: { today: string }) {
             </select>
             <ChevronDown className="analytics-range__chevron" aria-hidden="true" />
           </label>
-          <div className="analytics-period" role="radiogroup" aria-label="Group results by" onKeyDown={onArrowKeys}>
-            {PERIODS.map((p) => (
-              <button key={p} type="button" role="radio" aria-checked={range.period === p} tabIndex={range.period === p ? 0 : -1}
-                onClick={() => apply({ ...draft, period: p })}>
-                {statusLabel(p)}
-              </button>
-            ))}
-          </div>
+          <PeriodSwitch label="Group results by" value={range.period} onChange={(p) => apply({ ...draft, period: p })} />
           <div className="reports-export" role="group" aria-label="Download this report">
             {(["csv", "pdf"] as const).map((format) => (
               <button
@@ -607,7 +600,7 @@ function Revenue({ report: d, t }: { report: Report; t: ReturnType<typeof totals
                 {shown.map((r, i) => (
                   <tr key={i}>
                     {/* Name a period once; its other rows sit under it. */}
-                    <td className={i && shown[i - 1].period === r.period ? "reports-repeat" : undefined}>
+                    <td className={i && shown[i - 1].period === r.period ? "reports-nowrap reports-repeat" : "reports-nowrap"}>
                       <PeriodName start={r.period} report={d} />
                     </td>
                     <td>{r.category}</td>
@@ -711,7 +704,7 @@ function Members({ report: d, t, unitWord }: { report: Report; t: ReturnType<typ
           <tbody>
             {shown.map((row) => (
               <tr key={row.period}>
-                <td>
+                <td className="reports-nowrap">
                   <PeriodName start={row.period} report={d} />
                 </td>
                 <td className="table-number">{row.newMembers || <span className="reports-muted">0</span>}</td>

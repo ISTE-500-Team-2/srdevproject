@@ -56,6 +56,17 @@ test("switching to another member's account shows that member's certifications a
   expect(within(snapshot()).queryByText("Laser Training")).toBeNull();
 });
 
+test("the page heading comes before the account snapshot's heading in reading order", async () => {
+  serve();
+  auth.actor = staff;
+  auth.user = dana;
+  render(<MemoryRouter><AccountHomePage /></MemoryRouter>);
+  await within(screen.getByRole("complementary")).findByText("Dana's lathe");
+  const headings = screen.getAllByRole("heading").map((h) => h.tagName);
+  expect(headings[0]).toBe("H1");
+  expect(screen.getByRole("heading", { level: 2, name: /^Dana/ }).closest("aside")).toBe(screen.getByRole("complementary"));
+});
+
 test("training past its renewal date, or revoked, shows as lapsed with a way to find a class; a retired one is not current", async () => {
   const past = new Date(Date.now() - 86_400_000).toISOString();
   const fay = account({ id: 9, firstName: "Fay", email: "fay@example.invalid" });

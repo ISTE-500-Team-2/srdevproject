@@ -188,6 +188,14 @@ test('each workflow has its own busy and error state', async () => {
   expect(within(revoke).getByRole('button', { name: 'Hold to revoke Laser safety' })).toHaveProperty('disabled', false);
 });
 
+test('headings step down one level at a time from the page title', async () => {
+  render(<TrainingPage />);
+  await screen.findByRole('heading', { level: 2, name: 'Laser safety' });
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Training & certifications');
+  expect(screen.getByRole('heading', { level: 2, name: 'Member training records' })).toBeTruthy();
+  expect(screen.queryAllByRole('heading', { level: 3 })).toEqual([]);
+});
+
 test('certification cards count holders from the real numbers and show the training time and fee once', async () => {
   const base = vi.mocked(api).getMockImplementation()!;
   const lathe = { ...course, id: 8, name: 'Lathe safety', trainingMinutes: 90, trainingFeeCents: 5000 };

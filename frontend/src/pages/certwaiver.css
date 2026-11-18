@@ -46,8 +46,9 @@
   justify-content: space-between;
   gap: 10px 16px;
 }
-.cw-row h3 {
+.cw-row :is(h2, h3) {
   margin: 0;
+  font-size: var(--text-lg);
 }
 .cw-muted {
   margin: 0;
@@ -585,7 +586,7 @@
   justify-content: space-between;
   gap: 8px;
 }
-.cw-cert__top h3 {
+.cw-cert__top h2 {
   margin: 0;
   font-size: var(--text-base);
 }

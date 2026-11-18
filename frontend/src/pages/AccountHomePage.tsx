@@ -235,6 +235,40 @@ export function AccountHomePage() {
 
   return (
     <div className="account-home page-enter">
+      <div className="account-ask">
+        <h1>What would you like to do?</h1>
+        <p className="account-ask__intro">
+          {own
+            ? `You're on the member site as ${roleLabel(actor).toLowerCase()} ${actor.firstName}. Pick something to do.`
+            : `Pick an action for ${user.firstName}. Member actions open the same pages ${user.firstName} uses, filled in for their account.`}
+        </p>
+        {checkIn.message ? (
+          <p className={checkIn.failed ? "form-error" : "form-notice"} role={checkIn.failed ? "alert" : "status"}>
+            {checkIn.message}
+          </p>
+        ) : null}
+        {reset.message ? (
+          <p className={reset.failed ? "form-error" : "form-notice"} role={reset.failed ? "alert" : "status"}>
+            {reset.message}
+          </p>
+        ) : null}
+        {problems.map((problem) => (
+          <div className="account-heads" key={problem.title}>
+            <TriangleAlert aria-hidden="true" />
+            <div>
+              <strong>{problem.title}</strong>
+              <p>{problem.detail}</p>
+            </div>
+            {problem.action}
+          </div>
+        ))}
+        {!own && o && <CheckInBuilding buildings={o.buildings} buildingId={overview.buildingId}
+          onChange={overview.selectBuilding} disabled={checkIn.busy} />}
+        <ActionGroup title={own ? "For you" : `On ${first}'s behalf`} actions={onBehalf} />
+        <ActionGroup title={isAdmin ? "Admin tools" : "Staff tools"} actions={tools} tone="tools" />
+        <ActionGroup title={isAdmin ? "Needs an instructor" : "Needs an instructor or admin"} actions={locked} tone="locked" />
+      </div>
+      {/* After the page's heading in reading order; the stylesheet still shows it first, beside the actions. */}
       <aside className="panel account-snapshot" aria-label={own ? "Your account" : `${user.firstName}'s account`}>
         <div className="account-snapshot__head">
           <AccountPhoto person={user} className="admin-avatar admin-avatar--large" />
@@ -326,39 +360,6 @@ export function AccountHomePage() {
           </div>
         </dl>
       </aside>
-      <div className="account-ask">
-        <h1>What would you like to do?</h1>
-        <p className="account-ask__intro">
-          {own
-            ? `You're on the member site as ${roleLabel(actor).toLowerCase()} ${actor.firstName}. Pick something to do.`
-            : `Pick an action for ${user.firstName}. Member actions open the same pages ${user.firstName} uses, filled in for their account.`}
-        </p>
-        {checkIn.message ? (
-          <p className={checkIn.failed ? "form-error" : "form-notice"} role={checkIn.failed ? "alert" : "status"}>
-            {checkIn.message}
-          </p>
-        ) : null}
-        {reset.message ? (
-          <p className={reset.failed ? "form-error" : "form-notice"} role={reset.failed ? "alert" : "status"}>
-            {reset.message}
-          </p>
-        ) : null}
-        {problems.map((problem) => (
-          <div className="account-heads" key={problem.title}>
-            <TriangleAlert aria-hidden="true" />
-            <div>
-              <strong>{problem.title}</strong>
-              <p>{problem.detail}</p>
-            </div>
-            {problem.action}
-          </div>
-        ))}
-        {!own && o && <CheckInBuilding buildings={o.buildings} buildingId={overview.buildingId}
-          onChange={overview.selectBuilding} disabled={checkIn.busy} />}
-        <ActionGroup title={own ? "For you" : `On ${first}'s behalf`} actions={onBehalf} />
-        <ActionGroup title={isAdmin ? "Admin tools" : "Staff tools"} actions={tools} tone="tools" />
-        <ActionGroup title={isAdmin ? "Needs an instructor" : "Needs an instructor or admin"} actions={locked} tone="locked" />
-      </div>
     </div>
   );
 }

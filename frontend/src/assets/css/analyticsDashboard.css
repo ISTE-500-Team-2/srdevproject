@@ -228,7 +228,7 @@
   width: 15px;
   height: 15px;
 }
-.analytics-panel-head h3 {
+.analytics-panel-head h2 {
   margin: 0;
   font-size: var(--text-base);
 }

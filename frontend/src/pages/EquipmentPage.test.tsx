@@ -68,7 +68,8 @@ test('equipment search matches name or type and links straight to saved bookings
  expect(screen.queryByRole('heading',{name:'Studio Spaces'})).toBeNull();
  expect(vi.mocked(api).mock.calls.some(([path])=>path==='/studios')).toBe(false);
  fireEvent.change(screen.getByRole('searchbox',{name:'Find equipment'}),{target:{value:'WOOD'}});
- expect(screen.getByRole('button',{name:/Wood Lathe/})).toBeTruthy();
+ // The card's button is named for the type; its machines describe it.
+ expect(screen.getByRole('button',{description:/Wood Lathe/})).toBeTruthy();
  expect(screen.queryByRole('button',{name:/^3D Printer/})).toBeNull();
  expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('WOOD');
  fireEvent.change(screen.getByRole('searchbox'),{target:{value:'no such machine'}});
@@ -267,10 +268,13 @@ test('groups named printers while preserving per-machine prices, access and book
  });
  await mount();
  expect(document.querySelectorAll('.equipment-card')).toHaveLength(2);
- const printers=screen.getByRole('button',{name:/^3D Printer/});
- expect(printers.textContent).toContain('Rachel \u00b7 Phoebe \u00b7 Monica');
- expect(printers.textContent).not.toContain('/hour');
- expect(within(printers).queryByRole('link')).toBeNull();
+ // Each type is a heading that holds the card's button, so heading navigation finds it.
+ const heading=screen.getByRole('heading',{level:2,name:'3D Printer'});
+ const printers=within(heading).getByRole('button',{name:'3D Printer',description:'Rachel \u00b7 Phoebe \u00b7 Monica'});
+ const card=printers.closest('article')!;
+ expect(card.textContent).toContain('Rachel \u00b7 Phoebe \u00b7 Monica');
+ expect(card.textContent).not.toContain('/hour');
+ expect(within(card).queryByRole('link')).toBeNull();
  await act(async()=>{fireEvent.click(printers);});
  const phoebe=screen.getByRole('radio',{name:/Phoebe/});
  expect(phoebe.closest('label')!.textContent).toContain('$9.00/hour');
@@ -287,10 +291,11 @@ test('groups named printers while preserving per-machine prices, access and book
  await act(async()=>{fireEvent.submit(screen.getByRole('button',{name:/confirm reservation/i}).closest('form')!);});
  expect((submits()[0]![1]!.body as {equipmentId:number}).equipmentId).toBe(13);
  fireEvent.change(screen.getByRole('combobox',{name:'Equipment filter'}),{target:{value:'ready'}});
- expect(screen.getByRole('button',{name:/^3D Printer/}).textContent).not.toContain('Phoebe');
+ const printerCard=()=>screen.getByRole('button',{name:/^3D Printer/}).closest('article')!;
+ expect(printerCard().textContent).not.toContain('Phoebe');
  fireEvent.change(screen.getByRole('searchbox'),{target:{value:'Monica'}});
- expect(screen.getByRole('button',{name:/^3D Printer/}).textContent).toContain('Monica');
- expect(screen.getByRole('button',{name:/^3D Printer/}).textContent).not.toContain('Rachel');
+ expect(printerCard().textContent).toContain('Monica');
+ expect(printerCard().textContent).not.toContain('Rachel');
 });
 test('picking another machine keeps the tiles behind the dialog and the price on screen while they refresh',async()=>{
  const catalog:LiveEquipment[]=[{...machine,id:11,name:'Rachel',type:'3D printer'},{...machine,id:13,name:'Monica',type:'3D printer',rate:9}];

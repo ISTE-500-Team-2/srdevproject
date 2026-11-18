@@ -10,9 +10,13 @@ export interface PendingNotification {
   id:number;userId:number | null;registrationId?:number | null;kind:string;dedupeKey:string;payload:Record<string,unknown>;
   email:string;firstName:string;timeZone:string;attempts:number;dueAt:Date;deadlineAt:Date;
 }
-/** Only explicit provider rejection known not to have accepted mail may retry. */
+/**
+ * Only explicit provider rejection known not to have accepted mail may retry. `account` is a
+ * rejection of the studio's provider account rather than of this message: the message waits,
+ * untouched, for the account to be fixed, and the batch stops because every other one would fail too.
+ */
 export class NotificationSendError extends Error {
-  constructor(message:string,public options:{retryable:boolean;ambiguous?:boolean;retryAfterMs?:number;reason?:'render_failed'}) {super(message);}
+  constructor(message:string,public options:{retryable:boolean;ambiguous?:boolean;retryAfterMs?:number;reason?:'render_failed';account?:boolean}) {super(message);}
 }
 type Send=(notification:PendingNotification)=>Promise<{messageId:string}>;
 const batchLimit=(size?:number)=>Math.min(100,Math.max(1,size??20));
@@ -21,7 +25,7 @@ const batchLimit=(size?:number)=>Math.min(100,Math.max(1,size??20));
  * known not to have accepted the message.
  */
 export async function runNotificationBatch(pool:Pool,send:Send,options:{batchSize?:number;maxAttempts?:number;now?:Date}={}) {
-  const result={accepted:0,suppressed:0,failed:0,uncertain:0,retried:0,obsolete:0};
+  const result={accepted:0,suppressed:0,failed:0,uncertain:0,retried:0,obsolete:0,deferred:0};
   const batchSize=batchLimit(options.batchSize);
   const maxAttempts=Math.min(10,Math.max(1,options.maxAttempts??5));
   const clock=()=>options.now??new Date();
@@ -114,6 +118,14 @@ export async function runNotificationBatch(pool:Pool,send:Send,options:{batchSiz
         continue;
       }
       const known=error instanceof NotificationSendError;
+      if(known && error.options.account) {
+        // Not this message's fault and not accepted: put it back as it was, still due, without
+        // spending an attempt, so it goes out once the account is fixed. Stop here: every other
+        // message would be refused the same way.
+        await pool.query(`UPDATE app_notification_outbox SET status='pending',attempts=attempts-1,lease_until=NULL,last_error='provider_account_rejected',updated_at=NOW() WHERE id=$1 AND status='sending'`,[row.id]);
+        result.deferred++;
+        break;
+      }
       if(known && !error.options.ambiguous && error.options.retryable && row.attempts<maxAttempts) {
         const delay=Math.min(86400,Math.max(30*2**(row.attempts-1),(error.options.retryAfterMs??0)/1000));
         await pool.query(`UPDATE app_notification_outbox SET status='pending',due_at=$2::timestamptz+($3*INTERVAL '1 second'),lease_until=NULL,last_error='provider_rejected_retryable',updated_at=NOW() WHERE id=$1 AND status='sending'`,[row.id,clock(),delay]);
@@ -127,14 +139,15 @@ export async function runNotificationBatch(pool:Pool,send:Send,options:{batchSiz
 /**
  * Run batch after batch while full ones come back, so a large announcement is not paced at one batch
  * per interval. Stops when the queue runs short, the time budget is spent, the runtime is stopping, or
- * a batch hit a retry or an unconfirmed send, so a struggling provider is not pressed harder.
+ * a batch hit a retry, an unconfirmed send or a refused account, so a struggling provider is not pressed harder.
  */
 export async function drainNotificationBatches(pool:Pool,send:Send,options:{budgetMs:number;batchSize?:number;stopping?:()=>boolean}) {
   const started=Date.now();
   for(;;) {
     const result=await runNotificationBatch(pool,send,{batchSize:options.batchSize});
     const claimed=Object.values(result).reduce((sum,count)=>sum+count,0);
-    if(claimed<batchLimit(options.batchSize) || result.retried || result.uncertain || options.stopping?.()
+    // A deferred message means the provider refused the studio's account: every further batch would be refused too.
+    if(claimed<batchLimit(options.batchSize) || result.retried || result.uncertain || result.deferred || options.stopping?.()
       || Date.now()-started>=options.budgetMs) return;
   }
 }

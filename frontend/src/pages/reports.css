@@ -165,9 +165,6 @@
 .reports .reports-table thead th {
   min-width: 0;
 }
-.reports-table td:first-child {
-  white-space: nowrap;
-}
 .reports-table tbody tr:last-child :is(th, td) {
   border-bottom: 0;
 }
