@@ -20,11 +20,14 @@ export const browser = { reload: () => window.location.reload() };
 const reloadedAtKey = 'collaboratory:reloaded-for-release';
 
 /**
- * Reloads to fetch the current release, once: if code is still missing within a minute (offline,
- * or a broken release), the message stays rather than reloading in a loop. Without storage there
- * is no way to tell, so it never reloads on its own.
+ * Reloads to fetch the current release, once: if code is still missing within a minute (a broken
+ * release), the message stays rather than reloading in a loop. Without storage there is no way to
+ * tell, so it never reloads on its own. Offline, the code is missing because the network is: a
+ * reload would only swap the message for the browser's own offline page, so it waits for the
+ * Reload button.
  */
 export function reloadForRelease(now = Date.now()) {
+  if (navigator.onLine === false) return false;
   try {
     const last = Number(sessionStorage.getItem(reloadedAtKey));
     if (last && now - last < 60_000) return false;

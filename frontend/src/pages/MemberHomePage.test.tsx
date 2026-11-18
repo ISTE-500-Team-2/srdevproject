@@ -263,14 +263,15 @@ test('with no bookings the card says so once they have loaded', async () => {
   expect(within(card).getByRole('link', { name: 'Book equipment' })).toBeTruthy();
 });
 
-test('a check-in recorded at the front desk is labeled as staff, not as this site', async () => {
+test('a check-in made without the NFC tag is not labeled as one the member made on this site', async () => {
   auth.user = dana;
   mount({
     '/me/overview': overview({ recentCheckIns: [{ id: 2, location: 'Main shop', checkedInAt: '2026-10-30T20:02:00Z', method: 'portal' }] }),
     '/me/supervision': adultSummary(),
   });
   const card = await checkInCard();
-  expect(await within(card).findByText('Checked in by staff')).toBeTruthy();
+  // Staff at the desk now, but possibly the member's own web check-in before members lost it.
+  expect(await within(card).findByText('Without your NFC tag')).toBeTruthy();
   expect(within(card).queryByText('From this site')).toBeNull();
 });
 

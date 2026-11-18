@@ -91,6 +91,20 @@ test('with site storage blocked it never reloads on its own, since it could not 
   expect(screen.getByRole('button', { name: 'Reload' })).toBeTruthy();
 });
 
+test('offline it leaves the message up instead of reloading into the browser offline page, and reloads once back online', () => {
+  const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+  site(missingChunk());
+  expect(reload).not.toHaveBeenCalled();
+  expect(screen.getByRole('heading', { name: 'Reload for the latest version' })).toBeTruthy();
+  expect((screen.getByRole('button', { name: 'Reload' }) as HTMLButtonElement).disabled).toBe(false);
+  cleanup();
+
+  // Being offline did not use up the one automatic reload.
+  online.mockReturnValue(true);
+  site(missingChunk());
+  expect(reload).toHaveBeenCalledTimes(1);
+});
+
 test('recognizes failed dynamic imports across browsers', () => {
   expect(isChunkLoadError(missingChunk())).toBe(true);
   expect(isChunkLoadError(new TypeError('error loading dynamically imported module: /assets/Lanyard.js'))).toBe(true);
