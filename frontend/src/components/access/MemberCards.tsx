@@ -1,7 +1,7 @@
 // Member card assignment, labeling and deactivation UI; reader capture remains separate from
 // confirming the assignment.
 
-import { useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useState, type FormEvent } from "react";
 import { api, ApiError, errorMessage } from "../../lib/api";
 import { editingFormRef } from "../../lib/editingForms";
 import { dateTime } from "../../lib/display";
@@ -22,12 +22,17 @@ export function MemberCards({
   onChanged?: () => void;
 }) {
   const cards = useApi<NfcCard[]>(`/admin/access/cards?userId=${userId}`);
-  const setup = useApi<ReaderSetup>("/admin/access/readers");
+  // Kept on screen while it refreshes: unmounting AssignCard would cancel a scan in progress.
+  const setup = useApi<ReaderSetup>("/admin/access/readers", {
+    retainOnReload: true,
+  });
   const [action, setAction] = useState<{
     card: NfcCard;
     kind: "revoke" | "reactivate";
   } | null>(null);
   const [replacement, setReplacement] = useState<NfcCard | null>(null);
+  // Changes only when staff start, switch or leave a replacement, which restarts the assignment.
+  const [assignment, setAssignment] = useState(0);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [stale, setStale] = useState(false),
@@ -38,6 +43,21 @@ export function MemberCards({
     cards.reload();
     onChanged?.();
   };
+  // The card being replaced can be revoked meanwhile, here or by someone else. Follow the latest
+  // list so the confirm never sends an old revision; once that card is inactive there is nothing
+  // left to replace, and the scan carries on as a plain assignment.
+  useEffect(() => {
+    if (!replacement || !cards.data) return;
+    const latest = cards.data.find((card) => card.id === replacement.id);
+    if (latest?.active) {
+      if (latest.revision !== replacement.revision) setReplacement(latest);
+      return;
+    }
+    setReplacement(null);
+    setNotice((current) =>
+      `${current ? `${current} ` : ""}${replacement.label} is no longer active, so the next card will be assigned without replacing it.`,
+    );
+  }, [cards.data, replacement]);
   async function changeCard(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!action || busy || stale) return;
@@ -151,7 +171,10 @@ export function MemberCards({
                   type="button"
                   className="button button--quiet"
                   onClick={() => {
+                    // Already replacing this card: keep the scan and what was typed.
+                    if (replacement?.id === card.id) return;
                     setReplacement(card);
+                    setAssignment((n) => n + 1);
                     setError("");
                     setNotice("");
                   }}
@@ -175,12 +198,15 @@ export function MemberCards({
       ) : null}
       {setup.data ? (
         <AssignCard
-          key={`${userId}:${replacement?.id ?? "new"}`}
+          key={`${userId}:${assignment}`}
           userId={userId}
           memberName={memberName}
           setup={setup.data}
           replacement={replacement}
-          onCancelReplacement={() => setReplacement(null)}
+          onCancelReplacement={() => {
+            setReplacement(null);
+            setAssignment((n) => n + 1);
+          }}
           onSaved={() => {
             changed(
               replacement
@@ -263,10 +289,15 @@ export function AssignCard({
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const [formKey, setFormKey] = useState(0);
+  // Held here rather than in the form, so they survive the form leaving with an expired scan.
+  const [label, setLabel] = useState(""),
+    [reason, setReason] = useState("");
   const enabled = setup.configured && setup.readers.some((r) => r.enabled);
   const owner = scan.scan?.assignments?.find((a) => a.active);
+  const captured = scan.scan?.status === "captured";
   async function assign(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (!manual && !captured) return;
     const f = new FormData(e.currentTarget);
     const uid = String(f.get("uid") ?? "");
     if (
@@ -298,6 +329,8 @@ export function AssignCard({
       });
       await scan.cancel();
       setFormKey((n) => n + 1);
+      setLabel("");
+      setReason("");
       onSaved();
     } catch (e) {
       setError(errorMessage(e));
@@ -352,7 +385,7 @@ export function AssignCard({
           {manual ? "Use a reader instead" : "Enter a card ID manually"}
         </button>
       ) : null}
-      {enabled && (manual || scan.scan?.status === "captured") ? (
+      {enabled && (manual || scan.scan) ? (
         <form
           key={formKey}
           ref={editingFormRef}
@@ -360,14 +393,22 @@ export function AssignCard({
           aria-label={`Confirm NFC card for ${memberName}`}
           onSubmit={assign}
         >
-          <p>
-            <strong>
-              Assign{" "}
-              {manual ? "this NFC card" : `card ending ${scan.scan?.last4}`} to{" "}
-              {memberName}.
-            </strong>{" "}
-            Confirm the member and card before saving.
-          </p>
+          {manual || captured ? (
+            <p>
+              <strong>
+                Assign{" "}
+                {manual ? "this NFC card" : `card ending ${scan.scan?.last4}`}{" "}
+                to {memberName}.
+              </strong>{" "}
+              Confirm the member and card before saving.
+            </p>
+          ) : (
+            <p>
+              {scan.scan?.status === "waiting"
+                ? "Fill in the label and reason while you wait for the tap. You can save once the card is captured."
+                : "Start a new scan to capture the card. The label and reason are kept."}
+            </p>
+          )}
           {owner ? (
             <p className="form-error" role="alert">
               This card is already assigned to {owner.memberName} ({owner.label}
@@ -398,13 +439,24 @@ export function AssignCard({
                 required
                 maxLength={100}
                 placeholder="For example, blue key card"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
               />
             </label>
             <label>
               Assignment reason
-              <input name="reason" required maxLength={500} />
+              <input
+                name="reason"
+                required
+                maxLength={500}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+              />
             </label>
-            <button className="button button--primary" disabled={!!owner}>
+            <button
+              className="button button--primary"
+              disabled={!!owner || (!manual && !captured)}
+            >
               {busy
                 ? "Assigning card…"
                 : replacement
