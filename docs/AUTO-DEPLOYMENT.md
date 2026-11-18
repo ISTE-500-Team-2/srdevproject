@@ -9,6 +9,9 @@ not deploy. The gateway, database containers, volumes, credentials and Pi stay p
 
 1. A user-level systemd timer checks main about once a minute, after the previous
    check/release finishes. Idle checks use `git ls-remote`, not GitHub API polling.
+   While a new SHA waits for CI, its GitHub check status is read at most every
+   four minutes (unauthenticated reads are limited to 60 an hour, two per check),
+   so a release can start up to four minutes after its checks pass.
 2. A new SHA must pass application verification, sponsor-container rehearsal,
    Docker developer smoke and the Linux/macOS/Windows launcher tests. All checks
    must be from GitHub Actions on the exact SHA; successful main push workflows
