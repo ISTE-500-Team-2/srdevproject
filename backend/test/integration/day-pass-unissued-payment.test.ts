@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import { after, before, beforeEach, mock, test, type TestContext } from 'node:test';
 import { Pool } from 'pg';
 import Stripe from 'stripe';
@@ -102,9 +103,9 @@ async function pay(session: Session) {
   await passes.webhook(event);
   return event;
 }
-// Model c95a2b57's transaction for a paid Checkout event with no refunds. Its issue() reuses
-// pass_id but ignores payment_id, so force a fresh payment if it attempts issuance.
-async function oldCheckoutDelivery(event: Stripe.Event, session: Session) {
+// Model c95a2b57 issuing from pass_id and ignoring payment_id. A full refund
+// it already recorded is skipped even if that issuance replaced the original ledger link.
+async function oldCheckoutDelivery(event: Stripe.Event, session: Session, fullRefund?: Refund) {
   await transaction(pool, async db => {
     if (!(await db.query('INSERT INTO app_pass_stripe_event(id) VALUES($1) ON CONFLICT DO NOTHING RETURNING id', [event.id])).rowCount) return;
     await db.query('SELECT pg_advisory_xact_lock($1,$2)', [7121, member]);
@@ -112,6 +113,8 @@ async function oldCheckoutDelivery(event: Stripe.Event, session: Session) {
     const row = (await db.query<Parameters<PassBilling['issue']>[1]>('SELECT * FROM app_pass_checkout WHERE id=$1 FOR UPDATE', [id])).rows[0]!;
     await db.query('UPDATE app_pass_checkout SET checkout_id=$2,payment_intent=$3 WHERE id=$1', [id, session.id, session.payment_intent]);
     await passes.issue(db, { ...row, payment_id: null }, session.id!);
+    if (fullRefund && (row.refund_id !== fullRefund.id || row.refund_status !== 'succeeded'))
+      throw new Error('Expected the old handler to skip an already confirmed refund');
   });
 }
 const notice = async (key: string) =>
@@ -266,6 +269,9 @@ test('the reconciliation tick submits a missed automatic refund and backs off fa
     assert.equal((await checkoutRow(date)).refund_id, null);
     assert.equal(refundKeys.length, 0, 'the automatic refund was never submitted');
     await passes.reconcileRefunds();
+    assert.equal(error.mock.callCount(), 0, 'the failed webhook already backed off the queued retry');
+    await pool.query("UPDATE app_pass_checkout SET refund_reconcile_after=now() WHERE id=$1", [id]);
+    await passes.reconcileRefunds();
     assert.equal(error.mock.callCount(), 1);
     await passes.reconcileRefunds();
     assert.equal(error.mock.callCount(), 1, 'a failed lookup waits before being retried');
@@ -305,9 +311,11 @@ test('a paid checkout grants no pass while the initial refund lookup is unavaila
   const captured = await checkoutRow(date);
   assert.equal(await passCount(date), 0);
   assert.equal(captured.payment_id, null);
+  assert.equal(captured.payment_intent, intent);
   assert.ok(captured.refund_reconcile_after);
   assert.equal(await notice('daypass-receipt:' + id), undefined);
 
+  await pool.query("UPDATE app_pass_checkout SET refund_reconcile_after=now() WHERE id=$1", [id]);
   await passes.reconcileRefunds();
   const reconciled = await checkoutRow(date);
   assert.ok(reconciled.payment_id);
@@ -316,6 +324,58 @@ test('a paid checkout grants no pass while the initial refund lookup is unavaila
   assert.equal(await passCount(date), 0);
   assert.equal(refundKeys.length, 0);
 });
+
+for (const source of ['checkout webhook', 'recovery worker']) {
+  test(`a refund delivered after the ${source} lookup snapshot still cancels the pass`, async t => {
+    const date = source === 'checkout webhook' ? '2034-08-01' : '2034-08-08';
+    const { id, session } = await openCheckout(date);
+    const completion = capture(session);
+    const intent = session.payment_intent as string;
+    let snapshotTaken!: () => void, releaseSnapshot!: () => void;
+    const started = new Promise<void>(resolve => { snapshotTaken = resolve; });
+    const released = new Promise<void>(resolve => { releaseSnapshot = resolve; });
+    let firstLookup = true;
+    stripe.refundList(async params => {
+      if (params?.payment_intent === intent && firstLookup) {
+        firstLookup = false;
+        snapshotTaken();
+        await released;
+      }
+      // Model list lag even in the refund webhook. Its individual retrieval is current.
+      return { data: [], has_more: false };
+    });
+    t.after(() => stripe.refundList(listRefunds));
+
+    if (source === 'recovery worker')
+      await pool.query(`UPDATE app_pass_checkout SET status='expired',checkout_id=NULL,refund_reconcile_after=now() WHERE id=$1`, [id]);
+    const completing = source === 'checkout webhook' ? passes.webhook(completion) : passes.reconcileRefunds();
+    await started;
+    const refund: Refund = { id: 're_' + randomUUID(), status: 'succeeded', amount: 1500, currency: 'usd', payment_intent: intent };
+    refunds.unshift(refund);
+    const event = stripeEvent('evt_' + randomUUID(), 'refund.created', refund);
+    const delivering = passes.webhook(event);
+    try {
+      // Before the fix the receipt commits here. After the fix the handler waits
+      // on the same member lock as issuance.
+      let reachedRace = false;
+      for (let attempt = 0; attempt < 100 && !reachedRace; attempt++) {
+        reachedRace = (await pool.query(`SELECT 1 FROM pg_locks WHERE locktype='advisory'
+          AND classid=7121 AND objid=$1 AND NOT granted
+          UNION ALL SELECT 1 FROM app_pass_stripe_event WHERE id=$2`, [member, event.id])).rowCount! > 0;
+        if (!reachedRace) await delay(10);
+      }
+      assert.ok(reachedRace, 'refund reaches the issuance transaction before the snapshot is released');
+    } finally {
+      releaseSnapshot();
+      await Promise.all([completing, delivering]);
+    }
+    await passes.webhook(event);
+    await passes.reconcileRefunds();
+    assert.equal(await passCount(date), 0);
+    const row = await readCheckout(id);
+    assert.deepEqual([row.status, row.refund_status, row.refund_reconcile_after], ['cancelled', 'succeeded', null]);
+  });
+}
 
 test('an early partial Stripe refund holds access and records the captured payment and checkout event', async () => {
   const date = '2034-05-13';
@@ -427,6 +487,42 @@ test('the worker settles the remaining refund after the old webhook rejects it',
   assert.equal(await passCount(date), 0, 'refunds covering the full amount cancel access without a redelivery');
   assert.equal((await checkoutRow(date)).refund_status, 'succeeded');
 });
+
+for (const { name, date, daysSinceHonor } of [
+  { name: 'the worker follows a pending remainder beyond three days until it settles', date: '2034-08-02', daysSinceHonor: 4 },
+  { name: 'a pending remainder is escalated at the 30-day monitoring cap', date: '2034-08-09', daysSinceHonor: 31 },
+]) {
+  test(name, async t => {
+    const { id, intent, refund } = await holdPartiallyRefundedVisit(t, date);
+    // Backdate the honor decision without mutating append-only history.
+    await transaction(pool, async db => {
+      const row = (await db.query<Parameters<PassBilling['issue']>[1]>('SELECT * FROM app_pass_checkout WHERE id=$1', [id])).rows[0]!;
+      await passes.issue(db, row, row.checkout_id!);
+      await db.query("UPDATE app_pass_checkout SET refund_needs_review=false,refund_status='partial',refund_reconcile_after=now() WHERE id=$1", [id]);
+      await db.query(`INSERT INTO app_staff_audit(actor_id,subject_id,action,entity_type,entity_id,reason,after_state,created_at)
+        VALUES($1,$2,'billing.refund.reviewed','payment',$3,'Honor the visit',$4,now()-$5*interval '1 day')`,
+      [admin, member, row.payment_id, { checkoutId: id, refundIds: [refund.id], refundedCents: 500 }, daysSinceHonor]);
+    });
+    const remainder: Refund = { ...refund, id: 're_' + randomUUID(), status: 'pending', amount: 1000, payment_intent: intent };
+    refunds.unshift(remainder);
+    await passes.reconcileRefunds();
+    const observed = await readCheckout(id);
+    assert.equal(observed.refund_needs_review, true);
+    assert.equal(await passCount(date), 1);
+    if (daysSinceHonor > 30) {
+      assert.equal(observed.refund_reconcile_after, null);
+      return;
+    }
+    assert.ok(observed.refund_reconcile_after, 'pending remainder stays scheduled beyond three days');
+
+    // Stripe settles it while c95a2b57 handles deliveries and rejects the single amount.
+    remainder.status = 'succeeded';
+    await pool.query("UPDATE app_pass_checkout SET refund_reconcile_after=now() WHERE id=$1 AND refund_reconcile_after IS NOT NULL", [id]);
+    await passes.reconcileRefunds();
+    assert.equal(await passCount(date), 0);
+    assert.equal((await readCheckout(id)).refund_status, 'succeeded');
+  });
+}
 
 test('card checkout expires at local midnight even when fewer than 45 minutes remain', async t => {
   const now = new Date('2034-06-10T03:20:00Z'); // 11:20 p.m. on June 9 in New York.
@@ -583,6 +679,116 @@ test('a delayed replacement capture is refunded even after staff refund the orig
   assert.deepEqual([duplicate.status, duplicate.refund_status, duplicate.pass_id], ['cancelled', 'succeeded', null]);
   assert.equal(await passCount(date), 0);
   assert.deepEqual(refundKeys, ['daypass-refund:' + id, 'daypass-refund:' + replacement.id]);
+});
+
+const rollbackQuery = () => readFile(new URL('../../../database/fixes/list-day-pass-rollback-payments.sql', import.meta.url), 'utf8');
+
+test('the worker and rollback query flag a pass reissued by the old webhook after a full refund', async () => {
+  const date = '2034-08-03';
+  const { id, session } = await openCheckout(date);
+  const event = capture(session);
+  const fullRefund: Refund = { id: 're_' + randomUUID(), status: 'succeeded', amount: 1500, currency: 'usd',
+    payment_intent: session.payment_intent as string };
+  refunds.unshift(fullRefund);
+  await passes.webhook(event);
+  const cancelled = await readCheckout(id);
+  assert.deepEqual([cancelled.status, cancelled.pass_id], ['cancelled', null]);
+
+  await oldCheckoutDelivery(stripeEvent('evt_' + randomUUID(), 'checkout.session.completed', session), session, fullRefund);
+  const reissued = await readCheckout(id);
+  assert.equal(reissued.status, 'paid');
+  assert.equal(reissued.refund_reconcile_after, null);
+  assert.equal(await passCount(date), 1);
+  await passes.reconcileRefunds();
+  assert.equal((await readCheckout(id)).refund_needs_review, true);
+  assert.equal((await new StaffModel(pool).payments(member)).find(p => p.id === reissued.payment_id)?.refundStatus, 'needs_review');
+  // The operator query must also work with only the previous app running.
+  await pool.query('UPDATE app_pass_checkout SET refund_needs_review=false WHERE id=$1', [id]);
+  const flagged = (await pool.query(await rollbackQuery())).rows.find(r => r.checkout_id === id);
+  assert.equal(flagged?.active_after_full_refund, true);
+  assert.deepEqual(flagged?.matching_stripe_payment_ids, [cancelled.payment_id, reissued.payment_id]);
+  await pool.query('UPDATE payment SET reference=$2 WHERE paymentid=$1', [cancelled.payment_id, session.payment_intent]);
+  const mixedReferences = (await pool.query(await rollbackQuery())).rows.find(r => r.checkout_id === id);
+  assert.deepEqual(mixedReferences?.matching_stripe_payment_ids, flagged?.matching_stripe_payment_ids);
+  assert.equal(refundKeys.length, 0);
+});
+
+test('the worker and rollback query flag an old-webhook pass for a retired replacement', async t => {
+  const date = '2034-08-04';
+  const { id, session, replacement, replacementSession } = await replaceLegacyCheckout(t, date);
+  stripe.checkoutSessionExpire(async () => { throw new Error('Stripe expiration unavailable'); });
+  t.after(() => stripe.checkoutSessionExpire(expireSession));
+  await pay(session);
+  await passes.staffRefund(admin, id, 'Original pass refunded');
+  await oldCheckoutDelivery(capture(replacementSession), replacementSession);
+  const reissued = await readCheckout(replacement.id);
+  assert.equal(reissued.status, 'paid');
+  assert.equal(await passCount(date), 1);
+  await pool.query('UPDATE app_pass_checkout SET refund_reconcile_after=NULL WHERE id=$1', [replacement.id]);
+  const flagged = (await pool.query(await rollbackQuery())).rows.find(r => r.checkout_id === replacement.id);
+  await passes.reconcileRefunds();
+  assert.equal((await readCheckout(replacement.id)).refund_needs_review, true);
+  assert.equal((await new StaffModel(pool).payments(member)).find(p => p.id === reissued.payment_id)?.refundStatus, 'needs_review');
+  assert.equal(flagged?.retired_by_checkout_id, id);
+  assert.equal(flagged?.pass_status, 'active');
+  assert.deepEqual(refundKeys, ['daypass-refund:' + id], 'detection does not send money');
+});
+
+async function queueUnboundCheckout(date: string, age: string) {
+  const { id } = await openCheckout(date);
+  await pool.query(`UPDATE app_pass_checkout SET status='expired',checkout_id=NULL,
+    created_at=now()-$2::interval,refund_reconcile_after=now() WHERE id=$1`, [id, age]);
+  return id;
+}
+
+test('checkout discovery bounds Stripe creation dates and pagination', async t => {
+  const id = await queueUnboundCheckout('2034-08-05', '10 minutes');
+  const row = await readCheckout(id);
+  const calls: Stripe.Checkout.SessionListParams[] = [];
+  const list = provider.sdk.checkout.sessions.list;
+  t.after(() => { provider.sdk.checkout.sessions.list = list; });
+  stripe.checkoutSessionList(async params => {
+    calls.push(structuredClone(params!));
+    return { data: [{ id: 'cs_other_' + calls.length }], has_more: calls.length < 4 };
+  });
+  await passes.reconcileRefunds();
+  assert.equal(calls.length, 3);
+  const started = Math.floor(row.created_at.getTime() / 1000);
+  assert.deepEqual(calls.map(call => call.created), Array(3).fill({ gte: started - 60, lte: started + 23 * 3600 + 60 }));
+  assert.deepEqual(calls.map(call => call.starting_after), [undefined, 'cs_other_1', 'cs_other_2']);
+  const escalated = await readCheckout(id);
+  assert.equal(escalated.refund_needs_review, true);
+  assert.equal(escalated.refund_reconcile_after, null);
+  assert.ok((await pool.query(await rollbackQuery())).rows.some(r => r.checkout_id === id));
+});
+
+test('checkout discovery backs off empty results and escalates after the recovery window', async t => {
+  const id = await queueUnboundCheckout('2034-08-06', '12 hours');
+  const list = provider.sdk.checkout.sessions.list;
+  t.after(() => { provider.sdk.checkout.sessions.list = list; });
+  stripe.checkoutSessionList(async () => ({ data: [], has_more: false }));
+  await passes.reconcileRefunds();
+  assert.ok((await readCheckout(id)).refund_reconcile_after.getTime() > Date.now() + 60 * 60 * 1000);
+
+  await pool.query("UPDATE app_pass_checkout SET created_at=now()-interval '48 hours',refund_reconcile_after=now() WHERE id=$1", [id]);
+  await passes.reconcileRefunds();
+  const escalated = await readCheckout(id);
+  assert.deepEqual([escalated.refund_needs_review, escalated.refund_reconcile_after], [true, null]);
+});
+
+test('provider lookup failures back off and stop at the reconciliation deadline', async t => {
+  const { id, session } = await openCheckout('2034-08-07');
+  const event = capture(session);
+  await pool.query("UPDATE app_pass_checkout SET created_at=now()-interval '12 hours' WHERE id=$1", [id]);
+  stripe.refundList(async () => { throw new Error('Stripe lookup unavailable'); });
+  t.after(() => stripe.refundList(listRefunds));
+  await assert.rejects(passes.webhook(event), /Stripe lookup unavailable/);
+  assert.ok((await readCheckout(id)).refund_reconcile_after.getTime() > Date.now() + 30 * 60 * 1000);
+
+  await pool.query("UPDATE app_pass_checkout SET created_at=now()-interval '48 hours',refund_reconcile_after=now() WHERE id=$1", [id]);
+  await passes.reconcileRefunds();
+  const escalated = await readCheckout(id);
+  assert.deepEqual([escalated.refund_needs_review, escalated.refund_reconcile_after], [true, null]);
 });
 
 test('a distinct old-release completion during a refund lookup outage leaves one ledger entry', async () => {

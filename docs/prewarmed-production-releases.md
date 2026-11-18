@@ -203,20 +203,18 @@ rollback handled webhook traffic.
 
 For day passes, the previous release can return HTTP 409 for a paid retired
 Checkout Session or a refund that covers only part of the original charge. The
-new worker checks sessions it retires before confirming their Stripe state and
-monitors partial refunds for three days after staff honor the visit. Keep the failed-delivery replay step after the previous release
-drains, even if the worker has already resolved some payments.
+new worker checks retired sessions in Stripe and monitors partial refunds for
+three days after staff honor the visit. If a refund is still pending or requires
+action at the cutoff, monitoring continues until it settles, up to 30 days
+after staff honored the visit. Keep the failed-delivery replay step after the
+previous release drains, even if the worker has already resolved some payments.
 
-Also check successful Checkout deliveries from the overlap for held day-pass
-payments and retired replacement sessions. For each captured Checkout Session,
-verify there is one ledger payment for its Stripe reference. Verify no active
-pass belongs to a retired replacement, and confirm its charge was returned to
-the original card. The previous release can acknowledge a distinct completion
-and issue access because it ignores the held payment and the retirement record.
-If these checks find a discrepancy, put any incorrectly issued pass on hold,
-record the Stripe session and payment intent IDs and the affected ledger
-payment IDs, and escalate to the payments owner for correction. Verify Stripe
-before sending any refund.
+Also check successful Checkout deliveries using the query below. A distinct
+completion can make the previous release issue a pass after a full refund or
+issue one for a retired replacement. The compatible worker flags these active
+passes and duplicate ledger entries for staff review in **Payments**. The sweep
+covers ledger payments recorded in the past 14 days. Run the query for older
+incidents and anytime the compatible worker is stopped.
 
 ### Captured day-pass payments during rollback
 
@@ -225,9 +223,19 @@ against each affected database as soon as the previous release takes webhook tra
 and at the start of each shift while it does. From the repository root, use
 `psql -X -v ON_ERROR_STOP=1 -f database/fixes/list-day-pass-rollback-payments.sql`
 with that database's normal operator connection. The query includes future retry
-deadlines, bound sessions queued for verification, charges waiting for a pass,
-and payments flagged for staff review. Prioritize upcoming visits in date order.
+deadlines, queued checkouts, charges waiting for a pass, and checkouts flagged
+for review. A flagged checkout with no ledger payment needs manual verification
+in Stripe. Bounded session discovery may have reached its page limit or retry
+deadline before locating a charge. Prioritize upcoming visits in date order.
 Give staff the checkout ID and any ledger payment ID for follow-up.
+
+For acknowledged deliveries, inspect `active_after_full_refund`, active rows
+with `retired_by_checkout_id`, and rows with multiple IDs in
+`matching_stripe_payment_ids`. The array lists ledger payments that match the
+session or PaymentIntent reference, including refunded entries. Put any
+incorrectly issued pass on hold and give the payments owner the checkout,
+session, PaymentIntent, pass, and matching ledger IDs. Verify captured amounts
+and refunds in Stripe before sending any money or correcting the ledger.
 
 For each row, compare the Checkout Session, captured amount, and all refunds on
 its Payment Intent in the matching Stripe account. If the query has a session
