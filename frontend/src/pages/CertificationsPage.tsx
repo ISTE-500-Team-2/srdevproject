@@ -112,9 +112,12 @@ function certificationItems(
         (id !== null ? c.certificationId === id : norm(c.certificationName) === norm(name)),
     );
     const upcoming = matches.filter((c) => !isCancelled(c) && !hasStarted(c, now)).sort(byStart);
-    // You're registered until the class ends, including while it's running.
+    // You're registered until the class ends, including while it's running, even once
+    // the instructor has taken attendance.
     const registered =
-      matches.filter((c) => !isCancelled(c) && !hasEnded(c, now) && c.myStatus === 'enrolled').sort(byStart)[0] ?? null;
+      matches
+        .filter((c) => !isCancelled(c) && !hasEnded(c, now) && (c.myStatus === 'enrolled' || c.myStatus === 'attended'))
+        .sort(byStart)[0] ?? null;
     // Training on or before the last approval or revocation can't lead to a new approval.
     const cutoff = record
       ? Math.max(
@@ -127,8 +130,9 @@ function certificationItems(
         .filter(
           (c) =>
             !isCancelled(c) &&
-            // Attendance can be recorded once a class starts; otherwise it's finished when it ends.
-            (c.myStatus === 'attended' ? hasStarted(c, now) : c.myStatus === 'enrolled' && hasEnded(c, now)) &&
+            // A class is finished when it ends, not when attendance is taken.
+            hasEnded(c, now) &&
+            (c.myStatus === 'attended' || c.myStatus === 'enrolled') &&
             new Date(c.startsAt).getTime() > cutoff,
         )
         .sort((a, b) => byStart(b, a))[0] ?? null;
@@ -244,7 +248,7 @@ function NextClass({ item }: { item: CertItem }) {
         </Link>
       </div>
     );
-  const registered = next.myStatus === 'enrolled';
+  const registered = next.myStatus === 'enrolled' || next.myStatus === 'attended';
   const full = seatsLeft(next) === 0;
   const refresher = state === 'current' || state === 'expiring';
   return (

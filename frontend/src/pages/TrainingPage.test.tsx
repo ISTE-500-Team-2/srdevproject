@@ -215,19 +215,31 @@ test('certification cards count holders from the real numbers and show the train
 
 test('training records word the end date from the date: a revocation replaces it, a future date is never "Expired"', async () => {
   const base = vi.mocked(api).getMockImplementation()!;
+  const ended = { ...course, id: 10, name: 'Router safety', endsAt: '2026-01-15T12:00:00Z' };
   vi.mocked(api).mockImplementation(async (path, init) => path === '/training/users/12' ? [
     // Revoking leaves the renewal date as it was, still ahead.
     { ...record, status: 'revoked', valid: false, revokedAt: '2026-11-01T12:00:00Z', expiresAt: '2099-01-01T00:00:00Z' },
     { ...record, id: 10, certificationId: 8, name: 'Lathe safety', valid: false, expiresAt: '2020-06-01T12:00:00Z' },
-    { ...record, id: 11, certificationId: 9, name: 'Drill safety', valid: false, expiresAt: '2099-06-01T12:00:00Z' },
-  ] as never : base(path, init));
+    { ...record, id: 11, certificationId: 9, name: 'Drill safety', status: 'suspended', valid: false, expiresAt: '2099-06-01T12:00:00Z' },
+    { ...record, id: 12, certificationId: 10, name: 'Router safety', valid: false, expiresAt: '2099-07-01T12:00:00Z' },
+    { ...record, id: 13, certificationId: 11, name: 'Saw safety', valid: true, expiresAt: '2099-08-01T12:00:00Z' },
+  ] as never : path === '/training/catalog' ? [course, ended] as never : base(path, init));
   render(<TrainingPage />);
   const user = userEvent.setup();
   await user.type(screen.getByRole('combobox', { name: 'Member' }), 'Jordan');
   await user.click(await screen.findByRole('option', { name: /Jordan Member/ }));
   const revoked = (await screen.findByText(/^Revoked /)).closest('li')!;
+  const records = screen.getByRole('region', { name: 'Member training records' });
+  const item = (name: string) => within(records).getByText(name).closest('li')!;
   expect(within(revoked).getByText('Not current · revoked')).toBeTruthy();
   expect(within(revoked).queryByText(/Expire/)).toBeNull();
-  expect(within(screen.getByText('Lathe safety').closest('li')!).getByText(/^Expired .*2020/)).toBeTruthy();
-  expect(within(screen.getByText('Drill safety').closest('li')!).getByText(/^Expires .*2099/)).toBeTruthy();
+  expect(within(item('Lathe safety')).getByText(/^Expired .*2020/)).toBeTruthy();
+  // Not current with the date still ahead: never "Expires", which reads as good until then.
+  expect(within(item('Drill safety')).getByText('Not current · suspended')).toBeTruthy();
+  expect(within(item('Drill safety')).getByText(/^Would have renewed .*2099/)).toBeTruthy();
+  expect(within(item('Drill safety')).queryByText(/Expire/)).toBeNull();
+  // The certification itself ended, so that is the reason given.
+  expect(within(item('Router safety')).getByText(/^Certification ended .*2026/)).toBeTruthy();
+  expect(within(item('Router safety')).queryByText(/Expire|renewed/)).toBeNull();
+  expect(within(item('Saw safety')).getByText(/^Expires .*2099/)).toBeTruthy();
 });

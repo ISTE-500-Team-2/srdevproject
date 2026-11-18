@@ -44,7 +44,9 @@ test("explains files it can't read instead of failing silently", async () => {
 
 test("a .docx that isn't really a Word file gets advice, not the unzip error", async () => {
   // An old .doc or a PDF renamed to .docx: mammoth's unzip step fails with a developer link.
-  for (const bytes of ["%PDF-1.4 not a zip", "\xD0\xCF\x11\xE0 old Word binary"]) {
+  // The .doc sample is raw bytes, so it starts with the real OLE signature rather than UTF-8 text.
+  const oldWord = new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, ...new TextEncoder().encode(" old Word binary")]);
+  for (const bytes of ["%PDF-1.4 not a zip", oldWord]) {
     const error = await documentText(new File([bytes], "waiver.docx")).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).toBe(

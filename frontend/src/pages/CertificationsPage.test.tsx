@@ -317,6 +317,20 @@ test('a class still running is not reported as finished',()=>{
  expect(within(cert).getByText('Registered')).toBeTruthy();
  expect(within(cert).getByText("You're registered")).toBeTruthy();
  cleanup();
+ // Attendance taken at the start of class doesn't finish the training either.
+ mount({equipment:[cnc],classes:[klass({startsAt:inDays(-0.01),endsAt:inDays(0.04),myStatus:'attended'})]});
+ cert = row('CNC Training');
+ expect(within(cert).queryByText('Training complete')).toBeNull();
+ expect(within(cert).queryByText('Awaiting approval')).toBeNull();
+ expect(within(cert).getByText('Registered')).toBeTruthy();
+ expect(within(cert).getByText("You're registered")).toBeTruthy();
+ expect(within(cert).queryByRole('link',{name:/^Register for/})).toBeNull();
+ cleanup();
+ mount({equipment:[cnc],classes:[klass({startsAt:inDays(-0.06),endsAt:inDays(-0.01),myStatus:'attended'})]});
+ cert = row('CNC Training');
+ expect(within(cert).getByText('Training complete')).toBeTruthy();
+ expect(within(cert).getByText('Awaiting approval')).toBeTruthy();
+ cleanup();
  mount({equipment:[cnc],classes:[klass({startsAt:inDays(-0.06),endsAt:inDays(-0.01),myStatus:'enrolled'})]});
  cert = row('CNC Training');
  expect(within(cert).getByText('Class finished')).toBeTruthy();
