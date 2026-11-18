@@ -42,6 +42,8 @@ before(async () => {
     return sessions.get(id);
   });
   mock.method(sessionsApi, 'retrieve', async (id: string) => sessions.get(id));
+  // A newly paid booking checks for a refund made in Stripe before the payment was recorded; there are none here.
+  mock.method(Object.getPrototypeOf(new StudioStripe(stripeConfig).sdk.refunds), 'list', async () => ({ object: 'list', data: [], has_more: false, url: '/v1/refunds' }));
 });
 after(async () => {
   mock.restoreAll();

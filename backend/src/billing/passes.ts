@@ -10,6 +10,7 @@ import {calendarDate} from '../staffDomain.js';
 import {StaffModel,type Plan} from '../models/StaffModel.js';
 import {AccessService} from '../services/AccessService.js';
 import {requireActor} from '../accountPolicy.js';
+import {assertManageable} from '../services/StaffService.js';
 import {businessToday} from '../businessDate.js';
 import {StudioStripe} from '../studios/stripe.js';
 import {enqueueNotification} from '../notifications/store.js';
@@ -177,9 +178,11 @@ export class PassBilling {
  async staffRefund(actor:number,id:string,reason:unknown){
   const explanation=textField(reason,'Refund reason',255,3),sdk=this.provider().sdk;
   return transaction(this.pool,async db=>{
-   await requireActor(db,actor,{staff:true});
+   const operator=await requireActor(db,actor,{staff:true});
    const owner=(await db.query<{userid:number}>('SELECT userid FROM app_pass_checkout WHERE id::text=$1',[id])).rows[0];
    if(!owner)throw new AppError(404,'NOT_FOUND','Day-pass payment not found.');
+   // This skips the 3-day rule, even for a pass already used, so only administrators refund a staff account's, own included.
+   await assertManageable(db,operator,owner.userid);
    // Same order as member checkout and cancellation: the member's lock, then the checkout.
    await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,owner.userid]);
    const r=(await db.query<PassCheckoutRow>('SELECT * FROM app_pass_checkout WHERE id::text=$1 FOR UPDATE',[id])).rows[0]!;

@@ -11,6 +11,7 @@ import type Stripe from 'stripe';
 import {transaction, type Database} from '../db.js';
 import {AppError, positiveId, textField} from '../domain.js';
 import {requireActor} from '../accountPolicy.js';
+import {assertManageable} from '../services/StaffService.js';
 import {StudioStripe} from '../studios/stripe.js';
 import {StaffModel, type Plan} from '../models/StaffModel.js';
 interface BillingRecord {id:string;userid:number;tierid:number;plan_snapshot:Plan;amount_cents:number;checkout_id:string|null;subscription_id:string|null;customer_id:string|null;status:string;created_at:Date;cancellation_effective_at:Date|null;}
@@ -186,10 +187,12 @@ export class MembershipBilling {
   async refund(actor:number,id:string,reason:unknown) {
     const explanation=textField(reason,'Refund reason',255,3),sdk=this.provider().sdk;
     return transaction(this.pool,async db=>{
-      await requireActor(db,actor,{staff:true});
+      const operator=await requireActor(db,actor,{staff:true});
       const r=(await db.query<InvoiceRecord>(`SELECT i.*,b.userid,b.amount_cents FROM app_membership_invoice i
         JOIN app_membership_billing b ON b.id=i.billing_id WHERE i.id=$1 FOR UPDATE OF i`,[id])).rows[0];
       if(!r) throw new AppError(404,'NOT_FOUND','Invoice not found.');
+      // The paid period stays after a refund, so only administrators refund a staff account's, own included.
+      await assertManageable(db,operator,r.userid);
       if(r.refund_status==='succeeded') return {status:'succeeded'};
       if(!r.payment_intent) {
         const payments=await sdk.invoicePayments.list({invoice:id,status:'paid',limit:100});

@@ -6,6 +6,7 @@ import Stripe from 'stripe';
 import { transaction } from '../db.js';
 import { AppError, textField } from '../domain.js';
 import { requireActor } from '../accountPolicy.js';
+import { assertManageable } from '../services/StaffService.js';
 import { ReservationModel } from '../models/ReservationModel.js';
 import { StaffModel } from '../models/StaffModel.js';
 import { enqueueNotification } from '../notifications/store.js';
@@ -21,6 +22,8 @@ import { isRefundEvent, type RefundEvent } from './stripeEvents.js';
 interface RefundableCheckout {
   reservation_id: number;
   userid: number;
+  /** Whose card paid, and so gets the money back: the booked member, or whoever booked for them. */
+  payer_id: number;
   status: string;
   amount_cents: number;
   payment_id: number | null;
@@ -151,6 +154,10 @@ export class EquipmentBilling {
       await enqueueNotification(db, { userId: row.payer_id, kind: 'payment_receipt', dedupeKey: `equipment-receipt:${id}`,
         payload: { paymentId: payment, reservationId: Number(id), amount: (row.amount_cents / 100).toFixed(2),
           currency: 'USD', method: 'Card (test mode)', reference: session.id } });
+      // A refund made in Stripe before this payment was recorded matched no booking when it arrived,
+      // so record it now; otherwise the payment would read as paid with the money already returned.
+      const refund = liveRefund(await this.provider().sdk.refunds.list({ payment_intent: intent, limit: 100 }), row.amount_cents);
+      if (refund) await this.applyRefund(db, refund);
     });
   }
 
@@ -208,10 +215,12 @@ export class EquipmentBilling {
   async refund(actor: number, id: number, reason: unknown) {
     const explanation = textField(reason, 'Refund reason', 255, 3), sdk = this.provider().sdk;
     return transaction(this.pool, async db => {
-      await requireActor(db, actor, { staff: true });
+      const operator = await requireActor(db, actor, { staff: true });
       const row = (await db.query<RefundableCheckout>(`SELECT c.*,r.userid FROM app_equipment_checkout c
         JOIN reservation r ON r.reservationid=c.reservation_id WHERE c.reservation_id=$1 FOR UPDATE OF c`, [id])).rows[0];
       if (!row) throw new AppError(404, 'NOT_FOUND', 'Equipment payment not found.');
+      // The booking stays confirmed after a refund, so only administrators refund a staff account's, own included.
+      await assertManageable(db, operator, row.userid);
       if (row.refund_status === 'succeeded') return { status: 'succeeded' };
       if (row.status !== 'paid' || !row.payment_intent || !row.payment_id)
         throw new AppError(409, 'NOT_PAID', 'Only a booking paid by card can be refunded.');
@@ -240,7 +249,8 @@ export class EquipmentBilling {
     const notice = `equipment-refund:${row.reservation_id}`;
     if (refund.status === 'succeeded') {
       await db.query("UPDATE payment SET paymentstatus='refunded',updated_at=now(),revision=revision+1 WHERE paymentid=$1", [row.payment_id]);
-      await enqueueNotification(db, { userId: row.userid, kind: 'payment_refunded', dedupeKey: `${notice}:${refund.id}`,
+      // The money goes back to the payer's card, so they get the notice, as they got the receipt.
+      await enqueueNotification(db, { userId: row.payer_id, kind: 'payment_refunded', dedupeKey: `${notice}:${refund.id}`,
         payload: { reference: refund.id, amount: (refund.amount / 100).toFixed(2), currency: 'USD', method: 'Original card (test mode)',
           reservationId: row.reservation_id } });
     }
@@ -249,7 +259,7 @@ export class EquipmentBilling {
       await db.query("UPDATE payment SET paymentstatus='paid',updated_at=now(),revision=revision+1 WHERE paymentid=$1 AND paymentstatus='refunded'", [row.payment_id]);
       await db.query("UPDATE app_notification_outbox SET status='obsolete',updated_at=now() WHERE dedupe_key=ANY($1::text[]) AND status='pending'",
         [[notice, `${notice}:${refund.id}`]]);
-      await enqueueNotification(db, { userId: row.userid, kind: 'payment_status_changed', dedupeKey: `equipment-refund-failed:${row.reservation_id}:${refund.id}`,
+      await enqueueNotification(db, { userId: row.payer_id, kind: 'payment_status_changed', dedupeKey: `equipment-refund-failed:${row.reservation_id}:${refund.id}`,
         payload: { paymentId: row.payment_id, reservationId: row.reservation_id, reference: refund.id,
           instructions: 'The original-card refund for your equipment booking did not go through. Contact staff to complete it.' } });
     }
