@@ -55,13 +55,13 @@ class Profiles:
         for key in set(self.entries)-live:
             self.entries.pop(key,None)
 
-    def signed_poll(self, raw, signature):
+    def signed_poll(self, raw, signature, peer=None):
         with self.lock:
             self.refresh()
             protocols = [entry[1] for entry in self.entries.values()]
         for protocol in protocols:
             if hmac.compare_digest(protocol.mac(b'reader-poll',raw),signature):
-                body = protocol.poll(raw,signature)
+                body = protocol.poll(raw,signature,peer)
                 return body, protocol.mac(b'gateway-reply',body)
         raise ValueError('unauthorized')
 
@@ -73,8 +73,12 @@ class Profiles:
                 protocols = [entry[1] for entry in self.entries.values()]
             for protocol in protocols:
                 with protocol.lock:
-                    if time.monotonic()-protocol.last_seen>4:
+                    offline = time.monotonic()-protocol.last_seen>4
+                    if offline:
                         write_status(protocol.status_file,False,False,'reader_offline',None,protocol.last_result)
+                # Report the silent reader to the backend too (outside the lock).
+                if offline:
+                    protocol.report_offline()
 
 
 def main():

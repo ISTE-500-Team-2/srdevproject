@@ -144,7 +144,7 @@ test("real React → Express → PostgreSQL onboarding: USB detection, generated
   expect(document.body.textContent).not.toContain(job.readerSecret);
   await user.click(dialog.getByRole("button", { name: "Done" }));
   expect(
-    await screen.findByRole("heading", { name: "Workshop mini" }),
+    await screen.findByRole("link", { name: /^Workshop mini: / }),
   ).toBeTruthy();
   expect(
     (

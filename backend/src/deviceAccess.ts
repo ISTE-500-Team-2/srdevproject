@@ -26,6 +26,8 @@ import {
   type DeviceConfig,
 } from "./readerRegistry.js";
 import { readerManagement } from "./readerManagement.js";
+import { parseHealthReport, readerHealthRoutes, recordHealth } from "./readerHealth.js";
+import { errorIdentifier } from "./logSafety.js";
 import { accessCards } from "./accessCards.js";
 import { DEFAULT_BUILDING_ID } from "./facility.js";
 export type { Reader, DeviceConfig } from "./readerRegistry.js";
@@ -159,7 +161,25 @@ export function deviceDecision(
         reservationId: null,
       });
       if (body.action === "heartbeat") {
-        await db.query('UPDATE app_access_reader SET last_seen_at=NOW() WHERE id=$1', [reader.id]);
+        // The gateway's view of the reader itself; absent from older gateways.
+        const health = parseHealthReport(body.health);
+        // last_seen_at means the reader itself is alive: outage notices and the
+        // staff scan controls rely on that. A gateway reporting an unreachable
+        // reader is alive, but its reader is not.
+        if (!health || health.reachable)
+          await db.query('UPDATE app_access_reader SET last_seen_at=NOW() WHERE id=$1', [reader.id]);
+        // Telemetry must never cost a reader its access decisions, so a failed
+        // write is rolled back on its own and the heartbeat still succeeds.
+        if (health) {
+          await db.query("SAVEPOINT reader_health");
+          try {
+            await recordHealth(db, reader.id, health);
+            await db.query("RELEASE SAVEPOINT reader_health");
+          } catch (error) {
+            await db.query("ROLLBACK TO SAVEPOINT reader_health");
+            console.error("Reader health not recorded", { readerId: reader.id, ...errorIdentifier(error) });
+          }
+        }
         return {
           eventId: body.eventId,
           readerId: reader.id,
@@ -290,6 +310,7 @@ export function cardManagement(
   const routes = Router(),
     permit = requirePermission(pool, "user_access", "update");
   routes.use(readerManagement(pool, tz, registry));
+  routes.use(readerHealthRoutes(pool));
   routes.use(accessCards(pool, tz, registry));
   // Advisory only: never inserts an access event/check-in or sends a device command.
   routes.get(

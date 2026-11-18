@@ -14,6 +14,12 @@
  */
 
 :root[data-theme='dark'] {
+  /* Reader health status steps, validated for color-vision deficiency on the dark card surface. */
+  --reader-ok: #45a866;
+  --reader-degraded: #b98122;
+  --reader-down: #c23b30;
+  --reader-unknown: #4a3d33;
+  --reader-signal: #eba454;
   color-scheme: dark;
   color: #f2e8dd;
   background: #1a1410;
