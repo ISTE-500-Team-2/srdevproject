@@ -67,7 +67,7 @@ export function AssistedPurchase({ heading = true, ...props }: ComponentProps<ty
           <input type="date" required min={zonedDay(props.timeZone)} value={date} onChange={event => setDate(event.target.value)} />
         </Field> : null}
         {offer?.kind === 'membership' && offer.amountCents > 0 ? <>
-          <p>This membership starts after payment and renews monthly at {cents(offer.amountCents)}. Future rates depend on the member’s eligibility.</p>
+          <p>This membership starts after payment and renews monthly at {cents(offer.amountCents)}. That rate stays the same for as long as this subscription runs, even if the member’s eligibility changes.</p>
           <label><input type="checkbox" name="autoRenewConsent" required /> The member has agreed to monthly automatic renewal.</label>
         </> : null}
         <p>Access is issued only after Stripe confirms payment, or after approved free access is verified. Cancelling checkout does not issue access.</p>

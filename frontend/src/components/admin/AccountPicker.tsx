@@ -11,13 +11,15 @@ import { Modal } from "../Modal";
 import { recentAccounts, rememberAccount, type RecentAccount } from "../../lib/recentAccounts";
 import { initials, isProtectedAccount, roleLabel } from "./people";
 import { MemberPhoto } from "../MemberPhoto";
+import { accessWords, accountWords } from "../staff/record/recordModel";
 
 /** Why a search result can't be opened, or null when it can. */
 function unavailable(person: Person, selfId: number | undefined) {
   if (person.id === selfId) return null;
   if (isProtectedAccount(person)) return "Staff account";
-  if (person.status !== "active") return "Suspended";
-  if (person.accessStatus !== "active") return "Restricted";
+  // The member record's words, so the reason reads the same as the control that set it.
+  if (person.status !== "active") return accountWords(person.status);
+  if (person.accessStatus !== "active") return `Access ${accessWords(person.accessStatus).toLowerCase()}`;
   return null;
 }
 

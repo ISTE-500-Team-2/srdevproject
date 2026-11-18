@@ -11,8 +11,11 @@ import { ScanControls } from "./ScanControls";
 
 export function AssignmentResults({
   assignments,
+  timeZone,
 }: {
   assignments: CardAssignment[];
+  /** The facility's zone, so assignment times match the tap times beside them. */
+  timeZone: string;
 }) {
   return (
     <div className="nfc-lookup-results" role="status">
@@ -24,7 +27,7 @@ export function AssignmentResults({
               {a.memberName}
             </strong>
             <br />
-            {a.label} · {dateTime(a.assignedAt)} ·{" "}
+            {a.label} · {dateTime(a.assignedAt, timeZone)} ·{" "}
             <Link to={`/admin/access?member=${a.userId}`}>
               Open {a.memberName}’s cards
             </Link>
@@ -47,7 +50,9 @@ export function CardLookup({
   const scan = useCardScan("lookup");
   const [results, setResults] = useState<CardAssignment[] | null>(null),
     [fromTap, setFromTap] = useState(false),
-    [busy, setBusy] = useState(tapId !== undefined),
+    // The tap's own lookup is tracked apart from a typed one, so each says what it checks.
+    [tapBusy, setTapBusy] = useState(tapId !== undefined),
+    [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   useEffect(() => {
     if (tapId === undefined) return;
@@ -63,7 +68,7 @@ export function CardLookup({
         }
       })
       .catch((e) => current && setError(errorMessage(e)))
-      .finally(() => current && setBusy(false));
+      .finally(() => current && setTapBusy(false));
     return () => {
       current = false;
     };
@@ -96,7 +101,10 @@ export function CardLookup({
       </p>
       <ScanControls setup={setup} scan={scan} />
       {scan.scan?.status === "captured" ? (
-        <AssignmentResults assignments={scan.scan.assignments ?? []} />
+        <AssignmentResults
+          assignments={scan.scan.assignments ?? []}
+          timeZone={setup.timeZone}
+        />
       ) : null}
       {setup.configured && !scan.scan ? (
         <details>
@@ -115,7 +123,7 @@ export function CardLookup({
             <p id="lookup-uid-help" className="nfc-help">
               {uidHelp}
             </p>
-            <button className="button button--quiet" disabled={busy}>
+            <button className="button button--quiet" disabled={busy || tapBusy}>
               {busy ? "Looking up card…" : "Look up card"}
             </button>
           </form>
@@ -126,7 +134,7 @@ export function CardLookup({
           {error}
         </p>
       ) : null}
-      {tapId !== undefined && busy && !results ? (
+      {tapBusy ? (
         <p className="nfc-help" role="status">
           Looking up the card from that tap…
         </p>
@@ -136,7 +144,7 @@ export function CardLookup({
           {fromTap ? (
             <p className="nfc-help">Card from the selected tap:</p>
           ) : null}
-          <AssignmentResults assignments={results} />
+          <AssignmentResults assignments={results} timeZone={setup.timeZone} />
         </>
       ) : null}
     </section>

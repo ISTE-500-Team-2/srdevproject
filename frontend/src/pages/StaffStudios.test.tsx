@@ -16,7 +16,8 @@ vi.mock("../lib/api", () => ({
   ApiError: class extends Error {},
 }));
 
-const hold = "2026-10-30T16:00:00Z";
+// Desk holds last about 30 minutes; the page's clock is 2026-10-28 12:00 PM in New York.
+const hold = "2026-10-28T16:25:00Z";
 const paris: Studio = {
   id: 7,
   name: "Paris",
@@ -87,7 +88,7 @@ test("staff record a desk payment with its receipt number right in the queue", a
   show();
   const queue = await screen.findByRole("region", { name: "Needs you" });
   const row = within(queue).getByText("Collect from Priya Nair").closest("li")!;
-  expect(within(row).getByText(/hold ends Fri, Oct 30/)).toBeTruthy();
+  expect(within(row).getByText("Ref 000021 · hold ends 12:25 PM · 25 min left")).toBeTruthy();
   expect(within(row).getByText("$400.00")).toBeTruthy();
   fireEvent.change(within(row).getByLabelText("Receipt or check number for Priya Nair"), { target: { value: " 4471 " } });
   fireEvent.submit(within(row).getByLabelText("Receipt or check number for Priya Nair").closest("form")!);
@@ -154,4 +155,43 @@ test("a studio without terms opens straight into the rate form for admins", asyn
   const sheet = screen.getByRole("dialog", { name: "Big Apple" });
   expect(within(sheet).getByLabelText("Monthly rate")).toBeTruthy();
   expect(within(sheet).getByText("Saving offers Big Apple to members at this rate.")).toBeTruthy();
+});
+
+test("a desk hold about to run out is urgent, and one that ran out can't be paid", async () => {
+  serve([paris, coruscant, bigApple], [
+    { ...rentals[0], hold_until: "2026-10-28T16:08:00Z" },
+    { ...rentals[0], id: 24, member_name: "Sam Ruiz", hold_until: "2026-10-28T15:58:00Z" },
+  ]);
+  show();
+  const queue = await screen.findByRole("region", { name: "Needs you" });
+  const soon = within(queue).getByText("Collect from Priya Nair").closest("li")!;
+  expect(within(soon).getByText("Ref 000021 · hold ends 12:08 PM · 8 min left")).toBeTruthy();
+  expect(soon.className).toContain("desk-task--urgent");
+  const lapsed = within(queue).getByText("Collect from Sam Ruiz").closest("li")!;
+  expect(within(lapsed).getByText("Hold ran out at 11:58 AM. It can't be paid now.")).toBeTruthy();
+  expect(lapsed.className).not.toContain("desk-task--urgent");
+  expect(within(lapsed).queryByRole("button", { name: "Record payment" })).toBeNull();
+  expect(within(lapsed).queryByLabelText(/Receipt or check number/)).toBeNull();
+});
+
+test("opening Record payment moves focus to the receipt box", async () => {
+  show();
+  const queue = await screen.findByRole("region", { name: "Needs you" });
+  const row = within(queue).getByText("Collect from Priya Nair").closest("li")!;
+  const start = within(row)
+    .getAllByRole("button", { name: "Record payment" })
+    .find((b) => b.hasAttribute("aria-expanded"))!;
+  expect(start.getAttribute("aria-expanded")).toBe("false");
+  const input = within(row).getByLabelText("Receipt or check number for Priya Nair");
+  expect(start.getAttribute("aria-controls")).toBe(input.closest("form")!.id);
+  fireEvent.click(start);
+  expect(start.getAttribute("aria-expanded")).toBe("true");
+  expect(document.activeElement).toBe(input);
+});
+
+test("the studio sheet shows each upcoming hold's time and booking reference", async () => {
+  show();
+  fireEvent.click(await screen.findByRole("button", { name: /^Coruscant/ }));
+  const sheet = screen.getByRole("dialog", { name: "Coruscant" });
+  expect(within(sheet).getByText("Nov 1 – Nov 30, 2026 · held, pay by 12:25 PM · ref 000021")).toBeTruthy();
 });

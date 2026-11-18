@@ -27,6 +27,12 @@ test('card purchase sends member-specific quote and explicit renewal consent, an
  } });
  expect(props.onSaved).not.toHaveBeenCalled();
 });
+test('a monthly card plan tells staff its rate is fixed for the life of the subscription', () => {
+ render(<AssistedPurchase {...props} />);
+ fireEvent.change(screen.getByLabelText('Plan to purchase'), { target: { value: '7' } });
+ expect(screen.getByText(/rate stays the same for as long as this subscription runs/)).toBeTruthy();
+ expect(screen.queryByText(/Future rates depend/)).toBeNull();
+});
 test('day pass sends chosen visit date without subscription consent', async () => {
  api.mockRejectedValueOnce(new Error('Checkout unavailable')); render(<AssistedPurchase {...props} />);
  fireEvent.change(screen.getByLabelText('Plan to purchase'), { target: { value: '8' } });

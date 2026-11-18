@@ -5,14 +5,13 @@ import type { LiveEquipment } from "../lib/contracts";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useApi } from "../lib/useApi";
-import type { ComplianceReport } from "../lib/staffContracts";
 import { Plus } from "lucide-react";
 import { CertificationCatalog } from "./training/CertificationCatalog";
 import { CourseEditorDialog } from "./training/CourseEditorDialog";
 import { MemberTrainingRecords } from "./training/MemberTrainingRecords";
 import { RecordTrainingDialog } from "./training/RecordTrainingDialog";
 import { RevokeTrainingDialog } from "./training/RevokeTrainingDialog";
-import type { Course, CourseEditor, SaveOutcome, TrainingRecord, TrainingTarget } from "./training/trainingTypes";
+import type { CertificationHolders, Course, CourseEditor, SaveOutcome, TrainingRecord, TrainingTarget } from "./training/trainingTypes";
 import "./certwaiver.css";
 export function TrainingPage({ embedded = false }: { embedded?: boolean }) {
   const { user } = useAuth();
@@ -54,7 +53,7 @@ function TrainingWorkspace({
   const equipment = useApi<LiveEquipment[]>("/equipment");
   const [memberId, setMemberId] = useState("");
   const records = useApi<TrainingRecord[]>(memberId ? `/training/users/${memberId}` : null);
-  const stats = useApi<ComplianceReport>(canConfigure ? "/admin/compliance?userStatus=active" : null);
+  const holders = useApi<CertificationHolders[]>(canConfigure ? "/training/catalog/holders" : null, { retainOnReload: true });
   const [editor, setEditor] = useState<CourseEditor | null>(null);
   const [recording, setRecording] = useState<TrainingTarget | null>(null);
   const [revoking, setRevoking] = useState<TrainingRecord | null>(null);
@@ -64,6 +63,7 @@ function TrainingWorkspace({
     saved: () => {
       catalog.reload();
       if (memberId) records.reload();
+      if (canConfigure) holders.reload();
       setMessage("Training records saved.");
     },
   };
@@ -87,7 +87,7 @@ function TrainingWorkspace({
       <CertificationCatalog
         catalog={catalog}
         equipment={equipment.data}
-        compliance={stats.data}
+        holders={holders.data}
         canConfigure={canConfigure}
         onEdit={(course) => setEditor({ mode: "edit", course })}
       />
