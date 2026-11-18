@@ -15,6 +15,11 @@ import { StudioStripe } from './studios/stripe.js';
 const config = readConfig();
 const pool = createPool();
 await pool.query('SELECT 1 FROM app_session LIMIT 1');
+// Reports and bookings convert dates in SQL as well, so the database must know the zone too.
+await pool.query('SELECT NOW() AT TIME ZONE $1', [config.timeZone]).catch((error) => {
+  if (error?.code === '22023') throw new Error(`The database does not recognize APP_TIME_ZONE ${config.timeZone}`);
+  throw error;
+});
 const notifications = startNotificationRuntime(pool, config.notifications);
 const policies = startPolicyRuntime(pool);
 const equipmentPayments = startEquipmentReconciliation(new EquipmentBilling(pool,

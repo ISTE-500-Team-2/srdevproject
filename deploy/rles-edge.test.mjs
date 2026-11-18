@@ -42,8 +42,13 @@ test('portal, all reader IDs and health use one upstream; signed bytes survive u
       assert.equal(received.headers['x-reader-timestamp'],headers['X-Reader-Timestamp']);
       assert.equal(received.headers['x-forwarded-proto'],'https');
       assert.equal(received.headers.forwarded,undefined);
-      assert.equal(received.headers['x-forwarded-for'],undefined);
+      // Not an address: the app is told the peer the edge saw instead.
+      assert.equal(received.headers['x-forwarded-for'],'127.0.0.1');
     }
+    // The front proxy's own entry (the last) names the visitor; client-written entries are dropped.
+    await fetch(base+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json',
+      'X-Forwarded-For':'198.51.100.7, 203.0.113.9'},body:'{}'});
+    assert.equal(seen.at(-1).headers['x-forwarded-for'],'203.0.113.9');
     const count=seen.length;
     assert.equal((await fetch(base+'/api/gateway/health')).status,401);
     assert.equal((await fetch(base+'/api/gateway/unknown')).status,404);

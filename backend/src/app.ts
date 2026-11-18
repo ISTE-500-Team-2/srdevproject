@@ -66,6 +66,8 @@ export function createApp(
   const readers = new ReaderRegistry(pool,config.devices);
   app.use((_req, _res, next) => auditContext.run({}, next));
   app.disable('x-powered-by');
+  // Behind the configured proxies req.ip is the visitor, not the proxy (sign-in limits use it).
+  if (config.trustProxy !== undefined) app.set('trust proxy', config.trustProxy);
   app.use(compression({ filter: shouldCompress }));
   app.use((_req, res, next) => {
     res.set('X-Content-Type-Options', 'nosniff');

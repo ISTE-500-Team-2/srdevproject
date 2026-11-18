@@ -51,18 +51,52 @@ test('signup stages an expiring request with no member, role, preference or sess
   assert.equal((await pool.query('SELECT COUNT(*)::int AS n FROM "user" WHERE email=$1',[input.email])).rows[0].n,1);
 });
 
-test('duplicate requests cannot replace passwords or spam an inbox, while authenticated resends rotate links',async()=>{
-  const input=person('repeated@example.invalid');await register(input.email);
+// Previously a second sign-up was silently dropped, so whoever staged an address first chose the
+// password of the account its owner later confirmed.
+test('a newer sign-up replaces a pending one: earlier links stop working and the newest password wins',async()=>{
+  const input=person('repeated@example.invalid');
+  // A stranger stages the address first, with a password of their choosing.
+  assert.equal((await request(app).post('/api/auth/register').send({...input,firstName:'Stranger',password:'StrangerPassword!'})).status,202);
+  const strangers=await confirmationToken(pool,input.email);
+  // The owner signs up; nothing tells them the address was already pending.
+  const owners=await register(input.email);
+  assert.equal(owners.status,202);
+  const current=await confirmationToken(pool,input.email);
+  assert.notEqual(current,strangers);
+  assert.equal((await pool.query(`SELECT COUNT(*)::int AS n FROM app_notification_outbox WHERE status='pending' AND registration_id=(SELECT id FROM app_pending_registration WHERE email=$1)`,[input.email])).rows[0].n,1);
+  assert.equal((await request(app).post('/api/auth/confirm').send({token:strangers})).status,400);
+  const confirmed=await request(app).post('/api/auth/confirm').send({token:current});
+  assert.equal(confirmed.status,200);assert.equal(confirmed.body.data.user.firstName,'Pending');
+  assert.equal((await request(app).post('/api/auth/login').send({email:input.email,password:'StrangerPassword!'})).status,401);
+  assert.equal((await request(app).post('/api/auth/login').send({email:input.email,password:input.password})).status,200);
+});
+
+test('authenticated resends rotate links, at most once a minute',async()=>{
+  const input=person('resent@example.invalid');await register(input.email);
   const old=await confirmationToken(pool,input.email);
-  assert.equal((await request(app).post('/api/auth/register').send({...input,password:'DifferentPassword!'})).status,202);
-  assert.equal(await confirmationToken(pool,input.email),old);
-  assert.equal((await pool.query('SELECT COUNT(*)::int AS n FROM app_notification_outbox WHERE registration_id=(SELECT id FROM app_pending_registration WHERE email=$1)',[input.email])).rows[0].n,1);
   assert.equal((await request(app).post('/api/auth/confirmation').send({...input,newEmail:'corrected@example.invalid'})).status,429);
   await pool.query("UPDATE app_pending_registration SET sent_at=NOW()-INTERVAL '61 seconds' WHERE email=$1",[input.email]);
   assert.equal((await request(app).post('/api/auth/confirmation').send({...input,newEmail:'corrected@example.invalid'})).status,202);
   assert.equal((await request(app).post('/api/auth/confirm').send({token:old})).status,400);
   assert.equal((await pool.query('SELECT 1 FROM "user" WHERE email=$1',['corrected@example.invalid'])).rowCount,0);
   assert.notEqual(await confirmationToken(pool,'corrected@example.invalid'),old);
+});
+
+test('signing up with an address that has an account looks like any sign-up, and its owner is told',async()=>{
+  const fresh=await request(createApp(pool,config)).post('/api/auth/register').send(person('brand-new@example.invalid'));
+  const taken=await request(createApp(pool,config)).post('/api/auth/register').send({...person(' Demo.Member@Collaboratory.invalid '),password:'AnotherPassword!'});
+  assert.equal(taken.status,fresh.status);
+  assert.deepEqual(Object.keys(taken.body.data).sort(),Object.keys(fresh.body.data).sort());
+  assert.equal(taken.body.data.email,'demo.member@collaboratory.invalid');
+  assert.equal((await pool.query('SELECT 1 FROM app_pending_registration WHERE email=$1',['demo.member@collaboratory.invalid'])).rowCount,0);
+  const notices=async()=>(await pool.query(`SELECT o.kind,o.status FROM app_notification_outbox o JOIN "user" u USING(userid)
+    WHERE u.email='demo.member@collaboratory.invalid' AND o.kind='account_exists'`)).rows;
+  assert.deepEqual(await notices(),[{kind:'account_exists',status:'pending'}]);
+  // Repeated attempts don't flood the owner's inbox.
+  await request(createApp(pool,config)).post('/api/auth/register').send(person('demo.member@collaboratory.invalid'));
+  assert.equal((await notices()).length,1);
+  // The account itself is untouched.
+  assert.equal((await request(app).post('/api/auth/login').send({email:'demo.member@collaboratory.invalid',password:'AnotherPassword!'})).status,401);
 });
 
 test('the email worker sends staged confirmation without activating a member and expired requests are purged',async()=>{
@@ -92,9 +126,12 @@ test('signup, duplicates, correction, delivery, login and password recovery shar
   const initial='first.last+studio@example.com', corrected='first.last+workshop@example.com';
   const input=person(' First.Last+Studio@Example.COM ');
   assert.equal((await request(flow).post('/api/auth/register').send(input)).status,202);
-  const old=await confirmationToken(pool,initial);
+  const first=await confirmationToken(pool,initial);
+  // The same address in other letter case is the same pending request, sent a fresh link.
   assert.equal((await request(flow).post('/api/auth/register').send({...input,email:initial.toUpperCase()})).status,202);
-  assert.equal(await confirmationToken(pool,initial),old);
+  const old=await confirmationToken(pool,initial);
+  assert.notEqual(old,first);
+  assert.equal((await pool.query('SELECT COUNT(*)::int AS n FROM app_pending_registration WHERE lower(email)=$1',[initial])).rows[0].n,1);
   await pool.query("UPDATE app_pending_registration SET sent_at=NOW()-INTERVAL '61 seconds' WHERE email=$1",[initial]);
   assert.equal((await request(flow).post('/api/auth/confirmation').send({...input,newEmail:' First.Last+Workshop@Example.COM '})).status,202);
   assert.equal((await request(flow).post('/api/auth/confirm').send({token:old})).status,400);

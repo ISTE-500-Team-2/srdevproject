@@ -30,6 +30,7 @@ import {
   requireCsrf,
   requireStaff,
   authRateLimit,
+  authState,
 } from "./middleware/auth.js";
 import { StaffController } from "./controllers/StaffController.js";
 
@@ -45,16 +46,31 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   const staff = new StaffController(pool, config.timeZone);
   const permit = (resource: string, action: string, scope: "own" | "global" = "global") => requirePermission(pool,resource,action,scope);
   const protectedRoute = requireUser(pool, config);
-  const rateLimit = authRateLimit();
+  // Every route has its own budget, so one endpoint's traffic never spends another's allowance.
+  // Sign-in counts failures only: per address, and per account from that address, so a busy
+  // class signing in, or one person's typos, never locks out everyone else on that address.
+  const loginLimit = authRateLimit({ failuresOnly: true });
+  const loginAccountLimit = authRateLimit({ limit: 10, failuresOnly: true,
+    key: (req) => typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase().slice(0, 254) : "" });
+  const confirmLimit = authRateLimit({ failuresOnly: true });
+  const resendLimit = authRateLimit();
+  const demoLimit = authRateLimit();
   // Sign-up has its own smaller IP budget so garbage registrations do not exhaust login attempts.
   const signupLimit = authRateLimit({ limit:10, message:"Too many sign-up attempts. Please wait 15 minutes before trying again." });
-  // Cookie rotations have their own bounded throttle, not the sign-in budget.
-  // CSRF, origin and rotating-cookie validation are unchanged.
-  // Failed sign-ins (and other members on a shared network) must not lock people out of recovery.
-  const resetLimit = authRateLimit({ message: "Too many password reset attempts. Please wait a few minutes and try again." });
-  // Same budget as sign-in: members at the front desk share one public address.
-  const credentialLimit = authRateLimit({ message: "Too many password attempts. Please wait 15 minutes and try again." });
-  const refreshLimit = authRateLimit({ limit: 120, windowMs: 60000,
+  // Failed sign-ins, other members on a shared network and public reset traffic must not lock
+  // people out of recovery, or administrators out of sending a reset.
+  const resetMessage = "Too many password reset attempts. Please wait a few minutes and try again.";
+  const resetRequestLimit = authRateLimit({ message: resetMessage });
+  const resetCheckLimit = authRateLimit({ message: resetMessage });
+  const resetConfirmLimit = authRateLimit({ message: resetMessage });
+  const emailChangeConfirmLimit = authRateLimit({ message: resetMessage });
+  const adminResetLimit = authRateLimit({ message: resetMessage });
+  // Both check the current password; wrong guesses count against the person at the keyboard only.
+  const credentialLimit = authRateLimit({ failuresOnly: true, message: "Too many password attempts. Please wait 15 minutes and try again.",
+    key: (_req, res) => { const { user, actor } = authState(res); return String((actor ?? user).id); } });
+  // Cookie rotations have their own bounded throttle, not the sign-in budget. Every page load
+  // renews, so only failed renewals count. CSRF, origin and rotating-cookie validation are unchanged.
+  const refreshLimit = authRateLimit({ limit: 120, windowMs: 60000, failuresOnly: true,
     message: "Too many session refreshes. Please retry shortly." });
   routes.get("/health", async (_req, res) => {
     await pool.query("SELECT 1");
@@ -65,15 +81,15 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
       data: { demoLogin: config.demoLogin, timeZone: config.timeZone },
     }),
   );
-  routes.post("/auth/login", rateLimit, auth.login);
+  routes.post("/auth/login", loginLimit, loginAccountLimit, auth.login);
   routes.post("/auth/register", signupLimit, auth.register);
-  routes.post("/auth/confirm", rateLimit, auth.confirm);
-  routes.post("/auth/confirmation", rateLimit, auth.confirmation);
-  routes.post("/auth/password-reset", resetLimit, auth.passwordReset);
-  routes.post("/auth/password-reset/check", resetLimit, auth.checkPasswordReset);
-  routes.post("/auth/password-reset/confirm", resetLimit, auth.confirmPasswordReset);
-  routes.post("/auth/email-change/confirm", resetLimit, auth.confirmEmailChange);
-  if (config.demoLogin) routes.post("/auth/demo", rateLimit, auth.demo);
+  routes.post("/auth/confirm", confirmLimit, auth.confirm);
+  routes.post("/auth/confirmation", resendLimit, auth.confirmation);
+  routes.post("/auth/password-reset", resetRequestLimit, auth.passwordReset);
+  routes.post("/auth/password-reset/check", resetCheckLimit, auth.checkPasswordReset);
+  routes.post("/auth/password-reset/confirm", resetConfirmLimit, auth.confirmPasswordReset);
+  routes.post("/auth/email-change/confirm", emailChangeConfirmLimit, auth.confirmEmailChange);
+  if (config.demoLogin) routes.post("/auth/demo", demoLimit, auth.demo);
   routes.get("/auth/csrf", auth.csrf);
   routes.post("/auth/refresh", refreshLimit, auth.refresh);
   routes.get("/auth/session", protectedRoute, auth.current);
@@ -102,7 +118,7 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   routes.patch("/me/notifications", permit("notification", "update", "own"), settingsAreMemberOnly, requireCsrf, notifications.update);
 
   routes.patch("/me/profile", permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, member.profile);
-  // Both check the current password, so they share a per-address attempt budget.
+  // Both check the current password, so they share one attempt budget.
   routes.post("/me/password", credentialLimit, permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, auth.changePassword);
   routes.post("/me/email-change", credentialLimit, permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, auth.requestEmailChange);
   routes.post("/me/email-change/resend", permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, auth.resendEmailChange);
@@ -132,7 +148,7 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   routes.post("/admin/plans", permit("plan","create","global"), requireCsrf, staff.createPlan);
   routes.patch("/admin/plans/:id", permit("plan","update","global"), requireCsrf, staff.updatePlan);
   routes.get("/admin/users", permit("user","read","global"), staff.users);
-  routes.post("/admin/users/:id/password-reset", requireCsrf, resetLimit, auth.adminPasswordReset);
+  routes.post("/admin/users/:id/password-reset", requireCsrf, adminResetLimit, auth.adminPasswordReset);
   routes.get("/admin/users/:id", permit("user","read","global"), staff.user);
   routes.get("/admin/users/:id/signed-waivers", permit("waiver","read","global"), waiverRecords.member);
   routes.get("/admin/users/:id/signed-waivers/:waiverId/copy", permit("waiver","read","global"), waiverRecords.memberCopy);

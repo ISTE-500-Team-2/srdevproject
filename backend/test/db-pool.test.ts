@@ -15,3 +15,15 @@ test('optional pool sizing keeps the existing default and bounds deployment conn
     }
   }finally{if(previous===undefined)delete process.env.ARBOR_DB_POOL_MAX;else process.env.ARBOR_DB_POOL_MAX=previous;}
 });
+
+test('a pooled connection the server drops is logged instead of crashing the process',async()=>{
+  const pool=createPool();
+  const logged:unknown[][]=[];
+  const original=console.error;
+  console.error=(...args:unknown[])=>{logged.push(args);};
+  try{
+    // EventEmitter throws an 'error' event that has no listener, which would end the process.
+    assert.doesNotThrow(()=>pool.emit('error',Object.assign(new Error('terminating connection due to administrator command'),{code:'57P01'})));
+    assert.deepEqual(logged,[['Idle database connection lost',{code:'57P01'}]]);
+  }finally{console.error=original;await pool.end();}
+});

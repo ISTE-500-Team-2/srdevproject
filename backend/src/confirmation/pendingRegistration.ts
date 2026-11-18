@@ -37,15 +37,27 @@ export async function sendRegistrationConfirmation(db: Database, id: number, ori
     [id, `registration:${hash}`, JSON.stringify({ confirmationUrl: url.href, confirmationHash: hash, expiresAt: expires.toISOString() })]);
 }
 
-/** Duplicate unverified attempts neither overwrite somebody's password nor generate repeated email. */
+/**
+ * Stage a sign-up and email its confirmation link. Every attempt looks the same to the caller, so
+ * sign-up never reveals whether an address belongs to a member: an existing account's owner gets a
+ * notice instead (at most one an hour). A newer sign-up for a still-pending address replaces its
+ * details, password and link, so a stranger who staged that address first can't have their
+ * password become the account its owner later confirms.
+ */
 export async function stageRegistration(db: Database, input: RegistrationInput, origin: string) {
   await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,30))', [input.email]);
-  if ((await db.query('SELECT 1 FROM "user" WHERE lower(email)=$1', [input.email])).rows.length)
-    throw new AppError(409, 'EMAIL_ALREADY_REGISTERED', 'An account with that email address already exists.', 'email');
-  const row = (await db.query(`INSERT INTO app_pending_registration(email,first_name,last_name,phone,dob,password_hash,time_zone)
-    VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(email) DO NOTHING RETURNING id`,
-    [input.email,input.firstName,input.lastName,input.phone,input.dob,input.password,input.timeZone])).rows[0];
-  if (row) await sendRegistrationConfirmation(db, row.id, origin);
+  const existing = (await db.query<{ userid: number }>('SELECT userid FROM "user" WHERE lower(email)=$1', [input.email])).rows[0];
+  if (existing) {
+    await enqueueNotification(db, { userId: existing.userid, kind: 'account_exists',
+      dedupeKey: `account-exists:${existing.userid}:${Math.floor(Date.now() / 3_600_000)}`, payload: {} });
+    return;
+  }
+  const row = (await db.query<{ id: number }>(`INSERT INTO app_pending_registration(email,first_name,last_name,phone,dob,password_hash,time_zone)
+    VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(email) DO UPDATE SET first_name=EXCLUDED.first_name,last_name=EXCLUDED.last_name,
+    phone=EXCLUDED.phone,dob=EXCLUDED.dob,password_hash=EXCLUDED.password_hash,time_zone=EXCLUDED.time_zone RETURNING id`,
+    [input.email,input.firstName,input.lastName,input.phone,input.dob,input.password,input.timeZone])).rows[0]!;
+  // A fresh token: links sent for an earlier sign-up stop working.
+  await sendRegistrationConfirmation(db, row.id, origin);
 }
 
 /** Possession of a live, single-use inbox token is required before allocating a user, role or session. */

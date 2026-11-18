@@ -189,11 +189,14 @@ test('a login verified with the old password cannot create a session after reset
   } finally { await blocker.query('ROLLBACK'); blocker.release(); await login; }
 });
 
-test('all three public reset routes share the existing authentication throttle', async () => {
+// Each reset route has its own budget: spending one (or failed sign-ins) never blocks another.
+test('each public reset route is throttled on its own budget', async () => {
   for (let i = 0; i < 30; i++) assert.equal((await check('bad')).status, 400);
-  for (const response of [await ask('unknown@example.invalid'), await check('bad'), await confirm('bad')]) {
-    assert.equal(response.status, 429); assert.equal(response.body.error.code, 'RATE_LIMITED'); assert.ok(response.headers['retry-after']);
-  }
+  const response = await check('bad');
+  assert.equal(response.status, 429); assert.equal(response.body.error.code, 'RATE_LIMITED'); assert.ok(response.headers['retry-after']);
+  for (let i = 0; i < 31; i++) await request(app).post('/api/auth/login').send({ email: 'unknown@example.invalid', password: 'WrongPassword!' });
+  assert.equal((await ask('unknown@example.invalid')).status, 202);
+  assert.equal((await confirm('bad')).status, 400);
 });
 
 test('concurrent correct legacy logins both succeed when only one bcrypt upgrade wins', async () => {

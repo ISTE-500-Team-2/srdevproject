@@ -42,10 +42,11 @@ test('each invalid signup property is named in the error body',async()=>{
   assert.equal((await pool.query('SELECT COUNT(*)::int AS n FROM app_pending_registration')).rows[0].n,0);
 });
 
-test('an address that already has an account is an email error',async()=>{
+// Sign-up never says whether an address is a member's; the owner is emailed instead.
+test('an address that already has an account is not reported as an error',async()=>{
   const response=await register({...person,email:'demo.member@collaboratory.invalid'});
-  assert.equal(response.status,409);
-  assert.deepEqual(response.body.error,{code:'EMAIL_ALREADY_REGISTERED',message:'An account with that email address already exists.',field:'email'});
+  assert.equal(response.status,202);
+  assert.equal(response.body.error,undefined);
 });
 
 test('errors outside signup keep their existing body',async()=>{

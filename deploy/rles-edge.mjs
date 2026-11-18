@@ -3,6 +3,7 @@
 import http from 'node:http';
 import {createHash,timingSafeEqual} from 'node:crypto';
 import {readFileSync,writeFileSync,renameSync} from 'node:fs';
+import {isIP} from 'node:net';
 import {pathToFileURL} from 'node:url';
 import path from 'node:path';
 
@@ -15,6 +16,13 @@ export function readProductionRoute(file) {
        (!PUBLIC_PORTS.includes(route.previousPublicPort) || route.previousPublicPort === route.publicPort)))
     throw Error('Invalid production route');
   return route;
+}
+
+// Only allowed peers get this far. The last X-Forwarded-For entry is the address the front
+// proxy itself saw (anything left of it came from the client); a direct peer is named as-is.
+export function clientAddress(req) {
+  const last=String(req.headers['x-forwarded-for'] ?? '').split(',').map(s=>s.trim()).filter(Boolean).at(-1);
+  return last && isIP(last) ? last : req.socket.remoteAddress;
 }
 
 export function createEdge({digest,allowedPeers,stateFile,applicationPort=8082,routeFile}) {
@@ -31,7 +39,9 @@ export function createEdge({digest,allowedPeers,stateFile,applicationPort=8082,r
       if (req.url?.startsWith('/api/gateway/')) return send(404,{error:'Not found'});
       const headers={...req.headers,'x-forwarded-proto':'https'};
       delete headers.forwarded;
-      delete headers['x-forwarded-for'];
+      // Exactly one address, the visitor's, so the app's sign-in limits (TRUST_PROXY=1) count
+      // each person instead of treating every visitor as this edge.
+      headers['x-forwarded-for']=clientAddress(req);
       // Snapshot one owner-written atomic route per request. Never route to a
       // demo port or retry access decisions against another application.
       let route;

@@ -177,6 +177,39 @@ test('an account that becomes restricted closes itself on the next request',asyn
   assert.ok(stored.rows.every(row=>row.acting_as_userid===null));
 });
 
+// Previously the change went ahead as the staff member, on their own account, and reported success.
+test('a change meant for an account that became restricted is refused, not made on the staff account',async()=>{
+  const target=await register('restrictedwrite');
+  await as(admin).post('/admin/account-mode',{userId:target.user.id});
+  await pool.query(`UPDATE "user" SET accessstatus='suspended' WHERE userid=$1`,[target.user.id]);
+  const response=await as(admin).post('/reservations',{});
+  assert.equal(response.status,409);
+  assert.equal(response.body.error.code,'ACCOUNT_MODE_CLOSED');
+  assert.equal((await as(admin).get('/auth/session')).body.data.actingAs,null);
+  // Back in their own account, the staff member's own changes go through as usual.
+  assert.equal((await as(admin).post('/reservations',{})).body.error.code,'INVALID_INPUT');
+});
+
+test('a change from a tab showing a different account than the open one is refused',async()=>{
+  const target=await register('othertab');
+  await as(admin).post('/admin/account-mode',{userId:target.user.id});
+  try {
+    // A tab still showing the staff member's own account, after another tab opened the member's.
+    const stale=await as(admin).post('/reservations',{}).set('X-Account-Subject',String(admin.user.id));
+    assert.equal(stale.status,409);
+    assert.equal(stale.body.error.code,'ACCOUNT_CHANGED');
+    // The tab showing the open account proceeds to the route's own checks.
+    assert.equal((await as(admin).post('/reservations',{}).set('X-Account-Subject',String(target.user.id))).body.error.code,'INVALID_INPUT');
+    // Reads follow the open account; workspace requests are always the staff member's own.
+    assert.equal((await as(admin).get('/auth/session').set('X-Account-Subject',String(admin.user.id))).status,200);
+    assert.equal((await as(admin).patch(`/admin/users/${target.user.id}/profile`,{}).set('X-Account-Subject',String(admin.user.id))).body.error?.code===`ACCOUNT_CHANGED`,false);
+  } finally {
+    assert.equal((await as(admin).post('/admin/account-mode/end').set('X-Account-Subject',String(target.user.id))).status,200);
+  }
+  // A member's own tab naming themselves is unaffected.
+  assert.equal((await as(member).post('/reservations',{}).set('X-Account-Subject',String(member.user.id))).body.error.code,'INVALID_INPUT');
+});
+
 test('staff-assisted checkout scopes prices and purchases to the selected member and records the staff initiator', async () => {
  const path=`/admin/users/${member.user.id}/purchase`;
  assert.equal((await as(member).get(path)).status,403);

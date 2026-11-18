@@ -19,7 +19,7 @@ export function createPool(): Pool {
   const configuredMax = process.env.ARBOR_DB_POOL_MAX ?? '10';
   if (!/^[1-9]\d?$/.test(configuredMax) || Number(configuredMax) > 30)
     throw new Error('ARBOR_DB_POOL_MAX must be an integer from 1 to 30');
-  return new Pool({
+  const pool = new Pool({
     ...(process.env.DATABASE_URL
       ? { connectionString: process.env.DATABASE_URL }
       : {}),
@@ -29,6 +29,15 @@ export function createPool(): Pool {
     statement_timeout: 10000,
     application_name: 'collaboratory-mvc',
   });
+  // An idle connection the server drops (restart, failover, terminated backend) is
+  // reported here. Without a listener Node treats it as uncaught and exits; with one,
+  // the pool discards that client and opens a new connection on the next query.
+  pool.on('error', (error: Error & { code?: unknown }) => {
+    console.error('Idle database connection lost', {
+      code: typeof error.code === 'string' ? error.code : undefined,
+    });
+  });
+  return pool;
 }
 
 /**

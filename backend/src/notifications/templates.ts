@@ -10,6 +10,7 @@ const headings = {
   email_change_requested: 'Your sign-in email is changing',
   photo_removed: 'Your profile photo was removed',
   account_created: 'Your account has been created',
+  account_exists: 'You already have an account',
   account_creation_failed: 'Account creation could not be completed',
   account_closed: 'Your account has been closed',
   waiver_signed: 'Your signed waiver copy',
@@ -49,7 +50,7 @@ const headings = {
 
 export type NotificationKind = keyof typeof headings;
 /** Account-security mail: always sent, whatever the member's notification preferences say. */
-export const securityKinds: readonly NotificationKind[] = ['password_reset', 'password_changed', 'email_change_confirmation', 'email_change_requested'];
+export const securityKinds: readonly NotificationKind[] = ['password_reset', 'password_changed', 'email_change_confirmation', 'email_change_requested', 'account_exists'];
 export const notificationKinds = Object.keys(headings) as NotificationKind[];
 export const isNotificationKind = (kind: string): kind is NotificationKind => Object.hasOwn(headings, kind);
 export type NotificationPayload = Record<string, unknown>;
@@ -153,6 +154,10 @@ const copy: Record<NotificationKind, Copy> = {
     cta: ['Go to login', '/login'] },
   account_created: { category: 'Account', status: 'Ready', tone: 'success',
     intro: () => 'Your email is confirmed and you’re ready to sign in.', cta: ['Open my dashboard', '/'] },
+  // Sign-up answers every address the same way, so the owner hears about it here instead.
+  account_exists: { category: 'Account', status: 'Already registered', tone: 'info',
+    intro: () => 'Someone tried to sign up with this email address. It already belongs to your member account, so no new account was created.',
+    cta: ['Go to login', '/login'] },
   account_creation_failed: { category: 'Account', status: 'Not completed', tone: 'danger',
     intro: () => 'We couldn’t finish setting up your account. Please try signing up again.', cta: ['Try again', '/login'] },
   account_closed: { category: 'Account', status: 'Closed', tone: 'info',
@@ -448,6 +453,11 @@ export function renderNotification(kind: NotificationKind, payload: Notification
     rows.length = 0;
     row('New email', field('newEmail'));
     notes.push('If this was you, there’s nothing else to do.', 'If it wasn’t you, change your password right away and contact the studio.');
+    if (cta && preferenceLink) action = { label: cta[0], url: new URL(cta[1], preferenceLink).href };
+  } else if (kind === 'account_exists') {
+    rows.length = 0;
+    notes.push('If this was you, sign in instead. Forgot your password? Choose Forgot password on the login page.',
+      'If it wasn’t you, you can ignore this email. Nothing about your account has changed.');
     if (cta && preferenceLink) action = { label: cta[0], url: new URL(cta[1], preferenceLink).href };
   } else if (cta && preferenceLink) {
     action = { label: cta[0], url: new URL(cta[1], preferenceLink).href };

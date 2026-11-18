@@ -32,7 +32,9 @@ test('registration queues one event; preference ownership, CSRF, validation and 
   assert.equal((await request(app).get('/api/me/notifications')).status,401);
   assert.equal((await agent.patch('/api/me/notifications').send({enabled:false,timeZone:'UTC'})).status,403);
   assert.equal((await agent.patch('/api/me/notifications').set('X-CSRF-Token',csrfToken).send({enabled:false,timeZone:'bad/zone'})).status,400);
-  assert.equal((await request(app).post('/api/auth/register').send(registration)).status,409);
+  // Signing up again is answered like any sign-up; the owner is told rather than the visitor.
+  assert.equal((await request(app).post('/api/auth/register').send(registration)).status,202);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM app_notification_outbox WHERE userid=$1 AND kind='account_exists'",[user.id])).rows[0].n,1);
   assert.equal((await pool.query("SELECT count(*)::int AS n FROM app_notification_outbox WHERE userid=$1 AND kind='account_created'",[user.id])).rows[0].n,1);
   assert.equal((await agent.patch('/api/me/notifications').set('X-CSRF-Token',csrfToken).send({enabled:false,timeZone:'UTC',userId:1})).status,200);
   assert.equal((await pool.query("SELECT status FROM app_notification_outbox WHERE userid=$1 AND kind='account_created'",[user.id])).rows[0].status,'suppressed');

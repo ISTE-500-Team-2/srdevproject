@@ -121,16 +121,16 @@ export class AuthController {
     const email = emailField(req.body.email);
     const password = passwordField(req.body.password);
     const account = await new UserModel(this.pool).credentials(email);
-    // Temporary requests never become members until inbox confirmation.
-    if (!account) {
-      const pending = (await this.pool.query('SELECT password_hash FROM app_pending_registration WHERE email=$1 AND expires_at>NOW()', [email])).rows[0];
-      if (pending && await verifyPassword(password,pending.password_hash))
-        throw new AppError(403,'EMAIL_CONFIRMATION_REQUIRED','Confirm your email before signing in.');
-    }
+    // Temporary requests never become members until inbox confirmation. Every path compares
+    // exactly one hash, so response time doesn't reveal whether an account or sign-up exists.
+    const pending = account ? undefined
+      : (await this.pool.query('SELECT password_hash FROM app_pending_registration WHERE email=$1 AND expires_at>NOW()', [email])).rows[0];
     const valid = await verifyPassword(
       password,
-      account?.password ?? (await this.dummyHash),
+      account?.password ?? pending?.password_hash ?? (await this.dummyHash),
     );
+    if (!account && pending && valid)
+      throw new AppError(403,'EMAIL_CONFIRMATION_REQUIRED','Confirm your email before signing in.');
     if (!account || !valid)
       throw new AppError(
         401,
@@ -172,27 +172,9 @@ export class AuthController {
     };
     // Public registrations remain temporary requests until an inbox token is consumed.
     await pruneRegistrations(this.pool);
-
-    try {
-      await transaction(this.pool, db => stageRegistration(db, { ...input, timeZone },
-        this.config.notifications?.appOrigin ?? this.config.allowedOrigins[0]!));
-    } catch (error) {
-      if (
-        typeof error === 'object' &&
-        error !== null &&
-        'code' in error &&
-        error.code === '23505'
-      ) {
-        throw new AppError(
-          409,
-          'EMAIL_ALREADY_REGISTERED',
-          'An account with that email address already exists.',
-          'email',
-        );
-      }
-
-      throw error;
-    }
+    // Same answer whether or not the address already has an account: its owner is emailed instead.
+    await transaction(this.pool, db => stageRegistration(db, { ...input, timeZone },
+      this.config.notifications?.appOrigin ?? this.config.allowedOrigins[0]!));
     const notification = renderNotificationTemplate('accountCreation', {
       firstName: input.firstName,
       email: input.email,

@@ -12,14 +12,18 @@ import { UserModel } from "../models/UserModel.js";
 import { accountModeRefusal, assertAllowedWhileActing, isWorkspacePath } from "../accountMode.js";
 
 export const cookieName = "arbor_refresh";
+/**
+ * The refresh cookie, or "" when there is none. Ours is host-only, so a browser holds one. A second
+ * copy can only come from another site under the same parent domain (cookie tossing), and browsers
+ * send its longer path first, so a request carrying more than one is treated as signed out rather
+ * than letting the planted cookie choose whose session this is.
+ */
 export function refreshToken(req: Request): string {
-  return (
-    (req.headers.cookie ?? "")
-      .split(";")
-      .map((s) => s.trim())
-      .find((s) => s.startsWith(`${cookieName}=`))
-      ?.slice(cookieName.length + 1) ?? ""
-  );
+  const values = (req.headers.cookie ?? "")
+    .split(";")
+    .map((s) => s.trim())
+    .filter((s) => s.startsWith(`${cookieName}=`));
+  return values.length === 1 ? values[0]!.slice(cookieName.length + 1) : "";
 }
 export function sessionToken(req: Request): string {
   const header = req.get("Authorization") ?? "";
@@ -47,6 +51,11 @@ export function requireStaff(_req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+/** A request that writes to whichever account it runs as. Signing out ends the sign-in itself. */
+const changesAccount = (req: Request) =>
+  !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
+  req.path.toLowerCase().replace(/\/+$/, "") !== "/auth/logout";
+
 /**
  * Resolve current session/account data on every request, then bind the real operator separately
  * from any member being assisted.
@@ -73,12 +82,24 @@ export function requireUser(pool: Pool, config: AppConfig) {
         "This account does not currently have access. Please see staff.",
       );
     let subject = user;
-    if (session.actingAsUserId && !isWorkspacePath(req.path)) {
+    const workspace = isWorkspacePath(req.path);
+    if (session.actingAsUserId && !workspace) {
       const opened = await new UserModel(pool, config.timeZone).findById(session.actingAsUserId);
       // Re-check every request: roles, suspensions and restrictions change.
-      if (accountModeRefusal(user, opened)) await sessions.setActingAs(token, null);
-      else subject = opened!;
+      const refusal = accountModeRefusal(user, opened);
+      if (refusal) {
+        await sessions.setActingAs(token, null);
+        // A change meant for the member must never quietly land on the staff member's own account.
+        if (changesAccount(req))
+          throw new AppError(409, "ACCOUNT_MODE_CLOSED", `The account you were working in was closed, so nothing was changed. ${refusal}`);
+      } else subject = opened!;
     }
+    // The page names the account it is showing. The open account lives on the sign-in, so another
+    // tab may have opened, switched or closed one since; refuse rather than change someone else's.
+    const shown = req.get("X-Account-Subject");
+    if (shown && !workspace && changesAccount(req) && shown !== String(subject.id))
+      throw new AppError(409, "ACCOUNT_CHANGED",
+        "A different account is open now than the one this page was showing, so nothing was changed. Check whose account you're in and try again.");
     if (subject !== user) assertAllowedWhileActing(req, user, subject);
     res.locals.auth = {
       user: subject,
@@ -140,11 +161,22 @@ export function checkOrigin(config: AppConfig) {
 }
 
 /**
- * Create a bounded, process-local IP budget; separate instances let recovery and refresh avoid
- * consuming the login allowance.
+ * Create a bounded, process-local attempt budget. Give each route its own instance, so one
+ * endpoint's traffic never spends another's allowance. Budgets are per client address (req.ip,
+ * which is the visitor only when 'trust proxy' names the proxies in front of the app); `key`
+ * narrows one further, for example to one account from one address. With `failuresOnly`, a
+ * request that succeeds hands its attempt back, so ordinary sign-ins and session renewals never
+ * use up anyone's allowance. Attempts still count while in flight, so parallel guesses can't
+ * overrun the limit.
  */
 export function authRateLimit(
-  options: { limit?: number; windowMs?: number; message?: string } = {},
+  options: {
+    limit?: number;
+    windowMs?: number;
+    message?: string;
+    key?: (req: Request, res: Response) => string;
+    failuresOnly?: boolean;
+  } = {},
 ) {
   const limit = options.limit ?? 30;
   const windowMs = options.windowMs ?? 15 * 60000;
@@ -153,12 +185,24 @@ export function authRateLimit(
     const now = Date.now();
     for (const [key, value] of attempts)
       if (value.until <= now) attempts.delete(key);
-    const key = req.ip ?? "unknown";
-    const record = attempts.get(key) ?? { count: 0, until: now + windowMs };
-    if (attempts.size >= 2048 && !attempts.has(key))
-      throw new AppError(429, "RATE_LIMITED", "Please try again later.");
+    const address = req.ip ?? "unknown";
+    const key = options.key ? `${address}\n${options.key(req, res)}` : address;
+    let record = attempts.get(key);
+    if (!record) {
+      // A full table forgets its oldest entry; refusing every newcomer would lock out the site.
+      if (attempts.size >= 2048) attempts.delete(attempts.keys().next().value!);
+      record = { count: 0, until: now + windowMs };
+      attempts.set(key, record);
+    }
     record.count++;
-    attempts.set(key, record);
+    if (options.failuresOnly) {
+      const counted = record;
+      res.once("finish", () => {
+        if (res.statusCode >= 400) return;
+        counted.count--;
+        if (counted.count <= 0 && attempts.get(key) === counted) attempts.delete(key);
+      });
+    }
     if (record.count > limit) {
       res.set("Retry-After", String(Math.ceil((record.until - now) / 1000)));
       throw new AppError(
