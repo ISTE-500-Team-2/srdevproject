@@ -16,11 +16,16 @@ import { MemoryRouter } from "react-router-dom";
 import { setAccessToken, setCsrfToken } from "../../src/lib/api";
 import { lastWorkspacePathKey } from "../../src/components/admin/people";
 import App from "../../src/App";
+import { loadStaffArea } from "../../src/areas/load";
 import { createBrowserBridge } from "../../../backend/test/helpers/browserBridge";
 
 let bridge: Awaited<ReturnType<typeof createBrowserBridge>>;
 beforeAll(async () => {
   bridge = await createBrowserBridge();
+  // Compile the staff workspace once, up front. A broken module then fails here with its
+  // real error instead of a "page couldn't load" screen, and the 20-second waits below time
+  // the app rather than first-time module compilation on a busy machine.
+  await loadStaffArea();
 }, 120000);
 afterAll(async () => {
   cleanup();
