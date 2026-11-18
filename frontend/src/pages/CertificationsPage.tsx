@@ -329,6 +329,14 @@ function CertRow({ item }: { item: CertItem }) {
 
 /** A signature this close to running out is flagged so members are not surprised at the door. */
 const EXPIRY_WARNING_DAYS = 30;
+/**
+ * Signed, but close to running out (the same 30 days as the expiry reminder email), so a new
+ * agreement renews it without a gap. The server decides, by its own clock, so the page never offers
+ * a signature the server would not record.
+ */
+const renewable = (item: Waiver) => item.signed && !!item.renewable;
+/** Waiting for the member's agreement: unsigned, out of date, expired, or about to expire. */
+const signable = (item: Waiver) => !item.signed || renewable(item);
 
 function waiverPill(item: Waiver) {
   const terms = item.name === 'Terms of Service';
@@ -414,7 +422,7 @@ export function CertificationsPage() {
       setBusy(false);
     }
   };
-  const agreementControls = selected && !selected.signed ? (
+  const agreementControls = selected && signable(selected) ? (
     <>
       <label className="check-control">
         <input type="checkbox" checked={accepted} disabled={busy}
@@ -582,13 +590,21 @@ export function CertificationsPage() {
                         </span>
                       </div>
                       {!item.signed && <p>{item.scope === 'equipment' ? 'Required before booking or using equipment that requires a waiver' : 'Required for facility access and day passes'}</p>}
-                      {item.signed ? null : item.expiredSignature ? (
+                      {renewable(item) ? (
+                        <p>{item.scope === 'equipment'
+                          ? 'Sign it again now to keep booking equipment that needs this waiver past its expiry date.'
+                          : 'Sign it again now to keep facility access and day passes without a gap.'}</p>
+                      ) : item.signed ? null : item.expiredSignature ? (
                         <p>Your signature has expired. Review and sign again. Last signed: {item.signedVersion}.</p>
                       ) : item.outdatedSignature ? (
                         <p>New version needs your signature. Last signed: {item.signedVersion ?? 'earlier version'}.</p>
                       ) : null}
                     </div>
-                    {item.signed || !canSign ? (
+                    {renewable(item) && canSign ? (
+                      <button type="button" className="button button--primary button--small" onClick={() => open(item)}>
+                        Sign again
+                      </button>
+                    ) : item.signed || !canSign ? (
                       <button type="button" className="text-link" onClick={() => open(item)}>
                         View policy
                       </button>
@@ -618,7 +634,7 @@ export function CertificationsPage() {
           if (!busy) setSelected(null);
         }}
       >
-        {selected?.formFields?.length && !selected.signed && canSign ? (
+        {selected?.formFields?.length && signable(selected) && canSign ? (
           <WaiverDocumentForm key={selected.id} waiver={selected} user={user} busy={busy}
             onSubmit={(values, guardianConsent) => void sign(values, guardianConsent)}>
             {agreementControls}
@@ -629,7 +645,7 @@ export function CertificationsPage() {
             <p className="policy-text">
               {selected.description || 'Policy content has not been provided.'}
             </p>
-            {!selected.signed ? (
+            {signable(selected) ? (
               canSign ? agreementControls : (
                 <p>{user?.firstName ?? 'The member'} has to sign this in their own account.</p>
               )

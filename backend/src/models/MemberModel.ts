@@ -5,6 +5,7 @@ import { MinorSupervision } from "../minorSupervision.js";
 import type { Database } from '../db.js';
 import { checkInOriginSql } from "./checkInOrigin.js";
 import { DEFAULT_BUILDING_ID } from '../facility.js';
+import { EXPIRATION_LOOKAHEAD_DAYS } from '../notifications/scheduler.js';
 
 export class MemberModel {
   constructor(private db: Database, private timeZone = "America/New_York") {}
@@ -25,11 +26,14 @@ export class MemberModel {
     ).rows;
   }
   async signWaiver(userId: number, waiverId: number) {
-    // Caller provides the transaction. Preserve expired signatures and their
-    // immutable copies while permitting a new explicit agreement.
+    // Caller provides the transaction. Preserve earlier signatures and their
+    // immutable copies while permitting a new explicit agreement. A signature
+    // that has expired, or runs out within the window its expiry reminder
+    // covers, is superseded, so members can renew before it lapses; a newer
+    // one is left as it is and signing again changes nothing.
     await this.db.query("SELECT pg_advisory_xact_lock(hashtext('arbor-waiver-sign'),hashtext($1))",[`${userId}:${waiverId}`]);
     await this.db.query(`UPDATE user_waiver SET approval=false WHERE userid=$1 AND waiverid=$2
-      AND approval=true AND expires_at<=NOW()`,[userId,waiverId]);
+      AND approval=true AND expires_at<=NOW()+make_interval(days=>$3::int)`,[userId,waiverId,EXPIRATION_LOOKAHEAD_DAYS]);
     const result = await this.db.query(
       `INSERT INTO user_waiver (userid,waiverid,signdate,approval,expires_at)
       VALUES ($1,$2,NOW() AT TIME ZONE 'UTC',true,(SELECT (NOW() AT TIME ZONE 'UTC'+make_interval(days=>validity_days)) AT TIME ZONE 'UTC' FROM waiver WHERE waiverid=$2)) ON CONFLICT (userid,waiverid) WHERE approval=true DO NOTHING RETURNING userwaiverid AS id, signdate AT TIME ZONE 'UTC' AS "signedAt",expires_at AS "expiresAt"`,

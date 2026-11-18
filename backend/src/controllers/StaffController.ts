@@ -124,7 +124,7 @@ export class StaffController {
       this.model.memberships(id),
       this.model.passes(id),
       this.model.payments(id, 0, {}, "staff"),
-      this.model.audits({ subjectId: id, withoutBookkeeping: true }),
+      this.model.audits({ subjectId: id, recordActivity: true }),
       this.pool.query(
         `SELECT checkinid AS id,location,status,checkintime AT TIME ZONE 'UTC' AS "checkedInAt" FROM check_in WHERE userid=$1 ORDER BY checkintime DESC LIMIT 50`,
         [id],

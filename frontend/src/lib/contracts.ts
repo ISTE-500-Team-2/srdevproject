@@ -121,6 +121,8 @@ export interface Waiver {
   expiredSignature: boolean;
   /** When the current signature runs out, or when the last one of this version did; null if it never expires. */
   expiresAt?: string | null;
+  /** Signed, but close enough to running out that signing again now renews it (decided by the server). */
+  renewable?: boolean;
 }
 export type WaiverLineKind = 'acceptance-method' | 'heading' | 'text';
 /** What a blank means, independent of its label's wording. */
