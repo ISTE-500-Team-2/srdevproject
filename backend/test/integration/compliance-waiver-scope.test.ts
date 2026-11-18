@@ -156,3 +156,61 @@ test("an equipment waiver nobody owes yet keeps its card with no one counted", a
     client.release();
   }
 });
+
+test("training is owed only for certifications a member holds or has held", async () => {
+  const member = async (name: string) =>
+    new UserModel(pool).create({
+      firstName: name,
+      lastName: "Training",
+      email: `${name.toLowerCase()}-training@example.invalid`,
+      phone: "555-0107",
+      password: "unused-test-credential",
+      dob: "1990-01-01",
+    });
+  const untrained = await member("Untrained");
+  const current = await member("Current");
+  const lapsed = await member("Lapsed");
+  await pool.query(
+    `INSERT INTO certifications(certid,name,description,effectivedate)
+     VALUES(98200,'Scope router training','Training scope fixture',(NOW()-INTERVAL '1 day') AT TIME ZONE 'UTC')`,
+  );
+  await pool.query(
+    `INSERT INTO user_certifications(usercertid,userid,certid,status,renewaldate) VALUES
+     (98201,$1,98200,'active',(NOW()+INTERVAL '1 year') AT TIME ZONE 'UTC'),
+     (98202,$2,98200,'active',(NOW()-INTERVAL '1 day') AT TIME ZONE 'UTC')`,
+    [current, lapsed],
+  );
+  const reports = new ComplianceReports(pool);
+  const all = await reports.compliance(
+    { waiverId: null, certificationId: null, expiresWithinDays: null, userStatus: "active", offset: 0 },
+    true,
+  );
+  const row = (id: number) => all.users.find((u) => u.id === id)!;
+
+  // Never trained on anything: no training to renew, so nothing is missing or flagged.
+  assert.equal(row(untrained).certificationCompliant, true);
+  assert.deepEqual(row(untrained).missingCertifications, []);
+  assert.equal(row(untrained).issues.some((i) => i.kind === "certification"), false);
+  // Holding only this certification, current, isn't marked lapsed for every other one.
+  assert.equal(row(current).certificationCompliant, true);
+  assert.deepEqual(row(current).missingCertifications, []);
+  // Lapsed training is still flagged, as expired.
+  assert.equal(row(lapsed).certificationCompliant, false);
+  assert.deepEqual(row(lapsed).missingCertifications, ["Scope router training"]);
+  assert.equal(row(lapsed).issues.find((i) => i.kind === "certification")?.state, "expired");
+
+  // The certification's card counts the members who hold it, not everyone.
+  const card = all.certificationBreakdown.find((c) => c.id === 98200)!;
+  assert.deepEqual({ total: card.total, compliant: card.compliant }, { total: 2, compliant: 1 });
+
+  // Filtering to the certification asks who has it, so there everyone counts and the rest are missing.
+  const filtered = await reports.compliance(
+    { waiverId: null, certificationId: 98200, expiresWithinDays: null, userStatus: "active", offset: 0 },
+    true,
+  );
+  assert.equal(filtered.certificationBreakdown[0]!.total, filtered.summary.userCount);
+  const inFilter = (id: number) => filtered.users.find((u) => u.id === id)!;
+  assert.equal(inFilter(untrained).certificationCompliant, false);
+  assert.deepEqual(inFilter(untrained).missingCertifications, ["Scope router training"]);
+  assert.equal(inFilter(current).certificationCompliant, true);
+});

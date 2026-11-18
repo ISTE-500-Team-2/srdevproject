@@ -140,9 +140,12 @@ test("card membership: ending access waits for renewal to stop, and a renewal ke
   assert.deepEqual([january.status, january.receipt], ["active", null]);
   assert.equal((await listed(january.id)).autoRenews, true);
   // Ending access while the card still renews would keep charging for a period that stays ended.
-  await assert.rejects(change(january.id, "revoked", "Banned"), {
-    code: "CARD_RENEWAL_ACTIVE",
-    message: /Choose Stop auto-renew on Carded’s membership first/,
+  // Stopping renewal gives at least 30 days' notice, so staff aren't promised there's no further charge.
+  await assert.rejects(change(january.id, "revoked", "Banned"), (error: Error & { code?: string }) => {
+    assert.equal(error.code, "CARD_RENEWAL_ACTIVE");
+    assert.match(error.message, /First choose Stop auto-renew on Carded’s membership, then end access/);
+    assert.match(error.message, /there may be one more charge/);
+    return true;
   });
   assert.equal((await pool.query("SELECT status FROM user_membership WHERE membershipid=$1", [january.id])).rows[0].status, "active");
 

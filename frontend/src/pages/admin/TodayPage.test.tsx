@@ -62,6 +62,12 @@ test("one endpoint failure leaves other panels and the header intact", async () 
   expect(screen.getByText("Member 1")).toBeTruthy();
   expect(screen.getByText(/7 people checked in today/)).toBeTruthy();
 });
+test("check-ins say whether they were a tag at a reader or staff at the desk, never the member portal", async () => {
+  mount();
+  expect(await screen.findByRole("img", { name: "Tag at a reader" })).toBeTruthy();
+  expect(screen.getAllByRole("img", { name: "Checked in by staff" })).toHaveLength(5);
+  expect(screen.queryByRole("img", { name: "Member portal" })).toBeNull();
+});
 test("Show all expands and collapses the check-in list", async () => {
   mount(); const button = await screen.findByRole("button", { name: "Show all 7" });
   expect(screen.queryByText("Member 7")).toBeNull(); fireEvent.click(button);

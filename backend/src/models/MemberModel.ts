@@ -59,7 +59,10 @@ export class MemberModel {
       )
     ).rows;
   }
-  /** `statusDesc` says how the check-in was verified; the front desk passes its own. */
+  /**
+   * `statusDesc` says how the check-in was verified; the front desk passes its own. Every caller
+   * is staff (see CheckInOrigin), and the origin stays 'portal': recorded in the web app, not at a reader.
+   */
   async createCheckIn(userId: number, location: string, roomId: number | null = null,
     buildingId: number | null = null, equipmentId: number | null = null, reservationId: number | null = null,
     statusDesc = 'Eligibility verified by member portal') {

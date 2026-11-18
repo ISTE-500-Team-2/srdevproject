@@ -159,8 +159,12 @@ export class ComplianceReports {
           ORDER BY signdate DESC,userwaiverid DESC LIMIT 1
         ) sig ON true
       ),
+      -- Every member and current certification, so each keeps its card. Training is owed only for
+      -- certifications the member holds or has held: nobody needs to renew training they never took.
+      -- Filtering to one certification asks who has it, so there everyone counts and the rest are missing.
       certification_status AS (
         SELECT ru.userid,c.certid,c.name,uc.status,uc.renewaldate,c.enddate,
+          ($2::int IS NOT NULL OR uc.usercertid IS NOT NULL) AS owed,
           CASE
             WHEN uc.renewaldate IS NULL THEN c.enddate
             WHEN c.enddate IS NULL THEN uc.renewaldate
@@ -211,7 +215,7 @@ export class ComplianceReports {
             'expiresAt',effective_expires_at AT TIME ZONE 'UTC') ORDER BY name)
             FILTER (WHERE NOT compliant OR (effective_expires_at IS NOT NULL
               AND effective_expires_at<=NOW() AT TIME ZONE 'UTC'+make_interval(days=>COALESCE($3::int,30)))) AS issues
-        FROM certification_status GROUP BY userid
+        FROM certification_status WHERE owed GROUP BY userid
       ),
       user_rollup AS (
         SELECT ru.userid AS id,ru.firstname AS "firstName",ru.lastname AS "lastName",ru.email,ru.status,ru.accessstatus AS "accessStatus",
@@ -257,9 +261,9 @@ export class ComplianceReports {
             COUNT(*) FILTER (WHERE owed AND expiring)::int AS expiring
             FROM waiver_status ws JOIN window_users fu ON fu.id=ws.userid GROUP BY waiverid,name,version) w),'[]'::json) AS "waiverBreakdown",
         COALESCE((SELECT json_agg(row_to_json(c) ORDER BY name)
-          FROM (SELECT certid AS id,name,COUNT(*)::int AS total,
-            COUNT(*) FILTER (WHERE compliant)::int AS compliant,
-            COUNT(*) FILTER (WHERE expiring)::int AS expiring
+          FROM (SELECT certid AS id,name,COUNT(*) FILTER (WHERE owed)::int AS total,
+            COUNT(*) FILTER (WHERE owed AND compliant)::int AS compliant,
+            COUNT(*) FILTER (WHERE owed AND expiring)::int AS expiring
             FROM certification_status cs JOIN window_users fu ON fu.id=cs.userid GROUP BY certid,name) c),'[]'::json) AS "certificationBreakdown",
         (SELECT COUNT(*)::int FROM filtered_users) AS "filteredCount"`;
     const row = (await this.db.query<ComplianceRow>(query, params)).rows[0]!;

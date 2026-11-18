@@ -9,8 +9,8 @@ import {
   Drill,
   FilePenLine,
   GraduationCap,
-  Monitor,
   Nfc,
+  UserCheck,
   Wrench,
 } from "lucide-react";
 import { LoadState } from "../../components/Management";
@@ -431,10 +431,12 @@ function CheckedInPanel({ state, report, zone }: { state: Result<unknown> | unde
                 <span className="today-who-place">{person.location}</span>
               </div>
               <span className="today-who-time">
+                {/* Members check in only at readers, so any other check-in today was staff at the
+                    desk (the desk check-in, or Check in from an account opened with View as). */}
                 {person.method === "nfc" ? (
                   <Nfc role="img" aria-label="Tag at a reader" />
                 ) : (
-                  <Monitor role="img" aria-label="Member portal" />
+                  <UserCheck role="img" aria-label="Checked in by staff" />
                 )}
                 {formatTime(person.at, zone)}
               </span>

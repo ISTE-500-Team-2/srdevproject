@@ -1,4 +1,9 @@
-/** How a check-in was recorded; stored in check_in.origin (migration 040). */
+/**
+ * How a check-in was recorded; stored in check_in.origin (migration 040). "portal" is any
+ * check-in recorded in the web app rather than at a reader. Members can only check themselves
+ * in at a reader, so new ones are staff at the front desk (the desk check-in, or Check in from
+ * an account opened with View as); older ones may be a member's own web check-in.
+ */
 export type CheckInOrigin = "nfc" | "portal";
 
 /**
