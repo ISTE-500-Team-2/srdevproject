@@ -72,7 +72,12 @@ export async function resendRegistration(db: Database, email: string, password: 
   // Sorted email locks also serialize two requests attempting to exchange addresses.
   for (const address of [...new Set([email, newEmail ?? email])].sort())
     await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,30))', [address]);
-  const row = (await db.query('SELECT * FROM app_pending_registration WHERE email=$1 FOR UPDATE', [email])).rows[0];
+  const pendingAt = async (address: string) =>
+    (await db.query('SELECT * FROM app_pending_registration WHERE email=$1 FOR UPDATE', [address])).rows[0];
+  // The answer never says whether a correction moved anything, so the page repeats the
+  // same pair on a retry: the sign-up may still wait under the old address (say the
+  // password was mistyped) or already under the corrected one.
+  const row = await pendingAt(email) ?? (newEmail ? await pendingAt(newEmail) : undefined);
   if (!row || !await verifyPassword(password, row.password_hash)) return false;
   if (row.sent_at && Date.now() - row.sent_at.getTime() < 60_000)
     throw new AppError(429, 'CONFIRMATION_RATE_LIMITED', 'Wait one minute before requesting another confirmation.');

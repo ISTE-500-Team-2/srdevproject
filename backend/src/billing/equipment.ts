@@ -86,7 +86,7 @@ export class EquipmentBilling {
       // keep the hold and its idempotency key so a retry cannot charge twice.
       if (!row.checkout_id && error instanceof Stripe.errors.StripeInvalidRequestError)
         await this.expireUnopened(id, 'Checkout creation rejected', false);
-      throw new AppError(503, 'CHECKOUT_UNAVAILABLE', 'Stripe checkout could not be opened. Refresh your reservations and resume payment to try again.');
+      throw new AppError(503, 'CHECKOUT_UNAVAILABLE', 'Stripe checkout could not be opened. Refresh your reservations and resume payment to try again.', undefined, { cause: error });
     }
     if (session.metadata?.equipmentReservationId !== String(id))
       throw new AppError(400, 'PAYMENT_MISMATCH', 'Equipment checkout identity mismatch.');

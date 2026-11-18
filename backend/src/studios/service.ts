@@ -328,6 +328,8 @@ export class StudioService {
           503,
           "CHECKOUT_UNAVAILABLE",
           "Card checkout couldn't be opened. Your hold is kept for now: use Finish card payment under Your rentals to try again, or cancel it.",
+          undefined,
+          { cause: error },
         );
       }
       return { ...opened.rental, checkoutUrl: opened.session?.url ?? null };
@@ -601,6 +603,8 @@ export class StudioService {
         502,
         "PAYMENT_RECONCILE",
         "Card checkout couldn't be reached. Try again in a moment.",
+        undefined,
+        { cause: error },
       );
     }
     let session = opened.session;
@@ -670,6 +674,8 @@ export class StudioService {
         502,
         "REFUND_PENDING",
         "Booking cancelled; refund needs retry by staff.",
+        undefined,
+        { cause: error },
       );
     }
   }
