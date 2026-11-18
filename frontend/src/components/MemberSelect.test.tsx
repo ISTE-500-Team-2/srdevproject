@@ -5,7 +5,8 @@ import userEvent from "@testing-library/user-event";
 import { MemberSelect } from "./MemberSelect";
 import { Modal } from "./Modal";
 import { api } from "../lib/api";
-vi.mock("../lib/api", () => ({
+vi.mock("../lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/api")>()),
   api: vi.fn(),
   errorMessage: (e: Error) => e.message,
 }));
