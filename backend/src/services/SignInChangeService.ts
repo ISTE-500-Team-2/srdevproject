@@ -72,7 +72,7 @@ export class SignInChangeService {
       // may have come from whoever the member is locking out.
       await db.query('DELETE FROM app_password_reset WHERE userid=$1', [userId]);
       await db.query(`UPDATE app_notification_outbox SET status='obsolete',counts_for_sla=false,updated_at=NOW()
-        WHERE userid=$1 AND kind='password_reset' AND status IN ('pending','pending_v2')`, [userId]);
+        WHERE userid=$1 AND kind='password_reset' AND status='pending'`, [userId]);
       const cancelled = await cancelEmailChange(db, userId);
       await enqueueNotification(db, { userId, kind: 'password_changed', dedupeKey: `password-changed:${randomUUID()}`, payload: {} });
       const staff = new StaffModel(db, this.config.timeZone);

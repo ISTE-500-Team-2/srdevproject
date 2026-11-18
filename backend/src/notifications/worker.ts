@@ -36,7 +36,7 @@ export async function runNotificationBatch(pool:Pool,send:Send,options:{batchSiz
   for(let i=0;i<batchSize;i++) {
     const row=await transaction(pool,async db=>{
       const selected=await db.query<PendingNotification>(`SELECT o.id,o.userid AS "userId",o.registration_id AS "registrationId",o.kind,o.dedupe_key AS "dedupeKey",o.payload,
-        o.attempts,o.due_at AS "dueAt",o.deadline_at AS "deadlineAt",
+        o.attempts,COALESCE(o.worker_v2_due_at,o.due_at) AS "dueAt",o.deadline_at AS "deadlineAt",
         -- Email-change notices go where they were addressed: the new inbox, or the one in use when asked.
         COALESCE(CASE WHEN o.kind IN ('email_change_confirmation','email_change_requested') THEN o.payload->>'recipientEmail' END,u.email,r.email) AS email,
         COALESCE(u.firstname,r.first_name) AS "firstName",
@@ -46,7 +46,10 @@ export async function runNotificationBatch(pool:Pool,send:Send,options:{batchSiz
         LEFT JOIN app_notification_preferences p ON p.userid=o.userid
         -- One person's mail, such as a reset link, goes ahead of an announcement to every account, even
         -- one still sending after its hour has passed. Within each group, the nearest deadline goes first.
-        WHERE o.status IN ('pending','pending_v2') AND o.due_at<=$1 ORDER BY o.payload @> '{"broadcast":true}',o.deadline_at,o.id
+        -- Both branches can use the existing pending due_at index.
+        WHERE o.status='pending'
+          AND (o.due_at<=$1 OR (o.due_at='infinity' AND o.worker_v2_due_at<=$1))
+        ORDER BY o.payload @> '{"broadcast":true}',o.deadline_at,o.id
         LIMIT 1 FOR UPDATE OF o SKIP LOCKED`,[clock()]);
       const item=selected.rows[0];
       if(!item)return null;

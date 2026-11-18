@@ -31,13 +31,13 @@ export async function updateNotificationPreferences(db: Database, userId: number
     [userId,preferences.enabled,preferences.timeZone]);
   // Opting back in never resurrects notices that were intentionally suppressed.
   if (!preferences.enabled) await db.query(`UPDATE app_notification_outbox SET status='suppressed',counts_for_sla=(counts_for_sla AND deadline_at<NOW()),updated_at=NOW()
-    WHERE userid=$1 AND status IN ('pending','pending_v2') AND kind <> ALL($2::text[])`,[userId,securityKinds]);
+    WHERE userid=$1 AND status='pending' AND kind <> ALL($2::text[])`,[userId,securityKinds]);
   // Unsent expiration reminders move to the new zone's send time, computed exactly as when first queued.
   if (preferences.enabled) {
     const { rows } = await db.query<{ id: number; expiresAt: string }>(`SELECT id,payload->>'expiresAt' AS "expiresAt" FROM app_notification_outbox
-      WHERE userid=$1 AND status IN ('pending','pending_v2') AND attempts=0 AND payload ? 'sourceType' AND payload ? 'expiresAt' ORDER BY id FOR UPDATE`,[userId]);
+      WHERE userid=$1 AND status='pending' AND attempts=0 AND payload ? 'sourceType' AND payload ? 'expiresAt' ORDER BY id FOR UPDATE`,[userId]);
     for (const row of rows)
-      await db.query(`UPDATE app_notification_outbox SET due_at=$2,updated_at=NOW() WHERE id=$1 AND status IN ('pending','pending_v2') AND attempts=0`,
+      await db.query(`UPDATE app_notification_outbox SET due_at=$2,updated_at=NOW() WHERE id=$1 AND status='pending' AND attempts=0`,
         [row.id,reminderDates(new Date(row.expiresAt),preferences.timeZone).dueAt]);
   }
   return preferences;
@@ -68,8 +68,8 @@ async function insertOutbox(db: Database, recipients: number | number[], dedupeK
       CASE WHEN (COALESCE(p.enabled,true) OR $2=ANY($8::text[])) AND (u.status='active' OR ($2 IN ('account_confirmation','password_reset','account_exists') AND u.status='pending')) THEN 'pending' ELSE 'suppressed' END,
       $7::boolean AND (COALESCE(p.enabled,true) OR $2=ANY($8::text[])) AND (u.status='active' OR ($2 IN ('account_confirmation','password_reset','account_exists') AND u.status='pending'))
     FROM "user" u LEFT JOIN app_notification_preferences p USING(userid) WHERE ${many ? 'u.userid=ANY($1::int[])' : 'u.userid=$1'}
-    ON CONFLICT(dedupe_key) DO UPDATE SET due_at=EXCLUDED.due_at,deadline_at=EXCLUDED.deadline_at,updated_at=NOW()
-    WHERE app_notification_outbox.status IN ('pending','pending_v2') AND app_notification_outbox.attempts=0
+    ON CONFLICT(dedupe_key) DO UPDATE SET due_at=COALESCE(EXCLUDED.worker_v2_due_at,EXCLUDED.due_at),deadline_at=EXCLUDED.deadline_at,updated_at=NOW()
+    WHERE app_notification_outbox.status='pending' AND app_notification_outbox.attempts=0
       AND EXCLUDED.payload ? 'sourceType'`,[recipients,input.kind,dedupeKey,JSON.stringify(input.payload),dueAt,deadlineAt,input.countsForSla??true,securityKinds]);
 }
 export async function notificationMetrics(
@@ -83,7 +83,7 @@ export async function notificationMetrics(
     COUNT(*) FILTER (WHERE status='accepted')::int AS accepted,
     COUNT(*) FILTER (WHERE status='failed')::int AS failed,
     COUNT(*) FILTER (WHERE status='uncertain')::int AS uncertain,
-    COUNT(*) FILTER (WHERE status IN ('pending','pending_v2'))::int AS pending,
+    COUNT(*) FILTER (WHERE status='pending')::int AS pending,
     COUNT(*) FILTER (WHERE EXISTS(SELECT 1 FROM app_notification_delivery_status e
       WHERE e.outbox_id=o.id AND e.event_type='delivered' AND e.occurred_at<=NOW()))::int AS delivered,
     COUNT(*) FILTER (WHERE deadline_at<=NOW() AND counts_for_sla=true AND EXISTS

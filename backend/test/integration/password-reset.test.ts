@@ -271,6 +271,18 @@ test('admin reset requires admin and CSRF, queues and audits in account mode, an
   assert.equal((await pool.query('SELECT 1 FROM app_password_reset WHERE userid=$1', [target.id])).rowCount, 0);
 });
 
+test('previous release reset cleanup obsoletes and scrubs a protected reset after account activation', async () => {
+  const user = await person('rollbackreset');
+  await pool.query(`UPDATE "user" SET status='pending',email_confirmed=false WHERE userid=$1`, [user.id]);
+  assert.equal((await ask(user.email)).status, 202);
+  const token = await tokenFor(user.id);
+  await pool.query(`UPDATE "user" SET status='active',email_confirmed=true WHERE userid=$1`, [user.id]);
+  // c95a2b5 uses this cleanup before issuing a fresh reset to the now-active account.
+  await pool.query(`UPDATE app_notification_outbox SET status='obsolete',counts_for_sla=false,updated_at=NOW()
+    WHERE userid=$1 AND kind='password_reset' AND status='pending'`, [user.id]);
+  assert.deepEqual(await resetRows(user.id), [{ status: 'obsolete', link: false, hash: sha256(token) }]);
+});
+
 test('an older account that never confirmed its email can reset its password, which confirms and activates it', async () => {
   const user = await person('legacypending');
   await pool.query("DELETE FROM app_notification_outbox WHERE userid=$1 AND kind='account_created'", [user.id]);
@@ -286,7 +298,7 @@ test('an older account that never confirmed its email can reset its password, wh
   assert.notEqual(token, original);
   assert.deepEqual(await resetRows(user.id), [
     { status: 'obsolete', link: false, hash: sha256(original) },
-    { status: 'pending_v2', link: true, hash: sha256(token) },
+    { status: 'pending', link: true, hash: sha256(token) },
   ]);
   assert.equal(await previousNotificationCandidate(pool, new Date()), undefined);
   const sent: string[] = [];

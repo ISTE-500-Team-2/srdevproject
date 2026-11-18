@@ -98,9 +98,9 @@ Schema-changing releases still require separately reviewed backward-compatible
 database changes. This deployer never executes DDL; exact migration checksums
 remain a hard prerequisite.
 
-## Migrations 045 to 052: one new runtime grant
+## Migrations 045 to 053
 
-Apply `045_reader_setup_again.sql` through `050_class_room_cooldown.sql` with the
+Apply `045_reader_setup_again.sql` through `053_notification_worker_compatibility.sql` with the
 existing owner migration process on both the public and demo databases. They add
 no tables or sequences. One grant is new: every minute the application now
 compacts ended reader lease renewals (`backend/src/readerLeaseCompaction.ts`),
@@ -117,6 +117,23 @@ service log shows `Reader lease compaction failed; retrying on the next interval
 (code `42501`) once a minute, and the once-a-second renewal rows keep growing as
 they did before. A role that owns the tables, such as the sponsor hosting kit's
 `arbor` user, needs nothing.
+
+Migration 053 takes a brief exclusive outbox lock to add a nullable column and
+install its queue trigger. It leaves the existing due index in place and does
+not scan or rewrite outbox rows. If 053 cannot get its lock immediately, the
+migration transaction rolls back. Retry through the owner migration process
+during a quieter interval. Rehearse the complete migration batch against a
+restored backup because earlier migrations in the same transaction, including
+046's link cleanup, can hold locks for longer.
+
+On an application rollback, keep all applied migrations in place. The previous
+worker continues to send compatible mail and can still obsolete queued resets,
+apply opt-outs and count protected jobs as pending. Jobs that require the new
+worker keep their original schedules and deadlines and wait for a compatible
+release. A legacy pending account's reset expires 30 minutes after issuance.
+If rollback outlasts the reset, the member can request a fresh one after the new
+release returns. During rollback they can also use email confirmation to
+activate the account and then request a reset through the previous release.
 
 ## Verification
 
