@@ -155,7 +155,9 @@ small {
 
 /* Espresso surfaces in light mode: the orange ring is the one that stands out there. */
 .site-footer,
-.membership-card {
+.membership-card,
+.account-bar,
+.account-help {
   --focus-ring: var(--orange);
 }
 

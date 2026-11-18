@@ -53,14 +53,44 @@ test('a double click is not a confirmation', () => {
   expect(button.textContent).toContain('Press again to confirm');
 });
 
-test('the second press must come soon, and Escape or leaving the button takes the question back', () => {
+// Firefox's accessibility click (NVDA or JAWS in browse mode) reports detail 1, like a mouse, with no press first.
+test('a click with no press behind it counts whatever its detail', () => {
+  const { onHold, button } = mount();
+  fireEvent.click(button, { detail: 1 });
+  expect(button.textContent).toContain('Press again to confirm');
+  wait(800);
+  fireEvent.click(button, { detail: 1 });
+  expect(onHold).toHaveBeenCalledTimes(1);
+});
+
+test('the click that ends a long hold is not taken as a new first press', () => {
+  const { onHold, button } = mount();
+  fireEvent.pointerDown(button, { button: 0, isPrimary: true, pointerId: 1 });
+  wait(4000);
+  expect(onHold).toHaveBeenCalledTimes(1);
+  fireEvent.pointerUp(button, { pointerId: 1 });
+  fireEvent.click(button, { detail: 1 });
+  expect(button.textContent).not.toContain('Press again to confirm');
+  expect(onHold).toHaveBeenCalledTimes(1);
+});
+
+test('the second press has time to come, and the button says when the question lapses', () => {
   const { onHold, button } = mount();
   assistiveClick(button);
-  wait(6000);
+  // Long enough for someone scanning with a switch to get back to the button.
+  wait(20000);
+  expect(button.textContent).toContain('Press again to confirm');
+  wait(10000);
   expect(button.textContent).not.toContain('Press again to confirm');
-  expect(screen.getByRole('status').textContent).toBe('');
+  expect(screen.getByRole('status').textContent).toBe('Not confirmed in time. Nothing was changed.');
   assistiveClick(button);
   expect(onHold).not.toHaveBeenCalled();
+  expect(screen.getByRole('status').textContent).toBe('Press again to confirm');
+});
+
+test('Escape or leaving the button takes the question back', () => {
+  const { onHold, button } = mount();
+  assistiveClick(button);
 
   fireEvent.keyDown(button, { key: 'Escape' });
   expect(button.textContent).not.toContain('Press again to confirm');

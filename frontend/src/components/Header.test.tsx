@@ -51,10 +51,12 @@ const openAccountMenu = async () => {
 const accountMenu = () => document.querySelector<HTMLElement>('.account-menu__popover');
 
 // CardNav's light preset draws a near-white top edge; inline styles can't be themed from dark.css.
-test('the phone menu takes its top-edge highlight from the theme', () => {
+test('the phone menu takes its top-edge highlight and focus ring from the theme', () => {
   render(<MemoryRouter><Header /></MemoryRouter>);
   const menu = mobileNav().closest<HTMLElement>('.card-nav')!;
   expect(menu.style.getPropertyValue('--cn-highlight')).toBe('var(--nav-highlight)');
+  // Orange is ~2:1 on the near-white bar; the theme's ring is at least 3:1 in both themes.
+  expect(menu.style.getPropertyValue('--cn-ring')).toBe('var(--focus-ring)');
 });
 
 test('on desktop, Membership lives in the account menu rather than the top links; phones get it in CardNav', async () => {

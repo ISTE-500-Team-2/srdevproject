@@ -60,6 +60,24 @@ describe('focus', () => {
       expect(contrast(color('var(--focus-ring)', dark), color(`var(${surface})`, dark)), surface).toBeGreaterThanOrEqual(3);
   });
 
+  test('espresso bands with buttons keep the orange ring, which is the one that stands out on them', () => {
+    const styles = parse('styles.css');
+    for (const band of ['.site-footer', '.membership-card', '.account-bar', '.account-help'])
+      expect(declarations(styles, band).get('--focus-ring')?.value, band).toBe('var(--orange)');
+    expect(contrast(color('var(--orange)', light), color('var(--espresso)', light))).toBeGreaterThanOrEqual(3);
+  });
+
+  test("the phone menu's ring reads on its bar, and on every tinted card in the link's own ink", () => {
+    for (const theme of [light, dark])
+      expect(contrast(color('var(--focus-ring)', theme), color('var(--nav-solid)', theme))).toBeGreaterThanOrEqual(3);
+    const cardNav = parse('components/reactbits/CardNav.css');
+    expect(declarations(cardNav, '.card-nav__menu:focus-visible').get('outline')?.value).toBe('2px solid var(--cn-ring)');
+    expect(declarations(cardNav, '.card-nav__link:focus-visible').get('outline')?.value).toBe('2px solid currentColor');
+    for (const theme of [light, dark])
+      for (const card of ['--nav-card-1', '--nav-card-2', '--nav-card-3'])
+        expect(contrast(color(`var(${card}-ink)`, theme), color(`var(${card})`, theme)), card).toBeGreaterThanOrEqual(3);
+  });
+
   test('the sign-in fields drop their outline, so the underline shows focus in both themes', () => {
     const styles = parse('styles.css');
     expect(declarations(styles, '.form-field__control input').get('outline')?.value).toBe('0');
