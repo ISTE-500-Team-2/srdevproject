@@ -422,6 +422,7 @@ export class StaffController {
       ),
       offset: pageOffset(req.query.offset),
       attention: req.query.attention === "true",
+      search: textField(req.query.search ?? "", "Search", 100, 0),
     };
     if (req.query.format === "csv") {
       const report = await this.model.compliance({ ...filters, offset: 0 }, true);

@@ -289,7 +289,8 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
       // account IDs or attendance history for the member response.
       // Seats are public to members. Names are shown only to people registered
       // for this class (plus its instructor and staff), and a classmate under 18
-      // is never named to other members.
+      // is never named to other members. Birth date is optional on older
+      // accounts, so a classmate without one on file may be a minor: hidden too.
       const user = authState(res).user,
         staff = user.roles.some((x) => ["staff", "admin"].includes(x));
       const { rows } = await pool.query(
@@ -301,8 +302,8 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
              AND v.starttime>NOW() AT TIME ZONE 'UTC'),
          people AS (
            SELECT e.user_id,u.firstname,u.lastname,
-             (e.user_id<>$2 AND NOT class.privileged AND u.dob IS NOT NULL
-               AND u.dob::date>((NOW() AT TIME ZONE $4)::date-INTERVAL '18 years')::date) AS hidden
+             (e.user_id<>$2 AND NOT class.privileged AND (u.dob IS NULL
+               OR u.dob::date>((NOW() AT TIME ZONE $4)::date-INTERVAL '18 years')::date)) AS hidden
            FROM class JOIN app_training_enrollment e ON e.class_id=class.id AND e.status IN ('enrolled','attended')
            JOIN "user" u ON u.userid=e.user_id),
          access AS (

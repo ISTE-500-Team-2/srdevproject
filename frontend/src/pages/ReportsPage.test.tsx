@@ -14,7 +14,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 const config = { data: { timeZone: "America/New_York" }, loading: false, refreshing: false, stale: false, error: "", reload: vi.fn() };
-const compliance = { activeAccounts: 10, restrictedAccounts: 1, expiredTraining: 2, activeMemberships: 8, trainingWithoutExpiry: 3, signaturesWithoutCopy: 4, machinesWithoutTraining: ["Saw", "Drill"] };
+const compliance = { activeAccounts: 10, restrictedAccounts: 1, expiredTraining: 2, activeMemberships: 8, membersEndingWithin30Days: 0, trainingWithoutExpiry: 3, signaturesWithoutCopy: 4, machinesWithoutTraining: ["Saw", "Drill"] };
 
 test("B-013, B-014, B-016: records that need a decision are named for staff", () => {
   render(<ComplianceSummary compliance={compliance} />);
@@ -72,7 +72,7 @@ function report(overrides: Partial<Report> = {}): Report {
     compliance: { ...compliance, restrictedAccounts: 0, expiredTraining: 0, trainingWithoutExpiry: 0, signaturesWithoutCopy: 0, machinesWithoutTraining: [] },
     live: [{ kind: "equipment", resourceId: 1, activeReaderLeases: 2 }],
     usage: [],
-    memberships: [{ period: "2026-08-31", newMembers: 2, activeMembers: 5, expiringMembers: 0, cancelledMembers: 0 }],
+    memberships: [{ period: "2026-08-31", newMembers: 2, activeMembers: 5, endedWithoutRenewingMembers: 0, cancelledMembers: 0 }],
     notifications: { cohorts: { membershipExpiration: { ...cohort, eligible: 4, delivery_on_time: 3, deliveryOnTimePercent: 75 } } },
     ...overrides,
   };
@@ -159,6 +159,19 @@ test("a building reader is the front door, never the machine that shares its num
   expect(within(list).getByText("Building")).toBeTruthy();
   expect(within(list).getByText("3 people")).toBeTruthy();
   expect(within(list).getByText("Wood shop")).toBeTruthy();
+});
+
+test("members: lapsed periods are named for what they are, beside a live count of memberships about to end", () => {
+  const current = report({
+    compliance: { ...report().compliance, membersEndingWithin30Days: 3 },
+    memberships: [{ period: "2026-08-31", newMembers: 2, activeMembers: 5, endedWithoutRenewingMembers: 4, cancelledMembers: 0 }],
+  });
+  mount("/admin/reports?range=custom&from=2026-09-01&to=2026-09-30&group=weekly", current, report({ from: "2026-08-02", to: "2026-08-31" }));
+  const members = screen.getByRole("region", { name: "Members by week" });
+  const total = (label: string) => within(members).getByText(label, { selector: "dt" }).nextElementSibling!.textContent;
+  expect(total("Ended without renewing")).toBe("4");
+  expect(total("Ending in the next 30 days")).toBe("3");
+  expect(within(members).queryByText(/expiring/i)).toBeNull();
 });
 
 test("the machine share column says it measures the whole period, not a share of bookings", () => {

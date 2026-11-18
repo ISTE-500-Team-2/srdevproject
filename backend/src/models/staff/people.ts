@@ -23,11 +23,16 @@ export interface StaffPerson {
   photoVersion?: string | null;
   /** Whether a date of birth is recorded. Accounts made before it was collected have none. */
   dobOnFile: boolean;
+  /** Sign-up time; some legacy accounts have none. */
+  createdAt: Date | null;
+  /** Last change to the account record itself (migration 061); null when unknown. */
+  updatedAt: Date | null;
 }
 
 const personColumns = `u.userid AS id,u.firstname AS "firstName",u.lastname AS "lastName",u.email,u.phone,u.status,u.statusdesc AS "accountReason",
   u.primary_role AS "primaryRole",u.is_student AS "isStudent",u.accessstatus AS "accessStatus",u.accessreason AS "accessReason",u.revision,
   COALESCE(u.conductflag,false) AS "conductFlag",u.dob IS NOT NULL AS "dobOnFile",
+  u.registration_date AT TIME ZONE 'UTC' AS "createdAt",u.updated_at AS "updatedAt",
   u.profile_address AS address,u.contact_preferences AS "contactPreferences",
   COALESCE((SELECT json_agg(r.role ORDER BY r.role) FROM user_role ur JOIN role r USING(roleid) WHERE ur.userid=u.userid),'[]') AS roles`;
 

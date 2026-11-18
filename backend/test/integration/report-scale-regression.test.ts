@@ -49,7 +49,7 @@ test('500 members and overlapping renewals remain distinct across the 25-hour DS
     FROM unnest($1::int[]) id`,[ids.slice(0,250)]);
   const actual=await membershipTrends(pool,from,to,'America/New_York','day');
   assert.deepEqual(actual.map((row,i)=>({new:row.newMembers-baseline[i]!.newMembers,
-    active:row.activeMembers-baseline[i]!.activeMembers,expiring:row.expiringMembers-baseline[i]!.expiringMembers})),
+    active:row.activeMembers-baseline[i]!.activeMembers,expiring:row.endedWithoutRenewingMembers-baseline[i]!.endedWithoutRenewingMembers})),
     [{new:500,active:500,expiring:0},{new:0,active:500,expiring:250}]);
 });
 

@@ -36,6 +36,10 @@ export interface Person {
   photoVersion?: string | null;
   /** Whether a date of birth is recorded. Staff can add a missing one, once. */
   dobOnFile?: boolean;
+  /** When the account was made; some legacy accounts have no date. */
+  createdAt?: string | null;
+  /** When the account record (profile, status, access, conduct or roles) last changed, if known. */
+  updatedAt?: string | null;
 }
 export interface Entitlement {
   id: number;

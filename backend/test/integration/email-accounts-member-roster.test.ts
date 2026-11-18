@@ -125,7 +125,7 @@ test('member roster shows only first name/last initial and current seats; withdr
 });
 
 test('names go only to classmates, the instructor and staff, and minors are never named to other members',async()=>{
-  async function account(first:string,email:string,dob:string){
+  async function account(first:string,email:string,dob:string|null){
     const id=(await pool.query(`INSERT INTO "user"(firstname,lastname,email,phone,password,status,email_confirmed,dob)
       VALUES($1,'Classmate',$2,'0000000000',$3,'active',true,$4) RETURNING userid`,[first,email,await hashPassword('RosterPrivacy1!'),dob])).rows[0].userid;
     await pool.query("INSERT INTO user_role(userid,roleid) SELECT $1,roleid FROM role WHERE role='member' ON CONFLICT DO NOTHING",[id]);
@@ -137,6 +137,8 @@ test('names go only to classmates, the instructor and staff, and minors are neve
   const adult=await account('Adult','adult.classmate@example.invalid','1990-05-05');
   const minor=await account('Minor','minor.classmate@example.invalid',minorDob);
   const outsider=await account('Outside','outside.member@example.invalid','1990-06-06');
+  // Birth date is optional on older accounts: without one, they may be under 18.
+  const undated=await account('Undated','undated.classmate@example.invalid',null);
   const instructorId=(await pool.query(`SELECT userid FROM "user" WHERE email='demo.member@collaboratory.invalid'`)).rows[0].userid;
   const cert=(await pool.query("INSERT INTO certifications(certid,name,validity_days) SELECT COALESCE(MAX(certid),0)+1,'Roster privacy safety',365 FROM certifications RETURNING certid")).rows[0].certid;
   const room=(await pool.query("SELECT roomid FROM room WHERE status='available' AND capacity>=4 ORDER BY roomid LIMIT 1")).rows[0].roomid;
@@ -144,27 +146,30 @@ test('names go only to classmates, the instructor and staff, and minors are neve
   const c=await request(app).post('/api/classes').set('Authorization','Bearer '+admin.accessToken).set('X-CSRF-Token',admin.csrfToken).set('X-Account-Subject',String(admin.user.id)).send({title:'Roster privacy class',certificationId:cert,instructorId,roomId:room,capacity:4,startsAt:starts.toISOString(),endsAt:ends.toISOString(),reason:'Isolated privacy fixture'});
   assert.equal(c.status,201,JSON.stringify(c.body));
   const path=`/classes/${c.body.data.id}/member-roster`;
-  for(const id of [member.user.id,adult.id,minor.id])await pool.query('INSERT INTO app_training_enrollment(class_id,user_id) VALUES($1,$2)',[c.body.data.id,id]);
+  for(const id of [member.user.id,adult.id,minor.id,undated.id])await pool.query('INSERT INTO app_training_enrollment(class_id,user_id) VALUES($1,$2)',[c.body.data.id,id]);
   const names=(r:any)=>r.body.data.items.map((p:{name:string})=>p.name);
   // Someone not registered still sees the seats, but nobody's name.
   let r=await get(path,outsider.session);
   assert.equal(r.status,200);assert.equal(r.headers['cache-control'],'no-store');
-  assert.deepEqual(r.body.data,{capacity:4,enrolled:3,seatsAvailable:1,namesVisible:false,items:[]});
-  // An adult classmate sees adults by name; the minor is listed without a name.
+  assert.deepEqual(r.body.data,{capacity:4,enrolled:4,seatsAvailable:0,namesVisible:false,items:[]});
+  // An adult classmate sees adults by name; the minor and the classmate with no birth date on file
+  // are listed without a name.
   r=await get(path);assert.equal(r.body.data.namesVisible,true);
-  assert.deepEqual(names(r),['Adult C.','Private P.','Name hidden']);
+  assert.deepEqual(names(r),['Adult C.','Private P.','Name hidden','Name hidden']);
   assert(!JSON.stringify(r.body.data).includes('Minor'));
-  // The minor sees their own name.
-  r=await get(path,minor.session);assert.deepEqual(names(r),['Adult C.','Minor C.','Private P.']);
+  assert(!JSON.stringify(r.body.data).includes('Undated'));
+  // Each of them sees their own name.
+  r=await get(path,minor.session);assert.deepEqual(names(r),['Adult C.','Minor C.','Private P.','Name hidden']);
+  r=await get(path,undated.session);assert.deepEqual(names(r),['Adult C.','Private P.','Undated C.','Name hidden']);
   // The assigned instructor and staff see everyone, as on the full roster.
   for(const actor of [instructor,admin]){
     r=await get(path,actor);assert.equal(r.body.data.namesVisible,true);
-    assert.deepEqual(names(r),['Adult C.','Minor C.','Private P.']);
+    assert.deepEqual(names(r),['Adult C.','Minor C.','Private P.','Undated C.']);
   }
   // Withdrawing removes access to names.
   await pool.query("UPDATE app_training_enrollment SET status='cancelled' WHERE class_id=$1 AND user_id=$2",[c.body.data.id,adult.id]);
   r=await get(path,adult.session);
-  assert.deepEqual(r.body.data,{capacity:4,enrolled:2,seatsAvailable:2,namesVisible:false,items:[]});
+  assert.deepEqual(r.body.data,{capacity:4,enrolled:3,seatsAvailable:1,namesVisible:false,items:[]});
 });
 
 test('legacy classes above the 15-seat cap show the seats enrollment enforces',async()=>{

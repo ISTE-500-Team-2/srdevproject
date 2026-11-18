@@ -93,6 +93,14 @@ test('FR-073: the dashboard headline shows total active memberships', () => {
   vi.mocked(useApi).mockReturnValue({ data: { from: '2026-10-25', to: '2026-10-27', period: 'daily', timeZone: 'America/New_York', generatedAt: '2026-10-27T16:00:00Z', revenue: [], classes: [], visitsByDay: [], checkedInToday: [], checkedInTodayCount: 0, active: { activeUsers: 0, approvedCheckIns: 0 }, compliance: { activeMemberships: 42 }, notes: [] }, loading: false, refreshing: false, stale: false, error: '', reload: vi.fn() } as never);
   render(<AnalyticsDashboardPage />);
   expect(screen.getByText(/checked in today/).closest('p')!.textContent).toContain('42 active memberships');
+  // Nothing about to end: no third figure.
+  expect(screen.getByText(/checked in today/).closest('p')!.textContent).not.toContain('without renewal');
+});
+
+test('FR-077: the right-now line counts memberships about to end with nothing renewing them', () => {
+  vi.mocked(useApi).mockReturnValue({ data: { from: '2026-10-25', to: '2026-10-27', period: 'daily', timeZone: 'America/New_York', generatedAt: '2026-10-27T16:00:00Z', revenue: [], classes: [], visitsByDay: [], checkedInToday: [], checkedInTodayCount: 0, active: { activeUsers: 0, approvedCheckIns: 0 }, compliance: { activeMemberships: 42, membersEndingWithin30Days: 5 }, notes: [] }, loading: false, refreshing: false, stale: false, error: '', reload: vi.fn() } as never);
+  render(<AnalyticsDashboardPage />);
+  expect(screen.getByText(/checked in today/).closest('p')!.textContent).toContain('5 memberships end in the next 30 days without renewal');
 });
 
 test('the revenue axis tops out just above the tallest week instead of doubling it', () => {
@@ -262,13 +270,13 @@ test('classes: hidden when there are none; otherwise the newest six, past ones m
 
 test('members: who joined and cancelled each period, with new members as a headline number', () => {
   const memberships = [
-    { period: '2026-10-12', newMembers: 2, activeMembers: 40, expiringMembers: 0, cancelledMembers: 0 },
-    { period: '2026-10-19', newMembers: 1, activeMembers: 41, expiringMembers: 1, cancelledMembers: 1 },
-    { period: '2026-10-26', newMembers: 0, activeMembers: 41, expiringMembers: 0, cancelledMembers: 0 },
-    { period: '2026-11-02', newMembers: 3, activeMembers: 44, expiringMembers: 0, cancelledMembers: 0 },
-    { period: '2026-11-09', newMembers: 0, activeMembers: 44, expiringMembers: 0, cancelledMembers: 0 },
+    { period: '2026-10-12', newMembers: 2, activeMembers: 40, endedWithoutRenewingMembers: 0, cancelledMembers: 0 },
+    { period: '2026-10-19', newMembers: 1, activeMembers: 41, endedWithoutRenewingMembers: 1, cancelledMembers: 1 },
+    { period: '2026-10-26', newMembers: 0, activeMembers: 41, endedWithoutRenewingMembers: 0, cancelledMembers: 0 },
+    { period: '2026-11-02', newMembers: 3, activeMembers: 44, endedWithoutRenewingMembers: 0, cancelledMembers: 0 },
+    { period: '2026-11-09', newMembers: 0, activeMembers: 44, endedWithoutRenewingMembers: 0, cancelledMembers: 0 },
   ];
-  serve(report({ memberships }), report({ memberships: [{ period: '2026-09-20', newMembers: 4, activeMembers: 39, expiringMembers: 0, cancelledMembers: 0 }] }));
+  serve(report({ memberships }), report({ memberships: [{ period: '2026-09-20', newMembers: 4, activeMembers: 39, endedWithoutRenewingMembers: 0, cancelledMembers: 0 }] }));
   render(<AnalyticsDashboardPage />);
   const kpi = within(screen.getByLabelText('Headline numbers')).getByText('New members').closest('article')!;
   expect(kpi.textContent).toContain('6');
