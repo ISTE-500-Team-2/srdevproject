@@ -183,10 +183,10 @@ test('only a live card checkout is polled, and not while the tab is hidden',asyn
  try{
   const start=Date.now()+3*86400000,at=(offset:number)=>new Date(start+offset).toISOString();
   const reads=()=>vi.mocked(api).mock.calls.filter(([p,o])=>p==='/reservations'&&!o?.method).length;
-  // A front-desk balance also reads 'pending' but has no payer, and an expired hold won't settle.
+  // A front-desk balance also reads 'pending' but has no payer, and a hold that ran out minutes ago won't settle.
   records=[
    reservation({id:6,userId:1,equipmentName:'Front desk',startTime:at(0),endTime:at(3600000),status:'confirmed',paymentStatus:'pending',payerId:null}),
-   reservation({id:7,userId:1,payerId:1,equipmentName:'Lapsed hold',startTime:at(86400000),endTime:at(90000000),status:'pending',paymentStatus:'pending',holdUntil:new Date(Date.now()-60000).toISOString()}),
+   reservation({id:7,userId:1,payerId:1,equipmentName:'Lapsed hold',startTime:at(86400000),endTime:at(90000000),status:'pending',paymentStatus:'pending',holdUntil:new Date(Date.now()-10*60000).toISOString()}),
   ];
   await mount();
   let before=reads();
@@ -202,6 +202,26 @@ test('only a live card checkout is polled, and not while the tab is hidden',asyn
   await act(async()=>{await vi.advanceTimersByTimeAsync(15000);});
   expect(reads()).toBe(before+1);
  }finally{vi.useRealTimers();Reflect.deleteProperty(document,'visibilityState');}
+});
+
+test('a checkout is still polled shortly after its hold runs out, so its final status shows, then polling stops',async()=>{
+ vi.useFakeTimers({shouldAdvanceTime:true});
+ try{
+  const start=Date.now()+3*86400000;
+  const reads=()=>vi.mocked(api).mock.calls.filter(([p,o])=>p==='/reservations'&&!o?.method).length;
+  records=[reservation({id:8,userId:1,payerId:1,equipmentName:'Checking out',startTime:new Date(start).toISOString(),endTime:new Date(start+3600000).toISOString(),status:'pending',paymentStatus:'pending',amountCents:700,holdUntil:new Date(Date.now()+10000).toISOString()})];
+  await mount();
+  // The hold has just run out, but the provider may not have reported the expiry or a last-second payment yet.
+  await act(async()=>{await vi.advanceTimersByTimeAsync(11000);});
+  const expired=reads();
+  await act(async()=>{await vi.advanceTimersByTimeAsync(30000);});
+  expect(reads()).toBeGreaterThan(expired);
+  // A few minutes on, nothing more will change without the member, so the page stops asking.
+  await act(async()=>{await vi.advanceTimersByTimeAsync(3*60000);});
+  const settled=reads();
+  await act(async()=>{await vi.advanceTimersByTimeAsync(60000);});
+  expect(reads()).toBe(settled);
+ }finally{vi.useRealTimers();}
 });
 
 test('a full booking list says older bookings are left out instead of undercounting them',async()=>{
@@ -484,16 +504,25 @@ test('equipment and reservations show placeholders in their own shape while they
  expect(screen.getByText(/No reservations yet/)).toBeTruthy();
 });
 
-test('staff cancelling another member\'s booking send the revision they saw',async()=>{
+test('staff cancelling another member\'s booking send the revision the dialog showed',async()=>{
  const member=auth.user;
  auth.user={id:1,roles:['staff'],membership:'Monthly'};
  try{
   const start=Date.now()+3*86400000;
-  records=[reservation({id:6,userId:2,revision:3,equipmentName:'Their booking',startTime:new Date(start).toISOString(),endTime:new Date(start+3600000).toISOString(),status:'confirmed'})];
+  const theirs=reservation({id:6,userId:2,revision:3,equipmentName:'Their booking',startTime:new Date(start).toISOString(),endTime:new Date(start+3600000).toISOString(),status:'confirmed',paymentStatus:'paid',amountCents:1400});
+  records=[theirs];
   await mount();
   const card=screen.getByRole('heading',{name:'Their booking'}).closest('article')!;
   fireEvent.click(within(card).getByRole('button',{name:'Cancel reservation'}));
-  fireEvent.click(within(screen.getByRole('dialog',{name:'Cancel this reservation?'})).getByRole('button',{name:'Cancel reservation'}));
+  const dialog=screen.getByRole('dialog',{name:'Cancel this reservation?'});
+  // Staff refund it themselves, rather than being told to contact staff.
+  expect(dialog.textContent).toContain('The $14.00 payment stays recorded and isn’t refunded automatically; refund it from Payments if it’s owed.');
+  expect(dialog.textContent).not.toContain('contact staff');
+  // A colleague moves it while the dialog is open, and the list reloads behind it.
+  records=[{...theirs,revision:4,startTime:new Date(start+86400000).toISOString(),endTime:new Date(start+90000000).toISOString()}];
+  await act(async()=>{fireEvent.click(screen.getByRole('button',{name:'Refresh'}));});
+  await waitFor(()=>expect(screen.getByRole('heading',{name:'Their booking'}).closest('article')!.textContent).toContain(new Date(start+86400000).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})));
+  fireEvent.click(within(dialog).getByRole('button',{name:'Cancel reservation'}));
   await waitFor(()=>expect(vi.mocked(api).mock.calls.some(([p])=>p==='/admin/reservations/6/cancel')).toBe(true));
   expect(vi.mocked(api).mock.calls.find(([p])=>p==='/admin/reservations/6/cancel')?.[1]).toEqual({method:'POST',body:{expectedRevision:3}});
  }finally{auth.user=member;}

@@ -73,15 +73,23 @@ export function EquipmentPage() {
   const machineFor = (item: Reservation) =>
     item.equipmentId == null ? undefined : catalog.data?.find(equipment => equipment.id === item.equipmentId);
   // Only a live card checkout settles without the member doing anything, so only it is polled, and
-  // only while the tab is shown. Front-desk balances also read 'pending', but have no payer.
+  // only while the tab is shown. Front-desk balances also read 'pending', but have no payer. Polling
+  // runs a little past the hold, until the provider has reported the expiry or a last-second payment.
   useEffect(() => {
-    const at = Date.now();
-    const checkingOut = bookings.data?.some(item => item.paymentStatus === 'pending' && item.payerId != null
-      && time(item.endTime) > at && (!item.holdUntil || time(item.holdUntil) > at));
-    if (!checkingOut) return;
-    const timer = window.setInterval(() => { if (document.visibilityState !== 'hidden') bookings.reload(); }, 5000);
+    const checkingOut = () => {
+      const at = Date.now();
+      return !!bookings.data?.some(item => item.paymentStatus === 'pending' && item.payerId != null
+        && time(item.endTime) > at && (!item.holdUntil || time(item.holdUntil) + CHECKOUT_SETTLE_MS > at));
+    };
+    if (!checkingOut()) return;
+    const timer = window.setInterval(() => {
+      if (!checkingOut()) window.clearInterval(timer);
+      else if (document.visibilityState !== 'hidden') bookings.reload();
+    }, 5000);
     return () => window.clearInterval(timer);
   }, [bookings.data]);
+  /** Staff cancel another member's booking through the staff route, which checks its revision. */
+  const cancelsForOther = (item: Reservation) => canBookForOthers && item.userId !== user?.id;
   const equipment = (catalog.data ?? []).filter(
     (item) =>
       (filter === 'all' ||
@@ -150,20 +158,20 @@ export function EquipmentPage() {
     } catch (err) { setError(errorMessage(err)); bookings.reload(); catalog.reload(); }
     finally { mutationInFlight.current = false; setBusy(false); }
   };
-  const cancel = async (id: number) => {
+  /** Cancels the booking as the confirmation dialog showed it, not as a later reload has it. */
+  const cancel = async (item: Reservation) => {
     if (mutationInFlight.current) return;
     mutationInFlight.current = true;
     setBusy(true);
     setToast(null);
     setError('');
     try {
-      const item = bookings.data?.find(booking => booking.id === id);
-      const forOther = canBookForOthers && item?.userId !== user?.id;
-      // Staff cancelling for someone else send the revision they saw, so a booking a colleague has
-      // since moved isn't cancelled from a stale card.
-      await api((forOther ? '/admin' : '') + '/reservations/' + id + '/cancel', {
+      const forOther = cancelsForOther(item);
+      // Staff cancelling for someone else send the revision the dialog showed, so a booking a
+      // colleague has since moved isn't cancelled from its old details.
+      await api((forOther ? '/admin' : '') + '/reservations/' + item.id + '/cancel', {
         method: 'POST',
-        ...(forOther && item ? { body: { expectedRevision: item.revision } } : {}),
+        ...(forOther ? { body: { expectedRevision: item.revision } } : {}),
       });
       setCancelling(null);
       bookings.reload();
@@ -403,7 +411,7 @@ export function EquipmentPage() {
         {requestClose => cancelling ? <>
           <p><strong>{cancelling.equipmentName}</strong></p>
           <p>{dayLabel(cancelling.startTime, now)}, {timeRange(cancelling.startTime, cancelling.endTime)}</p>
-          <p>{cancelNote(cancelling)}</p>
+          <p>{cancelNote(cancelling, cancelsForOther(cancelling))}</p>
           {error ? (
             <p ref={errorRef} tabIndex={-1} role="alert" className="form-error">
               {error}
@@ -411,7 +419,7 @@ export function EquipmentPage() {
           ) : null}
           <div className="management-actions">
             <button type="button" className="button button--quiet" disabled={busy} onClick={requestClose}>Keep reservation</button>
-            <button type="button" className="button button--danger" disabled={busy} onClick={() => void cancel(cancelling.id)}>
+            <button type="button" className="button button--danger" disabled={busy} onClick={() => void cancel(cancelling)}>
               {busy ? 'Cancelling…' : 'Cancel reservation'}
             </button>
           </div>
@@ -427,6 +435,9 @@ function rateLabel(rate: number | null) {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** How long past its hold a card checkout is still polled: the provider can report the expiry, or a
+ * payment made in the last seconds, a little late. */
+const CHECKOUT_SETTLE_MS = 2 * 60 * 1000;
 const ACTIVE_STATUSES = ['pending', 'confirmed'];
 // ReservationModel.listForUser: newest first, LIMIT 100.
 const BOOKING_LIST_LIMIT = 100;
@@ -461,10 +472,16 @@ function blockedHelp(machine: LiveEquipment): ReactNode {
   </>;
 }
 
-/** What cancelling means for the booking's money: a payment is never refunded automatically. */
-function cancelNote(item: Reservation) {
+/**
+ * What cancelling means for the booking's money: a payment is never refunded automatically. A member
+ * asks staff for a refund; staff cancelling someone else's booking refund it themselves.
+ */
+function cancelNote(item: Reservation, forOther: boolean) {
   const freed = 'The time is released for other members, and this can’t be undone.';
   const total = item.priceSnapshot?.totalCents ?? item.amountCents ?? 0;
+  const payment = total > 0 ? `The ${cents(total)} payment` : 'The payment';
+  if (item.paymentStatus === 'paid' && forOther)
+    return `${freed} ${payment} stays recorded and isn’t refunded automatically; refund it from Payments if it’s owed.`;
   if (item.paymentStatus === 'paid')
     return `${freed} ${total > 0 ? `The ${cents(total)} paid` : 'The payment'} isn’t refunded automatically; contact staff about a refund.`;
   if (item.paymentStatus === 'pending') return `${freed} Nothing has been paid, so there’s nothing to refund.`;

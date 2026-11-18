@@ -195,10 +195,11 @@ const copy: Record<NotificationKind, Copy> = {
   reservation_cancelled: { category: 'Reservation', status: 'Cancelled', tone: 'info',
     title: f => f.item ? `Your ${f.item} session is cancelled` : '',
     intro: f => f.item ? 'It’s been removed from your reservations.' : 'Here are the details.' },
-  // Staff cancelled or reassigned it: the member didn't ask for this, so say who did and where to ask.
+  // Staff cancelled it, or gave it to another member (the payload's reason says which): the member
+  // didn't ask for this, so say who did and where to ask, in words true of both.
   reservation_cancelled_by_staff: { category: 'Reservation', status: 'Cancelled', tone: 'warning',
     title: f => f.item ? `Your ${f.item} session was cancelled` : '',
-    intro: () => 'The studio cancelled this booking, so it’s no longer on your reservations. Contact the studio if you have questions.',
+    intro: () => 'Studio staff took this booking off your reservations, so this time is no longer held for you. Contact the studio if you have questions.',
     cta: reservations },
   studio_reservation_confirmed: { category: 'Studio rental', status: 'Confirmed', tone: 'success',
     title: f => `You’re booked in ${f.item || 'the studio'}`,

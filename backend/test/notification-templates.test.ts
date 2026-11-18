@@ -114,11 +114,14 @@ test('a booking staff cancelled says the studio cancelled it, not that the membe
   assert.equal(result.subject, 'The Crafty Studio: Your reservation has been cancelled');
   assert.ok(!result.textContent.includes('cancellation is confirmed'));
   assert.ok(result.textContent.includes('Your Laser Engraver session was cancelled'));
-  assert.ok(result.textContent.includes('The studio cancelled this booking'));
+  assert.ok(result.textContent.includes('Studio staff took this booking off your reservations'));
   assert.ok(result.textContent.includes('When: Tue, Jan 15, 2030, 5:00 PM – 7:00 PM EST'));
   assert.ok(result.textContent.includes('What happens next\nYou paid for this booking. Contact the studio to arrange a refund.'));
   const moved = renderNotification('reservation_cancelled_by_staff', {...booking, reason:'Staff moved this booking to another member.'}, context);
   assert.ok(moved.textContent.includes('Reason: Staff moved this booking to another member.'));
+  // The same opening reads true for a booking given to someone else, not only a cancelled one.
+  assert.ok(moved.textContent.includes('Studio staff took this booking off your reservations, so this time is no longer held for you.'));
+  assert.ok(!moved.textContent.includes('cancelled this booking'));
 });
 
 test('reset security mail uses a fragment link and never offers to suppress security notices', () => {
