@@ -94,11 +94,16 @@ export function phoneToSave(value: string) {
   if (saved.length > 15) throw new FormMessage("That phone number is too long.");
   return saved;
 }
-/** (410) 555-0182 for ten-digit US numbers; anything else as entered. */
+/**
+ * (410) 555-0182 for US numbers: ten digits, or eleven starting with 1 (with or without a "+").
+ * Anything else, including a ten-digit number with a "+" country code such as +49 30 123456,
+ * is shown as entered, so the edit form saves it back with its "+".
+ */
 export function formatPhone(value: string) {
   const d = digits(value);
-  const ten = d.length === 11 && d.startsWith("1") ? d.slice(1) : d;
-  return ten.length === 10 ? `(${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}` : value;
+  const international = value.trim().startsWith("+");
+  const ten = d.length === 11 && d.startsWith("1") ? d.slice(1) : d.length === 10 && !international ? d : "";
+  return ten ? `(${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}` : value;
 }
 
 type Save = (change: {
@@ -869,8 +874,8 @@ export function ProfilePage() {
       </section>
       {acting ? (
         <p className="account-acting">
-          You’re viewing {user.firstName}’s settings. Members change these themselves; to fix {user.firstName}’s name, phone or date
-          of birth, open <Link to={`/admin/members?member=${user.id}`}>their member record</Link>.
+          You’re viewing {user.firstName}’s settings. Members change these themselves; to fix {user.firstName}’s name or phone, or add a
+          missing date of birth, open <Link to={`/admin/members?member=${user.id}`}>their member record</Link>.
         </p>
       ) : null}
       {error ? (

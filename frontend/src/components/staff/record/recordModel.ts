@@ -411,10 +411,13 @@ export function needs(input: {
   return items;
 }
 
-/** Plain digits read better grouped: (585) 555-0142. Anything else is shown as typed. */
+/**
+ * Plain US digits read better grouped: (585) 555-0142. Anything else is shown as typed,
+ * including a ten-digit number with a "+" country code such as +4930123456.
+ */
 export function phoneText(phone: string) {
   const d = phone.replace(/\D/g, "");
-  if (d.length === 10) return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+  if (d.length === 10 && !phone.trim().startsWith("+")) return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
   if (d.length === 11 && d.startsWith("1")) return `(${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7)}`;
   return phone;
 }

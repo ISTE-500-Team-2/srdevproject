@@ -121,6 +121,9 @@ test('phone numbers format only when they are ten US digits', () => {
   expect(formatPhone('4105550182')).toBe('(410) 555-0182');
   expect(formatPhone('1-410-555-0182')).toBe('(410) 555-0182');
   expect(formatPhone('+44 20 7946 0958')).toBe('+44 20 7946 0958');
+  // Ten digits after a country code are not a US number.
+  expect(formatPhone('+4930123456')).toBe('+4930123456');
+  expect(formatPhone('+14105550182')).toBe('(410) 555-0182');
 });
 
 test.each(['Profile', 'Contact'])('overlapping saves preserve both sections when %s saves first', async (first) => {
@@ -225,6 +228,36 @@ test('a phone number with letters or an extension is refused instead of garbled;
   expect(patches()[0]![1]!.body.phone).toBe('+442079460958');
 });
 
+test('an international number keeps its + when contact is saved again without touching the phone', async () => {
+  let stored = structuredClone(profile);
+  mount({ '/me/profile': (init) => {
+    if (init?.method !== 'PATCH') return stored;
+    const body = init.body as typeof stored.user & Pick<typeof stored, 'address' | 'contactPreferences'>;
+    stored = { ...stored, user: { ...stored.user, phone: body.phone }, address: body.address, contactPreferences: body.contactPreferences };
+    return stored;
+  } });
+  // The page shows the signed-in user's phone, which the session refresh brings up to date.
+  refresh.mockImplementation(async () => { auth.user.phone = stored.user.phone; });
+  try {
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit contact' }));
+    const contact = section('Contact');
+    fireEvent.change(within(contact).getByLabelText('Phone'), { target: { value: '+49 30 123456' } });
+    fireEvent.click(within(contact).getByRole('button', { name: 'Save contact' }));
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(patches()[0]![1]!.body.phone).toBe('+4930123456');
+    expect(await within(contact).findByText('+4930123456')).toBeTruthy();
+    fireEvent.click(within(contact).getByRole('button', { name: 'Edit contact' }));
+    expect(within(contact).getByLabelText<HTMLInputElement>('Phone').value).toBe('+4930123456');
+    fireEvent.click(within(contact).getByRole('radio', { name: 'Call' }));
+    fireEvent.click(within(contact).getByRole('button', { name: 'Save contact' }));
+    await waitFor(() => expect(patches()).toHaveLength(2));
+    expect(patches()[1]![1]!.body.phone).toBe('+4930123456');
+    expect(stored.user.phone).toBe('+4930123456');
+  } finally {
+    auth.user.phone = '4105550182';
+  }
+});
+
 test('the latest payment is the latest one actually paid, and there is no empty period row without a plan', async () => {
   mount({ '/me/memberships': () => ({ memberships: [], passes: [], timeZone: 'UTC', accessStatus: 'active' }) });
   const billing = section('Membership & billing');
@@ -264,6 +297,8 @@ test('staff with the account open see the settings read-only and are pointed to 
     mount({ '/me/minors': () => ({ minors: [{ id: 142, name: 'Emma Lin', visit: null }], requests: [{ id: 3, minorName: 'Noah Lin', createdAt: '2026-11-02T12:00:00Z' }], canSponsor: true, dobOnFile: true }) });
     expect(await screen.findByText('1 Mill Rd, White Hall, Maryland 21161')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'their member record' }).getAttribute('href')).toBe('/admin/members?member=42');
+    // Staff can only add a missing date of birth there, not change one on file.
+    expect(screen.getByText(/name or phone, or add a missing date of birth/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Edit profile' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Edit contact' })).toBeNull();
     const minorsBox = section('Minors you supervise');
