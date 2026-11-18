@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { after, before, beforeEach, test } from 'node:test';
+import { after, before, beforeEach, mock, test } from 'node:test';
 import { Pool } from 'pg';
 import type Stripe from 'stripe';
 import { PassBilling } from '../../src/billing/passes.js';
@@ -37,7 +37,9 @@ stripe.checkoutSessionCreate(async params => {
   return session;
 });
 stripe.checkoutSessionRetrieve(async id => sessions.get(id)!);
-stripe.refundList(async params => ({ data: refunds.filter(f => f.payment_intent === params?.payment_intent), has_more: false }));
+const listRefunds = async (params?: Stripe.RefundListParams) =>
+  ({ data: refunds.filter(f => f.payment_intent === params?.payment_intent), has_more: false });
+stripe.refundList(listRefunds);
 stripe.refundRetrieve(async id => refunds.find(f => f.id === id)!);
 stripe.refundCreate(async (params, options) => {
   const key = options!.idempotencyKey!;
@@ -205,6 +207,63 @@ test('a lost automatic refund response leaves the captured charge recorded and t
   assert.deepEqual(refundKeys, [`daypass-refund:${id}`]);
   assert.equal(await passCount(date), 1);
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM payment WHERE reference=$1', [session.id])).rows[0].n, 1);
+});
+
+test('the reconciliation tick submits a missed automatic refund and backs off failures', async () => {
+  const date = '2034-05-12';
+  await staff.issue(admin, member, desk(date));
+  const { id, session } = await openCheckout(date);
+  Object.assign(session, { status: 'complete', payment_status: 'paid', payment_intent: 'pi_' + randomUUID() });
+  const event = stripeEvent('evt_' + randomUUID(), 'checkout.session.completed', { ...session });
+
+  const error = mock.method(console, 'error', () => {});
+  stripe.refundList(async () => { throw new Error('Stripe is unavailable'); });
+  try {
+    await assert.rejects(passes.webhook(event), /Stripe is unavailable/);
+    assert.equal((await checkoutRow(date)).refund_id, null);
+    assert.equal(refundKeys.length, 0, 'the automatic refund was never submitted');
+    await passes.reconcileRefunds();
+    assert.equal(error.mock.callCount(), 1);
+    await passes.reconcileRefunds();
+    assert.equal(error.mock.callCount(), 1, 'a failed lookup waits before being retried');
+
+    stripe.refundList(listRefunds);
+    await pool.query("UPDATE app_pass_checkout SET refund_reconcile_after=now()-interval '1 second' WHERE id=$1", [id]);
+    await Promise.all([passes.reconcileRefunds(), passes.reconcileRefunds()]);
+    const row = await checkoutRow(date);
+    assert.deepEqual([row.status, row.refund_id, row.refund_status, row.refund_reconcile_after], ['cancelled', refunds[0]!.id, 'succeeded', null]);
+    assert.deepEqual(refundKeys, [`daypass-refund:${id}`], 'the sweep submits the refund once');
+    assert.equal(await passCount(date), 1);
+  } finally {
+    stripe.refundList(listRefunds);
+    error.mock.restore();
+  }
+});
+
+test('an early partial Stripe refund leaves the day pass, captured payment and checkout event recorded', async () => {
+  const date = '2034-05-13';
+  const { id, session } = await openCheckout(date);
+  const intent = 'pi_' + randomUUID();
+  Object.assign(session, { status: 'complete', payment_status: 'paid', payment_intent: intent });
+  const refund: Refund = { id: 're_' + randomUUID(), object: 'refund', status: 'succeeded', amount: 500, currency: 'usd', payment_intent: intent };
+  refunds.unshift(refund);
+  await passes.webhook(stripeEvent('evt_' + randomUUID(), 'refund.created', refund));
+  const event = stripeEvent('evt_' + randomUUID(), 'checkout.session.completed', session);
+  const error = mock.method(console, 'error', () => {});
+  try {
+    await passes.webhook(event);
+    await passes.webhook(event);
+    assert.deepEqual(error.mock.calls.map(call => call.arguments[1].code), ['RECONCILE_REQUIRED']);
+  } finally {
+    error.mock.restore();
+  }
+  const row = await checkoutRow(date);
+  assert.equal(row.id, id);
+  assert.ok(row.pass_id);
+  assert.equal(await passCount(date), 1);
+  assert.equal((await pool.query('SELECT paymentstatus FROM payment WHERE paymentid=$1', [row.payment_id])).rows[0].paymentstatus, 'paid');
+  assert.equal((await pool.query('SELECT id FROM app_pass_stripe_event WHERE id=$1', [event.id])).rowCount, 1);
+  assert.equal(refundKeys.length, 0);
 });
 
 test('card checkout stops taking payment when the visit date ends', async () => {

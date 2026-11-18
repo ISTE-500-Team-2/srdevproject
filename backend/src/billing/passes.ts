@@ -14,6 +14,7 @@ import {assertManageable} from '../services/StaffService.js';
 import {businessToday} from '../businessDate.js';
 import {StudioStripe} from '../studios/stripe.js';
 import {enqueueNotification} from '../notifications/store.js';
+import {errorIdentifier} from '../logSafety.js';
 import {quote} from './pricing.js';
 import {failedRefund,liveRefund,refundAttempt,refundTransition,replacedAttemptFailed} from './refundTransition.js';
 import {isCheckoutSessionEvent,isRefundEvent} from './stripeEvents.js';
@@ -22,7 +23,7 @@ import {providerTransaction} from './providerGate.js';
 /** An app_pass_checkout row. */
 interface PassCheckoutRow {id:string;userid:number;tierid:number;valid_date:Date;plan_snapshot:Plan;amount_cents:number;
  status:'pending'|'paid'|'cancelled'|'expired';checkout_id:string|null;payment_intent:string|null;pass_id:number|null;payment_id:number|null;
- cancel_requested_at:Date|null;refund_id:string|null;refund_status:string|null;created_at:Date;}
+ cancel_requested_at:Date|null;refund_id:string|null;refund_status:string|null;refund_reconcile_after:Date|null;created_at:Date;}
 /** Day-pass checkout request; each field is validated by PassBilling.checkout. */
 export interface PassCheckoutRequest {[field:string]:unknown;validDate?:unknown;planId?:unknown;expectedRevision?:unknown;pricingRevision?:unknown;amountCents?:unknown;}
 /** Free monthly membership request; each field is validated by PassBilling.freeMembership. */
@@ -156,17 +157,43 @@ export class PassBilling {
  async recordUnissuedPayment(db:Database,r:PassCheckoutRow,reference:string,reason:string){
   const model=new StaffModel(db,this.zone),amount=(r.amount_cents/100).toFixed(2);
   const payment=await model.createPayment(r.userid,null,amount,'paid','card',reference,'Online day pass (not issued)',r.userid);
-  await db.query("UPDATE app_pass_checkout SET payment_id=$2,status='paid',cancel_requested_at=COALESCE(cancel_requested_at,now()) WHERE id=$1",[r.id,payment]);
+  await db.query("UPDATE app_pass_checkout SET payment_id=$2,status='paid',cancel_requested_at=COALESCE(cancel_requested_at,now()),refund_reconcile_after=now() WHERE id=$1",[r.id,payment]);
   await model.audit(r.userid,r.userid,'daypass.not_issued','payment',payment,reason,null,{checkoutId:r.id,reference});
   await enqueueNotification(db,{userId:r.userid,kind:'payment_status_changed',dedupeKey:'daypass-not-issued:'+r.id,payload:{paymentId:payment,amount,currency:'USD',
    method:'Card (test mode)',reference,planName:r.plan_snapshot.name,validDate:new Date(r.valid_date).toISOString().slice(0,10),instructions:reason+' We are refunding it to your original card.'}});
  }
- async refundUnissued(id:string){
+ /** Retry unfinished refund work when the checkout webhook stops being redelivered. */
+ async reconcileRefunds(){
+  if(!this.stripe)return;
+  // Claim a bounded batch across replicas. A failed or interrupted attempt becomes due again in a minute.
+  const rows=(await this.pool.query<{id:string}>(`WITH due AS (
+    SELECT id FROM app_pass_checkout WHERE refund_reconcile_after<=now()
+    ORDER BY refund_reconcile_after LIMIT 20 FOR UPDATE SKIP LOCKED
+   ) UPDATE app_pass_checkout c SET refund_reconcile_after=now()+interval '1 minute'
+   FROM due WHERE c.id=due.id RETURNING c.id`)).rows;
+  await Promise.all(rows.map(({id})=>this.reconcileRefund(id).catch(error=>
+   console.error('Day-pass refund reconciliation deferred',{checkoutId:id,...errorIdentifier(error)}))));
+ }
+ private async reconcileRefund(id:string){
   await providerTransaction(this.pool,async db=>{
-   const r=(await db.query<PassCheckoutRow>(`SELECT * FROM app_pass_checkout WHERE id=$1 AND status='paid'
-    AND pass_id IS NULL AND payment_id IS NOT NULL AND cancel_requested_at IS NOT NULL AND refund_id IS NULL FOR UPDATE`,[id])).rows[0];
-   // A member, staff or a refund webhook may have already recorded an attempt.
-   if(r)await this.cardRefund(db,r);
+   const r=(await db.query<PassCheckoutRow>(`SELECT * FROM app_pass_checkout
+    WHERE id=$1 AND refund_reconcile_after IS NOT NULL FOR UPDATE`,[id])).rows[0];
+   if(!r)return;
+   if(!r.pass_id){
+    // A member, staff or a refund webhook may have already recorded an attempt.
+    if(r.status==='paid'&&r.payment_id&&r.cancel_requested_at&&!r.refund_id)await this.cardRefund(db,r);
+   }else{
+    // A refund may precede checkout delivery. The charge and pass are already durable.
+    const refunds=await this.provider().sdk.refunds.list({payment_intent:r.payment_intent!,limit:100});
+    try{
+     const refund=liveRefund(refunds,r.amount_cents)??refunds.data[0];
+     if(refund)await this.applyRefund(db,refund);
+    }catch(error){
+     if(!(error instanceof AppError)||error.code!=='RECONCILE_REQUIRED')throw error;
+     console.error('Day-pass refund requires staff reconciliation',{checkoutId:id,...errorIdentifier(error)});
+    }
+   }
+   await db.query('UPDATE app_pass_checkout SET refund_reconcile_after=NULL WHERE id=$1',[id]);
   });
  }
  async freeMembership(userid:number,body:FreeMembershipRequest){
@@ -251,7 +278,9 @@ export class PassBilling {
    await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,owner.userid]);
    const r=(await db.query<PassCheckoutRow>('SELECT * FROM app_pass_checkout WHERE id::text=$1 FOR UPDATE',[id])).rows[0]!;
    if(r.refund_status==='succeeded')return {status:'succeeded'};
-   const retryCancelled=r.status==='cancelled'&&r.refund_id&&failedRefund({status:r.refund_status});
+   const cancelledWithRefund=r.status==='cancelled'&&r.refund_id;
+   if(cancelledWithRefund&&(r.refund_status==='pending'||r.refund_status==='requires_action'))return {status:r.refund_status};
+   const retryCancelled=cancelledWithRefund&&failedRefund({status:r.refund_status});
    if((r.status!=='paid'&&!retryCancelled)||r.amount_cents===0||!r.payment_intent||!r.payment_id)throw new AppError(409,'NOT_PAID','Only a day pass paid by card can be refunded.');
    const f=await this.cardRefund(db,r);
    await new StaffModel(db).audit(actor,r.userid,'billing.refund.requested','payment',r.payment_id,explanation,null,{refundId:f.id,status:f.status});
@@ -282,11 +311,12 @@ export class PassBilling {
   if(failed){
    await db.query("UPDATE payment SET paymentstatus='paid',updated_at=now(),revision=revision+1 WHERE paymentid=$1 AND paymentstatus='refunded'",[r.payment_id]);
    await db.query("UPDATE app_notification_outbox SET status='obsolete',updated_at=now() WHERE dedupe_key=ANY($1::text[]) AND status='pending'",[[`daypass-refund:${r.id}`,`daypass-refund:${r.id}:${f.id}`]]);
+   const failure=r.refund_id===f.id&&r.refund_status==='succeeded'?'failed after it was confirmed':'did not go through';
    // The pass is only cancelled once a refund succeeds, so say whether it is still usable.
    await enqueueNotification(db,{userId:r.userid,kind:'payment_status_changed',dedupeKey:`daypass-refund-failed:${r.id}:${f.id}`,payload:{paymentId:r.payment_id,reference:f.id,instructions:!r.pass_id
     ?'The original-card refund for your day-pass payment did not go through. No pass was issued for it; contact staff to complete the refund.'
     :r.status==='cancelled'
-    ?'The original-card refund for your cancelled day pass failed after it was confirmed. Your pass stays cancelled; contact staff to complete the refund.'
+    ?`The original-card refund for your cancelled day pass ${failure}. Your pass stays cancelled; contact staff to complete the refund.`
     // Only the member's own cancellation can be retried from Membership & passes after the cancel-by date: a refund
     // staff started (here or in Stripe) may fall inside the 3-day window, where the member's cancel is refused.
     :r.cancel_requested_at
@@ -310,8 +340,8 @@ export class PassBilling {
    if(!(await db.query('INSERT INTO app_pass_stripe_event(id) VALUES($1) ON CONFLICT DO NOTHING RETURNING id',[event.id])).rowCount){
     // The charge and event can be committed even when the automatic refund call failed.
     if(!isCheckoutSessionEvent(event))return;
-    return (await db.query<{id:string}>(`SELECT id FROM app_pass_checkout WHERE checkout_id=$1 AND status='paid'
-     AND pass_id IS NULL AND payment_id IS NOT NULL AND cancel_requested_at IS NOT NULL AND refund_id IS NULL`,[event.data.object.id])).rows[0]?.id;
+    return (await db.query<{id:string}>(`SELECT id FROM app_pass_checkout
+     WHERE checkout_id=$1 AND refund_reconcile_after IS NOT NULL`,[event.data.object.id])).rows[0]?.id;
    }
    if(isRefundEvent(event)){await this.refundEvent(db,event.data.object);return;}
    if(!isCheckoutSessionEvent(event))return;
@@ -337,14 +367,11 @@ export class PassBilling {
    await db.query('UPDATE app_pass_checkout SET checkout_id=$2,payment_intent=$3 WHERE id=$1',[id,s.id,pi]);
    const unissuable=r.pass_id||r.payment_id?null:await this.unissuable(db,r);
    if(unissuable){await this.recordUnissuedPayment(db,r,s.id,unissuable);return id;}
-   if(r.payment_id&&!r.pass_id&&!r.refund_id)return id;
+   if(r.payment_id)return r.refund_reconcile_after?id:undefined;
    await this.issue(db,r,s.id);
-   // Refund delivery can precede checkout delivery. Reconcile the original
-   // payment so a late checkout cannot grant access to an already-refunded pass.
-   const refunds=await sdk.refunds.list({payment_intent:pi,limit:100});
-   const refund=liveRefund(refunds,r.amount_cents)??refunds.data[0];
-   if(refund)await this.applyRefund(db,refund);
+   await db.query('UPDATE app_pass_checkout SET refund_reconcile_after=now() WHERE id=$1',[id]);
+   return id;
   });
-  if(refundCheckout)await this.refundUnissued(refundCheckout);
+  if(refundCheckout)await this.reconcileRefund(refundCheckout);
  }
 }

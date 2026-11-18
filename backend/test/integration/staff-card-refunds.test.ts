@@ -39,7 +39,9 @@ stripe.checkoutSessionCreate(async params => {
   return sessions.get(id)!;
 });
 stripe.checkoutSessionRetrieve(async id => sessions.get(id)!);
-stripe.refundList(async params => ({ data: refunds.filter(f => f.payment_intent === params?.payment_intent), has_more: false }));
+const listRefunds = async (params?: Stripe.RefundListParams) =>
+  ({ data: refunds.filter(f => f.payment_intent === params?.payment_intent), has_more: false });
+stripe.refundList(listRefunds);
 stripe.refundRetrieve(async id => refunds.find(f => f.id === id)!);
 stripe.refundCreate(async (params, options) => {
   const key = options!.idempotencyKey!;
@@ -337,4 +339,65 @@ test('Payments can replace a refund that failed after the day pass was cancelled
   assert.deepEqual(keys.slice(attempts), [`daypass-refund:${id}:${original.id}`]);
   assert.equal(refunds.filter(f => f.payment_intent === intent && f.status === 'succeeded').length, 1);
   assert.deepEqual(await state(), { status: 'cancelled', refund_status: 'succeeded', pass: 'cancelled', payment: 'refunded' });
+});
+
+test('the equipment sweep recovers an early refund whose lookup failed after confirmation', async () => {
+  const held = await booking(false);
+  const refund: Refund = { id: 're_' + randomUUID(), object: 'refund', status: 'succeeded', amount: 700,
+    currency: 'usd', payment_intent: held.intent };
+  refunds.unshift(refund);
+  await equipmentBilling.webhook(stripeEvent('evt_' + randomUUID(), 'refund.created', refund));
+  Object.assign(held.session, { status: 'complete', payment_status: 'paid', payment_intent: held.intent });
+  const event = stripeEvent('evt_' + randomUUID(), 'checkout.session.completed', held.session);
+  stripe.refundList(async () => { throw new Error('Stripe is unavailable'); });
+  try {
+    await assert.rejects(equipmentBilling.webhook(event), /Stripe is unavailable/);
+  } finally {
+    stripe.refundList(listRefunds);
+  }
+  assert.equal((await new ReservationModel(pool).find(held.id))!.status, 'confirmed');
+  assert.deepEqual(await held.state(), { refund_id: null, refund_status: null, payment: 'paid' });
+
+  await equipmentBilling.reconcile();
+  assert.deepEqual(await held.state(), { refund_id: refund.id, refund_status: 'succeeded', payment: 'refunded' });
+});
+
+test('a failed replacement refund email does not say that the replacement was confirmed', async () => {
+  const { id, intent } = await cardPass(member);
+  nextStatus = 'succeeded';
+  await passes.staffRefund(staff, id, 'Original refund');
+  const original = refunds[0]!;
+  original.status = 'failed';
+  await passes.webhook(stripeEvent('evt_' + randomUUID(), 'refund.failed', original));
+  nextStatus = 'pending';
+  await passes.staffRefund(staff, id, 'Replacement refund');
+  const replacement = refunds[0]!;
+  assert.equal(replacement.payment_intent, intent);
+  assert.notEqual(replacement.id, original.id);
+  replacement.status = 'failed';
+  await passes.webhook(stripeEvent('evt_' + randomUUID(), 'refund.failed', replacement));
+  const [originalNotice] = await notices(`daypass-refund-failed:${id}:${original.id}`);
+  const [replacementNotice] = await notices(`daypass-refund-failed:${id}:${replacement.id}`);
+  assert.match(originalNotice.payload.instructions, /failed after it was confirmed\. Your pass stays cancelled/);
+  assert.match(replacementNotice.payload.instructions, /did not go through\. Your pass stays cancelled/);
+});
+
+test('a repeated staff refund request reports the replacement already in flight for a cancelled pass', async () => {
+  const { id, intent } = await cardPass(member);
+  nextStatus = 'succeeded';
+  await passes.staffRefund(staff, id, 'Original refund');
+  const original = refunds[0]!;
+  original.status = 'failed';
+  await passes.webhook(stripeEvent('evt_' + randomUUID(), 'refund.failed', original));
+  nextStatus = 'pending';
+  const retry = () => passes.staffRefund(staff, id, 'Replacement refund');
+  assert.deepEqual(await retry(), { status: 'pending' });
+  const replacement = refunds[0]!;
+  const attempts = keys.length;
+  assert.deepEqual(await retry(), { status: 'pending' });
+  replacement.status = 'requires_action';
+  await passes.webhook(stripeEvent('evt_' + randomUUID(), 'refund.updated', replacement));
+  assert.deepEqual(await retry(), { status: 'requires_action' });
+  assert.equal(keys.length, attempts);
+  assert.equal(refunds.filter(f => f.payment_intent === intent).length, 2);
 });

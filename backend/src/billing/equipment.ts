@@ -148,7 +148,7 @@ export class EquipmentBilling {
   async apply(session: Stripe.Checkout.Session) {
     const id = session.metadata?.equipmentReservationId;
     if (!id) return;
-    const paidIntent = await transaction(this.pool, async db => {
+    const refundLookup = await transaction(this.pool, async db => {
       // Reservation first: use the same lock order as staff edits/cancellations.
       const reservation = (await db.query(`SELECT *,endtime AT TIME ZONE 'UTC' AS "endsAt" FROM reservation WHERE reservationid::text=$1 FOR UPDATE`, [id])).rows[0];
       const row = (await db.query('SELECT * FROM app_equipment_checkout WHERE reservation_id::text=$1 FOR UPDATE', [id])).rows[0];
@@ -165,7 +165,7 @@ export class EquipmentBilling {
       if (session.status !== 'complete' || session.payment_status !== 'paid') return;
       const intent = objectId(session.payment_intent);
       // A repeated checkout delivery can reconcile a refund lookup that failed after payment committed.
-      if (row.status === 'paid') return row.payment_intent === intent ? intent : undefined;
+      if (row.status === 'paid') return row.payment_intent === intent && !!row.refund_reconcile_after;
       if (row.status !== 'pending') return;
       if (!intent || reservation.status !== 'pending') throw new AppError(409, 'RECONCILE_REQUIRED', 'Payment requires staff reconciliation.');
       // Payment alone cannot confirm a booking whose current waivers/training
@@ -178,7 +178,7 @@ export class EquipmentBilling {
           AND userid=$3 AND paymentstatus='pending' RETURNING paymentid AS id`, [id, session.id, reservation.userid])).rows[0];
       const payment = existingPayment?.id ?? await model.createPayment(reservation.userid, null, (row.amount_cents / 100).toFixed(2),
         'paid', 'card', session.id, 'Online equipment reservation (Stripe test mode)', row.payer_id);
-      await db.query("UPDATE app_equipment_checkout SET status='paid',checkout_id=$2,payment_intent=$3,payment_id=$4 WHERE reservation_id=$1", [id, session.id, intent, payment]);
+      await db.query("UPDATE app_equipment_checkout SET status='paid',checkout_id=$2,payment_intent=$3,payment_id=$4,refund_reconcile_after=now() WHERE reservation_id=$1", [id, session.id, intent, payment]);
       await db.query("UPDATE reservation SET status='confirmed',statusdesc='Stripe payment verified',payment_id=$2,revision=revision+1 WHERE reservationid=$1", [id, payment]);
       const confirmed = await new ReservationModel(db).find(Number(id));
       if (!confirmed) throw new AppError(404, 'NOT_FOUND', 'Reservation not found.');
@@ -190,30 +190,42 @@ export class EquipmentBilling {
       await enqueueNotification(db, { userId: row.payer_id, kind: 'payment_receipt', dedupeKey: `equipment-receipt:${id}`,
         payload: { paymentId: payment, reservationId: Number(id), amount: (row.amount_cents / 100).toFixed(2),
           currency: 'USD', method: 'Card (test mode)', reference: session.id } });
-      return intent;
+      return true;
     });
-    if (!paidIntent) return;
+    if (refundLookup) await this.reconcileRefund(Number(id));
+  }
 
+  private async reconcileRefund(id: number) {
     // A refund delivered before the payment was recorded had no booking to match. Look it up
     // after committing the charge so a partial refund or a Stripe outage can't undo confirmation.
     await providerTransaction(this.pool, async db => {
-      const row = (await db.query<{ amount_cents: number }>(
-        'SELECT amount_cents FROM app_equipment_checkout WHERE reservation_id=$1 AND payment_intent=$2 FOR UPDATE',
-        [id, paidIntent])).rows[0];
+      const row = (await db.query<{ amount_cents: number; payment_intent: string }>(
+        'SELECT amount_cents,payment_intent FROM app_equipment_checkout WHERE reservation_id=$1 AND refund_reconcile_after IS NOT NULL FOR UPDATE',
+        [id])).rows[0];
       if (!row) return;
-      const refunds = await this.provider().sdk.refunds.list({ payment_intent: paidIntent, limit: 100 });
-      let refund: Stripe.Refund | undefined;
+      const refunds = await this.provider().sdk.refunds.list({ payment_intent: row.payment_intent, limit: 100 });
       try {
-        refund = liveRefund(refunds, row.amount_cents);
+        const refund = liveRefund(refunds, row.amount_cents);
+        if (refund) await this.applyRefund(db, refund);
       } catch (error) {
         if (!(error instanceof AppError) || error.code !== 'RECONCILE_REQUIRED') throw error;
         console.error('Equipment refund requires staff reconciliation', {
-          reservationId: Number(id), stage: 'equipment_reconcile_refund', ...errorIdentifier(error),
+          reservationId: id, stage: 'equipment_reconcile_refund', ...errorIdentifier(error),
         });
-        return;
       }
-      if (refund) await this.applyRefund(db, refund);
+      await db.query('UPDATE app_equipment_checkout SET refund_reconcile_after=NULL WHERE reservation_id=$1', [id]);
     });
+  }
+
+  private async reconcileRefunds() {
+    // Claim a bounded batch across replicas; an unsuccessful attempt will be due again in a minute.
+    const rows = (await this.pool.query<{ reservation_id: number }>(`WITH due AS (
+      SELECT reservation_id FROM app_equipment_checkout WHERE refund_reconcile_after<=now()
+      ORDER BY refund_reconcile_after LIMIT 20 FOR UPDATE SKIP LOCKED
+    ) UPDATE app_equipment_checkout c SET refund_reconcile_after=now()+interval '1 minute'
+    FROM due WHERE c.reservation_id=due.reservation_id RETURNING c.reservation_id`)).rows;
+    await Promise.all(rows.map(({reservation_id}) => this.reconcileRefund(reservation_id).catch(error =>
+      console.error('Equipment refund reconciliation deferred', {reservationId: reservation_id, ...errorIdentifier(error)}))));
   }
 
   /**
@@ -254,6 +266,7 @@ export class EquipmentBilling {
           WHERE reservation_id=$1 AND status='pending'`, [row.reservation_id]).catch(() => undefined);
       }
     }));
+    if (payerId === undefined) await this.reconcileRefunds();
   }
 
   /** Expire an unpaid checkout through the provider before releasing its local booking/payment state. */
