@@ -13,8 +13,10 @@ export const READER_LEASE_COMPACTION_INTERVAL_MS = 60_000;
  * stretched over the rows removed between them, so the run covers exactly the same time: authorized
  * hours, live-lease counts and each reader's latest activity read the same as before. Only renewals
  * that ended over ten minutes ago are touched, well past the 15-second replay window. Taps, refusals
- * and live leases are never touched, and none of these writes reach the audit log (migration 045).
- * Each pass reads at most `batch` rows from the last `lookback` of ended renewals, oldest first.
+ * and live leases are never touched, and none of these writes reach the audit log
+ * (048_device_renewal_audit.sql). Each pass reads at most `batch` rows from the last `lookback` of
+ * ended renewals, oldest first. The application's database role needs UPDATE and DELETE on
+ * app_device_access_event (docs/prewarmed-production-releases.md).
  */
 export async function compactReaderRenewals(pool: Pool, lookback = '7 days', batch = 10_000) {
   return transaction(pool, async db => {

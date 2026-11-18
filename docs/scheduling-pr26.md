@@ -84,7 +84,7 @@ resource check preserves them without permitting new resource-less reservations.
 A `BEFORE INSERT OR UPDATE` trigger overrides attempts to write the flag directly:
 
 - Inserts are enforced, except a room-only booking that explicitly sets
-  `cooldown_enforced = false`. Class scheduling does this (migration 045), because
+  `cooldown_enforced = false`. Class scheduling does this (`050_class_room_cooldown.sql`), because
   a class's room booking is stored under the staff member who scheduled it and
   back-to-back classes in one room are normal. Equipment bookings, and inserts that
   leave the column at its default, are always enforced. The room no-overlap

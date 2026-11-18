@@ -306,7 +306,7 @@ test('a token used up before the grace window existed has no use time, so its re
   const a = await register(), cookie=refreshCookie(a.res);
   const refreshed = await renew(cookie,a.csrf);
   assert.equal(refreshed.status,200);
-  // Tokens consumed before migration 045 kept consumed_at NULL; that must never read as recent.
+  // Tokens consumed before 047_refresh_reuse_grace.sql kept consumed_at NULL; that must never read as recent.
   await pool.query('UPDATE app_refresh_token SET consumed_at=NULL WHERE token_hash=$1',[tokenHash(cookie.slice(cookieName.length+1))]);
   assert.equal((await request(app).get('/api/auth/csrf').set('Cookie',cookie)).body.data.csrfToken,null);
   assert.equal((await renew(cookie,a.csrf)).status,401);
