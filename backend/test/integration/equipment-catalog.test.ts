@@ -141,3 +141,64 @@ test('a removed machine is no longer a reader location or a training requirement
   assert.ok(training.missing.includes('Kept engraver'));
   assert.equal(training.missing.includes('Removed engraver'), false);
 });
+
+test('a save into a category waits for one already in progress there, then sees its machine', async () => {
+  const other = await pool.connect();
+  try {
+    // Another administrator's save into "Race bench" has taken the category's turn and written its machine.
+    await other.query('BEGIN');
+    await other.query("SELECT pg_advisory_xact_lock(hashtext('arbor-equipment-category'),hashtext(lower($1)))", ['Race bench']);
+    await other.query("INSERT INTO equipment(name,category,location,hourlyrate,waiverrequired,status) VALUES('Race saw','Race bench','Makerspace',10,false,'available')");
+    const second = add(fields({ name: 'race SAW', type: 'race BENCH' })).then(response => response);
+    await new Promise(resolve => setTimeout(resolve, 200));
+    await other.query('COMMIT');
+    assert.equal((await second).status, 409);
+    assert.equal((await pool.query("SELECT count(*)::int AS n FROM equipment WHERE lower(name)='race saw'")).rows[0].n, 1);
+  } finally {
+    await other.query('ROLLBACK').catch(() => {});
+    other.release();
+  }
+});
+
+test('older machines that already share a name stay editable as long as the name and category are kept', async () => {
+  await machine('Legacy twin', 'Legacy press', 10);
+  const other = await machine('legacy TWIN', 'legacy PRESS', 10);
+  const moved = await edit(other, { ...fields({ name: 'legacy TWIN', type: 'legacy PRESS', rate: 10 }), location: 'Back room', expectedRevision: 1 });
+  assert.equal(moved.status, 200, JSON.stringify(moved.body));
+  assert.equal((await stored(other)).category, 'legacy PRESS', 'an unchanged category keeps its stored spelling');
+  assert.equal((await edit(other, { ...fields({ name: 'Legacy twin', type: 'legacy PRESS', rate: 10 }), expectedRevision: 2 })).status, 409, 'a changed name is checked');
+});
+
+test('Training cannot newly require an ended certification, and keeps an existing link', async () => {
+  const ended = await certification('Catalog ended course', '-400 days', '-1 day');
+  const linked = await machine('Already linked mill', 'Mill', 15, ended);
+  const unlinked = await machine('Unlinked mill', 'Mill', 15);
+  const save = (equipmentIds: number[]) => request(app).patch(`/api/training/catalog/${ended}`).set('Authorization', 'Bearer ' + administrator.accessToken).set('X-CSRF-Token', administrator.csrfToken)
+    .send({ name: 'Catalog ended course', description: '', equipmentIds, expectedRevision: 1, reason: 'Catalog test' });
+  const refused = await save([linked, unlinked]);
+  assert.equal(refused.status, 400);
+  assert.match(refused.body.error.message, /This certification has ended/);
+  assert.equal((await stored(unlinked)).certid, null);
+  assert.equal((await save([linked])).status, 200, JSON.stringify(refused.body));
+  assert.equal((await stored(linked)).certid, ended);
+});
+
+test('a reader cannot be set up on a machine whose removal is in progress', async () => {
+  const id = await machine('Racing removal', 'Engraver', 20);
+  const remover = await pool.connect(), setup = await pool.connect();
+  try {
+    // Removal locks the machine, then records it; reader setup arrives in between.
+    await remover.query('BEGIN');
+    await remover.query('SELECT 1 FROM equipment WHERE equipmentid=$1 FOR UPDATE', [id]);
+    await remover.query("INSERT INTO app_equipment_retirement(equipment_id,reason) VALUES($1,'Catalog test')", [id]);
+    await setup.query('BEGIN');
+    const target = assertReaderTarget(setup, 'equipment', id);
+    target.catch(() => {});
+    await new Promise(resolve => setTimeout(resolve, 200));
+    await remover.query('COMMIT');
+    await assert.rejects(target, /Reader location not found/);
+  } finally {
+    await setup.query('ROLLBACK').catch(() => {});
+    remover.release(); setup.release();
+  }
+});

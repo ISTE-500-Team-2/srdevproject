@@ -278,6 +278,9 @@ async function startAdding(name: string) {
 test('after adding, the board stays open with the new machine marked and the next step offered', async () => {
   canAdd();
   mount();
+  // Whatever the list was narrowed to, the new machine is shown.
+  fireEvent.change(await screen.findByPlaceholderText('Find a machine…'), { target: { value: 'Spock' } });
+  fireEvent.click(await screen.findByRole('button', { name: /1\s*Out of service/ }));
   const dialog = await startAdding('Glowforge Pro');
   const category = within(dialog).getByRole('combobox', { name: 'Category' });
   fireEvent.focus(category); fireEvent.change(category, { target: { value: 'laser engraver' } }); fireEvent.blur(category);
@@ -288,6 +291,8 @@ test('after adding, the board stays open with the new machine marked and the nex
   expect(screen.getByRole('heading', { level: 1, name: 'Equipment' })).toBeTruthy();
   await waitFor(async () => expect((await row('Glowforge Pro')).textContent).toMatch(/^Glowforge ProNew/));
   expect((await row('Glowforge Pro')).className).toContain('eq-row--new');
+  expect(screen.getByRole('button', { name: /All/ }).getAttribute('aria-pressed')).toBe('true');
+  expect((screen.getByPlaceholderText('Find a machine…') as HTMLInputElement).value).toBe('');
   fireEvent.click(screen.getByRole('button', { name: 'Add another' }));
   expect(await screen.findByRole('dialog', { name: 'Add equipment' })).toBeTruthy();
   expect(screen.queryByText(/was added/)).toBeNull();

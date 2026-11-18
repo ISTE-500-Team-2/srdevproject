@@ -106,7 +106,7 @@ test('ended certifications are listed but cannot be required; one that starts la
   expect(check(dialog)).toContain('6 members hold it today');
 });
 
-test('the preview is the card members see, and a name already on it is refused', async () => {
+test('the preview is the card members see, and a name already in the category is refused', async () => {
   const dialog = await open();
   type(dialog, 'Name', 'Oneway 1224');
   category(dialog, 'wood lathe');
@@ -117,14 +117,21 @@ test('the preview is the card members see, and a name already on it is refused',
   expect(check(dialog)).toContain('On the Lathe card');
   fireEvent.click(within(dialog).getByRole('button', { name: 'Wood lathe stock picture' }));
   expect(preview.textContent).toContain('Members see Oneway 1224 and its picture when they open the card.');
-  type(dialog, 'Name', 'kirk');
-  expect(check(dialog)).toContain('The Lathe card already has a kirk');
+  // The card labels each machine with its own category, so a metal lathe's name is free for a wood lathe...
+  type(dialog, 'Name', 'Kirk');
+  expect(check(dialog)).toContain('On the Lathe card');
+  // ...but not a name already in the same category.
+  type(dialog, 'Name', 'SPOCK');
+  expect(check(dialog)).toContain('Another Wood lathe is called SPOCK');
   expect(add(dialog).disabled).toBe(true);
   category(dialog, 'Bench grinder');
   expect(check(dialog)).toContain('New Bench grinder card');
 });
 
 test('keyboard: arrows and Enter choose a category and a certification; Escape closes only the list', async () => {
+  // jsdom has no layout; record what the list scrolls into view.
+  const scrolled = vi.fn();
+  Element.prototype.scrollIntoView = scrolled;
   const dialog = await open();
   const input = within(dialog).getByRole('combobox', { name: 'Category' });
   fireEvent.focus(input); fireEvent.change(input, { target: { value: 'lathe' } });
@@ -138,6 +145,8 @@ test('keyboard: arrows and Enter choose a category and a certification; Escape c
   for (let i = 0; i < 4; i++) fireEvent.keyDown(certification, { key: 'ArrowDown' });
   expect(certification.getAttribute('aria-activedescendant')).toBe(screen.getByRole('option', { name: /^None/ }).id);
   fireEvent.keyDown(certification, { key: 'ArrowUp' });
+  // The active option is kept in view on a list too long for the window.
+  expect((scrolled.mock.contexts.at(-1) as HTMLElement).id).toBe(screen.getByRole('option', { name: /^Resin casting/ }).id);
   fireEvent.keyDown(certification, { key: 'Enter' });
   expect(certification.textContent).toContain('Resin casting');
   fireEvent.keyDown(certification, { key: 'ArrowDown' });
@@ -167,4 +176,12 @@ test('a refusal from the server is shown and the form stays open', async () => {
   expect((await within(dialog).findByRole('alert')).textContent).toBe('Another Wood lathe is already called Spock 2.');
   expect(onAdded).not.toHaveBeenCalled();
   expect(screen.getByRole('dialog', { name: 'Add equipment' })).toBeTruthy();
+});
+
+test('the confirmation says so when no member holds the required certification yet', async () => {
+  const dialog = await open();
+  type(dialog, 'Name', 'Fiber laser'); category(dialog, 'Laser engraver'); type(dialog, 'Hourly rate in dollars', '30');
+  await pickCertification(dialog, /^Laser safety/);
+  fireEvent.click(add(dialog));
+  await waitFor(() => expect(onAdded).toHaveBeenCalledWith({ id: 12, name: 'Fiber laser', note: 'Members need Laser safety to book it, and no one holds it yet.' }));
 });

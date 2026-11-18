@@ -95,6 +95,7 @@ export function EquipmentAdd({ onClose, onAdded }: { onClose: () => void; onAdde
   const certRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const touch = () => setDirty(true);
+  const categoryList = `${ids}-categories`, certList = `${ids}-certifications`, certLabel = `${ids}-certification-label`;
 
   // Category: typed or chosen; a match in other capitals becomes the existing spelling.
   const query = category.trim().toLowerCase();
@@ -110,7 +111,8 @@ export function EquipmentAdd({ onClose, onAdded }: { onClose: () => void; onAdde
     return { title, machines: groups.filter(g => equipmentGroup(g.name) === title).flatMap(g => g.machines).sort((a, b) => a.id - b.id) };
   })() : null;
   const trimmed = name.trim();
-  const duplicate = !!card && !!trimmed && card.machines.some(m => m.name.trim().toLowerCase() === trimmed.toLowerCase());
+  // Names are unique within a category, as the server requires; a merged card labels each machine with its category.
+  const duplicate = !!exact && !!trimmed && exact.machines.some(m => m.name.trim().toLowerCase() === trimmed.toLowerCase());
 
   // Certifications: in effect first, then ones that start later; ended ones are shown but can't be picked.
   const certChoices: (CertificationOption | null)[] = [null, ...certs.filter(c => (c.state ?? 'now') === 'now'), ...certs.filter(c => c.state === 'later'), ...certs.filter(c => c.state === 'ended')];
@@ -122,7 +124,7 @@ export function EquipmentAdd({ onClose, onAdded }: { onClose: () => void; onAdde
   const link = linking ? picture.trim() : '';
   const listing: Item = !trimmed ? { tone: 'bad', title: 'Give it a name', note: 'Members pick machines by name' }
     : !card ? { tone: 'bad', title: 'Choose a category', note: 'It decides which card it appears on' }
-    : duplicate ? { tone: 'bad', title: `The ${card.title} card already has a ${trimmed}`, note: `Members pick machines by name. Try ${trimmed} #2` }
+    : duplicate ? { tone: 'bad', title: `Another ${chosenCategory} is called ${trimmed}`, note: `Members pick machines by name. Try ${trimmed} #2` }
     : !location.trim() ? { tone: 'bad', title: 'Add a location', note: 'Members see where to find it' }
     : linkProblem(link) ? { tone: 'bad', title: 'Check the photo link', note: 'Use a link that starts with https:// or /' }
     : card.machines.length ? { tone: 'ok', title: `On the ${card.title} card`, note: `Next to ${plural(card.machines.length, 'other machine')}` }
@@ -150,6 +152,13 @@ export function EquipmentAdd({ onClose, onAdded }: { onClose: () => void; onAdde
   const openCert = () => { if (certRef.current) { setCertMenu(placeMenu(certRef.current, 300)); setCertActive(Math.max(0, certChoices.findIndex(c => (c?.id ?? null) === certId))); } };
   const pickCert = (c: CertificationOption | null) => { if (!pickable(c)) return; setCertId(c?.id ?? null); setCertMenu(null); touch(); certRef.current?.focus(); };
   // The list is pinned to the window: it closes on an outside press or if the page under it moves.
+  // Keyboard moves keep the active option in view; focus stays on the field, so the list scrolls itself.
+  useEffect(() => {
+    if (certMenu) document.getElementById(`${certList}-${certActive}`)?.scrollIntoView?.({ block: 'nearest' });
+  }, [certMenu, certActive, certList]);
+  useEffect(() => {
+    if (categoryOpen && categoryActive >= 0) document.getElementById(`${categoryList}-${categoryActive}`)?.scrollIntoView?.({ block: 'nearest' });
+  }, [categoryOpen, categoryActive, categoryList]);
   useEffect(() => {
     if (!certMenu) return;
     const inside = (target: EventTarget | null) => target instanceof Node && (menuRef.current?.contains(target) || certRef.current?.contains(target));
@@ -196,12 +205,12 @@ export function EquipmentAdd({ onClose, onAdded }: { onClose: () => void; onAdde
         method: 'POST',
         body: { name: trimmed, type: chosenCategory, location: location.trim(), image: chosenPicture, rate: price.rate, certId, waiverRequired: waiver },
       });
-      onAdded({ id: saved.id, name: trimmed, note: later ? `Members can book it from ${day(cert!.startsOn)}.` : 'Members can book it now.' });
+      onAdded({ id: saved.id, name: trimmed, note: later ? `Members can book it from ${day(cert!.startsOn)}.`
+        : cert?.holders === 0 ? `Members need ${cert.name} to book it, and no one holds it yet.` : 'Members can book it now.' });
     } catch (err) { setError(errorMessage(err)); }
     finally { setBusy(false); }
   };
 
-  const categoryList = `${ids}-categories`, certList = `${ids}-certifications`, certLabel = `${ids}-certification-label`;
   return <Modal open title="Add equipment" onClose={onClose} dirty={dirty} dismissible={!busy} className="eqa-card">
     {close => <form ref={editingFormRef} className="eqa" onChange={touch} onSubmit={save}>
       <div className="eqa-form">

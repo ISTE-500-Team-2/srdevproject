@@ -164,11 +164,18 @@ export async function assertReaderTarget(
     );
   if (
     !(
-      await db.query(
-        `SELECT 1 FROM ${table} e WHERE ${table}id=$1${table === "equipment" ? ` AND ${activeEquipment}` : ""} FOR SHARE`,
-        [id],
-      )
-    ).rowCount
+      await db.query(`SELECT 1 FROM ${table} WHERE ${table}id=$1 FOR SHARE`, [
+        id,
+      ])
+    ).rowCount ||
+    // Removal locks the machine before recording it, so this later read sees a removal that was in progress.
+    (table === "equipment" &&
+      (
+        await db.query(
+          "SELECT 1 FROM app_equipment_retirement WHERE equipment_id=$1",
+          [id],
+        )
+      ).rowCount)
   )
     throw new AppError(404, "NOT_FOUND", "Reader location not found.");
 }

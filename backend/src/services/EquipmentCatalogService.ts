@@ -114,16 +114,22 @@ export class EquipmentCatalogService {
         if (cert.ended && before?.certId !== f.certId)
           throw new AppError(400, 'INVALID_INPUT', 'That certification has ended, so no one could book this equipment. Choose one that is in effect.');
       }
-      // One category, one spelling: "3d printer" joins the existing "3D printer".
-      const spelling = (await db.query<{ name: string }>(`SELECT trim(e.category) AS name FROM equipment e
-        WHERE lower(trim(e.category))=lower($1) AND e.equipmentid IS DISTINCT FROM $2 AND ${active}
-        GROUP BY 1 ORDER BY count(*) DESC,1 LIMIT 1`, [f.category, id])).rows[0];
-      if (spelling) f.category = spelling.name;
-      // Members pick a machine by name within its category, so two there can't share one.
-      if ((!before || before.name !== f.name || before.type !== f.category) && (await db.query(`SELECT 1 FROM equipment e
-        WHERE lower(trim(e.name))=lower($1) AND lower(trim(e.category))=lower($2) AND e.equipmentid IS DISTINCT FROM $3 AND ${active}`,
-        [f.name, f.category, id])).rows.length)
-        throw new AppError(409, 'DUPLICATE_NAME', `Another ${f.category} is already called ${f.name}. Give this one a different name, like ${f.name} #2.`);
+      // A new or changed name or category is checked; an edit that keeps both leaves older data as it is.
+      const categoryChanged = !before || before.type !== f.category;
+      if (categoryChanged || before.name !== f.name) {
+        // Saves into one category take turns, so two can't both pass the checks below.
+        await db.query("SELECT pg_advisory_xact_lock(hashtext('arbor-equipment-category'),hashtext(lower($1)))", [f.category]);
+        // One category, one spelling: "3d printer" joins the existing "3D printer".
+        const spelling = categoryChanged ? (await db.query<{ name: string }>(`SELECT trim(e.category) AS name FROM equipment e
+          WHERE lower(trim(e.category))=lower($1) AND e.equipmentid IS DISTINCT FROM $2 AND ${active}
+          GROUP BY 1 ORDER BY count(*) DESC,1 LIMIT 1`, [f.category, id])).rows[0] : undefined;
+        if (spelling) f.category = spelling.name;
+        // Members pick a machine by name within its category, so two there can't share one.
+        if ((await db.query(`SELECT 1 FROM equipment e
+          WHERE lower(trim(e.name))=lower($1) AND lower(trim(e.category))=lower($2) AND e.equipmentid IS DISTINCT FROM $3 AND ${active}`,
+          [f.name, f.category, id])).rows.length)
+          throw new AppError(409, 'DUPLICATE_NAME', `Another ${f.category} is already called ${f.name}. Give this one a different name, like ${f.name} #2.`);
+      }
       const values = [f.name, f.category, f.location, f.image, f.rate, f.certId, f.waiverRequired];
       const after = (await db.query<{ id: number }>(id === null
         ? `INSERT INTO equipment(name,category,location,imagepath,hourlyrate,certid,waiverrequired,status) VALUES($1,$2,$3,$4,$5,$6,$7,'available') RETURNING equipmentid AS id`

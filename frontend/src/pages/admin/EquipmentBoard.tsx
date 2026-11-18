@@ -74,13 +74,12 @@ function BoardContent({ day, zone, now, machines, onAdd, added }: { day: string;
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [selected, setSelected] = useState<number | null>(null);
-  // A machine just added opens beside the list (on a wide screen) and scrolls into view once listed.
-  const addedListed = !!added && !!machines.data?.some(m => m.id === added.id);
+  // A machine just added is shown whatever the list was filtered to.
   useEffect(() => {
-    if (!added || !addedListed) return;
-    setSelected(added.id);
-    document.querySelector('.eq-row--new')?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
-  }, [added, addedListed]);
+    if (!added) return;
+    setFilter('all');
+    setSearch('');
+  }, [added]);
   const [workspace, width] = useWidth();
   const split = width >= SPLIT_WIDTH;
 
@@ -89,6 +88,13 @@ function BoardContent({ day, zone, now, machines, onAdd, added }: { day: string;
   const query = search.toLowerCase().trim();
   const visible = rows.filter(r => (filter === 'all' || (filter === 'use' && r.live) || (filter === 'booked' && r.bookedToday) || (filter === 'down' && r.down))
     && `${r.machine.name} ${r.machine.type} ${r.machine.location}`.toLowerCase().includes(query));
+  // Once it is listed, it opens beside the list (on a wide screen) and scrolls into view.
+  const addedShown = !!added && visible.some(r => r.machine.id === added.id);
+  useEffect(() => {
+    if (!added || !addedShown) return;
+    setSelected(added.id);
+    document.querySelector('.eq-row--new')?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+  }, [added, addedShown]);
   const active = split ? (visible.find(r => r.machine.id === selected) ?? visible[0]) : undefined;
   // On a wide screen a row opens beside the list; modified clicks still open the page.
   const choose = (id: number) => (event: MouseEvent) => {
