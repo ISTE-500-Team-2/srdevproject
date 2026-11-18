@@ -14,6 +14,8 @@ export function ConfirmEmailPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [email, setEmail] = useState(location.state?.email ?? "");
+  // Sent here from the login page to ask for a new link: open the form instead of saying one was sent.
+  const [resendRequested] = useState(() => location.state?.resend === true);
   // Fragment is not sent to the web server; remove it after capturing to keep it out of history.
   // Pasting the emailed link into this same tab is a fragment-only navigation, so capture
   // a new fragment whenever one arrives, not just on the first render.
@@ -111,7 +113,7 @@ export function ConfirmEmailPage() {
           <h1 id="email-confirm-title">
             {deliveryDisabled
               ? "Email unavailable"
-              : location.state?.email
+              : location.state?.email && !resendRequested
                 ? "Confirmation sent"
                 : "Check your email"}
           </h1>
@@ -120,7 +122,7 @@ export function ConfirmEmailPage() {
               ? "Your sign-up is pending; no member account has been created. Email delivery is unavailable here. Contact the studio or try again when email is available. Unconfirmed requests expire after 24 hours."
               : "Open your email and select Confirm my email to create your account. Unconfirmed requests expire after 24 hours."}
           </p>
-          <details className="email-confirm-help">
+          <details className="email-confirm-help" open={resendRequested}>
             <summary>Didn’t get the email?</summary>
             <p>Check your spam folder, or request a new link below.</p>
             {error ? (
@@ -147,6 +149,7 @@ export function ConfirmEmailPage() {
                   type="password"
                   required
                   autoComplete="current-password"
+                  autoFocus={resendRequested && !!email}
                 />
               </label>
               <label className="form-field">

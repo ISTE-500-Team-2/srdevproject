@@ -10,6 +10,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import './pageStyles';
 import App from './App';
+import { PageErrorBoundary } from './components/ErrorBoundary';
 import { startAppearanceSync } from './theme/appearance';
 import './styles.css';
 import './tables.css';
@@ -22,7 +23,9 @@ startAppearanceSync();
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
-      <App />
+      <PageErrorBoundary standalone>
+        <App />
+      </PageErrorBoundary>
     </BrowserRouter>
   </StrictMode>,
 );

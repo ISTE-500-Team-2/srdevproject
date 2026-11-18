@@ -35,6 +35,7 @@ export class StudioStripe {
     this.sdk = new Stripe(config.key, { maxNetworkRetries: 2, timeout: 10000 });
   }
   async checkout(r: StudioCheckoutRental) {
+    const expiresAt = Math.floor(new Date(r.hold_until).getTime() / 1000);
     const session = await this.sdk.checkout.sessions.create(
       {
         mode: "payment",
@@ -43,7 +44,7 @@ export class StudioStripe {
         client_reference_id: String(r.id),
         metadata: { studioRentalId: String(r.id) },
         payment_intent_data: { metadata: { studioRentalId: String(r.id) } },
-        expires_at: Math.floor(new Date(r.hold_until).getTime() / 1000),
+        expires_at: expiresAt,
         success_url: this.config.origin + `/studios?payment=returned&rental=${r.id}&session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: this.config.origin + "/studios?payment=cancelled",
         line_items: [
@@ -59,7 +60,9 @@ export class StudioStripe {
           },
         ],
       },
-      { idempotencyKey: `studio-checkout:${r.id}` },
+      // One key per hold window: a retry in the same window replays the same session, while a hold
+      // given a fresh window (its first checkout never opened) is not refused as a changed request.
+      { idempotencyKey: `studio-checkout:${r.id}:${expiresAt}` },
     );
     if (session.livemode)
       throw new AppError(

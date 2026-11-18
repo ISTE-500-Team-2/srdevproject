@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
-import { before, after, test } from "node:test";
+import { before, after, beforeEach, test } from "node:test";
 import { Pool } from "pg";
 import request from "supertest";
 import { initializeDemo } from "../../src/scripts/init-demo.js";
@@ -61,6 +61,13 @@ after(async () => {
   await pool.end();
   if (created) await owner.query(`DROP DATABASE "${database}"`);
   await owner.end();
+});
+// Each test starts with no live holds, so the per-member unpaid-hold cap only sees its own.
+beforeEach(async () => {
+  await pool.query(
+    "UPDATE app_studio_rental SET hold_until=now()-interval '1 second' WHERE userid=$1 AND status='pending' AND hold_until>now()",
+    [member],
+  );
 });
 test("one winner in concurrent monthly bookings; manual payment requires staff; cancellation/refund truthful", async () => {
   const results = await Promise.allSettled([
@@ -381,12 +388,22 @@ test('studio notices wait for payment, target member and staff once, and respect
   await service.manualPay(admin,rental.id,'notification acceptance receipt');
   await assert.rejects(service.manualPay(admin,rental.id,'notification acceptance receipt'),{code:'PAYMENT_STATE'});
   assert.equal((await notices('payment_receipt')).length,1,'staff-recorded payment queues a separate receipt');
+  // Staff get their own staff-worded copy naming the member, not the member's notice.
+  const memberName=(await pool.query(`SELECT firstname||' '||lastname AS name FROM "user" WHERE userid=$1`,[member])).rows[0].name;
+  const studioName=(await pool.query('SELECT name FROM app_studio WHERE id=8')).rows[0].name;
   let rows=await notices('studio_reservation_confirmed');
-  assert.deepEqual(rows.map(r=>[r.userid,r.status]),[[member,'pending'],[admin,'suppressed']].sort((a,b)=>Number(a[0])-Number(b[0])));
+  assert.deepEqual(rows.map(r=>[r.userid,r.status]),[[member,'pending']]);
+  assert.equal(rows[0].payload.resourceName,studioName,'the studio is named, not numbered');
+  let staffRows=await notices('admin_studio_reservation_confirmed');
+  assert.deepEqual(staffRows.map(r=>[r.userid,r.status]),[[admin,'suppressed']]);
+  assert.equal(staffRows[0].payload.memberName,memberName);
   await service.cancel(member,rental.id);
   await service.cancel(member,rental.id);
   rows=await notices('studio_reservation_cancelled');
-  assert.deepEqual(rows.map(r=>[r.userid,r.status]),[[member,'pending'],[admin,'suppressed']].sort((a,b)=>Number(a[0])-Number(b[0])));
+  assert.deepEqual(rows.map(r=>[r.userid,r.status]),[[member,'pending']]);
+  staffRows=await notices('admin_studio_reservation_cancelled');
+  assert.deepEqual(staffRows.map(r=>[r.userid,r.status]),[[admin,'suppressed']]);
+  assert.equal(staffRows[0].payload.resourceName,studioName);
   const cancelled=rows.find(r=>r.userid===member).payload;
   assert.equal(cancelled.paymentStatus,'refund_pending');
   assert.equal(cancelled.refundAmount,cancelled.amount,'full refund before the start date');

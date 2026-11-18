@@ -24,6 +24,9 @@ test('each invalid signup property is named in the error body',async()=>{
     ['firstName',{firstName:''}],
     ['lastName',{lastName:'x'.repeat(51)}],
     ['phone',{phone:'0'.repeat(16)}],
+    ['phone',{phone:'call me'}],
+    ['phone',{phone:'555-01'}],
+    ['phone',{phone:'+1 (410) 555-0182 x123'}],
     ['email',{email:'not-an-email'}],
     ['dob',{dob:'01/02/2000'}],
     ['dob',{dob:'2999-01-01'}],
@@ -55,4 +58,11 @@ test('errors outside signup keep their existing body',async()=>{
   const accepted=await register(person);
   assert.equal(accepted.status,202);
   assert.equal(accepted.body.error,undefined);
+});
+
+test('a formatted phone number is saved whole, as its digits',async()=>{
+  const email='formatted-phone@example.invalid';
+  assert.equal((await register({...person,email,phone:'+1 (410) 555-0182'})).status,202);
+  const row=(await pool.query('SELECT phone FROM app_pending_registration WHERE email=$1',[email])).rows[0];
+  assert.equal(row.phone,'14105550182');
 });

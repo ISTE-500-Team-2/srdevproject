@@ -30,6 +30,23 @@ export class EquipmentBilling {
   }
 
   /**
+   * Release a hold whose checkout session was never stored. Nobody got a payment link for it, and
+   * any session the failed call did create expires at hold_until, so once the hold has passed
+   * (`afterHold`), or Stripe definitely rejected the call, no payment can arrive for it.
+   */
+  private async expireUnopened(id: number, reason: string, afterHold: boolean) {
+    return transaction(this.pool, async db => {
+      await db.query('SELECT reservationid FROM reservation WHERE reservationid=$1 FOR UPDATE', [id]);
+      const expired = await db.query(`UPDATE app_equipment_checkout SET status='expired' WHERE reservation_id=$1 AND status='pending'
+        AND checkout_id IS NULL AND (NOT $2::boolean OR hold_until<=now()) RETURNING reservation_id`, [id, afterHold]);
+      if (!expired.rowCount) return false;
+      await db.query("UPDATE reservation SET status='cancelled',statusdesc=$2 WHERE reservationid=$1 AND status='pending'", [id, reason]);
+      await db.query("UPDATE payment SET paymentstatus='void',revision=revision+1,updated_at=now() WHERE paymentid=(SELECT payment_id FROM reservation WHERE reservationid=$1) AND paymentstatus='pending'", [id]);
+      return true;
+    });
+  }
+
+  /**
    * Create or reuse the provider checkout with a stable idempotency key; recheck the booked
    * member's requirements before returning a link.
    */
@@ -40,6 +57,8 @@ export class EquipmentBilling {
     if (!row) throw new AppError(404, 'NOT_FOUND', 'Checkout not found.');
     if (row.status === 'expired') throw new AppError(409, 'CHECKOUT_EXPIRED', 'Payment time expired. Choose your time again.');
     if (row.status !== 'pending') return { ...await new ReservationModel(this.pool).find(id), amountCents: row.amount_cents };
+    if (!row.checkout_id && new Date(row.hold_until).getTime() <= Date.now() && await this.expireUnopened(id, 'Unpaid checkout expired', true))
+      throw new AppError(409, 'CHECKOUT_EXPIRED', 'Payment time expired. Choose your time again.');
     // Recheck the booked member, including staff-assisted and idempotent retries.
     // A checkout link must never bypass a waiver revoked after the initial hold.
     await transaction(this.pool, db => this.requirements(db, row));
@@ -66,14 +85,7 @@ export class EquipmentBilling {
       // A definite validation rejection created no checkout. Ambiguous network errors
       // keep the hold and its idempotency key so a retry cannot charge twice.
       if (!row.checkout_id && error instanceof Stripe.errors.StripeInvalidRequestError)
-        await transaction(this.pool, async db => {
-          await db.query('SELECT reservationid FROM reservation WHERE reservationid=$1 FOR UPDATE', [id]);
-          const expired = await db.query("UPDATE app_equipment_checkout SET status='expired' WHERE reservation_id=$1 AND status='pending' AND checkout_id IS NULL RETURNING reservation_id", [id]);
-          if (expired.rowCount) {
-            await db.query("UPDATE reservation SET status='cancelled',statusdesc='Checkout creation rejected' WHERE reservationid=$1 AND status='pending'", [id]);
-            await db.query("UPDATE payment SET paymentstatus='void',revision=revision+1,updated_at=now() WHERE paymentid=(SELECT payment_id FROM reservation WHERE reservationid=$1) AND paymentstatus='pending'", [id]);
-          }
-        });
+        await this.expireUnopened(id, 'Checkout creation rejected', false);
       throw new AppError(503, 'CHECKOUT_UNAVAILABLE', 'Stripe checkout could not be opened. Refresh your reservations and resume payment to try again.', undefined, { cause: error });
     }
     if (session.metadata?.equipmentReservationId !== String(id))
@@ -143,6 +155,13 @@ export class EquipmentBilling {
    * stale booking state.
    */
   async reconcile(payerId?: number) {
+    // Holds whose checkout was never opened can't be checked with Stripe; release them once they pass.
+    const unopened = (await this.pool.query(`SELECT reservation_id FROM app_equipment_checkout
+      WHERE status='pending' AND checkout_id IS NULL AND hold_until<=now() ORDER BY hold_until LIMIT 20`)).rows;
+    for (const row of unopened)
+      await this.expireUnopened(row.reservation_id, 'Unpaid checkout expired', true).catch(error =>
+        console.error('Equipment payment reconciliation deferred', {reservationId: row.reservation_id, stage: 'equipment_expire_unopened',
+          ...errorIdentifier(error)}));
     if (!this.stripe) return;
     const rows = (await this.pool.query(`SELECT reservation_id,checkout_id FROM app_equipment_checkout
       WHERE status='pending' AND checkout_id IS NOT NULL AND
@@ -169,7 +188,10 @@ export class EquipmentBilling {
     const row = (await this.pool.query('SELECT * FROM app_equipment_checkout WHERE reservation_id=$1 AND payer_id=$2', [id, payerId])).rows[0];
     if (!row) throw new AppError(404, 'NOT_FOUND', 'Checkout not found.');
     if (row.status !== 'pending') throw new AppError(409, 'PAYMENT_PROCESSING', 'Refresh the reservation before cancelling.');
-    if (!row.checkout_id) throw new AppError(409, 'RECONCILE_REQUIRED', 'Resume checkout before cancelling it.');
+    if (!row.checkout_id) {
+      if (await this.expireUnopened(id, 'Unpaid checkout expired', true)) return { cancelled: true };
+      throw new AppError(409, 'RECONCILE_REQUIRED', 'Resume checkout before cancelling it.');
+    }
     const sdk = this.provider().sdk;
     let session = await sdk.checkout.sessions.retrieve(row.checkout_id);
     if (session.status === 'open') session = await sdk.checkout.sessions.expire(session.id);

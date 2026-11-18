@@ -78,6 +78,10 @@ test('scheduler membership payload renders plan and expiry in user timezone with
   assert.ok(result.textContent.includes('Expires: Tue, Jan 1, 2030 at 5:00 PM PST'));
   assert.ok(result.textContent.includes('Starts: Tue, Jan 1, 2030'));
   assert.ok(!result.textContent.includes('2030-01-02T01:00:00Z'));
+  // Only memberships that won't renew on their own get this; online checkout is closed until it ends.
+  assert.ok(result.subject.endsWith(': Your membership is ending soon'));
+  assert.ok(result.textContent.includes('ask staff to renew it, or choose a new plan once it ends'));
+  assert.ok(!/Renew it to keep/.test(result.textContent));
 });
 
 test('studio cancellation reads as a receipt, not a field dump', () => {
@@ -103,6 +107,25 @@ test('same-day equipment bookings collapse to one readable time range', () => {
     startsAt:'2030-01-15T22:00:00Z', endsAt:'2030-01-16T00:00:00Z', timeZone:'America/New_York'}, context);
   assert.ok(result.textContent.includes('When: Tue, Jan 15, 2030, 5:00 PM – 7:00 PM EST'));
   assert.ok(result.textContent.includes('Your Laser Engraver session is booked'));
+});
+
+test('a booking staff cancelled says the studio cancelled it, not that the member did', () => {
+  const booking = {resourceName:'Laser Engraver', startsAt:'2030-01-15T22:00:00Z', endsAt:'2030-01-16T00:00:00Z', timeZone:'America/New_York'};
+  const own = renderNotification('reservation_cancelled', booking, context);
+  assert.equal(own.subject, 'The Crafty Studio: Your reservation cancellation is confirmed');
+  const result = renderNotification('reservation_cancelled_by_staff', {...booking,
+    instructions:'You paid for this booking. Contact the studio to arrange a refund.'}, context);
+  assert.equal(result.subject, 'The Crafty Studio: Your reservation has been cancelled');
+  assert.ok(!result.textContent.includes('cancellation is confirmed'));
+  assert.ok(result.textContent.includes('Your Laser Engraver session was cancelled'));
+  assert.ok(result.textContent.includes('Studio staff took this booking off your reservations'));
+  assert.ok(result.textContent.includes('When: Tue, Jan 15, 2030, 5:00 PM – 7:00 PM EST'));
+  assert.ok(result.textContent.includes('What happens next\nYou paid for this booking. Contact the studio to arrange a refund.'));
+  const moved = renderNotification('reservation_cancelled_by_staff', {...booking, reason:'Staff moved this booking to another member.'}, context);
+  assert.ok(moved.textContent.includes('Reason: Staff moved this booking to another member.'));
+  // The same opening reads true for a booking given to someone else, not only a cancelled one.
+  assert.ok(moved.textContent.includes('Studio staff took this booking off your reservations, so this time is no longer held for you.'));
+  assert.ok(!moved.textContent.includes('cancelled this booking'));
 });
 
 test('reset security mail uses a fragment link and never offers to suppress security notices', () => {
@@ -132,6 +155,14 @@ test('mail supports dark mode with class-based overrides and a plated logo, keep
 test('turning off auto-renew sends an auto-renew confirmation',()=>{
  const r=renderNotification('membership_cancelled',{membershipName:'Monthly',endsAt:'2026-12-02T05:00:00Z'},context);
  assert.match(r.subject,/Auto-renew is off/);assert.match(r.textContent,/turned off automatic payments/);
+});
+test('cancelling a desk-paid membership confirms the cancellation without mentioning automatic payments',()=>{
+ const r=renderNotification('membership_cancellation_confirmed',{membershipName:'Monthly',endsAt:'2026-12-02T05:00:00Z',
+  instructions:'If you paid at the front desk, ask staff about any refund.'},context);
+ assert.match(r.subject,/Your membership cancellation is confirmed/);
+ assert.match(r.textContent,/stays active until the end date below/);
+ assert.match(r.textContent,/Membership: Monthly/);assert.match(r.textContent,/Ends: /);
+ for(const part of [r.subject,r.textContent,r.htmlContent])assert.doesNotMatch(part,/auto-renew|automatic payments/i);
 });
 test('sponsor requests name people by first name only and link to where the answer lives',()=>{
  // Even if a caller slipped an email into the payload, only the approved first-name fields render.

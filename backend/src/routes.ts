@@ -39,7 +39,7 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   const notifications = new NotificationPreferencesController(pool);
   const waiverRecords = new WaiverRecordsController(pool);
   const member = new MemberController(pool, config.timeZone);
-  const equipment = new EquipmentController(pool, config.timeZone);
+  const equipment = new EquipmentController(pool, config.timeZone, !!config.studioStripe);
   const rooms = new RoomController(pool);
   const reservations = new ReservationController(pool, config.timeZone, config.studioStripe);
   const staff = new StaffController(pool, config.timeZone);
@@ -101,7 +101,9 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   routes.get("/me/notifications", permit("notification", "read", "own"), notifications.get);
   routes.patch("/me/notifications", permit("notification", "update", "own"), settingsAreMemberOnly, requireCsrf, notifications.update);
 
-  routes.patch("/me/profile", permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, member.profile);
+  // Every save keeps a full before-and-after copy in the change log, and people rarely edit their profile.
+  const profileLimit = authRateLimit({ limit: 60, message: "Too many profile saves. Please wait a few minutes and try again." });
+  routes.patch("/me/profile", profileLimit, permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, member.profile);
   // Both check the current password, so they share a per-address attempt budget.
   routes.post("/me/password", credentialLimit, permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, auth.changePassword);
   routes.post("/me/email-change", credentialLimit, permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, auth.requestEmailChange);

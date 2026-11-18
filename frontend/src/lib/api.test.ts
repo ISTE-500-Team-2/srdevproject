@@ -86,6 +86,41 @@ test.each([
   expect(expired).toHaveBeenCalledTimes(1);
 });
 
+// A tab signed in as person 1; the browser's refresh cookie now renews as `renewedAs`.
+function signedInTab(renewedAs: number) {
+  let saves = 0;
+  const fetch = vi.fn(async (url: string) => {
+    if (url === '/api/auth/login') return Response.json({ data: { accessToken: 'mine', csrfToken: 'csrf', user: { id: 1 } } });
+    if (url === '/api/auth/csrf') return Response.json({ data: { csrfToken: 'csrf' } });
+    if (url === '/api/auth/refresh') return Response.json({ data: { accessToken: `renewed-${renewedAs}`, csrfToken: 'csrf2', user: { id: renewedAs } } });
+    // The first save finds this tab's sign-in ended.
+    if (url === '/api/me/profile') return ++saves > 1 ? Response.json({ data: { saved: true } }) : error(401, { error: { code: 'UNAUTHENTICATED', message: 'Sign in to continue.' } });
+    return error(404, {});
+  });
+  vi.stubGlobal('fetch', fetch);
+  return fetch;
+}
+
+test('a renewal that comes back as someone else does not send the request as them', async () => {
+  const fetch = signedInTab(2);
+  await api('/auth/login', { method: 'POST' });
+  const expired = vi.fn();
+  window.addEventListener('session-expired', expired);
+  await expect(api('/me/profile', { method: 'PATCH', body: { firstName: 'A' } })).rejects.toMatchObject({ status: 401, code: 'SIGNED_IN_ELSEWHERE' });
+  window.removeEventListener('session-expired', expired);
+  // The save is not retried under the other person's token.
+  expect(fetch.mock.calls.map(([url]) => url)).toEqual(['/api/auth/login', '/api/me/profile', '/api/auth/csrf', '/api/auth/refresh']);
+  expect(expired).toHaveBeenCalledTimes(1);
+});
+
+test('a renewal for the same person retries the request as before', async () => {
+  const fetch = signedInTab(1);
+  await api('/auth/login', { method: 'POST' });
+  await expect(api('/me/profile', { method: 'PATCH', body: { firstName: 'A' } })).resolves.toEqual({ saved: true });
+  expect(fetch.mock.calls.map(([url]) => url)).toEqual(['/api/auth/login', '/api/me/profile', '/api/auth/csrf', '/api/auth/refresh', '/api/me/profile']);
+  expect(authorization(fetch.mock.calls[4]!)).toBe('Bearer renewed-1');
+});
+
 test('a failed /auth/ request does not end the session', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(error(401, { error: { code: 'INVALID_CREDENTIALS', message: 'Wrong email or password.' } })));
   const expired = vi.fn();

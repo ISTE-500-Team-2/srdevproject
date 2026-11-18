@@ -24,6 +24,7 @@ import {
   sizeLabel,
   studioImage,
 } from "../../lib/studioDisplay";
+import { dayKey, formatTime } from "../../lib/today";
 
 const DAYS = 90;
 // The desktop window starts a little before today so the current rentals read in context.
@@ -32,12 +33,15 @@ const short = (d: string) =>
   calendarDate(d, { month: "short", day: "numeric" });
 const pct = (days: number) => `${(days / DAYS) * 100}%`;
 
-export function holdDate(at: string, timeZone: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    timeZone,
-  }).format(Date.parse(at));
+/**
+ * When a desk-payment hold runs out, e.g. "3:41 PM". Holds last about 30 minutes, so the time is
+ * what staff need; a hold ending on another day also names the day.
+ */
+export function holdTime(at: string, timeZone: string, today: string) {
+  const time = formatTime(at, timeZone);
+  if (dayKey(Date.parse(at), timeZone) === today) return time;
+  const day = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone }).format(Date.parse(at));
+  return `${day}, ${time}`;
 }
 
 /** One line on where a studio stands today, e.g. "Dana Whitfield · through Nov 30". */
@@ -57,7 +61,7 @@ export function statusLine(
         }
       : {
           state,
-          text: `Held for ${who} · pay by ${holdDate(current.hold_until, timeZone)}`,
+          text: `Held for ${who} · pay by ${holdTime(current.hold_until, timeZone, today)}`,
         };
   }
   if (state === "off") return { state, text: "Not offered to members" };
@@ -316,7 +320,7 @@ export function OccupancyBoard({
                                 {held ? (
                                   <span className="desk-bar__note">
                                     pay by{" "}
-                                    {holdDate(bar.slot.hold_until, timeZone)}
+                                    {holdTime(bar.slot.hold_until, timeZone, today)}
                                   </span>
                                 ) : null}
                               </div>

@@ -13,7 +13,10 @@ export class ApiError extends Error {
   }
 }
 let accessToken: string | null = null;
-export function setAccessToken(value: string | null) { accessToken = value; }
+// Who `accessToken` was issued to. Every tab shares one refresh cookie, so a
+// renewal answers for whoever signed in on this browser last.
+let tokenOwner: number | null = null;
+export function setAccessToken(value: string | null) { accessToken = value; if (!value) tokenOwner = null; }
 let refreshing: Promise<void> | null = null;
 let csrfToken: string | null = null;
 export function setCsrfToken(value: string | null) {
@@ -27,14 +30,15 @@ const FAILED = 'The request could not be completed.';
 /**
  * The one authenticated transport behind api() and apiText(): renews a missing
  * access token first, sends the bearer token, cookies and, for mutations, the
- * JSON body and CSRF token, and after a 401 renews once and retries. The caller
- * decodes the response.
+ * JSON body and CSRF token, and after a 401 renews once and retries (unless the
+ * renewal comes back signed in as someone else). The caller decodes the response.
  */
 async function send(
   path: string,
   { method = 'GET', body, signal, accept }: { method?: string; body?: unknown; signal?: AbortSignal; accept: string },
 ): Promise<Response> {
   const sessionless = SESSIONLESS.has(path);
+  const owner = tokenOwner;
   if (!accessToken && !sessionless) await renew();
   const mutation = !['GET', 'HEAD'].includes(method);
   const perform = () => fetch('/api' + path, {
@@ -52,9 +56,18 @@ async function send(
   let response = await perform();
   if (response.status === 401 && !sessionless) {
     await renew();
+    // Someone else signed in from another tab: never send this tab's request as them.
+    if (owner !== null && tokenOwner !== owner) throw signedInElsewhere();
     response = await perform();
   }
   return response;
+}
+
+/** This tab's sign-in was replaced by another person's: drop it and go back to sign-in. */
+function signedInElsewhere() {
+  accessToken = null; csrfToken = null; tokenOwner = null;
+  window.dispatchEvent(new Event('session-expired'));
+  return new ApiError(401, 'SIGNED_IN_ELSEWHERE', 'Someone else signed in on this browser, so you were signed out here. Sign in again to continue.');
 }
 
 type ErrorBody = { error?: { code?: string; message?: string; field?: unknown } } | null | undefined;
@@ -91,6 +104,7 @@ export async function api<T>(
   if (payload.data?.accessToken) {
     accessToken = payload.data.accessToken;
     csrfToken = payload.data.csrfToken;
+    tokenOwner = payload.data.user?.id ?? null;
   }
   return payload.data as T;
 }
@@ -164,7 +178,7 @@ async function renew(): Promise<void> {
       });
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
-        accessToken = null; csrfToken = null;
+        accessToken = null; csrfToken = null; tokenOwner = null;
         window.dispatchEvent(new Event('session-expired'));
       }
       throw error;
