@@ -49,3 +49,23 @@ test("a failed export is announced with the server's message", async () => {
   });
   expect(screen.getByRole("alert").textContent).toBe("Compliance export is limited to 10,000 rows.");
 });
+
+test("the CSV export carries the current search", async () => {
+  vi.useFakeTimers();
+  const report = {
+    summary: { userCount: 0, attentionUsers: 0, allAttentionUsers: 0 },
+    users: { items: [], nextOffset: null },
+    waiverBreakdown: [],
+    certificationBreakdown: [],
+  };
+  useApi.mockImplementation((path: string | null) => ({ ...idle(), data: path?.includes("compliance") ? report : null }));
+  vi.mocked(apiText).mockRejectedValue(new ApiError(500, "X", "stop"));
+  render(<StaffCompliance />);
+  fireEvent.change(screen.getByLabelText("Search members"), { target: { value: "zelda" } });
+  act(() => vi.advanceTimersByTime(200));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
+  });
+  const path = new URL(vi.mocked(apiText).mock.calls[0]![0] as string, "http://x").searchParams;
+  expect([path.get("search"), path.get("format"), path.get("offset")]).toEqual(["zelda", "csv", "0"]);
+});

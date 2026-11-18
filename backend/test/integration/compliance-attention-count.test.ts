@@ -116,3 +116,38 @@ test("members are only measured against training they hold, so never training is
   assert.equal(filtered.users.find((u) => u.id === current)!.certificationCompliant, true);
   assert.equal(filtered.users.find((u) => u.id === revoked)!.certificationCompliant, false);
 });
+
+test("search finds a member past the first page and narrows the list, not the totals", async () => {
+  const reports = new ComplianceReports(pool);
+  const view = (change: Partial<ComplianceFilters> = {}) =>
+    reports.compliance({ waiverId: null, certificationId: null, expiresWithinDays: null, userStatus: "active", offset: 0, ...change });
+  // Sixty members sort ahead of the one searched for, so it is beyond the first page of 50.
+  await pool.query(
+    `INSERT INTO "user"(firstname,lastname,email,phone,password,status,accessstatus)
+     SELECT 'Filler','Aaa'||lpad(n::text,3,'0'),'filler'||n||'@example.invalid','555-0107','unused','active','active'
+     FROM generate_series(1,60) n`,
+  );
+  const wanted = await new UserModel(pool).create({
+    firstName: "Zelda",
+    lastName: "Zzyzx",
+    email: "Zelda.Far_Down@example.invalid",
+    phone: "555-0108",
+    password: "unused-test-credential",
+    dob: "1990-01-01",
+  });
+  const everyone = await view();
+  assert.equal(everyone.users.some((u) => u.id === wanted), false);
+  for (const search of ["zzyzx", "ZELDA ZZ", "far_down@EXAMPLE"]) {
+    const found = await view({ search });
+    assert.deepEqual(found.users.map((u) => u.id), [wanted], search);
+    assert.equal(found.filteredCount, 1);
+    assert.equal(found.nextOffset, null);
+    // The summary still describes everyone in the view, not just the match.
+    assert.deepEqual(found.summary, everyone.summary);
+  }
+  // "_" matches itself, not any character.
+  assert.deepEqual((await view({ search: "far_" })).users.map((u) => u.id), [wanted]);
+  assert.deepEqual((await view({ search: "farxdown" })).users, []);
+  // The export (every row) honours the search too.
+  assert.deepEqual((await reports.compliance({ waiverId: null, certificationId: null, expiresWithinDays: null, userStatus: "active", offset: 0, search: "zzyzx" }, true)).users.map((u) => u.id), [wanted]);
+});
