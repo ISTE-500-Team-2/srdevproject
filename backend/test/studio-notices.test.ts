@@ -30,6 +30,7 @@ const rental: StudioRentalRow = {
   cancellation_policy: 'full_before_start', status: 'cancelled', payment_status: 'refund_pending', payment_method: 'manual',
   request_key: 'k', checkout_id: null, payment_intent: null, refund_id: null, payment_reference: 'cash 1',
   refund_reference: null, refund_cents: 35000, created_at: new Date(), hold_until: new Date(),
+  reconcile_failures: 0, reconcile_after: null,
 };
 const service = new StudioService({} as never);
 

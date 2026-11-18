@@ -34,6 +34,9 @@ export interface StudioRentalRow {
   refund_cents: number;
   created_at: Date;
   hold_until: Date;
+  /** Background reconciliation failures for a lapsed card hold, and when it may be checked again. */
+  reconcile_failures: number;
+  reconcile_after: Date | null;
 }
 
 /** A row with its rental dates rendered as YYYY-MM-DD strings. */
