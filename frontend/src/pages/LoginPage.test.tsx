@@ -294,6 +294,19 @@ test('an unconfirmed account is offered a new confirmation email, carrying the t
   });
 });
 
+test('a later missing-field error no longer offers the confirmation email', async () => {
+  auth.login.mockRejectedValue(new ApiError(403, 'EMAIL_CONFIRMATION_REQUIRED', 'Confirm your email before signing in.'));
+  signIn();
+  type(emailField(), 'casey@example.invalid');
+  type(passwordField(), 'ValidPassword!');
+  submit();
+  await screen.findByRole('button', { name: 'Resend confirmation email' });
+  type(passwordField(), '');
+  submit();
+  await screen.findByText('Enter your email and password to continue.');
+  expect(screen.queryByRole('button', { name: 'Resend confirmation email' })).toBeNull();
+});
+
 test('other sign-in errors offer no confirmation email', async () => {
   auth.login.mockRejectedValue(new ApiError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect.'));
   signIn();
@@ -360,10 +373,14 @@ test.each(['call me', '555-01', '1234567890123456'])('the contact step refuses t
 });
 
 test('date of birth runs from 1900 to today where the visitor is, so a future year stops step one', () => {
+  // Pinned to New York whatever zone the tests run in: 9pm on New Year's Eve there is already
+  // January 1 in UTC, so a UTC-date maximum would wrongly allow tomorrow.
+  const zone = process.env.TZ;
+  process.env.TZ = 'America/New_York';
   vi.useFakeTimers({ toFake: ['Date'] });
-  // 9pm on New Year's Eve in New York is already January 1 in UTC.
   vi.setSystemTime(new Date(2030, 11, 31, 21, 0));
   try {
+    expect(new Date().toISOString()).toBe('2031-01-01T02:00:00.000Z');
     const dialog = openSignup();
     const dob = within(dialog).getByLabelText('Date of birth') as HTMLInputElement;
     expect(dob.min).toBe('1900-01-01');
@@ -376,5 +393,7 @@ test('date of birth runs from 1900 to today where the visitor is, so a future ye
     expect(within(dialog).getByLabelText('Date of birth')).toBe(dob);
   } finally {
     vi.useRealTimers();
+    if (zone === undefined) delete process.env.TZ;
+    else process.env.TZ = zone;
   }
 });

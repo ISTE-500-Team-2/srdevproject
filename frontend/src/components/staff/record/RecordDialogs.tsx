@@ -15,6 +15,7 @@ import { Modal } from "../../Modal";
 import { AssistedPurchase } from "../AssistedPurchase";
 import { CardRefund, PaymentEditor, paymentStatusName } from "../PaymentControls";
 import { ROLES, roleName } from "./recordModel";
+import { day } from "./recordParts";
 import { MemberPhoto } from "../../MemberPhoto";
 import { initials } from "../../admin/people";
 
@@ -350,14 +351,28 @@ export function RecordDialogHost({
           submitLabel="Stop auto-renew"
           danger
           onSubmit={async (f) => {
-            await api(`/admin/users/${id}/memberships/${dialog.item.id}/stop-renewal`, { method: "POST", body: { reason: f.get("reason") } });
-            return `${first}’s auto-renew is off. ${first} gets an email with the last day.`;
+            const { endsAt, emailed } = await api<{ endsAt: string | null; emailed: boolean }>(
+              `/admin/users/${id}/memberships/${dialog.item.id}/stop-renewal`,
+              { method: "POST", body: { reason: f.get("reason") } },
+            );
+            const last = endsAt ? `; card billing ends ${day(endsAt)}` : "";
+            // No email reaches an account on hold or one that turned membership emails off.
+            return emailed
+              ? `${first}’s auto-renew is off${last}. ${first} gets an email with the last day.`
+              : `${first}’s auto-renew is off${last}. ${first} won’t get an email about it, so let them know the last day.`;
           }}
         >
-          <p className="mr-dialog__lead">
-            For when {first} can’t do it from their own account. It works as if {first} had: billing ends on the first billing
-            date at least 30 days from today, so there may be one more charge, and the membership runs until then.
-          </p>
+          {dialog.item.renewalStopPending && dialog.item.renewalEndsAt ? (
+            <p className="mr-dialog__lead">
+              The last day, {day(dialog.item.renewalEndsAt)}, is already set, but the payment provider hasn’t confirmed it. This asks
+              it again; the day doesn’t move.
+            </p>
+          ) : (
+            <p className="mr-dialog__lead">
+              For when {first} can’t do it from their own account. It works as if {first} had: billing ends on the first billing
+              date at least 30 days from today, so there may be one more charge, and the membership runs until then.
+            </p>
+          )}
           <Reason />
         </RecordDialog>
       );

@@ -147,6 +147,7 @@ export function LoginPage() {
     if (missing.email || missing.password) {
       setInvalid(missing);
       setError('Enter your email and password to continue.');
+      setUnconfirmed(false);
       setFocusRequest({ field: missing.email ? 'email' : 'password' });
       return;
     }

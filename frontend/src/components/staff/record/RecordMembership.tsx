@@ -104,7 +104,7 @@ function CurrentPlan({
 }) {
   const name = item.plan?.name ?? (kind === "membership" ? "Membership" : "Day pass");
   const price = item.plan?.price ? dollars(item.plan.price) : "";
-  const pay = item.cardBilled ? "card, renews automatically" : "paid at the desk";
+  const pay = !item.cardBilled ? "paid at the desk" : item.autoRenews === false ? "card, auto-renew off" : "card, renews automatically";
   let bar: ReactNode;
   if (kind === "membership" && item.startsAt && item.endsAt) {
     const start = Date.parse(item.startsAt),
@@ -137,7 +137,13 @@ function CurrentPlan({
       </div>
       {bar}
       {item.cancellationRequestedAt ? <p className="mr-plan__note">{first} asked to cancel; it ends on the date shown and won’t renew.</p> : null}
-      {item.cardBilled && item.renewalEndsAt ? <p className="mr-plan__note">Auto-renew is off. Card billing ends {day(item.renewalEndsAt)}.</p> : null}
+      {item.cardBilled && item.renewalEndsAt ? (
+        <p className="mr-plan__note">
+          {item.renewalStopPending
+            ? `Stopping auto-renew from ${day(item.renewalEndsAt)} isn’t confirmed with the payment provider yet, so billing may still renew.`
+            : `Auto-renew is off. Card billing ends ${day(item.renewalEndsAt)}.`}
+        </p>
+      ) : null}
       {held && item.effectiveStatus === "active" ? <p className="mr-plan__note">Still running{item.cardBilled ? " and billing" : ""} while {first} is on hold.</p> : null}
       {canManage && item.status !== "revoked" ? (
         <div className="mr-plan__buttons">
@@ -151,7 +157,7 @@ function CurrentPlan({
           </button>
           {kind === "membership" && item.autoRenews ? (
             <button type="button" className="today-button" onClick={() => open({ kind: "stopRenewal", item })}>
-              Stop auto-renew
+              {item.renewalStopPending ? "Try stopping auto-renew again" : "Stop auto-renew"}
             </button>
           ) : null}
         </div>

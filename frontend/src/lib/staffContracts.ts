@@ -49,10 +49,12 @@ export interface Entitlement {
   reason: string;
   cancellationRequestedAt?: string | null;
   cardBilled?: boolean;
-  /** Card billing that will charge again: nobody has stopped it. */
+  /** Card billing that will charge again: no stop has been confirmed by the payment provider. */
   autoRenews?: boolean;
-  /** When card billing was stopped, its last day. */
+  /** The last day of card billing once someone asked to stop it. */
   renewalEndsAt?: string | null;
+  /** A stop was asked for but the payment provider hasn't confirmed it, so billing may still renew. */
+  renewalStopPending?: boolean;
 }
 export interface Payment {
   id: number;

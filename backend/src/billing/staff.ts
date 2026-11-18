@@ -9,6 +9,7 @@ import { transaction } from '../db.js';
 import { authState, requireCsrf, requireStaff } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/permissions.js';
 import { StaffModel } from '../models/StaffModel.js';
+import { billingRenewsSql } from '../models/staff/entitlements.js';
 import { BillingPricing } from './pricing.js';
 import { MembershipBilling } from './service.js';
 import { PassBilling } from './passes.js';
@@ -54,13 +55,20 @@ export function staffPurchaseRoutes(pool: Pool, config?: StudioStripeConfig, zon
     requirePermission(pool, 'entitlement', 'update', 'global'), member, requireCsrf, async (req, res) => {
       const id = positiveId(req.params.id), membershipId = positiveId(req.params.membershipId);
       const reason = reasonField(req.body.reason);
-      const billing = (await pool.query<{ id: string }>(`SELECT b.id FROM app_membership_invoice i
+      const billing = (await pool.query<{ id: string; renews: boolean }>(`SELECT b.id,${billingRenewsSql} AS renews FROM app_membership_invoice i
         JOIN app_membership_billing b ON b.id=i.billing_id WHERE i.membership_id=$1 AND b.userid=$2`, [membershipId, id])).rows[0];
       if (!billing) throw new AppError(404, 'NOT_FOUND', 'This membership isn’t paid by card, so there is no auto-renew to stop.');
+      // Ended billing, or a stop the payment provider already confirmed, has nothing left to stop. A stop
+      // still waiting on the provider is retried: cancel() reuses the last day it saved.
+      if (!billing.renews) throw new AppError(409, 'RENEWAL_STOPPED', 'Auto-renew is already off for this membership. Refresh to see its last day.');
       await memberships.cancel(id, billing.id);
+      // The email goes only to an account that can receive it (not one on hold, for example).
+      const { endsAt, emailed } = (await pool.query<{ endsAt: Date | null; emailed: boolean }>(`SELECT b.cancellation_effective_at AS "endsAt",
+        EXISTS(SELECT 1 FROM app_notification_outbox n WHERE n.dedupe_key='membership-cancel:'||b.id::text
+          AND n.status NOT IN ('suppressed','obsolete')) AS emailed FROM app_membership_billing b WHERE b.id=$1`, [billing.id])).rows[0]!;
       await transaction(pool, db => new StaffModel(db).audit(authState(res).user.id, id, 'billing.renewal_stopped', 'membership',
-        membershipId, reason, null, { billingId: billing.id }));
-      res.json({ data: { stopped: true } });
+        membershipId, reason, null, { billingId: billing.id, endsAt }));
+      res.json({ data: { stopped: true, endsAt, emailed } });
     });
   return routes;
 }

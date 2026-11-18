@@ -5,6 +5,9 @@ import { Pool } from 'pg';
 import request from 'supertest';
 import { createApp } from '../../src/app.js';
 import { MembershipBilling } from '../../src/billing/service.js';
+import { transaction } from '../../src/db.js';
+import { AppError } from '../../src/domain.js';
+import { enqueueNotification } from '../../src/notifications/store.js';
 import { StaffModel, type Plan } from '../../src/models/StaffModel.js';
 import { initializeDemo } from '../../src/scripts/init-demo.js';
 import { confirmationToken } from '../helpers/confirmation.js';
@@ -44,6 +47,34 @@ async function cardMembership(userId: number, label: string) {
 }
 const recordOf = async (userId: number, membershipId: number) =>
   (await as(staff).get(`/admin/users/${userId}`)).body.data.memberships.find((m: { id: number }) => m.id === membershipId);
+type Renewal = { autoRenews: boolean; renewalEndsAt: string | null; renewalStopPending: boolean };
+const renewalOf = async (userId: number, membershipId: number) => {
+  const { autoRenews, renewalEndsAt, renewalStopPending }: Renewal = await recordOf(userId, membershipId);
+  return { autoRenews, renewalEndsAt: renewalEndsAt && new Date(renewalEndsAt).toISOString(), renewalStopPending };
+};
+const stopAudits = async (subjectId: number) => (await pool.query(`SELECT actor_id AS "actorId",entity_id AS "entityId",reason
+  FROM app_staff_audit WHERE action='billing.renewal_stopped' AND subject_id=$1`, [subjectId])).rows;
+
+/**
+ * Stands in for the member's own cancellation, which talks to Stripe: it saves the last day first, then
+ * asks the provider. When the provider answers, the stop is confirmed and the member's email is queued;
+ * when it doesn't, only the saved day is left behind, and a retry reuses it.
+ */
+function fakeCancel(ending: Date, providerAnswers = () => true) {
+  const calls: unknown[][] = [];
+  const method = mock.method(MembershipBilling.prototype, 'cancel', async (userId: number, billingId: string) => {
+    calls.push([userId, billingId]);
+    await pool.query(`UPDATE app_membership_billing SET cancellation_requested_at=COALESCE(cancellation_requested_at,NOW()),
+      cancellation_effective_at=COALESCE(cancellation_effective_at,$2) WHERE id=$1`, [billingId, ending]);
+    if (!providerAnswers()) throw new AppError(502, 'PROVIDER_UNAVAILABLE', 'The payment provider didn’t answer. Try again.');
+    await transaction(pool, async db => {
+      await db.query('UPDATE app_membership_billing SET cancellation_confirmed=true WHERE id=$1', [billingId]);
+      await enqueueNotification(db, { userId, kind: 'membership_cancelled', dedupeKey: 'membership-cancel:' + billingId,
+        payload: { membershipName: 'Monthly', endsAt: ending.toISOString(), instructions: 'Automatic billing ends on the date shown.' } });
+    });
+  });
+  return { calls, restore: () => method.mock.restore() };
+}
 
 before(async () => {
   if (!process.env.PGHOST || process.env.DATABASE_URL) throw Error('Explicit isolated PostgreSQL required');
@@ -66,28 +97,64 @@ test('staff stop a suspended member’s card renewal for them, and the record sh
   // The member can't sign in to do it themselves, and their account can't be opened.
   assert.equal((await request(app).post('/api/auth/login').send({ email: 'renewalmember@example.invalid', password: 'GoodPassword123!' })).status, 403);
   assert.equal((await as(staff).post('/admin/account-mode', { userId: member.user.id })).status, 403);
-  assert.deepEqual(await recordOf(member.user.id, membership).then((m: { autoRenews: boolean; renewalEndsAt: string | null }) =>
-    ({ autoRenews: m.autoRenews, renewalEndsAt: m.renewalEndsAt })), { autoRenews: true, renewalEndsAt: null });
+  assert.deepEqual(await renewalOf(member.user.id, membership), { autoRenews: true, renewalEndsAt: null, renewalStopPending: false });
 
   const ending = new Date(Date.now() + 40 * 86400000);
-  const calls: unknown[][] = [];
-  // The member's own cancellation, which talks to Stripe, records the last day it settles on.
-  const cancel = mock.method(MembershipBilling.prototype, 'cancel', async (...args: unknown[]) => {
-    calls.push(args);
-    await pool.query('UPDATE app_membership_billing SET cancellation_requested_at=NOW(),cancellation_effective_at=$2 WHERE id=$1', [billing, ending]);
-  });
+  const cancel = fakeCancel(ending);
   try {
     const stopped = await as(staff).post(`/admin/users/${member.user.id}/memberships/${membership}/stop-renewal`, { reason: 'Member phoned to cancel' });
     assert.equal(stopped.status, 200, JSON.stringify(stopped.body));
-    assert.deepEqual(stopped.body.data, { stopped: true });
-  } finally { cancel.mock.restore(); }
-  assert.deepEqual(calls, [[member.user.id, billing]]);
-  const audit = (await pool.query(`SELECT actor_id AS "actorId",subject_id AS "subjectId",entity_id AS "entityId",reason
-    FROM app_staff_audit WHERE action='billing.renewal_stopped'`)).rows;
-  assert.deepEqual(audit, [{ actorId: staff.user.id, subjectId: member.user.id, entityId: membership, reason: 'Member phoned to cancel' }]);
-  const record = await recordOf(member.user.id, membership);
-  assert.equal(record.autoRenews, false);
-  assert.equal(new Date(record.renewalEndsAt).getTime(), ending.getTime());
+    // Facility access is suspended but the account is active, so the member's email goes out.
+    assert.deepEqual(stopped.body.data, { stopped: true, endsAt: ending.toISOString(), emailed: true });
+    // Once the provider confirmed it there is nothing left to stop, and nothing more is logged.
+    const again = await as(staff).post(`/admin/users/${member.user.id}/memberships/${membership}/stop-renewal`, { reason: 'Second click' });
+    assert.equal(again.status, 409);
+    assert.equal(again.body.error.code, 'RENEWAL_STOPPED');
+  } finally { cancel.restore(); }
+  assert.deepEqual(cancel.calls, [[member.user.id, billing]]);
+  assert.deepEqual(await stopAudits(member.user.id), [{ actorId: staff.user.id, entityId: membership, reason: 'Member phoned to cancel' }]);
+  assert.deepEqual(await renewalOf(member.user.id, membership), { autoRenews: false, renewalEndsAt: ending.toISOString(), renewalStopPending: false });
+});
+
+test('a stop the provider never confirmed still shows as renewing, and staff can try again', async () => {
+  const held = await register('renewalheld');
+  const { membership, billing } = await cardMembership(held.user.id, 'held');
+  // An account on hold gets no email, so staff are told to pass the date on themselves.
+  const revision = (await as(admin).get(`/admin/users/${held.user.id}`)).body.data.user.revision;
+  assert.equal((await as(admin).post(`/admin/users/${held.user.id}/status`, { status: 'suspended', revision, reason: 'Account on hold' })).status, 200);
+  const path = `/admin/users/${held.user.id}/memberships/${membership}/stop-renewal`;
+  const ending = new Date(Date.now() + 35 * 86400000);
+  let answers = false;
+  const cancel = fakeCancel(ending, () => answers);
+  try {
+    // The last day is saved, then the call to the provider fails: the subscription still renews.
+    assert.equal((await as(staff).post(path, { reason: 'Member phoned to cancel' })).status, 502);
+    assert.deepEqual(await stopAudits(held.user.id), []);
+    assert.deepEqual(await renewalOf(held.user.id, membership), { autoRenews: true, renewalEndsAt: ending.toISOString(), renewalStopPending: true });
+
+    answers = true;
+    const retried = await as(staff).post(path, { reason: 'Trying again' });
+    assert.equal(retried.status, 200, JSON.stringify(retried.body));
+    assert.deepEqual(retried.body.data, { stopped: true, endsAt: ending.toISOString(), emailed: false });
+  } finally { cancel.restore(); }
+  assert.deepEqual(cancel.calls, [[held.user.id, billing], [held.user.id, billing]]);
+  assert.deepEqual(await stopAudits(held.user.id), [{ actorId: staff.user.id, entityId: membership, reason: 'Trying again' }]);
+  assert.deepEqual(await renewalOf(held.user.id, membership), { autoRenews: false, renewalEndsAt: ending.toISOString(), renewalStopPending: false });
+});
+
+test('ended card billing has no auto-renew to stop', async () => {
+  const lapsed = await register('renewallapsed');
+  const { membership, billing } = await cardMembership(lapsed.user.id, 'lapsed');
+  await pool.query("UPDATE app_membership_billing SET status='canceled' WHERE id=$1", [billing]);
+  assert.deepEqual(await renewalOf(lapsed.user.id, membership), { autoRenews: false, renewalEndsAt: null, renewalStopPending: false });
+  const cancel = fakeCancel(new Date(Date.now() + 30 * 86400000));
+  try {
+    const response = await as(staff).post(`/admin/users/${lapsed.user.id}/memberships/${membership}/stop-renewal`, { reason: 'Already ended' });
+    assert.equal(response.status, 409);
+    assert.equal(response.body.error.code, 'RENEWAL_STOPPED');
+  } finally { cancel.restore(); }
+  assert.deepEqual(cancel.calls, []);
+  assert.deepEqual(await stopAudits(lapsed.user.id), []);
 });
 
 test('stopping renewal needs staff, a reason, CSRF and a card membership of that member', async () => {
