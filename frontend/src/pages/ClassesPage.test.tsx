@@ -327,8 +327,8 @@ test('a day pass for the class day lets a member register ahead, and a membershi
   entitled = false;
   classes = [course(5, 48, { myEntitled: true }), course(6, 96, { myEntitled: false })];
   await mount();
-  expect(screen.getByRole('button', { name: 'Register for Safety 5' })).toBeTruthy();
-  expect(screen.queryByRole('button', { name: 'Register for Safety 6' })).toBeNull();
+  expect(screen.getByRole('button', { name: registerFor(5) })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: startingWith('Register for Safety 6') })).toBeNull();
   expect(screen.getAllByRole('link', { name: 'Membership or day pass needed' })).toHaveLength(1);
   // The side panel agrees with the rows rather than with today's answer.
   expect(screen.getByRole('heading', { name: 'You can register for some classes' })).toBeTruthy();
