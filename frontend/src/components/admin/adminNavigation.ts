@@ -1,5 +1,6 @@
 import {
   CalendarRange,
+  GraduationCap,
   ChartLine,
   DoorOpen,
   FileChartColumn,
@@ -43,6 +44,7 @@ const navGroups = [
   {
     label: "Operations",
     sections: [
+      { path: "classes", label: "Classes", icon: GraduationCap, legacyTab: "classes", width: "wide" },
       { path: "equipment", label: "Equipment", icon: Wrench, legacyTab: "equipment" },
       { path: "reservations", label: "Reservations", icon: CalendarRange, legacyTab: "reservations", width: "wide" },
       { path: "studios", label: "Studios", icon: DoorOpen, legacyTab: "studios" },

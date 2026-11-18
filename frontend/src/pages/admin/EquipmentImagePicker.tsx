@@ -6,7 +6,9 @@ import './equipmentImagePicker.css';
 export interface EquipmentImageOption { path: string; label: string }
 export interface EquipmentImageChoice { path: string; upload?: string }
 
-export function EquipmentImagePicker({ value, images, disabled, onChange, onProcessing }: {
+export function EquipmentImagePicker({ value, images, disabled, onChange, onProcessing, subject = 'equipment', defaultImage = '/assets/3d-printer.webp' }: {
+  subject?: 'equipment' | 'class';
+  defaultImage?: string;
   value: EquipmentImageChoice;
   images: EquipmentImageOption[];
   disabled: boolean;
@@ -18,21 +20,21 @@ export function EquipmentImagePicker({ value, images, disabled, onChange, onProc
   const [error, setError] = useState('');
   const [failedPreview, setFailedPreview] = useState('');
   const [fileName, setFileName] = useState('');
-  const preview = value.upload || value.path || '/assets/3d-printer.webp';
+  const preview = value.upload || value.path || defaultImage;
   const caption = value.upload ? fileName : images.find(image => image.path === value.path)?.label
     ?? (value.path ? 'Current image' : 'Default image');
   const choose = (choice: EquipmentImageChoice) => { setError(''); onChange(choice); };
 
   return <fieldset className="eq-image" disabled={disabled}>
-    <legend>Equipment image</legend>
+    <legend>{subject === 'class' ? 'Class image' : 'Equipment image'}</legend>
     <div className="eq-image__selection">
       <div className="eq-image__preview">
-        {failedPreview === preview ? <span>Preview unavailable</span> : <img src={preview} alt="Selected equipment image" onError={() => setFailedPreview(preview)} />}
+        {failedPreview === preview ? <span>Preview unavailable</span> : <img src={preview} alt={`Selected ${subject} image`} onError={() => setFailedPreview(preview)} />}
       </div>
       <div className="eq-image__upload">
         <strong>{caption}</strong>
         <button type="button" className="button button--quiet" onClick={() => fileInput.current?.click()}><Upload aria-hidden="true" />{preparing ? 'Preparing image…' : 'Upload image'}</button>
-        <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" aria-label="Upload equipment image" hidden onChange={async event => {
+        <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" aria-label={`Upload ${subject} image`} hidden onChange={async event => {
           const file = event.target.files?.[0];
           event.target.value = '';
           if (!file) return;
@@ -44,13 +46,13 @@ export function EquipmentImagePicker({ value, images, disabled, onChange, onProc
           } catch (err) { setError(err instanceof Error ? err.message : 'Could not open this image.'); }
           finally { setPreparing(false); onProcessing(false); }
         }} />
-        <small>JPEG, PNG or WebP, up to 25 MB. Saved when you save the equipment.</small>
+        <small>JPEG, PNG or WebP, up to 25 MB. Saved when you save the {subject}.</small>
         {(value.path || value.upload) && <button type="button" className="eq-image__reset" onClick={() => choose({ path: '' })}>Use default image</button>}
       </div>
     </div>
     {error && <p className="form-error" role="alert">{error}</p>}
     <p className="eq-image__help">Choose an existing image</p>
-    <div className="eq-image__library" role="group" aria-label="Existing equipment images">
+    <div className="eq-image__library" role="group" aria-label={`Existing ${subject} images`}>
       {images.map(image => <button key={image.path} type="button" className="eq-image__option" title={image.label} aria-pressed={!value.upload && value.path === image.path} onClick={() => choose({ path: image.path })}>
         <img src={image.path} alt="" loading="lazy" />
         <span>{image.label}</span>

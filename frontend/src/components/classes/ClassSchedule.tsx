@@ -10,6 +10,8 @@ import { onArrowKeys } from "../../lib/rovingFocus";
 type Tab = "upcoming" | "attendance" | "past" | "cancelled";
 
 export function ClassSchedule({
+  workspace = false,
+  onEdit,
   classes,
   pending,
   canRecord,
@@ -18,6 +20,8 @@ export function ClassSchedule({
   onCancel,
   onRoster,
 }: {
+  workspace?: boolean;
+  onEdit?: (c: ClassRecord) => void;
   classes: ClassRecord[];
   /** People still marked "registered" on a past class's roster, by class id. */
   pending: Record<number, number>;
@@ -52,8 +56,8 @@ export function ClassSchedule({
     <>
       <div className="classes-head">
         <div>
-          <p className="eyebrow">Training</p>
-          <h1 className="display-heading">Classes</h1>
+          {!workspace && <p className="eyebrow">Training</p>}
+          {workspace ? <h2>Scheduled sessions</h2> : <h1 className="display-heading">Classes</h1>}
         </div>
         <div className="classes-head__tools">
           <label className="class-search">
@@ -130,6 +134,7 @@ export function ClassSchedule({
               key={c.id}
               c={c}
               pending={pending[c.id]}
+              onEdit={onEdit}
               onRoster={onRoster}
               onScheduleAgain={onScheduleAgain}
               onCancel={onCancel}
@@ -162,12 +167,14 @@ function statusOf(c: ClassRecord, pending: number | undefined) {
 }
 
 function ScheduleRow({
+  onEdit,
   c,
   pending,
   onRoster,
   onScheduleAgain,
   onCancel,
 }: {
+  onEdit?: (c: ClassRecord) => void;
   c: ClassRecord;
   pending: number | undefined;
   onRoster: (c: ClassRecord) => void;
@@ -229,6 +236,7 @@ function ScheduleRow({
           if (menu && event.relatedTarget && !event.currentTarget.contains(event.relatedTarget as Node)) setMenu(false);
         }}
       >
+        {cancellable && onEdit && <button type="button" className="button button--quiet button--small" aria-label={`Edit ${c.title}`} onClick={() => onEdit(c)}>Edit</button>}
         <button type="button" className="button button--quiet button--small" aria-label={`Roster for ${c.title}`} onClick={() => onRoster(c)}>
           <Users aria-hidden="true" />
           Roster

@@ -10,6 +10,7 @@ import { LoadState } from "../components/Management";
 import { Toast } from "../components/Toast";
 import { shortDate, timeOnly } from "../lib/display";
 import type { Certification, SupervisionSummary } from "../lib/contracts";
+import { ClassEditorDialog } from "../components/classes/ClassEditorDialog";
 import { ClassCatalog } from "../components/classes/ClassCatalog";
 import type { Eligibility } from "../components/classes/registrationAction";
 import { ClassDetail } from "../components/classes/ClassDetail";
@@ -38,7 +39,7 @@ const hhmm = (value: string) => {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 };
 
-export function ClassesPage() {
+export function ClassesPage({ workspace = false }: { workspace?: boolean }) {
   const { user } = useAuth();
   const roles = user?.roles ?? [];
   const manager = roles.some((r) => r === "admin" || r === "staff");
@@ -60,6 +61,7 @@ export function ClassesPage() {
   const [detailId, setDetailId] = useState<number | null>(null);
   const [rosterId, setRosterId] = useState<number | null>(null);
   const [cancelId, setCancelId] = useState<number | null>(null);
+  const [editing, setEditing] = useState<ClassRecord | null>(null);
   const [scheduleSeed, setScheduleSeed] = useState<ScheduleSeed | null>(null);
   const [scheduleDirty, setScheduleDirty] = useState(false);
   const [cancelReasons, setCancelReasons] = useState<Record<number, string>>({});
@@ -101,7 +103,7 @@ export function ClassesPage() {
   );
 
   const hasUnsavedEdits =
-    scheduleDirty ||
+    Boolean(editing) || scheduleDirty ||
     Object.values(cancelReasons).some((reason) => reason.trim()) ||
     Object.values(drafts).some((d) => Object.keys(d.statuses).length > 0 || d.note.trim());
 
@@ -190,12 +192,14 @@ export function ClassesPage() {
   const cancelClass = find(cancelId);
 
   return (
-    <section className="classes-page page-enter">
+    <section className={workspace ? "classes-workspace-schedule" : "classes-page page-enter"}>
       {classes.loading || classes.error ? <LoadState {...classes} /> : null}
       {supervision.error && !supervision.data ? <LoadState loading={false} error={supervision.error} reload={supervision.reload} /> : null}
       {classes.data ? (
         manager ? (
           <ClassSchedule
+            workspace={workspace}
+            onEdit={setEditing}
             classes={all}
             pending={pending}
             canRecord={canRecord}
@@ -234,6 +238,7 @@ export function ClassesPage() {
         )
       ) : null}
 
+      {editing && <ClassEditorDialog initial={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); setToast("Class saved."); refreshAll(); }} />}
       {detail ? (
         <ClassDetail
           c={detail}
