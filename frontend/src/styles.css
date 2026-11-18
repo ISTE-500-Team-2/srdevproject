@@ -2272,6 +2272,68 @@ place-items: center;
   font-size: var(--text-sm);
 }
 
+/* The same failure during a background check: the page stays open underneath.
+   Below modals, which make the rest of the page inert while they are open. */
+.connection-banner {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  left: 16px;
+  z-index: 690;
+  max-width: 600px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #d9a441;
+  border-radius: 12px;
+  padding: 10px 10px 10px 16px;
+  background: #fff6e0;
+  color: #4a3600;
+  box-shadow: var(--shadow);
+  animation: toast-in 260ms ease both;
+}
+
+.connection-banner > svg {
+  width: 21px;
+  height: 21px;
+}
+
+.connection-banner p {
+  margin: 0;
+  font-size: var(--text-base-sm);
+}
+
+.connection-banner__status {
+  color: var(--ink-soft);
+}
+
+.connection-banner__status b {
+  font-variant-numeric: tabular-nums;
+}
+
+.connection-banner .button {
+  min-height: 40px;
+  padding: 8px 14px;
+}
+
+/* A toast shown while the banner is up (a save confirmed, then the refresh after
+   it failed) sits just above the banner instead of over its Try again button. */
+body:has(.connection-banner) .toast {
+  bottom: calc(var(--connection-banner-height, 0px) + 28px);
+}
+
+@media (max-width: 560px) {
+  .connection-banner {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .connection-banner .button {
+    grid-column: 1 / -1;
+  }
+}
+
 /* Baseline for form controls that have no component styling of their own, so
    no page falls back to the browser's tiny default select or date field.
    :where() keeps specificity at zero; any existing rule still wins. */
