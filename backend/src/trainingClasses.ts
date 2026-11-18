@@ -287,19 +287,35 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
     async (req, res) => {
       // Separate from the instructor roster: never select contact details,
       // account IDs or attendance history for the member response.
+      // Seats are public to members. Names are shown only to people registered
+      // for this class (plus its instructor and staff), and a classmate under 18
+      // is never named to other members.
+      const user = authState(res).user,
+        staff = user.roles.some((x) => ["staff", "admin"].includes(x));
       const { rows } = await pool.query(
-        // Enrollment caps legacy larger classes at 15 seats; show the same limit.
-        `SELECT LEAST(c.capacity,15) AS capacity,COUNT(e.user_id)::int AS enrolled,
-          GREATEST(LEAST(c.capacity,15)-COUNT(e.user_id)::int,0) AS "seatsAvailable",
-          COALESCE(json_agg(json_build_object('name',u.firstname||' '||left(u.lastname,1)||'.')
-            ORDER BY u.firstname,u.lastname,e.user_id) FILTER(WHERE e.user_id IS NOT NULL),'[]') AS items
-         FROM app_training_class c JOIN reservation v ON v.reservationid=c.reservation_id
-         LEFT JOIN app_training_enrollment e ON e.class_id=c.id AND e.status IN ('enrolled','attended')
-         LEFT JOIN "user" u ON u.userid=e.user_id
-         WHERE c.id=$1 AND c.status='scheduled' AND v.status='confirmed'
-           AND v.starttime>NOW() AT TIME ZONE 'UTC'
-         GROUP BY c.id,c.capacity`,
-        [integerId(req.params.id, "Class")],
+        `WITH class AS (
+           -- Enrollment caps legacy larger classes at 15 seats; show the same limit.
+           SELECT c.id,LEAST(c.capacity,15) AS capacity,($3::boolean OR c.instructor_id=$2) AS privileged
+           FROM app_training_class c JOIN reservation v ON v.reservationid=c.reservation_id
+           WHERE c.id=$1 AND c.status='scheduled' AND v.status='confirmed'
+             AND v.starttime>NOW() AT TIME ZONE 'UTC'),
+         people AS (
+           SELECT e.user_id,u.firstname,u.lastname,
+             (e.user_id<>$2 AND NOT class.privileged AND u.dob IS NOT NULL
+               AND u.dob::date>((NOW() AT TIME ZONE $4)::date-INTERVAL '18 years')::date) AS hidden
+           FROM class JOIN app_training_enrollment e ON e.class_id=class.id AND e.status IN ('enrolled','attended')
+           JOIN "user" u ON u.userid=e.user_id),
+         access AS (
+           SELECT class.privileged OR EXISTS(SELECT 1 FROM people WHERE user_id=$2) AS visible FROM class)
+         SELECT class.capacity,(SELECT COUNT(*)::int FROM people) AS enrolled,
+           GREATEST(class.capacity-(SELECT COUNT(*)::int FROM people),0) AS "seatsAvailable",
+           access.visible AS "namesVisible",
+           CASE WHEN access.visible THEN COALESCE((SELECT json_agg(json_build_object('name',
+             CASE WHEN p.hidden THEN 'Name hidden' ELSE p.firstname||' '||left(p.lastname,1)||'.' END)
+             ORDER BY p.hidden,p.firstname,p.lastname,p.user_id) FROM people p),'[]'::json)
+           ELSE '[]'::json END AS items
+         FROM class CROSS JOIN access`,
+        [integerId(req.params.id, "Class"), user.id, staff, tz],
       );
       if (!rows[0]) throw new AppError(404, "CLASS_ROSTER_UNAVAILABLE", "The participant list is available for upcoming scheduled classes only.");
       res.set("Cache-Control", "no-store");

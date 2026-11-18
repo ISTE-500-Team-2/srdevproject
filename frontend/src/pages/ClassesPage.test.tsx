@@ -24,6 +24,7 @@ const HOUR = 3600000;
 let people: RosterPerson[];
 let denyRoster = false, failFor: number | null = null, entitled = true, scheduleError: ApiError | null = null;
 let certified = false;
+let memberRoster: MemberRoster;
 let supervision: SupervisionSummary | null = null;
 const course = (id: number, offsetHours: number, extra: Partial<ClassRecord> = {}): ClassRecord => ({
   id, title: `Safety ${id}`, certificationId: 7, certificationName: 'Laser cutting', instructorId: 1, instructor: 'Morgan Reyes',
@@ -47,6 +48,7 @@ beforeEach(() => {
   denyRoster = false; failFor = null; entitled = true; scheduleError = null;
   certified = false;
   supervision = null;
+  memberRoster = { items: [{ name: 'First M.' }], capacity: 3, enrolled: 2, seatsAvailable: 1, namesVisible: true };
   people = [
     { userId: 11, name: 'First Member', email: 'first@example.invalid', status: 'enrolled' },
     { userId: 12, name: 'Second Member', email: 'second@example.invalid', status: 'enrolled' },
@@ -70,7 +72,7 @@ beforeEach(() => {
       if (denyRoster) throw new ApiError(403, 'FORBIDDEN', 'Roster access removed.');
       return people;
     }
-    if (path.endsWith('/member-roster')) return { items: [{ name: 'First M.' }], capacity: 3, enrolled: 2, seatsAvailable: 1 } satisfies MemberRoster;
+    if (path.endsWith('/member-roster')) return memberRoster;
     if (path === '/me/overview') return overview({ entitlement: { membership: entitled, dayPass: false } });
     if (path === '/me/supervision') return supervision;
     if (path === '/me/certifications') return certified ? [certification({ id: 7, name: 'Laser cutting', valid: true })] : [];
@@ -294,6 +296,17 @@ test('member detail shows first-name participants and no contact details', async
   const detail = screen.getByRole('region', { name: 'Safety 5 details' });
   expect(within(detail).getByText('First M.')).toBeTruthy();
   expect(detail.textContent).not.toMatch(/example.invalid/);
+});
+
+test('members outside a class see open seats but not who registered', async () => {
+  auth.user = { id: 30, roles: ['member'] };
+  memberRoster = { items: [], capacity: 3, enrolled: 2, seatsAvailable: 1, namesVisible: false };
+  await mount();
+  await click('Details for Safety 5');
+  const detail = screen.getByRole('region', { name: 'Safety 5 details' });
+  expect(await within(detail).findByText('Names are shown to people registered for this class.')).toBeTruthy();
+  expect(within(detail).queryByText('Nobody has registered yet.')).toBeNull();
+  expect(detail.querySelector('.class-people')).toBeNull();
 });
 
 test('staff banner counts unrecorded attendance from the roster of a started class', async () => {
