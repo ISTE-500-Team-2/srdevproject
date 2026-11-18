@@ -169,6 +169,47 @@ test('a definitive checkout creation rejection releases the unpaid hold', async 
   await service.create(member, {...data, requestKey: randomUUID()});
 });
 
+test('resuming minutes after the first checkout never reached Stripe renews the hold instead of cancelling', async () => {
+  const original = provider.sdk.checkout.sessions.create.bind(provider.sdk.checkout.sessions);
+  // Stripe rejects an expiry less than 30 minutes after the session is created.
+  const strict = async (params: Stripe.Checkout.SessionCreateParams, options?: Stripe.RequestOptions) => {
+    if (params.expires_at! < Date.now() / 1000 + 30 * 60)
+      throw new Stripe.errors.StripeInvalidRequestError({message: 'The `expires_at` timestamp must be at least 30 minutes from Checkout Session creation.',
+        type: 'invalid_request_error', param: 'expires_at'} as any);
+    return (original as any)(params, options);
+  };
+  const hold = async (id: number) => (await pool.query('SELECT hold_until FROM app_equipment_checkout WHERE reservation_id=$1', [id])).rows[0].hold_until as Date;
+  const book = async () => {
+    const data = booking();
+    const offline = mock.method(provider.sdk.checkout.sessions, 'create', async () => {
+      throw new Stripe.errors.StripeConnectionError({message: 'Network unavailable', type: 'api_connection_error'} as any);
+    });
+    try { await assert.rejects(service.create(member, data), {code: 'CHECKOUT_UNAVAILABLE'}); }
+    finally { offline.mock.restore(); }
+    return (await pool.query('SELECT reservation_id FROM app_equipment_checkout WHERE request_key=$1', [data.requestKey])).rows[0].reservation_id as number;
+  };
+  const id = await book();
+  // The member comes back a few minutes later: 25 minutes of the hold remain.
+  await pool.query("UPDATE app_equipment_checkout SET hold_until=now()+interval '25 minutes' WHERE reservation_id=$1", [id]);
+  const resume = mock.method(provider.sdk.checkout.sessions, 'create', strict);
+  let resumed;
+  try { resumed = await billing.checkout(member, id); } finally { resume.mock.restore(); }
+  assert.equal(resumed.status, 'pending');
+  assert.match((resumed as any).checkoutUrl, /^https:\/\/checkout.stripe.com\//);
+  const renewed = await hold(id);
+  assert.ok(renewed.getTime() >= Date.now() + 30 * 60000, 'Stripe gets its 30 minutes to pay');
+  assert.equal(quotes.at(-1)!.expires_at, Math.floor(renewed.getTime() / 1000));
+  assert.equal(checkoutKeys.at(-1), `equipment-checkout:${id}`, 'the same key, so a retry can never charge twice');
+  // A hold that has already run out still ends the booking.
+  const lapsed = await book();
+  await pool.query("UPDATE app_equipment_checkout SET hold_until=now()-interval '1 minute' WHERE reservation_id=$1", [lapsed]);
+  const late = mock.method(provider.sdk.checkout.sessions, 'create', strict);
+  try { await assert.rejects(billing.checkout(member, lapsed), {code: 'CHECKOUT_UNAVAILABLE'}); }
+  finally { late.mock.restore(); }
+  assert.equal((await state(lapsed)).status, 'cancelled');
+  await assert.rejects(billing.checkout(member, lapsed), {code: 'CHECKOUT_EXPIRED'});
+});
+
 test('expired or cancelled unpaid checkouts release slots; stale expiry cannot cancel a paid reservation', async () => {
   const data = booking();
   const first = await service.create(member, data);

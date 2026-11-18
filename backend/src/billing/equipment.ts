@@ -47,21 +47,31 @@ export class EquipmentBilling {
     // An ambiguous create response must reuse the original key, never charge again.
     if (!row.checkout_id && Date.now() - new Date(row.created_at).getTime() > 23 * 3600000)
       throw new AppError(409, 'RECONCILE_REQUIRED', 'Staff must reconcile this checkout before another payment.');
-    let session: Stripe.Checkout.Session;
-    try {
-      session = row.checkout_id
-      ? await provider.sdk.checkout.sessions.retrieve(row.checkout_id)
-      : await provider.sdk.checkout.sessions.create({
+    const create = (holdUntil: Date) => provider.sdk.checkout.sessions.create({
         mode: 'payment', payment_method_types: ['card'],
         integration_identifier: 'arbor-equipment-checkout',
         client_reference_id: String(id), metadata: { equipmentReservationId: String(id) },
         payment_intent_data: { metadata: { equipmentReservationId: String(id) } },
-        expires_at: Math.floor(new Date(row.hold_until).getTime() / 1000),
+        expires_at: Math.floor(new Date(holdUntil).getTime() / 1000),
         success_url: provider.config.origin + `/equipment?payment=returned&reservation=${id}`,
         cancel_url: provider.config.origin + `/equipment?payment=cancelled&reservation=${id}`,
         line_items: [{ quantity: row.hours, price_data: { currency: 'usd', unit_amount: row.hourly_cents,
           product_data: { name: `${row.equipment_name} — hourly reservation` } } }],
       }, { idempotencyKey: `equipment-checkout:${id}` });
+    let session: Stripe.Checkout.Session;
+    try {
+      if (row.checkout_id) session = await provider.sdk.checkout.sessions.retrieve(row.checkout_id);
+      else try {
+        session = await create(row.hold_until);
+      } catch (error) {
+        // Stripe needs at least 30 minutes to pay, so resuming after a first create that never
+        // reached Stripe finds the original hold too short. The rejection proves no session exists
+        // under this key and saves no result for it, so renew a hold still running and try once more.
+        const renewed = error instanceof Stripe.errors.StripeInvalidRequestError &&
+          new Date(row.hold_until).getTime() - Date.now() < 30 * 60_000 ? await this.renewHold(id) : null;
+        if (!renewed) throw error;
+        session = await create(renewed);
+      }
     } catch (error) {
       // A definite validation rejection created no checkout. Ambiguous network errors
       // keep the hold and its idempotency key so a retry cannot charge twice.
@@ -86,6 +96,17 @@ export class EquipmentBilling {
     if (reservation.status === 'confirmed') return { ...reservation, amountCents: row.amount_cents };
     if (session.status !== 'open' || !session.url) throw new AppError(409, 'PAYMENT_PROCESSING', 'Your payment is being verified. Refresh your reservations shortly.');
     return { ...reservation, checkoutUrl: session.url, amountCents: row.amount_cents };
+  }
+
+  /**
+   * Give a still-running hold that has no checkout yet a fresh 31 minutes. A concurrent resume
+   * that already renewed it keeps that time, so both send Stripe the same request.
+   */
+  private async renewHold(id: number): Promise<Date | null> {
+    return (await this.pool.query(`UPDATE app_equipment_checkout SET hold_until=CASE
+      WHEN hold_until<clock_timestamp()+interval '30 minutes' THEN clock_timestamp()+interval '31 minutes' ELSE hold_until END
+      WHERE reservation_id=$1 AND status='pending' AND checkout_id IS NULL AND hold_until>clock_timestamp()
+      RETURNING hold_until`, [id])).rows[0]?.hold_until ?? null;
   }
 
   /**
