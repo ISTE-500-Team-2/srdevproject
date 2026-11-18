@@ -118,7 +118,7 @@ export class StaffController {
     const [memberships, passes, payments, audit, checkIns, photoVersion] = await Promise.all([
       this.model.memberships(id),
       this.model.passes(id),
-      this.model.payments(id),
+      this.model.payments(id, 0, {}, "staff"),
       this.model.audits({ subjectId: id, withoutBookkeeping: true }),
       this.pool.query(
         `SELECT checkinid AS id,location,status,checkintime AT TIME ZONE 'UTC' AS "checkedInAt" FROM check_in WHERE userid=$1 ORDER BY checkintime DESC LIMIT 50`,
@@ -315,7 +315,7 @@ export class StaffController {
         "Payment start time must not be after the end time.",
       );
     const [rows, summary] = await Promise.all([
-      this.model.payments(userId, offset, filters),
+      this.model.payments(userId, offset, filters, "staff"),
       this.model.paymentSummary(userId, filters),
     ]);
     res.json({ data: { ...page(rows, offset), summary } });

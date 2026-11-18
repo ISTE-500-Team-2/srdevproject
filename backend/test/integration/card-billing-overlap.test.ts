@@ -68,6 +68,7 @@ test('a card charge for dates a desk membership already covers is recorded and f
  const from=Date.parse('2031-03-01T00:00:00Z')/1000,to=Date.parse('2031-04-01T00:00:00Z')/1000;
  await pool.query("INSERT INTO app_membership_billing(id,userid,tierid,plan_snapshot,amount_cents,status,customer_id,subscription_id) VALUES($1,$2,$3,$4,5000,'active','cus_overlap','sub_overlap')",[bid,member,plan.id,plan]);
  const sold=await model.createMembership(member,plan,new Date(from*1000).toISOString(),new Date(to*1000),admin,'Desk sale');
+ const deskPayment=await model.createPayment(member,sold,'50.00','paid','cash','CASH','Desk sale',admin);
  sub={billing_cycle_anchor:from,id:'sub_overlap',livemode:false,customer:'cus_overlap',status:'active',cancel_at_period_end:false,metadata:{},
   items:{data:[{quantity:1,current_period_end:to,price:{unit_amount:5000,currency:'usd',recurring:{interval:'month',interval_count:1}}}]}};
  invoice={id:'in_overlap',livemode:false,status:'paid',currency:'usd',customer:'cus_overlap',amount_paid:5000,billing_reason:'subscription_cycle',
@@ -79,17 +80,27 @@ test('a card charge for dates a desk membership already covers is recorded and f
   JOIN payment p ON p.paymentid=i.payment_id WHERE i.id='in_overlap'`)).rows[0];
  assert.equal(recorded.paymentstatus,'paid');assert.equal(recorded.method,'card');
  assert.equal(recorded.note,OVERLAPPING_CARD_PAYMENT_NOTE);assert.notEqual(recorded.membership_id,sold);
- const listed=async()=>(await model.payments(member)).find(p=>p.invoiceId==='in_overlap')!;
- assert.match((await listed()).planName,/check for a double charge/);
+ const listed=async(viewer?:'staff')=>(await model.payments(member,0,{},viewer)).find(p=>p.invoiceId==='in_overlap')!.planName;
+ assert.match(await listed('staff'),/check for a double charge/);
+ // The member's own history gets member wording, not the staff instruction.
+ assert.match(await listed(),/may overlap another membership; ask staff/);
+ assert.doesNotMatch(await listed(),/double charge/);
  const receipt=(await pool.query("SELECT payload FROM app_notification_outbox WHERE dedupe_key='membership-receipt:in_overlap'")).rows[0].payload;
  assert.match(receipt.instructions,/paid twice/);
  const audit=(await pool.query("SELECT after_state FROM app_staff_audit WHERE action='billing.membership_overlap_flagged' AND subject_id=$1",[member])).rows[0];
  assert.deepEqual(audit.after_state.overlaps,[sold]);
- // A repeat delivery changes nothing; once the card charge is refunded the flag clears.
+ // A repeat delivery changes nothing. Refunding or voiding either charge clears the flag.
  await billing.webhook(stripeEvent('evt_overlap_again','invoice.paid',invoice));
  assert.equal((await pool.query("SELECT 1 FROM payment WHERE reference='in_overlap'")).rowCount,1);
+ const deskStatus=(status:string)=>pool.query('UPDATE payment SET paymentstatus=$2 WHERE paymentid=$1',[deskPayment,status]);
+ await deskStatus('refunded');
+ assert.doesNotMatch(await listed('staff'),/double charge/);
+ await deskStatus('void');
+ assert.doesNotMatch(await listed('staff'),/double charge/);
+ await deskStatus('paid');
+ assert.match(await listed('staff'),/double charge/);
  await pool.query("UPDATE payment SET paymentstatus='refunded' WHERE reference='in_overlap'");
- assert.doesNotMatch((await listed()).planName,/double charge/);
+ assert.doesNotMatch(await listed('staff'),/double charge/);
 });
 
 test('resuming an old checkout is refused once a membership covers the member',async()=>{
