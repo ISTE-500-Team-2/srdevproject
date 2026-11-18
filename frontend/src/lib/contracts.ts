@@ -121,6 +121,8 @@ export interface Waiver {
   expiredSignature: boolean;
   /** When the current signature runs out, or when the last one of this version did; null if it never expires. */
   expiresAt?: string | null;
+  /** Signed, but close enough to running out that signing again now renews it (decided by the server). */
+  renewable?: boolean;
 }
 export type WaiverLineKind = 'acceptance-method' | 'heading' | 'text';
 /** What a blank means, independent of its label's wording. */
@@ -197,6 +199,10 @@ export interface SponsorRequest {
 export interface SupervisedMinors {
   minors: { id: number; name: string; visit: { buildingName: string; checkedInAt: string } | null }[];
   requests: MinorLinkRequest[];
+  /** Whether this account may send a new link request: an active adult with a date of birth on file. */
+  canSponsor: boolean;
+  /** Older accounts have no date of birth recorded; staff add it from the member record. */
+  dobOnFile: boolean;
 }
 export interface MinorLinkRequest {
   id: number;

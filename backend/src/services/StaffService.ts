@@ -25,6 +25,25 @@ const conflict = () =>
     "STALE_RECORD",
     "This record changed. Refresh it before making another change.",
   );
+/**
+ * The version in force stays current over any version dated before it, so publishing one would
+ * retire it on the spot.
+ */
+function startsBeforeCurrent(since: Date | null | undefined, timeZone: string) {
+  const when = since
+    ? new Intl.DateTimeFormat("en-US", {
+        timeZone, year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short",
+      }).format(since)
+    : null;
+  return new AppError(
+    409,
+    "POLICY_STARTS_TOO_EARLY",
+    when
+      ? `The version now in force started ${when}. Choose a start at or after that time, or the new version would be retired as soon as it's published.`
+      : "The version now in force started later than this. Choose a later start, or the new version would be retired as soon as it's published.",
+    "effectiveAt",
+  );
+}
 const staffAccount = () =>
   new AppError(
     403,
@@ -167,16 +186,22 @@ export class StaffService {
     phone: string,
     revision: number,
     reason: string,
+    dob: string | null = null,
   ) {
     return this.write(actorId, false, "user", "update", async (model, actor) => {
       const before = await this.target(model, actor, id);
       this.expectRevision(before.revision, revision);
+      // Staff add a date of birth that was never recorded. Changing one would change who
+      // counts as a minor under existing sponsor links, so that isn't done here.
+      if (dob && before.dobOnFile)
+        throw new AppError(409, "DOB_ON_FILE", "A date of birth is already on file for this account.");
       const after = await model.updatePerson(
         id,
         firstName,
         lastName,
         phone,
         revision,
+        dob,
       );
       if (!after) throw conflict();
       await model.audit(
@@ -601,9 +626,14 @@ export class StaffService {
     },
   ) {
     return this.write(actorId, true, "waiver", "create", async (model, _actor, db) => {
+      const versions = (await model.policies()).filter(policy => policy.name === input.name);
       // Omitted scope on older clients must not turn an equipment waiver's
       // replacement into a facility-wide prerequisite.
-      const previous = (await model.policies()).find(policy => policy.name === input.name);
+      const previous = versions[0];
+      // Checked up front so the admin hears when the version in force started.
+      const inForce = versions.find(policy => policy.active && (policy.effectiveAt === null || policy.effectiveAt.getTime() <= Date.now()));
+      if (inForce?.effectiveAt && Date.parse(input.effectiveAt) < inForce.effectiveAt.getTime())
+        throw startsBeforeCurrent(inForce.effectiveAt, this.timeZone);
       const after = await model.createPolicy(
         input.name,
         input.version,
@@ -631,7 +661,9 @@ export class StaffService {
         actorId,
         reason: input.reason,
       });
-      return { ...after, active: after.active && !retired.includes(after.id) };
+      // Never report success for a version that is already retired; roll it back instead.
+      if (retired.includes(after.id)) throw startsBeforeCurrent(inForce?.effectiveAt, this.timeZone);
+      return after;
     });
   }
   retirePolicy(actorId: number, id: number, reason: string) {

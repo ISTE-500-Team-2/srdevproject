@@ -1,7 +1,7 @@
 // Focused member-record mutation dialogs carry revisions and reasons so stale edits can be rejected
 // and changes attributed.
 
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useState, type ComponentProps, type FormEvent, type ReactNode } from "react";
 import { api, ApiError, errorMessage } from "../../../lib/api";
 import { editingFormRef } from "../../../lib/editingForms";
 import { dollars } from "../../../lib/display";
@@ -42,6 +42,26 @@ class DialogMessage extends Error {}
 /** The record changed under an open dialog: the dialog stops offering a retry on old data. */
 class StaleDialog extends DialogMessage {}
 
+/**
+ * A record dialog's Modal. Once staff change anything in it, a stray click outside or Escape asks
+ * before throwing the draft away. `dirty` adds work that no change event reports, such as a captured
+ * card scan.
+ */
+function DraftModal({
+  children,
+  dirty = false,
+  ...props
+}: Omit<ComponentProps<typeof Modal>, "children"> & { children: ReactNode }) {
+  const [edited, setEdited] = useState(false);
+  return (
+    <Modal {...props} dirty={dirty || edited}>
+      <div className="mr-dialog__draft" onChangeCapture={() => setEdited(true)}>
+        {children}
+      </div>
+    </Modal>
+  );
+}
+
 /** A compact dialog around one form. `onSubmit` returns the sentence the toast shows. */
 function RecordDialog({
   title,
@@ -81,7 +101,7 @@ function RecordDialog({
     }
   };
   return (
-    <Modal open width={wide ? "regular" : "compact"} title={title} onClose={() => !busy && onClose()} className="mr-dialog">
+    <DraftModal open width={wide ? "regular" : "compact"} title={title} onClose={onClose} dismissible={!busy} className="mr-dialog">
       {/* editingFormRef: the record's background refresh waits while this is being edited. */}
       <form ref={editingFormRef} className="management-form mr-dialog__form" aria-label={title} onSubmit={submit}>
         <fieldset className="mr-dialog__fields" disabled={busy}>
@@ -101,7 +121,7 @@ function RecordDialog({
           </button>
         </div>
       </form>
-    </Modal>
+    </DraftModal>
   );
 }
 
@@ -234,20 +254,24 @@ export function RecordDialogHost({
           <Reason />
         </RecordDialog>
       );
-    case "profile":
+    case "profile": {
+      // Older accounts have no date of birth, so they can't sponsor a minor until staff add one.
+      const addBirthDate = person.dobOnFile === false;
       return (
         <RecordDialog
           {...common}
-          title="Name & phone"
+          title={addBirthDate ? "Name, phone & date of birth" : "Name & phone"}
           submitLabel="Save"
           onSubmit={async (f) => {
+            const dob = String(f.get("dob") ?? "");
             await write(`/admin/users/${id}/profile`, "PATCH", {
               firstName: f.get("firstName"),
               lastName: f.get("lastName"),
               phone: f.get("phone"),
+              ...(dob ? { dob } : {}),
               reason: String(f.get("reason") ?? "").trim() || undefined,
             });
-            return "Name and phone saved.";
+            return dob ? "Name, phone and date of birth saved." : "Name and phone saved.";
           }}
         >
           <div className="mr-grid2">
@@ -266,10 +290,24 @@ export function RecordDialogHost({
             </span>
             <input name="phone" type="tel" defaultValue={person.phone} maxLength={15} autoComplete="off" />
           </label>
+          {addBirthDate ? (
+            <label className="form-field">
+              <span>
+                Date of birth<span className="mr-optional"> (optional)</span>
+              </span>
+              <input name="dob" type="date" max={new Date().toISOString().slice(0, 10)} autoComplete="off" aria-describedby="mr-dob-hint" />
+            </label>
+          ) : null}
+          {addBirthDate ? (
+            <p id="mr-dob-hint" className="mr-dialog__hint">
+              None is on file, so {first} can’t sponsor a minor yet. Check it before saving: it can’t be changed here afterwards.
+            </p>
+          ) : null}
           <p className="mr-dialog__hint">Email is how {first} signs in, so they change it from their own profile.</p>
           <Reason optional />
         </RecordDialog>
       );
+    }
     case "photo":
       return (
         <RecordDialog
@@ -378,7 +416,7 @@ export function RecordDialogHost({
       );
     case "sell":
       return (
-        <Modal open width="regular" title={dialog.renewal ? `Renew ${dialog.renewal.plan?.name ?? "membership"}` : "Sell or record a payment"} onClose={onClose} className="mr-dialog">
+        <DraftModal open width="regular" title={dialog.renewal ? `Renew ${dialog.renewal.plan?.name ?? "membership"}` : "Sell or record a payment"} onClose={onClose} className="mr-dialog">
           {dialog.renewal ? <p className="mr-dialog__lead">The renewal starts when the current membership ends, so no days overlap.</p> : null}
           <AssistedPurchase
             heading={false}
@@ -389,17 +427,17 @@ export function RecordDialogHost({
             disabled={false}
             onSaved={() => onDone("Access issued and the payment recorded.")}
           />
-        </Modal>
+        </DraftModal>
       );
     case "payment":
       return (
-        <Modal open width="compact" title={`Payment #${dialog.payment.id}`} onClose={onClose} className="mr-dialog">
+        <DraftModal open width="compact" title={`Payment #${dialog.payment.id}`} onClose={onClose} className="mr-dialog">
           <PaymentEditor payment={dialog.payment} onSaved={(status) => onDone(`Payment #${dialog.payment.id} marked ${paymentStatusName(status).toLowerCase()}.`)} />
-        </Modal>
+        </DraftModal>
       );
     case "refund":
       return (
-        <Modal open width="compact" title={`Refund ${dollars(dialog.payment.amount)}`} onClose={onClose} className="mr-dialog">
+        <DraftModal open width="compact" title={`Refund ${dollars(dialog.payment.amount)}`} onClose={onClose} className="mr-dialog">
           <CardRefund payment={dialog.payment} onRefunded={(status) =>
               onDone(
                 status === "succeeded"
@@ -410,7 +448,7 @@ export function RecordDialogHost({
                 !refundAccepted(status),
               )
             } />
-        </Modal>
+        </DraftModal>
       );
     case "assign":
       return <AssignDialog person={person} replacement={dialog.replacement ?? null} onClose={onClose} onDone={onDone} />;
@@ -541,8 +579,10 @@ function RolesDialog({
 function AssignDialog({ person, replacement, onClose, onDone }: { person: Person; replacement: NfcCard | null; onClose: () => void; onDone: (m: string) => void }) {
   const setup = useApi<ReaderSetup>("/admin/access/readers");
   const name = `${person.firstName} ${person.lastName}`;
+  // A tapped card arrives by polling, not a change event; closing would release the scan.
+  const [captured, setCaptured] = useState(false);
   return (
-    <Modal open width="regular" title={replacement ? `Replace ${replacement.label}` : "Assign an NFC card"} onClose={onClose} className="mr-dialog mr-dialog--scan">
+    <DraftModal open width="regular" title={replacement ? `Replace ${replacement.label}` : "Assign an NFC card"} onClose={onClose} dirty={captured} className="mr-dialog mr-dialog--scan">
       {replacement ? <p className="mr-dialog__lead">{replacement.label} keeps working until the new card is saved.</p> : null}
       {setup.error ? (
         <p role="alert" className="form-error">
@@ -560,11 +600,12 @@ function AssignDialog({ person, replacement, onClose, onDone }: { person: Person
           onCancelReplacement={onClose}
           onSaved={() => onDone(replacement ? `New card assigned. ${replacement.label} revoked.` : `Card assigned to ${person.firstName}.`)}
           onRefresh={() => undefined}
+          onCaptured={setCaptured}
         />
       ) : (
         <p role="status">Loading readers…</p>
       )}
-    </Modal>
+    </DraftModal>
   );
 }
 

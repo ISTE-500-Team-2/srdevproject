@@ -109,7 +109,7 @@ export function needsYou(compliance: ComplianceReport, machines: LiveEquipment[]
   const items: NeedsYouItem[] = [];
   const waivers = compliance.summary.userCount - compliance.summary.waiverCompliantUsers;
   const training = compliance.summary.userCount - compliance.summary.certificationCompliantUsers;
-  if (waivers) items.push({ id: "waivers", icon: "waiver", alert: true, title: `${waivers} ${waivers === 1 ? "member has" : "members have"} no current waiver`, detail: "Their tags won't open any reader until they sign.", action: "Review members", to: "/admin/certifications?section=compliance" });
+  if (waivers) items.push({ id: "waivers", icon: "waiver", alert: true, title: `${waivers} ${waivers === 1 ? "member has" : "members have"} no current waiver`, detail: "Their tags won't open the readers that need the missing waiver until they sign.", action: "Review members", to: "/admin/certifications?section=compliance" });
   if (studioPayments) items.push({ id: "studio-payments", icon: "payment", alert: false, title: `${studioPayments} studio ${studioPayments === 1 ? "payment" : "payments"} to record`, detail: "Manual payments and refunds waiting for staff.", action: "Record payments", to: "/admin/studios" });
   for (const m of machines.filter(m => m.status !== "available")) {
     const count = equipmentBookings(bookings).filter(b => b.equipmentId === m.id && Date.parse(b.endTime) > now).length;

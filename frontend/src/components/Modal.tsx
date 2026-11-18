@@ -8,6 +8,13 @@ import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } fr
 const modalStack: HTMLElement[] = [];
 const originalInert = new Map<HTMLElement, boolean>();
 /**
+ * When one dialog closes as another opens (the staff menu drawer swapping for the account picker),
+ * an autoFocus field in the new one already holds focus. The closing dialog leaves it there and
+ * hands its own return target to the new dialog, so closing that one still goes back to the
+ * control that started it all.
+ */
+let focusHandoff: { dialog: Element; target: Element | null } | null = null;
+/**
  * Only the top portal remains interactive; restore each element's original inert state after the
  * last dialog closes.
  */
@@ -21,7 +28,8 @@ function syncModalBackground() {
   }
   document.body.classList.add("modal-open");
   for (const element of Array.from(document.body.children)) {
-    if (!(element instanceof HTMLElement)) continue;
+    // Status messages (see Toast) stay announced, and can be dismissed, above an open dialog.
+    if (!(element instanceof HTMLElement) || element.hasAttribute("data-live-region")) continue;
     if (!originalInert.has(element)) originalInert.set(element, element.inert);
     element.inert =
       element === top ? (originalInert.get(element) ?? false) : true;
@@ -29,18 +37,18 @@ function syncModalBackground() {
 }
 /**
  * Calculate the current visible tab stops each time, including controls added or removed by
- * conditional dialog content.
+ * conditional dialog content. A <details> summary is a tab stop; what a closed one holds is not.
  */
 function focusable(dialog: HTMLElement) {
   return Array.from(
     dialog.querySelectorAll<HTMLElement>(
-      'button,input,select,textarea,a[href],[tabindex],[contenteditable="true"]',
+      'button,input,select,textarea,a[href],summary,iframe,[tabindex],[contenteditable="true"]',
     ),
   ).filter(
     (element) =>
       !element.matches(":disabled") &&
       element.tabIndex >= 0 &&
-      !element.closest("[hidden],[inert]") &&
+      !element.closest("[hidden],[inert],details:not([open]) > :not(summary)") &&
       getComputedStyle(element).display !== "none" &&
       getComputedStyle(element).visibility !== "hidden",
   );
@@ -147,7 +155,8 @@ export function Modal({
 /**
  * While `open`, makes `layer` (rendered straight into document.body) the top modal layer: the rest
  * of the page is inert, Tab stays inside `dialog`, Escape calls `onEscape`, and focus returns to
- * where it was once the layer closes. `initialFocus` takes focus when it opens.
+ * where it was once the layer closes. `initialFocus` takes focus when it opens, unless a field
+ * inside marked autoFocus already has it.
  */
 export function useModalLayer(
   open: boolean,
@@ -162,14 +171,30 @@ export function useModalLayer(
   useEffect(() => {
     onEscapeRef.current = onEscape;
   });
+  // A field marked autoFocus takes focus while React commits, before the effect below runs, so
+  // the control that had focus is also noted while the layer renders open.
+  const [opener, setOpener] = useState(() => (open ? document.activeElement : null));
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setOpener(document.activeElement);
+  }
 
   useEffect(() => {
     if (!open) return;
     const backdrop = layer.current!;
-    const previousFocus = document.activeElement;
+    // Return focus to the control that opened the layer, even when autoFocus has moved it inside.
+    const handoff = focusHandoff?.dialog === dialog.current ? focusHandoff : null;
+    if (handoff) focusHandoff = null;
+    const previousFocus = handoff
+      ? handoff.target
+      : dialog.current?.contains(document.activeElement)
+        ? opener
+        : document.activeElement;
     modalStack.push(backdrop);
     syncModalBackground();
-    initialFocus?.current?.focus();
+    // Start on `initialFocus` unless a field inside has already taken focus with autoFocus.
+    if (!dialog.current?.contains(document.activeElement)) initialFocus?.current?.focus();
     const handleKey = (event: KeyboardEvent) => {
       if (modalStack.at(-1) !== backdrop) return;
       // A control inside that already used Escape (closing its own list) keeps the dialog open.
@@ -213,7 +238,10 @@ export function useModalLayer(
       document.removeEventListener("focusin", containFocus);
       modalStack.splice(modalStack.indexOf(backdrop), 1);
       syncModalBackground();
-      if (
+      // Leave focus alone when a dialog opening alongside this one has already taken it.
+      const nextDialog = document.activeElement?.closest('[aria-modal="true"]');
+      if (nextDialog) focusHandoff = { dialog: nextDialog, target: previousFocus };
+      else if (
         previousFocus instanceof HTMLElement &&
         previousFocus.isConnected &&
         !previousFocus.closest("[inert]")

@@ -2211,7 +2211,7 @@ place-items: center;
 }
 
 .not-found {
-  min-height: 100vh;
+  min-height: 50vh;
   display: grid;
   place-content: center;
   justify-items: start;

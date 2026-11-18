@@ -96,7 +96,8 @@ export function StaffPayments() {
   return (
     <section className="payments">
       <p className="payments__intro">
-        Every payment: what members paid at the front desk and their card payments online.
+        Payments for memberships, day passes, equipment and classes, at the front desk and by card online. Studio
+        rentals are paid and refunded on the Studios page, so they aren't in this list or its totals.
       </p>
       <div className="management-search payments__filters" role="group" aria-label="Filter payments" ref={filters} tabIndex={-1}>
         <MemberSelect
@@ -105,8 +106,10 @@ export function StaffPayments() {
           value={userId}
           onChange={(id) => refilter(() => setUserId(id))}
         />
+        {/* Payments are counted by the day they were recorded, not the day they were later paid or
+            refunded, so the label says so for anyone reconciling a cash drawer. */}
         <label>
-          Period
+          Recorded
           <select
             value={period}
             disabled={!zone}

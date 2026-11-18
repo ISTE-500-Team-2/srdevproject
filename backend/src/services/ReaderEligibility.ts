@@ -27,6 +27,7 @@ export async function evaluateReaderAccess(db: Database, tz: string, r: ReaderTa
     member: null as unknown,
     buildingId: null as number | null,
     reservationId: null as number | null,
+    location: null as string | null,
   });
   if (!userId) return deny("CARD_NOT_ASSIGNED");
   // A misconfigured resource reader must never fall back to building entry.
@@ -64,6 +65,8 @@ export async function evaluateReaderAccess(db: Database, tz: string, r: ReaderTa
     reason: "ELIGIBLE",
     buildingId: grant.buildingId,
     reservationId: grant.reservationId,
+    // The place name a check-in records, as a desk check-in names it.
+    location: grant.location,
     expiresAt: expires.toISOString(),
     leaseSeconds: Math.max(0, (expires.getTime() - Date.now()) / 1000),
     member: {

@@ -11,6 +11,14 @@ import { browserSessionLifetimeSeconds, JwtTokens, rememberedLifetimeSeconds } f
 export const tokenHash = (token: string): string =>
   createHash('sha256').update(token).digest('hex');
 
+/**
+ * Seconds a refresh token stays usable after it is used up. Tabs share one refresh cookie,
+ * so two tabs renewing at once, or a reload that lost the refresh response, present a token
+ * rotated moments ago. That gets a successor of its own instead of ending the sign-in;
+ * reuse after this window is still treated as theft and revokes the whole family.
+ */
+export const refreshReuseGraceSeconds = 15;
+
 /** A signed-in session as returned to the auth controller. */
 export interface IssuedSession {
   token: string; refreshToken: string; csrfToken: string; ttl: number; user: UserView; persistent: boolean;
@@ -46,7 +54,7 @@ export class SessionModel {
     return {token,refreshToken,csrfToken,ttl,user,persistent};
   }
   async refreshCsrf(refreshToken: string): Promise<string | undefined> {
-    const {rows} = await this.db.query<{ csrfToken: string }>(`SELECT f.csrf_token AS "csrfToken" FROM app_refresh_token t JOIN app_refresh_family f ON f.id=t.family_id WHERE t.token_hash=$1 AND NOT t.consumed AND NOT f.revoked AND f.expires_at>NOW()`,[tokenHash(refreshToken)]);
+    const {rows} = await this.db.query<{ csrfToken: string }>(`SELECT f.csrf_token AS "csrfToken" FROM app_refresh_token t JOIN app_refresh_family f ON f.id=t.family_id WHERE t.token_hash=$1 AND (NOT t.consumed OR t.consumed_at>NOW()-$2*INTERVAL '1 second') AND NOT f.revoked AND f.expires_at>NOW()`,[tokenHash(refreshToken),refreshReuseGraceSeconds]);
     return rows[0]?.csrfToken;
   }
   // Caller wraps rotation in a transaction. Lock user before family, matching
@@ -60,16 +68,20 @@ export class SessionModel {
     if (!family || family.revoked || new Date(family.expires_at).getTime() <= Date.now()) return null;
     const expected = Buffer.from(family.csrf_token), actual = Buffer.from(csrf);
     if (expected.length !== actual.length || !timingSafeEqual(expected,actual)) return null;
-    const current = (await this.db.query<{ consumed: boolean }>('SELECT consumed FROM app_refresh_token WHERE token_hash=$1',[tokenHash(refreshToken)])).rows[0];
+    const current = (await this.db.query<{ consumed: boolean; recent: boolean | null }>(`SELECT consumed,consumed_at>NOW()-$2*INTERVAL '1 second' AS recent FROM app_refresh_token WHERE token_hash=$1`,[tokenHash(refreshToken),refreshReuseGraceSeconds])).rows[0];
     const user = await new UserModel(this.db, this.timeZone).findById(family.userid);
-    if (current?.consumed || !user || user.status !== 'active' || user.accessStatus !== 'active') {
+    if ((current?.consumed && !current.recent) || !user || user.status !== 'active' || user.accessStatus !== 'active') {
       await this.db.query('UPDATE app_refresh_family SET revoked=true WHERE id=$1',[family.id]);
       return null; // Return, not throw: replay revocation must commit.
     }
     // Refresh bypasses requireUser; bind the verified owner on this transaction
     // before token consumption and successor creation fire their audit triggers.
     await this.db.query("SELECT set_config('app.actor_id',$1,true)",[String(user.id)]);
-    await this.db.query('UPDATE app_refresh_token SET consumed=true WHERE token_hash=$1',[tokenHash(refreshToken)]);
+    // A live token's rotation also retires any successor given to another tab's renewal
+    // within the grace window: the browser kept only one of their cookies, so a later use
+    // of the other is replay. A token reused within the window keeps its first use time.
+    if (!current?.consumed)
+      await this.db.query('UPDATE app_refresh_token SET consumed=true,consumed_at=NOW() WHERE family_id=$1 AND NOT consumed',[family.id]);
     return this.issue(family.userid, family.id, family.csrf_token, family.persistent);
   }
   async revokeRefresh(refreshToken: string) {

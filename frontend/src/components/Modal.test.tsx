@@ -176,6 +176,108 @@ test("pending saves cannot be dismissed and clean forms close without a discard 
   expect(close).toHaveBeenCalledOnce();
 });
 
+test("a field marked autoFocus keeps focus, and closing returns focus to the opener", () => {
+  const view = render(<button>Switch account</button>);
+  const trigger = screen.getByRole("button");
+  trigger.focus();
+  view.rerender(
+    <>
+      <button>Switch account</button>
+      <Modal open title="Whose account?" onClose={() => {}}>
+        <input aria-label="Search members" autoFocus />
+      </Modal>
+    </>,
+  );
+  expect(document.activeElement).toBe(screen.getByLabelText("Search members"));
+  view.rerender(
+    <>
+      <button>Switch account</button>
+      <Modal open={false} title="Whose account?" onClose={() => {}}>
+        <input aria-label="Search members" autoFocus />
+      </Modal>
+    </>,
+  );
+  expect(document.activeElement).toBe(trigger);
+});
+
+test("a dialog that replaces another keeps its autoFocus field, and closing it returns to the first opener", () => {
+  // The staff menu drawer closes and the account picker opens in the same update.
+  const screenFor = (menu: boolean, picker: boolean) => (
+    <>
+      <button>Open navigation</button>
+      <Modal open={menu} title="Workspace navigation" onClose={() => {}}>
+        <button>View a member</button>
+      </Modal>
+      <Modal open={picker} title="Whose account?" onClose={() => {}}>
+        <input aria-label="Search members" autoFocus />
+      </Modal>
+    </>
+  );
+  const view = render(screenFor(false, false));
+  const trigger = screen.getByRole("button", { name: "Open navigation" });
+  trigger.focus();
+  view.rerender(screenFor(true, false));
+  screen.getByRole("button", { name: "View a member" }).focus();
+  view.rerender(screenFor(false, true));
+  expect(document.activeElement).toBe(screen.getByLabelText("Search members"));
+  expect(view.container.inert).toBe(true);
+  view.rerender(screenFor(false, false));
+  expect(document.activeElement).toBe(trigger);
+  expect(view.container.inert).not.toBe(true);
+});
+
+test("Tab reaches disclosure summaries after the last form control, skipping what closed ones hold", () => {
+  const view = render(
+    <Modal open title="Member record" onClose={() => {}}>
+      <label>
+        <input type="checkbox" /> Show system details
+      </label>
+      <details>
+        <summary>Technical details</summary>
+        <button>Copy record id</button>
+      </details>
+    </Modal>,
+  );
+  const close = screen.getByRole("button", { name: "Close dialog" });
+  const checkbox = screen.getByRole("checkbox");
+  const summary = screen.getByText("Technical details");
+  // Tab from the checkbox is left to the browser, which moves on to the summary.
+  checkbox.focus();
+  expect(fireEvent.keyDown(checkbox, { key: "Tab" })).toBe(true);
+  expect(document.activeElement).toBe(checkbox);
+  // The summary is the last stop: the button inside the closed disclosure can't take focus.
+  close.focus();
+  expect(fireEvent.keyDown(close, { key: "Tab", shiftKey: true })).toBe(false);
+  expect(document.activeElement).toBe(summary);
+  expect(fireEvent.keyDown(summary, { key: "Tab" })).toBe(false);
+  expect(document.activeElement).toBe(close);
+  view.rerender(
+    <Modal open title="Member record" onClose={() => {}}>
+      <label>
+        <input type="checkbox" /> Show system details
+      </label>
+      <details open>
+        <summary>Technical details</summary>
+        <button>Copy record id</button>
+      </details>
+    </Modal>,
+  );
+  expect(fireEvent.keyDown(close, { key: "Tab", shiftKey: true })).toBe(false);
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Copy record id" }));
+});
+
+test("a status message on the page stays announced and dismissible while a dialog is open", () => {
+  const region = document.createElement("div");
+  region.setAttribute("role", "status");
+  region.setAttribute("data-live-region", "");
+  document.body.append(region);
+  const view = render(<Modal open title="Booking" onClose={() => {}}>Details</Modal>);
+  expect(view.container.inert).toBe(true);
+  expect(region.inert).not.toBe(true);
+  view.unmount();
+  region.remove();
+});
+
 test("Escape that a control inside already handled leaves the dialog open", () => {
   const close = vi.fn();
   render(<Modal open title="Booking" onClose={close}><input aria-label="Booking name" /></Modal>);

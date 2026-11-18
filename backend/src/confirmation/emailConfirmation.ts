@@ -33,4 +33,5 @@ export async function consumeEmailConfirmation(db:Database,token:unknown):Promis
   await enqueueNotification(db,{userId:row.userid,kind:'account_created',dedupeKey:`account-created:${row.userid}`,payload:{}});
   return row.userid;
 }
-function invalid(){return new AppError(400,'CONFIRMATION_INVALID','This confirmation link is invalid or expired. Request a new email.');}
+// Also a link opened again after it worked: the page offers sign-in as well as a new email.
+function invalid(){return new AppError(400,'CONFIRMATION_INVALID','This confirmation link is invalid, has expired or was already used.');}

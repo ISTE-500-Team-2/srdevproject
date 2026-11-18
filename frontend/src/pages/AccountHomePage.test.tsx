@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { User } from "../lib/contracts";
 import { certification, overview, reservation, user as account } from "../testing/fixtures";
@@ -65,4 +65,55 @@ test("the page heading comes before the account snapshot's heading in reading or
   const headings = screen.getAllByRole("heading").map((h) => h.tagName);
   expect(headings[0]).toBe("H1");
   expect(screen.getByRole("heading", { level: 2, name: /^Dana/ }).closest("aside")).toBe(screen.getByRole("complementary"));
+});
+
+test("training past its renewal date, or revoked, shows as lapsed with a way to find a class; a retired one is not current", async () => {
+  const past = new Date(Date.now() - 86_400_000).toISOString();
+  const fay = account({ id: 9, firstName: "Fay", email: "fay@example.invalid" });
+  records[fay.id] = {
+    certifications: [
+      // The server keeps status "active" after the renewal date; only `valid` turns false.
+      certification({ id: 3, name: "Laser Training", status: "active", renewalDate: past, valid: false }),
+      certification({ id: 4, name: "Lathe Training", status: "revoked", valid: false }),
+      certification({ id: 5, name: "CNC Training" }),
+      // A retired certification type is no longer valid either, but it didn't expire and no class renews it.
+      certification({ id: 6, name: "Kiln Training", status: "active", renewalDate: null, valid: false }),
+    ],
+    bookings: [],
+  };
+  serve();
+  auth.actor = staff;
+  auth.user = fay;
+  render(<MemoryRouter><AccountHomePage /></MemoryRouter>);
+  const snapshot = screen.getByRole("complementary");
+  expect(await within(snapshot).findByText("Laser Training, expired")).toBeTruthy();
+  expect(within(snapshot).getByText("Lathe Training, revoked")).toBeTruthy();
+  expect(within(snapshot).getByText("CNC Training")).toBeTruthy();
+  expect(screen.getByText("Fay's Laser Training certification is expired.")).toBeTruthy();
+  expect(screen.getByText("Fay's Lathe Training certification is revoked.")).toBeTruthy();
+  expect(screen.queryByText(/CNC Training certification/)).toBeNull();
+  expect(within(snapshot).getByText("Kiln Training, not current")).toBeTruthy();
+  expect(screen.getByText("Fay's Kiln Training certification is not current.")).toBeTruthy();
+  expect(screen.getAllByRole("link", { name: "Find a class" })).toHaveLength(2);
+});
+
+test("certifications and bookings that fail to load say so and can be retried", async () => {
+  serve();
+  const working = api.getMockImplementation()!;
+  let failing = true;
+  api.mockImplementation(async (path: string) => {
+    if (failing && (path === "/me/certifications" || path === "/reservations")) throw new Error("Server error");
+    return working(path);
+  });
+  auth.actor = staff;
+  auth.user = dana;
+  render(<MemoryRouter><AccountHomePage /></MemoryRouter>);
+  const snapshot = screen.getByRole("complementary");
+  expect(await within(snapshot).findByText("Couldn’t load certifications")).toBeTruthy();
+  expect(await within(snapshot).findByText("Couldn’t load bookings")).toBeTruthy();
+  failing = false;
+  for (const retry of within(snapshot).getAllByRole("button", { name: "Retry" })) fireEvent.click(retry);
+  expect(await within(snapshot).findByText("Laser Training")).toBeTruthy();
+  expect(await within(snapshot).findByText("Dana's lathe")).toBeTruthy();
+  expect(within(snapshot).queryByText(/Couldn’t load/)).toBeNull();
 });

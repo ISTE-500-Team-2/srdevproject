@@ -58,6 +58,8 @@ test("needs you orders waiver, outages and training with correct pluralisation",
   const items = needsYou(compliance(1, 2), [machine(1, "Wood", "unavailable")], [booking()], now);
   expect(items.map(i => i.icon)).toEqual(["waiver", "machine", "training"]);
   expect(items[0].title).toBe("1 member has no current waiver");
+  // An equipment waiver only stops equipment readers, so the warning does not claim every reader.
+  expect(items[0].detail).toBe("Their tags won't open the readers that need the missing waiver until they sign.");
   expect(items[1].detail).toBe("1 booking today is affected.");
   expect(items[2].title).toBe("2 members need training renewed");
   const plural = needsYou(compliance(2, 1), [machine(1, "Wood", "maintenance")], [booking(), { ...booking(), id: 2 }], now);

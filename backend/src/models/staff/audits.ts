@@ -15,10 +15,11 @@ export interface AuditFilters {
   search?: string | null;
   view?: AuditView | null;
   /**
-   * Leave out sign-in bookkeeping and queued email, which the member record never shows: for an
-   * active member they would otherwise fill the whole page and hide every real change and visit.
+   * Only what the member record shows: actions people took, card taps and reader check-ins. The
+   * database's other row copies (sign-ins, queued email, visits, bookings…) never show there, and
+   * for an active member they would otherwise fill the whole page and hide every real change.
    */
-  withoutBookkeeping?: boolean | null;
+  recordActivity?: boolean | null;
 }
 /** One staff audit entry, joined with reader decisions where it records one. */
 export interface AuditEntry {
@@ -164,9 +165,9 @@ export class AuditRepository {
         `SELECT ${AUDIT_COLUMNS} ${AUDIT_FROM} ${AUDIT_WHERE}
         AND ($9::text IS NULL OR ($9='staff' AND ${AUDIT_VIEWS.staff})
           OR ($9='taps' AND ${AUDIT_VIEWS.taps}) OR ($9='database' AND ${AUDIT_VIEWS.database}))
-        AND (NOT $11::boolean OR (a.entity_type NOT IN ${HOUSEKEEPING} AND a.entity_type<>'app_notification_outbox'))
+        AND (NOT $11::boolean OR ${AUDIT_VIEWS.staff} OR a.entity_type IN ('app_device_access_event','check_in'))
       ORDER BY a.created_at DESC,a.id DESC LIMIT 51 OFFSET $10`,
-        [...auditParams(filters), filters.view ?? null, offset, filters.withoutBookkeeping ?? false],
+        [...auditParams(filters), filters.view ?? null, offset, filters.recordActivity ?? false],
       )
     ).rows;
   }
