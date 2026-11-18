@@ -105,6 +105,25 @@ test('same-day equipment bookings collapse to one readable time range', () => {
   assert.ok(result.textContent.includes('Your Laser Engraver session is booked'));
 });
 
+test('a booking staff cancelled says the studio cancelled it, not that the member did', () => {
+  const booking = {resourceName:'Laser Engraver', startsAt:'2030-01-15T22:00:00Z', endsAt:'2030-01-16T00:00:00Z', timeZone:'America/New_York'};
+  const own = renderNotification('reservation_cancelled', booking, context);
+  assert.equal(own.subject, 'The Crafty Studio: Your reservation cancellation is confirmed');
+  const result = renderNotification('reservation_cancelled_by_staff', {...booking,
+    instructions:'You paid for this booking. Contact the studio to arrange a refund.'}, context);
+  assert.equal(result.subject, 'The Crafty Studio: Your reservation has been cancelled');
+  assert.ok(!result.textContent.includes('cancellation is confirmed'));
+  assert.ok(result.textContent.includes('Your Laser Engraver session was cancelled'));
+  assert.ok(result.textContent.includes('Studio staff took this booking off your reservations'));
+  assert.ok(result.textContent.includes('When: Tue, Jan 15, 2030, 5:00 PM – 7:00 PM EST'));
+  assert.ok(result.textContent.includes('What happens next\nYou paid for this booking. Contact the studio to arrange a refund.'));
+  const moved = renderNotification('reservation_cancelled_by_staff', {...booking, reason:'Staff moved this booking to another member.'}, context);
+  assert.ok(moved.textContent.includes('Reason: Staff moved this booking to another member.'));
+  // The same opening reads true for a booking given to someone else, not only a cancelled one.
+  assert.ok(moved.textContent.includes('Studio staff took this booking off your reservations, so this time is no longer held for you.'));
+  assert.ok(!moved.textContent.includes('cancelled this booking'));
+});
+
 test('reset security mail uses a fragment link and never offers to suppress security notices', () => {
   const resetUrl = 'https://studio.example/reset-password#' + 'a'.repeat(43);
   const result = renderNotification('password_reset', { resetUrl }, context);

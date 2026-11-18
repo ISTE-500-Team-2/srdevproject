@@ -288,6 +288,19 @@ test('authenticated reservation HTTP flow requires payment, enforces CSRF and co
   } finally { create.mock.restore(); retrieve.mock.restore(); }
 });
 
+test('the equipment list says whether priced bookings are paid by card or at the front desk', async () => {
+  for (const [studioStripe, cardCheckout] of [[undefined, false], [provider.config, true]] as const) {
+    const app = createApp(pool, {port: 8080, host: '127.0.0.1', secureCookies: false, demoLogin: true,
+      allowedOrigins: ['http://localhost:8080'], timeZone: 'America/New_York', jwtKey: randomBytes(32), studioStripe});
+    const login = await request(app).post('/api/auth/demo').send({role: 'member'});
+    assert.equal(login.status, 200, login.text);
+    const list = await request(app).get('/api/equipment').set('Authorization', 'Bearer ' + login.body.data.accessToken);
+    assert.equal(list.status, 200, list.text);
+    assert.ok(list.body.data.length > 0);
+    assert.deepEqual([...new Set(list.body.data.map((item: {cardCheckout: unknown}) => item.cardCheckout))], [cardCheckout]);
+  }
+});
+
 test('staff and admins can resume and cancel the opened member checkout, not another payer checkout', async () => {
   const jwtKey = randomBytes(32);
   const app = createApp(pool, {port: 8080, host: '127.0.0.1', secureCookies: false, demoLogin: true,

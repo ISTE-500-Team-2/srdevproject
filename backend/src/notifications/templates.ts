@@ -29,6 +29,7 @@ const headings = {
   reservation_created: 'Your reservation is confirmed',
   reservation_updated: 'Your reservation has been updated',
   reservation_cancelled: 'Your reservation cancellation is confirmed',
+  reservation_cancelled_by_staff: 'Your reservation has been cancelled',
   studio_reservation_confirmed: 'Your studio reservation is confirmed',
   studio_reservation_cancelled: 'Your studio cancellation is confirmed',
   payment_receipt: 'Your payment receipt',
@@ -194,6 +195,12 @@ const copy: Record<NotificationKind, Copy> = {
   reservation_cancelled: { category: 'Reservation', status: 'Cancelled', tone: 'info',
     title: f => f.item ? `Your ${f.item} session is cancelled` : '',
     intro: f => f.item ? 'It’s been removed from your reservations.' : 'Here are the details.' },
+  // Staff cancelled it, or gave it to another member (the payload's reason says which): the member
+  // didn't ask for this, so say who did and where to ask, in words true of both.
+  reservation_cancelled_by_staff: { category: 'Reservation', status: 'Cancelled', tone: 'warning',
+    title: f => f.item ? `Your ${f.item} session was cancelled` : '',
+    intro: () => 'Studio staff took this booking off your reservations, so this time is no longer held for you. Contact the studio if you have questions.',
+    cta: reservations },
   studio_reservation_confirmed: { category: 'Studio rental', status: 'Confirmed', tone: 'success',
     title: f => `You’re booked in ${f.item || 'the studio'}`,
     intro: () => 'It’s all yours for the dates below. You can manage the rental from the Studios page.', cta: ['View my rental', '/studios'] },

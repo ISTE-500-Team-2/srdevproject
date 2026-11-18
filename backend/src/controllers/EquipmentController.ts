@@ -18,6 +18,8 @@ export class EquipmentController {
   constructor(
     private pool: Pool,
     private timeZone: string,
+    /** Card checkout is configured; without it, priced bookings are paid at the front desk. */
+    private cardCheckout = false,
   ) {}
   list = async (_req: Request, res: Response) => {
     const userId = authState(res).user.id;
@@ -74,6 +76,7 @@ export class EquipmentController {
             ? reasons.join(" · ")
             : "Choose a time to check availability",
           reasonCodes,
+          cardCheckout: this.cardCheckout,
         };
       }),
     );
