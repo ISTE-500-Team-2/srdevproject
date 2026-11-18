@@ -568,6 +568,35 @@ test("card metadata records the last successful physical tap, excluding renewal 
   assert.equal(physical.body.data.allowed, true, JSON.stringify(physical.body));
   const renewed = await tap("AA998877", { renewal: true });
   assert.equal(renewed.body.data.allowed, true);
+  // Readers renew about once a second while a card stays on; only taps and refused
+  // renewals reach the permanent audit log.
+  const refused = await tap("CC445566", { renewal: true });
+  assert.equal(refused.body.data.allowed, false);
+  const decisions = [physical, renewed, refused].map((r) => r.body.data.decisionId);
+  assert.deepEqual(
+    (
+      await pool.query(
+        "SELECT entity_id::int AS id FROM app_staff_audit WHERE entity_type='app_device_access_event' AND entity_id=ANY($1::int[]) ORDER BY entity_id",
+        [decisions],
+      )
+    ).rows.map((r) => r.id),
+    [decisions[0], decisions[2]],
+  );
+  // Live-lease counts look up every unexpired grant without a machine id.
+  const planner = await pool.connect();
+  try {
+    await planner.query("BEGIN");
+    await planner.query("SET LOCAL enable_seqscan=off");
+    const plan = (
+      await planner.query(
+        "EXPLAIN SELECT target_kind,target_id FROM app_device_access_event WHERE allowed=true AND expires_at>NOW()",
+      )
+    ).rows.map((r) => r["QUERY PLAN"]).join("\n");
+    assert.match(plan, /app_device_event_live_leases/);
+  } finally {
+    await planner.query("ROLLBACK");
+    planner.release();
+  }
   const event = (
     await pool.query(
       "SELECT created_at FROM app_device_access_event WHERE id=$1",
