@@ -110,6 +110,13 @@ test('live upgrade aborts a busy reader trigger swap and builds the lease index 
         (reservation_id,payer_id,request_key,equipment_name,hourly_cents,hours,amount_cents)
         VALUES (99001,$1,$2,'Test',100,1,100), (99002,$1,$3,'Test',100,1,100)`,
       [member!.userid, randomUUID(), randomUUID()]);
+      await pool.query(`INSERT INTO payment(paymentid,userid,price,paymentstatus)
+        VALUES (99001,$1,1,'paid')`, [member!.userid]);
+      await pool.query(`UPDATE app_equipment_checkout SET status='paid',payment_id=99001,payment_intent='pi_migration'
+        WHERE reservation_id=99001`);
+      const refundQueue = async () => (await pool.query(`SELECT reservation_id AS id, refund_reconcile_after IS NOT NULL AS queued
+        FROM app_equipment_checkout ORDER BY reservation_id`)).rows;
+      assert.deepEqual(await refundQueue(), [{ id: 99001, queued: false }, { id: 99002, queued: false }]);
       const recordRefund = (reservation: number) =>
         pool.query("UPDATE app_equipment_checkout SET refund_id='re_migration' WHERE reservation_id=$1", [reservation]);
       await assert.rejects(recordRefund(99001), { code: '23514', constraint: 'app_equipment_checkout_refund_online_pending' });
@@ -120,6 +127,14 @@ test('live upgrade aborts a busy reader trigger swap and builds the lease index 
       assert.equal((await pool.query("SELECT to_regclass('public.app_reader_setup_one_active_device') IS NOT NULL AS present")).rows[0].present, true);
       await pool.query('DROP INDEX app_reader_setup_one_in_progress_device');
 
+      await migrate(pool, onlineOnly);
+      await verifyMigrations(pool);
+      assert.deepEqual(await refundQueue(), [{ id: 99001, queued: true }, { id: 99002, queued: false }]);
+      await pool.query('UPDATE app_equipment_checkout SET refund_reconcile_after=NULL WHERE reservation_id=99001');
+      await migrate(pool, onlineOnly);
+      assert.deepEqual(await refundQueue(), [{ id: 99001, queued: false }, { id: 99002, queued: false }]);
+      await pool.query('DROP INDEX app_equipment_checkout_refund_due');
+      await assert.rejects(verifyMigrations(pool), /index is missing or invalid: app_equipment_checkout_refund_due/);
       await migrate(pool, onlineOnly);
       await verifyMigrations(pool);
       await recordRefund(99001);

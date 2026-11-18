@@ -113,10 +113,9 @@ remain a hard prerequisite.
    set `SET LOCAL lock_timeout = '250ms';` before applying this batch. Migration
    048 takes the reader table lock with `NOWAIT`, as does 054 for the outbox.
    Migration 053 only adds nullable columns and adjusts audit triggers in this
-   transaction. A busy lock can abort the
-   transaction with SQLSTATE `55P03`. Roll back and retry the pending schema
-   batch during a quieter period. Release the session advisory lock when the
-   guarded script finishes.
+   transaction. A busy lock can abort the schema batch with SQLSTATE `55P03`.
+   Roll back and retry during a quieter period. Release the session advisory
+   lock when the guarded script finishes.
 3. After the schema transaction commits, run the reviewed online phase on each
    database as owner. The candidate image provides a command for this phase:
 
@@ -127,16 +126,18 @@ remain a hard prerequisite.
    This mode acquires the same advisory lock, checks the numbered migration
    history, and runs only the post-commit steps. The guarded process can invoke
    this command or execute the same reviewed sequence in its own owner session.
-   Use autocommit for concurrent index commands. Build the replacement reader setup index
-   before removing the old one, build the lease expiry and unique refund
-   indexes and both checkout reconciliation indexes, validate the check-in constraint, remove the refund write guard
-   after uniqueness is enforced, and scrub previously sent notification links
-   in committed batches. The online phase also queues legacy checkout refund
-   lookups in committed batches and records their completion in the migration
-   ledger. Repeat the online phase after a lock conflict,
-   interrupted build or incomplete cleanup. It reuses matching valid indexes
-   and rebuilds matching invalid indexes. If an index definition differs from
-   the reviewed definition, investigate before retrying.
+   Use autocommit for concurrent index commands. The online phase builds the
+   replacement reader setup index before removing the old one. It builds the
+   lease expiry index, the unique refund index and both checkout reconciliation
+   indexes. It validates the check-in constraint, removes the refund write guard
+   once uniqueness is enforced, scrubs previously sent notification links and
+   queues legacy checkout refund work in committed batches. It records the
+   refund backfill completion in the migration ledger.
+
+   Retry this phase after a lock conflict, interrupted build or incomplete
+   cleanup. It reuses matching valid indexes and rebuilds matching invalid
+   indexes. If an index definition differs from the reviewed definition,
+   investigate before retrying.
 4. On each database where the runtime role lacks either privilege, grant both
    as owner for the reader lease compaction job.
 

@@ -20,6 +20,60 @@ const refundIndex = {
   definition: 'CREATE UNIQUE INDEX app_equipment_checkout_refund_id_key ON app_equipment_checkout USING btree (refund_id) WHERE (refund_id IS NOT NULL)',
 };
 
+const checkoutRefundBackfills = [
+  {
+    name: 'app_pass_checkout_refund_due',
+    table: 'app_pass_checkout',
+    key: 'id',
+    definition: 'CREATE INDEX app_pass_checkout_refund_due ON app_pass_checkout USING btree (refund_reconcile_after) WHERE (refund_reconcile_after IS NOT NULL)',
+    eligible: 'pass_id IS NULL AND cancel_requested_at IS NOT NULL',
+  },
+  {
+    name: 'app_equipment_checkout_refund_due',
+    table: 'app_equipment_checkout',
+    key: 'reservation_id',
+    definition: 'CREATE INDEX app_equipment_checkout_refund_due ON app_equipment_checkout USING btree (refund_reconcile_after) WHERE (refund_reconcile_after IS NOT NULL)',
+    // Old paid equipment checkouts did not distinguish a failed lookup from an empty one.
+    eligible: 'TRUE',
+  },
+];
+const checkoutRefundMigration = '053_checkout_refund_reconciliation.sql';
+const checkoutRefundBackfill = `online:${checkoutRefundMigration}`;
+
+async function checkoutRefundBackfillDone(db: Database) {
+  const result = await db.query(`SELECT 1 FROM public.app_migration online
+    JOIN public.app_migration numbered USING (checksum)
+    WHERE online.name=$1 AND numbered.name=$2`, [checkoutRefundBackfill, checkoutRefundMigration]);
+  return !!result.rowCount;
+}
+
+async function queueLegacyCheckoutRefunds(db: Database) {
+  if (await checkoutRefundBackfillDone(db)) return;
+  for (const { table, key, eligible } of checkoutRefundBackfills) {
+    // Walk the primary key a bounded page at a time. Each page commits independently.
+    // Recheck eligibility on UPDATE so a concurrent write cannot enqueue a refunded checkout.
+    let lastKey: string | null = null;
+    for (;;) {
+      const { rows }: { rows: { last_key: string | null }[] } = await db.query(`WITH batch AS (
+        SELECT ${key} FROM public.${table}
+        ${lastKey === null ? '' : `WHERE ${key} > $1`} ORDER BY ${key} LIMIT 500
+      ), queued AS (
+        UPDATE public.${table} SET refund_reconcile_after=now()
+        WHERE ${key} IN (SELECT ${key} FROM batch)
+          AND status='paid' AND payment_id IS NOT NULL AND payment_intent IS NOT NULL
+          AND refund_id IS NULL AND refund_reconcile_after IS NULL AND ${eligible}
+      )
+      SELECT (SELECT ${key}::text FROM batch ORDER BY ${key} DESC LIMIT 1) AS last_key`,
+      lastKey === null ? [] : [lastKey]);
+      lastKey = rows[0]!.last_key;
+      if (lastKey === null) break;
+    }
+  }
+  // Distinguish finished backfill from a later worker successfully clearing the queue.
+  await db.query(`INSERT INTO public.app_migration(name,checksum)
+    SELECT $1,checksum FROM public.app_migration WHERE name=$2`, [checkoutRefundBackfill, checkoutRefundMigration]);
+}
+
 const oldSetupIndex = 'app_reader_setup_one_active_device';
 const refundGuard = 'app_equipment_checkout_refund_online_pending';
 const checkInOrigin = 'app_check_in_origin';
@@ -96,6 +150,9 @@ export async function finishOnlineMigrations(db: Database) {
   // 049_equipment_refund_retry.sql: keep non-null refund IDs gated until unique.
   await ensureIndex(db, refundIndex);
 
+  // 053_checkout_refund_reconciliation.sql: build both due indexes without blocking writes.
+  for (const index of checkoutRefundBackfills) await ensureIndex(db, index);
+
   // 051_desk_check_in_origin.sql: new rows already obey the NOT VALID check.
   if (!(await constraintValidated(db, 'check_in', checkInOrigin)))
     await db.query(`ALTER TABLE public.check_in VALIDATE CONSTRAINT ${checkInOrigin}`);
@@ -106,14 +163,17 @@ export async function finishOnlineMigrations(db: Database) {
 
   // 046_forget_sent_links.sql: scrub existing terminal rows in committed batches.
   await clearPreviouslySentLinks(db);
+  await queueLegacyCheckoutRefunds(db);
 }
 
 export async function verifyOnlineMigrations(db: Database) {
   const finish = 'Complete the reviewed online migration phase.';
-  for (const index of [setupIndex, leaseIndex, refundIndex]) {
+  for (const index of [setupIndex, leaseIndex, refundIndex, ...checkoutRefundBackfills]) {
     if (!(await indexValid(db, index)))
       throw new Error(`Migration index is missing or invalid: ${index.name}. ${finish}`);
   }
+  if (!(await checkoutRefundBackfillDone(db)))
+    throw new Error(`Migration checkout refund backfill is incomplete. ${finish}`);
   if (await oldSetupIndexExists(db))
     throw new Error(`Migration index ${oldSetupIndex} still needs removal. ${finish}`);
   if ((await constraintValidated(db, refundIndex.table, refundGuard)) !== undefined)

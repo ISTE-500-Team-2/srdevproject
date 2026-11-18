@@ -27,8 +27,8 @@ async function ensureCertification(renewal:Date) {
     ON CONFLICT (usercertid) DO UPDATE SET userid=EXCLUDED.userid,certid=EXCLUDED.certid,renewaldate=EXCLUDED.renewaldate,status=EXCLUDED.status`,[userId,renewal]);
 }
 async function enqueue(key:string,options:Partial<Parameters<typeof enqueueNotification>[1]>={}) {await enqueueNotification(pool,{userId,kind:'account_created',dedupeKey:key,payload:{},...options});}
-test('migration 053 keeps the existing outbox heap and due index without scanning rows',async()=>{
-  const sql = await readFile(new URL('../../../database/migrations/053_notification_worker_compatibility.sql',import.meta.url),'utf8');
+test('migration 054 keeps the existing outbox heap and due index without scanning rows',async()=>{
+  const sql = await readFile(new URL('../../../database/migrations/054_notification_worker_compatibility.sql',import.meta.url),'utf8');
   await enqueue('before-migration');
   await transaction(pool,async db=>{
     await db.query(`DROP TRIGGER IF EXISTS app_notification_worker_compatibility ON app_notification_outbox;
