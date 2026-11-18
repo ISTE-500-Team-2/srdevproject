@@ -1,7 +1,7 @@
 // Member studio availability and rental checkout; payment/refund labels reflect separate server states.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BookingReference } from "../components/studios/BookingReference";
+import { BookingReference, bookingReference } from "../components/studios/BookingReference";
 import { CancelRentalDialog } from "../components/studios/CancelRentalDialog";
 import StatusMark from "../components/reactbits/StatusMark";
 import {
@@ -46,7 +46,7 @@ function rentalStatus(r: Rental, today: string) {
 
 function paymentLine(r: Rental) {
   if (r.status === "pending" && r.payment_method === "manual")
-    return `Pay at the front desk by ${clock(r.hold_until)} or the hold is released.`;
+    return `Pay at the front desk by ${clock(r.hold_until)} and give them booking reference ${bookingReference(r.id)}, or the hold is released.`;
   if (r.status === "pending")
     return `Card payment not finished. Pay by ${clock(r.hold_until)} or the hold is released.`;
   if (r.status === "expired") return "The hold ran out before payment.";
@@ -123,12 +123,14 @@ export function StudiosPage() {
       window.removeEventListener("focus", update);
     };
   }, [live]);
-  async function action(work: () => Promise<void>) {
+  async function action(work: () => Promise<void | "redirect">) {
     setBusy(true);
     setError("");
     setMessage("");
     try {
-      await work();
+      // Card checkout is taking over the page; reloading now would only show
+      // the member's own new hold as taken.
+      if ((await work()) === "redirect") return;
       await refresh();
     } catch (e) {
       setError(errorMessage(e));
@@ -160,10 +162,29 @@ export function StudiosPage() {
       );
       if (r.checkoutUrl) {
         window.location.assign(r.checkoutUrl);
-        return;
+        return "redirect";
       }
       attempt.current = null;
       setHeld({ ...r, name: studio.name });
+    });
+  }
+  function finishCard(r: Rental) {
+    void action(async () => {
+      const result = await api<Rental & { checkoutUrl?: string | null }>(
+        `/studio-rentals/${r.id}/payment-status`,
+        { method: "POST" },
+      );
+      if (result.checkoutUrl) {
+        window.location.assign(result.checkoutUrl);
+        return "redirect";
+      }
+      if (result.status === "confirmed")
+        setMessage(`Payment received. ${r.name} is booked.`);
+      else if (result.status === "expired")
+        setMessage(
+          `The hold ran out before payment, so ${r.name} was released. ${size ? "You can book it again below." : "Choose a size below to book again."}`,
+        );
+      else setMessage("Your card payment is still processing. This page updates on its own.");
     });
   }
   const instructor = !!user?.roles.includes("instructor");
@@ -239,21 +260,7 @@ export function StudiosPage() {
             <button
               className="button button--quiet"
               disabled={busy}
-              onClick={() =>
-                void action(async () => {
-                  const result = await api<Rental & { checkoutUrl?: string | null }>(
-                    `/studio-rentals/${r.id}/payment-status`,
-                    { method: "POST" },
-                  );
-                  if (result.checkoutUrl)
-                    window.location.assign(result.checkoutUrl);
-                  else if (result.status === "confirmed")
-                    setMessage(`Payment received. ${r.name} is booked.`);
-                  else if (result.status === "expired")
-                    setMessage(`The hold ran out before payment, so ${r.name} was released. Choose a size below to book again.`);
-                  else setMessage("Your card payment is still processing. This page updates on its own.");
-                })
-              }
+              onClick={() => finishCard(r)}
             >
               Finish card payment
             </button>
@@ -286,7 +293,7 @@ export function StudiosPage() {
       )}
       {!loaded && !loadError && <p role="status">Loading studios…</p>}
       {error && !size && !cancelling && <p className="form-error" role="alert">{error}</p>}
-      {message && <p className="studio-message" role="status">{message}</p>}
+      {message && !size && <p className="studio-message" role="status">{message}</p>}
       {returning && returnedRental?.status === "pending" && (
         <div className="studio-message studio-payment" role="status">
           <StatusMark status="running" size={22} color="#a86008" />
@@ -332,6 +339,7 @@ export function StudiosPage() {
             onClick={() => {
               setHeld(null);
               setError("");
+              setMessage("");
               setSize(g.key);
             }}
           >
@@ -406,7 +414,9 @@ export function StudiosPage() {
         blockedReason={blockedReason}
         busy={busy}
         error={size ? error : ""}
+        notice={size ? message : ""}
         held={held}
+        mine={mine}
         onClose={() => {
           if (busy) return;
           setSize(null);
@@ -414,6 +424,7 @@ export function StudiosPage() {
           setError("");
         }}
         onBook={(request) => void book(request)}
+        onFinish={finishCard}
       />
 
     </section>
