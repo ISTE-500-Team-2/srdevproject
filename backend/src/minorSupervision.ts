@@ -10,6 +10,7 @@ import { authRateLimit, authState, requireCsrf, requireStaff } from './middlewar
 import { requirePermission } from './middleware/permissions.js';
 import { StaffModel } from './models/StaffModel.js';
 import { EligibilityModel } from './models/EligibilityModel.js';
+import { MemberModel } from './models/MemberModel.js';
 import { enqueueNotification } from './notifications/store.js';
 import { DEFAULT_BUILDING_ID } from './facility.js';
 
@@ -64,6 +65,18 @@ export class MinorSupervision {
       ON CONFLICT(${key}) DO UPDATE SET adult_id=EXCLUDED.adult_id`,[bookingId,sponsor.id]);
     else await this.db.query(`DELETE FROM ${table} WHERE ${key}=$1`,[bookingId]);
   }
+  /**
+   * Where a desk arrival with no building named belongs: the member's visit today, then a minor's
+   * present sponsor's building, then the default. Never moves a visit to another building.
+   */
+  async arrivalBuilding(id:number) {
+    const minor=await this.isMinor(id);
+    const visit=(await this.db.query<{building:number}>(`SELECT v.building_id AS building FROM app_facility_visit v
+      WHERE v.checked_out_at IS NULL AND (v.checked_in_at AT TIME ZONE $2)::date=(now() AT TIME ZONE $2)::date
+        AND (v.user_id=$1 OR ($3 AND v.user_id=(SELECT adult_id FROM app_minor_sponsor WHERE minor_id=$1)))
+      ORDER BY v.user_id=$1 DESC LIMIT 1`,[id,this.zone,minor])).rows[0];
+    return visit?.building ?? DEFAULT_BUILDING_ID;
+  }
   async startVisit(id:number,buildingId:number) {
     const sponsor = await this.requireSponsor(id,buildingId);
     // One open visit, with stale previous-day visits explicitly ended before starting anew.
@@ -114,7 +127,10 @@ export class MinorSupervision {
   async isAdult(id:number) {
     return !!(await this.db.query(`SELECT 1 FROM "user" WHERE userid=$1 AND ${adultSql(2)}`,[id,this.zone])).rowCount;
   }
-  /** Minors an adult sponsors (with today's open visit) and the adult's pending outgoing requests. */
+  /**
+   * Minors an adult sponsors (with today's open visit), the adult's pending outgoing requests,
+   * and whether they may send a new one: older accounts have no date of birth on file.
+   */
   async minors(adultId:number) {
     const minors=(await this.db.query(`SELECT s.minor_id AS id,u.firstname||' '||u.lastname AS name,
       b.name AS "buildingName",v.checked_in_at AS "checkedInAt"
@@ -127,7 +143,9 @@ export class MinorSupervision {
     const requests=(await this.db.query(`SELECT r.id::int AS id,u.firstname AS "minorName",r.created_at AS "createdAt"
       FROM app_minor_sponsor_request r JOIN "user" u ON u.userid=r.minor_id
       WHERE r.adult_id=$1 AND r.status='pending' ORDER BY r.created_at,r.id`,[adultId])).rows;
-    return {minors,requests};
+    const self=(await this.db.query(`SELECT dob IS NOT NULL AS "dobOnFile",(${adultSql(2)}) AS "canSponsor"
+      FROM "user" WHERE userid=$1`,[adultId,this.zone])).rows[0];
+    return {minors,requests,canSponsor:self?.canSponsor===true,dobOnFile:self?.dobOnFile===true};
   }
 }
 
@@ -307,10 +325,12 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
         const model=new EligibilityModel(db,zone),entitlement=await model.entitlement(id,new Date()),waivers=await model.waivers(id,'facility');
         if (!entitlement.membership && !entitlement.dayPass) throw new AppError(403,'MEMBERSHIP_REQUIRED','Each visitor needs a membership or day pass.');
         if (!waivers.length || waivers.some(w=>!w.signed)) throw new AppError(403,'WAIVER_REQUIRED','Sign current required policies first.');
-        const building=positiveId(req.body.buildingId ?? DEFAULT_BUILDING_ID);
-        if (!(await db.query("SELECT buildingid FROM building WHERE buildingid=$1 AND status='available' FOR SHARE",[building])).rowCount)
-          throw new AppError(409,'RESOURCE_UNAVAILABLE','This building is unavailable.');
-        await service.startVisit(id,building);
+        const building=req.body.buildingId==null ? await service.arrivalBuilding(id) : positiveId(req.body.buildingId);
+        const place=(await db.query<{name:string}>("SELECT name FROM building WHERE buildingid=$1 AND status='available' FOR SHARE",[building])).rows[0];
+        if (!place) throw new AppError(409,'RESOURCE_UNAVAILABLE','This building is unavailable.');
+        // Record the arrival as reader and portal check-ins do, so it counts in "Checked in
+        // today", attendance reports and recent check-ins. This also starts the visit.
+        await new MemberModel(db,zone).createCheckIn(id,place.name,null,building,null,null,'Checked in at the front desk');
       } else await service.checkout(id);
       await new StaffModel(db,zone).audit(authState(res).user.id,id,`visit.${action}`,'user',id,reason,null,{action});
       return service.summary(id);

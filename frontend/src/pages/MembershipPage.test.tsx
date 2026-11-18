@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { MembershipPage } from "./MembershipPage";
 import { shortDate, statusLabel, zonedDay } from "../lib/display";
@@ -24,7 +24,10 @@ interface Data {
   memberships?: unknown[];
   historyPasses?: unknown[];
   passes?: unknown[];
+  passesError?: string;
   offers?: unknown[];
+  /** Quotes for specific visit dates, when they differ from `offers`. */
+  offersByDate?: Record<string, unknown[]>;
   accessStatus?: string;
   policies?: { id: number; name: string; signed: boolean; scope: 'facility' | 'equipment' }[];
   policyError?: string;
@@ -36,14 +39,16 @@ function mount(d: Data = {}, url = "/membership") {
     if (cache.has(path)) return cache.get(path);
     const data =
       path === null ? null
-      : path.startsWith("/me/billing/offers") ? (d.offers ?? [offer(monthly, 5000), offer(dayPass, 1500)])
+      : path.startsWith("/me/billing/offers")
+        ? (d.offersByDate?.[new URLSearchParams(path.split("?")[1]).get("date") ?? ""] ?? d.offers ?? [offer(monthly, 5000), offer(dayPass, 1500)])
       : path === '/me/waivers?scope=facility' ? (d.policies ?? [{ id: 1, name: 'Terms of Service', signed: true, scope: 'facility' }])
-      : path === "/me/billing/passes" ? (d.passes ?? [])
+      : path === "/me/billing/passes" ? (d.passesError ? null : d.passes ?? [])
       : path === "/me/billing" ? { enabled: d.enabled ?? true, records: d.records ?? [] }
       : path === "/me/memberships" ? { memberships: d.memberships ?? [], passes: d.historyPasses ?? [], timeZone: "America/New_York", accessStatus: d.accessStatus ?? "active" }
       : path === "/plans" ? [monthly, dayPass]
       : { items: [], nextOffset: null };
-    const result = { data, loading: false, refreshing: false, error: path === '/me/waivers?scope=facility' ? d.policyError ?? '' : '', reload };
+    const error = path === '/me/waivers?scope=facility' ? d.policyError ?? '' : path === "/me/billing/passes" ? d.passesError ?? '' : '';
+    const result = { data, loading: false, refreshing: false, error, reload };
     cache.set(path, result);
     return result;
   });
@@ -79,6 +84,60 @@ test("without online billing, plans still show and point to the front desk", () 
   expect(screen.getByText("$50.00")).toBeTruthy();
   expect(screen.queryByRole("button", { name: /Start membership/ })).toBeNull();
   expect(screen.getByText(/Ask at the front desk to sign up/)).toBeTruthy();
+  expect(screen.queryByLabelText("Visit date")).toBeNull();
+  expect(screen.getByText("Buy a day pass at the front desk.")).toBeTruthy();
+  expect(screen.getByText("Sign up or buy a pass at the front desk.")).toBeTruthy();
+  expect(screen.queryByText(/test mode/)).toBeNull();
+});
+
+test("without online billing, approved free access is still claimed here", async () => {
+  mount({ enabled: false, offers: [offer(monthly, 0, "school_partner"), offer(dayPass, 0, "school_partner")] });
+  expect(screen.getByText(/^Claim your approved free access here\. Paid plans and passes are sold at the front desk\.$/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Claim free month" }));
+  const dialog = screen.getByRole("dialog", { name: "Claim free month" });
+  api.mockResolvedValue({ issued: true });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Claim free month" }));
+  await waitFor(() => expect(api).toHaveBeenCalledWith("/me/billing/free-membership", { method: "POST", body: { planId: 1, expectedRevision: 2, pricingRevision: 4 } }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  const date = future(10);
+  fireEvent.change(screen.getByLabelText("Visit date"), { target: { value: date } });
+  fireEvent.click(screen.getByRole("button", { name: "Claim free day pass" }));
+  await waitFor(() => expect(api).toHaveBeenCalledWith("/me/billing/passes/checkout", {
+    method: "POST",
+    body: { planId: 3, expectedRevision: 2, pricingRevision: 4, amountCents: 0, validDate: date },
+  }));
+});
+
+test("without online billing, free access ending within the month still claims passes for the dates it covers", async () => {
+  const today = zonedDay("America/New_York");
+  const covered = addCalendarDays(today, 7);
+  const free = [offer(monthly, 5000), offer(dayPass, 0, "school_partner")];
+  // Partner access ends in two weeks: a month ahead is paid, but today and next week are free.
+  mount({ enabled: false, offers: [offer(monthly, 5000), offer(dayPass, 1500)], offersByDate: { [today]: free, [covered]: free } });
+  expect(useApi).toHaveBeenCalledWith(`/me/billing/offers?date=${today}`, expect.anything());
+  expect(screen.getByText(/^Claim your approved free access here/)).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("Visit date"), { target: { value: addCalendarDays(today, 40) } });
+  expect(screen.queryByRole("button", { name: /^(Buy|Claim free) day pass/ })).toBeNull();
+  expect(screen.getByText("Buy a day pass for this date at the front desk.")).toBeTruthy();
+  // The picker stays, so the member can go back to a date their free access covers.
+  fireEvent.change(screen.getByLabelText("Visit date"), { target: { value: covered } });
+  api.mockResolvedValue({ issued: true });
+  fireEvent.click(screen.getByRole("button", { name: "Claim free day pass" }));
+  await waitFor(() => expect(api).toHaveBeenCalledWith("/me/billing/passes/checkout", {
+    method: "POST",
+    body: { planId: 3, expectedRevision: 2, pricingRevision: 4, amountCents: 0, validDate: covered },
+  }));
+});
+
+test.each([true, false])("a member whose access is on hold isn't quoted and is sent to the front desk (card payments: %s)", enabled => {
+  mount({ enabled, accessStatus: "suspended", offers: [offer(monthly, 0, "school_partner"), offer(dayPass, 0, "school_partner")] });
+  expect(useApi).not.toHaveBeenCalledWith(expect.stringMatching(/^\/me\/billing\/offers/), expect.anything());
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.queryByRole("button", { name: /Start membership|Claim free/ })).toBeNull();
+  expect(screen.queryByLabelText("Visit date")).toBeNull();
+  expect(screen.getByText(/Ask at the front desk to sign up/)).toBeTruthy();
+  expect(screen.getByText("Buy a day pass at the front desk.")).toBeTruthy();
+  expect(screen.getByText("Sign up or buy a pass at the front desk.")).toBeTruthy();
   expect(screen.queryByText(/test mode/)).toBeNull();
 });
 
@@ -180,6 +239,114 @@ test("a day-pass return does not wait on an earlier, abandoned membership checko
   // A pass that is still being paid for is what a pass return waits on.
   mount({ passes: [{ id: "p", plan: dayPass, validDate: future(10), cancelBy: new Date(Date.now() + 7 * 86400000).toISOString(), status: "pending", refundStatus: null }] }, "/membership?pass=returned");
   expect(screen.getByText("Confirming your payment…")).toBeTruthy();
+});
+
+test("a pass return waits only on the checkout it came back from", () => {
+  const pass = (id: string, status: string, days: number) => ({ id, plan: dayPass, validDate: future(days), cancelBy: new Date(Date.now() + (days - 3) * 86400000).toISOString(), status, refundStatus: null, amountCents: 1500 });
+  // An abandoned checkout for another date stays pending until the provider expires it.
+  mount({ passes: [pass("old", "pending", 5), pass("new", "paid", 6)] }, "/membership?pass=returned&checkout=new");
+  expect(screen.queryByText("Confirming your payment…")).toBeNull();
+  expect(screen.getByText("Your current access and billing status are shown below.")).toBeTruthy();
+  cleanup();
+  mount({ passes: [pass("old", "pending", 5), pass("new", "pending", 6)] }, "/membership?pass=returned&checkout=new");
+  expect(screen.getByText("Confirming your payment…")).toBeTruthy();
+  cleanup();
+  // Older return links name no checkout; a pending pass for a past date is not this one.
+  mount({ passes: [pass("old", "pending", -3), pass("new", "paid", 6)] }, "/membership?pass=returned");
+  expect(screen.queryByText("Confirming your payment…")).toBeNull();
+});
+
+test("the confirming banner ends after a minute even if a status list keeps failing", () => {
+  vi.useFakeTimers();
+  try {
+    mount({ passesError: "Server unavailable" }, "/membership?pass=returned");
+    expect(screen.getByText("Confirming your payment…")).toBeTruthy();
+    act(() => vi.advanceTimersByTime(60_000));
+    expect(screen.queryByText("Confirming your payment…")).toBeNull();
+    expect(screen.getByText("We couldn't check your payment status. Refresh this page in a moment.")).toBeTruthy();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a payment that is still pending after a minute says it is still processing", () => {
+  vi.useFakeTimers();
+  try {
+    mount({ records: [{ id: "r", plan: monthly, status: "pending", amountCents: 5000, cancelAtPeriodEnd: false, currentPeriodEnd: null }] }, "/membership?billing=returned");
+    act(() => vi.advanceTimersByTime(60_000));
+    expect(screen.queryByText("Confirming your payment…")).toBeNull();
+    expect(screen.getByText("Your payment is still processing. This page will update when it clears.")).toBeTruthy();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+const lapsed = [{ id: 9, planId: 1, effectiveStatus: "expired", endsAt: "2020-02-01T00:00:00Z", plan: monthly }];
+const billingRecord = (status: string, extra: object = {}) => ({ id: "b", plan: monthly, status, amountCents: 5000, cancelAtPeriodEnd: false, currentPeriodEnd: "2030-02-01T00:00:00Z", ...extra });
+
+test.each(["past_due", "unpaid", "paused"])("a %s renewal asks the member to update their card instead of waiting", (status) => {
+  mount({ memberships: lapsed, records: [billingRecord(status)] });
+  expect(screen.getByRole("heading", { name: "Your last payment didn't go through" })).toBeTruthy();
+  expect(screen.getByText("Payment failed")).toBeTruthy();
+  expect(screen.queryByText(/being set up|waiting for your payment/)).toBeNull();
+  expect(screen.queryByText(/Next charge/)).toBeNull();
+  expect(screen.getByText(/a month · payment failed/)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Manage payment method" }).className).toContain("button--primary");
+});
+
+test("a first payment that never cleared asks for a card to start the membership, not keep it", () => {
+  mount({ records: [billingRecord("incomplete")] });
+  expect(screen.getByRole("heading", { name: "Your first payment hasn't gone through" })).toBeTruthy();
+  expect(screen.getByText("Update your payment method to start your membership.")).toBeTruthy();
+  // Same words as the billing history uses for this status.
+  expect(screen.getByText(statusLabel("incomplete"), { selector: ".membership-status .plan-pill" })).toBeTruthy();
+  expect(screen.getByText(/a month · first payment not finished/)).toBeTruthy();
+  expect(screen.queryByText(/Next charge|payment failed|didn't go through/)).toBeNull();
+});
+
+test("stopping auto-renew after a failed payment doesn't promise access the member no longer has", () => {
+  mount({ memberships: lapsed, records: [billingRecord("past_due")] });
+  fireEvent.click(screen.getByRole("button", { name: "Stop auto-renew" }));
+  const dialog = screen.getByRole("dialog", { name: "Stop auto-renew?" });
+  expect(dialog.textContent).not.toMatch(/keep studio access/);
+  expect(dialog.textContent).toContain("you won't have studio access unless you update your payment method");
+});
+
+test("an unconfirmed stop request after a failed payment still says what Try again retries", () => {
+  mount({ memberships: lapsed, records: [billingRecord("past_due", { cancellationEffectiveAt: "2030-03-01T00:00:00Z" })] });
+  expect(screen.getByText(/a month · payment failed/)).toBeTruthy();
+  expect(screen.getByText(/You asked to stop auto-renew from .* We're confirming this with the payment provider\./)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+});
+
+test("a pass staff put on hold has no Cancel button, and a revoked one is no longer listed", () => {
+  const pass = (id: string, status: string, days: number) => ({ id, plan: dayPass, validDate: future(days), cancelBy: new Date(Date.now() + (days - 3) * 86400000).toISOString(), status, refundStatus: null, amountCents: 1500 });
+  mount({ passes: [pass("held", "suspended", 10), pass("gone", "revoked", 12)] });
+  const list = screen.getByRole("heading", { name: "Upcoming day passes" }).closest(".membership-passes") as HTMLElement;
+  expect(list.textContent).toContain("1 booked");
+  expect(list.textContent).toContain("On hold. Please contact staff about this pass.");
+  expect(list.textContent).not.toContain(shortDate(future(12)));
+  expect(within(list).queryByRole("button")).toBeNull();
+});
+
+test("a member whose only access is a future day pass is told when it is", () => {
+  const scheduled = (id: number, days: number) => ({ id, userId: 1, planId: 3, status: "active", effectiveStatus: "scheduled", revision: 1, reason: "", validDate: future(days), plan: { name: "Day pass" } });
+  mount({ historyPasses: [scheduled(2, 20), scheduled(1, 10)] });
+  expect(screen.getByRole("heading", { name: `Your next day pass is ${shortDate(future(10))}` })).toBeTruthy();
+  expect(screen.queryByText("You don't have a membership or pass yet")).toBeNull();
+});
+
+test("cancelling a free day pass doesn't promise a card refund", () => {
+  const pass = (amountCents: number) => ({ id: "p", plan: dayPass, validDate: future(20), cancelBy: new Date(Date.now() + 17 * 86400000).toISOString(), status: "paid", refundStatus: null, amountCents });
+  mount({ passes: [pass(0)] });
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  const dialog = screen.getByRole("dialog", { name: "Cancel day pass?" });
+  expect(dialog.textContent).toContain("This pass was free, so there's nothing to refund.");
+  expect(dialog.textContent).not.toMatch(/refund the full amount/);
+  cleanup();
+  mount({ passes: [pass(1500)] });
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.getByRole("dialog", { name: "Cancel day pass?" }).textContent).toContain("We'll refund the full amount to your card.");
 });
 
 test("a day pass for a visit under 3 days away says it can't be cancelled for a refund", () => {

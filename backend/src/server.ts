@@ -12,6 +12,8 @@ import { EquipmentBilling } from './billing/equipment.js';
 import { startEquipmentReconciliation } from './equipmentReconciliation.js';
 import { startReaderLeaseCompaction } from './readerLeaseCompaction.js';
 import { StudioStripe } from './studios/stripe.js';
+import { StudioService } from './studios/service.js';
+import { startStudioHoldReconciliation } from './studios/holdReconciliation.js';
 
 const config = readConfig();
 const pool = createPool();
@@ -20,6 +22,8 @@ const notifications = startNotificationRuntime(pool, config.notifications);
 const policies = startPolicyRuntime(pool);
 const equipmentPayments = startEquipmentReconciliation(new EquipmentBilling(pool,
   config.studioStripe ? new StudioStripe(config.studioStripe) : undefined, config.timeZone));
+const studioHolds = startStudioHoldReconciliation(new StudioService(pool, config.timeZone,
+  config.studioStripe ? new StudioStripe(config.studioStripe) : undefined));
 const readerLeases = startReaderLeaseCompaction(pool);
 const frontend = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -37,6 +41,6 @@ const server = createApp(pool, config, frontend).listen(
 );
 for (const signal of ['SIGINT', 'SIGTERM'])
   process.on(signal, () => {
-    server.close(() => void Promise.all([notifications.stop(), policies.stop(), equipmentPayments.stop(), readerLeases.stop()]).then(() => pool.end()).finally(() => process.exit(0)));
+    server.close(() => void Promise.all([notifications.stop(), policies.stop(), equipmentPayments.stop(), studioHolds.stop(), readerLeases.stop()]).then(() => pool.end()).finally(() => process.exit(0)));
     setTimeout(() => process.exit(1), 10000).unref();
   });

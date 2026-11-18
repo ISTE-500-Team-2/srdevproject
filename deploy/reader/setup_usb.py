@@ -25,14 +25,18 @@ class SetupError(Exception):
         super().__init__(code)  # Fixed codes only; never SSID/password/serial lines.
 
 
-def private_json(path, value):
+def private_bytes(path, data):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     temp = path.with_suffix('.tmp')
-    with temp.open('w') as handle:
+    with temp.open('wb') as handle:
         os.chmod(temp, 0o600)
-        json.dump(value, handle)
+        handle.write(data)
     temp.replace(path)
+
+
+def private_json(path, value):
+    private_bytes(path, json.dumps(value).encode())
 
 
 def usb_devices():

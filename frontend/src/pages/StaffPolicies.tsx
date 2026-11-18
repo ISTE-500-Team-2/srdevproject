@@ -2,10 +2,11 @@
 // separate confirmed action.
 
 import { Archive, Check, Clock, Eye, FileText, History, Pencil, Plus, RefreshCw, TriangleAlert, Upload } from "lucide-react";
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
+import { onArrowKeys } from "../lib/rovingFocus";
 import type { ComplianceReport, Policy } from "../lib/staffContracts";
 import { LoadState } from "../components/Management";
 import { Modal } from "../components/Modal";
@@ -53,6 +54,9 @@ export function suggestVersion(previous: string | undefined, startsOn: string) {
   const numbered = previous.match(/^(.*?)(\d+)$/);
   return numbered ? numbered[1] + String(Number(numbered[2]) + 1) : startsOn;
 }
+
+/** Whether a drag carries files from outside the page, rather than text moved between fields. */
+const carriesFiles = (transfer: DataTransfer | null) => Boolean(transfer && Array.from(transfer.types).includes("Files"));
 
 /** Tomorrow at 9:00 in the browser's time, as a datetime-local value. */
 function tomorrowMorning() {
@@ -110,6 +114,25 @@ function PublishPanel({
       if (run === importRun.current) setImporting(false);
     }
   };
+  // A version starting before the one in force would be retired the moment it's published.
+  const inForceSince = waiver?.current?.effectiveAt ? Date.parse(waiver.current.effectiveAt) : null;
+  const earliestStart = inForceSince === null ? undefined : localInput(new Date(Math.ceil(inForceSince / 60000) * 60000));
+  // A document dropped anywhere on the form fills the text box, on either tab. Dropped anywhere else,
+  // the browser would open the file in place of the app and lose the draft, so the rest of the
+  // screen refuses the drop and shows the no-drop cursor. Drags the form already took are left alone.
+  useEffect(() => {
+    const ignore = (event: DragEvent) => {
+      if (event.defaultPrevented || !carriesFiles(event.dataTransfer)) return;
+      event.preventDefault();
+      event.dataTransfer!.dropEffect = "none";
+    };
+    window.addEventListener("dragover", ignore);
+    window.addEventListener("drop", ignore);
+    return () => {
+      window.removeEventListener("dragover", ignore);
+      window.removeEventListener("drop", ignore);
+    };
+  }, []);
   const starts = effectiveAt ? new Date(effectiveAt) : null;
   const startsLabel = starts && Number.isFinite(starts.getTime()) ? dateTime(starts) : "the start date";
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -120,6 +143,13 @@ function PublishPanel({
       return;
     }
     const form = new FormData(event.currentTarget);
+    // The browser's length check counts spaces; the server doesn't, so check what will be kept.
+    const tooShort = (["approvalReference", "reason"] as const).find((field) => String(form.get(field) ?? "").trim().length < 3);
+    if (tooShort) {
+      setError(`${tooShort === "reason" ? "Reason for the change log" : "Approval reference"} needs at least 3 characters besides spaces.`);
+      (event.currentTarget.elements.namedItem(tooShort) as HTMLInputElement | null)?.focus();
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -144,7 +174,26 @@ function PublishPanel({
   };
   return (
     <Modal open width="panel" title={waiver ? `Update ${waiver.name}` : "New waiver"} dirty={dirty} dismissible={!busy && !importing} onClose={onClose}>
-      {(requestClose) => <form className="cw-form" onChangeCapture={() => setDirty(true)} onSubmit={(e) => void submit(e)}>
+      {(requestClose) => <form
+        className="cw-form"
+        onChangeCapture={() => setDirty(true)}
+        onSubmit={(e) => void submit(e)}
+        onDragOver={(e) => {
+          if (!carriesFiles(e.dataTransfer)) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "copy";
+          setDragging(true);
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+        }}
+        onDrop={(e) => {
+          if (!carriesFiles(e.dataTransfer)) return;
+          e.preventDefault();
+          setDragging(false);
+          void importFile(e.dataTransfer.files[0]);
+        }}
+      >
         <div className="cw-two">
           <label className="cw-field">
             <span>Waiver</span>
@@ -186,11 +235,13 @@ function PublishPanel({
                 e.target.value = "";
               }}
             />
-            <span className="cw-toggle" role="tablist" aria-label="Text view">
-              <button type="button" role="tab" aria-selected={tab === "edit"} onClick={() => setTab("edit")}>
+            <span className="cw-toggle" role="tablist" aria-label="Text view" onKeyDown={onArrowKeys}>
+              <button type="button" role="tab" aria-selected={tab === "edit"} aria-controls="waiver-text-view"
+                tabIndex={tab === "edit" ? 0 : -1} onClick={() => setTab("edit")}>
                 Edit
               </button>
-              <button type="button" role="tab" aria-selected={tab === "preview"} onClick={() => setTab("preview")}>
+              <button type="button" role="tab" aria-selected={tab === "preview"} aria-controls="waiver-text-view"
+                tabIndex={tab === "preview" ? 0 : -1} onClick={() => setTab("preview")}>
                 Preview
               </button>
             </span>
@@ -198,17 +249,8 @@ function PublishPanel({
           </span>
           {tab === "edit" ? (
             <textarea
+              id="waiver-text-view"
               className={dragging ? "is-dragging" : ""}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDragging(true);
-              }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setDragging(false);
-                void importFile(e.dataTransfer.files[0]);
-              }}
               aria-describedby="waiver-text-hint"
               aria-labelledby="waiver-text-label"
               value={text}
@@ -220,7 +262,7 @@ function PublishPanel({
               placeholder="Paste the approved wording, or drop a PDF, Word or text document here"
             />
           ) : (
-            <div className="cw-preview" aria-labelledby="waiver-text-label">
+            <div id="waiver-text-view" className={dragging ? "cw-preview is-dragging" : "cw-preview"} aria-labelledby="waiver-text-label">
               <h4>{name || "Untitled waiver"}</h4>
               <p className="policy-text">{text || "Nothing to preview yet."}</p>
             </div>
@@ -241,14 +283,14 @@ function PublishPanel({
           <div className="cw-hinted">
             <label className="cw-field">
               <span>Takes effect</span>
-              <input type="datetime-local" value={effectiveAt} onChange={(e) => setEffectiveAt(e.target.value)} required />
+              <input type="datetime-local" value={effectiveAt} min={earliestStart} onChange={(e) => setEffectiveAt(e.target.value)} required />
             </label>
             <small>Members keep the current version until then.</small>
           </div>
           <div className="cw-hinted">
             <label className="cw-field">
               <span>Approval reference</span>
-              <input name="approvalReference" maxLength={500} placeholder="e.g. Board vote Oct 21" />
+              <input name="approvalReference" required minLength={3} maxLength={500} placeholder="e.g. Board vote Oct 21" />
             </label>
             <small>Where this wording was approved.</small>
           </div>
@@ -269,7 +311,7 @@ function PublishPanel({
         </p>
         <label className="cw-field">
           <span>Reason for the change log</span>
-          <input name="reason" required maxLength={255} placeholder="e.g. Updated guest policy" />
+          <input name="reason" required minLength={3} maxLength={255} placeholder="e.g. Updated guest policy" />
         </label>
         {error ? (
           <p className="form-error" role="alert">
@@ -420,11 +462,14 @@ export function StaffPolicies() {
             </div>
             {stats ? (
               <div className="cw-waiver__signed">
-                <div className={`cw-bar${stats.total && stats.compliant / stats.total < 0.5 ? " cw-bar--low" : ""}`} aria-hidden="true">
+                <div className={`cw-bar${!stats.total ? " cw-bar--empty" : stats.compliant / stats.total < 0.5 ? " cw-bar--low" : ""}`} aria-hidden="true">
                   <i style={{ width: `${stats.total ? Math.round((stats.compliant / stats.total) * 100) : 100}%` }} />
                 </div>
                 <small>
-                  {stats.compliant} of {stats.total} active members signed
+                  {/* An equipment waiver is only counted for members trained on or booked on equipment that needs it. */}
+                  {stats.total
+                    ? `${stats.compliant} of ${stats.total} ${shown.scope === "equipment" ? "active equipment users" : "active members"} signed`
+                    : shown.scope === "equipment" ? "No active equipment users yet" : "No active members yet"}
                 </small>
               </div>
             ) : (

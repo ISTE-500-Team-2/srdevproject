@@ -11,7 +11,7 @@ const selection = `r.reservationid AS id,r.userid AS "userId",r.equipmentid AS "
  COALESCE(e.name,room.name) AS "equipmentName",CASE WHEN r.roomid IS NULL THEN 'equipment' ELSE 'room' END AS "resourceType",
  r.starttime AT TIME ZONE 'UTC' AS "startTime",r.endtime AT TIME ZONE 'UTC' AS "endTime",r.location,r.status,
  (SELECT c.amount_cents FROM app_equipment_checkout c WHERE c.reservation_id=r.reservationid) AS "amountCents",
- COALESCE((SELECT c.status FROM app_equipment_checkout c WHERE c.reservation_id=r.reservationid),
+ COALESCE((SELECT CASE WHEN c.refund_status='succeeded' THEN 'refunded' ELSE c.status END FROM app_equipment_checkout c WHERE c.reservation_id=r.reservationid),
    (SELECT paymentstatus FROM payment WHERE paymentid=r.payment_id)) AS "paymentStatus",
  (SELECT c.payer_id FROM app_equipment_checkout c WHERE c.reservation_id=r.reservationid) AS "payerId",
  (SELECT c.hold_until FROM app_equipment_checkout c WHERE c.reservation_id=r.reservationid) AS "holdUntil",
@@ -271,7 +271,7 @@ export class ReservationModel {
     const before = await this.find(id, true);
     if (!before || (before.status !== 'confirmed' && before.status !== 'pending')) return null;
     if (before.paymentStatus === 'pending' && before.payerId != null)
-      throw new AppError(409, 'PAYMENT_WORKFLOW_REQUIRED', 'Cancel the pending Stripe checkout before cancelling this reservation.');
+      throw new AppError(409, 'PAYMENT_WORKFLOW_REQUIRED', 'This booking is waiting for the member’s online payment, so it can’t be cancelled yet. If they pay, you can cancel it then; if their checkout expires unpaid, the booking is released on its own.');
     await this.db.query(
       `UPDATE reservation SET status='cancelled',statusdesc='Cancelled by staff' WHERE reservationid=$1`,
       [id],

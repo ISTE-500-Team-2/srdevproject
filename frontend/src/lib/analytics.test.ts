@@ -97,6 +97,20 @@ test('earlier totals cover exactly the in-range days of a bar, shifted back', ()
   expect(earlierTotal('2027-03-01', 'monthly', { from: '2027-03-01', to: '2027-03-31' }, { from: '2027-02-01', to: '2027-02-28' }, new Map([['2027-02-28', 5], ['2027-03-01', 7]]))).toBe(5);
 });
 
+test('a bar whose days have no earlier counterpart has no comparison, not an earlier total of zero', () => {
+  const march = { from: '2027-03-01', to: '2027-03-31' };
+  const february = { from: '2027-02-01', to: '2027-02-28' };
+  const daily = new Map([['2027-02-22', 100], ['2027-02-28', 5]]);
+  // Feb 28 is the last day February has; nothing earned that day is still a real $0.
+  expect(earlierTotal('2027-03-28', 'daily', march, february, daily)).toBe(5);
+  expect(earlierTotal('2027-03-28', 'daily', march, february, new Map())).toBe(0);
+  // Mar 29-31 have no day in February to compare with.
+  for (const day of ['2027-03-29', '2027-03-30', '2027-03-31']) expect(earlierTotal(day, 'daily', march, february, daily)).toBeUndefined();
+  // The week of Mar 29 holds only those days; the week before still compares its February days.
+  expect(earlierTotal('2027-03-29', 'weekly', march, february, daily)).toBeUndefined();
+  expect(earlierTotal('2027-03-22', 'weekly', march, february, daily)).toBe(105);
+});
+
 test('weekday counts: 30 days ending on a Tuesday holds five Mondays and Tuesdays', () => {
   expect(weekdayCounts('2026-10-12', '2026-11-10')).toEqual([5, 5, 4, 4, 4, 4, 4]);
 });

@@ -47,6 +47,8 @@ export type CardScan = {
   userId: number | null;
   purpose: "assign" | "lookup";
   expiresAt: string;
+  /** Milliseconds left when the server answered. Count down from this: a browser with a wrong clock misreads expiresAt. */
+  expiresInMs?: number;
   status: "waiting" | "captured" | "completed" | "expired" | "cancelled";
   last4?: string;
   assignments?: CardAssignment[];

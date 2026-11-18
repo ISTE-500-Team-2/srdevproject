@@ -18,6 +18,7 @@ import { Delta, Kpi } from "../components/Kpi";
 import { LoadState } from "../components/Management";
 import { KeptResults } from "../components/KeptResults";
 import { useApi } from "../lib/useApi";
+import { onArrowKeys } from "../lib/rovingFocus";
 import { dollars, statusLabel, timeOnly, zonedDay } from "../lib/display";
 import { useFacilityZone } from "../lib/facilityZone";
 import {
@@ -246,7 +247,7 @@ function coverage(start: string, period: RevenuePeriod, from: string, to: string
 }
 
 /** How a bar compares with the same days earlier, for its label and details line. */
-type Earlier = { phrase: string; value: (start: string) => number };
+type Earlier = { phrase: string; value: (start: string) => number | undefined };
 
 /** Net only: what the space actually kept. Refunds are in the totals and each bar's details. */
 function revenueBars(points: RevenuePoint[], period: RevenuePeriod, from: string, to: string, earlier?: Earlier): Bar[] {
@@ -479,7 +480,13 @@ function AnalyticsDashboard({ zone }: { zone: string }) {
   const inUnit = unit.startsWith("the ") ? `in ${unit}` : unit;
   const earlier = (daily: Map<string, number>, scale = 1): Earlier | undefined =>
     before && data
-      ? { phrase: earlierPhrase, value: (start) => earlierTotal(start, period, data, before, daily) / scale }
+      ? {
+          phrase: earlierPhrase,
+          value: (start) => {
+            const total = earlierTotal(start, period, data, before, daily);
+            return total === undefined ? undefined : total / scale;
+          },
+        }
       : undefined;
   const members = data?.memberships ?? [];
   const joined = members.reduce((n, row) => n + row.newMembers, 0);
@@ -525,9 +532,10 @@ function AnalyticsDashboard({ zone }: { zone: string }) {
             <ChevronDown className="analytics-range__chevron" aria-hidden="true" />
           </label>
           {/* Groups both charts, so it sits with the date range. */}
-          <div className="analytics-period" role="radiogroup" aria-label="Group charts by">
+          <div className="analytics-period" role="radiogroup" aria-label="Group charts by" onKeyDown={onArrowKeys}>
             {(["daily", "weekly", "monthly"] as RevenuePeriod[]).map((p) => (
-              <button key={p} type="button" role="radio" aria-checked={draft.period === p} onClick={() => apply({ ...draft, period: p })}>
+              <button key={p} type="button" role="radio" aria-checked={draft.period === p} tabIndex={draft.period === p ? 0 : -1}
+                onClick={() => apply({ ...draft, period: p })}>
                 {statusLabel(p)}
               </button>
             ))}
@@ -773,9 +781,9 @@ function AnalyticsDashboard({ zone }: { zone: string }) {
           {data.classes.length ? <ClassList items={data.classes} stats={classes} zone={zone} /> : null}
 
           <footer className="analytics-foot">
-            {/* "Updated" is in the viewer's own clock; the zone named is the report's. */}
+            {/* "Updated" is on the report's clock, matching the zone named beside it. */}
             <span>
-              Updated {timeOnly(data.generatedAt)} · {zoneName(data.timeZone)} · refreshes every 30 seconds
+              Updated {timeOnly(data.generatedAt, data.timeZone)} · {zoneName(data.timeZone)} · refreshes every 30 seconds
             </span>
             <details>
               <summary>

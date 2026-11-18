@@ -71,6 +71,8 @@ export interface LiveEquipment extends Omit<Equipment, 'rate'> {
   canReserve: boolean;
   /** One code per reason in `availability`, in the same order. Older servers omit it. */
   reasonCodes?: string[];
+  /** False when card checkout is off and priced bookings are paid at the front desk. Older servers omit it. */
+  cardCheckout?: boolean;
 }
 export interface Reservation {
   amountCents?: number | null;
@@ -119,6 +121,8 @@ export interface Waiver {
   expiredSignature: boolean;
   /** When the current signature runs out, or when the last one of this version did; null if it never expires. */
   expiresAt?: string | null;
+  /** Signed, but close enough to running out that signing again now renews it (decided by the server). */
+  renewable?: boolean;
 }
 export type WaiverLineKind = 'acceptance-method' | 'heading' | 'text';
 /** What a blank means, independent of its label's wording. */
@@ -142,6 +146,8 @@ export interface WaiverFormField {
 export interface Certification {
   trainedAt?: string|null;
   approvedAt?: string|null;
+  /** When it was last revoked; training on or before this can't be approved. */
+  revokedAt?: string|null;
   instructorName?: string|null;
   equipmentIds?: number[];
   validityDays?: number|null;
@@ -193,6 +199,10 @@ export interface SponsorRequest {
 export interface SupervisedMinors {
   minors: { id: number; name: string; visit: { buildingName: string; checkedInAt: string } | null }[];
   requests: MinorLinkRequest[];
+  /** Whether this account may send a new link request: an active adult with a date of birth on file. */
+  canSponsor: boolean;
+  /** Older accounts have no date of birth recorded; staff add it from the member record. */
+  dobOnFile: boolean;
 }
 export interface MinorLinkRequest {
   id: number;
