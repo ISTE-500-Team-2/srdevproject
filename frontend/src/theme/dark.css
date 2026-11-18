@@ -278,6 +278,7 @@
 }
 
 :root[data-theme='dark'] .plans-check input,
+:root[data-theme='dark'] .membership-consent input,
 :root[data-theme='dark'] .studio-terms__policy input,
 :root[data-theme='dark'] .studio-terms__confirm input {
   accent-color: var(--orange);

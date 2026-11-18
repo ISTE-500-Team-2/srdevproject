@@ -24,8 +24,12 @@ export function CheckoutReturn({ children }: { children?: ReactNode }) {
       search.set('member', String(member));
       return <Navigate replace to={`/admin/members?${search}`} />;
     }
-    if (location.pathname === '/checkout-return')
+    if (location.pathname === '/checkout-return') {
+      // Lets the membership page wait on this checkout rather than any other pending one.
+      const checkout = params.get('checkout');
+      if (checkout) search.set('checkout', checkout);
       return <Navigate replace to={`/membership?${search}`} />;
+    }
   }
   return children ?? <Navigate replace to="/membership" />;
 }

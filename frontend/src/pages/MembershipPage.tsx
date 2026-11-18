@@ -1,7 +1,7 @@
 // Coordinates plan offers, effective access and payment history; provider-return polling waits for
 // server reconciliation.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import StatusMark from "../components/reactbits/StatusMark";
 import { useApi } from "../lib/useApi";
@@ -51,13 +51,21 @@ export function MembershipPage() {
   const plans = useApi<Plan[]>("/plans");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<Message | null>(null);
-  const started = useRef(Date.now());
+  const [confirmExpired, setConfirmExpired] = useState(false);
 
   const refreshAll = useCallback(() => {
     history.reload();
     billing.reload();
     passes.reload();
   }, [history.reload, billing.reload, passes.reload]);
+
+  // The confirming window must end on time even when nothing else changes,
+  // such as a status list that keeps failing to load.
+  useEffect(() => {
+    if (!confirming) return;
+    const timer = window.setTimeout(() => setConfirmExpired(true), CONFIRM_WINDOW_MS);
+    return () => window.clearTimeout(timer);
+  }, [confirming]);
 
   // Coming back from checkout: keep checking until the payment clears, then
   // drop the query string so a page refresh doesn't repeat the message.
@@ -68,27 +76,31 @@ export function MembershipPage() {
       setParams({}, { replace: true });
       return;
     }
-    if (!history.data || !billing.data || !passes.data) return;
+    const h = history.data, b = billing.data, p = passes.data;
+    // A pass return names its checkout; older links fall back to pending passes still ahead.
+    const checkout = params.get("checkout"), today = h ? zonedDay(h.timeZone) : "";
     // Wait only on what this return is about: an abandoned membership checkout
     // must not hold up a day-pass return (or a pending pass a membership one).
-    const waiting = params.has("billing")
-      ? openBilling(billing.data.records).some((r) => r.status === "pending") ||
-        !history.data.memberships.some((m) => ["active", "scheduled"].includes(m.effectiveStatus))
-      : passes.data.some((p) => p.status === "pending");
+    const waiting = !h || !b || !p || (params.has("billing")
+      ? openBilling(b.records).some((r) => r.status === "pending") ||
+        !h.memberships.some((m) => ["active", "scheduled"].includes(m.effectiveStatus))
+      : p.some((x) => x.status === "pending" && (checkout ? x.id === checkout : x.validDate >= today)));
     if (!waiting) {
       setConfirming(false);
       // A return URL is not payment evidence. Show the server-backed records
       // below without claiming that this particular checkout was paid.
       setMessage({ text: "Your current access and billing status are shown below." });
       setParams({}, { replace: true });
-    } else if (Date.now() - started.current > CONFIRM_WINDOW_MS) {
+    } else if (confirmExpired) {
       setConfirming(false);
       setMessage({
-        text: "Your payment is still processing. This page will update when it clears.",
+        text: h && b && p
+          ? "Your payment is still processing. This page will update when it clears."
+          : "We couldn't check your payment status. Refresh this page in a moment.",
       });
       setParams({}, { replace: true });
     }
-  }, [returned, params, setParams, history.data, billing.data, passes.data]);
+  }, [returned, params, setParams, history.data, billing.data, passes.data, confirmExpired]);
 
   /** Posts an action. Redirects to checkout when the server returns a link. Throws on failure. */
   const post = useCallback(
