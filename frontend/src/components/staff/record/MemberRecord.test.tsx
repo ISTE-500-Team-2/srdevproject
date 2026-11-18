@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { MemoryRouter } from "react-router-dom";
 import type { MemberDetail, MemberRequirements } from "../../../lib/staffContracts";
 import { MemberRecord } from "./MemberRecord";
@@ -98,10 +99,10 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
 });
-const mount = () =>
+const mount = (props: Partial<ComponentProps<typeof MemberRecord>> = {}) =>
   render(
     <MemoryRouter>
-      <MemberRecord id={14} name="Casey Demo" plans={[]} timeZone="America/New_York" onChanged={reload} onClose={() => {}} />
+      <MemberRecord id={14} name="Casey Demo" plans={[]} timeZone="America/New_York" onChanged={reload} onClose={() => {}} {...props} />
     </MemoryRouter>,
   );
 const record = () => screen.getByRole("dialog", { name: "Casey Demo" });
@@ -389,4 +390,45 @@ test("without a photo, the record says members add their own", () => {
   expect(within(record()).getByText("None")).toBeTruthy();
   expect(within(record()).getByText("Members add their own photo.")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Remove profile photo" })).toBeNull();
+});
+
+test("a half-typed change survives a stray click or Escape until staff choose to discard it", () => {
+  const onClose = vi.fn();
+  mount({ onClose });
+  // Nothing typed yet: Escape just closes the dialog.
+  fireEvent.click(screen.getByRole("button", { name: "Change conduct flag" }));
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(screen.queryByRole("dialog", { name: "Conduct flag" })).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "Change conduct flag" }));
+  const dialog = screen.getByRole("dialog", { name: "Conduct flag" });
+  fireEvent.change(within(dialog).getByLabelText("Reason"), { target: { value: "Ignored shop rules twice" } });
+  fireEvent.keyDown(window, { key: "Escape" });
+  fireEvent.click(within(screen.getByRole("dialog", { name: "Discard unsaved changes?" })).getByRole("button", { name: "Keep editing" }));
+  expect((within(screen.getByRole("dialog", { name: "Conduct flag" })).getByLabelText("Reason") as HTMLInputElement).value).toBe("Ignored shop rules twice");
+  // A click on the dimmed page behind it asks the same way.
+  fireEvent.mouseDown(dialog.parentElement!);
+  fireEvent.click(within(screen.getByRole("dialog", { name: "Discard unsaved changes?" })).getByRole("button", { name: "Discard changes" }));
+  expect(screen.queryByRole("dialog", { name: "Conduct flag" })).toBeNull();
+  expect(record()).toBeTruthy();
+  expect(onClose).not.toHaveBeenCalled();
+});
+
+test("View as follows the record as it is now, not as it was when it opened", () => {
+  const onOpen = vi.fn();
+  const viewAs = { onOpen, busy: false, error: "" };
+  state.detail = { ...state.detail, user: { ...user({ firstName: "Cassie" }), photoVersion: "v2" } };
+  const { rerender } = mount({ viewAs });
+  fireEvent.click(screen.getByRole("button", { name: "View as Cassie" }));
+  expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: 14, firstName: "Cassie", lastName: "Demo", photoVersion: "v2" }));
+  // Put on hold, or made staff, since the record opened: the account can't be opened any more.
+  for (const over of [{ status: "suspended" }, { accessStatus: "suspended" as const }, { roles: ["member", "staff"] }]) {
+    state.detail = { ...state.detail, user: user(over) };
+    rerender(
+      <MemoryRouter>
+        <MemberRecord id={14} name="Casey Demo" plans={[]} timeZone="America/New_York" onChanged={reload} onClose={() => {}} viewAs={viewAs} />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByRole("button", { name: /^View as/ })).toBeNull();
+  }
 });

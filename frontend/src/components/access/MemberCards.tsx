@@ -274,6 +274,7 @@ export function AssignCard({
   onCancelReplacement,
   onSaved,
   onRefresh,
+  onCaptured,
 }: {
   userId: number;
   memberName: string;
@@ -282,8 +283,14 @@ export function AssignCard({
   onCancelReplacement: () => void;
   onSaved: () => void;
   onRefresh: () => void;
+  /** Whether a tapped card is waiting to be confirmed, so a host can guard against losing it. */
+  onCaptured?: (captured: boolean) => void;
 }) {
   const scan = useCardScan("assign", userId);
+  const captured = scan.scan?.status === "captured";
+  useEffect(() => {
+    onCaptured?.(captured);
+  }, [captured, onCaptured]);
   const uidId = useId();
   const [manual, setManual] = useState(false),
     [busy, setBusy] = useState(false),

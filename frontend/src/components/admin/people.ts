@@ -12,3 +12,7 @@ export const roleLabel = (person: { roles: string[] }) =>
 /** Accounts staff may not open: they would carry staff, instructor or admin permissions. */
 export const isProtectedAccount = (person: { roles: string[] }) =>
   person.roles.some((role) => role === "admin" || role === "staff" || role === "instructor");
+
+/** Whether staff may open this account from the workspace: a member account that is active and unrestricted. */
+export const canOpenAccount = (person: { roles: string[]; status: string; accessStatus: string }) =>
+  !isProtectedAccount(person) && person.status === "active" && person.accessStatus === "active";
