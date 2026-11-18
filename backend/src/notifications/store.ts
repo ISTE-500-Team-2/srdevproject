@@ -68,7 +68,7 @@ async function insertOutbox(db: Database, recipients: number | number[], dedupeK
       CASE WHEN (COALESCE(p.enabled,true) OR $2=ANY($8::text[])) AND (u.status='active' OR ($2 IN ('account_confirmation','password_reset','account_exists') AND u.status='pending')) THEN 'pending' ELSE 'suppressed' END,
       $7::boolean AND (COALESCE(p.enabled,true) OR $2=ANY($8::text[])) AND (u.status='active' OR ($2 IN ('account_confirmation','password_reset','account_exists') AND u.status='pending'))
     FROM "user" u LEFT JOIN app_notification_preferences p USING(userid) WHERE ${many ? 'u.userid=ANY($1::int[])' : 'u.userid=$1'}
-    ON CONFLICT(dedupe_key) DO UPDATE SET due_at=EXCLUDED.due_at,deadline_at=EXCLUDED.deadline_at,updated_at=NOW()
+    ON CONFLICT(dedupe_key) DO UPDATE SET due_at=COALESCE(EXCLUDED.worker_v2_due_at,EXCLUDED.due_at),deadline_at=EXCLUDED.deadline_at,updated_at=NOW()
     WHERE app_notification_outbox.status='pending' AND app_notification_outbox.attempts=0
       AND EXCLUDED.payload ? 'sourceType'`,[recipients,input.kind,dedupeKey,JSON.stringify(input.payload),dueAt,deadlineAt,input.countsForSla??true,securityKinds]);
 }

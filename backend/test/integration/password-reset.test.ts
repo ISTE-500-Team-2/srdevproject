@@ -1,3 +1,4 @@
+import { previousNotificationCandidate } from '../helpers/previousNotificationClaim.js';
 import { confirmationToken } from '../helpers/confirmation.js';
 import { issueEmailConfirmation } from '../../src/confirmation/emailConfirmation.js';
 import assert from 'node:assert/strict';
@@ -270,17 +271,43 @@ test('admin reset requires admin and CSRF, queues and audits in account mode, an
   assert.equal((await pool.query('SELECT 1 FROM app_password_reset WHERE userid=$1', [target.id])).rowCount, 0);
 });
 
+test('previous release reset cleanup obsoletes and scrubs a protected reset after account activation', async () => {
+  const user = await person('rollbackreset');
+  await pool.query(`UPDATE "user" SET status='pending',email_confirmed=false WHERE userid=$1`, [user.id]);
+  assert.equal((await ask(user.email)).status, 202);
+  const token = await tokenFor(user.id);
+  await pool.query(`UPDATE "user" SET status='active',email_confirmed=true WHERE userid=$1`, [user.id]);
+  // c95a2b5 uses this cleanup before issuing a fresh reset to the now-active account.
+  await pool.query(`UPDATE app_notification_outbox SET status='obsolete',counts_for_sla=false,updated_at=NOW()
+    WHERE userid=$1 AND kind='password_reset' AND status='pending'`, [user.id]);
+  assert.deepEqual(await resetRows(user.id), [{ status: 'obsolete', link: false, hash: sha256(token) }]);
+});
+
 test('an older account that never confirmed its email can reset its password, which confirms and activates it', async () => {
   const user = await person('legacypending');
+  await pool.query("DELETE FROM app_notification_outbox WHERE userid=$1 AND kind='account_created'", [user.id]);
   // Migration 030 holds these accounts as 'pending' until their inbox is proven.
   await pool.query(`UPDATE "user" SET status='pending',email_confirmed=false WHERE userid=$1`, [user.id]);
   assert.equal((await request(app).post('/api/auth/login').send(user)).body.error.code, 'EMAIL_CONFIRMATION_REQUIRED');
   assert.equal((await ask(user.email)).status, 202);
+  const original = await tokenFor(user.id);
+  assert.equal(await previousNotificationCandidate(pool, new Date()), undefined);
+  await pool.query("UPDATE app_password_reset SET created_at=NOW()-INTERVAL '61 seconds' WHERE userid=$1", [user.id]);
+  assert.equal((await ask(user.email)).status, 202);
   const token = await tokenFor(user.id);
-  // The link is queued and sent, not suppressed for the account's status.
+  assert.notEqual(token, original);
+  assert.deepEqual(await resetRows(user.id), [
+    { status: 'obsolete', link: false, hash: sha256(original) },
+    { status: 'pending', link: true, hash: sha256(token) },
+  ]);
+  assert.equal(await previousNotificationCandidate(pool, new Date()), undefined);
   const sent: string[] = [];
-  await runNotificationBatch(pool, async row => { sent.push(row.kind); return { messageId: `legacy-${row.id}` }; });
-  assert.deepEqual(sent, ['password_reset']);
+  await runNotificationBatch(pool, async row => {
+    sent.push(new URL(String(row.payload.resetUrl)).hash.slice(1));
+    return { messageId: `legacy-${row.id}` };
+  });
+  assert.deepEqual(sent, [token]);
+  assert.deepEqual((await resetRows(user.id)).at(-1), { status: 'accepted', link: false, hash: sha256(token) });
   assert.equal((await check(token)).status, 204);
   assert.equal((await confirm(token)).status, 204);
   const account = (await pool.query('SELECT status,email_confirmed FROM "user" WHERE userid=$1', [user.id])).rows[0];
