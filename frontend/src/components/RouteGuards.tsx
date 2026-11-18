@@ -104,8 +104,10 @@ export function RequireUser() {
       return <main className="page-shell" role="status">Loading your account…</main>;
     if (error) return <main className="page-shell">{outagePage(false)}</main>;
   }
-  // Keyed on the signed-in person (not an opened account), so a page loaded for
-  // one person never stays on screen for another.
+  // Keyed on the signed-in person, so a page loaded for one person never stays on
+  // screen for another. Not on an opened account: the staff workspace stays put
+  // (arriving there closes any open account). Member pages are rebuilt per opened
+  // account in AppShell.
   if (user) return <>
     {error || retrying ? outagePage(true) : null}
     <Outlet key={(actor ?? user).id} />
