@@ -10,6 +10,7 @@ import { useApi } from '../../lib/useApi';
 import { Modal } from '../../components/Modal';
 import { LoadState } from '../../components/Management';
 import { equipmentTime, type EquipmentDetail } from '../../lib/equipmentMaintenance';
+import type { CertificationOption } from './EquipmentAdd';
 import { EquipmentImagePicker, type EquipmentImageChoice, type EquipmentImageOption } from './EquipmentImagePicker';
 
 const NEW_CATEGORY = '__new__';
@@ -17,7 +18,7 @@ export interface RemovalBlockers {
   sessions: { readerId: string; expiresAt: string; members: (string | null)[] }[];
   bookings: { id: number; member: string | null; startTime: string; endTime: string }[];
 }
-export interface CatalogOptions { canManage: boolean; categories: string[]; certifications: { id: number; name: string }[]; images: EquipmentImageOption[] }
+export interface CatalogOptions { canManage: boolean; categories: string[]; certifications: CertificationOption[]; images: EquipmentImageOption[] }
 export function EquipmentEditor({ initial: suppliedInitial, onClose, onSaved }: { initial?: EquipmentDetail; onClose: () => void; onSaved: (id: number, removed: boolean) => void }) {
   const initial = useRef(suppliedInitial).current;
   const options = useApi<CatalogOptions>('/admin/equipment/catalog-options');
@@ -71,9 +72,9 @@ export function EquipmentEditor({ initial: suppliedInitial, onClose, onSaved }: 
         <label>Category<select required value={newCategory ? NEW_CATEGORY : type} disabled={busy || !options.data} onChange={e => { const value = e.target.value; setNewCategory(value === NEW_CATEGORY); if (value !== NEW_CATEGORY) setType(value); }}><option value="">Choose a category…</option>{categories.map(category => <option key={category} value={category}>{category}</option>)}<option value={NEW_CATEGORY}>+ New category…</option></select></label>
         {newCategory && <label>New category name<input required autoFocus maxLength={100} value={categoryName} disabled={busy} onChange={e => setCategoryName(e.target.value)} /><small>Other equipment can use this category after you save.</small></label>}
         <label>Location<input required maxLength={100} value={location} disabled={busy} onChange={e => setLocation(e.target.value)} /></label>
-        <label>Hourly rate ($)<input type="number" min="0" max="99999999.99" step="0.01" value={rate} disabled={busy} onChange={e => setRate(e.target.value)} /><small>Leave blank for no rate set. Enter 0 for free use. Rate changes apply to new quotes; existing payment records are preserved.</small></label>
+        <label>Hourly rate ($)<input type="number" min="0" max="99999999.99" step="0.01" value={rate} disabled={busy} onChange={e => setRate(e.target.value)} /><small>Enter 0 for free use; card payments need at least $0.50 an hour. Rate changes apply to new quotes; existing payment records are preserved.</small></label>
         <EquipmentImagePicker value={image} images={options.data?.images ?? []} disabled={busy} onProcessing={setProcessingImage} onChange={choice => { setImage(choice); setDirty(true); }} />
-        <label>Required certification<select value={certId} disabled={busy || !options.data} onChange={e => setCertId(e.target.value)}><option value="">None</option>{options.data?.certifications.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+        <label>Required certification<select value={certId} disabled={busy || !options.data} onChange={e => setCertId(e.target.value)}><option value="">None</option>{options.data?.certifications.map(c => <option key={c.id} value={c.id} disabled={c.state === 'ended' && c.id !== initial?.certId}>{c.name}{c.state === 'ended' ? ' (ended)' : ''}</option>)}</select></label>
         <label className="eq-confirm"><input type="checkbox" checked={waiverRequired} disabled={busy} onChange={e => setWaiverRequired(e.target.checked)} />Require signed waivers</label>
         <div className="eq-actions"><button className="button button--primary" disabled={busy || !options.data?.canManage}>{busy ? 'Saving…' : initial ? 'Save changes' : 'Add equipment'}</button><button type="button" className="button button--quiet" disabled={busy} onClick={close}>Cancel</button></div>
         {initial && <div className="eq-private-note"><h3>Remove equipment</h3><p>Remove this machine from the catalog while keeping its history.</p><button type="button" className="button button--danger" disabled={busy || !options.data?.canManage} onClick={() => setRemoving(true)}>Remove equipment</button></div>}

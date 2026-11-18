@@ -6,6 +6,12 @@ import { AppError } from './domain.js';
 import { StaffModel } from './models/StaffModel.js';
 import { auditContext } from './auditContext.js';
 
+/** Bookings run 1–24 whole hours and their total may not pass $100,000. */
+export const MAX_BOOKING_HOURS = 24;
+export const MAX_BOOKING_CENTS = 10_000_000;
+/** Card payments start at $0.50, so a paid booking must reach that in its shortest length. */
+export const MIN_CARD_PAYMENT_CENTS = 50;
+
 export interface EquipmentPrice {
   currency: 'USD'; hours: number; hourlyRateCents: number; equipmentCents: number;
   trainingFeeCents: number; totalCents: number; certificationId: number | null;
@@ -17,7 +23,7 @@ export interface EquipmentPrice {
  * not the same as free.
  */
 export async function equipmentPrice(db: Database, equipmentId: number, hours: number): Promise<EquipmentPrice | null> {
-  if (!Number.isInteger(hours) || hours < 1 || hours > 24)
+  if (!Number.isInteger(hours) || hours < 1 || hours > MAX_BOOKING_HOURS)
     throw new AppError(400, 'INVALID_INPUT', 'Choose 1–24 whole hours.');
   const row = (await db.query(`SELECT round(e.hourlyrate*100)::int AS rate,e.certid,c.revision
     FROM equipment e LEFT JOIN certifications c USING(certid)
@@ -27,7 +33,7 @@ export async function equipmentPrice(db: Database, equipmentId: number, hours: n
     return null; // Preserve existing unpriced legacy bookings; never invent a zero rate.
   }
   const total = row.rate * hours;
-  if (!Number.isSafeInteger(total) || total < 0 || total > 10000000)
+  if (!Number.isSafeInteger(total) || total < 0 || total > MAX_BOOKING_CENTS)
     throw new AppError(409, 'INVALID_PRICE', 'The booking amount is outside the supported range.');
   return { currency: 'USD', hours, hourlyRateCents: row.rate, equipmentCents: row.rate * hours,
     // Retain this field for historical reservation snapshots and older clients.

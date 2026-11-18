@@ -78,7 +78,7 @@ test('catalog creation, edits and retirement are admin-only, versioned, and pres
 
 test('equipment uploads persist with the catalog, can be reused, and are served as public images', async () => {
   const bytes = jpeg(640, 480);
-  const fields = { name: 'Photo test laser', type: 'Laser', location: 'Shop', image: '', imageUpload: dataUrl('image/jpeg', bytes), rate: null, certId: null, waiverRequired: false };
+  const fields = { name: 'Photo test laser', type: 'Laser', location: 'Shop', image: '', imageUpload: dataUrl('image/jpeg', bytes), rate: 0, certId: null, waiverRequired: false };
   const saved = await post('/admin/equipment', fields);
   assert.equal(saved.status, 201, JSON.stringify(saved.body));
   const id = saved.body.data.id;
@@ -108,7 +108,7 @@ test('equipment uploads persist with the catalog, can be reused, and are served 
 });
 
 test('equipment image uploads reject invalid bytes, oversized files, missing CSRF and non-admins', async () => {
-  const fields = { name: 'Invalid photo', type: 'Laser', location: 'Shop', image: '', rate: null, certId: null, waiverRequired: false };
+  const fields = { name: 'Invalid photo', type: 'Laser', location: 'Shop', image: '', rate: 0, certId: null, waiverRequired: false };
   const valid = { ...fields, imageUpload: dataUrl('image/jpeg', jpeg(640, 480)) };
   assert.equal((await post('/admin/equipment', valid, staff)).status, 403);
   assert.equal((await post('/admin/equipment', valid, member)).status, 403);
