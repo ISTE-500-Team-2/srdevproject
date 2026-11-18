@@ -10,6 +10,7 @@ import { adminNavGroups } from "./adminNavigation";
 import { AccountPicker } from "./AccountPicker";
 import { Modal } from "../Modal";
 import { AppearanceControl } from "../AppearanceControl";
+import { PageErrorBoundary } from "../ErrorBoundary";
 import { lastWorkspacePathKey, roleLabel } from "./people";
 import { AccountPhoto } from "../AccountPhoto";
 import { PageWidthContext, type PageWidth } from "./pageWidth";
@@ -37,7 +38,11 @@ export function AdminShell() {
   }, [closeAccount]);
 
   useEffect(() => {
-    sessionStorage.setItem(lastWorkspacePathKey, location.pathname + location.search);
+    try {
+      sessionStorage.setItem(lastWorkspacePathKey, location.pathname + location.search);
+    } catch {
+      /* Site data is blocked; returning from a member's account goes to Today instead. */
+    }
     setMenuOpen(false);
   }, [location.pathname, location.search]);
 
@@ -151,7 +156,9 @@ export function AdminShell() {
           <div className="page-enter" ref={content}>
             <PageWidthContext.Provider value={setPageWidth}>
               <SteadyHeight.Provider value={holdNow}>
-                <Outlet />
+                <PageErrorBoundary>
+                  <Outlet />
+                </PageErrorBoundary>
               </SteadyHeight.Provider>
             </PageWidthContext.Provider>
           </div>

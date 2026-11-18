@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { Header } from './Header';
 
@@ -97,4 +97,69 @@ test('the account menu shows where the membership stands', async () => {
   auth.user = { ...auth.user, roles: ['staff'], membership: 'None' };
   const staff = await openAccountMenu();
   expect(staff.querySelector('.status-pill')).toBeNull();
+});
+
+test('search is a real dialog: the page behind is inert, Tab stays inside, Escape closes it and focus returns', async () => {
+  const user = userEvent.setup();
+  const view = render(<MemoryRouter><Header /><button>Page content</button></MemoryRouter>);
+  const trigger = screen.getByRole('button', { name: 'Search' });
+  await user.click(trigger);
+  const dialog = screen.getByRole('dialog', { name: 'Site search' });
+  const input = within(dialog).getByRole('textbox', { name: 'Search pages' });
+  expect(document.activeElement).toBe(input);
+  expect(view.container.inert).toBe(true);
+  for (let i = 0; i < 4; i++) {
+    await user.tab();
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  }
+  await user.keyboard('{Escape}');
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(view.container.inert).not.toBe(true);
+  expect(document.activeElement).toBe(trigger);
+});
+
+test('choosing a search result goes to the page and closes search', async () => {
+  const user = userEvent.setup();
+  render(<MemoryRouter><Header /></MemoryRouter>);
+  await user.click(screen.getByRole('button', { name: 'Search' }));
+  await user.type(screen.getByRole('textbox', { name: 'Search pages' }), 'equip');
+  await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Equipment/ }));
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(screen.getByRole('link', { name: 'Equipment' }).className).toContain('is-active');
+});
+
+let go: (to: string) => void = () => {};
+function Navigator() {
+  go = useNavigate();
+  return null;
+}
+
+test('the account menu closes on Escape (back to its trigger), an outside press, tabbing away and a new page', async () => {
+  const user = userEvent.setup();
+  render(<MemoryRouter><Header /><button>Page content</button><Navigator /></MemoryRouter>);
+  const trigger = screen.getByRole('button', { name: 'Open account menu' });
+
+  await user.click(trigger);
+  within(accountMenu()!).getByRole('button', { name: /Sign out/ }).focus();
+  await user.keyboard('{Escape}');
+  expect(accountMenu()).toBeNull();
+  expect(document.activeElement).toBe(trigger);
+  expect(trigger.getAttribute('aria-expanded')).toBe('false');
+
+  await user.click(trigger);
+  // Pressing inside the menu keeps it open.
+  fireEvent.pointerDown(accountMenu()!.querySelector('.account-menu__identity')!);
+  expect(accountMenu()).not.toBeNull();
+  fireEvent.pointerDown(document.body);
+  expect(accountMenu()).toBeNull();
+
+  await user.click(trigger);
+  within(accountMenu()!).getByRole('button', { name: /Sign out/ }).focus();
+  await user.tab();
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Page content' }));
+  expect(accountMenu()).toBeNull();
+
+  await user.click(trigger);
+  act(() => go('/equipment'));
+  expect(accountMenu()).toBeNull();
 });
