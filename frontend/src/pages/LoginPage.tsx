@@ -22,6 +22,7 @@ const STEPPER_THEME = {
   '--stepper-well': 'var(--stepper-theme-well)',
   '--stepper-tile': 'var(--stepper-theme-tile)',
   '--stepper-tile-edge': 'var(--stepper-theme-tile-edge)',
+  '--stepper-tile-highlight': 'var(--stepper-theme-tile-highlight)',
   '--stepper-ink': 'var(--ink)',
   '--stepper-muted': 'var(--ink-soft)',
   '--stepper-faint': 'var(--border)',

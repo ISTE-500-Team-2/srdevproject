@@ -37,10 +37,12 @@ const cardNavStyle = {
   "--cn-panel": "var(--nav-panel)",
   "--cn-solid": "var(--nav-solid)",
   "--cn-edge": "var(--nav-edge)",
+  "--cn-highlight": "var(--nav-highlight)",
   "--cn-text": "var(--nav-text)",
   "--cn-muted": "var(--nav-muted)",
   "--cn-hover": "var(--nav-hover)",
-  "--cn-ring": "var(--orange)",
+  // The bar is near-white in light mode, where orange is ~2:1; the theme's ring reads on it.
+  "--cn-ring": "var(--focus-ring)",
   "--cn-shadow": "var(--nav-shadow)",
   "--cn-cta": "var(--nav-cta)",
   "--cn-cta-ink": "var(--nav-cta-ink)",

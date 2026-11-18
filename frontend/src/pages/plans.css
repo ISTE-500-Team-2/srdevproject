@@ -83,7 +83,7 @@
 }
 .plans-row__open::after { content: ''; position: absolute; inset: 0; }
 .plans-row__open:focus-visible { outline: none; }
-.plans-row:has(.plans-row__open:focus-visible) { outline: 2px solid var(--orange); outline-offset: -2px; }
+.plans-row:has(.plans-row__open:focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .plans-row__price { display: flex; align-items: baseline; gap: 5px; white-space: nowrap; }
 .plans-row__price strong { font-size: var(--text-base); font-weight: 700; }
 .plans-row__price span { color: var(--plans-muted); font-size: var(--text-sm); }
@@ -211,7 +211,7 @@
 }
 .plans-switch input:checked + .plans-switch__track { background: #3a9a52; }
 .plans-switch input:checked + .plans-switch__track::after { transform: translateX(16px); }
-.plans-switch input:focus-visible + .plans-switch__track { outline: 2px solid var(--orange); outline-offset: 2px; }
+.plans-switch input:focus-visible + .plans-switch__track { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
 /* Save stays reachable however long the form gets. */
 .plans-editor__actions {
