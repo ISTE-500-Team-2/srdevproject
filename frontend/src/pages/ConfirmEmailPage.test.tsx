@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { ConfirmEmailPage } from './ConfirmEmailPage';
-const { confirmEmail } = vi.hoisted(() => ({ confirmEmail: vi.fn() }));
+import { ApiError } from '../lib/api';
+const { confirmEmail, api } = vi.hoisted(() => ({ confirmEmail: vi.fn(), api: vi.fn() }));
 vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ confirmEmail }) }));
+vi.mock('../lib/api', async (original) => ({ ...(await original<typeof import('../lib/api')>()), api }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 function mount() { render(<MemoryRouter initialEntries={['/confirm-email#test-token']}><Routes><Route path="/confirm-email" element={<ConfirmEmailPage />} /><Route path="/" element={<h1>Dashboard</h1>} /></Routes></MemoryRouter>); }
 test('email link shows only confirmation and opens dashboard after success', async () => {
@@ -21,7 +23,53 @@ test('failure offers recovery without showing forms on the token landing', async
   fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }));
   await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
   expect(screen.getByRole('link', { name: 'Request a new confirmation email' }).getAttribute('href')).toBe('/confirm-email');
+  // A link opened again after it already worked: the way on is to sign in.
+  expect(screen.getByText(/Already confirmed\?/)).toBeTruthy();
+  expect(screen.getByText('Sign in').getAttribute('href')).toBe('/login');
   expect(screen.queryByRole('textbox')).toBeNull();
+});
+function Location() {
+  const location = useLocation(); const navigate = useNavigate();
+  return <><output data-testid="location">{location.pathname}{location.hash}</output>
+    <button type="button" onClick={() => navigate('/confirm-email#pasted-token')}>Paste link</button></>;
+}
+test('a confirmation link pasted into the waiting tab is captured and stripped', async () => {
+  confirmEmail.mockResolvedValue('member');
+  render(<MemoryRouter initialEntries={[{ pathname: '/confirm-email', state: { email: 'test@example.test' } }]}><Location /><Routes><Route path="/confirm-email" element={<ConfirmEmailPage />} /><Route path="/" element={<h1>Dashboard</h1>} /></Routes></MemoryRouter>);
+  expect(screen.getByText('Confirmation sent')).toBeTruthy();
+  fireEvent.click(screen.getByText('Paste link'));
+  expect(await screen.findByText('Confirm your email')).toBeTruthy();
+  expect(screen.getByTestId('location').textContent).toBe('/confirm-email');
+  fireEvent.click(screen.getByText('Confirm email'));
+  await screen.findByRole('heading', { name: 'Dashboard' });
+  expect(confirmEmail).toHaveBeenCalledWith('pasted-token');
+});
+test('after resending to a corrected address, later resends go to that address', async () => {
+  api.mockResolvedValue({ message: 'Queued.' });
+  render(<MemoryRouter initialEntries={[{ pathname: '/confirm-email', state: { email: 'typo@example.test' } }]}><ConfirmEmailPage /></MemoryRouter>);
+  const field = (name: string) => screen.getByLabelText(name) as HTMLInputElement;
+  fireEvent.change(field('Password'), { target: { value: 'ValidPassword!' } });
+  fireEvent.change(field('Corrected email (optional)'), { target: { value: ' right@example.test ' } });
+  const send = screen.getByText('Send confirmation email');
+  fireEvent.click(send);
+  await screen.findByText('Queued.');
+  expect(api).toHaveBeenLastCalledWith('/auth/confirmation', { method: 'POST', body: { email: 'typo@example.test', password: 'ValidPassword!', newEmail: 'right@example.test' } });
+  expect(field('Signup email').value).toBe('right@example.test');
+  expect(field('Corrected email (optional)').value).toBe('');
+  fireEvent.click(send);
+  await waitFor(() => expect(api).toHaveBeenCalledTimes(2));
+  expect(api).toHaveBeenLastCalledWith('/auth/confirmation', { method: 'POST', body: { email: 'right@example.test', password: 'ValidPassword!' } });
+});
+test('a failed resend keeps the corrected address to try again', async () => {
+  api.mockRejectedValue(new ApiError(429, 'CONFIRMATION_RATE_LIMITED', 'Wait one minute before requesting another confirmation.'));
+  render(<MemoryRouter initialEntries={[{ pathname: '/confirm-email', state: { email: 'typo@example.test' } }]}><ConfirmEmailPage /></MemoryRouter>);
+  const field = (name: string) => screen.getByLabelText(name) as HTMLInputElement;
+  fireEvent.change(field('Password'), { target: { value: 'ValidPassword!' } });
+  fireEvent.change(field('Corrected email (optional)'), { target: { value: 'right@example.test' } });
+  fireEvent.click(screen.getByText('Send confirmation email'));
+  await screen.findByText('Wait one minute before requesting another confirmation.');
+  expect(field('Signup email').value).toBe('typo@example.test');
+  expect(field('Corrected email (optional)').value).toBe('right@example.test');
 });
 test('disabled local email is explicit without restoring the old recovery form', () => {
   render(<MemoryRouter initialEntries={[{ pathname: '/confirm-email', state: { email: 'test@example.test', emailSendingEnabled: false } }]}><ConfirmEmailPage /></MemoryRouter>);

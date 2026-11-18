@@ -49,6 +49,9 @@ test('signup stages an expiring request with no member, role, preference or sess
   assert.ok(member.user.roles.includes('member'));
   assert.equal((await pool.query('SELECT 1 FROM app_pending_registration WHERE email=$1',[input.email])).rowCount,0);
   assert.equal((await pool.query('SELECT COUNT(*)::int AS n FROM "user" WHERE email=$1',[input.email])).rows[0].n,1);
+  // Opening the link again after it worked says it may already have been used.
+  const again=await request(app).post('/api/auth/confirm').send({token});
+  assert.equal(again.body.error.code,'CONFIRMATION_INVALID');assert.match(again.body.error.message,/already used/);
 });
 
 test('duplicate requests cannot replace passwords or spam an inbox, while authenticated resends rotate links',async()=>{

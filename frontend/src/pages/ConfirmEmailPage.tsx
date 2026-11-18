@@ -9,16 +9,21 @@ export function ConfirmEmailPage() {
   const location = useLocation(),
     navigate = useNavigate();
   const { confirmEmail } = useAuth();
-  const [token] = useState(() => location.hash.slice(1));
+  const [token, setToken] = useState(() => location.hash.slice(1));
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [email, setEmail] = useState(location.state?.email ?? "");
+  const [newEmail, setNewEmail] = useState("");
   // Fragment is not sent to the web server; remove it after capturing to keep it out of history.
+  // Pasting the emailed link into this same tab is a fragment-only navigation, so capture
+  // a new fragment whenever one arrives, not just on the first render.
   useEffect(() => {
-    if (location.hash)
-      navigate("/confirm-email", { replace: true, state: location.state });
-  }, []);
+    if (!location.hash) return;
+    setToken(location.hash.slice(1));
+    setError("");
+    navigate("/confirm-email", { replace: true, state: location.state });
+  }, [location.hash, location.key, navigate]);
   async function confirm() {
     setBusy(true);
     setError("");
@@ -37,7 +42,7 @@ export function ConfirmEmailPage() {
     setError("");
     setMessage("");
     const form = new FormData(event.currentTarget);
-    const next = String(form.get("newEmail") ?? "").trim();
+    const next = newEmail.trim();
     try {
       const result = await api<{ message: string }>("/auth/confirmation", {
         method: "POST",
@@ -48,6 +53,11 @@ export function ConfirmEmailPage() {
         },
       });
       setMessage(result.message);
+      // The sign-up now waits under the corrected address; send later requests there.
+      if (next) {
+        setEmail(next);
+        setNewEmail("");
+      }
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -78,6 +88,9 @@ export function ConfirmEmailPage() {
             {error ? (
               <div role="alert" className="email-confirm-error">
                 <p>{error}</p>
+                <p>
+                  Already confirmed? <Link to="/login">Sign in</Link>
+                </p>
                 <a href="/confirm-email">Request a new confirmation email</a>
               </div>
             ) : null}
@@ -141,7 +154,12 @@ export function ConfirmEmailPage() {
               </label>
               <label className="form-field">
                 <span>Corrected email (optional)</span>
-                <input name="newEmail" type="email" />
+                <input
+                  name="newEmail"
+                  type="email"
+                  value={newEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
+                />
               </label>
               <button className="button button--primary" disabled={busy}>
                 Send confirmation email
