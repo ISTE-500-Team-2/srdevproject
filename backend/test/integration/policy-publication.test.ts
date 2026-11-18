@@ -110,12 +110,30 @@ test('concurrent same-time replacements serialize to exactly one current version
   assert.equal((await pool.query("SELECT count(*)::int AS n FROM app_staff_audit WHERE action='policy.retired' AND before_state->>'name'=$1",[body.name])).rows[0].n,2);
 });
 
-test('backdated publication cannot retire a newer effective version',async()=>{
+test('backdated publication is refused instead of being retired the moment it is published',async()=>{
   const body=policy('Backdated replacement','current',new Date(Date.now()-1000).toISOString());
   const current=await publish(body);
-  const older=await publish({...body,version:'historical',effectiveAt:new Date(Date.now()-86400000).toISOString()});
-  assert.equal(older.active,false);
-  assert.deepEqual((await versions(body.name)).map(w=>[w.id,w.active]),[[current.id,true],[older.id,false]]);
+  const older=await post('/admin/policies',{...body,version:'corrected',effectiveAt:new Date(Date.now()-86400000).toISOString()});
+  assert.equal(older.status,409,JSON.stringify(older.body));
+  assert.equal(older.body.error.code,'POLICY_STARTS_TOO_EARLY');
+  assert.equal(older.body.error.field,'effectiveAt');
+  assert.match(older.body.error.message,/^The version now in force started .*\d{4}, .*(AM|PM) E[SD]T\. Choose a start at or after that time/);
+  // The current version still governs, and nothing was half-published or audited.
+  assert.deepEqual((await versions(body.name)).map(w=>[w.id,w.active]),[[current.id,true]]);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM app_staff_audit WHERE entity_type='waiver' AND after_state->>'version'='corrected' AND after_state->>'name'=$1",[body.name])).rows[0].n,0);
+  // The label stays free: the same version starting with the current one replaces it.
+  const corrected=await publish({...body,version:'corrected'});
+  assert.equal(corrected.active,true);
+  assert.deepEqual((await versions(body.name)).map(w=>[w.id,w.active]),[[current.id,false],[corrected.id,true]]);
+});
+
+test('a version scheduled before an upcoming one is accepted; only the version in force sets the earliest start',async()=>{
+  const body=policy('Between scheduled versions');
+  const current=await publish(body);
+  const upcoming=await publish({...body,version:'upcoming',effectiveAt:new Date(Date.now()+2*86400000).toISOString()});
+  const sooner=await publish({...body,version:'sooner',effectiveAt:new Date(Date.now()+86400000).toISOString()});
+  assert.equal(sooner.active,true);
+  assert.deepEqual((await versions(body.name)).map(w=>[w.id,w.active]),[[current.id,true],[upcoming.id,true],[sooner.id,true]]);
 });
 
 test('scheduled replacement preserves current agreement until due, then retires automatically without email configuration',async()=>{

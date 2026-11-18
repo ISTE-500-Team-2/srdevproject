@@ -40,17 +40,45 @@ async function refund(status: string) {
   fireEvent.click(screen.getByRole("button", { name: "Refund $50.00" }));
   await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
   expect(api).toHaveBeenCalledWith("/billing-management/invoices/in_test/refund", { method: "POST", body: { reason: "Duplicate charge" } });
-  return onDone.mock.calls[0][0] as string;
+  // The sentence, and whether it reports a problem (shown as an alert, not a green confirmation).
+  return onDone.mock.calls[0] as [string, boolean];
 }
 
 test("a succeeded card refund says it was refunded", async () => {
-  expect(await refund("succeeded")).toBe("Refunded $50.00.");
+  expect(await refund("succeeded")).toEqual(["Refunded $50.00.", false]);
 });
 
 test.each(["pending", "requires_action"])("a %s card refund says it is on its way", async (status) => {
-  expect(await refund(status)).toBe("Refund of $50.00 is on its way.");
+  expect(await refund(status)).toEqual(["Refund of $50.00 is on its way.", false]);
 });
 
-test.each(["failed", "canceled", "unexpected"])("a %s card refund does not claim money moved", async (status) => {
-  expect(await refund(status)).toBe("Stripe didn't complete the refund of $50.00. Check it in Stripe.");
+test.each(["failed", "canceled", "unexpected"])("a %s card refund does not claim money moved and is reported as a problem", async (status) => {
+  expect(await refund(status)).toEqual(["Stripe didn't complete the refund of $50.00. Check it in Stripe.", true]);
+});
+
+test("a typed refund reason survives a stray click outside the dialog until staff discard it", () => {
+  useApi.mockReturnValue({ data: null, loading: false, refreshing: false, error: "", reload: vi.fn() });
+  const onClose = vi.fn();
+  render(
+    <RecordDialogHost
+      dialog={{ kind: "refund", payment }}
+      person={{ id: 3, firstName: "Ada", revision: 1 } as Person}
+      plans={[]}
+      timeZone="America/New_York"
+      supervision={null}
+      onClose={onClose}
+      onDone={vi.fn()}
+      onPerson={vi.fn()}
+      onConflict={vi.fn()}
+    />,
+  );
+  const dialog = screen.getByRole("dialog", { name: "Refund $50.00" });
+  fireEvent.change(screen.getByLabelText(/Reason for refund/), { target: { value: "Duplicate charge" } });
+  fireEvent.mouseDown(dialog.parentElement!);
+  expect(onClose).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+  expect((screen.getByLabelText(/Reason for refund/) as HTMLInputElement).value).toBe("Duplicate charge");
+  fireEvent.keyDown(window, { key: "Escape" });
+  fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+  expect(onClose).toHaveBeenCalledTimes(1);
 });

@@ -11,6 +11,9 @@ services:
       ENABLE_DEMO_LOGIN: 'false'
       # The RLES edge names the client in X-Forwarded-For (deploy/rles-edge.mjs).
       TRUST_PROXY: '1'
+      # Production refuses to start without its signing key; the image ships none.
+      JWT_SECRET_FILE: /run/secrets/jwt_key
+    secrets: [jwt_key]
     ports: ['127.0.0.1:${ARBOR_HTTP_PORT:-8080}:8080']
     networks: [existing]
     healthcheck:
@@ -22,3 +25,6 @@ networks:
   existing:
     external: true
     name: ${ARBOR_DOCKER_NETWORK:?Existing database/application network}
+secrets:
+  jwt_key:
+    file: ${ARBOR_JWT_KEY_FILE:?Supply the protected existing JWT signing key file}

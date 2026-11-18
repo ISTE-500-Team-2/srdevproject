@@ -40,7 +40,7 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   const notifications = new NotificationPreferencesController(pool);
   const waiverRecords = new WaiverRecordsController(pool);
   const member = new MemberController(pool, config.timeZone);
-  const equipment = new EquipmentController(pool, config.timeZone);
+  const equipment = new EquipmentController(pool, config.timeZone, !!config.studioStripe);
   const rooms = new RoomController(pool);
   const reservations = new ReservationController(pool, config.timeZone, config.studioStripe);
   const staff = new StaffController(pool, config.timeZone);
@@ -130,7 +130,9 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   routes.get("/me/notifications", permit("notification", "read", "own"), notifications.get);
   routes.patch("/me/notifications", permit("notification", "update", "own"), settingsAreMemberOnly, requireCsrf, notifications.update);
 
-  routes.patch("/me/profile", permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, member.profile);
+  // Every save keeps a full before-and-after copy in the change log, and people rarely edit their profile.
+  const profileLimit = authRateLimit({ limit: 60, message: "Too many profile saves. Please wait a few minutes and try again." });
+  routes.patch("/me/profile", profileLimit, permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, member.profile);
   // Both check the current password, so they share one attempt budget.
   routes.post("/me/password", credentialLimit, permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, auth.changePassword);
   routes.post("/me/email-change", credentialLimit, emailChangeLimit, permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, auth.requestEmailChange);
@@ -184,6 +186,9 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   routes.get("/admin/payments", permit("payment","read","global"), staff.payments);
   routes.post("/admin/payments/:id/status", permit("payment","update","global"), requireCsrf, staff.payment);
   routes.get("/admin/reservations", permit("reservation","read","global"), reservations.staffList);
+  routes.get("/admin/reservations/:id", permit("reservation","read","global"), reservations.staffGet);
+  // Staff bookings: a workspace path, so they run as the staff member even while a member's account is open.
+  routes.post("/admin/reservations", permit("reservation","create","global"), requireCsrf, reservations.create);
   routes.patch("/admin/reservations/:id", permit("reservation","update","global"), requireCsrf, reservations.update);
   routes.post("/admin/reservations/:id/cancel", permit("reservation","update","global"), requireCsrf, reservations.staffCancel);
   routes.get("/admin/audit", permit("audit","read","global"), staff.audits);

@@ -17,8 +17,9 @@ import { Link } from "react-router-dom";
 import { Delta, Kpi } from "../components/Kpi";
 import { LoadState } from "../components/Management";
 import { KeptResults } from "../components/KeptResults";
+import { PeriodSwitch } from "../components/PeriodSwitch";
 import { useApi } from "../lib/useApi";
-import { dollars, statusLabel, timeOnly, zonedDay } from "../lib/display";
+import { dollars, timeOnly, zonedDay } from "../lib/display";
 import { useFacilityZone } from "../lib/facilityZone";
 import {
   comparison,
@@ -246,7 +247,7 @@ function coverage(start: string, period: RevenuePeriod, from: string, to: string
 }
 
 /** How a bar compares with the same days earlier, for its label and details line. */
-type Earlier = { phrase: string; value: (start: string) => number };
+type Earlier = { phrase: string; value: (start: string) => number | undefined };
 
 /** Net only: what the space actually kept. Refunds are in the totals and each bar's details. */
 function revenueBars(points: RevenuePoint[], period: RevenuePeriod, from: string, to: string, earlier?: Earlier): Bar[] {
@@ -379,7 +380,7 @@ function ClassList({ items, stats, zone }: { items: Report["classes"]; stats: Re
   return (
     <section className="panel analytics-classes">
       <div className="analytics-panel-head">
-        <h3>Classes in this period</h3>
+        <h2>Classes in this period</h2>
         <MoreLink to="/classes">Open Classes</MoreLink>
       </div>
       {/* Booked is how full classes were; came is whether people showed up once booked. */}
@@ -442,7 +443,10 @@ export function AnalyticsDashboardPage() {
 function AnalyticsDashboard({ zone }: { zone: string }) {
   const today = zonedDay(zone);
   const [preset, setPreset] = useState<Preset>("30");
-  const [range, setRange] = useState<Range>({ ...presetRange("30", today), period: "weekly" });
+  // The last valid choice. A preset's dates are worked out from today on every render, so a
+  // screen left open overnight moves on to the new day; only custom dates stay as entered.
+  const [chosen, setChosen] = useState<Range>({ ...presetRange("30", today), period: "weekly" });
+  const range: Range = preset === "custom" ? chosen : { ...presetRange(preset, today), period: chosen.period };
   const [draft, setDraft] = useState(range);
   const [validation, setValidation] = useState("");
   // A new range keeps the last report on screen until it lands.
@@ -455,12 +459,13 @@ function AnalyticsDashboard({ zone }: { zone: string }) {
     retainOnReload: true,
   });
 
-  const apply = (next: Range) => {
+  const apply = (next: Range, nextPreset: Preset = preset) => {
     // Permit intermediate edits while keeping requests on the last valid range.
+    setPreset(nextPreset);
     setDraft(next);
     try {
       revenuePoints(next.from, next.to, next.period, []);
-      setRange(next);
+      setChosen(next);
       setValidation("");
     } catch (error) {
       setValidation((error as Error).message);
@@ -479,7 +484,13 @@ function AnalyticsDashboard({ zone }: { zone: string }) {
   const inUnit = unit.startsWith("the ") ? `in ${unit}` : unit;
   const earlier = (daily: Map<string, number>, scale = 1): Earlier | undefined =>
     before && data
-      ? { phrase: earlierPhrase, value: (start) => earlierTotal(start, period, data, before, daily) / scale }
+      ? {
+          phrase: earlierPhrase,
+          value: (start) => {
+            const total = earlierTotal(start, period, data, before, daily);
+            return total === undefined ? undefined : total / scale;
+          },
+        }
       : undefined;
   const members = data?.memberships ?? [];
   const joined = members.reduce((n, row) => n + row.newMembers, 0);
@@ -512,8 +523,8 @@ function AnalyticsDashboard({ zone }: { zone: string }) {
               aria-label="Date range"
               onChange={(e) => {
                 const value = e.target.value as Preset;
-                setPreset(value);
-                if (value !== "custom") apply({ ...draft, ...presetRange(value, today) });
+                // Custom dates start from the range on screen.
+                apply(value === "custom" ? { ...draft, ...range } : { ...draft, ...presetRange(value, today) }, value);
               }}
             >
               {PRESETS.map((p) => (
@@ -525,13 +536,7 @@ function AnalyticsDashboard({ zone }: { zone: string }) {
             <ChevronDown className="analytics-range__chevron" aria-hidden="true" />
           </label>
           {/* Groups both charts, so it sits with the date range. */}
-          <div className="analytics-period" role="radiogroup" aria-label="Group charts by">
-            {(["daily", "weekly", "monthly"] as RevenuePeriod[]).map((p) => (
-              <button key={p} type="button" role="radio" aria-checked={draft.period === p} onClick={() => apply({ ...draft, period: p })}>
-                {statusLabel(p)}
-              </button>
-            ))}
-          </div>
+          <PeriodSwitch label="Group charts by" value={range.period} onChange={(p) => apply({ ...draft, period: p })} />
         </div>
       </header>
       {preset === "custom" ? (
@@ -600,7 +605,7 @@ function AnalyticsDashboard({ zone }: { zone: string }) {
           <div className="analytics-layout">
             <article className={`panel analytics-revenue${hasRevenue ? "" : " is-wide"}`}>
               <div className="analytics-panel-head">
-                <h3>Revenue by {unitWord}</h3>
+                <h2>Revenue by {unitWord}</h2>
                 {hasRevenue ? <Legend series={[["is-net", "Net"]]} earlier={before ? earlierPhrase : null} /> : null}
                 <MoreLink to="/admin/payments">Open Payments</MoreLink>
               </div>
@@ -650,7 +655,7 @@ function AnalyticsDashboard({ zone }: { zone: string }) {
             {hasRevenue ? (
               <article className="panel analytics-side-card">
                 <div className="analytics-panel-head">
-                  <h3>Revenue by source</h3>
+                  <h2>Revenue by source</h2>
                   <span className="analytics-muted">net</span>
                 </div>
                 <SourceList rows={data.revenue} />
@@ -661,7 +666,7 @@ function AnalyticsDashboard({ zone }: { zone: string }) {
           <div className="analytics-layout">
             <article className="panel analytics-members is-wide">
               <div className="analytics-panel-head">
-                <h3>Members by {unitWord}</h3>
+                <h2>Members by {unitWord}</h2>
                 {joined + cancelled ? <Legend series={[["is-joined", "Joined"], ["is-cancelled", "Cancelled"]]} /> : null}
                 <MoreLink to="/admin/members">Open Members</MoreLink>
               </div>
@@ -709,7 +714,7 @@ function AnalyticsDashboard({ zone }: { zone: string }) {
           <div className="analytics-layout">
             <article className={`panel analytics-visits${peak ? "" : " is-wide"}`}>
               <div className="analytics-panel-head">
-                <h3>Visits by {unitWord}</h3>
+                <h2>Visits by {unitWord}</h2>
                 {peak ? <Legend series={[["is-visits", "Visits"]]} earlier={before ? earlierPhrase : null} /> : null}
               </div>
               <dl className="analytics-totals">
@@ -762,7 +767,7 @@ function AnalyticsDashboard({ zone }: { zone: string }) {
             {peak ? (
               <article className="panel analytics-side-card">
                 <div className="analytics-panel-head">
-                  <h3>Visits by weekday</h3>
+                  <h2>Visits by weekday</h2>
                   <span className="analytics-muted">average a day</span>
                 </div>
                 <WeekdayList days={visits} from={data.from} to={data.to} />
@@ -773,9 +778,9 @@ function AnalyticsDashboard({ zone }: { zone: string }) {
           {data.classes.length ? <ClassList items={data.classes} stats={classes} zone={zone} /> : null}
 
           <footer className="analytics-foot">
-            {/* "Updated" is in the viewer's own clock; the zone named is the report's. */}
+            {/* "Updated" is on the report's clock, matching the zone named beside it. */}
             <span>
-              Updated {timeOnly(data.generatedAt)} · {zoneName(data.timeZone)} · refreshes every 30 seconds
+              Updated {timeOnly(data.generatedAt, data.timeZone)} · {zoneName(data.timeZone)} · refreshes every 30 seconds
             </span>
             <details>
               <summary>

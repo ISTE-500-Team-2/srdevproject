@@ -124,3 +124,25 @@ test("staff can't start or end supervised use for staff or admin accounts", asyn
   assert.equal((await endSupervision(staff, forMember.body.data.id)).status, 200);
   assert.equal((await endSupervision(admin, forColleague.body.data.id)).status, 200);
 });
+
+test("staff can't start a card scan for a staff or admin account", async () => {
+  const scan = (as: Session, userId: number) => post(as, "/admin/access/enrollments", { readerId: "front", purpose: "assign", userId });
+  refused(await scan(staff, colleagueId));
+  refused(await scan(staff, admin.id));
+  const forMember = await scan(staff, memberId);
+  assert.equal(forMember.status, 201, JSON.stringify(forMember.body));
+  assert.equal((await post(staff, `/admin/access/enrollments/${forMember.body.data.id}/cancel`, {})).status, 200);
+  const forColleague = await scan(admin, colleagueId);
+  assert.equal(forColleague.status, 201, JSON.stringify(forColleague.body));
+  assert.equal((await post(admin, `/admin/access/enrollments/${forColleague.body.data.id}/cancel`, {})).status, 200);
+});
+
+test("staff can't stop card renewal on a staff or admin account", async () => {
+  const stop = (as: Session, userId: number) => post(as, `/admin/users/${userId}/memberships/1/stop-renewal`, { reason: "Guard test" });
+  refused(await stop(staff, colleagueId));
+  refused(await stop(staff, admin.id));
+  // For a member the route is reached and answers for that membership.
+  const forMember = await stop(staff, memberId);
+  assert.equal(forMember.status, 404, JSON.stringify(forMember.body));
+  assert.equal(forMember.body.error.code, "NOT_FOUND");
+});

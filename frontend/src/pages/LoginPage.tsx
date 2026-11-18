@@ -12,6 +12,7 @@ import { useAuth } from '../context/AuthContext';
 import type { UserRole } from '../types';
 import { ApiError, errorMessage } from '../lib/api';
 import { safeNext } from '../lib/returnPath';
+import { phoneDigits, phoneProblem } from '../lib/phone';
 import { prepareArrival, preloadForSignIn } from '../areas/load';
 
 const SplitText = lazy(() => import('../components/reactbits/SplitText'));
@@ -21,6 +22,7 @@ const STEPPER_THEME = {
   '--stepper-well': 'var(--stepper-theme-well)',
   '--stepper-tile': 'var(--stepper-theme-tile)',
   '--stepper-tile-edge': 'var(--stepper-theme-tile-edge)',
+  '--stepper-tile-highlight': 'var(--stepper-theme-tile-highlight)',
   '--stepper-ink': 'var(--ink)',
   '--stepper-muted': 'var(--ink-soft)',
   '--stepper-faint': 'var(--border)',
@@ -47,6 +49,13 @@ const SIGNUP_FIELD_STEP: Record<SignupField, number> = {
   email: 2,
   phone: 2,
   password: 3,
+};
+
+// Today's date where the visitor is, as a date input value: toISOString() would give the UTC date,
+// which is already tomorrow on a US evening.
+const localToday = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 };
 
 // Servers that name no field: judge by the message's wording.
@@ -93,7 +102,11 @@ export function LoginPage() {
     if (focusRequest) (focusRequest.field === 'email' ? emailInput : passwordInput).current?.focus();
   }, [focusRequest]);
   const [showPassword, setShowPassword] = useState(false);
+  // The login card and the sign-up dialog each show only their own errors.
   const [error, setError] = useState('');
+  const [signupError, setSignupError] = useState('');
+  // The account exists but its email isn't confirmed: offer a new confirmation email.
+  const [unconfirmed, setUnconfirmed] = useState(false);
   const [dialog, setDialog] = useState<'signup' | null>(null);
   const [busy, setBusy] = useState(false);
   const [signup, setSignup] = useState(EMPTY_SIGNUP);
@@ -117,6 +130,7 @@ export function LoginPage() {
   const continueAs = async (role: UserRole) => {
     setBusy(true);
     setError('');
+    setUnconfirmed(false);
     preloadForSignIn();
     try {
       await prepareArrival(await loginAs(role), destination);
@@ -134,10 +148,12 @@ export function LoginPage() {
     if (missing.email || missing.password) {
       setInvalid(missing);
       setError('Enter your email and password to continue.');
+      setUnconfirmed(false);
       setFocusRequest({ field: missing.email ? 'email' : 'password' });
       return;
     }
     setError('');
+    setUnconfirmed(false);
     setInvalid({});
     setBusy(true);
     // Password managers may submit without focusing the form: start here too, so
@@ -148,6 +164,7 @@ export function LoginPage() {
       if (onPage.current) navigate(destination, { replace: true });
     } catch (err) {
       setError(errorMessage(err));
+      setUnconfirmed(err instanceof ApiError && err.code === 'EMAIL_CONFIRMATION_REQUIRED');
       // Wrong credentials can't say which field was wrong; mark both, retry the password.
       if (err instanceof ApiError && err.code === 'INVALID_CREDENTIALS') {
         setInvalid({ email: true, password: true });
@@ -161,14 +178,15 @@ export function LoginPage() {
   const createAccount = async () => {
     if (registering.current) return;
     registering.current = true;
-    setError('');
+    setSignupError('');
     setBusy(true);
     try {
-      const result = await register(signup);
+      // Saved as digits only; the profile's Contact form also keeps a leading "+".
+      const result = await register({ ...signup, phone: phoneDigits(signup.phone) });
       navigate('/confirm-email', {state:{email:result.email,emailSendingEnabled:result.emailSendingEnabled}});
     } catch (err) {
       const message = errorMessage(err);
-      setError(message);
+      setSignupError(message);
       setSignupStep((current) => stepForError(err, message) ?? current);
     } finally {
       registering.current = false;
@@ -190,6 +208,9 @@ export function LoginPage() {
     const newPassword = pane?.querySelector<HTMLInputElement>('input[name="password"]');
     newPassword?.setCustomValidity(new TextEncoder().encode(newPassword.value).length > 72
       ? 'Use at most 72 characters. Accented letters and emoji count as more than one.' : '');
+    // maxLength would cut a pasted, formatted number short; count its digits instead.
+    const phone = pane?.querySelector<HTMLInputElement>('input[name="phone"]');
+    phone?.setCustomValidity(phoneProblem(phone.value));
     const invalid = Array.from(pane?.querySelectorAll('input') ?? []).find(
       (input) => !input.checkValidity(),
     );
@@ -197,7 +218,7 @@ export function LoginPage() {
       invalid.reportValidity();
       return;
     }
-    setError('');
+    setSignupError('');
     if (signupStep < SIGNUP_STEPS) setSignupStep(signupStep + 1);
     else void createAccount();
   };
@@ -329,6 +350,19 @@ export function LoginPage() {
                 {error}
               </p>
             ) : null}
+            {unconfirmed ? (
+              <button
+                className="text-button"
+                type="button"
+                onClick={() =>
+                  navigate('/confirm-email', {
+                    state: { email: email.trim(), resend: true },
+                  })
+                }
+              >
+                Resend confirmation email
+              </button>
+            ) : null}
 
             <ClickSpark
               sparkColor={SPARK_COLORS}
@@ -355,7 +389,10 @@ export function LoginPage() {
             <button
               className="text-button"
               type="button"
-              onClick={() => setDialog('signup')}
+              onClick={() => {
+                setSignupError('');
+                setDialog('signup');
+              }}
             >
               Sign up
             </button>
@@ -448,6 +485,8 @@ export function LoginPage() {
                     {...signupField('dob')}
                     type="date"
                     required
+                    min="1900-01-01"
+                    max={localToday()}
                     autoComplete="bday"
                   />
                 </label>
@@ -473,9 +512,11 @@ export function LoginPage() {
                   <input
                     {...signupField('phone')}
                     type="tel"
+                    inputMode="tel"
                     required
-                    maxLength={15}
+                    maxLength={20}
                     autoComplete="tel"
+                    placeholder="(410) 555-0182"
                   />
                 </label>
               </div>
@@ -502,9 +543,9 @@ export function LoginPage() {
               </div>
             </Step>
           </Stepper>
-          {error ? (
+          {signupError ? (
             <p role="alert" className="form-error">
-              {error}
+              {signupError}
             </p>
           ) : null}
         </form>

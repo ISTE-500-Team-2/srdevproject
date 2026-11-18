@@ -49,6 +49,9 @@ test('signup stages an expiring request with no member, role, preference or sess
   assert.ok(member.user.roles.includes('member'));
   assert.equal((await pool.query('SELECT 1 FROM app_pending_registration WHERE email=$1',[input.email])).rowCount,0);
   assert.equal((await pool.query('SELECT COUNT(*)::int AS n FROM "user" WHERE email=$1',[input.email])).rows[0].n,1);
+  // Opening the link again after it worked says it may already have been used.
+  const again=await request(app).post('/api/auth/confirm').send({token});
+  assert.equal(again.body.error.code,'CONFIRMATION_INVALID');assert.match(again.body.error.message,/already used/);
 });
 
 // Previously a second sign-up was silently dropped, so whoever staged an address first chose the
@@ -123,13 +126,36 @@ test('repeated sign-ups email one address at most three times an hour; the newes
   assert.equal((await request(app).post('/api/auth/login').send({email,password:'FloodPassword5!'})).status,200);
 });
 
+// The answer never says whether a correction moved anything, so the page repeats the same pair.
+test('a corrected resend retried after a mistyped password, or after it already moved, still reaches the sign-up',async()=>{
+  const flow=createApp(pool,config);
+  const input=person('retry-typo@example.invalid'),corrected='retry-right@example.invalid';
+  const resend=(password:string)=>request(flow).post('/api/auth/confirmation').send({...input,password,newEmail:corrected});
+  const wait=()=>pool.query("UPDATE app_pending_registration SET sent_at=NOW()-INTERVAL '61 seconds' WHERE email=ANY($1::text[])",[[input.email,corrected]]);
+  await register(input.email);await wait();
+  const first=await confirmationToken(pool,input.email);
+  assert.equal((await resend('WrongPassword!')).status,202);
+  assert.equal(await confirmationToken(pool,input.email),first,'a wrong password moves nothing');
+  assert.equal((await resend(input.password)).status,202);
+  assert.equal((await pool.query('SELECT 1 FROM app_pending_registration WHERE email=$1',[input.email])).rowCount,0);
+  const moved=await confirmationToken(pool,corrected);
+  await wait();
+  assert.equal((await resend(input.password)).status,202);
+  const again=await confirmationToken(pool,corrected);
+  assert.notEqual(again,moved,'the repeat finds the sign-up under the corrected address and sends a fresh link');
+  const confirmed=await request(flow).post('/api/auth/confirm').send({token:again});
+  assert.equal(confirmed.status,200);assert.equal(confirmed.body.data.user.email,corrected);
+});
+
 test('the email worker sends staged confirmation without activating a member and expired requests are purged',async()=>{
   await register('worker@example.invalid');
+  // Read the link the way the email would deliver it: once sent, the outbox no longer keeps it.
+  const token=await confirmationToken(pool,'worker@example.invalid');
   const sent:string[]=[];
   const result=await runNotificationBatch(pool,async job=>{sent.push(job.email);return{messageId:'test-'+sent.length};});
   assert.ok(result.accepted>=1);assert.ok(sent.includes('worker@example.invalid'));
   assert.equal((await pool.query('SELECT 1 FROM "user" WHERE email=$1',['worker@example.invalid'])).rowCount,0);
-  const token=await confirmationToken(pool,'worker@example.invalid');
+  assert.equal((await pool.query(`SELECT 1 FROM app_notification_outbox WHERE status='accepted' AND payload ? 'confirmationUrl'`)).rowCount,0);
   await pool.query("UPDATE app_pending_registration SET expires_at=NOW()-INTERVAL '1 second' WHERE email=$1",['worker@example.invalid']);
   assert.equal((await request(app).post('/api/auth/confirm').send({token})).status,400);
   await pruneRegistrations(pool);
@@ -159,10 +185,11 @@ test('signup, duplicates, correction, delivery, login and password recovery shar
   await pool.query("UPDATE app_pending_registration SET sent_at=NOW()-INTERVAL '61 seconds' WHERE email=$1",[initial]);
   assert.equal((await request(flow).post('/api/auth/confirmation').send({...input,newEmail:' First.Last+Workshop@Example.COM '})).status,202);
   assert.equal((await request(flow).post('/api/auth/confirm').send({token:old})).status,400);
+  const correctedToken=await confirmationToken(pool,corrected);
   const recipients:string[]=[];
   await runNotificationBatch(pool,async job=>{recipients.push(job.email);return{messageId:'identity-'+randomBytes(6).toString('hex')};});
   assert.ok(recipients.includes(corrected));
-  const confirmed=await request(flow).post('/api/auth/confirm').send({token:await confirmationToken(pool,corrected)});
+  const confirmed=await request(flow).post('/api/auth/confirm').send({token:correctedToken});
   assert.equal(confirmed.status,200);assert.equal(confirmed.body.data.user.email,corrected);
   const id=confirmed.body.data.user.id;
   const login=await request(flow).post('/api/auth/login').send({email:' First.Last+Workshop@Example.COM ',password:input.password});

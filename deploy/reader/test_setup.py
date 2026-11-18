@@ -165,6 +165,36 @@ class SetupTests(unittest.TestCase):
                 provisioner.return_value.rollback.assert_called_once()
             self.assertFalse(agent.profile(device).exists());self.assertEqual(agent.updates['job']['errorCode'],'wifi_failed')
 
+    def test_cancel_after_pairing_gives_back_the_reader_the_device_was_set_up_as(self):
+        for recovery_fails in [False,True]:
+            with self.subTest(recovery_fails=recovery_fails),tempfile.TemporaryDirectory() as directory:
+                root=Path(directory);agent=self.agent(root);device='usb-'+'a'*24
+                old={'deviceId':device,'jobId':'old','readerId':'old','readerSecret':'c'*64,'linkKey':'c'*64,
+                     'backendUrl':'https://backend.example','activated':True}
+                private_json(agent.profile(device),old)
+                job={'id':'job','deviceId':device,'readerId':'new','readerSecret':'b'*64,'ssid':'network','password':'private'}
+                with patch('setup_agent.USBProvisioner') as provisioner,patch.object(agent,'verify'):
+                    provisioner.return_value.configure.return_value={'ip':'192.0.2.1','firmware':'1.7.1-c3-checkin','readerReady':True}
+                    agent.provision(job,{'path':'/dev/serial/by-id/mini'},threading.Event(),threading.Event())
+                self.assertEqual(json.loads(agent.profile(device).read_text())['readerId'],'new')
+                saved=agent.root/'job'/'previous-profile.json'
+                self.assertEqual(saved.stat().st_mode&0o777,0o600)
+                data=flash();(agent.root/'job'/'full-flash-before.private.bin').write_bytes(data)
+                private_json(agent.root/'job'/'backup-proof.json',{'sha256':hashlib.sha256(data).hexdigest()})
+                # Pairing finished, so no thread is left to undo it when the server cancels.
+                with patch('setup_agent.USBProvisioner') as recovery:
+                    if recovery_fails:recovery.return_value.rollback.side_effect=SetupError('backup_failed')
+                    agent.handle([{'id':'job','deviceId':device,'readerId':'new','status':'cancelled'}],{})
+                    agent.workers['job']['thread'].join(2)
+                    recovery.return_value.rollback.assert_called_once()
+                if recovery_fails:
+                    # The device may still hold the new pairing: neither reader may work.
+                    self.assertFalse(agent.profile(device).exists())
+                    self.assertEqual(agent.updates['job']['errorCode'],'recovery_required')
+                else:
+                    self.assertEqual(json.loads(agent.profile(device).read_text()),old)
+                for executor in agent.executors.values():executor.shutdown()
+
     def test_unsupported_boot_never_writes_credentials(self):
         with tempfile.TemporaryDirectory() as directory:
             reader=USBProvisioner({'path':'/dev/serial/by-id/mini'},directory,threading.Event(),lambda _:None)

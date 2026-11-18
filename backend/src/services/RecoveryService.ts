@@ -8,11 +8,14 @@ import { resendRegistration } from '../confirmation/pendingRegistration.js';
 import { issueEmailConfirmation } from '../confirmation/emailConfirmation.js';
 import { checkPasswordReset, consumePasswordReset, issuePasswordReset } from '../confirmation/passwordReset.js';
 
-interface ResetAccount { userid: number; status: string }
+interface ResetAccount { userid: number; status: string; email_confirmed: boolean }
 
 // One reset policy for self-service and administrator requests. The caller holds
-// the account row lock (FOR UPDATE) for the whole transaction.
-const resetAllowed = (account: ResetAccount): boolean => account.status === 'active';
+// the account row lock (FOR UPDATE) for the whole transaction. Older accounts that
+// never confirmed their email are held as 'pending'; a reset link proves the inbox
+// just as a confirmation link does, so they can recover too.
+const resetAllowed = (account: ResetAccount): boolean =>
+  account.status === 'active' || (account.status === 'pending' && !account.email_confirmed);
 async function resetRequestedRecently(db: Database, userId: number): Promise<boolean> {
   const recent = await db.query(`SELECT 1 FROM app_password_reset
     WHERE userid=$1 AND created_at>NOW()-INTERVAL '1 minute'`, [userId]);
@@ -42,17 +45,19 @@ export class RecoveryService {
       if (error?.code === '23505') return true;
       throw error;
     });
-    const account = await new UserModel(this.pool).credentials(email);
+    const users = new UserModel(this.pool);
+    // As with a pending sign-up, a retried correction may find the account already moved.
+    const account = await users.credentials(email) ?? (newEmail ? await users.credentials(newEmail) : null);
     const valid = await verifyPassword(password, account?.password ?? await this.dummyHash);
     if (pending || !account || !valid || account.emailConfirmed) return;
     try {
       await transaction(this.pool, async db => {
-        const current = (await db.query('SELECT email_confirmed,status FROM "user" WHERE userid=$1 FOR UPDATE', [account.id])).rows[0];
+        const current = (await db.query('SELECT email,email_confirmed,status FROM "user" WHERE userid=$1 FOR UPDATE', [account.id])).rows[0];
         if (!current || current.email_confirmed || !['active', 'pending'].includes(current.status)) return;
         const previous = (await db.query('SELECT created_at FROM app_email_confirmation WHERE userid=$1', [account.id])).rows[0];
         if (previous && Date.now() - new Date(previous.created_at).getTime() < 60000)
           throw new AppError(429, 'CONFIRMATION_RATE_LIMITED', 'Wait one minute before requesting another confirmation.');
-        if (newEmail) {
+        if (newEmail && current.email.toLowerCase() !== newEmail) {
           await db.query('UPDATE "user" SET email=$2,revision=revision+1 WHERE userid=$1', [account.id, newEmail]);
           // A link sent to the old inbox must not confirm ownership of the new one.
           await db.query('DELETE FROM app_password_reset WHERE userid=$1', [account.id]);
@@ -76,7 +81,7 @@ export class RecoveryService {
     await Promise.all([
       verifyPassword('password-reset-request', dummy),
       transaction(this.pool, async db => {
-        const account = (await db.query<ResetAccount>('SELECT userid,status FROM "user" WHERE lower(email)=$1 FOR UPDATE', [email])).rows[0];
+        const account = (await db.query<ResetAccount>('SELECT userid,status,email_confirmed FROM "user" WHERE lower(email)=$1 FOR UPDATE', [email])).rows[0];
         if (!account || !resetAllowed(account) || await resetRequestedRecently(db, account.userid)) return;
         await issuePasswordReset(db, account.userid, this.origin);
       }),
@@ -89,7 +94,7 @@ export class RecoveryService {
       throw new AppError(403, 'ADMIN_REQUIRED', 'Only administrators can send password reset emails.');
     const id = positiveId(subject);
     await transaction(this.pool, async db => {
-      const account = (await db.query<ResetAccount>('SELECT userid,status FROM "user" WHERE userid=$1 FOR UPDATE', [id])).rows[0];
+      const account = (await db.query<ResetAccount>('SELECT userid,status,email_confirmed FROM "user" WHERE userid=$1 FOR UPDATE', [id])).rows[0];
       if (!account) throw new AppError(404, 'NOT_FOUND', 'That account no longer exists.');
       if (!resetAllowed(account))
         throw new AppError(409, 'ACCOUNT_INACTIVE', 'Password resets are only available for active accounts.');

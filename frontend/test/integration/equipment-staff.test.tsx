@@ -18,7 +18,8 @@ test('staff equipment UI saves four-hour reservation for selected member and doe
  const member=(await bridge.pool.query(`SELECT userid FROM "user" WHERE email='demo.member@collaboratory.invalid'`)).rows[0].userid;
  render(<MemoryRouter initialEntries={['/reservations']}><App/></MemoryRouter>);
  const user=userEvent.setup();
- await user.click(await screen.findByRole('button',{name:/Rachel/}));
+ // A type's card button lists its machines as its description.
+ await user.click(await screen.findByRole('button',{description:/Rachel/}));
  const modal=within(screen.getByRole('dialog'));
  await user.type(modal.getByRole('combobox',{name:/Book for a member/}),'Jordan');
  await user.click(await screen.findByRole('option',{name:/Jordan Demo/}));

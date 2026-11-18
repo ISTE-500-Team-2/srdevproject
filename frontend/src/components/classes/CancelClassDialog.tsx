@@ -1,7 +1,7 @@
 // Confirms class cancellation and collects the reason required by the staff workflow.
 
 import { Users, X } from "lucide-react";
-import { useRef, useState, type FormEvent } from "react";
+import { useState } from "react";
 import { Modal } from "../Modal";
 import { api, ApiError, errorMessage } from "../../lib/api";
 import { shortDate, timeOnly } from "../../lib/display";
@@ -25,9 +25,7 @@ export function CancelClassDialog({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const form = useRef<HTMLFormElement>(null);
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function cancel() {
     setBusy(true);
     setError("");
     try {
@@ -40,6 +38,10 @@ export function CancelClassDialog({
       if (e instanceof ApiError && e.code === "STALE_RECORD") {
         setError("This class changed since you opened it. Its details are refreshed. Check them, then cancel again.");
         onStale();
+      } else if (e instanceof ApiError && e.code === "CLASS_CLOSED") {
+        // It started (or was cancelled) while this was open; the list catches up.
+        setError("This class has already started or been cancelled, so it can't be cancelled now.");
+        onStale();
       } else setError(errorMessage(e));
     } finally {
       setBusy(false);
@@ -47,7 +49,8 @@ export function CancelClassDialog({
   }
   return (
     <Modal open width="compact" title={`Cancel ${c.title}?`} onClose={onClose}>
-      <form ref={form} className="class-form" onSubmit={(e) => void submit(e)}>
+      {/* Not a <form>: Enter in the reason field would submit it and skip the hold. */}
+      <div className="class-form">
         <p className="class-detail__muted">
           {shortDate(c.startsAt)} · {timeOnly(c.startsAt)} · {c.roomName}
         </p>
@@ -85,8 +88,8 @@ export function CancelClassDialog({
           <button type="button" className="button button--quiet" onClick={onClose}>
             Keep class
           </button>
-          {/* Cancelling can't be undone, so it takes a deliberate hold. The
-              hold submits the form, which keeps the required-reason check. */}
+          {/* Cancelling can't be undone, so the hold is the only way to do it.
+              It stays disabled until there's a reason. */}
           <HoldButton
             className="site-hold-button"
             disabled={busy || !reason.trim()}
@@ -98,12 +101,12 @@ export function CancelClassDialog({
             fillTextColor="var(--hold-danger-ink)"
             icon={<X size={16} aria-hidden="true" />}
             doneLabel={busy ? "Cancelling…" : "Cancelled"}
-            onHold={() => form.current?.requestSubmit()}
+            onHold={() => void cancel()}
           >
             Hold to cancel class
           </HoldButton>
         </div>
-      </form>
+      </div>
     </Modal>
   );
 }

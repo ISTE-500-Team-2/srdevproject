@@ -171,14 +171,14 @@ test('create checks its payable bound before conflicts and the supported range a
   assert.equal((cheap.priceSnapshot as { totalCents: number }).totalCents, 25);
 });
 
-test('member and staff cancellation share payment, audit and notification effects', async () => {
+test('member and staff cancellation share payment, audit and notification effects; staff ones say the studio cancelled', async () => {
   const machine = await equipment('7.00');
   const cancel = (id: number) => request(app).post(`/api/reservations/${id}/cancel`)
     .set('Authorization', 'Bearer ' + memberToken).set('X-CSRF-Token', memberCsrf).send({});
   const effects = async (id: number) => ({
     payment: (await pool.query('SELECT p.paymentstatus FROM payment p JOIN reservation r ON r.payment_id=p.paymentid WHERE r.reservationid=$1', [id])).rows[0].paymentstatus,
     audit: (await pool.query('SELECT action,actor_id,subject_id,reason,before_state FROM app_staff_audit WHERE entity_id=$1 AND action LIKE $2', [id, 'reservation%cancelled'])).rows,
-    notice: (await pool.query('SELECT userid,payload FROM app_notification_outbox WHERE dedupe_key=$1', [`reservation-cancelled:${id}`])).rows,
+    notice: (await pool.query('SELECT userid,kind,payload FROM app_notification_outbox WHERE dedupe_key=$1', [`reservation-cancelled:${id}`])).rows,
   });
 
   const mine = await create(plain(), member, { equipmentId: machine, ...slot(), expectedPrice: await equipmentPrice(pool, machine, 1) });
@@ -192,6 +192,7 @@ test('member and staff cancellation share payment, audit and notification effect
     [['reservation.cancelled', member, member, 'Member cancellation with at least 24 hours notice', null]]);
   assert.equal(memberEffects.notice.length, 1);
   assert.equal(memberEffects.notice[0].userid, member);
+  assert.equal(memberEffects.notice[0].kind, 'reservation_cancelled');
 
   const theirs = await create(plain(), member, { equipmentId: machine, ...slot(), expectedPrice: await equipmentPrice(pool, machine, 1) });
   await plain().cancelAny(admin, theirs.id);
@@ -200,7 +201,18 @@ test('member and staff cancellation share payment, audit and notification effect
   assert.deepEqual(staffEffects.audit.map(row => [row.action, row.actor_id, row.subject_id, row.reason]),
     [['reservation.override.cancelled', admin, member, 'Staff reservation override']]);
   assert.equal(staffEffects.notice[0].userid, member);
+  // The member didn't ask for it, so the email says the studio cancelled it.
+  assert.equal(staffEffects.notice[0].kind, 'reservation_cancelled_by_staff');
   assert.deepEqual(Object.keys(staffEffects.notice[0].payload).sort(), Object.keys(memberEffects.notice[0].payload).sort());
+
+  // A paid booking stays paid when staff cancel it, so the member is told how to get the money back.
+  const settled = await create(plain(), member, { equipmentId: machine, ...slot(), expectedPrice: await equipmentPrice(pool, machine, 1) });
+  await pool.query("UPDATE payment SET paymentstatus='paid' WHERE paymentid=(SELECT payment_id FROM reservation WHERE reservationid=$1)", [settled.id]);
+  await plain().cancelAny(admin, settled.id);
+  const paidEffects = await effects(settled.id);
+  assert.equal(paidEffects.payment, 'paid');
+  assert.equal(paidEffects.notice[0].kind, 'reservation_cancelled_by_staff');
+  assert.match(paidEffects.notice[0].payload.instructions, /^You paid for this booking\. Contact the studio to arrange a refund/);
 
   // Member responses: already cancelled, and short notice.
   const again = await cancel(mine.id);

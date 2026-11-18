@@ -1,6 +1,7 @@
 // Membership trend queries separate historical enrollment from currently effective access.
 
 import type { Database } from "./db.js";
+import { AUTO_RENEWING_PERIODS } from "./billing/policy.js";
 
 /** Memberships are people, not invoices: renewals never become new members. */
 export async function membershipTrends(
@@ -18,7 +19,10 @@ export async function membershipTrends(
       date_trunc('${bucket}',($2::timestamptz-INTERVAL '1 microsecond') AT TIME ZONE $3),INTERVAL '1 ${bucket}') d
   ), membership_windows AS MATERIALIZED (
     -- Convert each stored UTC boundary once, not once per member per bucket.
-    SELECT userid,status,startdate AT TIME ZONE 'UTC' AS starts,end_date AT TIME ZONE 'UTC' AS ends
+    -- A card subscription still set to renew has not lapsed, even before its next invoice posts.
+    -- An uncorrelated set, so the plan is costed as one hashed lookup rather than a scan per membership.
+    SELECT userid,status,startdate AT TIME ZONE 'UTC' AS starts,end_date AT TIME ZONE 'UTC' AS ends,
+      membershipid IN (${AUTO_RENEWING_PERIODS}) AS renewing
     FROM user_membership
   ), cancellations AS MATERIALIZED (
     -- Resolve durable cancellation evidence once, not once per estimated bucket.
@@ -35,7 +39,7 @@ export async function membershipTrends(
     (SELECT COUNT(DISTINCT m.userid)::int FROM membership_windows m WHERE m.status='active'
       AND m.starts<p.b AND m.ends>p.a) AS "activeMembers",
     (SELECT COUNT(DISTINCT m.userid)::int FROM membership_windows m WHERE m.status='active'
-      AND m.ends>=p.a AND m.ends<p.b
+      AND m.ends>=p.a AND m.ends<p.b AND m.ends<=NOW() AND NOT m.renewing
       AND NOT EXISTS(SELECT 1 FROM membership_windows n WHERE n.userid=m.userid AND n.status='active'
         AND n.starts<=m.ends AND n.ends>m.ends)) AS "expiringMembers",
     (SELECT COUNT(DISTINCT b.userid)::int FROM cancellations b WHERE
@@ -48,6 +52,6 @@ export async function membershipTrends(
 
 export const membershipReportNotes = [
   "Membership counts are distinct people per period. New means first recorded membership start; renewals are not new members.",
-  "Active means a currently active membership record overlaps the period; these are current-record coverage counts, not reconstructed historical account eligibility. Expiring means a recorded period ends without another currently active period continuing it.",
+  "Active means a currently active membership record overlaps the period; these are current-record coverage counts, not reconstructed historical account eligibility. Ended without renewing means a recorded period has already ended without another currently active period continuing it; a card subscription still set to renew is not counted while its next payment posts.",
   "Cancelled counts member cancellations of desk-issued memberships plus confirmed recurring-billing cancellation requests by request date, using the confirmation flag or the durable cancellation-confirmation event (independent of email delivery). Paid access may remain active until its end date. Abandoned checkouts, expiry, suspension and manual revocation are not cancellation requests; undated legacy cancellations cannot be placed in a trend.",
 ];

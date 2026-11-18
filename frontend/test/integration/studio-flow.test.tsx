@@ -120,7 +120,8 @@ test('Equipment replaces the old combined page without breaking studio navigatio
   vi.stubGlobal('fetch',captured);
   render(<MemoryRouter initialEntries={['/reservations?source=bookmark#my-reservations']}><App /><CurrentRoute /></MemoryRouter>);
   await screen.findByRole('heading',{name:'Equipment',exact:true});
-  await screen.findByRole('button',{name:/Rachel/});
+  // A type's card button lists its machines as its description.
+  await screen.findByRole('button',{description:/Rachel/});
   expect(screen.getByLabelText('Current route').textContent).toBe('/equipment?source=bookmark#my-reservations');
   expect(screen.queryByRole('heading',{name:'Studio Spaces'})).toBeNull();
   expect(screen.queryByLabelText('Studio size filter')).toBeNull();

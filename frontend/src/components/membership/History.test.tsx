@@ -44,3 +44,33 @@ test("payments staff recorded at the desk say so; online card payments don't", (
   for (const plan of ["Cash plan", "Desk card plan", "Transfer plan", "Other plan"]) expect(cell(plan)).toContain("Paid at front desk");
   expect(cell("Online plan")).not.toContain("Paid at front desk");
 });
+
+test("the history tabs name their panel and move with the arrow keys", () => {
+  useApi.mockImplementation(() => ({ data: { items: [], nextOffset: null }, loading: false, refreshing: false, stale: false, error: "", reload: vi.fn() }));
+  render(<History memberships={[]} passes={[]} />);
+  const toggle = screen.getByRole("button", { name: /History/ });
+  // Collapsed, the toggle doesn't point at a body that isn't there.
+  expect(toggle.hasAttribute("aria-controls")).toBe(false);
+  fireEvent.click(toggle);
+  expect(document.getElementById(toggle.getAttribute("aria-controls")!)).not.toBeNull();
+
+  const records = screen.getByRole("tab", { name: "Memberships & passes" });
+  const payments = screen.getByRole("tab", { name: "Payments" });
+  expect(screen.getByRole("tabpanel", { name: "Memberships & passes" }).id).toBe(records.getAttribute("aria-controls"));
+  expect([records.tabIndex, payments.tabIndex]).toEqual([0, -1]);
+
+  records.focus();
+  fireEvent.keyDown(records, { key: "ArrowRight" });
+  expect(document.activeElement).toBe(payments);
+  expect(payments.getAttribute("aria-selected")).toBe("true");
+  expect(screen.getByRole("tabpanel", { name: "Payments" })).toBeTruthy();
+  expect([records.tabIndex, payments.tabIndex]).toEqual([-1, 0]);
+  // The arrows wrap around, and Home goes to the first tab.
+  fireEvent.keyDown(payments, { key: "ArrowRight" });
+  expect(document.activeElement).toBe(records);
+  fireEvent.keyDown(records, { key: "End" });
+  expect(document.activeElement).toBe(payments);
+  fireEvent.keyDown(payments, { key: "Home" });
+  expect(document.activeElement).toBe(records);
+  expect(screen.getByRole("tabpanel", { name: "Memberships & passes" })).toBeTruthy();
+});

@@ -2,7 +2,7 @@
 // submission.
 
 import { AlertTriangle, Info } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useId, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { Modal } from "../Modal";
 import { MemberSelect } from "../MemberSelect";
@@ -60,10 +60,18 @@ export function ScheduleClassDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [roomError, setRoomError] = useState("");
+  const [instructorError, setInstructorError] = useState("");
+  // Closing with Escape, the close button, a click outside or Cancel asks before discarding a draft.
+  const [dirty, setDirty] = useState(false);
+  const changed = (value: boolean) => {
+    setDirty(value);
+    onDirty(value);
+  };
   const room = rooms.data?.find((r) => String(r.id) === form.roomId);
   const course = catalog.data?.find(c => String(c.id) === form.certificationId);
   const minutes = duration(form.date, form.start, form.end);
-  const timeProblem =
+  // Length problems are fixed at the end time; a start in the past at the start time.
+  const lengthProblem =
     minutes === null
       ? ""
       : minutes <= 0
@@ -72,9 +80,15 @@ export function ScheduleClassDialog({
           ? `This certification requires at least ${course.trainingMinutes} minutes of training.`
         : minutes > 480
           ? "Classes can run up to 8 hours."
-          : new Date(`${form.date}T${form.start}`).getTime() <= Date.now()
-            ? "Pick a start time in the future."
-            : "";
+          : "";
+  const startProblem =
+    minutes !== null && !lengthProblem && new Date(`${form.date}T${form.start}`).getTime() <= Date.now()
+      ? "Pick a start time in the future."
+      : "";
+  const timeProblem = lengthProblem || startProblem;
+  const timeNoteId = useId();
+  const startField = useRef<HTMLInputElement>(null);
+  const endField = useRef<HTMLInputElement>(null);
 
   function set<K extends keyof typeof form>(key: K, value: string) {
     setForm((current) => {
@@ -96,15 +110,21 @@ export function ScheduleClassDialog({
       return next;
     });
     if (key === "roomId" || key === "date" || key === "start" || key === "end") setRoomError("");
-    onDirty(true);
+    if (key === "instructorId" || key === "date" || key === "start" || key === "end") setInstructorError("");
+    changed(true);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (timeProblem) return;
+    if (timeProblem) {
+      // Take the user to the time that needs changing; the message is announced as it appears.
+      (lengthProblem ? endField : startField).current?.focus();
+      return;
+    }
     setBusy(true);
     setError("");
     setRoomError("");
+    setInstructorError("");
     try {
       await api("/classes", {
         method: "POST",
@@ -121,14 +141,15 @@ export function ScheduleClassDialog({
           reason: form.reason.trim(),
         },
       });
-      onDirty(false);
+      changed(false);
       onPublished(form.title.trim());
     } catch (e) {
       if (e instanceof ApiError && roomConflict.has(e.code)) {
         setRoomError("Booked for part of this time");
-        setError(
-          `${room?.name ?? "That room"} is already booked for part of this time. Pick another room or time. Bookings in the same room need 15 minutes between them.`,
-        );
+        setError(`${room?.name ?? "That room"} is already booked for part of this time. Pick another room or time.`);
+      } else if (e instanceof ApiError && e.code === "INSTRUCTOR_CONFLICT") {
+        setInstructorError("Teaching another class at this time");
+        setError("This instructor is already teaching another class at this time. Pick another instructor or time.");
       } else setError(errorMessage(e));
     } finally {
       setBusy(false);
@@ -145,11 +166,11 @@ export function ScheduleClassDialog({
     setKind(next);
     // Each class type sends only its own link: a certification or a workshop.
     setForm((current) => (next === "training" ? { ...current, catalogId: "" } : { ...current, certificationId: "" }));
-    onDirty(true);
+    changed(true);
   }
   return (
-    <Modal open title="Schedule a class" onClose={onClose}>
-      <form className="class-form" onSubmit={(e) => void submit(e)}>
+    <Modal open title="Schedule a class" onClose={onClose} dirty={dirty} dismissible={!busy}>
+      {(requestClose) => <form className="class-form" onSubmit={(e) => void submit(e)}>
         {error ? (
           <p className="class-banner class-banner--error" role="alert">
             <AlertTriangle aria-hidden="true" />
@@ -273,16 +294,40 @@ export function ScheduleClassDialog({
             </label>
             <label className="class-field">
               <span>Starts</span>
-              <input type="time" value={form.start} required step={900} onChange={(e) => set("start", e.target.value)} />
+              <input
+                ref={startField}
+                type="time"
+                value={form.start}
+                required
+                step={900}
+                aria-invalid={Boolean(startProblem)}
+                aria-describedby={timeNoteId}
+                onChange={(e) => set("start", e.target.value)}
+              />
             </label>
             <label className="class-field">
               <span>Ends</span>
-              <input type="time" value={form.end} required step={900} onChange={(e) => set("end", e.target.value)} />
+              <input
+                ref={endField}
+                type="time"
+                value={form.end}
+                required
+                step={900}
+                aria-invalid={Boolean(lengthProblem)}
+                aria-describedby={timeNoteId}
+                onChange={(e) => set("end", e.target.value)}
+              />
             </label>
           </div>
-          <small className={timeProblem ? "class-field__error" : "class-form__hint"}>
-            {timeProblem || (minutes ? `${durationText(minutes)} · classes can run up to 8 hours` : "")}
-          </small>
+          {timeProblem ? (
+            <small key="problem" id={timeNoteId} className="class-field__error" role="alert">
+              {timeProblem}
+            </small>
+          ) : (
+            <small key="hint" id={timeNoteId} className="class-form__hint">
+              {minutes ? `${durationText(minutes)} · classes can run up to 8 hours` : ""}
+            </small>
+          )}
         </fieldset>
         <fieldset disabled={busy}>
           <legend>
@@ -330,8 +375,19 @@ export function ScheduleClassDialog({
               label="Instructor"
               instructorsOnly
               value={form.instructorId}
+              selectedMember={
+                seed.instructorId && seed.instructorName
+                  ? { id: seed.instructorId, name: seed.instructorName, email: "" }
+                  : undefined
+              }
               onChange={(value) => set("instructorId", value)}
             />
+            {instructorError ? (
+              <small className="class-field__error">
+                <AlertTriangle aria-hidden="true" />
+                {instructorError}
+              </small>
+            ) : null}
           </div>
           <label className="class-field">
             <span>Reason for change</span>
@@ -346,17 +402,17 @@ export function ScheduleClassDialog({
         </fieldset>
         <div className="class-dialog-actions">
           <span>Members see it once published.</span>
-          <button type="button" className="button button--quiet" onClick={onClose}>
+          <button type="button" className="button button--quiet" onClick={requestClose} disabled={busy}>
             Cancel
           </button>
           <button
             className="button button--primary"
-            disabled={busy || Boolean(timeProblem) || loading || Boolean(loadError)}
+            disabled={busy || loading || Boolean(loadError)}
           >
             {busy ? "Publishing…" : "Publish class"}
           </button>
         </div>
-      </form>
+      </form>}
     </Modal>
   );
 }

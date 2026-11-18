@@ -17,6 +17,7 @@ import { checkOrigin } from './middleware/auth.js';
 import { apiRoutes } from './routes.js';
 import { knownRoutesOnly } from './middleware/knownRoutes.js';
 import { brevoWebhook } from './notifications/webhook.js';
+import { errorIdentifier } from './logSafety.js';
 
 // Token-bearing auth responses (BREACH), signed NFC reader traffic and provider
 // webhooks keep their exact wire format. Routing is case-insensitive, so match
@@ -72,6 +73,12 @@ export function createApp(
   app.use((_req, res, next) => {
     res.set('X-Content-Type-Options', 'nosniff');
     res.set('Referrer-Policy', 'same-origin');
+    // No other page may load the app in a frame and steer clicks onto staff controls.
+    // Pages on other rit.edu hosts are same-site, so a framed app would be signed in.
+    res.set('Content-Security-Policy', "frame-ancestors 'none'");
+    res.set('X-Frame-Options', 'DENY');
+    // Production is HTTPS-only (its cookies are Secure); browsers should never try plain HTTP.
+    if (config.secureCookies) res.set('Strict-Transport-Security', 'max-age=31536000');
     next();
   });
   app.use('/api', (_req, res, next) => {
@@ -135,6 +142,14 @@ export function createApp(
       res.set('Cache-Control', 'no-store');
     }
     if (error instanceof AppError) {
+      // A 5xx is the server's or a provider's failure (a refund Stripe refused, payments
+      // not configured): leave a trace. Identifiers only, never messages or bodies.
+      if (error.status >= 500)
+        console.error('Request failed', {
+          status: error.status,
+          code: error.code,
+          ...(error.cause === undefined ? {} : { cause: errorIdentifier(error.cause) }),
+        });
       res
         .status(error.status)
         .json({ error: { code: error.code, message: error.message, ...(error.field ? { field: error.field } : {}) } });
@@ -169,6 +184,17 @@ export function createApp(
         });
       return;
     }
+    // A value PostgreSQL can't store or read: a number past its column's range, an impossible date,
+    // text that isn't a number, or a NUL character. Validation catches the usual cases; anything it
+    // misses is almost always the client's input, so it is a 400. Stored data can raise these codes
+    // too (a cast in a view), so leave a quiet trace: the code only, never the value.
+    if (['22003', '22007', '22008', '22P02', '22021', '22P05'].includes(error?.code)) {
+      console.warn('Request rejected by database', { code: error.code });
+      res.status(400).json({
+        error: { code: 'INVALID_INPUT', message: 'A value in the request is not valid.' },
+      });
+      return;
+    }
     // Express could not decode a %-escape in the path (e.g. /api/users/%E0).
     // That is a bad request, not a server failure worth logging.
     if (error instanceof URIError && (error as URIError & { status?: number }).status === 400) {
@@ -197,6 +223,17 @@ export function createApp(
       if (error.status === 416 && error.headers?.['Content-Range'])
         res.set('Content-Range', error.headers['Content-Range']);
       res.status(error.status).type('text/plain').end(error.status === 412 ? 'Precondition failed' : 'Range not satisfiable');
+      return;
+    }
+    // Any other error the client caused and may be told about (a body in an unsupported
+    // charset or Content-Encoding, an aborted upload) keeps its own 4xx. It is not a
+    // server failure, so it is neither answered "please try again" nor logged.
+    if (error?.expose === true && Number.isInteger(error.status) && error.status >= 400 && error.status < 500) {
+      res.status(error.status).json({
+        error: error.status === 415
+          ? { code: 'UNSUPPORTED_MEDIA_TYPE', message: 'The request body uses a character set or encoding the server does not accept.' }
+          : { code: 'INVALID_REQUEST', message: 'The request could not be read.' },
+      });
       return;
     }
     // Never log request bodies, cookies, connection strings, or SQL parameter values.

@@ -25,7 +25,13 @@ export function AccountBar() {
     setError("");
     try {
       await closeAccount();
-      navigate(sessionStorage.getItem(lastWorkspacePathKey) ?? "/admin");
+      let workspacePath = "/admin";
+      try {
+        workspacePath = sessionStorage.getItem(lastWorkspacePathKey) ?? workspacePath;
+      } catch {
+        /* Site data is blocked: back to Today. */
+      }
+      navigate(workspacePath);
     } catch (err) {
       setError(errorMessage(err));
       setBusy(false);

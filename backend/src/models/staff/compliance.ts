@@ -118,12 +118,24 @@ export class ComplianceReports {
         WHERE ($4::text='all' OR u.status=$4::text)
       ),
       current_waivers AS (
-        SELECT DISTINCT ON (name) waiverid,name,version
+        SELECT DISTINCT ON (name) waiverid,name,version,policy_scope
         FROM waiver
         WHERE isactive=true AND required=true
           AND (effectivedate IS NULL OR effectivedate<=NOW() AT TIME ZONE 'UTC')
           AND ($1::int IS NULL OR waiverid=$1)
         ORDER BY name,effectivedate DESC NULLS LAST,waiverid DESC
+      ),
+      -- Facility policies bind every member. Equipment waivers are only checked for equipment
+      -- that requires one, so they bind the members who use it: trained on it or booked on it.
+      equipment_waiver_users AS (
+        SELECT uc.userid FROM user_certifications uc
+        JOIN equipment e ON e.certid=uc.certid AND e.waiverrequired=true
+        WHERE uc.status='active'
+          AND NOT EXISTS(SELECT 1 FROM app_equipment_retirement x WHERE x.equipment_id=e.equipmentid)
+        UNION
+        SELECT r.userid FROM reservation r
+        JOIN equipment e ON e.equipmentid=r.equipmentid AND e.waiverrequired=true
+        WHERE r.status IN ('confirmed','pending') AND r.endtime>NOW() AT TIME ZONE 'UTC'
       ),
       report_certifications AS (
         SELECT certid,name,enddate FROM certifications
@@ -131,8 +143,11 @@ export class ComplianceReports {
           AND ($2::int IS NULL OR certid=$2)
           AND ($2::int IS NOT NULL OR enddate IS NULL OR enddate>=NOW() AT TIME ZONE 'UTC')
       ),
+      -- Every member and current waiver, so each waiver keeps its card even before anyone owes it;
+      -- only owed rows count towards compliance, the attention list and the card totals.
       waiver_status AS (
         SELECT ru.userid,w.waiverid,w.name,w.version,sig.signdate,sig.expires_at,
+          (w.policy_scope='facility' OR ru.userid IN (SELECT userid FROM equipment_waiver_users)) AS owed,
           (sig.userwaiverid IS NOT NULL AND (sig.expires_at IS NULL OR sig.expires_at>NOW())) AS compliant,
           (sig.expires_at IS NOT NULL AND sig.expires_at<=NOW()) AS expired,
           (sig.expires_at IS NOT NULL AND $3::int IS NOT NULL
@@ -184,7 +199,7 @@ export class ComplianceReports {
             'expiresAt',expires_at) ORDER BY name)
             FILTER (WHERE NOT compliant OR (expires_at IS NOT NULL
               AND expires_at<=NOW()+make_interval(days=>COALESCE($3::int,30)))) AS issues
-        FROM waiver_status GROUP BY userid
+        FROM waiver_status WHERE owed GROUP BY userid
       ),
       certification_rollup AS (
         SELECT userid,
@@ -237,9 +252,9 @@ export class ComplianceReports {
         COALESCE((SELECT json_agg(row_to_json(paged) ORDER BY "lastName","firstName",id)
           FROM (SELECT * FROM filtered_users ORDER BY "lastName","firstName",id LIMIT $6 OFFSET $5) paged),'[]'::json) AS users,
         COALESCE((SELECT json_agg(row_to_json(w) ORDER BY name)
-          FROM (SELECT waiverid AS id,name,version,COUNT(*)::int AS total,
-            COUNT(*) FILTER (WHERE compliant)::int AS compliant,
-            COUNT(*) FILTER (WHERE expiring)::int AS expiring
+          FROM (SELECT waiverid AS id,name,version,COUNT(*) FILTER (WHERE owed)::int AS total,
+            COUNT(*) FILTER (WHERE owed AND compliant)::int AS compliant,
+            COUNT(*) FILTER (WHERE owed AND expiring)::int AS expiring
             FROM waiver_status ws JOIN window_users fu ON fu.id=ws.userid GROUP BY waiverid,name,version) w),'[]'::json) AS "waiverBreakdown",
         COALESCE((SELECT json_agg(row_to_json(c) ORDER BY name)
           FROM (SELECT certid AS id,name,COUNT(*)::int AS total,

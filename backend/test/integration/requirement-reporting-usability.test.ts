@@ -320,6 +320,71 @@ test("membership trends count people, not renewals, and separate confirmed cance
   }
 });
 
+test("ended without renewing leaves out periods still running and card subscriptions set to renew", async () => {
+  const tier = (
+    await pool.query("SELECT tierid FROM membership_tiers WHERE kind='membership' ORDER BY tierid LIMIT 1")
+  ).rows[0].tierid;
+  const hour = 3_600_000,
+    now = Date.now();
+  const from = new Date(now - 72 * hour),
+    to = new Date(now + 24 * hour);
+  const ended = async () =>
+    (await membershipTrends(pool, from, to, "America/New_York", "day")).reduce((n, row) => n + row.expiringMembers, 0);
+  const baseline = await ended();
+  // Turning off auto-renew in the app records the date it takes effect, on a period boundary, and leaves
+  // cancel_at_period_end false. A period ending before that date still renews.
+  const member = async (
+    label: string,
+    endsInHours: number,
+    billing?: { cancelAtPeriodEnd?: boolean; cancelsHoursAfterEnd?: number },
+  ) => {
+    const userId = (
+      await pool.query(
+        `INSERT INTO "user"(firstname,lastname,email,password,phone,status) VALUES('Lapse',$1,$2,'not-a-login','0000000000','active') RETURNING userid`,
+        [label, `lapse-${label}-${randomBytes(3).toString("hex")}@example.invalid`],
+      )
+    ).rows[0].userid;
+    const membershipId = (
+      await pool.query(
+        `INSERT INTO user_membership(userid,tierid,startdate,end_date,status)
+         VALUES($1,$2,$3::timestamptz AT TIME ZONE 'UTC',$4::timestamptz AT TIME ZONE 'UTC','active') RETURNING membershipid`,
+        [userId, tier, new Date(now - 30 * 24 * hour), new Date(now + endsInHours * hour)],
+      )
+    ).rows[0].membershipid;
+    if (!billing) return;
+    const billingId = randomUUID(),
+      reference = "in_lapse_" + randomBytes(4).toString("hex");
+    const payment = (
+      await pool.query(
+        `INSERT INTO payment(userid,membershipid,price,paymentstatus,paymentdate,method) VALUES($1,$2,50,'paid',NOW() AT TIME ZONE 'UTC','card') RETURNING paymentid`,
+        [userId, membershipId],
+      )
+    ).rows[0].paymentid;
+    await pool.query(
+      `INSERT INTO app_membership_billing(id,userid,tierid,plan_snapshot,amount_cents,status,cancel_at_period_end,cancellation_effective_at)
+       VALUES($1,$2,$3,'{}',5000,'active',$4,$5)`,
+      [
+        billingId,
+        userId,
+        tier,
+        billing.cancelAtPeriodEnd ?? false,
+        billing.cancelsHoursAfterEnd === undefined ? null : new Date(now + (endsInHours + billing.cancelsHoursAfterEnd) * hour),
+      ],
+    );
+    await pool.query(
+      `INSERT INTO app_membership_invoice(id,billing_id,membership_id,payment_id,period_start,period_end) VALUES($1,$2,$3,$4,$5,$6)`,
+      [reference, billingId, membershipId, payment, new Date(now - 30 * 24 * hour), new Date(now + endsInHours * hour)],
+    );
+  };
+  await member("desk", -24); // ended yesterday: counted
+  await member("tonight", 2); // still running until later today
+  await member("renewing", -1, {}); // Stripe renews it; the invoice has not posted yet
+  await member("later", -1, { cancelsHoursAfterEnd: 30 * 24 }); // auto-renew ends after the next period: renews
+  await member("cancelled", -1, { cancelsHoursAfterEnd: 0 }); // auto-renew turned off in the app, ending here: counted
+  await member("stopped", -1, { cancelAtPeriodEnd: true }); // cancelled at period end in Stripe: counted
+  assert.equal((await ended()) - baseline, 3);
+});
+
 test("BR009 cohort excludes account and membership notices; callbacks cannot inflate counts", async () => {
   const user = (
     await pool.query('SELECT userid FROM "user" ORDER BY userid LIMIT 1')

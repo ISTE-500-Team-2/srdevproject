@@ -1,7 +1,7 @@
 // Focused member-record mutation dialogs carry revisions and reasons so stale edits can be rejected
 // and changes attributed.
 
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useState, type ComponentProps, type FormEvent, type ReactNode } from "react";
 import { api, ApiError, errorMessage } from "../../../lib/api";
 import { editingFormRef } from "../../../lib/editingForms";
 import { dollars } from "../../../lib/display";
@@ -13,8 +13,9 @@ import { AssignCard } from "../../access/MemberCards";
 import { MemberSelect } from "../../MemberSelect";
 import { Modal } from "../../Modal";
 import { AssistedPurchase } from "../AssistedPurchase";
-import { CardRefund, PaymentEditor, paymentStatusName } from "../PaymentControls";
+import { CardRefund, PaymentEditor, paymentStatusName, refundAccepted } from "../PaymentControls";
 import { ROLES, roleName } from "./recordModel";
+import { day } from "./recordParts";
 import { MemberPhoto } from "../../MemberPhoto";
 import { initials } from "../../admin/people";
 
@@ -27,6 +28,7 @@ export type DialogState =
   | { kind: "photo"; version: string }
   | { kind: "sell"; renewal?: Entitlement }
   | { kind: "entitlement"; item: Entitlement; entitlementKind: "membership" | "day_pass" }
+  | { kind: "stopRenewal"; item: Entitlement }
   | { kind: "payment"; payment: Payment }
   | { kind: "refund"; payment: Payment }
   | { kind: "assign"; replacement?: NfcCard }
@@ -39,6 +41,26 @@ export type DialogState =
 class DialogMessage extends Error {}
 /** The record changed under an open dialog: the dialog stops offering a retry on old data. */
 class StaleDialog extends DialogMessage {}
+
+/**
+ * A record dialog's Modal. Once staff change anything in it, a stray click outside or Escape asks
+ * before throwing the draft away. `dirty` adds work that no change event reports, such as a captured
+ * card scan.
+ */
+function DraftModal({
+  children,
+  dirty = false,
+  ...props
+}: Omit<ComponentProps<typeof Modal>, "children"> & { children: ReactNode }) {
+  const [edited, setEdited] = useState(false);
+  return (
+    <Modal {...props} dirty={dirty || edited}>
+      <div className="mr-dialog__draft" onChangeCapture={() => setEdited(true)}>
+        {children}
+      </div>
+    </Modal>
+  );
+}
 
 /** A compact dialog around one form. `onSubmit` returns the sentence the toast shows. */
 function RecordDialog({
@@ -79,7 +101,7 @@ function RecordDialog({
     }
   };
   return (
-    <Modal open width={wide ? "regular" : "compact"} title={title} onClose={() => !busy && onClose()} className="mr-dialog">
+    <DraftModal open width={wide ? "regular" : "compact"} title={title} onClose={onClose} dismissible={!busy} className="mr-dialog">
       {/* editingFormRef: the record's background refresh waits while this is being edited. */}
       <form ref={editingFormRef} className="management-form mr-dialog__form" aria-label={title} onSubmit={submit}>
         <fieldset className="mr-dialog__fields" disabled={busy}>
@@ -99,7 +121,7 @@ function RecordDialog({
           </button>
         </div>
       </form>
-    </Modal>
+    </DraftModal>
   );
 }
 
@@ -141,8 +163,8 @@ export function RecordDialogHost({
   timeZone: string;
   supervision: SupervisionSummary | null;
   onClose: () => void;
-  /** A change was saved: show this sentence and refresh the record. */
-  onDone: (message: string) => void;
+  /** A change was saved: show this sentence and refresh the record. `problem`: it saved, but didn't work (a card refund Stripe didn't complete). */
+  onDone: (message: string, problem?: boolean) => void;
   /** A write returned the member's committed record, with its new revision. */
   onPerson: (person: Person) => void;
   /** Someone else saved first; refresh before the next try. */
@@ -232,20 +254,24 @@ export function RecordDialogHost({
           <Reason />
         </RecordDialog>
       );
-    case "profile":
+    case "profile": {
+      // Older accounts have no date of birth, so they can't sponsor a minor until staff add one.
+      const addBirthDate = person.dobOnFile === false;
       return (
         <RecordDialog
           {...common}
-          title="Name & phone"
+          title={addBirthDate ? "Name, phone & date of birth" : "Name & phone"}
           submitLabel="Save"
           onSubmit={async (f) => {
+            const dob = String(f.get("dob") ?? "");
             await write(`/admin/users/${id}/profile`, "PATCH", {
               firstName: f.get("firstName"),
               lastName: f.get("lastName"),
               phone: f.get("phone"),
+              ...(dob ? { dob } : {}),
               reason: String(f.get("reason") ?? "").trim() || undefined,
             });
-            return "Name and phone saved.";
+            return dob ? "Name, phone and date of birth saved." : "Name and phone saved.";
           }}
         >
           <div className="mr-grid2">
@@ -264,10 +290,24 @@ export function RecordDialogHost({
             </span>
             <input name="phone" type="tel" defaultValue={person.phone} maxLength={15} autoComplete="off" />
           </label>
+          {addBirthDate ? (
+            <label className="form-field">
+              <span>
+                Date of birth<span className="mr-optional"> (optional)</span>
+              </span>
+              <input name="dob" type="date" max={new Date().toISOString().slice(0, 10)} autoComplete="off" aria-describedby="mr-dob-hint" />
+            </label>
+          ) : null}
+          {addBirthDate ? (
+            <p id="mr-dob-hint" className="mr-dialog__hint">
+              None is on file, so {first} can’t sponsor a minor yet. Check it before saving: it can’t be changed here afterwards.
+            </p>
+          ) : null}
           <p className="mr-dialog__hint">Email is how {first} signs in, so they change it from their own profile.</p>
           <Reason optional />
         </RecordDialog>
       );
+    }
     case "photo":
       return (
         <RecordDialog
@@ -317,7 +357,8 @@ export function RecordDialogHost({
                 body: { status, revision: item.revision, reason: f.get("reason") },
               });
             } catch (error) {
-              if (error instanceof ApiError && error.status === 409) {
+              // Other refusals (such as card renewal still on) keep the server's own explanation.
+              if (error instanceof ApiError && error.status === 409 && error.code === "STALE_RECORD") {
                 onConflict();
                 throw new StaleDialog(`This ${noun} changed since you opened it. The latest is loaded; close this and check it before trying again.`);
               }
@@ -330,6 +371,7 @@ export function RecordDialogHost({
           <p className="mr-dialog__lead">
             This changes access only; it does not extend the end date or issue a refund.
             {item.cardBilled ? " It does not pause or cancel card billing." : ""}
+            {item.autoRenews ? " To end access, first choose Stop auto-renew on this membership." : ""}
           </p>
           <fieldset className="mr-options">
             <legend className="sr-only">{noun} status</legend>
@@ -341,9 +383,45 @@ export function RecordDialogHost({
         </RecordDialog>
       );
     }
+    case "stopRenewal": {
+      const item = dialog.item;
+      return (
+        <RecordDialog
+          {...common}
+          title={`Stop auto-renew for ${item.plan?.name ?? "this membership"}?`}
+          submitLabel="Stop auto-renew"
+          danger
+          onSubmit={async (f) => {
+            const { endsAt, emailed } = await api<{ endsAt: string | null; emailed: boolean }>(
+              `/admin/users/${id}/memberships/${item.id}/stop-renewal`,
+              { method: "POST", body: { reason: f.get("reason") } },
+            );
+            const last = endsAt ? `; card billing ends ${day(endsAt)}` : "";
+            // No email reaches an account on hold or one that turned membership emails off.
+            return emailed
+              ? `${first}’s auto-renew is off${last}. ${first} gets an email with the last day.`
+              : `${first}’s auto-renew is off${last}. ${first} won’t get an email about it, so let them know the last day.`;
+          }}
+        >
+          {item.renewalStopPending && item.renewalEndsAt ? (
+            <p className="mr-dialog__lead">
+              The last day, {day(item.renewalEndsAt)}, is already set, but the payment provider hasn’t confirmed it. This asks
+              it again; the day doesn’t move.
+            </p>
+          ) : (
+            <p className="mr-dialog__lead">
+              For when {first} can’t do it from their own account, even while it’s on hold or restricted. It works as if {first}
+              had: billing ends on the first billing date at least 30 days from today, so there may be one more charge, and the
+              membership runs until then. This doesn’t change access: end or suspend it separately.
+            </p>
+          )}
+          <Reason />
+        </RecordDialog>
+      );
+    }
     case "sell":
       return (
-        <Modal open width="regular" title={dialog.renewal ? `Renew ${dialog.renewal.plan?.name ?? "membership"}` : "Sell or record a payment"} onClose={onClose} className="mr-dialog">
+        <DraftModal open width="regular" title={dialog.renewal ? `Renew ${dialog.renewal.plan?.name ?? "membership"}` : "Sell or record a payment"} onClose={onClose} className="mr-dialog">
           {dialog.renewal ? <p className="mr-dialog__lead">The renewal starts when the current membership ends, so no days overlap.</p> : null}
           <AssistedPurchase
             heading={false}
@@ -354,27 +432,28 @@ export function RecordDialogHost({
             disabled={false}
             onSaved={() => onDone("Access issued and the payment recorded.")}
           />
-        </Modal>
+        </DraftModal>
       );
     case "payment":
       return (
-        <Modal open width="compact" title={`Payment #${dialog.payment.id}`} onClose={onClose} className="mr-dialog">
+        <DraftModal open width="compact" title={`Payment #${dialog.payment.id}`} onClose={onClose} className="mr-dialog">
           <PaymentEditor payment={dialog.payment} onSaved={(status) => onDone(`Payment #${dialog.payment.id} marked ${paymentStatusName(status).toLowerCase()}.`)} />
-        </Modal>
+        </DraftModal>
       );
     case "refund":
       return (
-        <Modal open width="compact" title={`Refund ${dollars(dialog.payment.amount)}`} onClose={onClose} className="mr-dialog">
+        <DraftModal open width="compact" title={`Refund ${dollars(dialog.payment.amount)}`} onClose={onClose} className="mr-dialog">
           <CardRefund payment={dialog.payment} onRefunded={(status) =>
               onDone(
                 status === "succeeded"
                   ? `Refunded ${dollars(dialog.payment.amount)}.`
-                  : status === "pending" || status === "requires_action"
+                  : refundAccepted(status)
                     ? `Refund of ${dollars(dialog.payment.amount)} is on its way.`
                     : `Stripe didn't complete the refund of ${dollars(dialog.payment.amount)}. Check it in Stripe.`,
+                !refundAccepted(status),
               )
             } />
-        </Modal>
+        </DraftModal>
       );
     case "assign":
       return <AssignDialog person={person} replacement={dialog.replacement ?? null} onClose={onClose} onDone={onDone} />;
@@ -505,8 +584,10 @@ function RolesDialog({
 function AssignDialog({ person, replacement, onClose, onDone }: { person: Person; replacement: NfcCard | null; onClose: () => void; onDone: (m: string) => void }) {
   const setup = useApi<ReaderSetup>("/admin/access/readers");
   const name = `${person.firstName} ${person.lastName}`;
+  // A tapped card arrives by polling, not a change event; closing would release the scan.
+  const [captured, setCaptured] = useState(false);
   return (
-    <Modal open width="regular" title={replacement ? `Replace ${replacement.label}` : "Assign an NFC card"} onClose={onClose} className="mr-dialog mr-dialog--scan">
+    <DraftModal open width="regular" title={replacement ? `Replace ${replacement.label}` : "Assign an NFC card"} onClose={onClose} dirty={captured} className="mr-dialog mr-dialog--scan">
       {replacement ? <p className="mr-dialog__lead">{replacement.label} keeps working until the new card is saved.</p> : null}
       {setup.error ? (
         <p role="alert" className="form-error">
@@ -524,11 +605,12 @@ function AssignDialog({ person, replacement, onClose, onDone }: { person: Person
           onCancelReplacement={onClose}
           onSaved={() => onDone(replacement ? `New card assigned. ${replacement.label} revoked.` : `Card assigned to ${person.firstName}.`)}
           onRefresh={() => undefined}
+          onCaptured={setCaptured}
         />
       ) : (
         <p role="status">Loading readers…</p>
       )}
-    </Modal>
+    </DraftModal>
   );
 }
 

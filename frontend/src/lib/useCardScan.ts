@@ -15,6 +15,10 @@ export function useCardScan(purpose: "assign" | "lookup", userId?: number) {
     [busy, setBusy] = useState(false);
   const [retry, setRetry] = useState(0),
     [now, setNow] = useState(Date.now());
+  // When the scan ends by this browser's clock. It counts from the time the server says is
+  // left, so a computer whose clock is off neither expires a scan at once nor shows the
+  // wrong time remaining; expiresAt alone is only a fallback.
+  const [deadline, setDeadline] = useState(0);
   const active = useRef<string | null>(null),
     generation = useRef(0);
   const release = (id: string) =>
@@ -42,8 +46,14 @@ export function useCardScan(purpose: "assign" | "lookup", userId?: number) {
         return;
       }
       active.current = result.id;
+      const received = Date.now();
+      setDeadline(
+        typeof result.expiresInMs === "number"
+          ? received + result.expiresInMs
+          : Date.parse(result.expiresAt),
+      );
+      setNow(received);
       setScan(result);
-      setNow(Date.now());
     } catch (e) {
       if (current === generation.current) setError(errorMessage(e));
     } finally {
@@ -82,26 +92,32 @@ export function useCardScan(purpose: "assign" | "lookup", userId?: number) {
       clearTimeout(timer);
     };
   }, [scan?.id, scan?.status, retry]);
+  // A lookup is finished once its card is captured; only an assignment still has to be
+  // confirmed before the scan expires.
+  const counting =
+    !!scan &&
+    (scan.status === "waiting" ||
+      (scan.status === "captured" && purpose === "assign"));
   useEffect(() => {
-    if (!scan || !["waiting", "captured"].includes(scan.status)) return;
+    if (!scan || !counting) return;
     const tick = () => {
       const current = Date.now();
       setNow(current);
-      if (current >= Date.parse(scan.expiresAt))
+      if (current >= deadline)
         setScan((s) => (s ? { ...s, status: "expired" } : s));
     };
     const timer = setInterval(tick, 500);
     return () => clearInterval(timer);
-  }, [scan?.id, scan?.status, scan?.expiresAt]);
+  }, [scan?.id, scan?.status, deadline, counting]);
   return {
     scan,
     error,
     busy,
+    /** The scan is still running against its expiry: waiting, or captured for an assignment. */
+    counting,
     start,
     cancel,
-    seconds: scan
-      ? Math.max(0, Math.ceil((Date.parse(scan.expiresAt) - now) / 1000))
-      : 0,
+    seconds: scan ? Math.max(0, Math.ceil((deadline - now) / 1000)) : 0,
     retry: () => {
       setError("");
       setRetry((n) => n + 1);

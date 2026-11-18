@@ -68,7 +68,8 @@ test('equipment search matches name or type and links straight to saved bookings
  expect(screen.queryByRole('heading',{name:'Studio Spaces'})).toBeNull();
  expect(vi.mocked(api).mock.calls.some(([path])=>path==='/studios')).toBe(false);
  fireEvent.change(screen.getByRole('searchbox',{name:'Find equipment'}),{target:{value:'WOOD'}});
- expect(screen.getByRole('button',{name:/Wood Lathe/})).toBeTruthy();
+ // The card's button is named for the type; its machines describe it.
+ expect(screen.getByRole('button',{description:/Wood Lathe/})).toBeTruthy();
  expect(screen.queryByRole('button',{name:/^3D Printer/})).toBeNull();
  expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('WOOD');
  fireEvent.change(screen.getByRole('searchbox'),{target:{value:'no such machine'}});
@@ -110,11 +111,33 @@ test('cancellation cutoff is explained and only bookings outside it have a cance
  const later=screen.getByRole('heading',{name:'Later'}).closest('article')!;
  let done!:()=>void;
  mockApiOnce(()=>new Promise(resolve=>{done=()=>resolve(undefined);}));
- const button=within(later).getByRole('button',{name:'Cancel reservation'});
+ fireEvent.click(within(later).getByRole('button',{name:'Cancel reservation'}));
+ const button=within(screen.getByRole('dialog',{name:'Cancel this reservation?'})).getByRole('button',{name:'Cancel reservation'});
  act(()=>{fireEvent.click(button);fireEvent.click(button);});
  expect(vi.mocked(api).mock.calls.filter(([p])=>p==='/reservations/2/cancel')).toHaveLength(1);
  await act(async()=>{done();});
  expect(screen.getByText('Reservation cancelled.')).toBeTruthy();
+ expect(screen.queryByRole('dialog')).toBeNull();
+});
+
+test('members confirm a cancellation after seeing the booking and what happens to their payment',async()=>{
+ const start=Date.now()+3*86400000;
+ records=[reservation({id:2,userId:1,equipmentId:4,equipmentName:'Laser Engraver',startTime:new Date(start).toISOString(),endTime:new Date(start+3600000).toISOString(),status:'confirmed',paymentStatus:'paid',amountCents:1400})];
+ await mount();
+ const cancels=()=>vi.mocked(api).mock.calls.filter(([p])=>p==='/reservations/2/cancel');
+ fireEvent.click(screen.getByRole('button',{name:'Cancel reservation'}));
+ // One tap only asks; nothing is cancelled yet.
+ expect(cancels()).toHaveLength(0);
+ const dialog=screen.getByRole('dialog',{name:'Cancel this reservation?'});
+ expect(within(dialog).getByText('Laser Engraver')).toBeTruthy();
+ expect(dialog.textContent).toContain(new Date(start).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}));
+ expect(dialog.textContent).toContain('The $14.00 paid isn’t refunded automatically; contact staff about a refund.');
+ fireEvent.click(within(dialog).getByRole('button',{name:'Keep reservation'}));
+ expect(screen.queryByRole('dialog')).toBeNull();
+ expect(cancels()).toHaveLength(0);
+ fireEvent.click(screen.getByRole('button',{name:'Cancel reservation'}));
+ await act(async()=>{fireEvent.click(within(screen.getByRole('dialog')).getByRole('button',{name:'Cancel reservation'}));});
+ expect(cancels()).toHaveLength(1);
 });
 
 test('a booking already cancelled elsewhere is reloaded when cancelling it fails',async()=>{
@@ -128,11 +151,78 @@ test('a booking already cancelled elsewhere is reloaded when cancelling it fails
  // Another tab cancelled it first; the server now lists it as cancelled.
  records=[{...later,status:'cancelled'}];
  mockApiOnce(async()=>{throw new ApiError(409,'CONFLICT','This reservation can no longer be cancelled.');});
- await act(async()=>{fireEvent.click(within(mine).getByRole('button',{name:'Cancel reservation'}));});
- expect(screen.getAllByText('This reservation can no longer be cancelled.').length).toBeGreaterThan(0);
+ fireEvent.click(within(mine).getByRole('button',{name:'Cancel reservation'}));
+ const dialog=screen.getByRole('dialog',{name:'Cancel this reservation?'});
+ await act(async()=>{fireEvent.click(within(dialog).getByRole('button',{name:'Cancel reservation'}));});
+ // One copy of the error, where the member acted, with focus on it.
+ const alerts=screen.getAllByRole('alert');
+ expect(alerts.map(alert=>alert.textContent)).toEqual(['This reservation can no longer be cancelled.']);
+ expect(dialog.contains(alerts[0]!)).toBe(true);
+ expect(document.activeElement).toBe(alerts[0]);
  await waitFor(()=>expect(reads()).toBe(before+1));
  await waitFor(()=>expect(within(mine).queryByRole('button',{name:'Cancel reservation'})).toBeNull());
  expect(within(mine).queryByRole('heading',{name:'Later'})).toBeNull();
+ // Closing the dialog doesn't leave its error behind in the list.
+ fireEvent.click(within(dialog).getByRole('button',{name:'Keep reservation'}));
+ expect(screen.queryByRole('alert')).toBeNull();
+});
+
+test('a failed payment shows its error once, in My reservations, and focuses it there',async()=>{
+ const start=Date.now()+3*86400000;
+ records=[reservation({id:8,equipmentId:4,userId:1,payerId:1,equipmentName:'3D Printer',startTime:new Date(start).toISOString(),endTime:new Date(start+3600000).toISOString(),status:'pending',paymentStatus:'pending',amountCents:700})];
+ await mount();
+ mockApiOnce(async()=>{throw new ApiError(409,'RECONCILE_REQUIRED','Staff must reconcile this checkout before another payment.');});
+ await act(async()=>{fireEvent.click(screen.getByRole('button',{name:'Pay $7.00'}));});
+ const alerts=screen.getAllByRole('alert');
+ expect(alerts.map(alert=>alert.textContent)).toEqual(['Staff must reconcile this checkout before another payment.']);
+ expect(screen.getByRole('region',{name:'My reservations'}).contains(alerts[0]!)).toBe(true);
+ expect(document.activeElement).toBe(alerts[0]);
+});
+
+test('only a live card checkout is polled, and not while the tab is hidden',async()=>{
+ vi.useFakeTimers({shouldAdvanceTime:true});
+ try{
+  const start=Date.now()+3*86400000,at=(offset:number)=>new Date(start+offset).toISOString();
+  const reads=()=>vi.mocked(api).mock.calls.filter(([p,o])=>p==='/reservations'&&!o?.method).length;
+  // A front-desk balance also reads 'pending' but has no payer, and a hold that ran out minutes ago won't settle.
+  records=[
+   reservation({id:6,userId:1,equipmentName:'Front desk',startTime:at(0),endTime:at(3600000),status:'confirmed',paymentStatus:'pending',payerId:null}),
+   reservation({id:7,userId:1,payerId:1,equipmentName:'Lapsed hold',startTime:at(86400000),endTime:at(90000000),status:'pending',paymentStatus:'pending',holdUntil:new Date(Date.now()-10*60000).toISOString()}),
+  ];
+  await mount();
+  let before=reads();
+  await act(async()=>{await vi.advanceTimersByTimeAsync(15000);});
+  expect(reads()).toBe(before);
+  cleanup();
+  records=[reservation({id:8,userId:1,payerId:1,equipmentName:'Checking out',startTime:at(0),endTime:at(3600000),status:'pending',paymentStatus:'pending',amountCents:700,holdUntil:new Date(Date.now()+20*60000).toISOString()})];
+  await mount();
+  before=reads();
+  await act(async()=>{await vi.advanceTimersByTimeAsync(5000);});
+  expect(reads()).toBe(before+1);
+  Object.defineProperty(document,'visibilityState',{configurable:true,value:'hidden'});
+  await act(async()=>{await vi.advanceTimersByTimeAsync(15000);});
+  expect(reads()).toBe(before+1);
+ }finally{vi.useRealTimers();Reflect.deleteProperty(document,'visibilityState');}
+});
+
+test('a checkout is still polled shortly after its hold runs out, so its final status shows, then polling stops',async()=>{
+ vi.useFakeTimers({shouldAdvanceTime:true});
+ try{
+  const start=Date.now()+3*86400000;
+  const reads=()=>vi.mocked(api).mock.calls.filter(([p,o])=>p==='/reservations'&&!o?.method).length;
+  records=[reservation({id:8,userId:1,payerId:1,equipmentName:'Checking out',startTime:new Date(start).toISOString(),endTime:new Date(start+3600000).toISOString(),status:'pending',paymentStatus:'pending',amountCents:700,holdUntil:new Date(Date.now()+10000).toISOString()})];
+  await mount();
+  // The hold has just run out, but the provider may not have reported the expiry or a last-second payment yet.
+  await act(async()=>{await vi.advanceTimersByTimeAsync(11000);});
+  const expired=reads();
+  await act(async()=>{await vi.advanceTimersByTimeAsync(30000);});
+  expect(reads()).toBeGreaterThan(expired);
+  // A few minutes on, nothing more will change without the member, so the page stops asking.
+  await act(async()=>{await vi.advanceTimersByTimeAsync(3*60000);});
+  const settled=reads();
+  await act(async()=>{await vi.advanceTimersByTimeAsync(60000);});
+  expect(reads()).toBe(settled);
+ }finally{vi.useRealTimers();}
 });
 
 test('a full booking list says older bookings are left out instead of undercounting them',async()=>{
@@ -178,10 +268,13 @@ test('groups named printers while preserving per-machine prices, access and book
  });
  await mount();
  expect(document.querySelectorAll('.equipment-card')).toHaveLength(2);
- const printers=screen.getByRole('button',{name:/^3D Printer/});
- expect(printers.textContent).toContain('Rachel \u00b7 Phoebe \u00b7 Monica');
- expect(printers.textContent).not.toContain('/hour');
- expect(within(printers).queryByRole('link')).toBeNull();
+ // Each type is a heading that holds the card's button, so heading navigation finds it.
+ const heading=screen.getByRole('heading',{level:2,name:'3D Printer'});
+ const printers=within(heading).getByRole('button',{name:'3D Printer',description:'Rachel \u00b7 Phoebe \u00b7 Monica'});
+ const card=printers.closest('article')!;
+ expect(card.textContent).toContain('Rachel \u00b7 Phoebe \u00b7 Monica');
+ expect(card.textContent).not.toContain('/hour');
+ expect(within(card).queryByRole('link')).toBeNull();
  await act(async()=>{fireEvent.click(printers);});
  const phoebe=screen.getByRole('radio',{name:/Phoebe/});
  expect(phoebe.closest('label')!.textContent).toContain('$9.00/hour');
@@ -198,10 +291,11 @@ test('groups named printers while preserving per-machine prices, access and book
  await act(async()=>{fireEvent.submit(screen.getByRole('button',{name:/confirm reservation/i}).closest('form')!);});
  expect((submits()[0]![1]!.body as {equipmentId:number}).equipmentId).toBe(13);
  fireEvent.change(screen.getByRole('combobox',{name:'Equipment filter'}),{target:{value:'ready'}});
- expect(screen.getByRole('button',{name:/^3D Printer/}).textContent).not.toContain('Phoebe');
+ const printerCard=()=>screen.getByRole('button',{name:/^3D Printer/}).closest('article')!;
+ expect(printerCard().textContent).not.toContain('Phoebe');
  fireEvent.change(screen.getByRole('searchbox'),{target:{value:'Monica'}});
- expect(screen.getByRole('button',{name:/^3D Printer/}).textContent).toContain('Monica');
- expect(screen.getByRole('button',{name:/^3D Printer/}).textContent).not.toContain('Rachel');
+ expect(printerCard().textContent).toContain('Monica');
+ expect(printerCard().textContent).not.toContain('Rachel');
 });
 test('picking another machine keeps the tiles behind the dialog and the price on screen while they refresh',async()=>{
  const catalog:LiveEquipment[]=[{...machine,id:11,name:'Rachel',type:'3D printer'},{...machine,id:13,name:'Monica',type:'3D printer',rate:9}];
@@ -270,6 +364,46 @@ test('return parameters alone do not claim payment succeeded; pending checkout c
  expect(vi.mocked(api).mock.calls.some(([path])=>path==='/reservations/8/cancel-checkout')).toBe(true);
 });
 
+test('without card checkout, a priced booking says it is paid at the front desk',async()=>{
+ mockApi(async(path,options)=>{
+  if(options?.method)return reservation({id:8,userId:1,status:'confirmed',paymentStatus:'pending'});
+  if(path==='/equipment')return [{...machine,cardCheckout:false}];
+  if(path==='/reservations')return [];
+  if(path.includes('/quote?'))return quoteFor(path);
+  return unexpected(path);
+ });
+ await mount();await open();
+ expect(await screen.findByText('Your reservation is confirmed when you book. Payment is recorded at the front desk.')).toBeTruthy();
+ expect(screen.queryByText(/secure checkout/)).toBeNull();
+ expect(screen.queryByRole('button',{name:/^Pay /})).toBeNull();
+ await act(async()=>{fireEvent.submit(screen.getByRole('button',{name:'Confirm reservation'}).closest('form')!);});
+ expect(submits()).toHaveLength(1);
+ expect(screen.getByText('Reservation confirmed for 3D Printer.')).toBeTruthy();
+});
+
+test('a machine that cannot be booked points to the fix for its reason',async()=>{
+ const blocked=(fields:Partial<LiveEquipment>)=>mockApi(async path=>path==='/equipment'?[{...machine,canReserve:false,...fields}]
+  :path.includes('/quote?')?quoteFor(path):path==='/reservations'?[]:unexpected(path));
+ const notice=async(text:RegExp)=>{
+  await mount();
+  await act(async()=>{fireEvent.click(screen.getByRole('button',{name:/^3D Printer/}));});
+  return screen.getByText(text,{selector:'.form-notice'});
+ };
+ blocked({availability:'Membership or day pass required',reasonCodes:['MEMBERSHIP_REQUIRED']});
+ let shown=await notice(/Membership or day pass required/);
+ expect(within(shown).getAllByRole('link').map(link=>[link.textContent,link.getAttribute('href')])).toEqual([['Get a membership or day pass','/membership']]);
+ cleanup();
+ blocked({status:'maintenance',availability:'Out of service for repair',reasonCodes:['RESOURCE_UNAVAILABLE'],
+  outages:[{reason:'repair',expectedBack:'2099-01-05',startedAt:new Date().toISOString(),endedAt:null}]});
+ shown=await notice(/Out of service for repair/);
+ expect(shown.textContent).toBe('Out of service for repair. Expected back Mon, Jan 5.');
+ expect(within(shown).queryByRole('link')).toBeNull();
+ cleanup();
+ blocked({availability:'Membership or day pass required · Signed waivers required',reasonCodes:['MEMBERSHIP_REQUIRED','WAIVER_REQUIRED']});
+ shown=await notice(/Signed waivers required/);
+ expect(within(shown).getAllByRole('link').map(link=>link.getAttribute('href'))).toEqual(['/membership','/certifications']);
+});
+
 test('missing equipment rate prevents checkout',async()=>{
  mockApi(async(path)=>path==='/equipment'?[{...machine,rate:null}]:path.includes('/quote?')?null:path==='/reservations'?[]:unexpected(path));
  await mount();await open();
@@ -280,7 +414,7 @@ test('missing equipment rate prevents checkout',async()=>{
 
 
 test('missing required waivers disable payment and block programmatic form submission',async()=>{
- mockApi(async(path)=>path==='/equipment'?[{...machine,waiverRequired:true,canReserve:false,availability:'Signed waivers required'}]:path.includes('/quote?')?quoteFor(path):path==='/reservations'?[]:unexpected(path));
+ mockApi(async(path)=>path==='/equipment'?[{...machine,waiverRequired:true,canReserve:false,availability:'Signed waivers required',reasonCodes:['WAIVER_REQUIRED']}]:path.includes('/quote?')?quoteFor(path):path==='/reservations'?[]:unexpected(path));
  await mount();await open();
  const pay=screen.getByRole('button',{name:'Pay $7.00 & confirm reservation'});
  expect((pay as HTMLButtonElement).disabled).toBe(true);
@@ -292,7 +426,7 @@ test('missing required waivers disable payment and block programmatic form submi
 
 test('live waiver eligibility changes disable payment even when the selected machine object is stale',async()=>{
  await mount();await open();
- mockApi(async(path)=>path==='/equipment'?[{...machine,waiverRequired:true,canReserve:false,availability:'Signed waivers required'}]:path.includes('/quote?')?quoteFor(path):path==='/reservations'?[]:unexpected(path));
+ mockApi(async(path)=>path==='/equipment'?[{...machine,waiverRequired:true,canReserve:false,availability:'Signed waivers required',reasonCodes:['WAIVER_REQUIRED']}]:path.includes('/quote?')?quoteFor(path):path==='/reservations'?[]:unexpected(path));
  await act(async()=>{window.dispatchEvent(new Event('focus'));});
  expect((screen.getByRole('button',{name:'Pay $7.00 & confirm reservation'}) as HTMLButtonElement).disabled).toBe(true);
  expect(screen.getByRole('link',{name:'Review your waivers and certifications'})).toBeTruthy();
@@ -301,11 +435,31 @@ test('live waiver eligibility changes disable payment even when the selected mac
 test('pending checkout cannot be resumed while its owner needs to sign required waivers',async()=>{
  const start=Date.now()+3*86400000;
  records=[reservation({id:8,equipmentId:4,userId:1,payerId:1,equipmentName:'3D Printer',startTime:new Date(start).toISOString(),endTime:new Date(start+3600000).toISOString(),status:'pending',paymentStatus:'pending',amountCents:700})];
- mockApi(async(path)=>path==='/equipment'?[{...machine,waiverRequired:true,canReserve:false,availability:'Signed waivers required'}]:path==='/reservations'?records:unexpected(path));
+ mockApi(async(path)=>path==='/equipment'?[{...machine,waiverRequired:true,canReserve:false,availability:'Signed waivers required',reasonCodes:['WAIVER_REQUIRED']}]:path==='/reservations'?records:unexpected(path));
  await mount();
  expect((screen.getByRole('button',{name:'Pay $7.00'}) as HTMLButtonElement).disabled).toBe(true);
  expect(screen.getByRole('link',{name:'Review your waivers and certifications'})).toBeTruthy();
  expect((screen.getByRole('button',{name:'Cancel checkout'}) as HTMLButtonElement).disabled).toBe(false);
+});
+
+test('only a booking waiting on online checkout keeps re-reading reservations',async()=>{
+ const start=Date.now()+3*86400000;
+ const booking=(extra:Partial<Reservation>)=>reservation({id:8,equipmentId:4,userId:1,equipmentName:'3D Printer',startTime:new Date(start).toISOString(),endTime:new Date(start+3600000).toISOString(),status:'confirmed',paymentStatus:'pending',amountCents:700,...extra});
+ const interval=vi.spyOn(window,'setInterval');
+ const polls=()=>interval.mock.calls.filter(([,ms])=>ms===5000).length;
+ try{
+  // Paid at the desk: it stays pending until staff record the payment, which can take days.
+  records=[booking({payerId:null})];
+  await mount();
+  expect(await screen.findByText('Payment due at front desk')).toBeTruthy();
+  expect(polls()).toBe(0);
+  cleanup();
+  // An online checkout settles on its own, so the page watches for it.
+  records=[booking({status:'pending',payerId:1})];
+  await mount();
+  expect(await screen.findByText('Awaiting payment')).toBeTruthy();
+  await waitFor(()=>expect(polls()).toBe(1));
+ }finally{interval.mockRestore();}
 });
 
 test('reservations split into upcoming and past, with cancelled and expired bookings behind a toggle',async()=>{
@@ -375,15 +529,25 @@ test('equipment and reservations show placeholders in their own shape while they
  expect(screen.getByText(/No reservations yet/)).toBeTruthy();
 });
 
-test('staff cancelling another member\'s booking send the revision they saw',async()=>{
+test('staff cancelling another member\'s booking send the revision the dialog showed',async()=>{
  const member=auth.user;
  auth.user={id:1,roles:['staff'],membership:'Monthly'};
  try{
   const start=Date.now()+3*86400000;
-  records=[reservation({id:6,userId:2,revision:3,equipmentName:'Their booking',startTime:new Date(start).toISOString(),endTime:new Date(start+3600000).toISOString(),status:'confirmed'})];
+  const theirs=reservation({id:6,userId:2,revision:3,equipmentName:'Their booking',startTime:new Date(start).toISOString(),endTime:new Date(start+3600000).toISOString(),status:'confirmed',paymentStatus:'paid',amountCents:1400});
+  records=[theirs];
   await mount();
   const card=screen.getByRole('heading',{name:'Their booking'}).closest('article')!;
   fireEvent.click(within(card).getByRole('button',{name:'Cancel reservation'}));
+  const dialog=screen.getByRole('dialog',{name:'Cancel this reservation?'});
+  // Staff refund it themselves, rather than being told to contact staff.
+  expect(dialog.textContent).toContain('The $14.00 payment stays recorded and isn’t refunded automatically; refund it from Payments if it’s owed.');
+  expect(dialog.textContent).not.toContain('contact staff');
+  // A colleague moves it while the dialog is open, and the list reloads behind it.
+  records=[{...theirs,revision:4,startTime:new Date(start+86400000).toISOString(),endTime:new Date(start+90000000).toISOString()}];
+  await act(async()=>{fireEvent.click(screen.getByRole('button',{name:'Refresh'}));});
+  await waitFor(()=>expect(screen.getByRole('heading',{name:'Their booking'}).closest('article')!.textContent).toContain(new Date(start+86400000).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})));
+  fireEvent.click(within(dialog).getByRole('button',{name:'Cancel reservation'}));
   await waitFor(()=>expect(vi.mocked(api).mock.calls.some(([p])=>p==='/admin/reservations/6/cancel')).toBe(true));
   expect(vi.mocked(api).mock.calls.find(([p])=>p==='/admin/reservations/6/cancel')?.[1]).toEqual({method:'POST',body:{expectedRevision:3}});
  }finally{auth.user=member;}

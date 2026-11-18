@@ -24,7 +24,6 @@ import {
   registrationPrice,
   type AttendanceDraft,
   type ClassRecord,
-  type RosterPerson,
   type ScheduleSeed,
   type WorkshopTemplate,
 } from "../components/classes/classData";
@@ -38,44 +37,6 @@ const hhmm = (value: string) => {
   const d = new Date(value);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 };
-
-/**
- * Counts roster entries still "registered" on past classes the user can see
- * rosters for. A class whose roster could not be read is listed in `failed`
- * (not counted as zero), and `retry` reads every roster again.
- */
-function usePendingAttendance(candidates: ClassRecord[], refreshToken: number) {
-  const [pending, setPending] = useState<Record<number, number>>({});
-  const [failed, setFailed] = useState<number[]>([]);
-  const [retryToken, setRetryToken] = useState(0);
-  const key = candidates.map((c) => c.id).join(",");
-  useEffect(() => {
-    if (!key) {
-      setPending({});
-      setFailed([]);
-      return;
-    }
-    let stale = false;
-    void Promise.all(
-      key.split(",").map(async (id) => {
-        try {
-          const roster = await api<RosterPerson[]>(`/classes/${id}/roster`);
-          return { id: Number(id), count: roster.filter((p) => p.status === "enrolled").length };
-        } catch {
-          return { id: Number(id), count: null };
-        }
-      }),
-    ).then((rows) => {
-      if (stale) return;
-      setPending(Object.fromEntries(rows.flatMap(({ id, count }) => (count === null ? [] : [[id, count]]))));
-      setFailed(rows.filter(({ count }) => count === null).map(({ id }) => id));
-    });
-    return () => {
-      stale = true;
-    };
-  }, [key, refreshToken, retryToken]);
-  return { pending, failed, retry: () => setRetryToken((t) => t + 1) };
-}
 
 export function ClassesPage() {
   const { user } = useAuth();
@@ -121,19 +82,23 @@ export function ClassesPage() {
             .sort(byStart),
     [all, manager, user?.id],
   );
-  const attendanceCandidates = useMemo(
+  // People still "registered" on recent past classes, counted by the class list itself so the
+  // page never reads a roster per class.
+  const pending = useMemo(
     () =>
-      all.filter(
-        (c) =>
-          !isCancelled(c) &&
-          hasStarted(c) &&
-          new Date(c.startsAt).getTime() > Date.now() - ATTENDANCE_WINDOW_MS &&
-          (manager || c.instructorId === user?.id),
+      Object.fromEntries(
+        all
+          .filter(
+            (c) =>
+              !isCancelled(c) &&
+              hasStarted(c) &&
+              new Date(c.startsAt).getTime() > Date.now() - ATTENDANCE_WINDOW_MS &&
+              c.pendingAttendance != null,
+          )
+          .map((c) => [c.id, c.pendingAttendance!]),
       ),
-    [all, manager, user?.id],
+    [all],
   );
-  const attendance = usePendingAttendance(attendanceCandidates, refreshToken);
-  const pending = attendance.pending;
 
   const hasUnsavedEdits =
     scheduleDirty ||
@@ -228,15 +193,6 @@ export function ClassesPage() {
     <section className="classes-page page-enter">
       {classes.loading || classes.error ? <LoadState {...classes} /> : null}
       {supervision.error && !supervision.data ? <LoadState loading={false} error={supervision.error} reload={supervision.reload} /> : null}
-      {classes.data && manager && attendance.failed.length ? (
-        <p role="alert" className="form-error">
-          Attendance unavailable for{" "}
-          {attendance.failed.map((id) => find(id)?.title ?? `class ${id}`).join(", ")}.{" "}
-          <button type="button" onClick={attendance.retry}>
-            Retry attendance
-          </button>
-        </p>
-      ) : null}
       {classes.data ? (
         manager ? (
           <ClassSchedule
@@ -251,6 +207,7 @@ export function ClassesPage() {
                 catalogId: c.catalogId ?? undefined,
                 description: c.description,
                 instructorId: c.instructorId,
+                instructorName: c.instructor,
                 roomId: c.roomId,
                 capacity: Math.min(c.capacity, 15),
                 start: hhmm(c.startsAt),

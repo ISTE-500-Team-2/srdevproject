@@ -21,6 +21,7 @@ import { InfoTip } from "../components/InfoTip";
 import { Delta, Kpi } from "../components/Kpi";
 import { KeptResults } from "../components/KeptResults";
 import { LoadState } from "../components/Management";
+import { PeriodSwitch } from "../components/PeriodSwitch";
 import { TableScroll } from "../components/TableScroll";
 import { api, errorMessage } from "../lib/api";
 import {
@@ -36,6 +37,7 @@ import {
 import { dollars, statusLabel, timeOnly, zonedDay } from "../lib/display";
 import { useFacilityZone } from "../lib/facilityZone";
 import type { Report } from "../lib/reportContracts";
+import { jumpToSection } from "../lib/sectionJump";
 import { useApi } from "../lib/useApi";
 import "../assets/css/analyticsDashboard.css";
 import "./reports.css";
@@ -196,7 +198,10 @@ function Panel({
     <section className="panel reports-panel" id={id} aria-labelledby={`${id}-title`}>
       <div className="analytics-panel-head">
         <span className="reports-panel-title">
-          <h2 id={`${id}-title`}>{title}</h2>
+          {/* Focusable so the section bar can move keyboard focus here (jumpToSection). */}
+          <h2 id={`${id}-title`} tabIndex={-1}>
+            {title}
+          </h2>
           {info && <InfoTip label="What this card counts">{info}</InfoTip>}
         </span>
         {aside}
@@ -353,13 +358,7 @@ function ReportsView({ today }: { today: string }) {
             </select>
             <ChevronDown className="analytics-range__chevron" aria-hidden="true" />
           </label>
-          <div className="analytics-period" role="radiogroup" aria-label="Group results by">
-            {PERIODS.map((p) => (
-              <button key={p} type="button" role="radio" aria-checked={range.period === p} onClick={() => apply({ ...draft, period: p })}>
-                {statusLabel(p)}
-              </button>
-            ))}
-          </div>
+          <PeriodSwitch label="Group results by" value={range.period} onChange={(p) => apply({ ...draft, period: p })} />
           <div className="reports-export" role="group" aria-label="Download this report">
             {(["csv", "pdf"] as const).map((format) => (
               <button
@@ -561,8 +560,7 @@ function JumpNav({ warnings }: { warnings: number }) {
           aria-current={active === id ? "location" : undefined}
           onClick={() => {
             setActive(id);
-            const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-            document.getElementById(id)?.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "start" });
+            jumpToSection(id);
           }}
         >
           {label}
@@ -602,7 +600,7 @@ function Revenue({ report: d, t }: { report: Report; t: ReturnType<typeof totals
                 {shown.map((r, i) => (
                   <tr key={i}>
                     {/* Name a period once; its other rows sit under it. */}
-                    <td className={i && shown[i - 1].period === r.period ? "reports-repeat" : undefined}>
+                    <td className={i && shown[i - 1].period === r.period ? "reports-nowrap reports-repeat" : "reports-nowrap"}>
                       <PeriodName start={r.period} report={d} />
                     </td>
                     <td>{r.category}</td>
@@ -706,7 +704,7 @@ function Members({ report: d, t, unitWord }: { report: Report; t: ReturnType<typ
           <tbody>
             {shown.map((row) => (
               <tr key={row.period}>
-                <td>
+                <td className="reports-nowrap">
                   <PeriodName start={row.period} report={d} />
                 </td>
                 <td className="table-number">{row.newMembers || <span className="reports-muted">0</span>}</td>
@@ -887,8 +885,12 @@ function Equipment({ report: d }: { report: Report }) {
 function BusiestTimes({ patterns: all }: { patterns: Report["patterns"] }) {
   const [machine, setMachine] = useState("");
   const [hovered, setHovered] = useState<string | null>(null);
-  const patterns = all.filter((p) => !machine || String(p.id) === machine);
   const machineList = [...new Map(all.map((p) => [p.id, p.name])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  // A machine that drops out of the data (its booking cancelled, a new range) ends its filter,
+  // rather than leaving "No bookings" behind a select that can't show or clear it.
+  const filtered = machineList.some(([id]) => String(id) === machine);
+  if (machine && !filtered) setMachine("");
+  const patterns = all.filter((p) => !filtered || String(p.id) === machine);
   const cells = new Map<string, number>();
   for (const p of patterns) cells.set(`${p.weekday}-${p.hour}`, (cells.get(`${p.weekday}-${p.hour}`) ?? 0) + Number(p.bookedHours));
   const busiest = Math.max(0, ...cells.values());
@@ -907,7 +909,7 @@ function BusiestTimes({ patterns: all }: { patterns: Report["patterns"] }) {
     <>
       <div className="reports-heat-head">
         <h3>Busiest times</h3>
-        {machineList.length > 1 ? (
+        {machineList.length > 1 || filtered ? (
           <label className="analytics-range reports-heat-filter">
             <select value={machine} aria-label="Machine" onChange={(e) => setMachine(e.target.value)}>
               <option value="">All machines</option>

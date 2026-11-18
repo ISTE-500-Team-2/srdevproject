@@ -107,6 +107,30 @@ test("the account bar names the member and the staff role, and goes back to the 
   expect(auth.closeAccount).toHaveBeenCalledOnce();
 });
 
+test("with site storage blocked the workspace still renders and the account bar goes back to Today", async () => {
+  const blocked = () => { throw new DOMException("The operation is insecure.", "SecurityError"); };
+  const read = vi.spyOn(Storage.prototype, "getItem").mockImplementation(blocked);
+  const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(blocked);
+  try {
+    auth.user = admin;
+    at(<AdminShell />, "/admin/members");
+    expect(screen.getByRole("navigation", { name: "Staff workspace" })).toBeTruthy();
+    expect(write).toHaveBeenCalled();
+    cleanup();
+
+    auth.user = dana;
+    auth.actor = staff;
+    at(<AccountBar />);
+    fireEvent.click(screen.getByRole("button", { name: "Back to workspace" }));
+    await waitFor(() => expect(screen.getByLabelText("location").textContent).toBe("/admin"));
+    expect(read).toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
+  } finally {
+    read.mockRestore();
+    write.mockRestore();
+  }
+});
+
 test("the account bar is hidden outside account mode", () => {
   auth.user = admin;
   at(<AccountBar />);
@@ -130,6 +154,8 @@ test("the picker opens your own account or a member's, and refuses staff account
   await screen.findByRole("button", { name: /Dana Tester/ });
   expect((screen.getByRole("button", { name: /Sam Tester/ }) as HTMLButtonElement).disabled).toBe(true);
   expect((screen.getByRole("button", { name: /Ken Tester/ }) as HTMLButtonElement).disabled).toBe(true);
+  // The same words as the member record's account control.
+  expect(screen.getByRole("button", { name: /Ken Tester/ }).textContent).toContain("On hold");
   fireEvent.click(screen.getByRole("button", { name: /Dana Tester/ }));
   await waitFor(() => expect(screen.getByLabelText("location").textContent).toBe("/"));
   expect(auth.openAccount).toHaveBeenCalledWith(7);
@@ -220,8 +246,8 @@ test("View a member in the mobile drawer swaps the drawer for the account picker
   const drawer = screen.getByRole("dialog", { name: "Workspace navigation" });
   fireEvent.click(within(drawer).getByRole("button", { name: "View a member" }));
   expect(screen.queryByRole("dialog", { name: "Workspace navigation" })).toBeNull();
-  const picker = screen.getByRole("dialog", { name: "Whose account?" });
-  expect(picker.contains(document.activeElement)).toBe(true);
+  // Focus lands in the search box, so staff can type a name straight away.
+  expect(document.activeElement).toBe(within(screen.getByRole("dialog", { name: "Whose account?" })).getByRole("searchbox"));
   fireEvent.keyDown(window, { key: "Escape" });
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(document.activeElement).toBe(trigger);
@@ -231,7 +257,8 @@ test("staff see their tools, with admin-only and instructor actions locked", () 
   auth.user = dana;
   auth.actor = staff;
   responses.set("/me/overview", { userId:dana.id, entitlement: { membership: false, dayPass: false }, pendingWaivers: 1, activeReservations: 0, canCheckIn: false, reasons: ["Sign all current required policies and waivers first."], recentCheckIns: [] });
-  responses.set("/me/certifications", [{ id: 3, name: "Laser", status: "Expired", renewalDate: null }]);
+  // As the server sends it: status stays "active" after the renewal date, and valid turns false.
+  responses.set("/me/certifications", [{ id: 3, name: "Laser", status: "active", renewalDate: "2020-01-01T00:00:00.000Z", valid: false }]);
   at(<AccountHomePage />);
   expect(screen.getByRole("region", { name: "Staff tools" })).toBeTruthy();
   const locked = screen.getByRole("region", { name: "Needs an instructor or admin" });

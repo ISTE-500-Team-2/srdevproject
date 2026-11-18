@@ -6,7 +6,7 @@ import { AuditRepository, type AuditFilters } from "./staff/audits.js";
 import { ComplianceReports, type ComplianceFilters } from "./staff/compliance.js";
 import { EntitlementRepository, type EntitlementKind } from "./staff/entitlements.js";
 import { IssuanceRequestRepository } from "./staff/issuanceRequests.js";
-import { PaymentRepository, type PaymentFilters } from "./staff/payments.js";
+import { PaymentRepository, type PaymentFilters, type PaymentViewer } from "./staff/payments.js";
 import { PeopleRepository } from "./staff/people.js";
 import { PlanRepository, type Plan } from "./staff/plans.js";
 import { PolicyRepository } from "./staff/policies.js";
@@ -21,7 +21,7 @@ export type {
   MembershipWindow,
   PlanSnapshot,
 } from "./staff/entitlements.js";
-export type { PaymentFilters, PaymentListItem, PaymentRecord, PaymentSummary } from "./staff/payments.js";
+export type { PaymentFilters, PaymentListItem, PaymentRecord, PaymentSummary, PaymentViewer } from "./staff/payments.js";
 export {
   AUDIT_VIEWS_LIST,
   type AuditEntry,
@@ -82,8 +82,8 @@ export class StaffModel {
   person(id: number, lock?: boolean | 'no-key-update') {
     return this.people.person(id, lock);
   }
-  updatePerson(id: number, firstName: string, lastName: string, phone: string, revision: number) {
-    return this.people.updatePerson(id, firstName, lastName, phone, revision);
+  updatePerson(id: number, firstName: string, lastName: string, phone: string, revision: number, dob: string | null = null) {
+    return this.people.updatePerson(id, firstName, lastName, phone, revision, dob);
   }
   access(id: number, status: string, reason: string, revision: number) {
     return this.people.access(id, status, reason, revision);
@@ -119,6 +119,12 @@ export class StaffModel {
   passExists(userId: number, date: string) {
     return this.entitlements.passExists(userId, date);
   }
+  passCheckoutPayBy(id: string) {
+    return this.entitlements.passCheckoutPayBy(id);
+  }
+  openPassCheckout(userId: number, date: string) {
+    return this.entitlements.openPassCheckout(userId, date);
+  }
   createMembership(userId: number, plan: Plan, startsAt: string, endsAt: Date, actorId: number, reason: string) {
     return this.entitlements.createMembership(userId, plan, startsAt, endsAt, actorId, reason);
   }
@@ -150,8 +156,8 @@ export class StaffModel {
   updatePayment(id: number, status: string, method: string, reference: string, reason: string, revision: number) {
     return this.paymentRecords.updatePayment(id, status, method, reference, reason, revision);
   }
-  payments(userId: number | null, offset?: number, filters?: PaymentFilters) {
-    return this.paymentRecords.payments(userId, offset, filters);
+  payments(userId: number | null, offset?: number, filters?: PaymentFilters, viewer?: PaymentViewer) {
+    return this.paymentRecords.payments(userId, offset, filters, viewer);
   }
   /** Totals for every payment matching the filters, not just the current page. */
   paymentSummary(userId: number | null, filters?: PaymentFilters) {

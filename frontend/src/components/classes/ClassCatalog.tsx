@@ -1,7 +1,7 @@
 // Member class discovery, enrollment and cancellation UI with current capacity and payment feedback.
 
 import { AlertTriangle, Award, Ban, Check, Clock3, GraduationCap, Lock, MapPin, Palette, Search, ShieldCheck, UserRound, Users } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ClassThumb, DateRail, SeatMeter } from "./ClassBits";
 import { WorkshopCards } from "./WorkshopTemplates";
@@ -12,15 +12,17 @@ import {
   hasStarted,
   isCancelled,
   isWorkshop,
+  longDate,
   monthLabel,
   registrationPrice,
+  sessionName,
   timeRange,
   WORKSHOP_LABEL,
   type ClassRecord,
   type WorkshopTemplate,
 } from "./classData";
 import { cents, shortDate } from "../../lib/display";
-import { registrationAction, sponsorReason, type Eligibility } from "./registrationAction";
+import { registrationAction, sponsorReason, upcomingEligibility, type Eligibility } from "./registrationAction";
 
 type Props = {
   classes: ClassRecord[];
@@ -43,9 +45,15 @@ export function ClassCatalog(props: Props) {
   const [query, setQuery] = useState("");
   const [certification, setCertification] = useState<string | null>(null);
   const upcoming = useMemo(() => classes.filter((c) => !hasStarted(c)).sort(byStart), [classes]);
+  // The access panel follows the same per-class answers as the Register buttons.
+  const access = upcomingEligibility(eligibility, upcoming);
   const mine = upcoming.filter((c) => c.myStatus === "enrolled" && !isCancelled(c));
+  // A cancelled class still marked "enrolled" never ran for this member, so it isn't waiting on
+  // attendance. One with attendance already recorded did run, so it stays in their history.
   const past = classes
-    .filter((c) => hasStarted(c) && c.myStatus && c.myStatus !== "cancelled")
+    .filter(
+      (c) => hasStarted(c) && c.myStatus && c.myStatus !== "cancelled" && !(isCancelled(c) && c.myStatus === "enrolled"),
+    )
     .sort((a, b) => byStart(b, a));
   const certifications = useMemo(() => {
     const counts = new Map<string, number>();
@@ -194,12 +202,15 @@ export function ClassCatalog(props: Props) {
                       <DateRail value={c.startsAt} />
                       <div>
                         <strong>{c.title}</strong>
-                        <span>{timeRange(c)}</span>
+                        <span>
+                          <span className="sr-only">{longDate(c.startsAt)}, </span>
+                          {timeRange(c)}
+                        </span>
                         <button
                           type="button"
                           className="button button--quiet button--small"
                           disabled={busyId === c.id}
-                          aria-label={`Withdraw from ${c.title}`}
+                          aria-label={`Withdraw from ${sessionName(c)}`}
                           onClick={() => onWithdraw(c)}
                         >
                           Withdraw
@@ -239,12 +250,18 @@ export function ClassCatalog(props: Props) {
                     <div>
                       <strong>{c.title}</strong>
                       <span>
+                        <span className="sr-only">{longDate(c.startsAt)}, </span>
                         {c.enrolled}/{c.capacity} registered
                       </span>
+                      {hasStarted(c) && c.pendingAttendance ? (
+                        <strong className="status-pill status-pill--warn">
+                          {c.pendingAttendance} {c.pendingAttendance === 1 ? "person needs" : "people need"} attendance
+                        </strong>
+                      ) : null}
                       <button
                         type="button"
                         className="button button--quiet button--small"
-                        aria-label={`Roster for ${c.title}`}
+                        aria-label={`Roster for ${sessionName(c)}`}
                         onClick={() => onRoster(c)}
                       >
                         <Users aria-hidden="true" />
@@ -278,19 +295,27 @@ export function ClassCatalog(props: Props) {
             </ol>
           </section>
 
-          {eligibility !== "unknown" && !sponsor ? (
-            <section className={`panel classes-aside__panel classes-access classes-access--${eligibility}`}>
+          {access !== "unknown" && !sponsor ? (
+            <section className={`panel classes-aside__panel classes-access classes-access--${access}`}>
               <span className="classes-access__icon" aria-hidden="true">
-                {eligibility === "eligible" ? <Check /> : <Lock />}
+                {access === "ineligible" ? <Lock /> : <Check />}
               </span>
               <div>
-                <h2>{eligibility === "eligible" ? "You can register" : "Membership or day pass needed"}</h2>
+                <h2>
+                  {access === "eligible"
+                    ? "You can register"
+                    : access === "some"
+                      ? "You can register for some classes"
+                      : "Membership or day pass needed"}
+                </h2>
                 <p>
-                  {eligibility === "eligible"
-                    ? "Classes need an active membership or day pass. Yours is active."
-                    : "Registering for a class needs an active membership or day pass."}
+                  {access === "eligible"
+                    ? "Classes need a membership or day pass that covers the class time."
+                    : access === "some"
+                      ? "Your membership or day pass covers some upcoming classes. The others fall outside the dates it covers."
+                      : "Registering for a class needs a membership or day pass that covers the class time."}
                 </p>
-                {eligibility === "ineligible" ? (
+                {access !== "eligible" ? (
                   <Link className="button button--quiet button--small" to="/membership">
                     See memberships &amp; day passes
                   </Link>
@@ -314,6 +339,7 @@ function ClassRow({
   onRegister,
   onDetails,
 }: Props & { c: ClassRecord }) {
+  const dateId = useId();
   const cancelled = isCancelled(c);
   const registered = c.myStatus === "enrolled";
   const holds = c.certificationId !== null && certified.has(c.certificationId);
@@ -352,6 +378,10 @@ function ClassRow({
         <p className="class-meta">
           <span>
             <Clock3 aria-hidden="true" />
+            {/* The date rail is decorative, so screen readers get the day here. */}
+            <span className="sr-only">
+              <span id={dateId}>{longDate(c.startsAt)}</span>,{" "}
+            </span>
             {timeRange(c)}
           </span>
           <span>
@@ -365,9 +395,10 @@ function ClassRow({
             </span>
           )}
         </p>
-        {!registered && <small>{price.trainingFee === null ? 'Training fee not configured'
+        {/* Creative workshops aren't training, so they carry no training fee line. */}
+        {!registered && !isWorkshop(c) && <small>{price.trainingFee === null ? 'Training fee not configured'
           : `${cents(price.trainingFee)} total for training; no extra course fee`}</small>}
-        {!registered && (c.trainingFeeCovered ?? holds) && <small>Training fee already covered</small>}
+        {!registered && !isWorkshop(c) && (c.trainingFeeCovered ?? holds) && <small>Training fee already covered</small>}
       </div>
       {cancelled ? (
         <p className="class-row__cancelled">The shop cancelled this class.</p>
@@ -376,7 +407,13 @@ function ClassRow({
           <SeatMeter capacity={c.capacity} enrolled={c.enrolled} />
           <div className="class-row__actions">
             {action.kind === "registered" ? (
-              <button type="button" className="button button--quiet" aria-label={`Details for ${c.title}`} onClick={() => onDetails(c)}>
+              <button
+                type="button"
+                className="button button--quiet"
+                aria-label={`Details for ${c.title}`}
+                aria-describedby={dateId}
+                onClick={() => onDetails(c)}
+              >
                 Details
               </button>
             ) : action.kind === "full" ? (
@@ -392,14 +429,20 @@ function ClassRow({
                 type="button"
                 className={`button ${holds || action.blocked ? "button--quiet" : "button--primary"}`}
                 disabled={action.disabled}
-                aria-label={action.blocked ? `Register for ${c.title}: ${action.blocked.reason.toLowerCase()}` : `Register for ${c.title}`}
+                aria-label={`Register for ${sessionName(c)}${action.blocked ? `: ${action.blocked.reason.toLowerCase()}` : ""}`}
                 onClick={() => onRegister(c)}
               >
                 {action.again ? "Register again" : "Register"}
               </button>
             )}
             {registered ? null : (
-              <button type="button" className="text-link" aria-label={`Details for ${c.title}`} onClick={() => onDetails(c)}>
+              <button
+                type="button"
+                className="text-link"
+                aria-label={`Details for ${c.title}`}
+                aria-describedby={dateId}
+                onClick={() => onDetails(c)}
+              >
                 Details
               </button>
             )}

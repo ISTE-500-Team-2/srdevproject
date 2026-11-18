@@ -6,7 +6,7 @@ import { StaffPlans } from "./StaffPlans";
 
 const { api, auth } = vi.hoisted(() => ({
   api: vi.fn(),
-  auth: { user: { roles: ["admin"] } as unknown },
+  auth: { user: { roles: ["admin"] } as unknown, actor: null as unknown },
 }));
 vi.mock("../context/AuthContext", () => ({ useAuth: () => auth }));
 vi.mock("../lib/api", () => ({ api, errorMessage: (error: Error) => error.message }));
@@ -24,6 +24,7 @@ const summer = { ...monthly, id: 3, name: "Summer intro", price: "60.00", active
 
 beforeEach(() => {
   auth.user = { roles: ["admin"] };
+  auth.actor = null;
   api.mockImplementation((path: string, options?: { method?: string }) => {
     if (options?.method) return Promise.resolve({ ...monthly, price: "99.00", revision: 4 });
     if (path === "/admin/plans") return Promise.resolve([monthly, dayPass, summer]);
@@ -59,6 +60,8 @@ test("one save updates the plan and its discounts with a single reason", async (
   await userEvent.type(within(form).getByLabelText("Reason for change"), "Fall pricing");
   await userEvent.click(within(form).getByRole("button", { name: "Save plan" }));
   await screen.findByText("Saved Monthly.");
+  // The editor held focus; it goes back to the plan's row, not the top of the page.
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Monthly" })));
   expect(writes()).toEqual([
     ["/admin/plans/1", expect.objectContaining({
       method: "PATCH",
@@ -111,6 +114,48 @@ test("staff manage plans without the admin-only discount controls", async () => 
   expect(screen.queryByText("No discounts")).toBeNull();
   expect(screen.queryByLabelText("Student price (USD)")).toBeNull();
   expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("an admin with a member's account open in another tab keeps the discount controls", async () => {
+  auth.user = { roles: ["member"] };
+  auth.actor = { roles: ["admin"] };
+  render(<StaffPlans />);
+  const memberships = await screen.findByRole("region", { name: "Memberships" });
+  expect(await within(memberships).findByText("Students $65.00")).toBeTruthy();
+  await userEvent.click(within(memberships).getByRole("button", { name: "Monthly" }));
+  expect(screen.getByLabelText("Student price (USD)")).toBeTruthy();
+});
+
+test("Escape asks before throwing away unsaved edits", async () => {
+  render(<StaffPlans />);
+  await userEvent.click(await screen.findByRole("button", { name: "Monthly" }));
+  const form = screen.getByRole("form", { name: "Edit Monthly" });
+  const reason = within(form).getByLabelText("Reason for change") as HTMLInputElement;
+  await userEvent.type(reason, "Fall pricing");
+  await userEvent.keyboard("{Escape}");
+  const confirm = screen.getByRole("dialog", { name: "Discard unsaved changes?" });
+  await userEvent.click(within(confirm).getByRole("button", { name: "Keep editing" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(reason.value).toBe("Fall pricing");
+  expect(document.activeElement).toBe(reason);
+  // Cancel asks too; discarding closes the editor and returns focus to the plan's row.
+  await userEvent.click(within(form).getByRole("button", { name: "Cancel" }));
+  await userEvent.click(
+    within(screen.getByRole("dialog", { name: "Discard unsaved changes?" })).getByRole("button", { name: "Discard changes" }),
+  );
+  expect(screen.queryByRole("form", { name: "Edit Monthly" })).toBeNull();
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Monthly" })));
+  expect(writes()).toEqual([]);
+});
+
+test("Escape closes an unchanged editor at once and returns focus to its plan", async () => {
+  render(<StaffPlans />);
+  await userEvent.click(await screen.findByRole("button", { name: "Day pass" }));
+  await userEvent.click(screen.getByLabelText("Plan name"));
+  await userEvent.keyboard("{Escape}");
+  expect(screen.queryByRole("form", { name: "Edit Day pass" })).toBeNull();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Day pass" })));
 });
 
 test("new plans pick their type with a toggle, and day passes have no length", async () => {
@@ -194,10 +239,22 @@ test("a new plan is not created twice when its discount save is retried", async 
   expect((within(retry).getByLabelText("Free for verified school partners") as HTMLInputElement).checked).toBe(true);
   await userEvent.click(within(retry).getByRole("button", { name: "Save plan" }));
   await screen.findByText("Saved New membership.");
+  // Its row isn't listed until the plans reload, so focus returns to "New plan".
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "New plan" })));
   expect(writes().filter(([path, options]) => path === "/admin/plans" && options.method === "POST")).toHaveLength(1);
   expect(writes().filter(([path]) => path === "/billing-management/pricing/9")).toHaveLength(2);
   expect(writes().filter(([path]) => path === "/admin/plans/9")).toHaveLength(0);
   expect(writes().at(-1)).toEqual(["/billing-management/pricing/9", {
     method: "PATCH", body: { studentCents: 5000, partnerFree: true, revision: 3, reason: "New offer" },
   }]);
+});
+
+test("the price field says which prices card checkout can take", async () => {
+  render(<StaffPlans />);
+  await userEvent.click(await screen.findByRole("button", { name: "New plan" }));
+  const price = within(screen.getByRole("form", { name: "Create a plan" })).getByLabelText("Price (USD)") as HTMLInputElement;
+  expect(price.max).toBe("100000");
+  expect(document.getElementById(price.getAttribute("aria-describedby")!)?.textContent).toBe(
+    "$0.00 for free, or $0.50 to $100,000.00: card checkout can't take other amounts.",
+  );
 });

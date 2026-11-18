@@ -2,7 +2,7 @@
 // credentials.
 
 import { AlertTriangle, ArrowRight, CalendarDays, Check, MapPin, UserRound, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Modal } from "../Modal";
 import { api, errorMessage } from "../../lib/api";
@@ -43,6 +43,8 @@ export function RosterPanel({
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<number, string>>({});
   const [noteError, setNoteError] = useState("");
+  const noteField = useRef<HTMLInputElement>(null);
+  const noteId = useId();
   const [result, setResult] = useState<SaveResult | null>(null);
   const reloadRoster = roster.reload;
   useEffect(() => {
@@ -70,6 +72,8 @@ export function RosterPanel({
   async function save() {
     if (!draft.note.trim()) {
       setNoteError("Add a verification note. It's saved with each record.");
+      // Take the user to the field that stopped the save; the message is announced as it appears.
+      noteField.current?.focus();
       return;
     }
     setNoteError("");
@@ -187,21 +191,29 @@ export function RosterPanel({
             ) : null}
             {editable && active.length ? (
               <label className="class-field">
-                <span>
+                {/* Named by its caption alone, so the error below is read once, as the description. */}
+                <span id={`${noteId}-label`}>
                   Verification note <em>· required, saved with each record</em>
                 </span>
                 <input
+                  ref={noteField}
                   value={draft.note}
                   maxLength={500}
                   disabled={saving}
                   placeholder="e.g. Checked against the instructor's sign-in sheet"
+                  aria-labelledby={`${noteId}-label`}
                   aria-invalid={Boolean(noteError)}
+                  aria-describedby={noteError ? `${noteId}-error` : undefined}
                   onChange={(e) => {
                     onDraft({ ...draft, note: e.target.value });
                     setNoteError("");
                   }}
                 />
-                {noteError ? <small className="class-field__error">{noteError}</small> : null}
+                {noteError ? (
+                  <small id={`${noteId}-error`} className="class-field__error" role="alert">
+                    {noteError}
+                  </small>
+                ) : null}
               </label>
             ) : null}
             {!started && !isCancelled(c) ? (

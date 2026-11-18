@@ -42,6 +42,18 @@ function signupField<T>(field: string, read: () => T): T {
   }
 }
 
+/**
+ * Sign-up phone: formatting such as '+1 (410) 555-0182' is accepted and only the digits are kept. Free text,
+ * or fewer than 7 or more than 15 digits, is refused.
+ */
+function signupPhone(value: unknown): string {
+  const typed = textField(value, 'Phone', 20);
+  const digits = typed.replace(/\D/g, '');
+  if (!/^[\d\s().+-]+$/.test(typed.trim()) || digits.length < 7 || digits.length > 15)
+    throw new AppError(400, 'INVALID_INPUT', 'Enter a phone number with 7 to 15 digits, e.g. (410) 555-0182.');
+  return digits;
+}
+
 export class AuthController {
   private dummyHash = hashPassword(randomBytes(32).toString('hex'));
   private recovery: RecoveryService;
@@ -164,7 +176,7 @@ export class AuthController {
     const input = {
       firstName: signupField('firstName', () => textField(req.body.firstName, 'First name', 50)),
       lastName: signupField('lastName', () => textField(req.body.lastName, 'Last name', 50)),
-      phone: signupField('phone', () => textField(req.body.phone, 'Phone', 15)),
+      phone: signupField('phone', () => signupPhone(req.body.phone)),
       // The shared validator uses the same address identity rules as login and recovery.
       email: signupField('email', () => emailField(req.body.email)),
       dob: signupField('dob', () => dateOfBirthField(req.body.dob)),

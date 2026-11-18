@@ -5,7 +5,8 @@ import { requirements, type Requirement, type Verdict } from "./recordModel";
 import type { OpenDialog } from "./recordParts";
 
 export interface ViewAs {
-  onOpen: () => void;
+  /** Gets the member as the record now shows them. */
+  onOpen: (person: Person) => void;
   busy: boolean;
   error: string;
 }
@@ -144,9 +145,10 @@ export function DeskAction({
 }
 
 /** Opens the member site as this member. */
-export function ViewAsButton({ viewAs, first }: { viewAs: ViewAs; first: string }) {
+export function ViewAsButton({ viewAs, person }: { viewAs: ViewAs; person: Person }) {
+  const first = person.firstName;
   return (
-    <button type="button" className="button button--quiet" disabled={viewAs.busy} onClick={viewAs.onOpen} title={`See the member site as ${first} does, and book or sign up for them.`}>
+    <button type="button" className="button button--quiet" disabled={viewAs.busy} onClick={() => viewAs.onOpen(person)} title={`See the member site as ${first} does, and book or sign up for them.`}>
       <Eye aria-hidden="true" />
       {viewAs.busy ? "Opening…" : `View as ${first}`}
     </button>

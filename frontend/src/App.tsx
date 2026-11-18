@@ -154,9 +154,10 @@ export default function App() {
             <Route path="training" element={titled('Training', <TrainingPage />)} />
             <Route path="profile" element={titled('Profile', <ProfilePage />)} />
             <Route path="membership" element={titled('Membership', <CheckoutReturn><MembershipPage /></CheckoutReturn>)} />
+            {/* Inside the site frame, so a mistyped address keeps the header, menus and footer. */}
+            <Route path="*" element={titled('Page not found', <NotFoundPage />)} />
           </Route>
         </Route>
-        <Route path="*" element={titled('Page not found', <NotFoundPage />)} />
       </Routes>
     </AuthProvider>
   );

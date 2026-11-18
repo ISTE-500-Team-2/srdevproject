@@ -128,10 +128,10 @@ All endpoints are under `/api`. Responses use `{data: ...}`; failures use `{erro
 | --- | --- |
 | `GET /plans` | Active offers for a signed-in member |
 | `GET /me/memberships` | Own latest 100 memberships and 100 passes |
-| `GET /me/payments?offset=0` | Own paginated payment records; supplied user IDs do not change ownership |
+| `GET /me/payments?offset=0` | Own paginated payment records; optional `status=paid` returns only paid ones (any other status is a 400); supplied user IDs do not change ownership |
 | `GET /admin/users?search=...&offset=0` | Staff search; 50 records/page |
 | `GET /admin/users/:id` | Profile, recent entitlements/payments/audits/check-ins |
-| `PATCH /admin/users/:id/profile` | Names/phone; current `revision` required |
+| `PATCH /admin/users/:id/profile` | Names/phone, plus an optional `dob` that only fills a missing date of birth (409 `DOB_ON_FILE` if one is recorded); current `revision` required |
 | `POST /admin/users/:id/access` | Facility status; current `revision` required |
 | `POST /admin/users/:id/role` | Administrator-only role update; current `revision` |
 | `POST /admin/users/:id/entitlements` | Issue plan with UUIDv4 `requestId`, membership `startsAt` or pass `validDate`, payment record details and reason |

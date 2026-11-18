@@ -267,7 +267,7 @@ class RolloutTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary); directory=root/'auto-deploy'; directory.mkdir()
             release.write_json(directory/'status.json',{'deployedSha':'c'*40})
-            with patch.object(release,'main_sha',return_value=SHA),patch.object(release,'ready',return_value=False),patch.object(release,'prepare_artifact') as build,patch.object(release,'deploy') as deploy:
+            with patch.object(release,'main_sha',return_value=SHA),patch.object(release,'ready',return_value=False),patch.object(release,'prepare_artifact') as build,patch.object(release,'deploy') as deploy,patch.object(release,'CI_POLL_SECONDS',0):
                 release.tick(root);build.assert_not_called();deploy.assert_not_called()
                 (directory/'prebuild.enabled').touch()
                 release.tick(root);build.assert_called_once_with(root,SHA);deploy.assert_not_called()
@@ -281,6 +281,7 @@ class RolloutTests(unittest.TestCase):
             root=Path(temporary); directory=root/'auto-deploy'; directory.mkdir()
             release.write_json(directory/'status.json',{'deployedSha':'c'*40})
             (directory/'prebuild.enabled').touch()
+            poll_at_once=patch.object(release,'CI_POLL_SECONDS',0);poll_at_once.start();self.addCleanup(poll_at_once.stop)
             with patch.object(release,'main_sha',return_value=SHA),patch.object(release,'ready',return_value=False),patch.object(release,'prepare_artifact',side_effect=RuntimeError('PRIVATE must not enter status')) as build,patch.object(release,'deploy') as deploy:
                 release.tick(root);release.tick(root)
                 build.assert_called_once();deploy.assert_not_called()
@@ -291,6 +292,30 @@ class RolloutTests(unittest.TestCase):
             with patch.object(release,'main_sha',return_value=SHA),patch.object(release,'ready',side_effect=RuntimeError('API unavailable')),patch.object(release,'deploy') as deploy:
                 release.tick(root);deploy.assert_not_called()
                 self.assertEqual(json.loads((directory/'status.json').read_text())['stage'],'ci-status-unavailable')
+
+    def test_waiting_revision_rechecks_github_at_most_every_few_minutes(self):
+        # Unauthenticated GitHub reads are limited to 60 an hour and each check makes two.
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary); directory=root/'auto-deploy'; directory.mkdir()
+            release.write_json(directory/'status.json',{'deployedSha':'c'*40})
+            clock=[1000.0]
+            with patch.object(release,'main_sha',return_value=SHA),patch.object(release,'ready',return_value=False) as ready,patch.object(release,'deploy') as deploy,patch.object(release.time,'time',side_effect=lambda:clock[0]):
+                for _ in range(3): release.tick(root)
+                self.assertEqual(ready.call_count,1)
+                self.assertEqual(json.loads((directory/'status.json').read_text())['phase'],'waiting-for-ci')
+                clock[0]+=release.CI_POLL_SECONDS-1;release.tick(root)
+                self.assertEqual(ready.call_count,1)
+                clock[0]+=1;release.tick(root)
+                self.assertEqual(ready.call_count,2)
+                release.tick(root,retry=True)
+                self.assertEqual(ready.call_count,3,'an operator retry checks at once')
+                self.assertLessEqual(2*len(range(0,3600,release.CI_POLL_SECONDS)),60)
+            with patch.object(release,'main_sha',return_value='d'*40),patch.object(release,'ready',side_effect=RuntimeError('rate limited')) as ready,patch.object(release,'deploy') as deploy,patch.object(release.time,'time',side_effect=lambda:clock[0]):
+                release.tick(root);release.tick(root)
+                self.assertEqual(ready.call_count,1,'a new revision checks at once; an unavailable API backs off too')
+                state=json.loads((directory/'status.json').read_text())
+                self.assertEqual((state['candidateSha'],state['stage']),('d'*40,'ci-status-unavailable'))
+            deploy.assert_not_called()
 
     def test_failed_ci_never_starts_speculative_image_build(self):
         with tempfile.TemporaryDirectory() as temporary:

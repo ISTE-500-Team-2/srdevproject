@@ -22,7 +22,7 @@ import uuid
 
 from access_client import AccessClient
 from setup_discovery import NetworkDiscovery
-from setup_usb import SetupError, USBProvisioner, private_json, usb_devices, validated_nvs
+from setup_usb import SetupError, USBProvisioner, private_bytes, private_json, usb_devices, validated_nvs
 from signed_decision import TRANSPORT_FAULTS
 from wireless.reader_bridge import base_url
 
@@ -151,6 +151,10 @@ class Agent:
         path=self.profile(job['deviceId'])
         previous=path.read_bytes() if path.exists() else None
         try:
+            if previous is not None:
+                # Kept with the backup: a cancel or expiry that arrives after this thread
+                # ends must still give back the reader this device was set up as.
+                private_bytes(self.root/job['id']/'previous-profile.json',previous)
             self.stage(job['id'],'backing_up')
             key=secrets.token_hex(32)
             result=provisioner.configure(job['ssid'],job['password'],key,reuse_saved=job.get('reuseWifi',False))
@@ -170,7 +174,7 @@ class Agent:
             if previous is None:
                 path.unlink(missing_ok=True)
             else:
-                path.write_bytes(previous);path.chmod(0o600)
+                private_bytes(path,previous)
             code=error.code if isinstance(error,SetupError) else 'internal_error'
             try:provisioner.rollback()
             except Exception:code='recovery_required'
@@ -202,7 +206,7 @@ class Agent:
                     profile=json.loads(path.read_text())
                     if profile.get('jobId')==job['id']:
                         path.unlink() # Disable this profile before recovery.
-                        def recover(j=dict(job),p=profile):
+                        def recover(j=dict(job),p=profile,device=path):
                             try:
                                 root=self.root/j['id']
                                 data=(root/'full-flash-before.private.bin').read_bytes()
@@ -210,6 +214,10 @@ class Agent:
                                 if hashlib.sha256(data).hexdigest()!=proof['sha256']:raise SetupError('backup_failed')
                                 recovery=USBProvisioner({'path':p['usbPath']},root,threading.Event(),lambda stage:None)
                                 recovery.nvs=validated_nvs(data);recovery.changed=True;recovery.rollback()
+                                # The device holds its earlier settings again, so its earlier
+                                # reader profile works again too; the server never retired it.
+                                saved=root/'previous-profile.json'
+                                if saved.exists() and not device.exists():private_bytes(device,saved.read_bytes())
                             except Exception:self.stage(j['id'],'failed',errorCode='recovery_required')
                         thread=self.submit(job['deviceId'],recover)
                         if worker:worker['cleanup']=thread
