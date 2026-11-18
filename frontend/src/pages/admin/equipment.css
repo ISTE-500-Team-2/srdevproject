@@ -79,7 +79,6 @@
 /* The rows respond to the list's own width, not the window's: see the container rules below. */
 .eq-board { container: eq-board / inline-size; border-top: 1px solid #d8cbbf; min-width: 0; }
 .eq-row { display: grid; grid-template-columns: minmax(200px, 1.2fr) 200px minmax(200px, 1.5fr) minmax(120px, .8fr) 64px 18px; align-items: center; gap: 20px; padding: 12px 14px; border-bottom: 1px solid #e3d8cc; color: inherit; text-decoration: none; }
-a.eq-row:hover { background: #fffaf3; }
 .eq-row--head { padding-block: 10px; font-size: var(--text-2xs); font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: #80634f; }
 .eq-row--head > span { font-size: inherit; color: inherit; }
 /* The ticks span the column's full width, as the strips below do, so each label sits over its hour. */
@@ -193,6 +192,26 @@ a.eq-row[aria-current="true"] { position: relative; border-bottom-color: transpa
 a.eq-row[aria-current="true"]::before, a.eq-row[aria-current="true"]::after { content: ""; position: absolute; top: -1px; bottom: -1px; z-index: -1; border: 1px solid var(--eq-join-line); background: var(--eq-join-glass); backdrop-filter: blur(14px); pointer-events: none; }
 a.eq-row[aria-current="true"]::before { left: 0; right: 0; border-right: 0; border-radius: inherit; }
 a.eq-row[aria-current="true"]::after { left: 100%; width: 24px; border-inline: 0; }
+/* Hover previews the selection: the selected row's rounded shape at a fraction of its strength,
+   inset from the dividers, which fade out around it, with the chevron nudging toward the panel.
+   Keyboard focus takes the same shape with a full-strength line in place of the square focus
+   ring. The selected row keeps its own outline. Touch screens skip hover, so a tap leaves no trace. */
+.eq-workspace--board { --eq-hover-line: rgba(196, 127, 53, 0.38); --eq-hover-fill: rgba(196, 127, 53, 0.05); --eq-hover-mark: #b0601c; }
+:root[data-theme="dark"] .eq-workspace--board { --eq-hover-line: rgba(217, 130, 43, 0.32); --eq-hover-fill: rgba(255, 236, 214, 0.045); --eq-hover-mark: #d9822b; }
+a.eq-row { position: relative; transition: border-color .15s; }
+a.eq-row:not([aria-current="true"]) { isolation: isolate; }
+a.eq-row:not([aria-current="true"])::before { content: ""; position: absolute; inset: 3px 0; z-index: -1; border: 1px solid transparent; border-radius: 10px; transition: background-color .15s, border-color .15s; pointer-events: none; }
+.eq-row__chev { transition: transform .15s, color .15s; }
+@media (hover: hover) {
+  a.eq-row:not([aria-current="true"]):hover::before { background: var(--eq-hover-fill); border-color: var(--eq-hover-line); }
+  a.eq-row:not([aria-current="true"]):hover, a.eq-row:has(+ a.eq-row:not([aria-current="true"]):hover) { border-bottom-color: transparent; }
+  a.eq-row:hover .eq-row__chev { transform: translateX(3px); color: var(--eq-hover-mark); }
+}
+a.eq-row:not([aria-current="true"]):focus-visible { outline: none; }
+a.eq-row:not([aria-current="true"]):focus-visible::before { background: var(--eq-hover-fill); border: 2px solid #b8793d; }
+a.eq-row:not([aria-current="true"]):focus-visible, a.eq-row:has(+ a.eq-row:not([aria-current="true"]):focus-visible) { border-bottom-color: transparent; }
+a.eq-row:focus-visible .eq-row__chev { transform: translateX(3px); color: var(--eq-hover-mark); }
+@media (prefers-reduced-motion: reduce) { a.eq-row, a.eq-row::before, .eq-row__chev { transition: none; } }
 
 /* Remove equipment: what stays, and anything that has to be resolved first. */
 .eq-remove { display: grid; gap: 14px; }
@@ -226,7 +245,7 @@ a.eq-row[aria-current="true"]::after { left: 100%; width: 24px; border-inline: 0
 .eqa-foot__msg.is-ok { color: #47583b; }
 .eqa-field { position: relative; display: block; min-width: 0; margin: 0; padding: 0; border: 0; }
 .eqa-label { display: block; margin-bottom: 7px; padding: 0; font-size: var(--text-base-sm); font-weight: 600; }
-.eqa-field small, .eqa-link small { display: block; margin-top: 8px; font-size: var(--text-sm); color: #756154; }
+.eqa-field small { display: block; margin-top: 8px; font-size: var(--text-sm); color: #756154; }
 .eqa small.is-error { color: #a63d22; }
 .eqa small.is-warn { color: #8a5a10; font-weight: 500; }
 .eqa input { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid #cdbfb2; border-radius: 7px; background: #fffdfa; color: #3d2a20; font: inherit; }
@@ -235,14 +254,11 @@ a.eq-row[aria-current="true"]::after { left: 100%; width: 24px; border-inline: 0
 .eqa :focus-visible, .eqa-menu :focus-visible { outline: 3px solid #b8793d; outline-offset: 2px; }
 .eqa-two { display: grid; grid-template-columns: 1.2fr 1fr; gap: 14px; }
 
-.eqa-pics { display: flex; flex-wrap: wrap; gap: 8px; }
-/* The picture is pinned inside its tile so a tall photo can't spill out of it. */
-.eqa-pic { position: relative; display: grid; place-items: center; width: 64px; height: 64px; padding: 0; overflow: hidden; border: 1px solid #cdbfb2; border-radius: 9px; background: #e9e0d7; cursor: pointer; }
-.eqa-pic img { position: absolute; inset: 6px; width: calc(100% - 12px); height: calc(100% - 12px); object-fit: contain; }
-.eqa-pic[aria-pressed="true"] { border-color: #a86008; box-shadow: 0 0 0 2px #a86008; }
-.eqa-pic--link { align-content: center; gap: 2px; border-style: dashed; background: transparent; color: #756154; font: 600 var(--text-2xs) Barlow, sans-serif; }
-.eqa-pic--link svg { width: 20px; height: 20px; }
-.eqa-link { display: block; margin-top: 10px; }
+/* The shared equipment image picker (equipmentImagePicker.css), fitted to this form. */
+.eqa .eq-image { display: block; min-width: 0; margin: 0; padding: 0; border: 0; background: transparent; }
+.eqa .eq-image__link label { display: grid; gap: 7px; font-size: var(--text-base-sm); font-weight: 600; }
+.eqa .eq-image__link small { font-weight: 400; }
+.eqa-photo-error { display: block; margin-top: -10px; font-size: var(--text-sm); }
 
 .eqa-rate-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .eqa-seg { display: inline-flex; overflow: hidden; border: 1px solid #cdbfb2; border-radius: 8px; background: #fffdfa; }

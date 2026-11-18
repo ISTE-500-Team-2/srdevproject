@@ -7,7 +7,7 @@ import request from 'supertest';
 import {createApp} from '../../src/app.js';
 import {initializeDemo} from '../../src/scripts/init-demo.js';
 import {confirmationToken} from '../helpers/confirmation.js';
-import {waiverAcceptance} from '../helpers/waiver.js';
+import {waiverAcceptance,withSignedCopiesUnlocked} from '../helpers/waiver.js';
 import {evaluateReaderAccess} from '../../src/services/ReaderEligibility.js';
 import {MinorSupervision} from '../../src/minorSupervision.js';
 import {transaction} from '../../src/db.js';
@@ -51,7 +51,7 @@ test('staff/CSRF/consent and adult age are enforced without banning minor accoun
 test('both visitors need their own access; adult presence gates minor bookings and is attached to them',async()=>{
  // A supervising adult is not operating equipment. Their unsigned equipment
  // agreement must not block either visitor's facility arrival or the minor's booking.
- await pool.query(`DELETE FROM user_waiver WHERE userid=$1 AND waiverid IN
+ await withSignedCopiesUnlocked(pool,`DELETE FROM user_waiver WHERE userid=$1 AND waiverid IN
   (SELECT waiverid FROM waiver WHERE policy_scope='equipment')`,[adult.user.id]);
  const base=Date.now();
  const body={roomId:room,startTime:new Date(base+3600000).toISOString(),endTime:new Date(base+7200000).toISOString()};

@@ -5,6 +5,9 @@ import { EquipmentAdd, type AddOptions } from './EquipmentAdd';
 
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
 vi.mock('../../lib/api', () => ({ api, ApiError: class extends Error {}, errorMessage: (e: Error) => e.message }));
+// jsdom cannot decode or re-encode images; the shared picker's resize step is stubbed.
+const { prepareEquipmentImage } = vi.hoisted(() => ({ prepareEquipmentImage: vi.fn() }));
+vi.mock('../../lib/equipmentImage', () => ({ prepareEquipmentImage }));
 
 let options: AddOptions;
 const onAdded = vi.fn(), onClose = vi.fn();
@@ -22,6 +25,11 @@ beforeEach(() => {
       { name: 'Metal lathe', machines: [{ id: 5, name: 'Kirk', image: '/assets/wood-lathe.webp' }] },
       { name: 'Wood lathe', machines: [{ id: 4, name: 'Spock', image: '/photos/spock.webp' }] },
     ],
+    images: [
+      { path: '/api/equipment-images/AAAAAAAAAAAAAAAAAAAAAA', label: 'Darth Vader' },
+      { path: '/assets/laser-engraver.webp', label: 'Laser engraver' },
+      { path: '/assets/wood-lathe.webp', label: 'Lathe' },
+    ],
   };
   api.mockImplementation((path: string) => path === '/admin/equipment/catalog-options' ? Promise.resolve(structuredClone(options)) : Promise.resolve({ id: 12 }));
 });
@@ -33,7 +41,7 @@ const open = async () => {
   await waitFor(() => expect((within(dialog).getByRole('combobox', { name: 'Required certification' }) as HTMLButtonElement).disabled).toBe(false));
   return dialog;
 };
-const type = (dialog: HTMLElement, label: string, value: string) => fireEvent.change(within(dialog).getByLabelText(label), { target: { value } });
+const type = (dialog: HTMLElement, label: string | RegExp, value: string) => fireEvent.change(within(dialog).getByLabelText(label), { target: { value } });
 const category = (dialog: HTMLElement, value: string) => {
   const input = within(dialog).getByRole('combobox', { name: 'Category' });
   fireEvent.focus(input); fireEvent.change(input, { target: { value } }); fireEvent.blur(input);
@@ -41,6 +49,7 @@ const category = (dialog: HTMLElement, value: string) => {
 const add = (dialog: HTMLElement) => within(dialog).getByRole('button', { name: 'Add equipment' }) as HTMLButtonElement;
 const check = (dialog: HTMLElement) => within(dialog).getByRole('list').textContent;
 const footer = (dialog: HTMLElement) => within(dialog).getByRole('status').textContent;
+const library = (dialog: HTMLElement) => within(dialog).getByRole('group', { name: 'Existing equipment images' });
 const pickCertification = async (dialog: HTMLElement, name: RegExp) => {
   fireEvent.click(within(dialog).getByRole('combobox', { name: 'Required certification' }));
   fireEvent.click(await screen.findByRole('option', { name }));
@@ -76,7 +85,7 @@ test('free equipment saves a zero rate with the chosen picture, and reports what
   category(dialog, 'laser ENGRAVER');
   expect((within(dialog).getByRole('combobox', { name: 'Category' }) as HTMLInputElement).value).toBe('Laser engraver');
   fireEvent.click(within(dialog).getByRole('button', { name: 'Free to use' }));
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Laser engraver stock picture' }));
+  fireEvent.click(within(library(dialog)).getByRole('button', { name: 'Laser engraver' }));
   fireEvent.click(within(dialog).getByRole('switch', { name: /equipment waiver/ }));
   fireEvent.click(add(dialog));
   await waitFor(() => expect(onAdded).toHaveBeenCalledWith({ id: 12, name: 'Glowforge Pro', note: 'Members can book it now.' }));
@@ -115,7 +124,7 @@ test('the preview is the card members see, and a name already in the category is
   expect(within(preview).getByRole('heading', { name: 'Lathe' })).toBeTruthy();
   expect(preview.textContent).toContain('Spock · Kirk · Oneway 1224');
   expect(check(dialog)).toContain('On the Lathe card');
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Wood lathe stock picture' }));
+  fireEvent.click(within(library(dialog)).getByRole('button', { name: 'Lathe' }));
   expect(preview.textContent).toContain('Members see Oneway 1224 and its picture when they open the card.');
   // The card labels each machine with its own category, so a metal lathe's name is free for a wood lathe...
   type(dialog, 'Name', 'Kirk');
@@ -159,13 +168,50 @@ test('keyboard: arrows and Enter choose a category and a certification; Escape c
 test('a photo link must be one the server accepts', async () => {
   const dialog = await open();
   type(dialog, 'Name', 'Shopbot'); category(dialog, 'CNC router'); type(dialog, 'Hourly rate in dollars', '22');
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Link' }));
-  type(dialog, 'Photo link', 'http://example.com/shopbot.jpg');
+  fireEvent.click(within(dialog).getByText('Use an image link or path'));
+  type(dialog, /^Image path or HTTPS URL/, 'http://example.com/shopbot.jpg');
   expect(check(dialog)).toContain('Check the photo link');
+  expect(within(dialog).getByText('Use a photo link that starts with https:// or /.')).toBeTruthy();
   expect(add(dialog).disabled).toBe(true);
-  type(dialog, 'Photo link', 'https://example.com/shopbot.jpg');
+  type(dialog, /^Image path or HTTPS URL/, 'https://example.com/shopbot.jpg');
   fireEvent.click(add(dialog));
   await waitFor(() => expect(api).toHaveBeenCalledWith('/admin/equipment', expect.objectContaining({ body: expect.objectContaining({ image: 'https://example.com/shopbot.jpg' }) })));
+});
+
+test('an uploaded photo is sent with the new machine, the same way editing saves one', async () => {
+  const upload = 'data:image/webp;base64,UklGRg==';
+  let finish!: (value: string) => void;
+  prepareEquipmentImage.mockImplementation(() => new Promise<string>(resolve => { finish = resolve; }));
+  const dialog = await open();
+  type(dialog, 'Name', 'Glowforge Pro'); category(dialog, 'Laser engraver'); type(dialog, 'Hourly rate in dollars', '18.50');
+  fireEvent.click(within(library(dialog)).getByRole('button', { name: 'Laser engraver' }));
+  const file = new File(['raw'], 'glowforge.png', { type: 'image/png' });
+  fireEvent.change(within(dialog).getByLabelText('Upload equipment image'), { target: { files: [file] } });
+  // The machine can't be added while the picture is still being prepared.
+  await waitFor(() => expect(add(dialog).disabled).toBe(true));
+  expect(prepareEquipmentImage).toHaveBeenCalledWith(file);
+  finish(upload);
+  await waitFor(() => expect(add(dialog).disabled).toBe(false));
+  expect(within(dialog).getByText('glowforge.png')).toBeTruthy();
+  expect(within(library(dialog)).getByRole('button', { name: 'Laser engraver' }).getAttribute('aria-pressed')).toBe('false');
+  const preview = within(dialog).getByRole('complementary', { name: 'Preview and booking check' });
+  expect(preview.textContent).toContain('Members see Glowforge Pro and its picture when they open the card.');
+  fireEvent.click(add(dialog));
+  await waitFor(() => expect(onAdded).toHaveBeenCalled());
+  expect(api).toHaveBeenCalledWith('/admin/equipment', { method: 'POST', body: {
+    name: 'Glowforge Pro', type: 'Laser engraver', location: 'Makerspace', image: '', imageUpload: upload, rate: 18.5, certId: null, waiverRequired: true,
+  } });
+});
+
+test('a photo already in the catalog can be reused without uploading it again', async () => {
+  const dialog = await open();
+  type(dialog, 'Name', 'Glowforge Pro'); category(dialog, 'Bench laser'); type(dialog, 'Hourly rate in dollars', '18');
+  fireEvent.click(within(library(dialog)).getByRole('button', { name: 'Darth Vader' }));
+  fireEvent.click(add(dialog));
+  await waitFor(() => expect(onAdded).toHaveBeenCalled());
+  const body = api.mock.calls.find(([path]) => path === '/admin/equipment')![1].body;
+  expect(body.image).toBe('/api/equipment-images/AAAAAAAAAAAAAAAAAAAAAA');
+  expect(body).not.toHaveProperty('imageUpload');
 });
 
 test('a refusal from the server is shown and the form stays open', async () => {

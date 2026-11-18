@@ -10,6 +10,8 @@ import { UserModel } from '../models/UserModel.js';
 import { AccessService } from './AccessService.js';
 import { activeEquipmentGrants } from './EquipmentMaintenanceService.js';
 import { MAX_BOOKING_CENTS, MAX_BOOKING_HOURS, MIN_CARD_PAYMENT_CENTS } from '../equipmentPricing.js';
+import { stockEquipmentImages } from '../equipmentImages.js';
+import { profilePhotoField } from '../profilePhoto.js';
 
 /** Removed machines keep their history but are no longer part of the catalog. */
 const active = 'NOT EXISTS(SELECT 1 FROM app_equipment_retirement r WHERE r.equipment_id=e.equipmentid)';
@@ -64,7 +66,7 @@ export class EquipmentCatalogService {
    * each) with their machines, and every certification with whether it is in effect and who holds it.
    */
   async options(user: UserView) {
-    const [groups, certifications, waiver] = await Promise.all([
+    const [groups, certifications, waiver, images] = await Promise.all([
       // Each machine keeps its member-facing type (EquipmentModel: its category, else its name); the
       // group offers the most used spelling. Machines without a category form one group with no name.
       this.pool.query<{ name: string | null; machines: { id: number; name: string; image: string; type: string }[] }>(`
@@ -92,6 +94,8 @@ export class EquipmentCatalogService {
             AND (effectivedate IS NULL OR effectivedate<=NOW() AT TIME ZONE 'UTC')
           ORDER BY name,effectivedate DESC NULLS LAST,waiverid DESC)
         SELECT COALESCE(bool_or(policy_scope='facility'),false) AND COALESCE(bool_or(policy_scope='equipment'),false) AS ready FROM current_waivers`),
+      this.pool.query<{ path: string; label: string }>(`SELECT imagepath AS path, min(name) AS label FROM equipment
+        WHERE imagepath IS NOT NULL AND imagepath <> '' GROUP BY imagepath ORDER BY min(name)`),
     ]);
     return {
       canManage: user.roles.includes('admin'),
@@ -99,6 +103,8 @@ export class EquipmentCatalogService {
       certifications: certifications.rows,
       groups: groups.rows,
       waiversPublished: waiver.rows[0]!.ready,
+      // The image picker offers pictures already in the catalog, then the built-in stock images.
+      images: [...new Map([...images.rows, ...stockEquipmentImages].map(image => [image.path, image])).values()],
     };
   }
 
@@ -112,6 +118,7 @@ export class EquipmentCatalogService {
 
   async save(actorId: number, id: number | null, input: Record<string, unknown>) {
     const f = equipmentFields(input);
+    const upload = input.imageUpload === undefined ? null : profilePhotoField(input.imageUpload);
     return transaction(this.pool, async db => {
       const before = await this.authorize(db, actorId, id === null ? 'create' : 'update', id, input);
       // New and changed values must be bookable; an edit that leaves an older value alone still saves.
@@ -139,6 +146,11 @@ export class EquipmentCatalogService {
           WHERE lower(trim(e.name))=lower($1) AND lower(trim(e.category))=lower($2) AND e.equipmentid IS DISTINCT FROM $3 AND ${active}`,
           [f.name, f.category, id])).rows.length)
           throw new AppError(409, 'DUPLICATE_NAME', `Another ${f.category} is already called ${f.name}. Give this one a different name, like ${f.name} #2.`);
+      }
+      if (upload) {
+        await db.query(`INSERT INTO app_equipment_image(version,content_type,image) VALUES($1,$2,$3)
+          ON CONFLICT (version) DO NOTHING`, [upload.version, upload.contentType, upload.image]);
+        f.image = `/api/equipment-images/${upload.version}`;
       }
       const values = [f.name, f.category, f.location, f.image, f.rate, f.certId, f.waiverRequired];
       const after = (await db.query<{ id: number }>(id === null

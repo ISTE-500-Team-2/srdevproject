@@ -3,13 +3,14 @@
 
 import { Fragment, useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, Check, ChevronDown, Link2, X } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, X } from 'lucide-react';
 import { api, errorMessage } from '../../lib/api';
 import { editingFormRef } from '../../lib/editingForms';
 import { equipmentGroup } from '../../lib/equipmentGroups';
 import { useApi } from '../../lib/useApi';
 import { Modal } from '../../components/Modal';
 import { LoadState } from '../../components/Management';
+import { EquipmentImagePicker, type EquipmentImageChoice, type EquipmentImageOption } from './EquipmentImagePicker';
 
 export interface CertificationOption {
   id: number; name: string;
@@ -29,6 +30,8 @@ export interface AddOptions {
   groups?: { name: string | null; machines: CatalogMachine[] }[];
   /** Whether the facility and equipment waivers a waiver-required booking checks are published. */
   waiversPublished?: boolean;
+  /** Pictures the image picker offers: ones already in the catalog, then the stock ones. */
+  images?: EquipmentImageOption[];
 }
 export interface Added { id: number; name: string; note: string }
 type Tone = 'ok' | 'warn' | 'bad';
@@ -39,12 +42,6 @@ const MIN_PAID_RATE = 0.5;
 const MAX_RATE = 4166.66;
 /** What a machine without a picture shows members. */
 const DEFAULT_PICTURE = '/assets/3d-printer.webp';
-const STOCK = [
-  { src: '/assets/3d-printer.webp', label: '3D printer' },
-  { src: '/assets/cnc-machine.webp', label: 'CNC machine' },
-  { src: '/assets/laser-engraver.webp', label: 'Laser engraver' },
-  { src: '/assets/wood-lathe.webp', label: 'Wood lathe' },
-];
 
 const money = (n: number) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const day = (date?: string | null) => date ? new Date(`${date}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : '';
@@ -85,8 +82,9 @@ export function EquipmentAdd({ onClose, onAdded }: { onClose: () => void; onAdde
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [categoryActive, setCategoryActive] = useState(-1);
   const [location, setLocation] = useState('Makerspace');
-  const [picture, setPicture] = useState('');
-  const [linking, setLinking] = useState(false);
+  // Same picker and upload as editing: a saved or stock picture, a link, or a new upload saved with the machine.
+  const [image, setImage] = useState<EquipmentImageChoice>({ path: '' });
+  const [processingImage, setProcessingImage] = useState(false);
   const [free, setFree] = useState(false);
   const [rate, setRate] = useState('');
   const [certId, setCertId] = useState<number | null>(null);
@@ -94,7 +92,8 @@ export function EquipmentAdd({ onClose, onAdded }: { onClose: () => void; onAdde
   const [certActive, setCertActive] = useState(0);
   const [waiver, setWaiver] = useState(true);
   const [dirty, setDirty] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const busy = saving || processingImage;
   const [error, setError] = useState('');
   const rateRef = useRef<HTMLInputElement>(null);
   const certRef = useRef<HTMLButtonElement>(null);
@@ -126,7 +125,7 @@ export function EquipmentAdd({ onClose, onAdded }: { onClose: () => void; onAdde
   const pickable = (c: CertificationOption | null) => c?.state !== 'ended';
 
   const price = priceCheck(free, rate);
-  const link = linking ? picture.trim() : '';
+  const link = image.upload ? '' : image.path.trim();
   const listing: Item = !trimmed ? { tone: 'bad', title: 'Give it a name', note: 'Members pick machines by name' }
     : !card ? { tone: 'bad', title: 'Choose a category', note: 'It decides which card it appears on' }
     : duplicate ? { tone: 'bad', title: `Another ${chosenCategory} is called ${trimmed}`, note: `Members pick machines by name. Try ${trimmed} #2` }
@@ -158,7 +157,7 @@ export function EquipmentAdd({ onClose, onAdded }: { onClose: () => void; onAdde
   // Preview: the card as members will see it.
   const listed = [...(card?.machines.map(m => m.name) ?? []), trimmed || 'Your machine'];
   const mineShown = listed.length <= 3;
-  const chosenPicture = linking ? (linkProblem(link) ? '' : link) : picture;
+  const chosenPicture = image.upload || (linkProblem(link) ? '' : link);
   const cover = card?.machines[0]?.image ?? (chosenPicture || DEFAULT_PICTURE);
   const opensTo = !!card?.machines.length && (!mineShown || (!!chosenPicture && chosenPicture !== cover));
 
@@ -212,36 +211,23 @@ export function EquipmentAdd({ onClose, onAdded }: { onClose: () => void; onAdde
   const save = async (event: FormEvent) => {
     event.preventDefault();
     if (bad || busy || !options.data?.canManage) return;
-    setBusy(true); setError('');
+    setSaving(true); setError('');
     try {
       const saved = await api<{ id: number }>('/admin/equipment', {
         method: 'POST',
-        body: { name: trimmed, type: chosenCategory, location: location.trim(), image: chosenPicture, rate: price.rate, certId, waiverRequired: waiver },
+        body: { name: trimmed, type: chosenCategory, location: location.trim(), image: link, ...(image.upload ? { imageUpload: image.upload } : {}), rate: price.rate, certId, waiverRequired: waiver },
       });
       onAdded({ id: saved.id, name: trimmed, note: waits.length ? waits.join(' ') : 'Members can book it now.' });
     } catch (err) { setError(errorMessage(err)); }
-    finally { setBusy(false); }
+    finally { setSaving(false); }
   };
 
   return <Modal open title="Add equipment" onClose={onClose} dirty={dirty} dismissible={!busy} className="eqa-card">
     {close => <form ref={editingFormRef} className="eqa" onChange={touch} onSubmit={save}>
       <div className="eqa-form">
         <LoadState {...options} />
-        <fieldset className="eqa-field eqa-photo" disabled={busy}>
-          <legend className="eqa-label">Photo</legend>
-          <div className="eqa-pics">
-            {STOCK.map(s => <button type="button" key={s.src} className="eqa-pic" aria-pressed={!linking && picture === s.src} aria-label={`${s.label} stock picture`}
-              onClick={() => { setPicture(picture === s.src && !linking ? '' : s.src); setLinking(false); touch(); }}><img src={s.src} alt="" /></button>)}
-            <button type="button" className="eqa-pic eqa-pic--link" aria-pressed={linking} onClick={() => { setLinking(!linking); setPicture(''); touch(); }}><Link2 aria-hidden="true" />Link</button>
-          </div>
-          {linking
-            ? <div className="eqa-link">
-                <input autoFocus aria-label="Photo link" aria-invalid={linkProblem(link) || undefined} maxLength={255} value={picture} placeholder="https://… or /assets/…"
-                  className={linkProblem(link) ? 'is-error' : undefined} onChange={e => setPicture(e.target.value)} />
-                <small className={linkProblem(link) ? 'is-error' : undefined}>{linkProblem(link) ? 'Use a link that starts with https:// or /.' : 'A link to a picture on this site or another secure site.'}</small>
-              </div>
-            : <small>{picture ? 'Members see this picture when they open the machine.' : 'Pick a stock picture, or link to one. Without one, members see the default picture.'}</small>}
-        </fieldset>
+        <EquipmentImagePicker value={image} images={options.data?.images ?? []} disabled={busy} onProcessing={setProcessingImage} onChange={choice => { setImage(choice); touch(); }} />
+        {linkProblem(link) && <small className="eqa-photo-error is-error">Use a photo link that starts with https:// or /.</small>}
         <label className="eqa-field"><span className="eqa-label">Name</span><input maxLength={100} value={name} placeholder="e.g. Glowforge Pro" disabled={busy} onChange={e => setName(e.target.value)} /></label>
         <div className="eqa-two">
           <div className="eqa-field eqa-combo">
@@ -311,7 +297,7 @@ export function EquipmentAdd({ onClose, onAdded }: { onClose: () => void; onAdde
           <h3 className={card ? undefined : 'is-empty'}>{card?.title ?? 'Category'}</h3>
           <p className="eqa-names">{listed.slice(0, 3).map((n, i) => <span key={i}>{i > 0 && ' · '}{i === listed.length - 1 ? <mark>{n}</mark> : n}</span>)}{listed.length > 3 && `… + ${listed.length - 3} more`}</p>
           <p className="eqa-meta">{[free ? 'Free' : price.rate ? `${money(price.rate)}/hour` : 'Price not set', location.trim() || 'Location not set'].join(' · ')}</p>
-          {opensTo && <p className="eqa-meta eqa-meta--note">Members see {trimmed || 'it'}{picture && picture !== cover ? ' and its picture' : ''} when they open the card.</p>}
+          {opensTo && <p className="eqa-meta eqa-meta--note">Members see {trimmed || 'it'}{chosenPicture && chosenPicture !== cover ? ' and its picture' : ''} when they open the card.</p>}
         </div>
         <hr />
         <div className="eqa-check-head"><p className="eqa-eyebrow" id={`${ids}-check`}>Booking check</p><span className={`eqa-pill eqa-pill--${bad ? 'bad' : warn ? 'warn' : 'ok'}`}>{bad ? 'Can’t add yet' : later ? `From ${day(cert!.startsOn)}` : warn ? 'Check' : 'Ready'}</span></div>
@@ -324,7 +310,7 @@ export function EquipmentAdd({ onClose, onAdded }: { onClose: () => void; onAdde
       <div className="eqa-foot">
         {error ? <p className="eqa-foot__msg is-bad" role="alert">{error}</p> : <p className={`eqa-foot__msg is-${bad ? 'bad' : warn ? 'warn' : 'ok'}`} role="status">{footer}</p>}
         <button type="button" className="button button--quiet" disabled={busy} onClick={close}>Cancel</button>
-        <button className="button button--primary" disabled={busy || !!bad || !options.data?.canManage}>{busy ? 'Adding…' : 'Add equipment'}</button>
+        <button className="button button--primary" disabled={busy || !!bad || !options.data?.canManage}>{saving ? 'Adding…' : 'Add equipment'}</button>
       </div>
     </form>}
   </Modal>;

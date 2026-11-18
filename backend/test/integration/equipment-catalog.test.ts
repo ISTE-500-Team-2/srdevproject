@@ -8,6 +8,7 @@ import { equipmentPrice } from '../../src/equipmentPricing.js';
 import { memberRequirements } from '../../src/memberRequirements.js';
 import { accessResources, assertReaderTarget } from '../../src/readerRegistry.js';
 import { initializeDemo } from '../../src/scripts/init-demo.js';
+import { dataUrl, jpeg } from '../helpers/photos.js';
 
 const database = `arbor_catalog_${randomBytes(6).toString('hex')}_mvc_test`;
 const owner = new Pool(), pool = new Pool({ database });
@@ -109,6 +110,32 @@ test('two machines in a category cannot share a name', async () => {
   const removed = await machine('Retired twin', 'Router table', 10);
   await retire(removed);
   assert.equal((await add(fields({ name: 'Retired twin', type: 'Router table' }))).status, 201, 'a removed machine frees its name');
+});
+
+test('a new machine with an uploaded photo keeps it, and the catalog rules still apply', async () => {
+  const photo = jpeg(640, 480);
+  const images = async () => (await pool.query<{ n: number }>('SELECT count(*)::int AS n FROM app_equipment_image')).rows[0]!.n;
+  const before = await images();
+  // A refused machine leaves no photo behind.
+  const tooCheap = await add(fields({ name: 'Photo laser', imageUpload: dataUrl('image/jpeg', photo), rate: 0.25 }));
+  assert.equal(tooCheap.status, 400);
+  assert.match(tooCheap.body.error.message, /Card payments start at \$0\.50/);
+  await machine('Photo twin', 'Photo bench', 10);
+  const duplicate = await add(fields({ name: 'photo TWIN', type: 'photo bench', imageUpload: dataUrl('image/jpeg', photo) }));
+  assert.equal(duplicate.status, 409);
+  assert.equal(await images(), before, 'refused machines store no upload');
+  // An accepted one stores the photo, under the category's existing spelling, and offers it to the picker.
+  const created = await add(fields({ name: 'Photo laser', type: 'photo BENCH', imageUpload: dataUrl('image/jpeg', photo) }));
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const row = (await pool.query('SELECT category,imagepath FROM equipment WHERE equipmentid=$1', [created.body.data.id])).rows[0];
+  assert.equal(row.category, 'Photo bench');
+  assert.match(row.imagepath, /^\/api\/equipment-images\/[A-Za-z0-9_-]{22}$/);
+  assert.deepEqual((await request(app).get(row.imagepath)).body, photo);
+  assert.equal(await images(), before + 1);
+  const offered = await options();
+  assert.ok(offered.images.some((image: { path: string; label: string }) => image.path === row.imagepath && image.label === 'Photo laser'));
+  assert.ok(offered.groups.some((group: { name: string; machines: { name: string; image: string }[] }) =>
+    group.name === 'Photo bench' && group.machines.some(m => m.name === 'Photo laser' && m.image === row.imagepath)));
 });
 
 test('certification options say whether each is in effect and how many members hold it today', async () => {
