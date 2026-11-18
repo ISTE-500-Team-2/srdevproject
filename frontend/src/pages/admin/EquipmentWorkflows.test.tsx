@@ -42,7 +42,7 @@ test('online-paid bookings cannot be moved, and a booking awaiting online paymen
   const pending = await row('Member 3');
   expect((within(pending).getByRole('button', { name: 'Move' }) as HTMLButtonElement).disabled).toBe(true);
   expect((within(pending).getByRole('button', { name: 'Cancel booking' }) as HTMLButtonElement).disabled).toBe(true);
-  expect(within(pending).getByText(/Waiting for the member’s online payment, so it can’t be changed yet\. The hold is released at/)).toBeTruthy();
+  expect(within(pending).getByText(/Waiting for the member’s online payment, so it can’t be changed yet\. If they don’t pay, the booking is expected to be released at/)).toBeTruthy();
 });
 
 test('the bookings list refreshes on its own and picks up bookings made elsewhere', async () => {
@@ -66,6 +66,39 @@ test('a booking changed elsewhere reloads the list and says to choose it again',
   expect((await within(dialog).findByRole('alert')).textContent).toMatch(/changed after the list was loaded\. The list is now up to date/);
   await waitFor(() => expect(bookingReads()).toBeGreaterThan(reads));
   expect((within(dialog).getByRole('button', { name: 'Confirm cancellation' }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+test('a replacement machine removed after the window opened refreshes the choices instead of locking the move', async () => {
+  const backup = { ...machine, id: 2, name: 'Backup printer', status: 'available' };
+  const base = api.getMockImplementation()!;
+  api.mockImplementation((path: string, init?: unknown) => {
+    if (path === '/admin/equipment') return Promise.resolve([structuredClone(backup)]);
+    if (path.endsWith('/review-move')) return Promise.reject(new ApiError(404, 'NOT_FOUND', 'Equipment not found.'));
+    return base(path, init);
+  });
+  const catalogReads = () => api.mock.calls.filter(([path]) => path === '/admin/equipment').length;
+  mount();
+  fireEvent.click(within(await row('Member 1')).getByRole('button', { name: 'Move' }));
+  const dialog = await screen.findByRole('dialog');
+  await within(dialog).findByRole('option', { name: /Backup printer/ });
+  const select = within(dialog).getByRole('combobox', { name: 'Replacement machine' }) as HTMLSelectElement;
+  const reads = catalogReads();
+  fireEvent.change(select, { target: { value: '2' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Review move' }));
+  expect((await within(dialog).findByRole('alert')).textContent).toBe('Equipment not found.');
+  // The booking itself is fine: staff can choose another machine from the reloaded list.
+  expect(select.disabled).toBe(false);
+  expect(select.value).toBe('');
+  await waitFor(() => expect(catalogReads()).toBeGreaterThan(reads));
+});
+
+test('a booking removed before it could be cancelled says to choose it again', async () => {
+  mount();
+  fireEvent.click(within(await row('Member 1')).getByRole('button', { name: 'Cancel booking' }));
+  const dialog = await screen.findByRole('dialog');
+  api.mockImplementationOnce(() => Promise.reject(new ApiError(404, 'NOT_FOUND', 'Reservation not found.')));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm cancellation' }));
+  expect((await within(dialog).findByRole('alert')).textContent).toMatch(/changed after the list was loaded/);
 });
 
 test('after cancelling a booking, keyboard focus moves to the confirmation', async () => {

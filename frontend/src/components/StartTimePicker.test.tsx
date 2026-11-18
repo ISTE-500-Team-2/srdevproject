@@ -91,6 +91,21 @@ test("a chosen time the clock passes is not moved to a later one", () => {
   expect(screen.getByRole("alert").textContent).toMatch(/7:30\sPM can no longer be booked/);
 });
 
+test("a chosen time left open past midnight keeps its day and asks for another day", () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 9, 27, 23, 0));
+  render(<StartTimePicker name="start" hours={1} />);
+  fireEvent.change(picker(), { target: { value: "23:30" } });
+  expect(value()).toBe("2026-10-27T23:30");
+  act(() => vi.advanceTimersByTime(70 * 60000));
+  // Not quietly moved to 11:30 PM tomorrow: the member is asked for a new day.
+  expect(value()).toBe("");
+  expect((screen.getByLabelText("Booking date") as HTMLInputElement).value).toBe("2026-10-27");
+  expect(screen.getByRole("alert").textContent).toMatch(/11:30\sPM on Tue, Oct 27 can no longer be booked\. Choose another day and start time\./);
+  fireEvent.click(screen.getAllByRole("radio")[0]!);
+  expect(value()).toBe("2026-10-28T23:30");
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
 test("a booking that runs past midnight says so", () => {
   render(<StartTimePicker name="start" hours={3} now={new Date(2026, 9, 27, 21, 50)} />);
   expect(screen.getByText(/the next day/)).toBeTruthy();
@@ -138,6 +153,30 @@ test("a suggested time that is taken moves to the next free start, not back to m
  fireEvent.click(screen.getByRole('button',{name:'Fri, Oct 30, 2026'}));
  // The suggestion was 12:30; the booking and its 15-minute gap run to 2:15 PM.
  expect(value()).toBe('2026-10-30T14:30');
+ expect(screen.queryByRole('alert')).toBeNull();
+});
+
+test("a suggested time that a longer booking or an availability refresh pushes on is announced beside the field", () => {
+ const now=new Date(2026,9,27,12);
+ const busy=[{startTime:new Date(2026,9,27,14).toISOString(),endTime:new Date(2026,9,27,15).toISOString()}];
+ const {rerender}=render(<StartTimePicker calendar name="start" hours={1} now={now} occupied={busy}/>);
+ expect(value()).toBe('2026-10-27T12:30');
+ expect(screen.queryByRole('status')).toBeNull();
+ rerender(<StartTimePicker calendar name="start" hours={2} now={now} occupied={busy}/>);
+ // 12:30–2:30 overlaps the 2 PM booking and its 15-minute gap; 3:30 is the next start that fits.
+ expect(value()).toBe('2026-10-27T15:30');
+ const note=screen.getByRole('status');
+ expect(note.textContent).toMatch(/12:30\sPM isn’t available for 2 hours on this day, so the start time moved to 3:30\sPM\./);
+ expect(picker().getAttribute('aria-describedby')).toBe(note.id);
+ // Shortening it again keeps 3:30 instead of jumping back, and the note goes.
+ rerender(<StartTimePicker calendar name="start" hours={1} now={now} occupied={busy}/>);
+ expect(value()).toBe('2026-10-27T15:30');
+ expect(screen.queryByRole('status')).toBeNull();
+ // An availability refresh shows another member took 3:30.
+ const taken=[...busy,{startTime:new Date(2026,9,27,15,30).toISOString(),endTime:new Date(2026,9,27,16,30).toISOString()}];
+ rerender(<StartTimePicker calendar name="start" hours={1} now={now} occupied={taken}/>);
+ expect(value()).toBe('2026-10-27T17:00');
+ expect(screen.getByRole('status').textContent).toMatch(/3:30\sPM isn’t available for 1 hour on this day, so the start time moved to 5:00\sPM\./);
  expect(screen.queryByRole('alert')).toBeNull();
 });
 

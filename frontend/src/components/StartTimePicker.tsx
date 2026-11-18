@@ -53,6 +53,7 @@ export function StartTimePicker({ name, hours, onPick, children, now: nowProp, c
   // times. A time they chose is never swapped for another: if it stops fitting, they are told.
   const [picked, setPicked] = useState(false);
   const noticeId = useId();
+  const movedId = `${noticeId}moved`;
   const minimum = minimumStart(now, minLeadMinutes);
   const days = useMemo(() => Array.from({ length: QUICK_DAYS }, (_, offset) => {
     const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset);
@@ -62,7 +63,8 @@ export function StartTimePicker({ name, hours, onPick, children, now: nowProp, c
     setDay(value);
     onPick?.();
   };
-  // A dialog can remain open across a slot boundary or midnight: keep the suggestion current.
+  // A dialog can remain open across a slot boundary or midnight: keep the suggestion current. A day
+  // and time the member chose stay put, even once passed; the notice below asks for new ones.
   useEffect(() => {
     if (picked) return;
     const next = minimumStart(now, minLeadMinutes);
@@ -94,13 +96,29 @@ export function StartTimePicker({ name, hours, onPick, children, now: nowProp, c
   const times = availableTimes(day);
   // A suggestion moves on to the next free start; a chosen time that no longer fits leaves nothing chosen.
   const effectiveTime = times.includes(time) ? time : picked ? '' : times.find(value => value > time) ?? '';
-  const chosenLabel = timeLabel(Number(time.slice(0, 2)) * 60 + Number(time.slice(3)));
-  const notice = !picked || !time || effectiveTime ? '' :
-    day < dayKey(minimum) || (day === dayKey(minimum) && time < clockKey(minimum))
-      ? `${chosenLabel} can no longer be booked. Choose a later start time.`
-      : `${chosenLabel} isn’t available for ${hours} ${hours === 1 ? "hour" : "hours"} on this day. Choose another start time.`;
   const [year, month, date] = day.split("-").map(Number);
   const chosen = new Date(year!, month! - 1, date!);
+  const label = (value: string) => timeLabel(Number(value.slice(0, 2)) * 60 + Number(value.slice(3)));
+  const unfit = (value: string) => `${label(value)} isn’t available for ${hours} ${hours === 1 ? "hour" : "hours"} on this day`;
+  const notice = !picked || !time || effectiveTime ? '' :
+    // A dialog left open past midnight: the chosen day itself has passed.
+    day < dayKey(minimum) ? `${label(time)} on ${chosen.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })} can no longer be booked. Choose another day and start time.`
+    : day === dayKey(minimum) && time < clockKey(minimum) ? `${label(time)} can no longer be booked. Choose a later start time.`
+    : `${unfit(time)}. Choose another start time.`;
+  // What the select last showed. A suggestion that a longer booking or an availability refresh pushes
+  // to another start is announced beside the field; a day the member picks, or the earliest start
+  // moving with the clock or the payment lead time, needs no note.
+  const minimumKey = `${dayKey(minimum)}T${clockKey(minimum)}`;
+  const [shown, setShown] = useState({ day, time: effectiveTime, hours, minimumKey });
+  const [moved, setMoved] = useState('');
+  if (shown.day !== day || shown.time !== effectiveTime || shown.hours !== hours || shown.minimumKey !== minimumKey) {
+    setShown({ day, time: effectiveTime, hours, minimumKey });
+    if (!picked && !unavailable && shown.time && shown.time !== effectiveTime && shown.day === day && shown.minimumKey === minimumKey) {
+      setMoved(effectiveTime ? `${unfit(shown.time)}, so the start time moved to ${label(effectiveTime)}.` : `${unfit(shown.time)}. Choose another start time.`);
+      // Keep the new start, so it doesn't jump back if the earlier one frees up again.
+      if (effectiveTime) setTime(effectiveTime);
+    } else if (shown.day !== day || shown.time !== effectiveTime || shown.hours !== hours) setMoved('');
+  }
   const [hour, minute] = effectiveTime.split(":").map(Number);
   const start = hour! * 60 + minute!;
   // A booking lasts `hours` of elapsed time (see reservationInput), which differs from the
@@ -132,14 +150,13 @@ export function StartTimePicker({ name, hours, onPick, children, now: nowProp, c
       <label className="form-field">
         <span>Start time</span>
         <select aria-label="Start time" value={effectiveTime} required
-          aria-invalid={notice ? true : undefined} aria-describedby={notice ? noticeId : undefined}
+          aria-invalid={notice ? true : undefined} aria-describedby={notice ? noticeId : moved ? movedId : undefined}
           onChange={(e) => { setTime(e.target.value); setPicked(true); onPick?.(); }}>
           {!effectiveTime && <option value="">{times.length ? "Choose a start time" : "No available times"}</option>}
-          {times.map(value => <option key={value} value={value}>
-            {timeLabel(Number(value.slice(0, 2)) * 60 + Number(value.slice(3)))}
-          </option>)}
+          {times.map(value => <option key={value} value={value}>{label(value)}</option>)}
         </select>
         {notice && <small className="form-field__error" id={noticeId} role="alert">{notice}</small>}
+        {moved && <small id={movedId} role="status">{moved}</small>}
       </label>
       {children}
       <p className="start-picker__hint">{Intl.DateTimeFormat().resolvedOptions().timeZone} · Hour or half-hour starts.{minLeadMinutes ? ` Book at least ${minLeadMinutes} minutes ahead.` : ''}</p>

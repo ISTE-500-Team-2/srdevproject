@@ -92,7 +92,7 @@ function BookingPage({ machine, offset, refreshKey, select }: { machine: Equipme
       // The server keeps online checkout bookings as bought: never moved, and not cancelled while checkout is open.
       const awaitingPayment = paidOnline(b) && b.paymentStatus === 'pending';
       const note = b.isClass ? '' : awaitingPayment
-        ? `Waiting for the member’s online payment, so it can’t be changed yet.${b.holdUntil ? ` The hold is released at ${shortTime(b.holdUntil)} if unpaid.` : ''}`
+        ? `Waiting for the member’s online payment, so it can’t be changed yet.${b.holdUntil ? ` If they don’t pay, the booking is expected to be released at ${shortTime(b.holdUntil)}.` : ''}`
         : paidOnline(b) ? 'Paid online, so it can’t be moved. Cancel and rebook with the member if needed; refunds aren’t automatic.' : '';
       const noteId = note ? `eq-booking-${b.id}-note` : undefined;
       return <article className="eq-booking" key={b.id}>
@@ -103,8 +103,11 @@ function BookingPage({ machine, offset, refreshKey, select }: { machine: Equipme
     {result.data?.nextOffset != null && (more ? <BookingPage machine={machine} offset={result.data.nextOffset} refreshKey={refreshKey} select={select} /> : <button className="button button--quiet" onClick={() => setMore(true)}>Load more bookings</button>)}
   </>;
 }
-/** Errors meaning the booking changed after the list loaded (moved, cancelled, ended or removed). */
-const OUTDATED = new Set(['STALE_RECORD', 'INVALID_STATUS', 'NOT_FOUND']);
+/**
+ * Errors meaning the booking changed after the list loaded (moved, cancelled or ended). NOT_FOUND
+ * counts only for a cancellation: during a move it usually names the replacement machine.
+ */
+const OUTDATED = new Set(['STALE_RECORD', 'INVALID_STATUS']);
 function BookingAction({ machine, booking, action, onClose, onChanged, onFailed }: { machine: EquipmentDetail; booking: EquipmentBooking; action: 'move' | 'cancel'; onClose: () => void; onChanged: (text: string) => void; onFailed: () => void }) {
   const catalog = useApi<ManagedEquipment[]>(action === 'move' ? '/admin/equipment' : null);
   const [target, setTarget] = useState('');
@@ -127,10 +130,15 @@ function BookingAction({ machine, booking, action, onClose, onChanged, onFailed 
     } catch (err) {
       setReview(null);
       onFailed();
-      if (err instanceof ApiError && OUTDATED.has(err.code)) {
+      const code = err instanceof ApiError ? err.code : '';
+      if (OUTDATED.has(code) || (code === 'NOT_FOUND' && action === 'cancel')) {
         setOutdated(true);
         setError('This booking changed after the list was loaded. The list is now up to date: close this window and choose the booking again.');
-      } else setError(errorMessage(err));
+      } else {
+        // A replacement machine removed since the window opened: offer the current machines instead.
+        if (code === 'NOT_FOUND') { setTarget(''); catalog.reload(); }
+        setError(errorMessage(err));
+      }
     }
     finally { inFlight.current = false; setBusy(false); }
   };

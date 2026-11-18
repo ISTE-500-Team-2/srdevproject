@@ -109,7 +109,8 @@ test('online-paid bookings stay put with a message for staff, not "contact staff
   const cancel = await send('post', `/admin/equipment/${source}/bookings/${waiting.id}/cancel`, { expectedRevision: waiting.revision });
   assert.equal(cancel.status, 409);
   assert.equal(cancel.body.error.code, 'PAYMENT_WORKFLOW_REQUIRED');
-  assert.doesNotMatch(cancel.body.error.message, /Stripe checkout/);
+  assert.match(cancel.body.error.message, /can’t be cancelled yet/);
+  assert.doesNotMatch(cancel.body.error.message, /Stripe checkout|hold is released/);
 });
 
 test('ids past the database integer range are refused as bad input, not a server error', async () => {

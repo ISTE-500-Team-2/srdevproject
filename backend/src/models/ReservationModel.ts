@@ -271,7 +271,7 @@ export class ReservationModel {
     const before = await this.find(id, true);
     if (!before || (before.status !== 'confirmed' && before.status !== 'pending')) return null;
     if (before.paymentStatus === 'pending' && before.payerId != null)
-      throw new AppError(409, 'PAYMENT_WORKFLOW_REQUIRED', 'This booking is waiting for the member’s online payment. It can be cancelled once they pay or the hold is released.');
+      throw new AppError(409, 'PAYMENT_WORKFLOW_REQUIRED', 'This booking is waiting for the member’s online payment, so it can’t be cancelled yet. If they pay, you can cancel it then; if their checkout expires unpaid, the booking is released on its own.');
     await this.db.query(
       `UPDATE reservation SET status='cancelled',statusdesc='Cancelled by staff' WHERE reservationid=$1`,
       [id],
