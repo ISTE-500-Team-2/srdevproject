@@ -60,6 +60,8 @@ before(async () => {
   });
   mock.method(provider.sdk.checkout.sessions, 'retrieve', async (id: string) => sessions.get(id));
   mock.method(provider.sdk.checkout.sessions, 'expire', async (id: string) => Object.assign(sessions.get(id), {status: 'expired'}));
+  // A newly paid booking checks for a refund made in Stripe before the payment was recorded; there are none here.
+  mock.method(Object.getPrototypeOf(provider.sdk.refunds), 'list', async () => ({object: 'list', data: [], has_more: false, url: '/v1/refunds'}));
 });
 after(async () => {
   mock.restoreAll();

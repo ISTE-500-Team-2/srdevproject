@@ -396,11 +396,16 @@ function PlanEditor({
                   name="price"
                   type="number"
                   min="0"
+                  max="100000"
                   step="0.01"
                   required
+                  aria-describedby="plan-price-hint"
                   defaultValue={plan?.price ?? "0.00"}
                 />
               </span>
+              <p className="plans-hint" id="plan-price-hint">
+                $0.00 for free, or $0.50 to $100,000.00: card checkout can't take other amounts.
+              </p>
             </div>
             {kind === "membership" ? (
               <div className="plans-field">

@@ -4,7 +4,9 @@
 import type { Pool } from 'pg';
 import Stripe from 'stripe';
 import { transaction } from '../db.js';
-import { AppError } from '../domain.js';
+import { AppError, textField } from '../domain.js';
+import { requireActor } from '../accountPolicy.js';
+import { assertManageable } from '../services/StaffService.js';
 import { ReservationModel } from '../models/ReservationModel.js';
 import { StaffModel } from '../models/StaffModel.js';
 import { enqueueNotification } from '../notifications/store.js';
@@ -13,6 +15,24 @@ import { EquipmentModel } from '../models/EquipmentModel.js';
 import { AccessService } from '../services/AccessService.js';
 import type { Database } from '../db.js';
 import { errorIdentifier } from '../logSafety.js';
+import { failedRefund, liveRefund, refundAttempt, refundTransition, replacedAttemptFailed } from './refundTransition.js';
+import { isRefundEvent, type RefundEvent } from './stripeEvents.js';
+import { providerTransaction } from './providerGate.js';
+
+/** A paid booking's checkout with its booked member, as a refund reads it. */
+interface RefundableCheckout {
+  reservation_id: number;
+  userid: number;
+  /** Whose card paid, and so gets the money back: the booked member, or whoever booked for them. */
+  payer_id: number;
+  status: string;
+  amount_cents: number;
+  payment_id: number | null;
+  payment_intent: string | null;
+  refund_id: string | null;
+  refund_status: string | null;
+}
+const objectId = (value: string | { id: string } | null | undefined) => typeof value === 'string' ? value : value?.id;
 
 /** Server-priced equipment holds. Only canonical paid Stripe state confirms a booking. */
 export class EquipmentBilling {
@@ -107,7 +127,8 @@ export class EquipmentBilling {
   async apply(session: Stripe.Checkout.Session) {
     const id = session.metadata?.equipmentReservationId;
     if (!id) return;
-    await transaction(this.pool, async db => {
+    // It can ask Stripe for refunds while holding the booking lock, so it runs under the provider cap.
+    await providerTransaction(this.pool, async db => {
       // Reservation first: use the same lock order as staff edits/cancellations.
       const reservation = (await db.query(`SELECT *,endtime AT TIME ZONE 'UTC' AS "endsAt" FROM reservation WHERE reservationid::text=$1 FOR UPDATE`, [id])).rows[0];
       const row = (await db.query('SELECT * FROM app_equipment_checkout WHERE reservation_id::text=$1 FOR UPDATE', [id])).rows[0];
@@ -147,6 +168,10 @@ export class EquipmentBilling {
       await enqueueNotification(db, { userId: row.payer_id, kind: 'payment_receipt', dedupeKey: `equipment-receipt:${id}`,
         payload: { paymentId: payment, reservationId: Number(id), amount: (row.amount_cents / 100).toFixed(2),
           currency: 'USD', method: 'Card (test mode)', reference: session.id } });
+      // A refund made in Stripe before this payment was recorded matched no booking when it arrived,
+      // so record it now; otherwise the payment would read as paid with the money already returned.
+      const refund = liveRefund(await this.provider().sdk.refunds.list({ payment_intent: intent, limit: 100 }), row.amount_cents);
+      if (refund) await this.applyRefund(db, refund);
     });
   }
 
@@ -163,10 +188,13 @@ export class EquipmentBilling {
         console.error('Equipment payment reconciliation deferred', {reservationId: row.reservation_id, stage: 'equipment_expire_unopened',
           ...errorIdentifier(error)}));
     if (!this.stripe) return;
+    // A member's own checkouts are always checked. Other expired holds wait out their backoff after a
+    // failure, and ones that have never failed go first, so a few stuck checkouts can't fill every slot.
     const rows = (await this.pool.query(`SELECT reservation_id,checkout_id FROM app_equipment_checkout
       WHERE status='pending' AND checkout_id IS NOT NULL AND
-      (hold_until <= now() OR payer_id=$1 OR reservation_id IN (SELECT reservationid FROM reservation WHERE userid=$1))
-      ORDER BY (payer_id=$1) DESC NULLS LAST,hold_until LIMIT 20`, [payerId ?? null])).rows;
+      (payer_id=$1 OR reservation_id IN (SELECT reservationid FROM reservation WHERE userid=$1)
+        OR hold_until <= now() AND (reconcile_after IS NULL OR reconcile_after <= now()))
+      ORDER BY (payer_id=$1) DESC NULLS LAST,reconcile_failures,hold_until LIMIT 20`, [payerId ?? null])).rows;
     await Promise.all(rows.map(async row => {
       try {
         const session = await this.stripe!.sdk.checkout.sessions.retrieve(row.checkout_id);
@@ -179,6 +207,10 @@ export class EquipmentBilling {
         // error class and PostgreSQL SQLSTATE or Stripe error type, never messages or bodies.
         console.error('Equipment payment reconciliation deferred', {reservationId: row.reservation_id, stage: 'equipment_reconcile',
           ...errorIdentifier(error)});
+        // Wait longer after each failure (1 minute, doubling, at most an hour) before the next background check.
+        await this.pool.query(`UPDATE app_equipment_checkout SET reconcile_failures=reconcile_failures+1,
+          reconcile_after=now()+LEAST(interval '1 hour',interval '1 minute'*power(2,LEAST(reconcile_failures,6)))
+          WHERE reservation_id=$1 AND status='pending'`, [row.reservation_id]).catch(() => undefined);
       }
     }));
   }
@@ -201,10 +233,88 @@ export class EquipmentBilling {
   }
 
   /**
+   * Staff refund of a card-paid booking to the original card. The key names the booking, so a
+   * repeated click reuses the same Stripe refund; the booking itself is left as it is.
+   */
+  async refund(actor: number, id: number, reason: unknown) {
+    const explanation = textField(reason, 'Refund reason', 255, 3), sdk = this.provider().sdk;
+    return providerTransaction(this.pool, async db => {
+      const operator = await requireActor(db, actor, { staff: true });
+      const row = (await db.query<RefundableCheckout>(`SELECT c.*,r.userid FROM app_equipment_checkout c
+        JOIN reservation r ON r.reservationid=c.reservation_id WHERE c.reservation_id=$1 FOR UPDATE OF c`, [id])).rows[0];
+      if (!row) throw new AppError(404, 'NOT_FOUND', 'Equipment payment not found.');
+      // The booking stays confirmed after a refund, so the staff-account rule applies, as for membership
+      // invoices: nobody refunds their own booking, and only administrators refund staff accounts.
+      if (row.userid === actor) throw new AppError(403, 'SELF_CHANGE_FORBIDDEN', 'Another administrator must refund a payment on your own account.');
+      await assertManageable(db, operator, row.userid);
+      if (row.refund_status === 'succeeded') return { status: 'succeeded' };
+      if (row.status !== 'paid' || !row.payment_intent || !row.payment_id)
+        throw new AppError(409, 'NOT_PAID', 'Only a booking paid by card can be refunded.');
+      const previous = await sdk.refunds.list({ payment_intent: row.payment_intent, limit: 100 });
+      // A failed attempt returned nothing, so a retry submits a new refund rather than reusing it.
+      const attempt = refundAttempt('equipment-refund:' + id, previous);
+      const refund = liveRefund(previous, row.amount_cents) ?? await sdk.refunds.create({ payment_intent: row.payment_intent,
+        amount: row.amount_cents, ...(attempt.metadata ? { metadata: attempt.metadata } : {}) }, { idempotencyKey: attempt.key });
+      await this.applyRefund(db, refund);
+      await new StaffModel(db).audit(actor, row.userid, 'billing.refund.requested', 'payment', row.payment_id, explanation, null,
+        { refundId: refund.id, status: refund.status });
+      return { status: refund.status };
+    });
+  }
+
+  /** Record a Stripe refund of a booking's payment; stale and repeated updates are skipped as for day passes. */
+  async applyRefund(db: Database, refund: Stripe.Refund) {
+    const row = (await db.query<RefundableCheckout>(`SELECT c.*,r.userid FROM app_equipment_checkout c
+      JOIN reservation r ON r.reservationid=c.reservation_id WHERE c.payment_intent=$1 FOR UPDATE OF c`, [objectId(refund.payment_intent)])).rows[0];
+    if (!row) return;
+    const recorded = { refundId: row.refund_id, refundStatus: row.refund_status };
+    if (refundTransition(recorded, refund) === 'skip' || replacedAttemptFailed(recorded, refund)) return;
+    if (refund.amount !== row.amount_cents || refund.currency !== 'usd')
+      throw new AppError(409, 'RECONCILE_REQUIRED', 'Refund does not match the original booking payment.');
+    await db.query('UPDATE app_equipment_checkout SET refund_id=$2,refund_status=$3 WHERE reservation_id=$1', [row.reservation_id, refund.id, refund.status]);
+    const notice = `equipment-refund:${row.reservation_id}`;
+    if (refund.status === 'succeeded') {
+      await db.query("UPDATE payment SET paymentstatus='refunded',updated_at=now(),revision=revision+1 WHERE paymentid=$1", [row.payment_id]);
+      // The money goes back to the payer's card, so they get the notice, as they got the receipt.
+      await enqueueNotification(db, { userId: row.payer_id, kind: 'payment_refunded', dedupeKey: `${notice}:${refund.id}`,
+        payload: { reference: refund.id, amount: (refund.amount / 100).toFixed(2), currency: 'USD', method: 'Original card (test mode)',
+          reservationId: row.reservation_id } });
+    }
+    if (failedRefund(refund)) {
+      // The charge stays paid: the attempted refund returned nothing.
+      await db.query("UPDATE payment SET paymentstatus='paid',updated_at=now(),revision=revision+1 WHERE paymentid=$1 AND paymentstatus='refunded'", [row.payment_id]);
+      await db.query("UPDATE app_notification_outbox SET status='obsolete',updated_at=now() WHERE dedupe_key=ANY($1::text[]) AND status='pending'",
+        [[notice, `${notice}:${refund.id}`]]);
+      await enqueueNotification(db, { userId: row.payer_id, kind: 'payment_status_changed', dedupeKey: `equipment-refund-failed:${row.reservation_id}:${refund.id}`,
+        payload: { paymentId: row.payment_id, reservationId: row.reservation_id, reference: refund.id,
+          instructions: 'The original-card refund for your equipment booking did not go through. Contact staff to complete it.' } });
+    }
+  }
+
+  /** A refund made in Stripe, by staff here or in the Stripe dashboard, is recorded against the booking it paid for. */
+  private async refundEvent(event: RefundEvent) {
+    const intent = objectId(event.data.object.payment_intent);
+    if (!intent) return;
+    const known = (await this.pool.query('SELECT reservation_id FROM app_equipment_checkout WHERE payment_intent=$1', [intent])).rows[0];
+    if (!known) return;
+    if (event.livemode) throw new AppError(400, 'LIVE_PAYMENT_FORBIDDEN', 'Test payments only.');
+    const sdk = this.provider().sdk;
+    await providerTransaction(this.pool, async db => {
+      // Retrieve while the checkout is locked, so a stale delivery can't apply an older state after a newer one.
+      await db.query('SELECT reservation_id FROM app_equipment_checkout WHERE payment_intent=$1 FOR UPDATE', [intent]);
+      const refund = await sdk.refunds.retrieve(event.data.object.id);
+      if (refund.id !== event.data.object.id || objectId(refund.payment_intent) !== intent)
+        throw new AppError(400, 'PAYMENT_MISMATCH', 'Refund identity mismatch.');
+      await this.applyRefund(db, refund);
+    });
+  }
+
+  /**
    * Dispatch relevant verified provider events through reconciliation instead of trusting browser
    * return parameters.
    */
   async webhook(event: Stripe.Event) {
+    if (isRefundEvent(event)) return this.refundEvent(event);
     if (!['checkout.session.completed', 'checkout.session.expired', 'checkout.session.async_payment_succeeded', 'checkout.session.async_payment_failed'].includes(event.type)) return;
     const object = event.data.object as Stripe.Checkout.Session;
     const known = (await this.pool.query(`SELECT reservation_id FROM app_equipment_checkout
