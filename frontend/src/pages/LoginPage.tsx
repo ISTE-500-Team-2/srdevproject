@@ -12,7 +12,7 @@ import { useAuth } from '../context/AuthContext';
 import type { UserRole } from '../types';
 import { ApiError, errorMessage } from '../lib/api';
 import { safeNext } from '../lib/returnPath';
-import { phoneDigits, phoneProblem } from '../lib/phone';
+import { phoneProblem, savedPhone } from '../lib/phone';
 import { prepareArrival, preloadForSignIn } from '../areas/load';
 
 const SplitText = lazy(() => import('../components/reactbits/SplitText'));
@@ -181,8 +181,8 @@ export function LoginPage() {
     setSignupError('');
     setBusy(true);
     try {
-      // Saved as digits only; the profile's Contact form also keeps a leading "+".
-      const result = await register({ ...signup, phone: phoneDigits(signup.phone) });
+      // Saved as its digits and any leading "+", the same way the profile's Contact form saves it.
+      const result = await register({ ...signup, phone: savedPhone(signup.phone) });
       navigate('/confirm-email', {state:{email:result.email,emailSendingEnabled:result.emailSendingEnabled}});
     } catch (err) {
       const message = errorMessage(err);

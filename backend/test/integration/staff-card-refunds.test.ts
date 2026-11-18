@@ -274,3 +274,14 @@ test('a refund made in Stripe before the app recorded the payment is applied onc
   assert.deepEqual(await held.state(), { refund_id: refund.id, refund_status: 'succeeded', payment: 'refunded' });
   assert.deepEqual((await notices(`equipment-refund:${held.id}:%`)).map(n => [n.userid, n.kind]), [[member, 'payment_refunded']]);
 });
+
+test('a failed staff refund of a pass past its cancel-by date is not the member\'s to retry, and their pass list says so', async () => {
+  const { id } = await cardPass(member);
+  nextStatus = 'failed';
+  assert.deepEqual(await passes.staffRefund(staff, id, 'Visit cut short'), { status: 'failed' });
+  // Staff refunds don't record a member cancellation, which is what lets a member retry after the deadline.
+  const listed = (await passes.mine(member)).find(p => p.id === id)!;
+  assert.deepEqual([listed.status, listed.refundStatus, listed.cancelRequested, listed.passIssued], ['paid', 'failed', false, true]);
+  await assert.rejects(passes.cancel(member, id), { code: 'CANCELLATION_NOTICE' });
+  nextStatus = 'succeeded';
+});

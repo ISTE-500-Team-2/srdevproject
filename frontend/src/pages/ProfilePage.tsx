@@ -35,7 +35,7 @@ import type { MembershipHistory, Page, Payment } from "../lib/staffContracts";
 import { dollars, shortDate, timeOnly } from "../lib/display";
 import { jumpToSection } from "../lib/sectionJump";
 import { useApi } from "../lib/useApi";
-import { phoneDigits as digits } from "../lib/phone";
+import { phoneDigits as digits, savedPhone } from "../lib/phone";
 import { Detail, EditButton, FormMessage, Section, SectionForm, useReturnFocus } from "./profileSections";
 import { SignInSection } from "./ProfileSignIn";
 import "./profile.css";
@@ -87,7 +87,7 @@ const text = (fields: ProfileFields | undefined, key: string) => String(fields?.
  */
 export function phoneToSave(value: string) {
   const entered = value.trim();
-  const saved = (entered.startsWith("+") ? "+" : "") + digits(entered);
+  const saved = savedPhone(entered);
   if (!/^\+?[\d\s().-]+$/.test(entered))
     throw new FormMessage("Enter just the number: digits, spaces, dashes or brackets, and a leading + if it’s international. Extensions can’t be saved.");
   if (digits(entered).length < 7) throw new FormMessage("That phone number is too short. Include the area code.");

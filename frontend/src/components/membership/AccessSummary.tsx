@@ -32,17 +32,30 @@ export function openBilling(records: Billing[]) {
   return records.filter((r) => !closedBilling.includes(r.status));
 }
 
-/** A refund that returned nothing, which the member can retry whatever the visit date. */
+/** A refund that returned nothing. */
 const refundFailed = (p: BillingPass) => p.refundStatus === "failed" || p.refundStatus === "canceled";
+/** A card payment that arrived when no pass could be issued, so it is only a refund, never a booking. */
+const unissued = (p: BillingPass) => p.passIssued === false;
+const byDate = (a: BillingPass, b: BillingPass) => a.validDate.localeCompare(b.validDate);
 
 /**
- * Show today's and future nonterminal passes in date order, including checkouts whose payment is
- * still pending, and any past one whose refund failed so it can still be retried.
+ * Show today's and future booked passes in date order, including checkouts whose payment is still
+ * pending.
  */
 export function upcomingPasses(passes: BillingPass[], today: string) {
   return passes
-    .filter((p) => !closedPass.includes(p.status) && (p.validDate >= today || refundFailed(p)))
-    .sort((a, b) => a.validDate.localeCompare(b.validDate));
+    .filter((p) => !closedPass.includes(p.status) && !unissued(p) && p.validDate >= today)
+    .sort(byDate);
+}
+
+/**
+ * Refunds still open outside the bookings: payments that never became a pass, and past passes whose
+ * refund failed, which would otherwise drop off the page.
+ */
+export function openRefunds(passes: BillingPass[], today: string) {
+  return passes
+    .filter((p) => !closedPass.includes(p.status) && (unissued(p) || (p.validDate < today && refundFailed(p))))
+    .sort(byDate);
 }
 
 type Act = (path: string) => Promise<unknown>;
@@ -71,10 +84,23 @@ export function AccessSummary({ history, billing, passes, busy, act }: Props) {
   const pending = records.find((r) => r.status === "pending");
   const recurring = records.find((r) => r.status !== "pending");
   const upcoming = upcomingPasses(passes, today);
+  const refunds = openRefunds(passes, today);
   const [stopping, setStopping] = useState<Billing | null>(null);
   const [cancelling, setCancelling] = useState<BillingPass | null>(null);
   const [ending, setEnding] = useState<Entitlement | null>(null);
   const deskMembership = current && !current.cardBilled && !recurring ? current : null;
+  const passRow = (p: BillingPass) => (
+    <PassRow
+      key={p.id}
+      pass={p}
+      busy={busy}
+      onCancel={() =>
+        p.status === "pending" || p.refundStatus
+          ? act(`/me/billing/passes/${p.id}/cancel`)
+          : setCancelling(p)
+      }
+    />
+  );
 
   return (
     <section className="panel membership-status" aria-labelledby="access-heading">
@@ -117,20 +143,15 @@ export function AccessSummary({ history, billing, passes, busy, act }: Props) {
             <h3>Upcoming day passes</h3>
             <span>{upcoming.length} booked</span>
           </div>
-          <ul>
-            {upcoming.map((p) => (
-              <PassRow
-                key={p.id}
-                pass={p}
-                busy={busy}
-                onCancel={() =>
-                  p.status === "pending" || p.refundStatus
-                    ? act(`/me/billing/passes/${p.id}/cancel`)
-                    : setCancelling(p)
-                }
-              />
-            ))}
-          </ul>
+          <ul>{upcoming.map(passRow)}</ul>
+        </div>
+      ) : null}
+      {refunds.length ? (
+        <div className="membership-passes">
+          <div className="membership-passes__heading">
+            <h3>Day pass refunds</h3>
+          </div>
+          <ul>{refunds.map(passRow)}</ul>
         </div>
       ) : null}
 
@@ -444,12 +465,14 @@ function PassRow({
   } else if (p.status === "pending") {
     note = "Checkout not finished";
     action = "Cancel checkout";
-  } else if (p.refundStatus && p.refundStatus !== "succeeded") {
-    note =
-      p.refundStatus === "failed" || p.refundStatus === "canceled"
-        ? "Your refund didn't go through"
-        : "Refund in progress";
-    action = p.refundStatus === "failed" || p.refundStatus === "canceled" ? "Retry refund" : null;
+  } else if ((p.refundStatus && p.refundStatus !== "succeeded") || unissued(p)) {
+    if (!refundFailed(p)) note = "Refund in progress";
+    // The server retries after the cancel-by deadline only a refund the member's own cancellation
+    // started; a staff refund of a used or late pass is staff's to retry.
+    else if (p.cancelRequested || !deadlinePassed) {
+      note = "Your refund didn't go through";
+      action = "Retry refund";
+    } else note = "Your refund didn't go through. Ask staff at the front desk about this refund.";
   } else if (deadlinePassed) {
     note = "Too late to cancel for a refund";
   } else {
@@ -464,7 +487,9 @@ function PassRow({
       </span>
       <div className="membership-pass__body">
         <strong>
-          {p.plan?.name ?? "Day pass"} · {shortDate(p.validDate)}
+          {unissued(p)
+            ? `${p.plan?.name ?? "Day pass"} payment for ${shortDate(p.validDate)} (no pass issued)`
+            : `${p.plan?.name ?? "Day pass"} · ${shortDate(p.validDate)}`}
         </strong>
         <span>{note}</span>
       </div>

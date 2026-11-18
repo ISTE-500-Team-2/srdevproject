@@ -99,7 +99,7 @@ test("a failed cancel request still shows the server error", async () => {
 });
 
 /** A card payment refunded because no pass could be issued (its date had ended), whose refund failed. */
-const unissued = { id: "pass-2", plan: dayPass, validDate: future(-2), cancelBy: new Date(Date.now() - 5 * 86400000).toISOString(), status: "paid", refundStatus: "failed" };
+const unissued = { id: "pass-2", plan: dayPass, validDate: future(-2), cancelBy: new Date(Date.now() - 5 * 86400000).toISOString(), status: "paid", refundStatus: "failed", cancelRequested: true, passIssued: false };
 
 /** Retries that refund and returns the page message. */
 async function retryWith(response: Record<string, unknown>) {
@@ -130,7 +130,40 @@ test("a pending retry for a payment that never became a pass says the refund is 
   expect(message.textContent).not.toMatch(/cancel/i);
 });
 
+/** A used pass from two days ago, issued for a card payment. */
+const pastPass = { ...unissued, id: "pass-3", passIssued: true, cancelRequested: false };
+const section = (name: string) => screen.getByRole("heading", { name }).closest(".membership-passes") as HTMLElement;
+
 test("a past pass whose refund didn't fail is no longer listed", () => {
-  mount({ ...unissued, refundStatus: null });
+  mount({ ...pastPass, refundStatus: null });
   expect(screen.queryByRole("heading", { name: "Upcoming day passes" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Day pass refunds" })).toBeNull();
+});
+
+test("a payment that never became a pass is listed as a refund, not as a booked pass", () => {
+  mount(unissued);
+  expect(screen.queryByRole("heading", { name: "Upcoming day passes" })).toBeNull();
+  const refunds = section("Day pass refunds");
+  expect(refunds.textContent).toMatch(/Day pass payment for .+ \(no pass issued\)/);
+  expect(refunds.textContent).not.toMatch(/booked/);
+  expect(within(refunds).getByRole("button", { name: "Retry refund" })).toBeTruthy();
+});
+
+test("a past pass the member cancelled in time can still retry its failed refund", () => {
+  mount({ ...pastPass, cancelRequested: true });
+  expect(screen.queryByRole("heading", { name: "Upcoming day passes" })).toBeNull();
+  expect(within(section("Day pass refunds")).getByRole("button", { name: "Retry refund" })).toBeTruthy();
+});
+
+// Staff can refund a used pass; past its cancel-by date the server only retries a refund the member asked for.
+test("a failed staff refund on a past pass sends the member to staff instead of offering a retry", () => {
+  mount(pastPass);
+  const refunds = section("Day pass refunds");
+  expect(refunds.textContent).toContain("Your refund didn't go through. Ask staff at the front desk about this refund.");
+  expect(within(refunds).queryByRole("button")).toBeNull();
+});
+
+test("a failed staff refund on a pass still inside its cancel-by window can be retried", () => {
+  mount({ ...upcoming, refundStatus: "failed", cancelRequested: false, passIssued: true });
+  expect(within(section("Upcoming day passes")).getByRole("button", { name: "Retry refund" })).toBeTruthy();
 });

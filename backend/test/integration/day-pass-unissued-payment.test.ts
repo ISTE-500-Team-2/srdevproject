@@ -157,6 +157,9 @@ test('a payment that arrives after the visit date ended is refunded, and a faile
   const failed = await notice(`daypass-refund-failed:${id}:${refunds[0]!.id}`);
   assert.match(failed.payload.instructions, /No pass was issued for it/);
   assert.doesNotMatch(failed.payload.instructions, /still valid/);
+  // The member's page lists it as a payment to refund, not a booked pass, and may retry it.
+  const listed = (await passes.mine(member)).find(p => p.id === id)!;
+  assert.deepEqual([listed.status, listed.refundStatus, listed.passIssued, listed.cancelRequested], ['paid', 'failed', false, true]);
 
   // The visit date has passed, but the refund was never the member's late cancellation: it can be retried.
   // The member is told no pass was issued, not that a pass was cancelled or is still active.

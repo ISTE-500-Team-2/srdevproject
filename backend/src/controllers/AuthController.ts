@@ -43,15 +43,19 @@ function signupField<T>(field: string, read: () => T): T {
 }
 
 /**
- * Sign-up phone: formatting such as '+1 (410) 555-0182' is accepted and only the digits are kept. Free text,
- * or fewer than 7 or more than 15 digits, is refused.
+ * Sign-up phone: formatting such as '+1 (410) 555-0182' is accepted, and the digits are kept after any
+ * leading '+', as the profile saves them, so an international number isn't later taken for a US one.
+ * Free text, or fewer than 7 or more than 15 digits, is refused, and the result must fit 15 characters.
  */
 function signupPhone(value: unknown): string {
   const typed = textField(value, 'Phone', 20);
   const digits = typed.replace(/\D/g, '');
-  if (!/^[\d\s().+-]+$/.test(typed.trim()) || digits.length < 7 || digits.length > 15)
+  if (!/^\+?[\d\s().-]+$/.test(typed) || digits.length < 7 || digits.length > 15)
     throw new AppError(400, 'INVALID_INPUT', 'Enter a phone number with 7 to 15 digits, e.g. (410) 555-0182.');
-  return digits;
+  const saved = (typed.startsWith('+') ? '+' : '') + digits;
+  if (saved.length > 15)
+    throw new AppError(400, 'INVALID_INPUT', 'That phone number is too long. After a leading +, use at most 14 digits.');
+  return saved;
 }
 
 export class AuthController {

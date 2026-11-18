@@ -45,6 +45,10 @@ export interface BillingPass {
   status: string;
   refundStatus: string | null;
   amountCents: number;
+  /** The member's cancellation is on record, so a failed refund can be retried after the cancel-by deadline. */
+  cancelRequested?: boolean;
+  /** False for a card payment that arrived when no pass could be issued; only its refund remains. */
+  passIssued?: boolean;
 }
 export interface EligibilityPrice {
   tierid: number;
