@@ -15,7 +15,7 @@ import {businessToday} from '../businessDate.js';
 import {StudioStripe} from '../studios/stripe.js';
 import {enqueueNotification} from '../notifications/store.js';
 import {quote} from './pricing.js';
-import {liveRefund,refundAttempt,refundTransition,replacedAttemptFailed} from './refundTransition.js';
+import {failedRefund,liveRefund,refundAttempt,refundTransition,replacedAttemptFailed} from './refundTransition.js';
 import {isCheckoutSessionEvent,isRefundEvent} from './stripeEvents.js';
 import {expireAbandonedMembershipCheckouts} from './openBilling.js';
 import {providerTransaction} from './providerGate.js';
@@ -245,7 +245,10 @@ export class PassBilling {
    await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,owner.userid]);
    const r=(await db.query<PassCheckoutRow>('SELECT * FROM app_pass_checkout WHERE id::text=$1 FOR UPDATE',[id])).rows[0]!;
    if(r.refund_status==='succeeded')return {status:'succeeded'};
-   if(r.status!=='paid'||r.amount_cents===0||!r.payment_intent||!r.payment_id)throw new AppError(409,'NOT_PAID','Only a day pass paid by card can be refunded.');
+   // A refund that succeeded and then failed leaves the pass cancelled with nothing returned. The member
+   // can't retry a cancelled pass, so staff retry it here; cancelling the pass again on success is harmless.
+   const failedAfterCancel=r.status==='cancelled'&&failedRefund({status:r.refund_status});
+   if(!(r.status==='paid'||failedAfterCancel)||r.amount_cents===0||!r.payment_intent||!r.payment_id)throw new AppError(409,'NOT_PAID','Only a day pass paid by card can be refunded.');
    const f=await this.cardRefund(db,r);
    await new StaffModel(db).audit(actor,r.userid,'billing.refund.requested','payment',r.payment_id,explanation,null,{refundId:f.id,status:f.status});
    return {status:f.status};

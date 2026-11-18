@@ -415,7 +415,7 @@ export class StaffService {
             "An active or suspended membership already covers part of that period. For renewal, start at the existing end time.",
           );
         // A card subscription or checkout would charge again for these dates.
-        await assertNoCardBillingFrom(db, userId, input.startsAt);
+        await assertNoCardBillingFrom(db, userId, input.startsAt, this.timeZone);
         id = await model.createMembership(
           userId,
           plan,
@@ -608,8 +608,14 @@ export class StaffService {
       // While a booking's card checkout is open, its payment is linked only from the reservation.
       // Recording it at the desk would leave the checkout able to charge again, or let the unpaid
       // hold cancel a booking the member paid for.
-      if ((await db.query("SELECT 1 FROM reservation r JOIN app_equipment_checkout c ON c.reservation_id=r.reservationid WHERE r.payment_id=$1 AND c.status='pending'",[id])).rowCount)
-        throw new AppError(409,'PROVIDER_PAYMENT','This booking is paid by card online, so the member pays through its checkout. To release it instead, open the account that booked it with View as and choose Cancel checkout on the Equipment page; an unpaid checkout also releases it when it expires.');
+      // Only whoever opened the checkout can cancel it: the member, or the staff member who booked for them.
+      const open = (await db.query<{ payer_id: number; userid: number }>("SELECT c.payer_id,r.userid FROM reservation r JOIN app_equipment_checkout c ON c.reservation_id=r.reservationid WHERE r.payment_id=$1 AND c.status='pending'",[id])).rows[0];
+      if (open)
+        throw new AppError(409,'PROVIDER_PAYMENT',open.payer_id===actorId
+          ? 'You opened an online card checkout for this booking, so its payment can’t be recorded at the desk. To release the booking, choose Cancel checkout under My reservations on the Equipment page; an unpaid checkout also releases it when it expires.'
+          : open.payer_id===open.userid
+            ? 'This booking is waiting for online card payment, so the member pays through its checkout. To release it instead, open the account that booked it with View as and choose Cancel checkout on the Equipment page; an unpaid checkout also releases it when it expires.'
+            : 'This booking is waiting on an online card checkout another staff member opened, so its payment can’t be recorded at the desk. They can cancel that checkout from their Equipment page; an unpaid checkout also releases it when it expires.');
       this.expectRevision(before.revision, revision);
       const transitions: Record<string, string[]> = {
         pending: ["paid", "void", "waived"],

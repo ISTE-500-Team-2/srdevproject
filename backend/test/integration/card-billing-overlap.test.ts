@@ -60,8 +60,15 @@ test('a desk membership is refused while a card checkout or renewing subscriptio
  await pool.query('UPDATE app_membership_billing SET cancellation_effective_at=$2 WHERE userid=$1',[member,ends]);
  await assert.rejects(desk(member,ends.toISOString()),{code:'CARD_BILLING_ACTIVE'});
  await pool.query('UPDATE app_membership_billing SET cancellation_confirmed=true WHERE userid=$1',[member]);
- await assert.rejects(desk(member,start),{code:'CARD_BILLING_ACTIVE'});
- assert.equal(await issued(desk(member,ends.toISOString())),'membership');
+ // Auto-renew is off now and the record has no Stop auto-renew, so staff get the earliest allowed start instead.
+ const earliest=new Date(Math.ceil(ends.getTime()/60_000)*60_000);
+ const named=new Intl.DateTimeFormat('en-US',{timeZone:zone,year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'}).format(earliest);
+ await assert.rejects(desk(member,start),(error:Error&{code?:string})=>{
+  assert.equal(error.code,'CARD_BILLING_ACTIVE');
+  assert.equal(error.message,`Auto-renew is already off for this member, and their card billing ends ${named}. Start this membership at or after that time, so the dates aren't paid for twice.`);
+  return true;
+ });
+ assert.equal(await issued(desk(member,earliest.toISOString())),'membership');
 });
 
 test('a card charge for dates a desk membership already covers is recorded and flagged, never lost',async()=>{

@@ -2,7 +2,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { Payment } from "../../lib/staffContracts";
-import { cardRefundPath, paymentAction, paymentMethodName } from "./PaymentControls";
+import { cardRefundPath, checkoutNote, paymentAction, paymentMethodName } from "./PaymentControls";
 import { PaymentTable } from "./PaymentTable";
 
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
@@ -34,6 +34,21 @@ test("a booking payment still in online checkout has no Update action and says w
   expect(screen.getByRole("button", { name: "Update payment #44 for Jordan Lee" })).toBeTruthy();
 });
 
+test("an open checkout's note says who can cancel it: the member, you, or the staff member who opened it", () => {
+  const held = {
+    id: 45, userId: 41, membershipId: null, dayPassId: null, revision: 1, memberName: "Jordan Lee", amount: "40.00", status: "pending", method: "unspecified",
+    recordedAt: "2026-11-10T18:03:00Z", updatedAt: "2026-11-10T18:03:00Z", planName: "Equipment: Laser", reference: "", invoiceId: null, refundStatus: null, onlineCheckout: true,
+  } as Payment;
+  expect(checkoutNote({ ...held, checkoutOpenedBy: "member" })).toMatch(/open the account that booked it with View as/);
+  expect(checkoutNote({ ...held, checkoutOpenedBy: "viewer" })).toBe(
+    "Not paid yet: you opened an online card checkout for this booking. To release it, choose Cancel checkout under My reservations on the Equipment page.",
+  );
+  // View as can't open a staff account, and the member's page has no Cancel checkout for it.
+  const colleague = checkoutNote({ ...held, checkoutOpenedBy: "staff" });
+  expect(colleague).toMatch(/^Not paid yet: another staff member opened an online card checkout for this booking\. They can release it/);
+  expect(colleague).not.toMatch(/View as/);
+});
+
 const card = {
   id: 77, userId: 41, membershipId: null, dayPassId: null, revision: 1, memberName: "Jordan Lee", amount: "14.00", status: "paid",
   method: "card", recordedAt: "2026-11-10T18:03:00Z", updatedAt: "2026-11-10T18:03:00Z", reference: "cs_1", invoiceId: null,
@@ -61,7 +76,9 @@ test("card day passes and equipment bookings are refunded through their own chec
 
 test.each([
   ["equipment booking", { equipmentReservationId: 31, planName: "Equipment: Laser (cancelled; refund due)" }, "/billing-management/equipment/31/refund", /booking itself doesn't change/],
-  ["day pass", { passCheckoutId: "pass-1", planName: "Day pass" }, "/billing-management/passes/pass-1/refund", /day pass is cancelled once the refund goes through/],
+  ["day pass", { passCheckoutId: "pass-1", dayPassId: 5, planName: "Day pass" }, "/billing-management/passes/pass-1/refund", /day pass is cancelled once the refund goes through/],
+  // Paid online for a date that already had a pass, say: no pass of its own, so none is cancelled.
+  ["day-pass payment that never became a pass", { passCheckoutId: "pass-2", planName: "Day pass", refundStatus: "failed" }, "/billing-management/passes/pass-2/refund", /No day pass was issued for this payment, so only the charge goes back/],
 ])("a card %s can be refunded from the payments list", async (_kind, extra, path, effect) => {
   api.mockResolvedValue({ status: "succeeded" });
   const onChanged = vi.fn();
