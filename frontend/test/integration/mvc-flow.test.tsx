@@ -198,9 +198,10 @@ test('React → Express controllers/models → PostgreSQL: login, save, refresh,
     ).getByRole('link', { name: 'Equipment', exact: true }),
   );
   await user.click(
+    // A type's card button lists its machines as its description.
     await screen.findByRole(
       'button',
-      { name: /Rachel/ },
+      { description: /Rachel/ },
       { timeout: 20000 },
     ),
   );
