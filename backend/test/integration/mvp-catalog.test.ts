@@ -69,6 +69,7 @@ test('catalog cleanup is preview-first, idempotent, hides only obsolete entries 
  const welded=(await pool.query("INSERT INTO equipment(name,status,location) VALUES('Welding Station','available','Fixture') RETURNING equipmentid")).rows[0].equipmentid;
  const cnc=(await pool.query("INSERT INTO equipment(name,status,location) VALUES('CNC Machine','available','Fixture') RETURNING equipmentid")).rows[0].equipmentid;
  const total=(await pool.query('SELECT count(*)::int n FROM equipment')).rows[0].n;
+ const courses=(await pool.query('SELECT count(*)::int n FROM certifications')).rows[0].n;
  const legacyRequirements=(await pool.query('SELECT count(*)::int n FROM app_training_requirement')).rows[0].n;
  const before=await configureMvpCatalog(pool);assert.equal(before.applied,false);
  assert.equal((await pool.query('SELECT count(*)::int n FROM app_equipment_retirement WHERE equipment_id=ANY($1::int[])',[[welded,cnc]])).rows[0].n,0);
@@ -78,33 +79,72 @@ test('catalog cleanup is preview-first, idempotent, hides only obsolete entries 
  assert.equal((await pool.query('SELECT count(*)::int n FROM app_equipment_retirement WHERE equipment_id=ANY($1::int[])',[[welded,cnc]])).rows[0].n,2);
  const publicList=await request(server).get('/api/equipment').set('Authorization','Bearer '+admin.accessToken);
  assert.ok(publicList.body.data.every((r:any)=>r.id!==welded&&r.id!==cnc));
- assert.equal((await pool.query("SELECT count(*)::int n FROM equipment WHERE name=ANY($1::text[]) AND certid IS NOT NULL",[['Joey','Ross','Chandler','Kirk','Spock']])).rows[0].n,5);
- assert.equal((await pool.query("SELECT count(*)::int n FROM certifications WHERE name IN ('CNC Training','Metal Lathe Training','Wood Lathe Training') AND training_minutes=60 AND training_fee_cents=2000")).rows[0].n,3);
+ // Migration 032 already linked the machines; apply reuses those courses instead of adding look-alikes.
+ assert.deepEqual((await pool.query(`SELECT e.name,c.name AS course FROM equipment e JOIN certifications c USING(certid)
+   WHERE e.name=ANY($1::text[]) AND c.training_minutes=60 AND c.training_fee_cents=2000 ORDER BY array_position($1::text[],e.name)`,[['Joey','Ross','Chandler','Kirk','Spock']])).rows,
+   [{name:'Joey',course:'CNC'},{name:'Ross',course:'CNC'},{name:'Chandler',course:'CNC'},{name:'Kirk',course:'Metal Lathe'},{name:'Spock',course:'Wood Lathe'}]);
+ assert.equal((await pool.query('SELECT count(*)::int n FROM certifications')).rows[0].n,courses,'no duplicate course is created');
  assert.equal((await pool.query('SELECT count(*)::int n FROM app_training_requirement')).rows[0].n,legacyRequirements,'the retired requirement table is never written');
  const configured=await request(server).get('/api/training/catalog').set('Authorization','Bearer '+admin.accessToken);
- assert.ok(configured.body.data.filter((c:any)=>['CNC Training','Metal Lathe Training','Wood Lathe Training'].includes(c.name)).every((c:any)=>c.trainingFeeCents===2000&&c.trainingMinutes===60));
- assert.ok((await pool.query("SELECT validity_days FROM certifications WHERE name IN ('CNC Training','Metal Lathe Training','Wood Lathe Training')")).rows.every(r=>r.validity_days===365),'Annual expiry policy applies to every certification');
+ assert.ok(configured.body.data.filter((c:any)=>['CNC','Metal Lathe','Wood Lathe'].includes(c.name)).every((c:any)=>c.trainingFeeCents===2000&&c.trainingMinutes===60));
+ assert.ok((await pool.query("SELECT validity_days FROM certifications WHERE name IN ('CNC','Metal Lathe','Wood Lathe')")).rows.every(r=>r.validity_days===365),'Annual expiry policy applies to every certification');
 });
 test('catalog preview reports actual certification pricing; apply only fills an unset fee and audits it',async()=>{
- const ids=Object.fromEntries((await pool.query("SELECT DISTINCT ON(name) name,certid FROM certifications WHERE name IN ('CNC Training','Metal Lathe Training','Wood Lathe Training') ORDER BY name,certid")).rows.map(r=>[r.name,r.certid]));
- await pool.query('UPDATE certifications SET training_fee_cents=NULL,training_minutes=90 WHERE certid=$1',[ids['CNC Training']]);
- await pool.query('UPDATE certifications SET training_fee_cents=3500,training_minutes=45 WHERE certid=$1',[ids['Metal Lathe Training']]);
- const revision=(await pool.query('SELECT revision FROM certifications WHERE certid=$1',[ids['CNC Training']])).rows[0].revision;
+ const ids=Object.fromEntries((await pool.query("SELECT DISTINCT ON(c.name) c.name,c.certid FROM certifications c JOIN equipment e USING(certid) WHERE e.name IN ('Joey','Kirk','Spock') ORDER BY c.name,c.certid")).rows.map(r=>[r.name,r.certid]));
+ await pool.query('UPDATE certifications SET training_fee_cents=NULL,training_minutes=90 WHERE certid=$1',[ids['CNC']]);
+ await pool.query('UPDATE certifications SET training_fee_cents=3500,training_minutes=45 WHERE certid=$1',[ids['Metal Lathe']]);
+ const revision=(await pool.query('SELECT revision FROM certifications WHERE certid=$1',[ids['CNC']])).rows[0].revision;
  const plan=await configureMvpCatalog(pool);assert.equal(plan.applied,false);
  const byName=Object.fromEntries(plan.training.map((t:any)=>[t.name,t]));
- assert.deepEqual(byName['CNC Training'].current,{minutes:90,feeCents:null});
- assert.deepEqual(byName['CNC Training'].proposed,{minutes:90,feeCents:2000});
- assert.equal(byName['CNC Training'].action,'set-fee');
- assert.deepEqual(byName['Metal Lathe Training'].current,{minutes:45,feeCents:3500});
- assert.deepEqual(byName['Metal Lathe Training'].proposed,{minutes:45,feeCents:3500});
- assert.equal(byName['Metal Lathe Training'].action,'none');
- assert.equal((await pool.query('SELECT training_fee_cents FROM certifications WHERE certid=$1',[ids['CNC Training']])).rows[0].training_fee_cents,null,'preview writes nothing');
+ assert.equal(byName['CNC'].certificationId,ids['CNC']);
+ assert.deepEqual(byName['CNC'].current,{minutes:90,feeCents:null});
+ assert.deepEqual(byName['CNC'].proposed,{minutes:90,feeCents:2000});
+ assert.equal(byName['CNC'].action,'set-fee');
+ assert.deepEqual(byName['CNC'].link,[],'the preview lists only machines apply will link');
+ assert.deepEqual(byName['Metal Lathe'].current,{minutes:45,feeCents:3500});
+ assert.deepEqual(byName['Metal Lathe'].proposed,{minutes:45,feeCents:3500});
+ assert.equal(byName['Metal Lathe'].action,'none');
+ assert.equal((await pool.query('SELECT training_fee_cents FROM certifications WHERE certid=$1',[ids['CNC']])).rows[0].training_fee_cents,null,'preview writes nothing');
  await configureMvpCatalog(pool,true,admin.user.id);await configureMvpCatalog(pool,true,admin.user.id);
- const rows=Object.fromEntries((await pool.query('SELECT certid,training_minutes,training_fee_cents,revision FROM certifications WHERE certid=ANY($1::int[])',[[ids['CNC Training'],ids['Metal Lathe Training']]])).rows.map(r=>[r.certid,r]));
- assert.equal(rows[ids['CNC Training']].training_fee_cents,2000);assert.equal(rows[ids['CNC Training']].training_minutes,90);
- assert.equal(rows[ids['CNC Training']].revision,revision+1,'only the first apply changes the fee');
- assert.equal(rows[ids['Metal Lathe Training']].training_fee_cents,3500);assert.equal(rows[ids['Metal Lathe Training']].training_minutes,45);
+ const rows=Object.fromEntries((await pool.query('SELECT certid,training_minutes,training_fee_cents,revision FROM certifications WHERE certid=ANY($1::int[])',[[ids['CNC'],ids['Metal Lathe']]])).rows.map(r=>[r.certid,r]));
+ assert.equal(rows[ids['CNC']].training_fee_cents,2000);assert.equal(rows[ids['CNC']].training_minutes,90);
+ assert.equal(rows[ids['CNC']].revision,revision+1,'only the first apply changes the fee');
+ assert.equal(rows[ids['Metal Lathe']].training_fee_cents,3500);assert.equal(rows[ids['Metal Lathe']].training_minutes,45);
  const audits=(await pool.query("SELECT entity_id,before_state,after_state FROM app_staff_audit WHERE action='certification.training_fee_configured'")).rows;
- assert.equal(audits.length,1);assert.equal(Number(audits[0].entity_id),ids['CNC Training']);
+ assert.equal(audits.length,1);assert.equal(Number(audits[0].entity_id),ids['CNC']);
  assert.deepEqual(audits[0].before_state,{feeCents:null,minutes:90});assert.deepEqual(audits[0].after_state,{feeCents:2000,minutes:90});
+});
+test('apply merges look-alike courses an earlier run created into the course the machines require',async()=>{
+ const cnc=(await pool.query("SELECT certid FROM equipment WHERE name='Joey'")).rows[0].certid;
+ const lathe=(await pool.query("SELECT certid FROM equipment WHERE name='Kirk'")).rows[0].certid;
+ const generated='One-hour instructor-led safety training. Training fee: $20. Staff must configure the approved certification validity.';
+ const course=async(name:string,description:string)=>(await pool.query(`INSERT INTO certifications(certid,name,description,effectivedate,training_fee_cents,training_minutes)
+   SELECT COALESCE(MAX(certid),0)+1,$1,$2,NOW() AT TIME ZONE 'UTC',2000,60 FROM certifications RETURNING certid`,[name,description])).rows[0].certid;
+ const legacyCnc=await course('CNC Training',generated),legacyLathe=await course('Metal Lathe Training',generated),edited=await course('Wood Lathe Training','Staff-written course');
+ for(const id of [legacyCnc,legacyLathe]) await pool.query('INSERT INTO app_training_requirement(certification_id,duration_minutes,fee_cents) VALUES($1,60,2000)',[id]);
+ const member=(await request(server).post('/api/auth/demo').send({role:'member'})).body.data.user.id;
+ const record=async(userId:number,certId:number)=>(await pool.query(`INSERT INTO user_certifications(usercertid,userid,certid,status,trained_at,approved_at,approved_by,verified_in_person,training_minutes)
+   SELECT COALESCE(MAX(usercertid),0)+1,$1,$2,'active',NOW(),NOW(),$3,true,60 FROM user_certifications RETURNING usercertid`,[userId,certId,admin.user.id])).rows[0].usercertid;
+ // The administrator was trained only under the look-alike; the member holds both courses.
+ const trained=await record(admin.user.id,legacyCnc);await record(member,legacyCnc);await record(member,cnc);
+ const start=new Date(Date.now()+2*86400000);
+ const scheduled=await post('/classes',{certificationId:legacyCnc,title:'CNC safety',instructorId:admin.user.id,roomId:room,capacity:5,
+   startsAt:start.toISOString(),endsAt:new Date(start.getTime()+3600000).toISOString(),reason:'Look-alike course class'});
+ assert.equal(scheduled.status,201,JSON.stringify(scheduled.body));
+ const plan=await configureMvpCatalog(pool);
+ const byName=Object.fromEntries(plan.training.map((t:any)=>[t.name,t]));
+ assert.deepEqual(byName['CNC'].duplicates,[{certificationId:legacyCnc,name:'CNC Training',members:2,classes:1}]);
+ assert.deepEqual(byName['Metal Lathe'].duplicates,[{certificationId:legacyLathe,name:'Metal Lathe Training',members:0,classes:0}]);
+ assert.deepEqual(byName['Wood Lathe'].duplicates,[],'a course staff edited is not a generated duplicate');
+ assert.equal((await pool.query('SELECT certid FROM user_certifications WHERE usercertid=$1',[trained])).rows[0].certid,legacyCnc,'preview writes nothing');
+ await configureMvpCatalog(pool,true,admin.user.id);await configureMvpCatalog(pool,true,admin.user.id);
+ assert.equal((await pool.query('SELECT certid FROM user_certifications WHERE usercertid=$1',[trained])).rows[0].certid,cnc,'training under the look-alike now unlocks the CNC machines');
+ assert.deepEqual((await pool.query('SELECT certid FROM user_certifications WHERE userid=$1 ORDER BY certid',[member])).rows.map(r=>r.certid),[cnc,legacyCnc]);
+ assert.equal((await pool.query('SELECT certification_id FROM app_training_class WHERE id=$1',[scheduled.body.data.id])).rows[0].certification_id,cnc);
+ assert.deepEqual((await pool.query('SELECT certid FROM certifications WHERE certid=ANY($1::int[]) ORDER BY certid',[[legacyCnc,legacyLathe,edited]])).rows.map(r=>r.certid),
+   [legacyCnc,edited],'an unused look-alike is removed; one a member still holds and a staff-edited course stay');
+ assert.equal((await pool.query('SELECT certid FROM equipment WHERE name=$1',['Kirk'])).rows[0].certid,lathe);
+ const merged=(await pool.query("SELECT subject_id,entity_id FROM app_staff_audit WHERE action='training.course_merged'")).rows;
+ assert.deepEqual(merged.map(r=>[r.subject_id,Number(r.entity_id)]),[[admin.user.id,trained]]);
+ assert.equal((await pool.query("SELECT count(*)::int n FROM app_staff_audit WHERE action='certification.duplicate_merged'")).rows[0].n,2,'a repeated apply records nothing new');
 });
