@@ -2,10 +2,11 @@
 // entitlement.
 
 import { TableScroll } from "../TableScroll";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import type { Entitlement, Page, Payment } from "../../lib/staffContracts";
 import { useApi } from "../../lib/useApi";
+import { onArrowKeys } from "../../lib/rovingFocus";
 import { dollars, shortDate, statusLabel, statusTone } from "../../lib/display";
 import { LoadState } from "../Management";
 import { KeptResults, useResultsPaging } from "../KeptResults";
@@ -24,6 +25,7 @@ export function History({
 }) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"records" | "payments">("records");
+  const ids = useId();
   return (
     <section className="panel membership-history">
       <h2 className="membership-history__heading">
@@ -42,23 +44,29 @@ export function History({
       </h2>
       {open ? (
         <div id="membership-history-body">
-          <div className="membership-tabs" role="tablist">
+          <div className="membership-tabs" role="tablist" aria-label="History" onKeyDown={onArrowKeys}>
             <button
+              id={`${ids}-records`}
               role="tab"
               aria-selected={tab === "records"}
+              aria-controls={`${ids}-panel`}
+              tabIndex={tab === "records" ? 0 : -1}
               onClick={() => setTab("records")}
             >
               Memberships &amp; passes
             </button>
             <button
+              id={`${ids}-payments`}
               role="tab"
               aria-selected={tab === "payments"}
+              aria-controls={`${ids}-panel`}
+              tabIndex={tab === "payments" ? 0 : -1}
               onClick={() => setTab("payments")}
             >
               Payments
             </button>
           </div>
-          <div role="tabpanel">
+          <div role="tabpanel" id={`${ids}-panel`} aria-labelledby={`${ids}-${tab}`}>
             {tab === "records" ? (
               <Records memberships={memberships} passes={passes} />
             ) : (

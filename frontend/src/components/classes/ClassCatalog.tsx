@@ -20,7 +20,7 @@ import {
   type WorkshopTemplate,
 } from "./classData";
 import { cents, shortDate } from "../../lib/display";
-import { registrationAction, sponsorReason, type Eligibility } from "./registrationAction";
+import { registrationAction, sponsorReason, upcomingEligibility, type Eligibility } from "./registrationAction";
 
 type Props = {
   classes: ClassRecord[];
@@ -43,6 +43,8 @@ export function ClassCatalog(props: Props) {
   const [query, setQuery] = useState("");
   const [certification, setCertification] = useState<string | null>(null);
   const upcoming = useMemo(() => classes.filter((c) => !hasStarted(c)).sort(byStart), [classes]);
+  // The access panel follows the same per-class answers as the Register buttons.
+  const access = upcomingEligibility(eligibility, upcoming);
   const mine = upcoming.filter((c) => c.myStatus === "enrolled" && !isCancelled(c));
   const past = classes
     .filter((c) => hasStarted(c) && c.myStatus && c.myStatus !== "cancelled")
@@ -241,6 +243,11 @@ export function ClassCatalog(props: Props) {
                       <span>
                         {c.enrolled}/{c.capacity} registered
                       </span>
+                      {hasStarted(c) && c.pendingAttendance ? (
+                        <strong className="status-pill status-pill--warn">
+                          {c.pendingAttendance} {c.pendingAttendance === 1 ? "person needs" : "people need"} attendance
+                        </strong>
+                      ) : null}
                       <button
                         type="button"
                         className="button button--quiet button--small"
@@ -278,19 +285,27 @@ export function ClassCatalog(props: Props) {
             </ol>
           </section>
 
-          {eligibility !== "unknown" && !sponsor ? (
-            <section className={`panel classes-aside__panel classes-access classes-access--${eligibility}`}>
+          {access !== "unknown" && !sponsor ? (
+            <section className={`panel classes-aside__panel classes-access classes-access--${access}`}>
               <span className="classes-access__icon" aria-hidden="true">
-                {eligibility === "eligible" ? <Check /> : <Lock />}
+                {access === "ineligible" ? <Lock /> : <Check />}
               </span>
               <div>
-                <h2>{eligibility === "eligible" ? "You can register" : "Membership or day pass needed"}</h2>
+                <h2>
+                  {access === "eligible"
+                    ? "You can register"
+                    : access === "some"
+                      ? "You can register for some classes"
+                      : "Membership or day pass needed"}
+                </h2>
                 <p>
-                  {eligibility === "eligible"
-                    ? "Classes need an active membership or day pass. Yours is active."
-                    : "Registering for a class needs an active membership or day pass."}
+                  {access === "eligible"
+                    ? "Classes need a membership or day pass that covers the class time."
+                    : access === "some"
+                      ? "Your membership or day pass covers some upcoming classes. The others fall outside the dates it covers."
+                      : "Registering for a class needs a membership or day pass that covers the class time."}
                 </p>
-                {eligibility === "ineligible" ? (
+                {access !== "eligible" ? (
                   <Link className="button button--quiet button--small" to="/membership">
                     See memberships &amp; day passes
                   </Link>

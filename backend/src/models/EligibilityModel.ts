@@ -13,6 +13,26 @@ const VALID_CERTIFICATION = `FROM user_certifications uc JOIN certifications c U
         AND (c.effectivedate IS NULL OR c.effectivedate <= NOW() AT TIME ZONE 'UTC')
         AND (c.enddate IS NULL OR c.enddate >= $2::timestamptz AT TIME ZONE 'UTC')`;
 
+/**
+ * SQL for EligibilityModel.entitlement's two answers over [start, end), for use inside a larger
+ * query. `start` and `end` are timestamptz expressions and `zone` names the facility time zone.
+ */
+export function entitlementSql(user: string, start: string, end: string, zone: string) {
+  return {
+    membership: `COALESCE((SELECT range_agg(tsrange(startdate, end_date)) FROM user_membership
+                       WHERE userid=${user} AND status='active' AND startdate < end_date)
+               @> CASE WHEN ${end} > ${start}
+                    THEN tsrange(${start} AT TIME ZONE 'UTC', ${end} AT TIME ZONE 'UTC')
+                    -- An instant (start = end) is a single point that must fall inside a membership.
+                    ELSE tsrange(${start} AT TIME ZONE 'UTC', ${start} AT TIME ZONE 'UTC', '[]') END,
+             false)`,
+    dayPass: `EXISTS (SELECT 1 FROM day_pass WHERE userid=${user} AND status='active'
+                     AND validdate::date = (${start} AT TIME ZONE ${zone})::date
+                     AND validdate::date = ((CASE WHEN ${end} > ${start}
+                       THEN ${end} - interval '1 microsecond' ELSE ${start} END) AT TIME ZONE ${zone})::date)`,
+  };
+}
+
 export class EligibilityModel {
   constructor(
     private db: Database,
@@ -26,22 +46,12 @@ export class EligibilityModel {
    * ending exactly at local midnight still belongs to the pass's day.
    */
   async entitlement(userId: number, start: Date, end = start) {
+    const sql = entitlementSql("$1", "$2::timestamptz", "$3::timestamptz", "$4");
     const { rows } = await this.db.query<{
       membership: boolean;
       dayPass: boolean;
     }>(
-      `
-      SELECT COALESCE((SELECT range_agg(tsrange(startdate, end_date)) FROM user_membership
-                       WHERE userid=$1 AND status='active' AND startdate < end_date)
-               @> CASE WHEN $3::timestamptz > $2::timestamptz
-                    THEN tsrange($2::timestamptz AT TIME ZONE 'UTC', $3::timestamptz AT TIME ZONE 'UTC')
-                    -- An instant (start = end) is a single point that must fall inside a membership.
-                    ELSE tsrange($2::timestamptz AT TIME ZONE 'UTC', $2::timestamptz AT TIME ZONE 'UTC', '[]') END,
-             false) AS membership,
-             EXISTS (SELECT 1 FROM day_pass WHERE userid=$1 AND status='active'
-                     AND validdate::date = ($2::timestamptz AT TIME ZONE $4)::date
-                     AND validdate::date = ((CASE WHEN $3::timestamptz > $2::timestamptz
-                       THEN $3::timestamptz - interval '1 microsecond' ELSE $2::timestamptz END) AT TIME ZONE $4)::date) AS "dayPass"`,
+      `SELECT ${sql.membership} AS membership, ${sql.dayPass} AS "dayPass"`,
       [userId, start, end, this.timeZone],
     );
     return rows[0]!;

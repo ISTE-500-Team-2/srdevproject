@@ -64,7 +64,8 @@ beforeEach(() => {
       if (scheduleError) throw scheduleError;
       return {};
     }
-    if (path === '/classes') return classes;
+    // Like the server, the list counts who on each roster still has no attendance recorded.
+    if (path === '/classes') return classes.map(c => ({ pendingAttendance: people.filter(p => p.status === 'enrolled').length, ...c }));
     if (path.endsWith('/roster')) {
       if (denyRoster) throw new ApiError(403, 'FORBIDDEN', 'Roster access removed.');
       return people;
@@ -251,24 +252,93 @@ test('staff banner counts unrecorded attendance from the roster of a started cla
   expect(screen.getByText('2 people on the roster have no attendance recorded yet.')).toBeTruthy();
 });
 
-test('a roster that cannot be read is flagged as attendance unavailable, with a retry', async () => {
-  classes = [course(4, -1), course(6, -3), course(5, 48)];
-  let failing = true;
-  const served = vi.mocked(api).getMockImplementation()!;
-  mockApi(async (path, options) => {
-    if (path === '/classes/6/roster' && failing) throw new ApiError(503, 'UNAVAILABLE', 'Try again later.');
-    return served(path, options);
-  });
+test('attendance counts come with the class list, so refreshing never reads one roster per class', async () => {
+  classes = [course(4, -1), course(6, -3, { pendingAttendance: 0 }), course(5, 48)];
   await mount();
-  // The readable class still counts; the failed one is not silently treated as recorded.
-  expect(screen.getByRole('alert').textContent).toMatch(/^Attendance unavailable for Safety 6\./);
   expect(screen.getByText(/Safety 4 .* needs attendance/)).toBeTruthy();
-  expect(screen.queryByText(/Safety 6 .* needs attendance/)).toBeNull();
-  failing = false;
-  await click('Retry attendance');
-  expect(screen.queryByText(/Attendance unavailable/)).toBeNull();
-  expect(calls('/classes/6/roster').length).toBeGreaterThanOrEqual(2);
-  expect(screen.getByText('2 past classes need attendance.')).toBeTruthy();
+  await act(async () => { await vi.advanceTimersByTimeAsync(15000); window.dispatchEvent(new Event('focus')); });
+  expect(vi.mocked(api).mock.calls.filter(([path]) => String(path).endsWith('/roster'))).toHaveLength(0);
+  await act(async () => { fireEvent.click(screen.getByRole('tab', { name: /^Past/ })); });
+  const recorded = screen.getByRole('heading', { level: 3, name: 'Safety 6' }).closest('.class-table__row')!;
+  expect(within(recorded as HTMLElement).getByText('Recorded')).toBeTruthy();
+});
+
+test('an instructor sees which of their past classes still need attendance', async () => {
+  auth.user = { id: 1, roles: ['member', 'instructor'] };
+  classes = [course(4, -1), course(6, -3, { pendingAttendance: 0 }), course(5, 48)];
+  await mount();
+  const teaching = screen.getByRole('heading', { name: 'Classes you teach' }).closest('section')!;
+  expect(within(teaching).getByText('2 people need attendance')).toBeTruthy();
+  expect(within(teaching).getAllByText(/need attendance|needs attendance/)).toHaveLength(1);
+});
+
+test('a day pass for the class day lets a member register ahead, and a membership ending first does not', async () => {
+  auth.user = { id: 30, roles: ['member'] };
+  entitled = false;
+  classes = [course(5, 48, { myEntitled: true }), course(6, 96, { myEntitled: false })];
+  await mount();
+  expect(screen.getByRole('button', { name: 'Register for Safety 5' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Register for Safety 6' })).toBeNull();
+  expect(screen.getAllByRole('link', { name: 'Membership or day pass needed' })).toHaveLength(1);
+  // The side panel agrees with the rows rather than with today's answer.
+  expect(screen.getByRole('heading', { name: 'You can register for some classes' })).toBeTruthy();
+  expect(screen.queryByRole('heading', { name: 'Membership or day pass needed' })).toBeNull();
+});
+
+test('class tabs move with the arrow keys, and a menu choice hands focus back to its button', async () => {
+  await mount();
+  const upcoming = screen.getByRole('tab', { name: /^Upcoming/ });
+  expect(upcoming.tabIndex).toBe(0);
+  expect(screen.getByRole('tab', { name: /^Past/ }).tabIndex).toBe(-1);
+  expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe(upcoming.id);
+  upcoming.focus();
+  await act(async () => { fireEvent.keyDown(upcoming, { key: 'ArrowRight' }); });
+  const attendance = screen.getByRole('tab', { name: /^Needs attendance/ });
+  expect(document.activeElement).toBe(attendance);
+  expect(attendance.getAttribute('aria-selected')).toBe('true');
+  await act(async () => { fireEvent.keyDown(attendance, { key: 'End' }); });
+  expect(screen.getByRole('tab', { name: /^Cancelled/ }).getAttribute('aria-selected')).toBe('true');
+  await act(async () => { fireEvent.keyDown(document.activeElement!, { key: 'Home' }); });
+  expect(screen.getByRole('tab', { name: /^Upcoming/ }).getAttribute('aria-selected')).toBe('true');
+
+  const more = screen.getByRole('button', { name: 'More actions for Safety 5' });
+  await act(async () => { fireEvent.click(more); });
+  const again = screen.getByRole('menuitem', { name: /Schedule again/ });
+  expect(document.activeElement).toBe(again);
+  await act(async () => { fireEvent.keyDown(again, { key: 'ArrowDown' }); });
+  expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: /Cancel class/ }));
+  await act(async () => { fireEvent.keyDown(document.activeElement!, { key: 'Escape' }); });
+  expect(screen.queryByRole('menu')).toBeNull();
+  expect(document.activeElement).toBe(more);
+  await act(async () => { fireEvent.click(more); });
+  await act(async () => { fireEvent.click(screen.getByRole('menuitem', { name: /Cancel class/ })); });
+  // The dialog returns focus to the button that opened it.
+  await click('Keep class');
+  expect(document.activeElement).toBe(more);
+});
+
+test('a mouse press that blurs the row menu without moving focus still runs the chosen item', async () => {
+  await mount();
+  const more = screen.getByRole('button', { name: 'More actions for Safety 5' });
+  // Safari and Firefox on Mac blur the focused item on mouse press without focusing the pressed one.
+  const press = async (target: Element) => {
+    await act(async () => { fireEvent.focusOut(document.activeElement!, { relatedTarget: null }); });
+    await act(async () => { fireEvent.click(target); });
+  };
+  await act(async () => { fireEvent.click(more); });
+  await press(screen.getByRole('menuitem', { name: /Cancel class/ }));
+  expect(screen.getByRole('button', { name: 'Keep class' })).toBeTruthy();
+  await click('Keep class');
+  // Pressing "More actions" again closes the open menu instead of reopening it.
+  await act(async () => { fireEvent.click(more); });
+  await press(more);
+  expect(screen.queryByRole('menu')).toBeNull();
+  // Focus that moves on to something outside the row's actions still closes the menu.
+  await act(async () => { fireEvent.click(more); });
+  await act(async () => {
+    fireEvent.focusOut(document.activeElement!, { relatedTarget: screen.getByRole('tab', { name: /^Upcoming/ }) });
+  });
+  expect(screen.queryByRole('menu')).toBeNull();
 });
 
 test('nobody is pre-marked; saving needs a note and only sends chosen people', async () => {
@@ -425,6 +495,39 @@ test('cancelling sends the record revision and the staff reason', async () => {
   fireEvent.keyDown(hold, { key: ' ' });
   await act(async () => { await new Promise((r) => setTimeout(r, 1500)); });
   expect(calls('/classes/5/cancel', 'POST')[0][1]?.body).toEqual({ expectedRevision: 4, reason: 'Instructor out sick' });
+});
+
+test('a class that started while the cancel dialog was open is not cancelled, and the list refreshes', async () => {
+  await mount();
+  await click('More actions for Safety 5');
+  await act(async () => { fireEvent.click(screen.getByRole('menuitem', { name: /Cancel class/ })); });
+  fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: 'Instructor out sick' } });
+  const served = vi.mocked(api).getMockImplementation()!;
+  mockApi(async (path, options) => {
+    if (path === '/classes/5/cancel') throw new ApiError(409, 'CLASS_CLOSED', 'Only a scheduled class that hasn\'t started yet can be cancelled.');
+    return served(path, options);
+  });
+  const before = calls('/classes').length;
+  // The full hold is the only way to cancel.
+  fireEvent.keyDown(screen.getByRole('button', { name: /Hold to cancel class/ }), { key: ' ' });
+  await act(async () => { await new Promise((r) => setTimeout(r, 1500)); });
+  expect(calls('/classes/5/cancel', 'POST')).toHaveLength(1);
+  expect(screen.getByText(/already started or been cancelled/)).toBeTruthy();
+  expect(calls('/classes').length).toBeGreaterThan(before);
+});
+
+test('an instructor already teaching at that time is flagged on the Instructor field', async () => {
+  scheduleError = new ApiError(409, 'INSTRUCTOR_CONFLICT', 'This instructor is already teaching another class at this time.');
+  await mount();
+  await click('Schedule class');
+  fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Evening laser' } });
+  fireEvent.change(screen.getByLabelText(/^Counts toward/), { target: { value: '7' } });
+  fireEvent.change(screen.getByLabelText(/^Room/), { target: { value: '2' } });
+  fireEvent.change(screen.getByLabelText(/^Reason/), { target: { value: 'Demand' } });
+  await act(async () => { fireEvent.submit(screen.getByRole('button', { name: 'Publish class' }).closest('form')!); });
+  expect(screen.getByText(/already teaching another class at this time\. Pick another instructor or time\./)).toBeTruthy();
+  expect(screen.getByText('Teaching another class at this time')).toBeTruthy();
+  expect(screen.queryByText('Booked for part of this time')).toBeNull();
 });
 
 test('creative workshop details show the description without promising certification approval',async()=>{

@@ -7,6 +7,7 @@ import { ChevronDown, ChevronRight, GraduationCap, Plus, School, X } from "lucid
 import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
+import { onArrowKeys } from "../lib/rovingFocus";
 import type { Plan } from "../lib/staffContracts";
 import type { EligibilityPrice } from "../lib/billingContracts";
 import { ActionForm, Field, LoadState } from "../components/Management";
@@ -357,13 +358,14 @@ function PlanEditor({
                 <span className="plans-hint">The type can't change after a plan is created.</span>
               </p>
             ) : (
-              <div className="segmented plans-kind" role="radiogroup" aria-labelledby="plan-kind-label">
+              <div className="segmented plans-kind" role="radiogroup" aria-labelledby="plan-kind-label" onKeyDown={onArrowKeys}>
                 {(["membership", "day_pass"] as const).map((value) => (
                   <button
                     key={value}
                     type="button"
                     role="radio"
                     aria-checked={kind === value}
+                    tabIndex={kind === value ? 0 : -1}
                     className={kind === value ? "is-selected" : ""}
                     onClick={() => {
                       setKind(value);

@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
+import { onArrowKeys } from "../lib/rovingFocus";
 import type { ComplianceReport, Policy } from "../lib/staffContracts";
 import { LoadState } from "../components/Management";
 import { Modal } from "../components/Modal";
@@ -231,11 +232,13 @@ function PublishPanel({
                 e.target.value = "";
               }}
             />
-            <span className="cw-toggle" role="tablist" aria-label="Text view">
-              <button type="button" role="tab" aria-selected={tab === "edit"} onClick={() => setTab("edit")}>
+            <span className="cw-toggle" role="tablist" aria-label="Text view" onKeyDown={onArrowKeys}>
+              <button type="button" role="tab" aria-selected={tab === "edit"} aria-controls="waiver-text-view"
+                tabIndex={tab === "edit" ? 0 : -1} onClick={() => setTab("edit")}>
                 Edit
               </button>
-              <button type="button" role="tab" aria-selected={tab === "preview"} onClick={() => setTab("preview")}>
+              <button type="button" role="tab" aria-selected={tab === "preview"} aria-controls="waiver-text-view"
+                tabIndex={tab === "preview" ? 0 : -1} onClick={() => setTab("preview")}>
                 Preview
               </button>
             </span>
@@ -243,6 +246,7 @@ function PublishPanel({
           </span>
           {tab === "edit" ? (
             <textarea
+              id="waiver-text-view"
               className={dragging ? "is-dragging" : ""}
               aria-describedby="waiver-text-hint"
               aria-labelledby="waiver-text-label"
@@ -255,7 +259,7 @@ function PublishPanel({
               placeholder="Paste the approved wording, or drop a PDF, Word or text document here"
             />
           ) : (
-            <div className={dragging ? "cw-preview is-dragging" : "cw-preview"} aria-labelledby="waiver-text-label">
+            <div id="waiver-text-view" className={dragging ? "cw-preview is-dragging" : "cw-preview"} aria-labelledby="waiver-text-label">
               <h4>{name || "Untitled waiver"}</h4>
               <p className="policy-text">{text || "Nothing to preview yet."}</p>
             </div>

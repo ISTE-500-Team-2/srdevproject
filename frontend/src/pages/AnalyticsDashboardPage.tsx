@@ -18,6 +18,7 @@ import { Delta, Kpi } from "../components/Kpi";
 import { LoadState } from "../components/Management";
 import { KeptResults } from "../components/KeptResults";
 import { useApi } from "../lib/useApi";
+import { onArrowKeys } from "../lib/rovingFocus";
 import { dollars, statusLabel, timeOnly, zonedDay } from "../lib/display";
 import { useFacilityZone } from "../lib/facilityZone";
 import {
@@ -531,9 +532,10 @@ function AnalyticsDashboard({ zone }: { zone: string }) {
             <ChevronDown className="analytics-range__chevron" aria-hidden="true" />
           </label>
           {/* Groups both charts, so it sits with the date range. */}
-          <div className="analytics-period" role="radiogroup" aria-label="Group charts by">
+          <div className="analytics-period" role="radiogroup" aria-label="Group charts by" onKeyDown={onArrowKeys}>
             {(["daily", "weekly", "monthly"] as RevenuePeriod[]).map((p) => (
-              <button key={p} type="button" role="radio" aria-checked={draft.period === p} onClick={() => apply({ ...draft, period: p })}>
+              <button key={p} type="button" role="radio" aria-checked={draft.period === p} tabIndex={draft.period === p ? 0 : -1}
+                onClick={() => apply({ ...draft, period: p })}>
                 {statusLabel(p)}
               </button>
             ))}

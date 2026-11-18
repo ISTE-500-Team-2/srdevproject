@@ -37,6 +37,7 @@ import { dollars, statusLabel, timeOnly, zonedDay } from "../lib/display";
 import { useFacilityZone } from "../lib/facilityZone";
 import type { Report } from "../lib/reportContracts";
 import { useApi } from "../lib/useApi";
+import { onArrowKeys } from "../lib/rovingFocus";
 import "../assets/css/analyticsDashboard.css";
 import "./reports.css";
 
@@ -353,9 +354,10 @@ function ReportsView({ today }: { today: string }) {
             </select>
             <ChevronDown className="analytics-range__chevron" aria-hidden="true" />
           </label>
-          <div className="analytics-period" role="radiogroup" aria-label="Group results by">
+          <div className="analytics-period" role="radiogroup" aria-label="Group results by" onKeyDown={onArrowKeys}>
             {PERIODS.map((p) => (
-              <button key={p} type="button" role="radio" aria-checked={range.period === p} onClick={() => apply({ ...draft, period: p })}>
+              <button key={p} type="button" role="radio" aria-checked={range.period === p} tabIndex={range.period === p ? 0 : -1}
+                onClick={() => apply({ ...draft, period: p })}>
                 {statusLabel(p)}
               </button>
             ))}
