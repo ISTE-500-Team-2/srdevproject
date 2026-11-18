@@ -84,6 +84,13 @@
   transform: translate(-50%, 0);
   pointer-events: auto;
 }
+/* Escape hides a note that hover or focus would show, until both leave the badge. */
+.info-tip[data-dismissed]:not([data-open]) .info-tip__note {
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, -4px);
+  pointer-events: none;
+}
 @media (prefers-reduced-motion: reduce) {
   .info-tip__button,
   .info-tip__note {

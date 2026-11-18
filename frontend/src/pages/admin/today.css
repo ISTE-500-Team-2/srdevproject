@@ -65,7 +65,7 @@
 /* Side-by-side panels share a height; keep their footer links on the bottom edge. */
 .today-pair > .today-panel { display: flex; flex-direction: column; }
 .today-pair .today-panel-foot { margin-top: auto; }
-.today-empty { padding: 4px 20px 18px; color: var(--ink-soft); font-size: var(--text-base-sm); }
+.today-empty, .today-capped { padding: 4px 20px 18px; color: var(--ink-soft); font-size: var(--text-base-sm); }
 .today-panel .load-state { margin: 0 20px 16px; }
 
 .today-button {
