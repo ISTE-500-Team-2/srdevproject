@@ -130,6 +130,8 @@ test("the picker opens your own account or a member's, and refuses staff account
   await screen.findByRole("button", { name: /Dana Tester/ });
   expect((screen.getByRole("button", { name: /Sam Tester/ }) as HTMLButtonElement).disabled).toBe(true);
   expect((screen.getByRole("button", { name: /Ken Tester/ }) as HTMLButtonElement).disabled).toBe(true);
+  // The same words as the member record's account control.
+  expect(screen.getByRole("button", { name: /Ken Tester/ }).textContent).toContain("On hold");
   fireEvent.click(screen.getByRole("button", { name: /Dana Tester/ }));
   await waitFor(() => expect(screen.getByLabelText("location").textContent).toBe("/"));
   expect(auth.openAccount).toHaveBeenCalledWith(7);

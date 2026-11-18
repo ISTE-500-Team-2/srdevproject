@@ -3,7 +3,7 @@
 
 import type { Request, Response } from "express";
 import type { Pool } from "pg";
-import { AppError, positiveId, textField } from "../domain.js";
+import { AppError, bigintId, positiveId, textField } from "../domain.js";
 import { authState } from "../middleware/auth.js";
 import { AUDIT_VIEWS_LIST, COMPLIANCE_EXPORT_LIMIT, StaffModel } from "../models/StaffModel.js";
 import { auditChanges } from "../auditChanges.js";
@@ -381,7 +381,7 @@ export class StaffController {
   };
   /** One record in full: its reason, what changed, and what was saved with it. */
   auditRecord = async (req: Request, res: Response) => {
-    const found = await this.model.auditRecord(positiveId(req.params.id, "Audit record"));
+    const found = await this.model.auditRecord(bigintId(req.params.id, "Audit record"));
     if (!found) throw new AppError(404, "NOT_FOUND", "That change log record does not exist.");
     const { before, after, ...record } = found.record;
     res.json({

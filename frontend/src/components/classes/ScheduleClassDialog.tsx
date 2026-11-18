@@ -60,6 +60,12 @@ export function ScheduleClassDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [roomError, setRoomError] = useState("");
+  // Closing with Escape, the close button, a click outside or Cancel asks before discarding a draft.
+  const [dirty, setDirty] = useState(false);
+  const changed = (value: boolean) => {
+    setDirty(value);
+    onDirty(value);
+  };
   const room = rooms.data?.find((r) => String(r.id) === form.roomId);
   const course = catalog.data?.find(c => String(c.id) === form.certificationId);
   const minutes = duration(form.date, form.start, form.end);
@@ -103,7 +109,7 @@ export function ScheduleClassDialog({
       return next;
     });
     if (key === "roomId" || key === "date" || key === "start" || key === "end") setRoomError("");
-    onDirty(true);
+    changed(true);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -132,7 +138,7 @@ export function ScheduleClassDialog({
           reason: form.reason.trim(),
         },
       });
-      onDirty(false);
+      changed(false);
       onPublished(form.title.trim());
     } catch (e) {
       if (e instanceof ApiError && roomConflict.has(e.code)) {
@@ -156,11 +162,11 @@ export function ScheduleClassDialog({
     setKind(next);
     // Each class type sends only its own link: a certification or a workshop.
     setForm((current) => (next === "training" ? { ...current, catalogId: "" } : { ...current, certificationId: "" }));
-    onDirty(true);
+    changed(true);
   }
   return (
-    <Modal open title="Schedule a class" onClose={onClose}>
-      <form className="class-form" onSubmit={(e) => void submit(e)}>
+    <Modal open title="Schedule a class" onClose={onClose} dirty={dirty}>
+      {(requestClose) => <form className="class-form" onSubmit={(e) => void submit(e)}>
         {error ? (
           <p className="class-banner class-banner--error" role="alert">
             <AlertTriangle aria-hidden="true" />
@@ -381,7 +387,7 @@ export function ScheduleClassDialog({
         </fieldset>
         <div className="class-dialog-actions">
           <span>Members see it once published.</span>
-          <button type="button" className="button button--quiet" onClick={onClose}>
+          <button type="button" className="button button--quiet" onClick={requestClose}>
             Cancel
           </button>
           <button
@@ -391,7 +397,7 @@ export function ScheduleClassDialog({
             {busy ? "Publishing…" : "Publish class"}
           </button>
         </div>
-      </form>
+      </form>}
     </Modal>
   );
 }

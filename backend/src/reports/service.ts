@@ -26,7 +26,7 @@ import type {
 
 const PERIODS: readonly ReportPeriod[] = ["daily", "weekly", "monthly"];
 
-/** Validates the report query: two real ISO dates, at most 93 days inclusive, and a period. */
+/** Validates the report query: two real ISO dates from 2000 on, at most 93 days inclusive, and a period. */
 export function parseReportRequest(query: Record<string, unknown>): ReportRequest {
   const from = typeof query.from === "string" ? query.from : "",
     to = typeof query.to === "string" ? query.to : "",
@@ -34,6 +34,8 @@ export function parseReportRequest(query: Record<string, unknown>): ReportReques
   if (
     !/^\d{4}-\d{2}-\d{2}$/.test(from) ||
     !/^\d{4}-\d{2}-\d{2}$/.test(to) ||
+    // The database has no year 0, and nothing here predates 2000.
+    from < "2000-01-01" ||
     !Number.isFinite(Date.parse(from)) ||
     new Date(from).toISOString().slice(0, 10) !== from ||
     !Number.isFinite(Date.parse(to)) ||
