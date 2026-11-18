@@ -14,6 +14,7 @@ import auto_release as release
 SHA = 'a' * 40
 IMAGE = 'sha256:' + 'b' * 64
 REFUND_MIGRATION = '053_checkout_refund_reconciliation.sql'
+REGISTRATION_MIGRATION = '055_pending_registration_password_confirmation.sql'
 PATHS = ['.github/workflows/mvc-verify.yml', '.github/workflows/dev-setup.yml', '.github/workflows/sponsor-hosting.yml']
 
 
@@ -185,10 +186,12 @@ class RolloutTests(unittest.TestCase):
             (root / 'auto-deploy/blue-green.enabled').touch()
             (root / 'routing').mkdir()
             release.write_json(root / 'routing/active.json', {'version': 1, 'release': 'c' * 40, 'publicPort': 8082})
-        if failure in ('online', 'guard'):
+        with_online_migrations = failure in ('online', 'guard', 'registration-validation')
+        if with_online_migrations:
             migrations = root / 'auto-deploy/releases' / SHA / 'source/database/migrations'
             migrations.mkdir(parents=True)
             (migrations / REFUND_MIGRATION).write_text('SELECT 1;')
+            (migrations / REGISTRATION_MIGRATION).write_text('SELECT 2;')
         calls = []
 
         def run(*args, **kwargs):
@@ -212,12 +215,19 @@ class RolloutTests(unittest.TestCase):
                 raise RuntimeError('Live smoke failed')
 
         def output(*args):
+            calls.append(('output', args))
+            if 'app_pending_registration_password_confirmation' in args[-1]:
+                self.assertIn('convalidated', args[-1])
+                return 'f' if failure == 'registration-validation' and release.DATABASES[1][2] in args else 't'
             if 'pg_constraint' in args[-1]:
                 return 'f' if failure == 'guard' else 't'
-            if 'app_migration' in args[-1] and failure in ('online', 'guard'):
+            if 'app_migration' in args[-1] and with_online_migrations:
                 checksum = hashlib.sha256(b'SELECT 1;').hexdigest()
-                rows = [{'name': REFUND_MIGRATION, 'checksum': checksum}]
-                if failure == 'guard':
+                rows = [
+                    {'name': REFUND_MIGRATION, 'checksum': checksum},
+                    {'name': REGISTRATION_MIGRATION, 'checksum': hashlib.sha256(b'SELECT 2;').hexdigest()},
+                ]
+                if failure != 'online':
                     rows.append({'name': 'online:' + REFUND_MIGRATION, 'checksum': checksum})
                 return json.dumps(rows)
             if 'rev-parse' in args:return SHA
@@ -227,7 +237,7 @@ class RolloutTests(unittest.TestCase):
         def migration_gate(_source, _rows):
             if failure == 'migration':
                 raise RuntimeError('Missing reviewed migration')
-            if failure in ('online', 'guard'):
+            if with_online_migrations:
                 original_gate(_source, _rows)
 
         original_gate = release.verify_migrations
@@ -253,7 +263,7 @@ class RolloutTests(unittest.TestCase):
             self.assertFalse(any(c[0] == 'compose' and 'up' in c[1] for c in calls))
 
     def test_blue_green_requires_online_completion_before_starting_standby(self):
-        for failure in ('online', 'guard'):
+        for failure in ('online', 'guard', 'registration-validation'):
             with self.subTest(failure=failure):
                 root, original, calls, result = self.exercise(failure, blue_green=True)
                 self.assertIsNone(result)
@@ -261,6 +271,11 @@ class RolloutTests(unittest.TestCase):
                 self.assertEqual(json.loads((root / 'routing/active.json').read_text())['publicPort'], 8082)
                 self.assertFalse(any('up' in c[1] or 'pg_dump' in c[1] for c in calls if c[0] in ('run', 'compose')))
                 self.assertTrue(any(c[0] == 'error' and 'online migration phase' in c[1] for c in calls))
+                if failure == 'registration-validation':
+                    checked = [call[1][call[1].index('-d') + 1] for call in calls
+                               if call[0] == 'output' and 'app_pending_registration_password_confirmation' in call[1][-1]]
+                    self.assertEqual(checked, [database for _, _, database in release.DATABASES])
+                    self.assertTrue(any(c[0] == 'error' and 'pending registration constraint' in c[1] for c in calls))
 
     def test_health_or_live_smoke_failure_restores_prior_compose(self):
         for failure in ('health', 'smoke'):

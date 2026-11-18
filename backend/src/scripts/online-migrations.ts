@@ -82,6 +82,7 @@ async function queueLegacyCheckoutRefunds(db: Database) {
 const oldSetupIndex = 'app_reader_setup_one_active_device';
 const refundGuard = 'app_equipment_checkout_refund_online_pending';
 const checkInOrigin = 'app_check_in_origin';
+const pendingRegistrationPassword = 'app_pending_registration_password_confirmation';
 
 async function indexValid(db: Database, index: typeof setupIndex) {
   const { rows: [state] } = await db.query<{ valid: boolean; matches: boolean }>(
@@ -155,12 +156,16 @@ export async function finishOnlineMigrations(db: Database) {
   // 049_equipment_refund_retry.sql: keep non-null refund IDs gated until unique.
   await ensureIndex(db, refundIndex);
 
-  // 053_checkout_refund_reconciliation.sql: build both due indexes without blocking writes.
+  // 053_checkout_refund_reconciliation.sql: build due and unchecked payment indexes online.
   for (const index of [...checkoutRefundBackfills, uncheckedEquipmentRefunds]) await ensureIndex(db, index);
 
   // 051_desk_check_in_origin.sql: new rows already obey the NOT VALID check.
   if (!(await constraintValidated(db, 'check_in', checkInOrigin)))
     await db.query(`ALTER TABLE public.check_in VALIDATE CONSTRAINT ${checkInOrigin}`);
+
+  // 055_pending_registration_password_confirmation.sql: check preexisting rows without blocking writes.
+  if (!(await constraintValidated(db, 'app_pending_registration', pendingRegistrationPassword)))
+    await db.query(`ALTER TABLE public.app_pending_registration VALIDATE CONSTRAINT ${pendingRegistrationPassword}`);
 
   await db.query("SET lock_timeout = '250ms'");
   if ((await constraintValidated(db, refundIndex.table, refundGuard)) !== undefined)
@@ -185,6 +190,8 @@ export async function verifyOnlineMigrations(db: Database) {
     throw new Error(`Migration constraint ${refundGuard} still needs removal. ${finish}`);
   if (!(await constraintValidated(db, 'check_in', checkInOrigin)))
     throw new Error(`Migration constraint ${checkInOrigin} still needs validation. ${finish}`);
+  if (!(await constraintValidated(db, 'app_pending_registration', pendingRegistrationPassword)))
+    throw new Error(`Migration constraint ${pendingRegistrationPassword} still needs validation. ${finish}`);
   if ((await db.query(`SELECT 1 FROM public.app_notification_outbox WHERE ${hasSentLink} LIMIT 1`)).rowCount)
     throw new Error(`Migration cleanup of previously sent links is incomplete. ${finish}`);
 }

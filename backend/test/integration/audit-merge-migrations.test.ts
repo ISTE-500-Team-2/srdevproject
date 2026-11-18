@@ -131,7 +131,14 @@ test('live upgrade aborts a busy reader trigger swap and builds the lease index 
       await verifyMigrations(pool);
       assert.deepEqual(await refundQueue(), [{ id: 99001, queued: true }, { id: 99002, queued: false }]);
       await pool.query('UPDATE app_equipment_checkout SET refund_reconcile_after=NULL WHERE reservation_id=99001');
+      // A completed 053 backfill cannot stand in for 055's validation.
+      await pool.query(`ALTER TABLE app_pending_registration
+        DROP CONSTRAINT app_pending_registration_password_confirmation,
+        ADD CONSTRAINT app_pending_registration_password_confirmation
+          CHECK (NOT confirmation_requires_password OR token_hash IS NULL OR token_hash LIKE 'v2:%') NOT VALID`);
+      await assert.rejects(verifyMigrations(pool), /app_pending_registration_password_confirmation still needs validation/);
       await migrate(pool, onlineOnly);
+      await verifyMigrations(pool);
       assert.deepEqual(await refundQueue(), [{ id: 99001, queued: false }, { id: 99002, queued: false }]);
       await pool.query('DROP INDEX app_equipment_checkout_refund_due');
       await assert.rejects(verifyMigrations(pool), /index is missing or invalid: app_equipment_checkout_refund_due/);

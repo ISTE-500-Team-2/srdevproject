@@ -98,7 +98,7 @@ Schema-changing releases still require separately reviewed backward-compatible
 database changes. This deployer never executes DDL; exact migration checksums
 remain a hard prerequisite.
 
-## Applying migrations 045 to 054
+## Applying migrations 045 to 055
 
 1. Pause automatic cutover using the [pause procedure](AUTO-DEPLOYMENT.md#pause-recover-and-retry).
    Leave the previous release serving. Take fresh public and demo backups and
@@ -106,15 +106,18 @@ remain a hard prerequisite.
    companion [online code](../backend/src/scripts/online-migrations.ts) at the
    exact candidate revision.
 2. On each database, use the server's guarded reviewed-migration script as the
-   owner to apply and record the exact checksums for all ten numbered files
-   from `045_reader_setup_again.sql` through `054_notification_worker_compatibility.sql`.
+   owner to apply and record the exact checksums for all eleven numbered files
+   from `045_reader_setup_again.sql` through `055_pending_registration_password_confirmation.sql`.
    Serialize migration work using the existing session advisory lock
    `pg_advisory_lock(hashtext('arbor-mvc-migrations'))`. In the schema transaction,
    set `SET LOCAL lock_timeout = '250ms';` before applying this batch. Migration
    048 takes the reader table lock with `NOWAIT`, as does 054 for the outbox.
    Migration 053 adds nullable columns, a checkout request flag with a constant
    default, and adjusts audit triggers. These changes do not rewrite either
-   checkout table. A busy lock can abort the schema batch with SQLSTATE `55P03`.
+   checkout table. Migration 055 adds a flag with a constant default and
+   installs a `NOT VALID` constraint that applies to new writes immediately.
+   The table scan for validation runs after commit. A busy lock can abort the
+   schema batch with SQLSTATE `55P03`.
    Roll back and retry during a quieter period. Release the session advisory
    lock when the guarded script finishes.
 3. After the schema transaction commits, run the reviewed online phase on each
@@ -130,10 +133,12 @@ remain a hard prerequisite.
    Use autocommit for concurrent index commands. The online phase builds the
    replacement reader setup index before removing the old one. It builds the
    lease expiry index, the unique refund index, both checkout refund due indexes
-   and the index for unchecked equipment payments. It validates the check-in constraint, removes the refund write guard
-   once uniqueness is enforced, scrubs previously sent notification links and
-   queues legacy checkout refund work in committed batches. It records the
-   completion checkpoint in the migration ledger after the online work finishes.
+   and the index for unchecked equipment payments. It validates the check-in
+   and pending-registration constraints, removes the refund write guard once
+   uniqueness is enforced, scrubs previously sent notification links and queues
+   legacy checkout refund work in committed batches. It records the 053 backfill
+   checkpoint in the migration ledger. For 055, PostgreSQL records validation
+   in the constraint catalog.
 
    Retry this phase after a lock conflict, interrupted build or incomplete
    cleanup. It reuses matching valid indexes and rebuilds matching invalid
@@ -154,9 +159,9 @@ remain a hard prerequisite.
    paused until both verifications pass and the grants are in place. Install the
    matching `auto_release.py` on the release host before resuming. Before any
    standby starts, it uses the existing database owner connections to require
-   the checksum-matched online completion record and confirm that the equipment
-   refund write guard is gone in both databases. The gate needs no new host
-   configuration. Then use the [resume procedure](AUTO-DEPLOYMENT.md#pause-recover-and-retry).
+   the checksum-matched 053 backfill checkpoint, removal of the equipment refund
+   write guard, and validation of the 055 pending-registration constraint in both
+   databases. The gate needs no new host configuration. Then use the [resume procedure](AUTO-DEPLOYMENT.md#pause-recover-and-retry).
 
 Migration 054 takes a brief exclusive outbox lock to add a nullable column and
 install its queue trigger. It leaves the existing due index in place and does
@@ -173,6 +178,13 @@ release. A legacy pending account's reset expires 30 minutes after issuance.
 If rollback outlasts the reset, the member can request a fresh one after the new
 release returns. During rollback they can also use email confirmation to
 activate the account and then request a reset through the previous release.
+
+For staged sign-ups created, replaced or resent by the new release, the previous
+release may deliver a queued confirmation email, but it rejects the link and
+cannot resend a usable link for that request. Those sign-ups can resume when the
+password-aware release returns. If the request has expired by then, the member
+must sign up again. Older staged sign-ups left untouched by the new release
+retain their previous confirmation behavior during rollback.
 
 After the previous release has stopped handling webhooks, review Stripe deliveries
 from the start of the online backfill through the end of that overlap. The new

@@ -30,6 +30,7 @@ MAIN_PUSH_WORKFLOWS = ('.github/workflows/mvc-verify.yml', '.github/workflows/de
 # The timer ticks about once a minute, so recheck the same waiting revision at most this often.
 CI_POLL_SECONDS = 240
 REFUND_MIGRATION = '053_checkout_refund_reconciliation.sql'
+REGISTRATION_MIGRATION = '055_pending_registration_password_confirmation.sql'
 
 
 class ReleaseCheckError(RuntimeError):
@@ -311,6 +312,13 @@ def backup_databases(release, source):
                         "WHERE conrelid='public.app_equipment_checkout'::regclass "
                         "AND conname='app_equipment_checkout_refund_online_pending')")
             require(guard_removed == 't', 'Complete the reviewed online migration phase before rollout: refund write guard remains')
+        if (source / 'database/migrations' / REGISTRATION_MIGRATION).is_file():
+            password_check_validated = output('docker', 'exec', container, 'psql', '-X', '-U', user, '-d', database,
+                '-Atc', "SELECT EXISTS (SELECT 1 FROM pg_constraint "
+                        "WHERE conrelid=to_regclass('public.app_pending_registration') "
+                        "AND conname='app_pending_registration_password_confirmation' AND convalidated)")
+            require(password_check_validated == 't',
+                    'Complete the reviewed online migration phase before rollout: pending registration constraint needs validation')
     for container, user, database in DATABASES:
         backup = release / (database + '.dump')
         with backup.open('wb') as stream:
