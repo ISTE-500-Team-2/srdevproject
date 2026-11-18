@@ -616,7 +616,9 @@
   box-shadow: 0 0 0 1px var(--dk-copper-ink);
 }
 
-:root[data-theme='dark'] .today-nowtag {
+/* The studio board's tag repeats its studios.css selector so it matches the compiled twin. */
+:root[data-theme='dark'] .today-nowtag,
+:root[data-theme='dark'] .desk-ticks .desk-today-tag {
   color: var(--dk-copper-ink);
 }
 
