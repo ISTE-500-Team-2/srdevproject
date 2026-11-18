@@ -191,6 +191,7 @@ export function MembershipPage() {
           billingEnabled={billing.data!.enabled}
           billing={openBilling(billing.data!.records)}
           memberships={history.data!.memberships}
+          accessStatus={history.data!.accessStatus}
           today={zonedDay(history.data!.timeZone)}
           busy={busy}
           post={post}
