@@ -8,6 +8,13 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 const modalStack: HTMLElement[] = [];
 const originalInert = new Map<HTMLElement, boolean>();
 /**
+ * When one dialog closes as another opens (the staff menu drawer swapping for the account picker),
+ * an autoFocus field in the new one already holds focus. The closing dialog leaves it there and
+ * hands its own return target to the new dialog, so closing that one still goes back to the
+ * control that started it all.
+ */
+let focusHandoff: { dialog: Element; target: Element | null } | null = null;
+/**
  * Only the top portal remains interactive; restore each element's original inert state after the
  * last dialog closes.
  */
@@ -108,7 +115,13 @@ export function Modal({
     if (!open) return;
     const backdrop = backdropRef.current!;
     // Return focus to the control that opened the dialog, even when autoFocus has moved it inside.
-    const previousFocus = dialogRef.current?.contains(document.activeElement) ? opener : document.activeElement;
+    const handoff = focusHandoff?.dialog === dialogRef.current ? focusHandoff : null;
+    if (handoff) focusHandoff = null;
+    const previousFocus = handoff
+      ? handoff.target
+      : dialogRef.current?.contains(document.activeElement)
+        ? opener
+        : document.activeElement;
     modalStack.push(backdrop);
     syncModalBackground();
     // Start on Close unless a field in the dialog has already taken focus with autoFocus.
@@ -155,7 +168,10 @@ export function Modal({
       document.removeEventListener("focusin", containFocus);
       modalStack.splice(modalStack.indexOf(backdrop), 1);
       syncModalBackground();
-      if (
+      // Leave focus alone when a dialog opening alongside this one has already taken it.
+      const nextDialog = document.activeElement?.closest('[aria-modal="true"]');
+      if (nextDialog) focusHandoff = { dialog: nextDialog, target: previousFocus };
+      else if (
         previousFocus instanceof HTMLElement &&
         previousFocus.isConnected &&
         !previousFocus.closest("[inert]")

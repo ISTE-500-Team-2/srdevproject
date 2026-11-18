@@ -84,9 +84,18 @@ function ActionGroup({ title, actions, tone }: { title: string; actions: Action[
 
 /**
  * Why a certification no longer counts, or null while it does. `valid` covers the renewal date
- * (status stays "active" after it passes), so it alone says whether the training lapsed.
+ * (status stays "active" after it passes), so it alone says whether the training lapsed. It also
+ * turns false while the certification itself is retired or not yet in effect: that is "not
+ * current", as on the Certifications page, not expired.
  */
-const lapse = (item: Certification) => (item.valid ? null : item.status === "revoked" ? "revoked" : "expired");
+const lapse = (item: Certification) =>
+  item.valid
+    ? null
+    : item.status === "revoked"
+      ? "revoked"
+      : item.renewalDate && Date.parse(item.renewalDate) < Date.now()
+        ? "expired"
+        : "not current";
 
 /** A summary row whose records failed to load: say so, and offer another try. */
 function RowFailed({ what, reload }: { what: string; reload: () => void }) {
@@ -169,12 +178,19 @@ export function AccountHomePage() {
         ? "Sign them from Certifications & Waivers."
         : `${user.firstName} has to sign these in their own account.`,
     });
-  for (const item of lapsed)
+  for (const item of lapsed) {
+    const why = lapse(item);
     problems.push({
-      title: `${own ? "Your" : `${user.firstName}'s`} ${item.name} certification is ${lapse(item)}.`,
-      detail: "Machines that need it stay locked until an instructor signs it off again.",
-      action: <Link className="button button--quiet account-heads__action" to="/classes">Find a class</Link>,
+      title: `${own ? "Your" : `${user.firstName}'s`} ${item.name} certification is ${why}.`,
+      // A class can renew lapsed training, but not a certification that isn't offered right now.
+      ...(why === "not current"
+        ? { detail: "Machines that need it stay locked while this certification isn't in effect." }
+        : {
+            detail: "Machines that need it stay locked until an instructor signs it off again.",
+            action: <Link className="button button--quiet account-heads__action" to="/classes">Find a class</Link>,
+          }),
     });
+  }
 
   const onBehalf: Action[] = [
     { icon: Drill, title: "Book equipment", detail: own ? "Machines you're certified on" : `Machines ${user.firstName} is certified on`, to: "/equipment" },

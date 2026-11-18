@@ -56,7 +56,7 @@ test("switching to another member's account shows that member's certifications a
   expect(within(snapshot()).queryByText("Laser Training")).toBeNull();
 });
 
-test("training past its renewal date, or revoked, shows as lapsed with a way to find a class", async () => {
+test("training past its renewal date, or revoked, shows as lapsed with a way to find a class; a retired one is not current", async () => {
   const past = new Date(Date.now() - 86_400_000).toISOString();
   const fay = account({ id: 9, firstName: "Fay", email: "fay@example.invalid" });
   records[fay.id] = {
@@ -65,6 +65,8 @@ test("training past its renewal date, or revoked, shows as lapsed with a way to 
       certification({ id: 3, name: "Laser Training", status: "active", renewalDate: past, valid: false }),
       certification({ id: 4, name: "Lathe Training", status: "revoked", valid: false }),
       certification({ id: 5, name: "CNC Training" }),
+      // A retired certification type is no longer valid either, but it didn't expire and no class renews it.
+      certification({ id: 6, name: "Kiln Training", status: "active", renewalDate: null, valid: false }),
     ],
     bookings: [],
   };
@@ -79,6 +81,8 @@ test("training past its renewal date, or revoked, shows as lapsed with a way to 
   expect(screen.getByText("Fay's Laser Training certification is expired.")).toBeTruthy();
   expect(screen.getByText("Fay's Lathe Training certification is revoked.")).toBeTruthy();
   expect(screen.queryByText(/CNC Training certification/)).toBeNull();
+  expect(within(snapshot).getByText("Kiln Training, not current")).toBeTruthy();
+  expect(screen.getByText("Fay's Kiln Training certification is not current.")).toBeTruthy();
   expect(screen.getAllByRole("link", { name: "Find a class" })).toHaveLength(2);
 });
 

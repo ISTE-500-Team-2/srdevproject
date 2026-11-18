@@ -200,6 +200,32 @@ test("a field marked autoFocus keeps focus, and closing returns focus to the ope
   expect(document.activeElement).toBe(trigger);
 });
 
+test("a dialog that replaces another keeps its autoFocus field, and closing it returns to the first opener", () => {
+  // The staff menu drawer closes and the account picker opens in the same update.
+  const screenFor = (menu: boolean, picker: boolean) => (
+    <>
+      <button>Open navigation</button>
+      <Modal open={menu} title="Workspace navigation" onClose={() => {}}>
+        <button>View a member</button>
+      </Modal>
+      <Modal open={picker} title="Whose account?" onClose={() => {}}>
+        <input aria-label="Search members" autoFocus />
+      </Modal>
+    </>
+  );
+  const view = render(screenFor(false, false));
+  const trigger = screen.getByRole("button", { name: "Open navigation" });
+  trigger.focus();
+  view.rerender(screenFor(true, false));
+  screen.getByRole("button", { name: "View a member" }).focus();
+  view.rerender(screenFor(false, true));
+  expect(document.activeElement).toBe(screen.getByLabelText("Search members"));
+  expect(view.container.inert).toBe(true);
+  view.rerender(screenFor(false, false));
+  expect(document.activeElement).toBe(trigger);
+  expect(view.container.inert).not.toBe(true);
+});
+
 test("Tab reaches disclosure summaries after the last form control, skipping what closed ones hold", () => {
   const view = render(
     <Modal open title="Member record" onClose={() => {}}>
