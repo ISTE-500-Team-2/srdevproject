@@ -35,7 +35,7 @@ export function MemberSelect({
 }) {
   const id = useId();
   const input = useRef<HTMLInputElement>(null);
-  const changeButton = useRef<HTMLButtonElement>(null);
+  const chosenGroup = useRef<HTMLDivElement>(null);
   const focusChoice = useRef(false);
   const [announcement, setAnnouncement] = useState("");
   const [search, setSearch] = useState("");
@@ -51,14 +51,15 @@ export function MemberSelect({
     return () => window.clearTimeout(timer);
   }, [search]);
   // A parent clearing the value (e.g. after saving) clears the picked person. A pick unmounts the
-  // search box that had focus, so focus moves to the choice once it shows.
+  // search box that had focus, so focus moves to the choice once it shows: the group, not its
+  // Change button, so a second or held Enter can't undo the pick. Tab still reaches Change next.
   useEffect(() => {
     if (!current) {
       setChosen(null);
       setAnnouncement("");
     } else if (focusChoice.current) {
       focusChoice.current = false;
-      changeButton.current?.focus();
+      chosenGroup.current?.focus();
     }
   }, [current]);
   const result = useApi<{ items: Member[]; hasMore: boolean }>(
@@ -72,7 +73,8 @@ export function MemberSelect({
   );
   const options = result.data?.items ?? [];
   // Matches for what's in the box now; until then the list can still show an earlier, shorter search.
-  const resultsMatch = query === search.trim() && !result.loading;
+  // `stale` covers the render where the new search is set but its request hasn't started yet.
+  const resultsMatch = query === search.trim() && !result.loading && !result.stale;
   // Typed text that wasn't turned into a pick must not pass as a choice.
   useEffect(() => {
     input.current?.setCustomValidity(
@@ -112,12 +114,12 @@ export function MemberSelect({
         </label>
       )}
       {current ? (
-        <div className="member-select__chosen" role="group" aria-labelledby={id + "-label"}>
+        <div ref={chosenGroup} tabIndex={-1} className="member-select__chosen" role="group" aria-labelledby={id + "-label"}>
           <span>
             <b>{displayed?.name ?? `${label} #${current}`}</b>
             {displayed ? <small>{displayed.email}</small> : null}
           </span>
-          <button ref={changeButton} type="button" className="member-select__change" onClick={clear} aria-label={`Change ${label.toLowerCase()}`}>
+          <button type="button" className="member-select__change" onClick={clear} aria-label={`Change ${label.toLowerCase()}`}>
             <X aria-hidden="true" /> Change
           </button>
           {name ? <input type="hidden" name={name} value={current} /> : null}

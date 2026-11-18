@@ -36,3 +36,13 @@ test("an untouched dialog closes on Escape straight away", () => {
   fireEvent.keyDown(window, { key: "Escape" });
   expect(onClose).toHaveBeenCalledTimes(1);
 });
+
+test("Cancel on a started draft asks too", () => {
+  const onClose = vi.fn();
+  mount(onClose);
+  fireEvent.change(screen.getByRole("textbox", { name: "Title" }), { target: { value: "Intro to welding" } });
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(onClose).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+  expect(onClose).toHaveBeenCalledTimes(1);
+});

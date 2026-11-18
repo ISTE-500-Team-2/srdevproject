@@ -60,7 +60,7 @@ export function ScheduleClassDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [roomError, setRoomError] = useState("");
-  // Closing with Escape, the close button or a click outside asks before discarding a draft.
+  // Closing with Escape, the close button, a click outside or Cancel asks before discarding a draft.
   const [dirty, setDirty] = useState(false);
   const changed = (value: boolean) => {
     setDirty(value);
@@ -155,7 +155,7 @@ export function ScheduleClassDialog({
   }
   return (
     <Modal open title="Schedule a class" onClose={onClose} dirty={dirty}>
-      <form className="class-form" onSubmit={(e) => void submit(e)}>
+      {(requestClose) => <form className="class-form" onSubmit={(e) => void submit(e)}>
         {error ? (
           <p className="class-banner class-banner--error" role="alert">
             <AlertTriangle aria-hidden="true" />
@@ -352,7 +352,7 @@ export function ScheduleClassDialog({
         </fieldset>
         <div className="class-dialog-actions">
           <span>Members see it once published.</span>
-          <button type="button" className="button button--quiet" onClick={onClose}>
+          <button type="button" className="button button--quiet" onClick={requestClose}>
             Cancel
           </button>
           <button
@@ -362,7 +362,7 @@ export function ScheduleClassDialog({
             {busy ? "Publishing…" : "Publish class"}
           </button>
         </div>
-      </form>
+      </form>}
     </Modal>
   );
 }

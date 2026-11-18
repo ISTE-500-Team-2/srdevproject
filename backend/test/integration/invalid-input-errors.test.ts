@@ -18,15 +18,19 @@ const tomorrow = (hour: number) => {
 };
 const profile = (extra: object = {}) => ({ firstName: "Invalid", lastName: "Input", phone: "5551234567", ...extra });
 
-/** Runs `body` and returns whatever it logged as a server error. */
-async function errorsLogged(body: () => Promise<void>) {
+/** Runs `body` and returns whatever it logged as a server error, and the database refusals it noted. */
+async function errorsLogged(body: () => Promise<void>, refusals: unknown[] = []) {
   const logged: unknown[] = [];
-  const original = console.error;
+  const { error, warn } = console;
   console.error = (...args: unknown[]) => { logged.push(args); };
+  console.warn = (...args: unknown[]) => {
+    if (args[0] === "Request rejected by database") refusals.push(args);
+    else warn(...args);
+  };
   try {
     await body();
   } finally {
-    console.error = original;
+    Object.assign(console, { error, warn });
   }
   return logged;
 }
@@ -61,6 +65,7 @@ test("a NUL character in text, profile values, searches or path ids is a 400", a
   const admin = client(), member = client(), visitor = client();
   await admin.demo("admin");
   await member.register();
+  const refusals: unknown[] = [];
   const logged = await errorsLogged(async () => {
     const refused = /contains a character that can't be saved/;
     const answers = {
@@ -80,8 +85,10 @@ test("a NUL character in text, profile values, searches or path ids is a 400", a
       assert.equal(res.body.error.code, "INVALID_INPUT", what);
       assert.match(res.body.error.message, message, what);
     }
-  });
+  }, refusals);
   assert.deepEqual(logged, []);
+  // Only the pass id reached the database; its refusal leaves a trace with the code and no value.
+  assert.deepEqual(refusals, [["Request rejected by database", { code: "22021" }]]);
   const stored = await harness.pool.query(`SELECT firstname FROM "user" WHERE userid=$1`, [member.id]);
   assert.equal(stored.rows[0].firstname, "Invalid");
 });

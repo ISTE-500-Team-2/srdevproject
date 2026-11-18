@@ -73,10 +73,15 @@ test("instructor-only searches keep their scope; errors and capped results are v
 });
 
 test("Enter never picks from an earlier, shorter search's matches", async () => {
+  // Longer searches answer only when released, so even a slow run can't let "jordan" land before
+  // the first Enter: that Enter sees the "jo" matches, or a search still loading.
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const searchOf = (path: string) => new URLSearchParams(path.split("?")[1]).get("search");
   vi.mocked(api).mockImplementation(async (path) =>
-    (new URLSearchParams(path.split("?")[1]).get("search") === "jo"
+    (searchOf(path) === "jo"
       ? { items: [{ id: 21, name: "Joan Adams", email: "joan@example.invalid" }], hasMore: false }
-      : { items: [{ id: 22, name: "Jordan Lee", email: "jordan@example.invalid" }], hasMore: false }) as never,
+      : held.then(() => ({ items: [{ id: 22, name: "Jordan Lee", email: "jordan@example.invalid" }], hasMore: false }))) as never,
   );
   const user = userEvent.setup();
   render(
@@ -90,6 +95,8 @@ test("Enter never picks from an earlier, shorter search's matches", async () => 
   // Typed on and pressed Enter before the new search ran: "jo" matches are still listed.
   await user.type(box, "rdan{Enter}");
   expect(formValue("userId")).toBe("");
+  await vi.waitFor(() => expect(vi.mocked(api).mock.calls.some(([path]) => searchOf(path) === "jordan")).toBe(true));
+  release();
   await screen.findByRole("option", { name: /Jordan Lee/ });
   await user.keyboard("{Enter}");
   expect(formValue("userId")).toBe("22");
@@ -126,9 +133,14 @@ test("after a pick, focus moves to the choice and the choice is announced", asyn
   await user.type(screen.getByRole("combobox", { name: "Member" }), "Jordan");
   await screen.findByRole("option", { name: /Jordan Example/ });
   await user.keyboard("{Enter}");
-  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Change member" }));
+  expect(document.activeElement).toBe(screen.getByRole("group", { name: "Member" }));
   expect(screen.getByText("Selected Jordan Example").getAttribute("aria-live")).toBe("polite");
-  // The next Tab carries on through the form instead of jumping back to Close.
+  // A second or held Enter lands on the choice, not on Change, so it keeps the pick.
+  await user.keyboard("{Enter}");
+  expect(screen.queryByRole("combobox")).toBeNull();
+  // The next Tabs carry on through the form instead of jumping back to Close.
+  await user.tab();
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Change member" }));
   await user.tab();
   expect(document.activeElement).toBe(screen.getByRole("button", { name: "Book" }));
   // Changing the person clears the announcement, so picking the same person again is announced.

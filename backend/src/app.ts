@@ -169,8 +169,10 @@ export function createApp(
     }
     // A value PostgreSQL can't store or read: a number past its column's range, an impossible date,
     // text that isn't a number, or a NUL character. Validation catches the usual cases; anything it
-    // misses is still the client's input, not a server failure worth logging.
+    // misses is almost always the client's input, so it is a 400. Stored data can raise these codes
+    // too (a cast in a view), so leave a quiet trace: the code only, never the value.
     if (['22003', '22007', '22008', '22P02', '22021', '22P05'].includes(error?.code)) {
+      console.warn('Request rejected by database', { code: error.code });
       res.status(400).json({
         error: { code: 'INVALID_INPUT', message: 'A value in the request is not valid.' },
       });
