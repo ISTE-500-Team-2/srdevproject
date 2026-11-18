@@ -1,5 +1,5 @@
 import { CircleAlert, LoaderCircle, RefreshCw, WifiOff } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { unreachableMessage } from '../lib/api';
 
 /** Seconds before each automatic attempt: quick at first, then every half minute. */
@@ -62,9 +62,26 @@ export function ServerUnreachable({ message, retrying, onRetry, banner = false }
     };
   }, []);
 
+  // The banner reports its height so a toast shown with it sits just above it
+  // instead of over its Try again button (see styles.css).
+  const bannerRef = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const el = bannerRef.current;
+    if (!banner || !el) return;
+    const root = document.documentElement.style;
+    const report = () => root.setProperty('--connection-banner-height', `${el.offsetHeight}px`);
+    report();
+    const resized = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(report);
+    resized?.observe(el);
+    return () => {
+      resized?.disconnect();
+      root.removeProperty('--connection-banner-height');
+    };
+  }, [banner]);
+
   const unreachable = message === unreachableMessage;
   const status = retrying ? 'Checking the connection…' : <>Trying again in <b>{clock(remaining)}</b></>;
-  if (banner) return <section className="connection-banner" aria-label="Connection status">
+  if (banner) return <section ref={bannerRef} className="connection-banner" aria-label="Connection status">
     {unreachable ? <WifiOff aria-hidden="true" /> : <CircleAlert aria-hidden="true" />}
     <div>
       <p role="alert">

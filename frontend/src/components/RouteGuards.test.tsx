@@ -351,6 +351,9 @@ test('a failed background check keeps the page and unsaved edits under a retryin
   await screen.findByText('Connection lost.');
   expect(screen.queryByRole('heading',{name:'We can’t reach the server'})).toBeNull();
   expect(draft()).toBe('Keep my edit');
+  // Its height is reported so a toast shown with it moves above it.
+  const bannerHeight=()=>document.documentElement.style.getPropertyValue('--connection-banner-height');
+  expect(bannerHeight()).toMatch(/^\d+px$/);
   // A link within the page during the outage also retries in the background.
   fireEvent.click(screen.getByText('Same page link'));
   await waitFor(()=>expect(calls).toBe(3));
@@ -360,6 +363,7 @@ test('a failed background check keeps the page and unsaved edits under a retryin
   await waitFor(()=>expect(screen.queryByText('Connection lost.')).toBeNull());
   expect(screen.getByText('Private profile')).toBeTruthy();
   expect(draft()).toBe('Keep my edit');
+  expect(bannerHeight()).toBe('');
 });
 test('a background outage that turns out to be an ended session still goes to sign in',async()=>{
   mount();await screen.findByText('Private profile');

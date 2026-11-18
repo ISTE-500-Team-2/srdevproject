@@ -2282,6 +2282,12 @@ place-items: center;
   padding: 8px 14px;
 }
 
+/* A toast shown while the banner is up (a save confirmed, then the refresh after
+   it failed) sits just above the banner instead of over its Try again button. */
+body:has(.connection-banner) .toast {
+  bottom: calc(var(--connection-banner-height, 0px) + 28px);
+}
+
 @media (max-width: 560px) {
   .connection-banner {
     grid-template-columns: auto minmax(0, 1fr);
