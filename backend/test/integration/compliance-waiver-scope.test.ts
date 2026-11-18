@@ -127,3 +127,32 @@ test("an equipment waiver is only owed by members who use equipment that require
   );
   assert.equal(after.users.find((u) => u.id === booked)!.waiverCompliant, true);
 });
+
+test("an equipment waiver nobody owes yet keeps its card with no one counted", async () => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    // No equipment needs a waiver any more, so no member owes the equipment waiver.
+    await client.query("UPDATE equipment SET waiverrequired=false");
+    const equipmentWaiver = (
+      await client.query<{ waiverid: number }>(
+        `SELECT waiverid FROM waiver WHERE policy_scope='equipment' AND isactive AND required
+         AND (effectivedate IS NULL OR effectivedate<=NOW() AT TIME ZONE 'UTC')`,
+      )
+    ).rows[0]!;
+    const report = await new ComplianceReports(client).compliance(
+      { waiverId: null, certificationId: null, expiresWithinDays: null, userStatus: "active", offset: 0 },
+      true,
+    );
+    assert.ok(report.summary.userCount > 0);
+    const card = report.waiverBreakdown.find((w) => w.id === equipmentWaiver.waiverid);
+    assert.deepEqual(card && { total: card.total, compliant: card.compliant, expiring: card.expiring },
+      { total: 0, compliant: 0, expiring: 0 });
+    assert.ok(report.users.every((u) => !u.missingWaivers.some((w) => w.startsWith(card!.name))));
+    // Facility policies are still owed by every member in view.
+    assert.ok(report.waiverBreakdown.some((w) => w.id !== equipmentWaiver.waiverid && w.total === report.summary.userCount));
+  } finally {
+    await client.query("ROLLBACK");
+    client.release();
+  }
+});

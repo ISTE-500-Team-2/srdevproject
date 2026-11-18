@@ -420,12 +420,14 @@ export function StaffPolicies() {
             </div>
             {stats ? (
               <div className="cw-waiver__signed">
-                <div className={`cw-bar${stats.total && stats.compliant / stats.total < 0.5 ? " cw-bar--low" : ""}`} aria-hidden="true">
+                <div className={`cw-bar${!stats.total ? " cw-bar--empty" : stats.compliant / stats.total < 0.5 ? " cw-bar--low" : ""}`} aria-hidden="true">
                   <i style={{ width: `${stats.total ? Math.round((stats.compliant / stats.total) * 100) : 100}%` }} />
                 </div>
                 <small>
                   {/* An equipment waiver is only counted for members trained on or booked on equipment that needs it. */}
-                  {stats.compliant} of {stats.total} {shown.scope === "equipment" ? "active equipment users" : "active members"} signed
+                  {stats.total
+                    ? `${stats.compliant} of ${stats.total} ${shown.scope === "equipment" ? "active equipment users" : "active members"} signed`
+                    : shown.scope === "equipment" ? "No active equipment users yet" : "No active members yet"}
                 </small>
               </div>
             ) : (

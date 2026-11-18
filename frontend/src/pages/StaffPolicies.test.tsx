@@ -129,3 +129,12 @@ test('an equipment waiver counts signatures among the members who use that equip
   expect(screen.getByText('38 of 40 active members signed')).toBeTruthy();
   expect(screen.getByText('5 of 6 active equipment users signed')).toBeTruthy();
 });
+
+test('an equipment waiver nobody uses yet says so instead of an empty count', () => {
+  const equipment = { ...current, id: 4, name: 'Equipment safety', scope: 'equipment' };
+  const breakdown = [{ id: 4, name: 'Equipment safety', version: 'v1', total: 0, compliant: 0, expiring: 0 }];
+  vi.mocked(useApi).mockImplementation(path => ({ data: path === '/admin/policies' ? [equipment] : { summary: { userCount: 40 }, waiverBreakdown: breakdown }, loading: false, refreshing: false, stale: false, error: '', reload: vi.fn() }));
+  render(<StaffPolicies />);
+  expect(screen.getByText('No active equipment users yet')).toBeTruthy();
+  expect(screen.queryByText(/0 of 0/)).toBeNull();
+});
