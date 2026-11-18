@@ -241,10 +241,17 @@ test('paid training stays covered before certification approval and shows no ext
 
 test('a class the shop cancelled is not listed as a past class waiting for attendance', async () => {
   auth.user = { id: 30, roles: ['member'] };
-  classes = [course(5, 48), course(4, -3, { myStatus: 'attended' }), course(6, -2, { status: 'cancelled', myStatus: 'enrolled' })];
+  classes = [
+    course(5, 48),
+    course(4, -3, { myStatus: 'attended' }),
+    course(6, -2, { status: 'cancelled', myStatus: 'enrolled' }),
+    // Attendance was recorded before the class was cancelled, so it really happened and stays.
+    course(7, -4, { status: 'cancelled', myStatus: 'attended' }),
+  ];
   await mount();
-  expect(screen.getByText('Past classes (1)')).toBeTruthy();
+  expect(screen.getByText('Past classes (2)')).toBeTruthy();
   expect(screen.getByText(/^Safety 4 ·/)).toBeTruthy();
+  expect(screen.getByText(/^Safety 7 ·/)).toBeTruthy();
   expect(screen.queryByText(/^Safety 6 ·/)).toBeNull();
   expect(screen.queryByText('Attendance not recorded yet')).toBeNull();
 });

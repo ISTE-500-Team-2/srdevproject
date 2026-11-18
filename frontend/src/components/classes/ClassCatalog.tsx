@@ -46,9 +46,12 @@ export function ClassCatalog(props: Props) {
   const [certification, setCertification] = useState<string | null>(null);
   const upcoming = useMemo(() => classes.filter((c) => !hasStarted(c)).sort(byStart), [classes]);
   const mine = upcoming.filter((c) => c.myStatus === "enrolled" && !isCancelled(c));
-  // A class the shop cancelled never ran, so it isn't one the member took.
+  // A cancelled class still marked "enrolled" never ran for this member, so it isn't waiting on
+  // attendance. One with attendance already recorded did run, so it stays in their history.
   const past = classes
-    .filter((c) => hasStarted(c) && !isCancelled(c) && c.myStatus && c.myStatus !== "cancelled")
+    .filter(
+      (c) => hasStarted(c) && c.myStatus && c.myStatus !== "cancelled" && !(isCancelled(c) && c.myStatus === "enrolled"),
+    )
     .sort((a, b) => byStart(b, a));
   const certifications = useMemo(() => {
     const counts = new Map<string, number>();

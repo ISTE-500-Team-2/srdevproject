@@ -44,9 +44,11 @@ test("explains files it can't read instead of failing silently", async () => {
 
 /**
  * Real small PDF with a proper object table, exercising PDF.js rather than a parser mock. A page is
- * plain text, or [text, bold] runs that switch fonts mid-line the way styled wording does.
+ * plain text, or [text, bold, x?] runs that switch fonts mid-line the way styled wording does; a run
+ * with an x is placed at that point on the same line instead of following the one before it.
  */
-function pdfFile(pages: (string | [string, boolean][])[]) {
+type Run = [text: string, bold: boolean, x?: number];
+function pdfFile(pages: (string | Run[])[]) {
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>",
     "",
@@ -58,8 +60,10 @@ function pdfFile(pages: (string | [string, boolean][])[]) {
     const page = objects.length + 1;
     kids.push(`${page} 0 R`);
     objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${page + 1} 0 R >>`);
-    const runs: [string, boolean][] = typeof text === "string" ? [[text, false]] : text;
-    const shown = runs.map(([run, bold]) => `/F${bold ? 2 : 1} 12 Tf (${run.replace(/[\\()]/g, "\\$&")}) Tj`).join(" ");
+    const runs: Run[] = typeof text === "string" ? [[text, false]] : text;
+    const shown = runs
+      .map(([run, bold, x]) => `/F${bold ? 2 : 1} 12 Tf ${x === undefined ? "" : `1 0 0 1 ${x} 720 Tm `}(${run.replace(/[\\()]/g, "\\$&")}) Tj`)
+      .join(" ");
     const stream = `BT 72 720 Td ${shown} ET`;
     objects.push(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
   }
@@ -80,7 +84,7 @@ test("extracts all pages of a real PDF in order", async () => {
 });
 
 test("bold phrases in a PDF keep single spaces and no space before punctuation", async () => {
-  const page: [string, boolean][] = [
+  const page: Run[] = [
     ["Members agree to ", false],
     ["wear eye protection", true],
     [". Always ", false],
@@ -88,6 +92,11 @@ test("bold phrases in a PDF keep single spaces and no space before punctuation",
     [", then work.", false],
   ];
   expect(await documentText(pdfFile([page]))).toBe("Members agree to wear eye protection. Always sign in, then work.");
+});
+
+test("a line drawn out of order in a PDF still gets a space between its words", async () => {
+  // PDF.js emits no space item when text jumps back left on the same line.
+  expect(await documentText(pdfFile([[["second", false, 200], ["first", false, 72]]]))).toBe("second first");
 });
 
 test("explains a scanned/image-only PDF without silently importing an empty waiver", async () => {
