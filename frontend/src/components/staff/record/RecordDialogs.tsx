@@ -13,7 +13,7 @@ import { AssignCard } from "../../access/MemberCards";
 import { MemberSelect } from "../../MemberSelect";
 import { Modal } from "../../Modal";
 import { AssistedPurchase } from "../AssistedPurchase";
-import { CardRefund, PaymentEditor, paymentStatusName, refundAccepted } from "../PaymentControls";
+import { CardRefund, PaymentEditor, paymentStatusName, refundAccepted, RefundReview } from "../PaymentControls";
 import { ROLES, roleName } from "./recordModel";
 import { day } from "./recordParts";
 import { MemberPhoto } from "../../MemberPhoto";
@@ -441,6 +441,13 @@ export function RecordDialogHost({
         </DraftModal>
       );
     case "refund":
+      if (dialog.payment.refundStatus === "needs_review") {
+        return (
+          <DraftModal open width="compact" title="Review refund" onClose={onClose} className="mr-dialog">
+            <RefundReview payment={dialog.payment} onReviewed={() => onDone(`Refund review completed for payment #${dialog.payment.id}.`)} />
+          </DraftModal>
+        );
+      }
       return (
         <DraftModal open width="compact" title={`Refund ${dollars(dialog.payment.amount)}`} onClose={onClose} className="mr-dialog">
           <CardRefund payment={dialog.payment} onRefunded={(status) =>

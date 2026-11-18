@@ -12,6 +12,7 @@ import {
   paymentStatusName,
   paymentStatusTone,
   refundAccepted,
+  RefundReview,
   refundNote,
 } from "./PaymentControls";
 import "./paymentTable.css";
@@ -75,6 +76,7 @@ export function PaymentTable({
         <tbody>
           {items.map((p) => {
             const action = canManage ? paymentAction(p) : null;
+            const actionLabel = action === "review" ? "Review refund" : action === "refund" ? "Refund" : "Update";
             const note = refundNote(p);
             const checkout = checkoutNote(p);
             const isOpen = open === p.id && action !== null;
@@ -128,10 +130,10 @@ export function PaymentTable({
                         className="button button--quiet payment-table__button"
                         aria-expanded={isOpen}
                         aria-controls={isOpen ? detailId : undefined}
-                        aria-label={`${isOpen ? "Close" : action === "refund" ? "Refund" : "Update"} payment #${p.id} for ${p.memberName}`}
+                        aria-label={`${isOpen ? "Close" : actionLabel} payment #${p.id} for ${p.memberName}`}
                         onClick={() => onOpen(isOpen ? null : p.id)}
                       >
-                        {isOpen ? "Close" : action === "refund" ? "Refund…" : "Update"}
+                        {isOpen ? "Close" : action === "update" ? actionLabel : actionLabel + "…"}
                       </button>
                     ) : null}
                   </td>
@@ -139,7 +141,9 @@ export function PaymentTable({
                 {isOpen ? (
                   <tr className="payment-table__detail" id={detailId}>
                     <td colSpan={columns}>
-                      {action === "refund" ? (
+                      {action === "review" ? (
+                        <RefundReview payment={p} onReviewed={() => finish(p, false, `Refund review completed for payment #${p.id}.`)} />
+                      ) : action === "refund" ? (
                         <CardRefund
                           payment={p}
                           onRefunded={(result) =>

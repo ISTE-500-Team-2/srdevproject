@@ -218,26 +218,27 @@ member's day passes for that visit date.
 
 - **Captured in full, no live refund, visit still available.** Restore a compatible
   release and replay the original paid Checkout event so the app can issue the
-  pass against the existing payment. If the member arrives while rollback is
-  still active, staff can verify their waivers and eligibility and admit them
-  manually without taking another payment if facility policy permits. Record
-  the admission and checkout ID in the shift log for reconciliation. Leave
-  the pass and payment records to the compatible worker so it can link the
-  original charge and avoid a duplicate pass.
-- **Visit ended or a pass already exists.** Restore a compatible release and
-  let its worker reconcile the existing charge. It refunds an unissuable charge
-  if no refund is in progress or confirmed. If staff must resolve it during
-  rollback, coordinate with the operator and recheck for pending and succeeded
-  refunds just before submitting a full refund on the original Stripe Payment
-  Intent. If either exists, follow the next step instead. Record the resulting
-  refund ID and amount for the later ledger check. Keep a single operator
-  responsible for the refund.
-- **Refund already pending, partial, or complete.** Compare the sum of successful
-  refunds with the captured amount and check any pending refunds. Never submit
-  a second full refund. For a partial or unclear result, escalate to the
-  payments owner before granting access or refunding any remaining balance.
-  Record the Stripe IDs and confirmed amounts so staff can verify the ledger
-  when the compatible release returns.
+  pass against the existing payment. If the member arrives during rollback,
+  staff can verify waivers and eligibility and admit them without taking
+  another payment if facility policy permits. Record the admission and checkout
+  ID in the shift log. The compatible release can link the original charge
+  to a pass while the visit is still available.
+- **Visit ended.** Leave the captured charge for staff review. The compatible
+  release holds the charge if the member may have been admitted during
+  rollback. Check the shift log and the Stripe payment before using **Review
+  refund** in Payments. If the member used the visit, complete review to keep
+  the original payment. If the member did not use the visit, complete review
+  and then use **Refund** if a full refund is due.
+- **Visit still available and a separate pass already exists.** The compatible
+  release can refund the duplicate charge when Stripe shows no live refund.
+  Verify the existing pass and original charge in the ledger after recovery.
+- **Refund already pending, partial, or complete.** Compare all refunds against
+  the original charge. The compatible release cancels access as soon as Stripe
+  confirms the full refund, including one paid in parts. Payments retains any
+  review flag until staff complete **Review refund**. A partial or pending refund
+  stays flagged. Escalate unclear cases to the payments owner and record the
+  Stripe IDs and confirmed amounts for follow-up. Keep a single operator
+  responsible for resolving the payment.
 
 The previous webhook acknowledges an event ID already stored in
 `app_pass_stripe_event` without processing it. The new release can store that

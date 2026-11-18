@@ -16,6 +16,7 @@ export function RecordPayments({ personId, payments, canManage, open }: { person
       {payments.items.length ? (
         payments.items.slice(0, 6).map((p) => {
           const action = canManage ? paymentAction(p) : null;
+          const actionLabel = action === "review" ? "Review refund" : action === "refund" ? "Refund" : "Update";
           const note = refundNote(p);
           const checkout = checkoutNote(p);
           return (
@@ -34,10 +35,10 @@ export function RecordPayments({ personId, payments, canManage, open }: { person
                       <button
                         type="button"
                         className="today-link"
-                        aria-label={`${action === "refund" ? "Refund" : "Update"} payment #${p.id}`}
-                        onClick={() => open(action === "refund" ? { kind: "refund", payment: p } : { kind: "payment", payment: p })}
+                        aria-label={`${actionLabel} payment #${p.id}`}
+                        onClick={() => open(action === "update" ? { kind: "payment", payment: p } : { kind: "refund", payment: p })}
                       >
-                        {action === "refund" ? "Refund…" : "Update"}
+                        {action === "update" ? actionLabel : actionLabel + "…"}
                       </button>
                     ) : null}
                   </span>

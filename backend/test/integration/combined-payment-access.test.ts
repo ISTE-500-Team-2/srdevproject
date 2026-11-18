@@ -14,7 +14,10 @@ const database='arbor_combined_'+randomBytes(6).toString('hex')+'_mvc_test';
 const owner=new Pool(),pool=new Pool({database});
 const secret=randomBytes(32).toString('hex'),uid='04A1B2C3D4E5F6';
 const provider=new StudioStripe({key:'sk_test_fixture',webhookSecret:'whsec_fixture',origin:'http://localhost'});
-const billing=new PassBilling(pool,provider),pricing=new BillingPricing(pool);
+// This test exercises same-day access. The checkout cutoff has its own tests.
+const newYorkHour=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'numeric',hourCycle:'h23'}).format();
+const zone=newYorkHour==='23'?'America/Chicago':'America/New_York';
+const billing=new PassBilling(pool,provider,zone),pricing=new BillingPricing(pool);
 let created=false,server:any,staff:any,member:any,room:number,session:any,providerCalls=0;
 (provider.sdk.checkout.sessions.create as any)=async(params:any)=>{
   providerCalls++;assert.deepEqual(params.payment_method_types,['card']);
@@ -28,7 +31,7 @@ before(async()=>{
   await owner.query(`CREATE DATABASE "${database}"`);created=true;await initializeDemo(pool);
   room=(await pool.query("INSERT INTO room(name,location,status) VALUES('Combined fixture room','Fixture','available') RETURNING roomid")).rows[0].roomid;
   const app=createApp(pool,{jwtKey:randomBytes(32),port:8080,host:'127.0.0.1',secureCookies:false,demoLogin:true,
-    allowedOrigins:[],timeZone:'America/New_York',devices:{cardHashKey:randomBytes(32).toString('hex'),readers:[{id:'combined',secret,kind:'room',resourceId:room}]}});
+    allowedOrigins:[],timeZone:zone,devices:{cardHashKey:randomBytes(32).toString('hex'),readers:[{id:'combined',secret,kind:'room',resourceId:room}]}});
   server=app.listen(0,'127.0.0.1');await new Promise<void>(resolve=>server.once('listening',resolve));
   for(const role of ['admin','member']){
     const r=await request(server).post('/api/auth/demo').send({role});assert.equal(r.status,200);
@@ -48,7 +51,7 @@ function scan(){
     .set('X-Reader-Timestamp',stamp).set('X-Reader-Signature',createHmac('sha256',secret).update(stamp+'\n'+body).digest('hex')).send(body);
 }
 test('combined pricing, TOS, paid passes, bounded NFC decisions and policy replacement share one current eligibility state',async()=>{
-  const today=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+  const today=new Intl.DateTimeFormat('en-CA',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
   const plans=await pricing.offers(member.user.id,today),pass=plans.find(p=>p.kind==='day_pass')!;
   assert.equal(pass.amountCents,2500);assert.equal(plans.find(p=>p.kind==='membership')!.amountCents,9500);
   const input={planId:pass.id,expectedRevision:pass.revision,pricingRevision:pass.pricingRevision,amountCents:2500,validDate:today};

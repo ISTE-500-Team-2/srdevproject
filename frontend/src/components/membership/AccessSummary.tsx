@@ -54,7 +54,10 @@ export function upcomingPasses(passes: BillingPass[], today: string) {
  */
 export function openRefunds(passes: BillingPass[], today: string) {
   return passes
-    .filter((p) => !closedPass.includes(p.status) && (unissued(p) || (p.validDate < today && refundFailed(p))))
+    .filter((p) => !closedPass.includes(p.status) && (
+      (unissued(p) && (p.status === "pending" || p.refundStatus || p.cancelRequested)) ||
+      (p.validDate < today && (refundFailed(p) || p.refundStatus === "needs_review"))
+    ))
     .sort(byDate);
 }
 
@@ -460,7 +463,9 @@ function PassRow({
   const deadlinePassed = new Date(p.cancelBy).getTime() < Date.now();
   let note: string;
   let action: string | null = null;
-  if (p.status === "suspended") {
+  if (p.refundStatus === "needs_review") {
+    note = "Refund needs staff review. Please contact the front desk.";
+  } else if (p.status === "suspended") {
     note = "On hold. Please contact staff about this pass.";
   } else if (p.status === "pending") {
     note = "Checkout not finished";

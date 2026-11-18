@@ -151,31 +151,51 @@ test('a card payment that arrives after a desk pass for the same date is recorde
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM payment WHERE reference=$1', [session.id])).rows[0].n, 1);
 });
 
-test('a payment that arrives after the visit date ended is refunded, and a failed refund can be retried', async () => {
+test('a payment first reported after the visit date ended requires staff review', async () => {
   const yesterday = (await pool.query<{ d: string }>(`SELECT to_char((now() AT TIME ZONE $1)::date-1,'YYYY-MM-DD') AS d`, [zone])).rows[0]!.d;
   const { id, session } = await openCheckout(yesterday);
-  nextRefund = 'failed';
   await pay(session);
-  assert.equal(await passCount(yesterday), 0, 'no pass for a day that is over');
-  let row = (await pool.query('SELECT * FROM app_pass_checkout WHERE id=$1', [id])).rows[0];
-  assert.deepEqual([row.status, row.refund_status, row.pass_id], ['paid', 'failed', null]);
-  assert.match((await notice('daypass-not-issued:' + id)).payload.instructions, /after this date had ended/);
-  const failed = await notice(`daypass-refund-failed:${id}:${refunds[0]!.id}`);
-  assert.match(failed.payload.instructions, /No pass was issued for it/);
-  assert.doesNotMatch(failed.payload.instructions, /still valid/);
-  // The member's page lists it as a payment to refund, not a booked pass, and may retry it.
+  assert.equal(await passCount(yesterday), 0);
+  const row = await checkoutRow(yesterday);
+  assert.ok(row.payment_id);
+  assert.equal(row.refund_needs_review, true);
+  assert.equal(refundKeys.length, 0);
   const listed = (await passes.mine(member)).find(p => p.id === id)!;
-  assert.deepEqual([listed.status, listed.refundStatus, listed.passIssued, listed.cancelRequested], ['paid', 'failed', false, true]);
+  assert.deepEqual([listed.refundStatus, listed.passIssued, listed.cancelRequested], ['needs_review', false, false]);
+  await assert.rejects(passes.cancel(member, id), { code: 'RECONCILE_REQUIRED' });
+  assert.deepEqual(await passes.staffRefund(admin, id, 'Shift log confirms no admission', true), { status: 'reviewed' });
+  assert.equal(refundKeys.length, 0);
+  assert.deepEqual(await passes.staffRefund(admin, id, 'Refund unused visit'), { status: 'succeeded' });
+});
 
-  // The visit date has passed, but the refund was never the member's late cancellation: it can be retried.
-  // The member is told no pass was issued, not that a pass was cancelled or is still active.
-  assert.deepEqual(await passes.cancel(member, id), { cancelled: false, refundStatus: 'failed', passIssued: false });
-  nextRefund = 'succeeded';
-  assert.deepEqual(await passes.cancel(member, id), { cancelled: true, refundStatus: 'succeeded', passIssued: false });
-  assert.deepEqual(await passes.cancel(member, id), { cancelled: true, passIssued: false });
-  row = (await pool.query('SELECT * FROM app_pass_checkout WHERE id=$1', [id])).rows[0];
-  assert.deepEqual([row.status, row.refund_status], ['cancelled', 'succeeded']);
-  assert.equal((await pool.query('SELECT paymentstatus FROM payment WHERE paymentid=$1', [row.payment_id])).rows[0].paymentstatus, 'refunded');
+test('a captured visit queued through local midnight is held for staff who may have admitted the member', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2034-05-16T03:50:00Z') });
+  const date = businessToday(zone);
+  const { id, session } = await openCheckout(date);
+  Object.assign(session, { status: 'complete', payment_status: 'paid', payment_intent: 'pi_' + randomUUID() });
+  const event = stripeEvent('evt_' + randomUUID(), 'checkout.session.completed', session);
+  stripe.refundList(async () => { throw new Error('Stripe refund lookup unavailable'); });
+  try {
+    await assert.rejects(passes.webhook(event), /refund lookup unavailable/);
+  } finally {
+    stripe.refundList(listRefunds);
+  }
+  const captured = await checkoutRow(date);
+  assert.ok(captured.payment_id);
+  assert.ok(captured.refund_reconcile_after);
+  // Staff recorded admission separately during rollback. Only the checkout survives here.
+  t.mock.timers.setTime(Date.parse('2034-05-16T04:01:00Z'));
+  await passes.reconcileRefunds();
+  await passes.webhook(event);
+  const held = await checkoutRow(date);
+  assert.deepEqual([held.payment_id, held.pass_id, held.refund_needs_review, held.refund_reconcile_after],
+    [captured.payment_id, null, true, null]);
+  await assert.rejects(passes.staffRefund(admin, id, 'Attempt without review'), { code: 'RECONCILE_REQUIRED' });
+  assert.deepEqual(await passes.staffRefund(admin, id, 'Shift log confirms admission', true), { status: 'reviewed' });
+  await passes.reconcileRefunds();
+  assert.equal((await checkoutRow(date)).refund_needs_review, false);
+  assert.equal((await pool.query('SELECT paymentstatus FROM payment WHERE paymentid=$1', [held.payment_id])).rows[0].paymentstatus, 'paid');
+  assert.equal(refundKeys.length, 0);
 });
 
 test('a lost automatic refund response leaves the captured charge recorded and the webhook retry reconciles it', async () => {
@@ -277,7 +297,7 @@ test('a paid checkout grants no pass while the initial refund lookup is unavaila
   assert.equal(refundKeys.length, 0);
 });
 
-test('an early partial Stripe refund leaves the day pass, captured payment and checkout event recorded', async () => {
+test('an early partial Stripe refund holds access and records the captured payment and checkout event', async () => {
   const date = '2034-05-13';
   const { id, session } = await openCheckout(date);
   const intent = 'pi_' + randomUUID();
@@ -296,8 +316,8 @@ test('an early partial Stripe refund leaves the day pass, captured payment and c
   }
   const row = await checkoutRow(date);
   assert.equal(row.id, id);
-  assert.ok(row.pass_id);
-  assert.equal(await passCount(date), 1);
+  assert.equal(row.pass_id, null);
+  assert.equal(await passCount(date), 0);
   assert.equal((await new StaffModel(pool).payments(member)).find(p => p.id === row.payment_id)?.refundStatus, 'needs_review');
   assert.equal((await pool.query('SELECT paymentstatus FROM payment WHERE paymentid=$1', [row.payment_id])).rows[0].paymentstatus, 'paid');
   assert.equal((await pool.query('SELECT id FROM app_pass_stripe_event WHERE id=$1', [event.id])).rowCount, 1);
@@ -323,6 +343,63 @@ test('card checkout refuses to start when fewer than 30 minutes remain', async t
   });
   assert.equal(sessionParams.length, 0);
   assert.equal(await checkoutRow(date), undefined);
+});
+
+test('Stripe rejecting the pinned same-day expiry returns the checkout cutoff message', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2034-06-13T03:29:59Z') });
+  const create = provider.sdk.checkout.sessions.create;
+  t.after(() => { provider.sdk.checkout.sessions.create = create; });
+  stripe.checkoutSessionCreate(async params => {
+    assert.equal(params?.expires_at, Date.parse('2034-06-13T04:00:00Z') / 1000);
+    t.mock.timers.tick(2000);
+    throw new Stripe.errors.StripeInvalidRequestError({ param: 'expires_at', message: 'Checkout must expire at least 30 minutes from now' });
+  });
+  await assert.rejects(passes.checkout(member, await input(businessToday(zone))), {
+    code: 'CHECKOUT_TOO_LATE', message: /closes 30 minutes before the visit date ends/,
+  });
+});
+
+test('a same-day legacy checkout with no Stripe session can be replaced or cancelled immediately', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2034-07-16T15:00:00Z') });
+  for (const action of ['replace', 'cancel'] as const) {
+    const date = businessToday(zone), body = await input(date), id = randomUUID();
+    await pool.query(`INSERT INTO app_pass_checkout(id,userid,tierid,valid_date,plan_snapshot,amount_cents,created_at)
+      VALUES($1,$2,$3,$4,'{}',$5,$6)`, [id, member, dayPlan, date, body.amountCents, new Date()]);
+    if (action === 'replace') {
+      assert.ok((await passes.checkout(member, body)).checkoutUrl);
+      assert.notEqual(sessionParams.at(-1)!.metadata?.dayPassCheckoutId, id);
+    } else {
+      assert.deepEqual(await passes.cancel(member, id), { cancelled: true });
+    }
+    assert.equal((await pool.query('SELECT status FROM app_pass_checkout WHERE id=$1', [id])).rows[0].status, 'expired');
+    t.mock.timers.tick(24 * 3600000);
+  }
+  assert.equal(sessionParams.length, 1);
+
+  // A create started before the visit date can still be in flight when
+  // today's session lookup finds nothing and the member clears the row.
+  const date = '2034-07-19', body = await input(date), id = randomUUID();
+  await pool.query(`INSERT INTO app_pass_checkout(id,userid,tierid,valid_date,plan_snapshot,amount_cents,created_at)
+    VALUES($1,$2,$3,$4,'{}',$5,$6)`, [id, member, dayPlan, date, body.amountCents, new Date()]);
+  const create = provider.sdk.checkout.sessions.create;
+  t.after(() => { provider.sdk.checkout.sessions.create = create; });
+  let entered!: () => void, finish!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const released = new Promise<void>(resolve => { finish = resolve; });
+  stripe.checkoutSessionCreate(async () => {
+    entered();
+    await released;
+    return { id: 'cs_late_legacy', status: 'open', url: 'https://checkout.stripe.com/late' };
+  });
+  const stale = assert.rejects(passes.checkout(member, body), { code: 'PAYMENT_PROCESSING' });
+  await started;
+  t.mock.timers.tick(24 * 3600000);
+  try {
+    assert.deepEqual(await passes.cancel(member, id), { cancelled: true });
+  } finally {
+    finish();
+    await stale;
+  }
 });
 
 test('a retry too close to its expiry recovers a session instead of opening another one', async () => {
@@ -431,7 +508,7 @@ test('successful Stripe partial refunds covering the full charge cancel the chec
   assert.equal(refundKeys.length, 0);
 });
 
-test('a partial refund failing releases a captured checkout held for review', async () => {
+test('staff review releases a held checkout once all the partial refunds have failed', async () => {
   const date = '2034-07-15';
   const { session } = await openCheckout(date);
   const intent = 'pi_' + randomUUID();
@@ -448,7 +525,14 @@ test('a partial refund failing releases a captured checkout held for review', as
   inFlight.status = 'failed';
   await passes.webhook(stripeEvent('evt_' + randomUUID(), 'refund.failed', inFlight));
   await passes.reconcileRefunds();
+  assert.equal((await checkoutRow(date)).refund_needs_review, true);
+  assert.equal(await passCount(date), 0);
+  await assert.rejects(passes.staffRefund(admin, held.id, 'Check open partial refund', true), { code: 'RECONCILE_REQUIRED' });
+  settled.status = 'failed';
+  await passes.webhook(stripeEvent('evt_' + randomUUID(), 'refund.failed', settled));
+  assert.deepEqual(await passes.staffRefund(admin, held.id, 'Both partial refunds failed', true), { status: 'reviewed' });
   const issued = await checkoutRow(date);
+  assert.equal(issued.refund_needs_review, false);
   assert.equal(issued.payment_id, held.payment_id);
   assert.equal(issued.status, 'paid');
   assert.equal(await passCount(date), 1);

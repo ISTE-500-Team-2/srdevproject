@@ -156,7 +156,60 @@ test('refund webhooks reconcile multiple successful partial refunds on an issued
   await settle(second.id!, 'succeeded');
   await settle(first.id!, 'succeeded');
   assert.deepEqual(await pass.state(), { checkout: 'cancelled', refund_id: null, refund_status: 'succeeded', pass: 'cancelled', payment: 'refunded' });
-  assert.equal((await model.payments(member)).find(p => p.passCheckoutId === pass.id)?.refundStatus, 'succeeded');
+  const listed = async () => (await model.payments(member)).find(p => p.passCheckoutId === pass.id)?.refundStatus;
+  assert.equal(await listed(), 'needs_review', 'successful settlement does not close a staff review');
+  assert.deepEqual(await passes.staffRefund(admin, pass.id, 'Confirmed both Stripe refunds', true), { status: 'reviewed' });
+  assert.equal(await listed(), 'succeeded');
   assert.equal((await pool.query('SELECT id FROM app_notification_outbox WHERE dedupe_key=$1', ['daypass-refund:' + pass.id + ':split'])).rowCount, 1);
   assert.equal(keys.length, previousCreates);
+});
+
+test('delayed failure of a full refund cannot undo its successful split replacements', async () => {
+  const pass = await paidPass('2033-08-01');
+  nextStatus = 'succeeded';
+  await passes.cancel(member, pass.id);
+  const original = refunds[0]!;
+  original.status = 'failed';
+  const failed = stripeEvent('evt_' + randomUUID(), 'refund.failed', { ...original });
+  const replacements: Refund[] = [500, 1000].map(amount => ({
+    id: 're_' + randomUUID(), status: 'succeeded', amount, currency: 'usd', payment_intent: pass.pi,
+  }));
+  refunds.unshift(...replacements);
+  await settle(replacements[1]!.id!, 'succeeded');
+  await settle(replacements[0]!.id!, 'succeeded');
+  await passes.webhook(failed);
+  await passes.webhook(failed);
+  assert.deepEqual(await pass.state(), {
+    checkout: 'cancelled', refund_id: null, refund_status: 'succeeded', pass: 'cancelled', payment: 'refunded',
+  });
+  assert.equal(refunds.filter(f => f.payment_intent === pass.pi).length, 3);
+});
+
+test('both split refunds failing before delivery leave a review staff can close before retrying', async () => {
+  const pass = await paidPass('2033-09-01');
+  const parts: Refund[] = [500, 1000].map(amount => ({
+    id: 're_' + randomUUID(), status: 'succeeded', amount, currency: 'usd', payment_intent: pass.pi,
+  }));
+  refunds.unshift(...parts);
+  await settle(parts[0]!.id!, 'succeeded');
+  const staleSuccess = stripeEvent('evt_' + randomUUID(), 'refund.updated', { ...parts[0] });
+  parts[0]!.status = 'failed';
+  parts[1]!.status = 'failed';
+  await settle(parts[1]!.id!, 'failed');
+  await passes.webhook(staleSuccess);
+  await settle(parts[0]!.id!, 'failed');
+  const listed = async () => (await new StaffModel(pool).payments(member)).find(p => p.passCheckoutId === pass.id)?.refundStatus;
+  assert.equal(await listed(), 'needs_review');
+  assert.deepEqual(await pass.state(), {
+    checkout: 'cancelled', refund_id: null, refund_status: null, pass: 'cancelled', payment: 'paid',
+  });
+  const previousCreates = keys.length;
+  assert.deepEqual(await passes.staffRefund(admin, pass.id, 'Both Stripe refunds failed', true), { status: 'reviewed' });
+  assert.equal(await listed(), null);
+  assert.equal(keys.length, previousCreates);
+  nextStatus = 'succeeded';
+  assert.deepEqual(await passes.staffRefund(admin, pass.id, 'Retry full refund after review'), { status: 'succeeded' });
+  assert.equal(keys.length, previousCreates + 1);
+  assert.equal((await pass.state()).payment, 'refunded');
+  assert.equal((await pass.state()).pass, 'cancelled');
 });

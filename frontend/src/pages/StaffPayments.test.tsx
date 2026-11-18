@@ -162,10 +162,19 @@ test("a failed refund isn't offered again; staff are pointed to Stripe", () => {
   expect(screen.queryByRole("button", { name: /payment #209/ })).toBeNull();
 });
 
-test("a day-pass refund requiring review is visible and cannot be submitted again", () => {
+test("a day-pass refund requiring review offers a review without offering another refund", async () => {
+  vi.mocked(api).mockResolvedValue({ status: "reviewed" });
   mount([{ ...card, invoiceId: null, passCheckoutId: "pc-1", refundStatus: "needs_review" }]);
   expect(screen.getByText("Refund needs staff review")).toBeTruthy();
-  expect(screen.queryByRole("button", { name: /Refund payment #209/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Refund payment #209/ })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: /^Review refund payment #209/ }));
+  fireEvent.change(screen.getByLabelText("Reason for closing review"), { target: { value: "Shift log confirms admission" } });
+  fireEvent.click(screen.getByRole("button", { name: "Complete review" }));
+  await waitFor(() => expect(vi.mocked(api)).toHaveBeenCalledWith("/billing-management/passes/pc-1/refund", {
+    method: "POST",
+    body: { reason: "Shift log confirms admission", review: true },
+  }));
+  expect(await screen.findByText("Refund review completed for payment #209.")).toBeTruthy();
 });
 
 test("a failed day-pass refund can be retried, so staff are told to use Refund again", () => {

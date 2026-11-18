@@ -85,8 +85,9 @@ export function cardRefundPath(payment: Payment) {
 }
 
 /** The one thing staff can do to this payment from the list, if anything. */
-export function paymentAction(payment: Payment): "update" | "refund" | null {
+export function paymentAction(payment: Payment): "update" | "refund" | "review" | null {
   if (payment.method === "card") {
+    if (payment.passCheckoutId && payment.refundStatus === "needs_review") return "review";
     if (!cardRefundPath(payment) || payment.status !== "paid") return null;
     if (!payment.refundStatus) return "refund";
     // A failed day-pass or booking refund returned nothing, and the server submits a new attempt, so staff can
@@ -175,6 +176,30 @@ function refundEffect(payment: Payment) {
   if (payment.equipmentReservationId)
     return "The booking itself doesn't change. If it shouldn't go ahead, cancel it separately.";
   return "Their membership and access stay as they are.";
+}
+
+/** Checks Stripe and records the staff decision without submitting a refund. */
+export function RefundReview({ payment, onReviewed }: { payment: Payment; onReviewed: () => void }) {
+  return (
+    <ActionForm
+      title={`Review refund for payment #${payment.id}`}
+      submitLabel="Complete review"
+      onSubmit={async (f) => {
+        await api(cardRefundPath(payment) ?? "", {
+          method: "POST",
+          body: { reason: f.get("reason"), review: true },
+        });
+        onReviewed();
+      }}
+    >
+      <p>
+        Check the visit record and the refund in Stripe first. This action rechecks Stripe without sending money.
+        If the full payment was refunded, the ledger records it. If no amount was refunded, the payment stays
+        on the ledger and you can choose Refund separately. A partial or pending refund still needs review.
+      </p>
+      <ReasonField label="Reason for closing review" />
+    </ActionForm>
+  );
 }
 
 /** Sends a card payment back to the card it came from, after an explicit confirmation. */
