@@ -49,7 +49,11 @@ not enable live keys or live charges.
 
 When Stripe is configured, paid equipment bookings use hosted Checkout. If it is
 not configured, clients submitting a fresh server-issued price quote can save a
-front-desk payment record; unquoted paid requests fail closed. Cancellation retains the existing
+front-desk payment record; unquoted paid requests fail closed. Bookings made in
+the staff Reservations workspace send `payAtDesk: true` (staff and admins only):
+they take that front-desk path even when Stripe is configured, so the booking is
+confirmed at once with a pending payment that staff record in Payments, and the
+30-minute checkout lead time does not apply. Cancellation retains the existing
 24-hour notice rule. Cancelling a paid reservation does not automatically refund
 it; contact staff. Changes to checkout-backed bookings are blocked until payment
 is reconciled, so a staff edit cannot confirm an unpaid hold or silently change

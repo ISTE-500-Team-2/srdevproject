@@ -202,7 +202,7 @@ export function EquipmentPage() {
               onChange={(event) => setFilter(event.target.value)}
             >
               <option value="all">All equipment</option>
-              <option value="ready">Eligible now</option>
+              <option value="ready">Ready to book</option>
               <option value="training">Training required</option>
             </select>
           </label>
