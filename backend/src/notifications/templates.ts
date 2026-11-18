@@ -183,8 +183,9 @@ const copy: Record<NotificationKind, Copy> = {
     intro: () => 'You can now book this equipment.', cta: ['Book equipment', '/equipment'] },
   certification_revoked: { category: 'Certifications', status: 'Revoked', tone: 'danger',
     intro: () => 'You can no longer book this equipment. If you think this is a mistake, contact the studio.', cta: certifications },
+  // Members register for classes; /training is the staff training desk.
   certification_required: { category: 'Training', status: 'Training needed', tone: 'warning',
-    intro: f => `You need to finish training before you can book ${f.item || 'this equipment'}.`, cta: ['See training', '/training'] },
+    intro: f => `You need to finish training before you can book ${f.item || 'this equipment'}.`, cta: ['Find a class', '/classes'] },
   membership_renewal: { category: 'Membership', status: 'Renewal coming up', tone: 'warning',
     intro: () => 'Check the details below so there are no surprises.', cta: membership },
   // Card subscriptions that renew themselves get no reminder. Online checkout opens once this one

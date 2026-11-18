@@ -110,6 +110,29 @@ test('the notification switch saves at once and rolls back if saving fails', asy
   expect(toggle.getAttribute('aria-checked')).toBe('true');
 });
 
+test('members get no studio booking alerts switch', async () => {
+  mount();
+  await screen.findByRole('switch', { name: 'Email me' });
+  expect(screen.queryByRole('switch', { name: 'Studio booking alerts' })).toBeNull();
+});
+
+test('staff turn off studio booking alerts on their own, keeping all other email', async () => {
+  mount({ '/me/notifications': (init) => init?.body ?? { enabled: true, timeZone: 'America/New_York', studioBookingAlerts: true } });
+  const alerts = await screen.findByRole('switch', { name: 'Studio booking alerts' });
+  expect(alerts.getAttribute('aria-checked')).toBe('true');
+  fireEvent.click(alerts);
+  await waitFor(() => expect(alerts.getAttribute('aria-checked')).toBe('false'));
+  expect(api).toHaveBeenCalledWith('/me/notifications', { method: 'PATCH', body: { enabled: true, timeZone: 'America/New_York', studioBookingAlerts: false } });
+  expect(screen.getByRole('switch', { name: 'Email me' }).getAttribute('aria-checked')).toBe('true');
+});
+
+test('with all email off, studio booking alerts read as off and cannot be changed', async () => {
+  mount({ '/me/notifications': () => ({ enabled: false, timeZone: 'America/New_York', studioBookingAlerts: true }) });
+  const alerts = await screen.findByRole('switch', { name: 'Studio booking alerts' });
+  expect(alerts.getAttribute('aria-checked')).toBe('false');
+  expect((alerts as HTMLButtonElement).disabled).toBe(true);
+});
+
 test('help shows the studio contact from the server', async () => {
   mount();
   const help = section('Need a hand?');

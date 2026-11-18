@@ -10,6 +10,7 @@ import { PermissionModel } from "./models/PermissionModel.js";
 import { UserModel } from "./models/UserModel.js";
 import { StaffModel } from "./models/StaffModel.js";
 import { scheduleExpirationNotifications } from "./notifications/scheduler.js";
+import { queueCertificationRevoked } from "./notifications/certificationNotices.js";
 import { annualValidity } from "./annualValidity.js";
 
 const definition = `c.certid AS id,c.name,c.description,c.validity_days AS "validityDays",c.revision,
@@ -433,6 +434,9 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
           before,
           after,
         );
+        // Revoking an already revoked record changes only the staff note; the member knows already.
+        if (before.status !== "revoked")
+          await queueCertificationRevoked(db, { userid: userId, certid: id, usercertid: before.usercertid, revision: after!.revision });
         return after;
       });
       res.json({ data });

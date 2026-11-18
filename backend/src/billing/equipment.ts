@@ -10,6 +10,7 @@ import { assertManageable } from '../services/StaffService.js';
 import { ReservationModel } from '../models/ReservationModel.js';
 import { StaffModel } from '../models/StaffModel.js';
 import { enqueueNotification } from '../notifications/store.js';
+import { noticeCertificationRefusal } from '../notifications/certificationNotices.js';
 import { StudioStripe } from '../studios/stripe.js';
 import { EquipmentModel } from '../models/EquipmentModel.js';
 import { AccessService } from '../services/AccessService.js';
@@ -81,7 +82,9 @@ export class EquipmentBilling {
       throw new AppError(409, 'CHECKOUT_EXPIRED', 'Payment time expired. Choose your time again.');
     // Recheck the booked member, including staff-assisted and idempotent retries.
     // A checkout link must never bypass a waiver revoked after the initial hold.
-    await transaction(this.pool, db => this.requirements(db, row));
+    // A member resuming their own payment after their training lapsed is told how to renew it.
+    await noticeCertificationRefusal(this.pool, this.zone, { memberId: row.userid, equipmentId: payerId === row.userid ? row.equipmentid : null },
+      () => transaction(this.pool, db => this.requirements(db, row)));
     const provider = this.provider();
     // An ambiguous create response must reuse the original key, never charge again.
     if (!row.checkout_id && Date.now() - new Date(row.created_at).getTime() > 23 * 3600000)

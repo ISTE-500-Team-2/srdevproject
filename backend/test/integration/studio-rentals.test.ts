@@ -410,6 +410,26 @@ test('studio notices wait for payment, target member and staff once, and respect
  } finally {await pool.query('UPDATE app_notification_preferences SET enabled=true WHERE userid=$1',[admin]);}
 });
 
+// NFR-003: staff who turned off studio booking alerts get no staff copy; the rest still do.
+test('studio staff copies skip staff who turned off studio booking alerts', async () => {
+ const staffer=(await pool.query(`INSERT INTO "user"(firstname,lastname,email,password,phone,status,registration_date)
+   VALUES('Sam','Desk','studio-alerts-staff@example.invalid','x','4105550100','active',now()) RETURNING userid`)).rows[0].userid;
+ await pool.query(`INSERT INTO user_role(userid,roleid,assignedat) SELECT $1,roleid,now() FROM role WHERE role='staff'`,[staffer]);
+ await pool.query(`INSERT INTO app_notification_preferences(userid,enabled,studio_booking_alerts) VALUES($1,true,false)
+   ON CONFLICT(userid) DO UPDATE SET enabled=true,studio_booking_alerts=false`,[admin]);
+ try {
+  const rental=await service.create(member,input(8,{startDate:'2030-09-01'}));
+  await service.manualPay(admin,rental.id,'studio alerts receipt');
+  await service.cancel(member,rental.id);
+  const recipients=async(kind:string)=>(await pool.query(`SELECT userid FROM app_notification_outbox WHERE kind=$1 AND payload->>'reservationId'=$2`,
+    [kind,String(rental.id)])).rows.map(r=>r.userid);
+  for (const kind of ['admin_studio_reservation_confirmed','admin_studio_reservation_cancelled']) {
+   assert.ok(!(await recipients(kind)).includes(admin),`${kind} skips the admin who turned alerts off`);
+   assert.ok((await recipients(kind)).includes(staffer),`${kind} still reaches staff with alerts on`);
+  }
+  assert.deepEqual(await recipients('studio_reservation_confirmed'),[member],'the member still gets their own notice');
+ } finally {await pool.query('UPDATE app_notification_preferences SET studio_booking_alerts=true WHERE userid=$1',[admin]);}
+});
 
 test('late canonical refund failure corrects refunded state and retry reconciles instead of silently succeeding',async()=>{
  const provider=new StudioStripe({key:'sk_test_fixture',webhookSecret:'whsec_fixture',origin:'http://localhost'});
