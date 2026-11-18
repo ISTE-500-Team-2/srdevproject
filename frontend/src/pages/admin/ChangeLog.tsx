@@ -77,7 +77,7 @@ export function ChangeLog() {
   const params = new URLSearchParams({ offset: String(offset), view });
   if (range.from) params.set("from", range.from);
   if (range.to) params.set("to", range.to);
-  // Changes made to this member; "Changed by" covers what they did.
+  // Changes made to this member; "Changed by" covers what they did to others.
   if (memberId) params.set("subjectId", memberId);
   if (actorId) params.set("actorId", actorId);
   if (query) params.set("search", query);

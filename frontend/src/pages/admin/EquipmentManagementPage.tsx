@@ -1,7 +1,7 @@
 // Staff equipment list/detail route entry points; focused editor and availability workflows live in
 // adjacent components.
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ArrowUpRight, Check, Wrench } from 'lucide-react';
 import { useApi } from '../../lib/useApi';
@@ -29,12 +29,18 @@ function EquipmentDetailPage({ id }: { id: string }) {
   const [bookingRevision, setBookingRevision] = useState(0);
   const machine = result.data;
   const changed = () => { result.reload(); setBookingRevision(v => v + 1); };
+  // The control that started a change is usually gone afterwards (the bookings list remounts, the
+  // form closes), so keyboard focus moves to the confirmation, which focusing also scrolls into view.
+  const messageRef = useRef<HTMLParagraphElement>(null);
+  const [confirmed, setConfirmed] = useState(0);
+  const confirm = (text: string) => { setMessage(text); setConfirmed(n => n + 1); };
+  useEffect(() => { if (confirmed) messageRef.current?.focus(); }, [confirmed]);
   return <div className="eq-workspace">
     <Link className="eq-back" to="/admin/equipment"><ArrowLeft aria-hidden="true" />All equipment</Link>
     <LoadState {...result} />
-    {message && <p className="eq-success" role="status"><Check aria-hidden="true" />{message}</p>}
+    {message && <p ref={messageRef} tabIndex={-1} className="eq-success" role="status"><Check aria-hidden="true" />{message}</p>}
     {machine && <>
-      {editingDetails && machine.canManage && <EquipmentEditor initial={machine} onClose={() => setEditingDetails(false)} onSaved={(_id, removed) => { setEditingDetails(false); if (removed) navigate('/admin/equipment', { replace: true }); else { setMessage('Equipment details updated.'); changed(); } }} />}
+      {editingDetails && machine.canManage && <EquipmentEditor initial={machine} onClose={() => setEditingDetails(false)} onSaved={(_id, removed) => { setEditingDetails(false); if (removed) navigate('/admin/equipment', { replace: true }); else { confirm('Equipment details updated.'); changed(); } }} />}
       <header className="eq-detail-head"><img src={machine.image} alt="" /><div><p className="eq-eyebrow">{machine.type} · {machine.location}</p><h1 className="admin-title">{machine.name}</h1><p>{equipmentRate(machine.rate)}{machine.certification ? ` · ${machine.certification} certification` : ''}</p></div></header>
       {machine.canManage && <div className="eq-actions"><button className="button button--quiet" onClick={() => setEditingDetails(true)}>Edit equipment</button></div>}
       <div className="eq-detail-grid"><div className="eq-detail-main">
@@ -47,9 +53,9 @@ function EquipmentDetailPage({ id }: { id: string }) {
           </> : <p>{machine.status !== 'available' ? 'This machine is unavailable. Return it to service when it is ready.' : machine.activeGrants.length ? 'A reader session is active. Availability can change once it ends.' : 'Members can reserve this machine and use it during their booking.'}</p>}
           {!machine.canManage && <p className="eq-muted">An administrator can change equipment availability.</p>}
           {machine.canManage && !editing && <button className={`button ${machine.status === 'available' ? 'button--quiet' : 'button--primary'}`} onClick={() => { setEditing(true); setMessage(''); }}>{machine.status === 'available' ? 'Take out of service' : 'Return to service'}</button>}
-          {editing && machine.canManage && <AvailabilityForm initial={machine} onClose={() => setEditing(false)} onSaved={text => { setEditing(false); setMessage(text); changed(); }} />}
+          {editing && machine.canManage && <AvailabilityForm initial={machine} onClose={() => setEditing(false)} onSaved={text => { setEditing(false); confirm(text); changed(); }} />}
         </section>
-        {machine.canReadBookings ? <EquipmentBookings key={bookingRevision} machine={machine} onChanged={text => { setMessage(text); changed(); }} /> : <section className="eq-panel"><h2>Upcoming bookings</h2><p>Reservation read permission is required to view bookings.</p></section>}
+        {machine.canReadBookings ? <EquipmentBookings key={bookingRevision} machine={machine} onChanged={text => { confirm(text); changed(); }} /> : <section className="eq-panel"><h2>Upcoming bookings</h2><p>Reservation read permission is required to view bookings.</p></section>}
       </div>
       <aside className="eq-panel eq-history"><div className="eq-section-head"><h2>Service history</h2><Link to="/admin/change-log" aria-label="Open change log"><ArrowUpRight aria-hidden="true" /></Link></div>
         <p className="eq-muted">The 20 most recent service periods. All changes are recorded in the change log.</p>

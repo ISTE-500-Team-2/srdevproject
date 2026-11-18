@@ -118,16 +118,25 @@ test('a record shows its reason, what changed, and the writes saved with it',asy
 });
 
 test('the member filter finds changes made to that person, not changes they made to others',async()=>{
-  // The admin made the role change; the target is the person it changed.
+  assert.equal(roleChange.actorId,admin.user.id);
   const toTarget=await as(admin).get(`/admin/audit?view=staff&subjectId=${target.user.id}`);
   assert.equal(toTarget.status,200,JSON.stringify(toTarget.body));
   assert.ok(toTarget.body.data.items.some((i:Item)=>i.id===roleChange.id));
   assert.ok(toTarget.body.data.items.every((i:Item)=>i.subjectId===target.user.id));
+  // The admin made that change, so it is theirs under "Changed by", not under their name as the member.
   const toAdmin=await as(admin).get(`/admin/audit?view=staff&subjectId=${admin.user.id}`);
   assert.equal(toAdmin.status,200);
-  assert.equal(toAdmin.body.data.items.some((i:Item)=>i.id===roleChange.id),false);
-  // userId keeps matching either side, for older callers.
-  const involving=await as(admin).get(`/admin/audit?view=staff&userId=${admin.user.id}`);
-  assert.ok(involving.body.data.items.some((i:Item)=>i.id===roleChange.id));
+  assert.ok(!toAdmin.body.data.items.some((i:Item)=>i.id===roleChange.id));
+  assert.ok(toAdmin.body.data.items.every((i:Item)=>i.subjectId===admin.user.id));
+  const staffActions=(await pool.query(`SELECT COUNT(*)::int AS n FROM app_staff_audit WHERE source='application' AND subject_id=$1`,[admin.user.id])).rows[0].n;
+  assert.equal(toAdmin.body.data.counts.staff,staffActions);
+  // userId still means either side, for older callers.
+  const either=await as(admin).get(`/admin/audit?view=staff&action=user.role_changed&userId=${admin.user.id}`);
+  assert.ok(either.body.data.items.some((i:Item)=>i.id===roleChange.id));
   assert.equal((await as(admin).get('/admin/audit?subjectId=abc')).status,400);
+  // Person ids stop at 2147483647; a larger one is a bad request, not a server error.
+  for(const field of ['subjectId','userId','actorId']) {
+    const huge=await as(admin).get(`/admin/audit?${field}=9999999999`);
+    assert.equal(huge.status,400,field);assert.equal(huge.body.error.code,'INVALID_INPUT');
+  }
 });

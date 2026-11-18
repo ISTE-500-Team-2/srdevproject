@@ -67,11 +67,13 @@ test('duplicate requests cannot replace passwords or spam an inbox, while authen
 
 test('the email worker sends staged confirmation without activating a member and expired requests are purged',async()=>{
   await register('worker@example.invalid');
+  // Read the link the way the email would deliver it: once sent, the outbox no longer keeps it.
+  const token=await confirmationToken(pool,'worker@example.invalid');
   const sent:string[]=[];
   const result=await runNotificationBatch(pool,async job=>{sent.push(job.email);return{messageId:'test-'+sent.length};});
   assert.ok(result.accepted>=1);assert.ok(sent.includes('worker@example.invalid'));
   assert.equal((await pool.query('SELECT 1 FROM "user" WHERE email=$1',['worker@example.invalid'])).rowCount,0);
-  const token=await confirmationToken(pool,'worker@example.invalid');
+  assert.equal((await pool.query(`SELECT 1 FROM app_notification_outbox WHERE status='accepted' AND payload ? 'confirmationUrl'`)).rowCount,0);
   await pool.query("UPDATE app_pending_registration SET expires_at=NOW()-INTERVAL '1 second' WHERE email=$1",['worker@example.invalid']);
   assert.equal((await request(app).post('/api/auth/confirm').send({token})).status,400);
   await pruneRegistrations(pool);
@@ -98,10 +100,11 @@ test('signup, duplicates, correction, delivery, login and password recovery shar
   await pool.query("UPDATE app_pending_registration SET sent_at=NOW()-INTERVAL '61 seconds' WHERE email=$1",[initial]);
   assert.equal((await request(flow).post('/api/auth/confirmation').send({...input,newEmail:' First.Last+Workshop@Example.COM '})).status,202);
   assert.equal((await request(flow).post('/api/auth/confirm').send({token:old})).status,400);
+  const correctedToken=await confirmationToken(pool,corrected);
   const recipients:string[]=[];
   await runNotificationBatch(pool,async job=>{recipients.push(job.email);return{messageId:'identity-'+randomBytes(6).toString('hex')};});
   assert.ok(recipients.includes(corrected));
-  const confirmed=await request(flow).post('/api/auth/confirm').send({token:await confirmationToken(pool,corrected)});
+  const confirmed=await request(flow).post('/api/auth/confirm').send({token:correctedToken});
   assert.equal(confirmed.status,200);assert.equal(confirmed.body.data.user.email,corrected);
   const id=confirmed.body.data.user.id;
   const login=await request(flow).post('/api/auth/login').send({email:' First.Last+Workshop@Example.COM ',password:input.password});

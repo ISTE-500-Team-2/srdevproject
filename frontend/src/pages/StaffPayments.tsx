@@ -40,7 +40,8 @@ export function StaffPayments() {
     [period, setPeriod] = useState<Period>("all"),
     [status, setStatus] = useState(""),
     [open, setOpen] = useState<number | null>(null),
-    [notice, setNotice] = useState("");
+    // `problem` marks a failure (a card refund Stripe didn't complete), shown as an alert rather than a confirmation.
+    [notice, setNotice] = useState({ text: "", problem: false });
   // Periods are facility days; the period filter waits until the zone is known.
   const zone = useFacilityZone();
   // The facility day, re-checked each minute so "Today" and "This month" move on at midnight while the
@@ -70,14 +71,14 @@ export function StaffPayments() {
     change();
     setOffset(0);
     setOpen(null);
-    setNotice("");
+    setNotice({ text: "", problem: false });
   };
   const filters = useRef<HTMLDivElement>(null);
   const noticeRef = useRef<HTMLParagraphElement>(null),
     refocus = useRef(false);
-  const done = (message: string) => {
+  const done = (message: string, problem = false) => {
     setOpen(null);
-    setNotice(message);
+    setNotice({ text: message, problem });
     refocus.current = true;
     payments.reload();
   };
@@ -165,8 +166,13 @@ export function StaffPayments() {
         ) : null}
 
         {/* Saving closes the editor, so the result is confirmed here. */}
-        <p role="status" ref={noticeRef} tabIndex={-1} className={notice ? "payments__notice" : "sr-only"}>
-          {notice}
+        <p
+          role={notice.problem ? "alert" : "status"}
+          ref={noticeRef}
+          tabIndex={-1}
+          className={notice.text ? (notice.problem ? "payments__notice payments__notice--problem" : "payments__notice") : "sr-only"}
+        >
+          {notice.text}
         </p>
 
         <LoadState {...payments} loading={payments.loading && !page} />
@@ -178,7 +184,7 @@ export function StaffPayments() {
               open={open}
               onOpen={(id) => {
                 setOpen(id);
-                if (id !== null) setNotice("");
+                if (id !== null) setNotice({ text: "", problem: false });
               }}
               onChanged={done}
             />
@@ -215,7 +221,7 @@ export function StaffPayments() {
             turn(() => {
               setOffset(next);
               setOpen(null);
-              setNotice("");
+              setNotice({ text: "", problem: false });
             })
           }
         />

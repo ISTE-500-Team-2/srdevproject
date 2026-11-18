@@ -13,10 +13,12 @@ import { ServerUnreachable } from './ServerUnreachable';
  * shows private pages before the session is known. After that, each navigation
  * and tab return rechecks in the background: the page frame stays mounted (no
  * blank screen, reset sidebar or lost form between pages), and a revoked
- * session or role is removed as soon as the server answers.
+ * session or role is removed as soon as the server answers. A background check
+ * that cannot reach the server keeps the page too, under a retrying banner; the
+ * full outage page is only for a check the page was waiting on.
  */
 export function RequireUser() {
-  const { user, loading, error, refresh, signedOut } = useAuth();
+  const { user, actor, loading, error, refresh, signedOut } = useAuth();
   const location = useLocation();
   const [arrived, setArrived] = useState(false);
   const arrivedRef = useRef(false);
@@ -24,6 +26,12 @@ export function RequireUser() {
   // one clears the error first and, with no user yet, would send the person to sign in.
   const [retrying, setRetrying] = useState(false);
   const [shownError, setShownError] = useState('');
+  // Whether the person's page was on screen at the last render. While it is, a
+  // failed check (and every retry after it) runs in the background and leaves it
+  // there, with any unsaved form, instead of swapping in the outage page.
+  const [onScreen, setOnScreen] = useState(false);
+  const kept = useRef(false);
+  useEffect(() => { kept.current = onScreen; }, [onScreen]);
   const failed = useRef(false);
   const retryingNow = useRef(false);
   // A retry owns the page only until a newer attempt starts; a superseded read may
@@ -45,7 +53,7 @@ export function RequireUser() {
     const turn = ++retryTurn.current;
     retryingNow.current = true;
     setRetrying(true);
-    try { await refresh(true, { fresh: true }); } finally {
+    try { await refresh(!kept.current, { fresh: true }); } finally {
       if (retryTurn.current === turn) releaseRetry();
     }
   }, [refresh, releaseRetry]);
@@ -84,16 +92,26 @@ export function RequireUser() {
       document.removeEventListener('visibilitychange', visible);
     };
   }, [refresh, retry]);
-  const unreachable = <main className="page-shell">
-    <ServerUnreachable message={error || shownError} retrying={retrying} onRetry={(supersede) => void retry(supersede)} />
-  </main>;
-  if (retrying) return unreachable;
-  if (loading || !arrived)
-    return <main className="page-shell" role="status">Loading your account…</main>;
-  if (error) return unreachable;
+  const outagePage = (banner: boolean) =>
+    <ServerUnreachable message={error || shownError} retrying={retrying} banner={banner} onRetry={(supersede) => void retry(supersede)} />;
+  // A blocking check (arrival, or one a page asked to wait on) still hides the page.
+  const keep = onScreen && !!user && !loading;
+  const showPage = keep || (!retrying && arrived && !loading && !error && !!user);
+  if (showPage !== onScreen) setOnScreen(showPage);
+  if (!keep) {
+    if (retrying) return <main className="page-shell">{outagePage(false)}</main>;
+    if (loading || !arrived)
+      return <main className="page-shell" role="status">Loading your account…</main>;
+    if (error) return <main className="page-shell">{outagePage(false)}</main>;
+  }
+  // Keyed on the signed-in person (not an opened account), so a page loaded for
+  // one person never stays on screen for another.
+  if (user) return <>
+    {error || retrying ? outagePage(true) : null}
+    <Outlet key={(actor ?? user).id} />
+  </>;
   // Remember the requested page so signing in lands there, not on home. Not after
   // a deliberate sign-out: the next person at a shared computer starts fresh.
-  if (user) return <Outlet />;
   return <Navigate to={signedOut ? '/login' : loginPath(location)} replace />;
 }
 

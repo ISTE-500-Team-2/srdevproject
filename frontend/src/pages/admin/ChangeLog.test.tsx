@@ -93,7 +93,7 @@ test("views, periods, people and areas become request filters", () => {
   expect(lists().at(-1)!.has("from")).toBe(false);
   fireEvent.change(screen.getByLabelText("Changed by"), { target: { value: "2" } });
   expect(lists().at(-1)!.get("actorId")).toBe("2");
-  // The member filter asks for changes made to that person, not every change they made.
+  // The member is the person changed, not anyone involved: what they did to others is "Changed by".
   fireEvent.change(screen.getByLabelText("Member"), { target: { value: "14" } });
   expect(lists().at(-1)!.get("subjectId")).toBe("14");
   expect(lists().at(-1)!.has("userId")).toBe(false);
