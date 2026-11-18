@@ -4,12 +4,12 @@
 import { Router } from "express";
 import type { Pool } from "pg";
 import { transaction, type Database } from "./db.js";
-import { AppError, positiveId, textField } from "./domain.js";
+import { AppError, integerId, textField } from "./domain.js";
 import { authState, requireCsrf } from "./middleware/auth.js";
 import { oneOf, optionalReasonField, pageOffset } from "./staffDomain.js";
 import { page } from "./pagination.js";
 import { StaffModel } from "./models/StaffModel.js";
-import { enqueueNotification } from "./notifications/store.js";
+import { enqueueNotifications } from "./notifications/store.js";
 import { readerLastSeen, readerPresenceJoin } from './readerRegistry.js';
 
 // Readers report in far more often than this, so a brief network blip stays quiet.
@@ -25,9 +25,16 @@ const reachable = async (db: Database, audience: number[]) =>
   (await db.query<{ count: number }>(`SELECT COUNT(*)::int AS count FROM "user" u LEFT JOIN app_notification_preferences p USING(userid)
     WHERE u.userid=ANY($1::int[]) AND u.status='active' AND COALESCE(p.enabled,true)`, [audience])).rows[0]?.count ?? 0;
 
-async function notify(db: Database, audience: number[], kind: "system_issue" | "service_restored", noticeId: number, payload: object) {
-  for (const userId of audience)
-    await enqueueNotification(db, { userId, kind, dedupeKey: `${kind}:${noticeId}:${userId}`, payload: { noticeId, ...payload } });
+// Reader alerts reach a few staff and keep the usual five-minute target. An announcement to every
+// account is a broadcast: it gets an hour, and the worker sends one person's mail, such as a reset
+// link, ahead of it.
+async function notify(db: Database, audience: number[], kind: "system_issue" | "service_restored", noticeId: number, payload: object,
+  broadcast = false) {
+  await enqueueNotifications(db, audience, {
+    kind, dedupePrefix: `${kind}:${noticeId}:`,
+    payload: { noticeId, ...payload, ...(broadcast ? { broadcast: true as const } : {}) },
+    deadlineAt: broadcast ? new Date(Date.now() + 60 * 60_000) : undefined,
+  });
 }
 
 /** Tells staff when an enabled reader goes silent and again when it returns. The
@@ -139,14 +146,14 @@ export function serviceNoticeRoutes(pool: Pool) {
         [summary, user.id, await reachable(db, audience)],
       )).rows[0];
       await new StaffModel(db).audit(user.id, null, "service_notice.opened", "app_service_notice", notice.id, reason, null, notice);
-      await notify(db, audience, "system_issue", notice.id, { reason: summary });
+      await notify(db, audience, "system_issue", notice.id, { reason: summary }, true);
       return notice;
     });
     res.status(201).json({ data });
   });
   router.post("/admin/service-notices/:id/resolve", requireCsrf, async (req, res) => {
     const user = administrator(res);
-    const id = positiveId(req.params.id),
+    const id = integerId(req.params.id),
       message = textField(req.body.message, "What was fixed", 500),
       reason = optionalReasonField(req.body.reason, message.slice(0, 255));
     const data = await transaction(pool, async (db) => {
@@ -160,7 +167,7 @@ export function serviceNoticeRoutes(pool: Pool) {
         [id, user.id, message],
       )).rows[0];
       await new StaffModel(db).audit(user.id, null, "service_notice.resolved", "app_service_notice", id, reason, before, after);
-      await notify(db, await everyone(db), "service_restored", id, { reason: message });
+      await notify(db, await everyone(db), "service_restored", id, { reason: message }, true);
       return after;
     });
     res.json({ data });

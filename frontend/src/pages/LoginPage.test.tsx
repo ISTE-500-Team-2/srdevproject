@@ -175,6 +175,14 @@ const emailField = () => screen.getByPlaceholderText('Enter your email…');
 const passwordField = () => screen.getByPlaceholderText('Enter your password…');
 const submit = () => fireEvent.click(screen.getByRole('button', { name: 'Login' }));
 
+// Stepper's light preset draws a white top edge on the current step and Back; inline styles can't be themed
+// from dark.css.
+test('the sign-up steps take their top-edge highlight from the theme', () => {
+  const dialog = openSignup();
+  const stepper = dialog.querySelector<HTMLElement>('.signup-stepper')!;
+  expect(stepper.style.getPropertyValue('--stepper-tile-highlight')).toBe('var(--stepper-theme-tile-highlight)');
+});
+
 test('Remember me starts unchecked for shared computers', () => {
   signIn();
   expect(screen.getByRole('checkbox', { name: 'Remember me' }).getAttribute('aria-checked')).toBe('false');
@@ -274,4 +282,126 @@ test('a sign-in that finishes after leaving the login page does not pull the vis
   expect((await screen.findByText(/^Landed on/)).textContent).toBe('Landed on /reset-password');
   await act(async () => { finish('member'); await new Promise((r) => setTimeout(r, 0)); });
   expect(screen.getByText(/^Landed on/).textContent).toBe('Landed on /reset-password');
+});
+
+function ConfirmLocation() {
+  const location = useLocation();
+  return <output data-testid="confirm-location">{JSON.stringify({ path: location.pathname, state: location.state })}</output>;
+}
+test('an unconfirmed account is offered a new confirmation email, carrying the typed email', async () => {
+  auth.login.mockRejectedValue(new ApiError(403, 'EMAIL_CONFIRMATION_REQUIRED', 'Confirm your email before signing in.'));
+  render(<MemoryRouter><LoginPage /><ConfirmLocation /></MemoryRouter>);
+  expect(screen.queryByRole('button', { name: 'Resend confirmation email' })).toBeNull();
+  type(emailField(), ' casey@example.invalid ');
+  type(passwordField(), 'ValidPassword!');
+  submit();
+  await screen.findByText('Confirm your email before signing in.');
+  fireEvent.click(screen.getByRole('button', { name: 'Resend confirmation email' }));
+  expect(JSON.parse(screen.getByTestId('confirm-location').textContent!)).toEqual({
+    path: '/confirm-email', state: { email: 'casey@example.invalid', resend: true },
+  });
+});
+
+test('a later missing-field error no longer offers the confirmation email', async () => {
+  auth.login.mockRejectedValue(new ApiError(403, 'EMAIL_CONFIRMATION_REQUIRED', 'Confirm your email before signing in.'));
+  signIn();
+  type(emailField(), 'casey@example.invalid');
+  type(passwordField(), 'ValidPassword!');
+  submit();
+  await screen.findByRole('button', { name: 'Resend confirmation email' });
+  type(passwordField(), '');
+  submit();
+  await screen.findByText('Enter your email and password to continue.');
+  expect(screen.queryByRole('button', { name: 'Resend confirmation email' })).toBeNull();
+});
+
+test('other sign-in errors offer no confirmation email', async () => {
+  auth.login.mockRejectedValue(new ApiError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect.'));
+  signIn();
+  type(emailField(), 'casey@example.invalid');
+  type(passwordField(), 'wrong');
+  submit();
+  await screen.findByText('Email or password is incorrect.');
+  expect(screen.queryByRole('button', { name: 'Resend confirmation email' })).toBeNull();
+});
+
+test('a sign-in error stays on the login card and a sign-up error stays in the dialog', async () => {
+  auth.login.mockRejectedValue(new ApiError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect.'));
+  signIn();
+  type(emailField(), 'casey@example.invalid');
+  type(passwordField(), 'wrong');
+  submit();
+  await screen.findByText('Email or password is incorrect.');
+  fireEvent.click(screen.getByRole('button', { name: 'Sign up' }));
+  const dialog = screen.getByRole('dialog', { name: 'Create your account' });
+  expect(within(dialog).queryByRole('alert')).toBeNull();
+  expect(within(dialog).queryByText('Email or password is incorrect.')).toBeNull();
+
+  auth.register.mockRejectedValue(new ApiError(400, 'VALIDATION_ERROR', 'Choose a stronger password.', 'password'));
+  await fillToLastStep(dialog);
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Create account' }));
+  await within(dialog).findByText('Choose a stronger password.');
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Close dialog' }));
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Create your account' })).toBeNull());
+  expect(screen.queryByText('Choose a stronger password.')).toBeNull();
+  // The login card's own error is still the sign-in one.
+  expect(screen.getByRole('alert').textContent).toBe('Email or password is incorrect.');
+});
+
+async function toContactStep(dialog: HTMLElement) {
+  type(within(dialog).getByLabelText('First name'), 'Casey');
+  type(within(dialog).getByLabelText('Last name'), 'Demo');
+  fireEvent.input(within(dialog).getByLabelText('Date of birth'), { target: { value: '2000-01-01' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Continue' }));
+  type(await within(dialog).findByLabelText('Email'), 'casey@example.invalid');
+}
+
+test('a pasted, formatted phone number fits and is saved as digits', async () => {
+  auth.register.mockReturnValue(new Promise(() => {}));
+  const dialog = openSignup();
+  await toContactStep(dialog);
+  const phone = within(dialog).getByLabelText('Phone') as HTMLInputElement;
+  expect(phone.maxLength).toBeGreaterThanOrEqual('+1 (410) 555-0182'.length);
+  type(phone, '+1 (410) 555-0182');
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Continue' }));
+  type(await within(dialog).findByLabelText('Password', { exact: false }), 'ValidPassword!');
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Create account' }));
+  await waitFor(() => expect(auth.register).toHaveBeenCalledTimes(1));
+  expect(auth.register.mock.calls[0]![0].phone).toBe('14105550182');
+});
+
+test.each(['call me', '555-01', '1234567890123456'])('the contact step refuses the phone number %s', async (value) => {
+  const dialog = openSignup();
+  await toContactStep(dialog);
+  const phone = within(dialog).getByLabelText('Phone') as HTMLInputElement;
+  type(phone, value);
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Continue' }));
+  expect(phone.validationMessage).toContain('7 to 15 digits');
+  expect(within(dialog).queryByLabelText('Password', { exact: false })).toBeNull();
+});
+
+test('date of birth runs from 1900 to today where the visitor is, so a future year stops step one', () => {
+  // Pinned to New York whatever zone the tests run in: 9pm on New Year's Eve there is already
+  // January 1 in UTC, so a UTC-date maximum would wrongly allow tomorrow.
+  const zone = process.env.TZ;
+  process.env.TZ = 'America/New_York';
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(2030, 11, 31, 21, 0));
+  try {
+    expect(new Date().toISOString()).toBe('2031-01-01T02:00:00.000Z');
+    const dialog = openSignup();
+    const dob = within(dialog).getByLabelText('Date of birth') as HTMLInputElement;
+    expect(dob.min).toBe('1900-01-01');
+    expect(dob.max).toBe('2030-12-31');
+    type(within(dialog).getByLabelText('First name'), 'Casey');
+    type(within(dialog).getByLabelText('Last name'), 'Demo');
+    fireEvent.input(dob, { target: { value: '2062-01-01' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Continue' }));
+    expect(dob.validity.rangeOverflow).toBe(true);
+    expect(within(dialog).getByLabelText('Date of birth')).toBe(dob);
+  } finally {
+    vi.useRealTimers();
+    if (zone === undefined) delete process.env.TZ;
+    else process.env.TZ = zone;
+  }
 });

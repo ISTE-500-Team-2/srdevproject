@@ -49,7 +49,7 @@ export function studioRoutes(
   );
   router.post("/studio-rentals/:id/cancel", permit("reservation","update"), requireCsrf, async (req, res) =>
     res.json({
-      data: await service.cancel(user(res), integerId(req.params.id, "Rental")),
+      data: await service.cancel(user(res), integerId(req.params.id, "Rental"), req.body ?? {}),
     }),
   );
   router.get("/studio-management/rentals", permit("payment","update","global"), async (_req, res) =>

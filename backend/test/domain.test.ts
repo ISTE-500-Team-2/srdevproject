@@ -3,13 +3,17 @@ import { randomBytes } from 'node:crypto';
 import { test } from 'node:test';
 import {
   AppError,
+  bigintId,
+  checkProfileFieldTotal,
   dateOfBirthField,
   emailField,
   newPasswordField,
   passwordField,
   positiveId,
   integerId,
+  profileFields,
   reservationWindow,
+  textField,
 } from '../src/domain.js';
 import { hashPassword, verifyPassword } from '../src/passwords.js';
 import { readConfig } from '../src/config.js';
@@ -73,11 +77,44 @@ test('identifiers and emails are validated without coercing arbitrary values', (
 });
 
 test('PostgreSQL INTEGER identifiers reject overflow without narrowing BIGINT identifiers', () => {
-  for (const value of [1, '1', 2147483647, '2147483647'])
+  for (const value of [1, '1', 2147483647, '2147483647']) {
     assert.equal(integerId(value), Number(value));
-  for (const value of [2147483648, '2147483648', Number.MAX_SAFE_INTEGER, String(Number.MAX_SAFE_INTEGER), 0, -1, 1.5, null, {}, '1e5'])
+    assert.equal(positiveId(value), Number(value));
+  }
+  // Ids and revisions are INTEGER columns: a bigger number is a 400, not a database error.
+  for (const value of [2147483648, '2147483648', '3000000000', Number.MAX_SAFE_INTEGER, String(Number.MAX_SAFE_INTEGER), 0, -1, 1.5, null, {}, '1e5']) {
     assert.throws(() => integerId(value, 'Class'), {name:'Error', status:400, code:'INVALID_INPUT'});
-  assert.equal(positiveId('2147483648'), 2147483648);
+    assert.throws(() => positiveId(value, 'Member'), {name:'Error', status:400, code:'INVALID_INPUT'});
+  }
+  assert.equal(bigintId('2147483648'), 2147483648);
+  assert.throws(() => bigintId(Number.MAX_SAFE_INTEGER + 1), AppError);
+});
+
+test('text and profile values refuse control characters but keep tabs and line breaks', () => {
+  for (const value of ['Jo\u0000rdan', 'A\u0007b', 'Esc\u001b[0m', 'del\u007f'])
+    assert.throws(() => textField(value, 'First name', 50), {status:400, code:'INVALID_INPUT', message:"First name contains a character that can't be saved."});
+  assert.equal(textField('Line one\nLine two\tend\r\n', 'Reason', 100), 'Line one\nLine two\tend');
+  assert.throws(() => profileFields({ street: 'x\u0000y' }, 'Address'), {status:400, code:'INVALID_INPUT'});
+  assert.deepEqual({ ...profileFields({ street: ' 1 Main St ', sms: false }, 'Address') }, { street: '1 Main St', sms: false });
+});
+
+test('profile saves cannot pile fields up past the limit across requests', () => {
+  const fields = (prefix: string, n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [prefix + i, 'x']));
+  const twenty = fields('a', 20);
+  // Up to 20 in total is fine, including replacing or removing stored ones.
+  checkProfileFieldTotal({}, profileFields(twenty, 'Address'), 'Address');
+  checkProfileFieldTotal(twenty, profileFields({ a0: 'y', a1: null }, 'Address'), 'Address');
+  checkProfileFieldTotal(fields('a', 19), profileFields({ new: 'y' }, 'Address'), 'Address');
+  checkProfileFieldTotal(null, {}, 'Address');
+  // A patch that would leave 21 is refused, even though the patch alone is small.
+  assert.throws(() => checkProfileFieldTotal(twenty, profileFields({ new: 'y' }, 'Address'), 'Address'),
+    {status:400, code:'INVALID_INPUT', message:'Address can contain up to 20 fields.'});
+  assert.throws(() => checkProfileFieldTotal(twenty, profileFields(fields('b', 20), 'Address'), 'Address'), AppError);
+  // A profile stored over the limit can still be saved as is, or trimmed, but not grown.
+  const legacy = fields('a', 25);
+  checkProfileFieldTotal(legacy, profileFields({ a0: 'changed' }, 'Address'), 'Address');
+  checkProfileFieldTotal(legacy, profileFields({ a0: null, new: 'swap' }, 'Address'), 'Address');
+  assert.throws(() => checkProfileFieldTotal(legacy, profileFields({ new: 'y' }, 'Address'), 'Address'), AppError);
 });
 
 test('existing passwords are not subject to new-password complexity rules', () => {
