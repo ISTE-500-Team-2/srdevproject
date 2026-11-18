@@ -100,7 +100,9 @@ export function StartTimePicker({ name, hours, onPick, children, now: nowProp, c
   const chosen = new Date(year!, month! - 1, date!);
   const label = (value: string) => timeLabel(Number(value.slice(0, 2)) * 60 + Number(value.slice(3)));
   const unfit = (value: string) => `${label(value)} isn’t available for ${hours} ${hours === 1 ? "hour" : "hours"} on this day`;
-  const notice = !picked || !time || effectiveTime ? '' :
+  // A machine that is out of service has no start time on any day, so the chosen time is not at fault:
+  // the reason is shown with the machine, not as advice to pick another time.
+  const notice = !picked || !time || effectiveTime || unavailable ? '' :
     // A dialog left open past midnight: the chosen day itself has passed.
     day < dayKey(minimum) ? `${label(time)} on ${chosen.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })} can no longer be booked. Choose another day and start time.`
     : day === dayKey(minimum) && time < clockKey(minimum) ? `${label(time)} can no longer be booked. Choose a later start time.`
