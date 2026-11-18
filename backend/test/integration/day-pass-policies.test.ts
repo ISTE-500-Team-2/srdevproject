@@ -13,7 +13,7 @@ import { StaffService } from '../../src/services/StaffService.js';
 import { ReservationService } from '../../src/services/ReservationService.js';
 import { evaluateReaderAccess } from '../../src/services/ReaderEligibility.js';
 import { accessDeadline } from '../../src/accessDeadline.js';
-import { waiverAcceptance, equipmentWaiverName } from '../helpers/waiver.js';
+import { waiverAcceptance, equipmentWaiverName, withSignedCopiesUnlocked } from '../helpers/waiver.js';
 
 const database = `arbor_day_policies_${randomBytes(5).toString('hex')}_mvc_test`;
 const owner = new Pool({ connectionTimeoutMillis: 5000 });
@@ -66,7 +66,7 @@ before(async () => {
 });
 beforeEach(async () => {
   if (!created) return;
-  await pool.query('DELETE FROM user_waiver WHERE userid=$1', [member.user.id]);
+  await withSignedCopiesUnlocked(pool, 'DELETE FROM user_waiver WHERE userid=$1', [member.user.id]);
   providerCalls = 0;
 });
 after(async () => { await pool.end(); if (created) await owner.query(`DROP DATABASE "${database}"`); await owner.end(); });

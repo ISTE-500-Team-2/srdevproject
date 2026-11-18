@@ -10,13 +10,14 @@ import { useApi } from '../../lib/useApi';
 import { Modal } from '../../components/Modal';
 import { LoadState } from '../../components/Management';
 import { equipmentTime, type EquipmentDetail } from '../../lib/equipmentMaintenance';
+import { EquipmentImagePicker, type EquipmentImageChoice, type EquipmentImageOption } from './EquipmentImagePicker';
 
 const NEW_CATEGORY = '__new__';
 export interface RemovalBlockers {
   sessions: { readerId: string; expiresAt: string; members: (string | null)[] }[];
   bookings: { id: number; member: string | null; startTime: string; endTime: string }[];
 }
-export interface CatalogOptions { canManage: boolean; categories: string[]; certifications: { id: number; name: string }[] }
+export interface CatalogOptions { canManage: boolean; categories: string[]; certifications: { id: number; name: string }[]; images: EquipmentImageOption[] }
 export function EquipmentEditor({ initial: suppliedInitial, onClose, onSaved }: { initial?: EquipmentDetail; onClose: () => void; onSaved: (id: number, removed: boolean) => void }) {
   const initial = useRef(suppliedInitial).current;
   const options = useApi<CatalogOptions>('/admin/equipment/catalog-options');
@@ -26,25 +27,27 @@ export function EquipmentEditor({ initial: suppliedInitial, onClose, onSaved }: 
   const [categoryName, setCategoryName] = useState('');
   const categories = [...new Set([...(options.data?.categories ?? []), ...(initial?.type ? [initial.type] : [])])].sort((a, b) => a.localeCompare(b));
   const [location, setLocation] = useState(initial?.location ?? 'Makerspace');
-  const [image, setImage] = useState(initial?.imagePath ?? '');
+  const [image, setImage] = useState<EquipmentImageChoice>({ path: initial?.imagePath ?? '' });
   const [rate, setRate] = useState(initial?.rate?.toString() ?? '');
   const [certId, setCertId] = useState(initial?.certId?.toString() ?? '');
   const [waiverRequired, setWaiverRequired] = useState(initial?.waiverRequired ?? true);
   const [dirty, setDirty] = useState(false);
   const [removing, setRemoving] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [saving, setBusy] = useState(false);
+  const [processingImage, setProcessingImage] = useState(false);
+  const busy = saving || processingImage;
   const inFlight = useRef(false);
   const [error, setError] = useState('');
   const blockers = useApi<RemovalBlockers>(removing && initial ? `/admin/equipment/${initial.id}/removal-blockers` : null);
   const blocked = !blockers.data || blockers.data.sessions.length + blockers.data.bookings.length > 0;
   const save = async (remove: boolean) => {
-    if (inFlight.current) return;
+    if (inFlight.current || processingImage) return;
     if (!remove && newCategory && !categoryName.trim()) { setError('Type a name for the new category.'); return; }
     inFlight.current = true; setBusy(true); setError('');
     try {
       const saved = await api<{ id: number }>(`/admin/equipment${initial ? `/${initial.id}` : ''}`, {
         method: remove ? 'DELETE' : initial ? 'PUT' : 'POST',
-        body: { name, type: newCategory ? categoryName.trim() : type, location, image, rate: rate === '' ? null : Number(rate), certId: certId === '' ? null : Number(certId), waiverRequired, expectedRevision: initial?.availabilityRevision },
+        body: { name, type: newCategory ? categoryName.trim() : type, location, image: image.path, ...(image.upload && !remove ? { imageUpload: image.upload } : {}), rate: rate === '' ? null : Number(rate), certId: certId === '' ? null : Number(certId), waiverRequired, expectedRevision: initial?.availabilityRevision },
       });
       onSaved(saved.id, remove);
     } catch (err) { setError(errorMessage(err)); if (remove) blockers.reload(); }
@@ -69,7 +72,7 @@ export function EquipmentEditor({ initial: suppliedInitial, onClose, onSaved }: 
         {newCategory && <label>New category name<input required autoFocus maxLength={100} value={categoryName} disabled={busy} onChange={e => setCategoryName(e.target.value)} /><small>Other equipment can use this category after you save.</small></label>}
         <label>Location<input required maxLength={100} value={location} disabled={busy} onChange={e => setLocation(e.target.value)} /></label>
         <label>Hourly rate ($)<input type="number" min="0" max="99999999.99" step="0.01" value={rate} disabled={busy} onChange={e => setRate(e.target.value)} /><small>Leave blank for no rate set. Enter 0 for free use. Rate changes apply to new quotes; existing payment records are preserved.</small></label>
-        <label>Image path or HTTPS URL<input maxLength={255} value={image} disabled={busy} onChange={e => setImage(e.target.value)} /></label>
+        <EquipmentImagePicker value={image} images={options.data?.images ?? []} disabled={busy} onProcessing={setProcessingImage} onChange={choice => { setImage(choice); setDirty(true); }} />
         <label>Required certification<select value={certId} disabled={busy || !options.data} onChange={e => setCertId(e.target.value)}><option value="">None</option>{options.data?.certifications.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
         <label className="eq-confirm"><input type="checkbox" checked={waiverRequired} disabled={busy} onChange={e => setWaiverRequired(e.target.checked)} />Require signed waivers</label>
         <div className="eq-actions"><button className="button button--primary" disabled={busy || !options.data?.canManage}>{busy ? 'Saving…' : initial ? 'Save changes' : 'Add equipment'}</button><button type="button" className="button button--quiet" disabled={busy} onClick={close}>Cancel</button></div>

@@ -101,13 +101,15 @@ export function AdminShell() {
       </div>
       {staff ? (
         <div className="admin-side__me">
-          <AccountPhoto person={staff} className="admin-avatar admin-avatar--self" />
-          <span className="admin-side__who">
-            <strong>
-              {staff.firstName} {staff.lastName}
-            </strong>
-            <span>{roleLabel(staff)}</span>
-          </span>
+          <Link className="admin-side__account" to="/profile" aria-label="Your account settings" title="Your account settings" onClick={() => setMenuOpen(false)}>
+            <AccountPhoto person={staff} className="admin-avatar admin-avatar--self" />
+            <span className="admin-side__who">
+              <strong>
+                {staff.firstName} {staff.lastName}
+              </strong>
+              <span>{roleLabel(staff)}</span>
+            </span>
+          </Link>
           <button type="button" className="icon-button admin-side__out" onClick={() => void signOut()} aria-label="Sign out">
             <LogOut aria-hidden="true" />
           </button>

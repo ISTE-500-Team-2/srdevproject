@@ -62,6 +62,7 @@ const SHIPPED_ORDER = [
   'components/photoEditor.css',
   'pages/reports.css',
   'components/InfoTip.css',
+  'pages/admin/equipmentImagePicker.css',
   'components/access/readerHealth.css',
 ];
 

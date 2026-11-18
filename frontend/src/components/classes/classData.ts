@@ -28,7 +28,8 @@ export type ClassRecord = {
   myStatus: string | null;
 };
 export type RosterPerson = { userId: number; name: string; email: string; status: string };
-export type MemberRoster = { items: { name: string }[]; capacity: number; enrolled: number; seatsAvailable: number };
+/** Names are only sent to people registered for the class (and its instructor and staff). */
+export type MemberRoster = { items: { name: string }[]; capacity: number; enrolled: number; seatsAvailable: number; namesVisible?: boolean };
 export type Room = { id: number; name: string; location: string; capacity: number | null; status: string };
 export type Course = { id: number; name: string; validityDays: number | null; trainingMinutes?: number; trainingFeeCents?: number | null };
 /** Attendance choices a manager has made but not saved yet, per class. */
