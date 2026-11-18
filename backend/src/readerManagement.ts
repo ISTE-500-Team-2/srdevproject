@@ -1,5 +1,7 @@
 // Staff reader configuration and diagnostics routes; the registry owns credential encryption and
-// resource targeting.
+// resource targeting. Adding, renaming, moving or turning on a reader is hardware configuration
+// (CON-001) and needs `reader:update`, which only administrators hold. Staff keep card scans and
+// may still turn a reader off, a safety action.
 
 import { randomBytes, randomUUID } from "node:crypto";
 import { Router } from "express";
@@ -8,6 +10,7 @@ import { transaction } from "./db.js";
 import { AppError, positiveId, textField } from "./domain.js";
 import { authState, requireCsrf } from "./middleware/auth.js";
 import { requirePermission } from "./middleware/permissions.js";
+import { PermissionModel } from "./models/PermissionModel.js";
 import { StaffModel } from "./models/StaffModel.js";
 import { assertManageable } from "./services/StaffService.js";
 import {
@@ -29,11 +32,18 @@ export function readerManagement(
 ) {
   const routes = Router(),
     read = requirePermission(pool, "user", "read"),
-    write = requirePermission(pool, "user_access", "update");
+    write = requirePermission(pool, "user_access", "update"),
+    configure = requirePermission(pool, "reader", "update");
   routes.get("/admin/access/readers", read, async (_req, res) => {
     res.json({
       data: {
         configured: !!registry.config,
+        // Lets the page show staff why add/turn-on controls are off instead of a failing button.
+        canConfigure: await new PermissionModel(pool).allows(
+          authState(res).user,
+          "reader",
+          "update",
+        ),
         timeZone: tz,
         readers: await registry.list(),
       },
@@ -42,45 +52,50 @@ export function readerManagement(
   routes.get("/admin/access/resources", read, async (_req, res) => {
     res.json({ data: await accessResources(pool) });
   });
-  routes.post("/admin/access/readers", write, requireCsrf, async (req, res) => {
-    requireDeviceConfig(registry.config);
-    await registry.ready();
-    const id = textField(req.body.id, "Reader ID", 64),
-      name = textField(req.body.name, "Reader name", 100);
-    if (!/^[a-zA-Z0-9_-]{1,64}$/.test(id))
-      throw new AppError(
-        400,
-        "INVALID_READER",
-        "Use letters, numbers, hyphens or underscores for the reader ID.",
-      );
-    const kind = req.body.kind,
-      resourceId = positiveId(req.body.resourceId),
-      secret = randomBytes(32).toString("hex");
-    const reason = textField(req.body.reason, "Reason", 500);
-    const data = await transaction(pool, async (db) => {
-      await assertReaderTarget(db, kind, resourceId);
-      const after = (
-        await db.query(
-          `INSERT INTO app_access_reader(id,name,kind,resource_id,secret_encrypted)
-        VALUES($1,$2,$3,$4,$5) RETURNING id,name,kind,resource_id AS "resourceId",enabled,revision`,
-          [id, name, kind, resourceId, registry.encrypt(secret)],
-        )
-      ).rows[0];
-      await new StaffModel(db, tz).audit(
-        authState(res).user.id,
-        null,
-        "access.reader_created",
-        "access_reader",
-        0,
-        reason,
-        null,
-        after,
-      );
-      return after;
-    });
-    // Shown only once on creation; list, edit and audit responses never contain it.
-    res.status(201).json({ data: { ...data, secret } });
-  });
+  routes.post(
+    "/admin/access/readers",
+    configure,
+    requireCsrf,
+    async (req, res) => {
+      requireDeviceConfig(registry.config);
+      await registry.ready();
+      const id = textField(req.body.id, "Reader ID", 64),
+        name = textField(req.body.name, "Reader name", 100);
+      if (!/^[a-zA-Z0-9_-]{1,64}$/.test(id))
+        throw new AppError(
+          400,
+          "INVALID_READER",
+          "Use letters, numbers, hyphens or underscores for the reader ID.",
+        );
+      const kind = req.body.kind,
+        resourceId = positiveId(req.body.resourceId),
+        secret = randomBytes(32).toString("hex");
+      const reason = textField(req.body.reason, "Reason", 500);
+      const data = await transaction(pool, async (db) => {
+        await assertReaderTarget(db, kind, resourceId);
+        const after = (
+          await db.query(
+            `INSERT INTO app_access_reader(id,name,kind,resource_id,secret_encrypted)
+          VALUES($1,$2,$3,$4,$5) RETURNING id,name,kind,resource_id AS "resourceId",enabled,revision`,
+            [id, name, kind, resourceId, registry.encrypt(secret)],
+          )
+        ).rows[0];
+        await new StaffModel(db, tz).audit(
+          authState(res).user.id,
+          null,
+          "access.reader_created",
+          "access_reader",
+          0,
+          reason,
+          null,
+          after,
+        );
+        return after;
+      });
+      // Shown only once on creation; list, edit and audit responses never contain it.
+      res.status(201).json({ data: { ...data, secret } });
+    },
+  );
   routes.patch(
     "/admin/access/readers/:id",
     write,
@@ -113,6 +128,20 @@ export function readerManagement(
             409,
             "STALE_RECORD",
             "This reader changed. Refresh and try again.",
+          );
+        // Without reader:update, the only change allowed is turning the reader off as it is.
+        if (
+          (req.body.enabled || move || name !== before.name) &&
+          !(await new PermissionModel(db).allows(
+            authState(res).user,
+            "reader",
+            "update",
+          ))
+        )
+          throw new AppError(
+            403,
+            "PERMISSION_REQUIRED",
+            "Only an admin can add or turn on readers, or change a reader's name or location. You can turn a reader off.",
           );
         if (
           req.body.enabled &&

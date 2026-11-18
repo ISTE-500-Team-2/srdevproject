@@ -29,7 +29,7 @@ function Harness({ readers }: { readers: AccessReader[] }) {
   return (
     <MemoryRouter>
       <ScanControls
-        setup={{ configured: true, timeZone: "America/New_York", readers }}
+        setup={{ configured: true, canConfigure: true, timeZone: "America/New_York", readers }}
         scan={scan}
       />
     </MemoryRouter>

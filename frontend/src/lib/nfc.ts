@@ -25,6 +25,8 @@ export type AccessReader = {
 };
 export type ReaderSetup = {
   configured: boolean;
+  /** Whether this account may add, change or turn on readers (admins only); anyone here may turn one off. */
+  canConfigure: boolean;
   timeZone: string;
   readers: AccessReader[];
 };

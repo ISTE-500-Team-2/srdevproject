@@ -5,6 +5,8 @@ import { Pool } from "pg";
 import request from "supertest";
 import { createApp } from "../../src/app.js";
 import { initializeDemo } from "../../src/scripts/init-demo.js";
+import { SessionModel } from "../../src/models/SessionModel.js";
+import { UserModel } from "../../src/models/UserModel.js";
 import type { AppConfig } from "../../src/config.js";
 
 const database = `arbor_setup_${randomBytes(6).toString("hex")}_mvc_test`,
@@ -18,6 +20,7 @@ let app: ReturnType<typeof createApp>,
   token: string,
   member: string,
   csrf: string,
+  staff: { token: string; csrf: string },
   created = false,
   sequence = 0;
 before(async () => {
@@ -50,6 +53,23 @@ before(async () => {
   csrf = a.csrfToken;
   member = (await request(app).post("/api/auth/demo").send({ role: "member" }))
     .body.data.accessToken;
+  const staffId = await new UserModel(pool).create({
+    firstName: "Desk",
+    lastName: "Setup",
+    email: "desk-setup@example.invalid",
+    phone: "555-0102",
+    password: "unused-test-credential",
+    dob: "1990-01-01",
+  });
+  await pool.query(
+    "INSERT INTO user_role(userid,roleid,assignedat) SELECT $1,roleid,NOW() AT TIME ZONE 'UTC' FROM role WHERE role='staff'",
+    [staffId],
+  );
+  const session = await new SessionModel(pool, config.jwtKey).create(
+    staffId,
+    false,
+  );
+  staff = { token: session.token, csrf: session.csrfToken };
 });
 after(async () => {
   await pool.end();
@@ -250,6 +270,43 @@ test("setup requires permission/CSRF and validates credentials without putting s
   );
   const other = await report([], [], { id: "other", key: otherSecret });
   assert.equal(other.body.data.jobs.length, 0);
+});
+test("guided setup is admin-only: staff can watch discovery but not start or cancel a setup", async () => {
+  const d = await device();
+  assert.equal((await get(undefined, staff.token)).status, 200);
+  const refused = await post(
+    "/admin/access/reader-setup",
+    details(d),
+    staff.token,
+    staff.csrf,
+  );
+  assert.equal(refused.status, 403);
+  assert.equal(refused.body.error.code, "PERMISSION_REQUIRED");
+  assert.equal(
+    (
+      await pool.query(
+        "SELECT 1 FROM app_reader_setup_job WHERE device_id=$1",
+        [d.id],
+      )
+    ).rowCount,
+    0,
+  );
+  const job = await start(d);
+  assert.equal(
+    (
+      await post(
+        `/admin/access/reader-setup/${job.id}/cancel`,
+        {},
+        staff.token,
+        staff.csrf,
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (await post(`/admin/access/reader-setup/${job.id}/cancel`, {})).status,
+    200,
+  );
 });
 test("concurrent starts produce one reader/job for the physical device, without consuming cards or check-ins", async () => {
   const d = await device(),
