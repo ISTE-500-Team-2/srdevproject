@@ -129,6 +129,7 @@ export class TestClient {
     this.agent.set('Authorization', 'Bearer ' + res.body.data.accessToken);
     this.csrf = res.body.data.csrfToken;
     this.userId = res.body.data.user.id;
+    this.agent.set('X-Account-Subject', String(this.userId));
     this.token = res.body.data.accessToken;
   }
 

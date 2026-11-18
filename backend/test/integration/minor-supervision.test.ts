@@ -17,7 +17,7 @@ import {MemberModel} from '../../src/models/MemberModel.js';
 const database='arbor_family_'+randomBytes(5).toString('hex')+'_mvc_test';
 const owner=new Pool(),pool=new Pool({database});
 let app:any,server:any,admin:any,adult:any,minor:any,room:number,booking:number;
-const post=(who:any,path:string,body:any={},csrf=true)=>{let r=request(server).post('/api'+path).set('Authorization','Bearer '+who.accessToken);if(csrf)r=r.set('X-CSRF-Token',who.csrfToken);return r.send(body);};
+const post=(who:any,path:string,body:any={},csrf=true,subjectId=who.user.id)=>{let r=request(server).post('/api'+path).set('Authorization','Bearer '+who.accessToken).set('X-Account-Subject',String(subjectId));if(csrf)r=r.set('X-CSRF-Token',who.csrfToken);return r.send(body);};
 async function sign(who:any){for(const w of (await request(server).get('/api/me/waivers').set('Authorization','Bearer '+who.accessToken)).body.data)
   if(!w.signed)assert.equal((await post(who,`/me/waivers/${w.id}/sign`,waiverAcceptance(w))).status,200);}
 before(async()=>{
@@ -154,7 +154,7 @@ test('staff repeating an adult arrival keeps their second-building visit and sup
   const overview=await request(server).get('/api/me/overview').set('Authorization','Bearer '+admin.accessToken);
   assert.equal(overview.body.data.checkInBuildingId,other);
   assert.equal(overview.body.data.canCheckIn,true);
-  const checked=await post(admin,'/me/check-ins');
+  const checked=await post(admin,'/me/check-ins',{},true,adult.user.id);
   assert.equal(checked.status,201,JSON.stringify(checked.body));
  } finally {
   const closed=await post(admin,'/admin/account-mode/end');
@@ -504,7 +504,7 @@ test('an eligible adult cannot make themselves present from the web; staff at th
  const denied=await atReader(kid.user.id,kidSpace);assert.equal(denied.allowed,false);assert.equal(denied.reason,'SPONSOR_REQUIRED');
  // Staff at the desk, in the adult's open account, may check them in.
  const opened=await post(admin,'/admin/account-mode',{userId:parent.user.id});assert.equal(opened.status,200,JSON.stringify(opened.body));
- const checkedIn=await post({...admin,csrfToken:opened.body.data.csrfToken},'/me/check-ins',{roomId:space});
+ const checkedIn=await post({...admin,csrfToken:opened.body.data.csrfToken},'/me/check-ins',{roomId:space},true,parent.user.id);
  const closed=await post({...admin,csrfToken:opened.body.data.csrfToken},'/admin/account-mode/end');
  assert.equal(checkedIn.status,201,JSON.stringify(checkedIn.body));assert.equal(closed.status,200,JSON.stringify(closed.body));
  assert.equal((await pool.query('SELECT userid FROM check_in WHERE checkinid=$1',[checkedIn.body.data.id])).rows[0].userid,parent.user.id);

@@ -43,6 +43,8 @@ async function send(
 ): Promise<Response> {
   const sessionless = SESSIONLESS.has(path);
   const owner = tokenOwner;
+  // Keep the account shown when the action started, even if the page changes during renewal.
+  const subject = accountSubject;
   if (!accessToken && !sessionless) await renew();
   const mutation = !['GET', 'HEAD'].includes(method);
   const perform = () => fetch('/api' + path, {
@@ -54,7 +56,7 @@ async function send(
       ...(accessToken ? {Authorization: `Bearer ${accessToken}`} : {}),
       ...(mutation ? { 'Content-Type': 'application/json' } : {}),
       ...(mutation && csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
-      ...(mutation && accountSubject !== null ? { 'X-Account-Subject': String(accountSubject) } : {}),
+      ...(mutation && subject !== null ? { 'X-Account-Subject': String(subject) } : {}),
     },
     ...(mutation ? { body: JSON.stringify(body ?? {}) } : {}),
   });

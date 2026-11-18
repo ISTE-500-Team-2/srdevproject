@@ -7,8 +7,13 @@ import { setAccessToken, setCsrfToken } from '../../src/lib/api';
 import { createBrowserBridge } from '../../../backend/test/helpers/browserBridge';
 
 let bridge: Awaited<ReturnType<typeof createBrowserBridge>>,classId:number,memberId:number;
-async function post(path:string,body:unknown,csrf?:string){
-  const response=await bridge.fetch('/api'+path,{method:'POST',headers:{'Content-Type':'application/json',...(csrf?{'X-CSRF-Token':csrf}:{})},body:JSON.stringify(body)});
+async function post(path:string,body:unknown,session?:{csrfToken:string;user:{id:number}}){
+  const headers:Record<string,string>={'Content-Type':'application/json'};
+  if(session){
+    headers['X-CSRF-Token']=session.csrfToken;
+    headers['X-Account-Subject']=String(session.user.id);
+  }
+  const response=await bridge.fetch('/api'+path,{method:'POST',headers,body:JSON.stringify(body)});
   expect(response.status).toBeLessThan(300);return (await response.json()).data;
 }
 beforeAll(async()=>{
@@ -16,10 +21,10 @@ beforeAll(async()=>{
   const admin=await post('/auth/demo',{role:'admin'});
   memberId=(await bridge.pool.query(`SELECT userid FROM "user" WHERE email='demo.member@collaboratory.invalid'`)).rows[0].userid;
   await bridge.pool.query("INSERT INTO user_role(userid,roleid) SELECT $1,roleid FROM role WHERE role='instructor' ON CONFLICT DO NOTHING",[admin.user.id]);
-  const course=await post('/training/catalog',{name:'Roster UI safety',description:'Isolated test',validityDays:365,equipmentIds:[],reason:'Regression fixture'},admin.csrfToken);
+  const course=await post('/training/catalog',{name:'Roster UI safety',description:'Isolated test',validityDays:365,equipmentIds:[],reason:'Regression fixture'},admin);
   const room=(await bridge.pool.query("SELECT roomid FROM room WHERE status='available' AND capacity>=2 LIMIT 1")).rows[0].roomid;
   const start=Date.now()+86400000;
-  const c=await post('/classes',{title:'Privacy-safe orientation',certificationId:course.id,instructorId:admin.user.id,roomId:room,capacity:2,startsAt:new Date(start).toISOString(),endsAt:new Date(start+3600000).toISOString(),reason:'Regression fixture'},admin.csrfToken);
+  const c=await post('/classes',{title:'Privacy-safe orientation',certificationId:course.id,instructorId:admin.user.id,roomId:room,capacity:2,startsAt:new Date(start).toISOString(),endsAt:new Date(start+3600000).toISOString(),reason:'Regression fixture'},admin);
   classId=c.id;
   await bridge.pool.query('INSERT INTO app_training_enrollment(class_id,user_id) VALUES($1,$2)',[classId,memberId]);
 },120000);

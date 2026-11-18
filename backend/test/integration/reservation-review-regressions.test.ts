@@ -240,7 +240,7 @@ test('room discovery grants, explicit denies, instructor restriction and full-le
     const opened = await desk.post('/api/admin/account-mode').send({ userId: user });
     assert.equal(opened.status, 200, JSON.stringify(opened.body));
     desk.set('X-CSRF-Token', opened.body.data.csrfToken);
-    const checkin = await desk.post('/api/me/check-ins').send({ roomId: longRoom });
+    const checkin = await desk.post('/api/me/check-ins').set('X-Account-Subject', String(user)).send({ roomId: longRoom });
     assert.equal(checkin.status, 201, JSON.stringify(checkin.body));
     assert.equal((await desk.post('/api/admin/account-mode/end').send({})).status, 200);
     const stored = (await pool.query('SELECT roomid,location FROM check_in WHERE checkinid=$1', [checkin.body.data.id])).rows[0];
@@ -258,7 +258,8 @@ test('concurrent HTTP requests for adjacent equipment bookings return one cooldo
       const agent = request.agent(app);
       const login = await agent.post('/api/auth/demo').send({ role });
       assert.equal(login.status, 200);
-      agent.set('Authorization', 'Bearer ' + login.body.data.accessToken);
+      agent.set('Authorization', 'Bearer ' + login.body.data.accessToken)
+        .set('X-Account-Subject', String(login.body.data.user.id));
       users.push({ agent, csrf: login.body.data.csrfToken });
     }
     const equipment = (await pool.query("SELECT equipmentid FROM equipment WHERE name='Rachel'")).rows[0].equipmentid;

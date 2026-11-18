@@ -25,7 +25,7 @@ async function deskCheckIn(staff: Client, member: Client, body: string | object)
   const opened = await staff.post('/admin/account-mode', { userId: member.id });
   assert.equal(opened.status, 200, JSON.stringify(opened.body));
   staff.adoptCsrf(opened.body.data.csrfToken);
-  const response = await staff.post('/me/check-ins', body);
+  const response = await staff.post('/me/check-ins', body).set('X-Account-Subject', String(member.id));
   const closed = await staff.post('/admin/account-mode/end');
   assert.equal(closed.status, 200, JSON.stringify(closed.body));
   staff.adoptCsrf(closed.body.data.csrfToken);
@@ -612,7 +612,7 @@ test('staff book from the workspace as themselves while a member account is open
   staff.adoptCsrf(opened.body.data.csrfToken);
   const input={...interval(await equipment(),19),userId:member.id};
   // The member-site path runs as the opened account, which can't book for anyone else.
-  assert.equal((await staff.post('/reservations',input)).body.error?.code,'STAFF_REQUIRED');
+  assert.equal((await staff.post('/reservations',input).set('X-Account-Subject',String(other.id))).body.error?.code,'STAFF_REQUIRED');
   const booked=await staff.post('/admin/reservations',input);
   assert.equal(booked.status,201,JSON.stringify(booked.body));
   assert.equal(booked.body.data.userId,member.id);

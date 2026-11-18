@@ -9,7 +9,7 @@ import {configureMvpCatalog} from '../../src/scripts/configure-mvp-catalog.js';
 import {hashPassword} from '../../src/passwords.js';
 const database='arbor_catalog_'+randomBytes(5).toString('hex')+'_mvc_test';
 const owner=new Pool(),pool=new Pool({database});let server:any,admin:any,room:number,template:number;
-const post=(path:string,body:any={},who=admin)=>request(server).post('/api'+path).set('Authorization','Bearer '+who.accessToken).set('X-CSRF-Token',who.csrfToken).send(body);
+const post=(path:string,body:any={},who=admin)=>request(server).post('/api'+path).set('Authorization','Bearer '+who.accessToken).set('X-CSRF-Token',who.csrfToken).set('X-Account-Subject',String(who.user.id)).send(body);
 before(async()=>{
  if(!process.env.PGHOST||process.env.DATABASE_URL)throw Error('Explicit isolated PostgreSQL required');
  await owner.query(`CREATE DATABASE "${database}"`);await initializeDemo(pool);

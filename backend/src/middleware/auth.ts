@@ -10,7 +10,7 @@ import type { AppConfig } from "../config.js";
 import { AppError, type UserView } from "../domain.js";
 import { SessionModel } from "../models/SessionModel.js";
 import { UserModel } from "../models/UserModel.js";
-import { accountModeRefusal, assertAllowedWhileActing, isWorkspacePath } from "../accountMode.js";
+import { accountModeRefusal, assertAllowedWhileActing, isWorkspacePath, isWorkspaceRole } from "../accountMode.js";
 
 export const cookieName = "arbor_refresh";
 /**
@@ -45,7 +45,7 @@ export function requireStaff(_req: Request, res: Response, next: NextFunction) {
   const user = authState(res).user;
   const hasStaffOrAdminRole =
     Array.isArray(user.roles) &&
-    user.roles.some((role) => role === "staff" || role === "admin");
+    user.roles.some(isWorkspaceRole);
 
   if (!hasStaffOrAdminRole)
     throw new AppError(403, "STAFF_REQUIRED", "Staff permission is required.");
@@ -84,6 +84,7 @@ export function requireUser(pool: Pool, config: AppConfig) {
       );
     let subject = user;
     const workspace = isWorkspacePath(req.path);
+    const accountChange = !workspace && changesAccount(req);
     if (session.actingAsUserId && !workspace) {
       const opened = await new UserModel(pool, config.timeZone).findById(session.actingAsUserId);
       // Re-check every request: roles, suspensions and restrictions change.
@@ -91,17 +92,21 @@ export function requireUser(pool: Pool, config: AppConfig) {
       if (refusal) {
         await sessions.setActingAs(token, null);
         // A change meant for the member must never quietly land on the staff member's own account.
-        if (changesAccount(req))
+        if (accountChange)
           throw new AppError(409, "ACCOUNT_MODE_CLOSED", `The account you were working in was closed, so nothing was changed. ${refusal}`);
       } else subject = opened!;
     }
     // The page names the account it is showing. The open account lives on the sign-in, so another
     // tab may have opened, switched or closed one since; refuse rather than change someone else's.
     const shown = req.get("X-Account-Subject");
-    if (shown && !workspace && changesAccount(req) && shown !== String(subject.id))
+    if (accountChange && shown && shown !== String(subject.id))
       throw new AppError(409, "ACCOUNT_CHANGED",
         "A different account is open now than the one this page was showing, so nothing was changed. Check whose account you're in and try again.");
     if (subject !== user) assertAllowedWhileActing(req, user, subject);
+    // A tab with an older frontend might omit the subject even after another tab closed account mode.
+    if (accountChange && !shown && user.roles.some(isWorkspaceRole))
+      throw new AppError(409, "ACCOUNT_SUBJECT_REQUIRED",
+        "Reload this page, check whose account you're in, and try again. Nothing was changed.");
     res.locals.auth = {
       user: subject,
       ...(subject !== user ? { actor: user } : {}),

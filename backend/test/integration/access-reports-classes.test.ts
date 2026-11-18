@@ -95,6 +95,7 @@ const post = (p: string, b: string | object) =>
   staff
     .post("/api" + p)
     .set("X-CSRF-Token", csrf)
+    .set("X-Account-Subject", String(adminId))
     .send(b);
 const memberPost = (p: string, b: string | object) =>
   member

@@ -10,7 +10,7 @@ import { authState, requireCsrf } from "./middleware/auth.js";
 import { SessionModel } from "./models/SessionModel.js";
 import { UserModel } from "./models/UserModel.js";
 
-const isWorkspaceRole = (role: string) => role === "staff" || role === "admin";
+export const isWorkspaceRole = (role: string) => role === "staff" || role === "admin";
 const isProtectedRole = (role: string) =>
   isWorkspaceRole(role) || role === "instructor";
 
