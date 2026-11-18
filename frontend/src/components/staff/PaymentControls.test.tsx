@@ -23,6 +23,17 @@ test("free plans read \"No charge\", not the raw method \"none\"", () => {
   expect(screen.queryByText("none")).toBeNull();
 });
 
+test("a booking payment still in online checkout has no Update action and says why", () => {
+  const held = {
+    id: 43, userId: 41, membershipId: null, dayPassId: null, revision: 1, memberName: "Jordan Lee", amount: "40.00", status: "pending", method: "unspecified",
+    recordedAt: "2026-11-10T18:03:00Z", updatedAt: "2026-11-10T18:03:00Z", planName: "Equipment: Laser", reference: "", invoiceId: null, refundStatus: null, onlineCheckout: true,
+  } as Payment;
+  render(<PaymentTable items={[held, { ...held, id: 44, onlineCheckout: false }]} caption="Payments" open={null} onOpen={() => undefined} onChanged={() => undefined} />);
+  expect(screen.getAllByText("Paid by card online: the member pays through checkout, or cancel the reservation.")).toHaveLength(1);
+  expect(screen.queryByRole("button", { name: /payment #43/ })).toBeNull();
+  expect(screen.getByRole("button", { name: "Update payment #44 for Jordan Lee" })).toBeTruthy();
+});
+
 const card = {
   id: 77, userId: 41, membershipId: null, dayPassId: null, revision: 1, memberName: "Jordan Lee", amount: "14.00", status: "paid",
   method: "card", recordedAt: "2026-11-10T18:03:00Z", updatedAt: "2026-11-10T18:03:00Z", reference: "cs_1", invoiceId: null,
@@ -36,6 +47,8 @@ test("card day passes and equipment bookings are refunded through their own chec
   expect(paymentAction(card)).toBeNull();
   expect(cardRefundPath(pass)).toBe("/billing-management/passes/8d0f4c1e-1111-4222-8333-944445555666/refund");
   expect(cardRefundPath(booking)).toBe("/billing-management/equipment/31/refund");
+  // A booking its online checkout paid keeps that refund; only desk updates are blocked.
+  expect(paymentAction({ ...booking, onlineCheckout: true })).toBe("refund");
   for (const payment of [pass, booking]) {
     expect(paymentAction(payment)).toBe("refund");
     expect(paymentAction({ ...payment, refundStatus: "pending" })).toBeNull();

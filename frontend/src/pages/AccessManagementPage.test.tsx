@@ -22,6 +22,11 @@ vi.mock("../lib/api", async (original) => ({
   ...(await original<typeof import("../lib/api")>()),
   api: vi.fn(),
 }));
+const auth = vi.hoisted(() => ({
+  user: { id: 2, roles: ["admin"] } as { id: number; roles: string[] },
+  actor: null as { id: number; roles: string[] } | null,
+}));
+vi.mock("../context/AuthContext", () => ({ useAuth: () => auth }));
 const jordan = staffPerson({
     id: 12,
     firstName: "Jordan",
@@ -79,6 +84,8 @@ let cards: Record<number, NfcCard[]>,
   configured: boolean,
   mutation: (path: string, body: unknown) => Promise<unknown>;
 beforeEach(() => {
+  auth.user = { id: 2, roles: ["admin"] };
+  auth.actor = null;
   cards = { 12: [], 13: [] };
   readers = setup.readers;
   configured = true;
@@ -299,6 +306,28 @@ test("refresh cards refetches the same member and displays assignment metadata",
   expect(
     await screen.findByRole("heading", { name: "Updated card" }),
   ).toBeTruthy();
+});
+test("staff see a staff account's cards but can't change them; an administrator can", async () => {
+  cards[12] = [{ ...card }];
+  jordan.roles = ["staff"];
+  try {
+    // A member's account open in another tab makes them `user`; the signed-in staff member is `actor`.
+    auth.user = { id: 40, roles: ["member"] };
+    auth.actor = { id: 3, roles: ["staff"] };
+    mount();
+    await screen.findByText("Card ending 1234");
+    expect(screen.getByText("Only an administrator can change staff accounts.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Revoke Blue card" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Replace Blue card" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Enter a card ID manually" })).toBeNull();
+    cleanup();
+    auth.actor = { id: 2, roles: ["admin"] };
+    mount();
+    expect(await screen.findByRole("button", { name: "Revoke Blue card" })).toBeTruthy();
+    expect(screen.queryByText("Only an administrator can change staff accounts.")).toBeNull();
+  } finally {
+    jordan.roles = ["member"];
+  }
 });
 test("tap capture is explicitly confirmed using a member-bound session and shows progress", async () => {
   let finish: () => void = () => {};

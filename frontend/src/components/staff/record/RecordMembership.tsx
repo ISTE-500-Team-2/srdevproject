@@ -14,6 +14,8 @@ const ENTITLEMENT_WORDS: Record<string, string> = {
   cancelled: "Cancelled",
 };
 const entitlementTone = (s: string) => (s === "active" ? "ok" : s === "suspended" || s === "scheduled" ? "warn" : "neutral");
+/** Staff change only a live membership or pass; an ended or cancelled one is replaced by a new one. */
+const changeable = (item: Entitlement) => item.status === "active" || item.status === "suspended";
 
 /** The member's current membership or day pass, then earlier ones (five until asked for all). */
 export function RecordMembership({
@@ -34,6 +36,8 @@ export function RecordMembership({
   open: OpenDialog;
 }) {
   const { current, currentKind, earlier } = planSplit(memberships, passes);
+  // The newest card membership that will charge again: where staff stop the renewal.
+  const renewal = canManage ? (memberships.find((m) => m.autoRenews) ?? null) : null;
   return (
     <section className="today-panel" id={`mr-plan-${u.id}`} aria-labelledby={`mr-plan-title-${u.id}`}>
       <div className="today-panel-head">
@@ -45,7 +49,7 @@ export function RecordMembership({
         ) : null}
       </div>
       {current && currentKind ? (
-        <CurrentPlan item={current} kind={currentKind} held={u.status === "suspended"} first={u.firstName} canManage={canManage} open={open} />
+        <CurrentPlan item={current} kind={currentKind} held={u.status === "suspended"} first={u.firstName} canManage={canManage} renews={renewal === current} open={open} />
       ) : (
         <p className="today-empty">No current membership or day pass.{canManage ? " Sell one or record a payment taken at the desk." : ""}</p>
       )}
@@ -65,9 +69,20 @@ export function RecordMembership({
               end={
                 <>
                   <span className={`status-pill status-pill--${entitlementTone(item.effectiveStatus)}`}>{ENTITLEMENT_WORDS[item.effectiveStatus] ?? item.effectiveStatus}</span>
-                  {canManage && item.status !== "revoked" && item.effectiveStatus !== "expired" ? (
+                  {canManage && changeable(item) && item.effectiveStatus !== "expired" ? (
                     <button type="button" className="today-link" onClick={() => open({ kind: "entitlement", item, entitlementKind: kind })} aria-label={`Change ${item.plan?.name ?? kind} #${item.id}`}>
                       Change
+                    </button>
+                  ) : null}
+                  {/* Access ended or the month lapsed, but the card still renews. */}
+                  {item === renewal ? (
+                    <button
+                      type="button"
+                      className="today-link"
+                      onClick={() => open({ kind: "stopRenewal", item })}
+                      aria-label={`${item.renewalStopPending ? "Try stopping auto-renew again" : "Stop auto-renew"} for ${item.plan?.name ?? kind} #${item.id}`}
+                    >
+                      {item.renewalStopPending ? "Try stopping auto-renew again" : "Stop auto-renew"}
                     </button>
                   ) : null}
                 </>
@@ -93,6 +108,7 @@ function CurrentPlan({
   held,
   first,
   canManage,
+  renews,
   open,
 }: {
   item: Entitlement;
@@ -100,6 +116,8 @@ function CurrentPlan({
   held: boolean;
   first: string;
   canManage: boolean;
+  /** Its card renewal is still on and staff may stop it. */
+  renews: boolean;
   open: OpenDialog;
 }) {
   const name = item.plan?.name ?? (kind === "membership" ? "Membership" : "Day pass");
@@ -145,7 +163,7 @@ function CurrentPlan({
         </p>
       ) : null}
       {held && item.effectiveStatus === "active" ? <p className="mr-plan__note">Still running{item.cardBilled ? " and billing" : ""} while {first} is on hold.</p> : null}
-      {canManage && item.status !== "revoked" ? (
+      {canManage && changeable(item) ? (
         <div className="mr-plan__buttons">
           {kind === "membership" && item.endsAt && !item.cardBilled ? (
             <button type="button" className="today-button" onClick={() => open({ kind: "sell", renewal: item })}>
@@ -155,7 +173,7 @@ function CurrentPlan({
           <button type="button" className="today-button" onClick={() => open({ kind: "entitlement", item, entitlementKind: kind })}>
             {kind === "membership" ? "Change membership access" : "Change status"}
           </button>
-          {kind === "membership" && item.autoRenews ? (
+          {renews ? (
             <button type="button" className="today-button" onClick={() => open({ kind: "stopRenewal", item })}>
               {item.renewalStopPending ? "Try stopping auto-renew again" : "Stop auto-renew"}
             </button>

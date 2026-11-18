@@ -357,7 +357,8 @@ export function RecordDialogHost({
                 body: { status, revision: item.revision, reason: f.get("reason") },
               });
             } catch (error) {
-              if (error instanceof ApiError && error.status === 409) {
+              // Other refusals (such as card renewal still on) keep the server's own explanation.
+              if (error instanceof ApiError && error.status === 409 && error.code === "STALE_RECORD") {
                 onConflict();
                 throw new StaleDialog(`This ${noun} changed since you opened it. The latest is loaded; close this and check it before trying again.`);
               }
@@ -370,6 +371,7 @@ export function RecordDialogHost({
           <p className="mr-dialog__lead">
             This changes access only; it does not extend the end date or issue a refund.
             {item.cardBilled ? " It does not pause or cancel card billing." : ""}
+            {item.autoRenews ? " To end access, first choose Stop auto-renew on this membership." : ""}
           </p>
           <fieldset className="mr-options">
             <legend className="sr-only">{noun} status</legend>
@@ -381,16 +383,17 @@ export function RecordDialogHost({
         </RecordDialog>
       );
     }
-    case "stopRenewal":
+    case "stopRenewal": {
+      const item = dialog.item;
       return (
         <RecordDialog
           {...common}
-          title="Stop auto-renew"
+          title={`Stop auto-renew for ${item.plan?.name ?? "this membership"}?`}
           submitLabel="Stop auto-renew"
           danger
           onSubmit={async (f) => {
             const { endsAt, emailed } = await api<{ endsAt: string | null; emailed: boolean }>(
-              `/admin/users/${id}/memberships/${dialog.item.id}/stop-renewal`,
+              `/admin/users/${id}/memberships/${item.id}/stop-renewal`,
               { method: "POST", body: { reason: f.get("reason") } },
             );
             const last = endsAt ? `; card billing ends ${day(endsAt)}` : "";
@@ -400,20 +403,22 @@ export function RecordDialogHost({
               : `${first}’s auto-renew is off${last}. ${first} won’t get an email about it, so let them know the last day.`;
           }}
         >
-          {dialog.item.renewalStopPending && dialog.item.renewalEndsAt ? (
+          {item.renewalStopPending && item.renewalEndsAt ? (
             <p className="mr-dialog__lead">
-              The last day, {day(dialog.item.renewalEndsAt)}, is already set, but the payment provider hasn’t confirmed it. This asks
+              The last day, {day(item.renewalEndsAt)}, is already set, but the payment provider hasn’t confirmed it. This asks
               it again; the day doesn’t move.
             </p>
           ) : (
             <p className="mr-dialog__lead">
-              For when {first} can’t do it from their own account. It works as if {first} had: billing ends on the first billing
-              date at least 30 days from today, so there may be one more charge, and the membership runs until then.
+              For when {first} can’t do it from their own account, even while it’s on hold or restricted. It works as if {first}
+              had: billing ends on the first billing date at least 30 days from today, so there may be one more charge, and the
+              membership runs until then. This doesn’t change access: end or suspend it separately.
             </p>
           )}
           <Reason />
         </RecordDialog>
       );
+    }
     case "sell":
       return (
         <DraftModal open width="regular" title={dialog.renewal ? `Renew ${dialog.renewal.plan?.name ?? "membership"}` : "Sell or record a payment"} onClose={onClose} className="mr-dialog">

@@ -15,7 +15,9 @@ import {AppError, positiveId, textField} from '../domain.js';
 import {requireActor} from '../accountPolicy.js';
 import {StudioStripe} from '../studios/stripe.js';
 import {StaffModel, type Plan} from '../models/StaffModel.js';
+import {billingRenewsSql} from '../models/staff/entitlements.js';
 import {OVERLAPPING_CARD_PAYMENT_NOTE} from '../models/staff/payments.js';
+import {reasonField} from '../staffDomain.js';
 import {assertManageable} from '../services/StaffService.js';
 interface BillingRecord {id:string;userid:number;tierid:number;plan_snapshot:Plan;amount_cents:number;checkout_id:string|null;subscription_id:string|null;customer_id:string|null;status:string;created_at:Date;cancellation_effective_at:Date|null;}
 /** An app_membership_invoice row joined with its billing record's member and amount. */
@@ -130,6 +132,34 @@ export class MembershipBilling {
       if(!terminal.has(current.status)) throw new AppError(409,'RECONCILE_REQUIRED','Resume checkout once before cancelling.');
     }
   }
+  /**
+   * Staff stop a member's card renewal from the member's record, on the member's own terms: the same
+   * notice date and the same email as their own Stop auto-renew. It works while the account is on hold
+   * or restricted (when the member can't sign in and staff can't open it), so staff can stop the charges
+   * before ending access.
+   */
+  async stopRenewal(actor:number,userid:number,membershipId:number,reason:unknown) {
+    const explanation=reasonField(reason);
+    const billing=await transaction(this.pool,async db=>{
+      await assertManageable(db,await requireActor(db,actor,{staff:true}),userid);
+      return (await db.query<{id:string;renews:boolean}>(`SELECT b.id,${billingRenewsSql} AS renews FROM app_membership_invoice i
+        JOIN app_membership_billing b ON b.id=i.billing_id WHERE i.membership_id=$1 AND b.userid=$2`,[membershipId,userid])).rows[0];
+    });
+    if(!billing) throw new AppError(404,'NOT_FOUND','This membership isn’t paid by card, so there is no auto-renew to stop.');
+    // Ended billing, or a stop the payment provider already confirmed, has nothing left to stop (and
+    // nothing new for the change log). A stop still waiting on the provider is retried: cancel() reuses
+    // the last day it saved.
+    if(!billing.renews) throw new AppError(409,'RENEWAL_STOPPED','Auto-renew is already off for this membership. Refresh to see its last day.');
+    await this.cancel(userid,billing.id);
+    return transaction(this.pool,async db=>{
+      // The email goes only to an account that can receive it (not one on hold, for example).
+      const {endsAt,emailed}=(await db.query<{endsAt:Date|null;emailed:boolean}>(`SELECT b.cancellation_effective_at AS "endsAt",
+        EXISTS(SELECT 1 FROM app_notification_outbox n WHERE n.dedupe_key='membership-cancel:'||b.id::text
+          AND n.status NOT IN ('suppressed','obsolete')) AS emailed FROM app_membership_billing b WHERE b.id=$1`,[billing.id])).rows[0]!;
+      await new StaffModel(db).audit(actor,userid,'billing.renewal_stopped','membership',membershipId,explanation,null,{billingId:billing.id,endsAt});
+      return {stopped:true as const,endsAt,emailed};
+    });
+  }
   async portal(userid:number,id:string) {
     const p=this.provider();
     const r=(await this.pool.query<{customer_id:string|null}>('SELECT customer_id FROM app_membership_billing WHERE id::text=$1 AND userid=$2',[id,userid])).rows[0];
@@ -176,6 +206,9 @@ export class MembershipBilling {
       throw new AppError(400,'PAYMENT_MISMATCH','Invalid paid membership period.');
     const from=new Date(start*1000),to=new Date(end*1000);
     await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,row.userid]);
+    // Staff status changes hold the member's row while they change a membership, so this reads
+    // a suspension or ending that is being saved right now.
+    await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR SHARE',[row.userid]);
     // Stripe bills one invoice per subscription period, so a second one for a recorded period is an anomaly to sort out there.
     if((await db.query('SELECT 1 FROM app_membership_invoice WHERE billing_id=$1 AND period_start=$2 AND period_end=$3',[row.id,from,to])).rowCount)
       throw new AppError(409,'MEMBERSHIP_OVERLAP','A second paid invoice for an already recorded period needs reconciliation in Stripe.');
@@ -184,8 +217,28 @@ export class MembershipBilling {
     // Stripe has already taken this money. Record it even when another membership
     // (say, one sold at the desk) covers some of these dates: refusing would roll back
     // and lose the payment. Staff see it flagged on Payments and can refund one charge.
+    // A renewal keeps staff's decision on the period before it: a suspended or ended membership
+    // doesn't switch itself back on when the next month is paid.
+    const held=(await db.query<{status:string;statusdesc:string|null}>(`SELECT m.status,m.statusdesc FROM app_membership_invoice i
+      JOIN user_membership m ON m.membershipid=i.membership_id WHERE i.billing_id=$1 ORDER BY i.period_start DESC LIMIT 1`,[row.id])).rows[0];
     const model=new StaffModel(db);
     const membership=await model.createMembership(row.userid,row.plan_snapshot,from.toISOString(),to,row.userid,'Stripe test invoice '+invoice.id);
+    const carried=held&&(held.status==='suspended'||held.status==='revoked')?held:null;
+    let chargedAfterEnd=false;
+    if(carried) {
+      await db.query('UPDATE user_membership SET status=$2,statusdesc=$3 WHERE membershipid=$1',[membership,carried.status,carried.statusdesc]);
+      // Recorded as the system's change, with staff's own reason, so the change log shows why
+      // the new month started without access.
+      const after={status:carried.status,reason:carried.statusdesc,invoiceId:invoice.id};
+      await model.audit(null,row.userid,'entitlement.'+carried.status,'membership',membership,
+        `Card renewal kept the earlier month ${carried.status}. ${carried.statusdesc??''}`.trim(),null,after);
+      // Only a membership ended before staff had to stop renewal first (or one turned back on in
+      // Stripe) gets here still renewing: it is charged each month for months without access.
+      chargedAfterEnd=carried.status==='revoked'&&!!(await db.query(`SELECT 1 FROM app_membership_billing b WHERE b.id=$1 AND ${billingRenewsSql}`,[row.id])).rowCount;
+      if(chargedAfterEnd)
+        await model.audit(null,row.userid,'billing.charged_after_access_ended','membership',membership,
+          'Card renewal charged for a membership whose access was ended. Stop auto-renew on the member’s record and consider a refund.',null,after);
+    }
     const payment=await model.createPayment(row.userid,membership,(row.amount_cents/100).toFixed(2),'paid','card',invoice.id,
       overlap.length?OVERLAPPING_CARD_PAYMENT_NOTE:'Stripe test recurring membership',row.userid);
     await db.query('INSERT INTO app_membership_invoice(id,billing_id,membership_id,payment_id,period_start,period_end) VALUES($1,$2,$3,$4,$5,$6)',[invoice.id,row.id,membership,payment,from,to]);
@@ -193,7 +246,14 @@ export class MembershipBilling {
       'Card membership charge covers dates another membership already covers',null,{invoiceId:invoice.id,membershipId:membership,overlaps:overlap});
     await enqueueNotification(db,{userId:row.userid,kind:'payment_receipt',dedupeKey:'membership-receipt:'+invoice.id,
       payload:{amount:(row.amount_cents/100).toFixed(2),currency:'USD',reference:invoice.id,paymentId:payment,method:'Card (test mode)',membershipName:row.plan_snapshot.name,startsAt:from.toISOString(),endsAt:to.toISOString(),
-        ...(overlap.length?{instructions:'You already had a membership for some of these dates, so you may have paid twice. Ask staff at the front desk about a refund.'}:{})}});
+        // The receipt doesn't read as access granted when staff paused or ended it, and says when
+        // another membership already covered some of these dates.
+        ...(carried||overlap.length?{instructions:[
+          carried?(carried.status==='suspended'
+            ?'Staff have paused your membership access, so this payment doesn’t restore it. Contact the front desk with any questions.'
+            :`Staff ended your membership access, so this payment doesn’t restore it. Contact the front desk about ${chargedAfterEnd?'stopping renewal or ':''}a refund.`):'',
+          overlap.length?'You already had a membership for some of these dates, so you may have paid twice. Ask staff at the front desk about a refund.':'',
+        ].filter(Boolean).join(' ')}:{})}});
   }
   async invoices(actor:number) {
     await requireActor(this.pool,actor,{staff:true});

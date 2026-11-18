@@ -5,6 +5,7 @@ import { dollars, shortDate } from "../../lib/display";
 import type { Payment } from "../../lib/staffContracts";
 import {
   CardRefund,
+  checkoutNote,
   PaymentEditor,
   paymentAction,
   paymentMethodName,
@@ -75,6 +76,7 @@ export function PaymentTable({
           {items.map((p) => {
             const action = canManage ? paymentAction(p) : null;
             const note = refundNote(p);
+            const checkout = checkoutNote(p);
             const isOpen = open === p.id && action !== null;
             const detailId = `payment-${p.id}-detail`;
             const recorded = new Date(p.recordedAt);
@@ -111,6 +113,7 @@ export function PaymentTable({
                       ) : null}
                     </span>
                     {note === "Refund failed" ? <small>Check this refund in Stripe.</small> : null}
+                    {checkout ? <small>{checkout}</small> : null}
                   </td>
                   <td data-label="Amount" className="payment-table__amount">
                     {dollars(p.amount)}

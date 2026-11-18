@@ -39,6 +39,16 @@ export function refundNote(payment: Payment) {
   return null;
 }
 
+/**
+ * Why a pending payment has no desk action: its equipment booking is still in online card
+ * checkout, which settles it. Null for every other payment.
+ */
+export function checkoutNote(payment: Payment) {
+  return payment.onlineCheckout && payment.status === "pending"
+    ? "Paid by card online: the member pays through checkout, or cancel the reservation."
+    : null;
+}
+
 /** Whether Stripe took a card refund, done or on its way. Any other status means no money went back. */
 export const refundAccepted = (status: string) =>
   status === "succeeded" || status === "pending" || status === "requires_action";
@@ -69,6 +79,9 @@ export function paymentAction(payment: Payment): "update" | "refund" | null {
     // Only before any refund was asked for: a failed one can't be retried from here (see refundNote).
     return cardRefundPath(payment) && payment.status === "paid" && !payment.refundStatus ? "refund" : null;
   }
+  // A booking's online checkout settles its payment: recording it at the desk would leave the open
+  // checkout able to charge the member again. (Once paid by card, it is refunded through that booking above.)
+  if (payment.onlineCheckout) return null;
   return transitions[payment.status]?.length ? "update" : null;
 }
 

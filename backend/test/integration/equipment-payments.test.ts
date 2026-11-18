@@ -14,6 +14,8 @@ import { evaluateReaderAccess } from '../../src/services/ReaderEligibility.js';
 import { transaction } from '../../src/db.js';
 import { createApp } from '../../src/app.js';
 import { SessionModel } from '../../src/models/SessionModel.js';
+import { StaffModel } from '../../src/models/StaffModel.js';
+import { StaffService } from '../../src/services/StaffService.js';
 import { equipmentPrice } from '../../src/equipmentPricing.js';
 
 const database = 'arbor_equipment_' + randomBytes(6).toString('hex') + '_mvc_test';
@@ -471,4 +473,38 @@ test('checkout and payment never couple early building entry to early equipment 
   assert.equal(earlyMachine.allowed,false);assert.equal(earlyMachine.reason,'RESERVATION_REQUIRED');
   await assert.rejects(machineAccess(new Date(atStart.getTime()-1)),{code:'RESERVATION_REQUIRED'},'payment does not allow early use');
   assert.equal((await machineAccess(atStart)).reservationId,result.id);
+});
+
+test('a booking still in its card checkout can\'t be settled at the desk, so the member is never charged twice', async () => {
+  const admin = (await pool.query(`SELECT userid FROM "user" WHERE email='demo.admin@collaboratory.invalid'`)).rows[0].userid;
+  const result = await service.create(member, booking());
+  assert.equal(result.status, 'pending');
+  const paymentId = (await pool.query('SELECT payment_id FROM reservation WHERE reservationid=$1', [result.id])).rows[0].payment_id;
+  // Newest first, so the hold's payment is on the first page.
+  const listed = async () => (await new StaffModel(pool).payments(member)).find(p => p.id === paymentId)!;
+  assert.equal((await listed()).onlineCheckout, true);
+  const staff = new StaffService(pool, 'America/New_York');
+  for (const status of ['paid', 'void', 'waived'])
+    await assert.rejects(staff.paymentStatus(admin, paymentId, status, 'cash', '', (await listed()).revision, 'Paid at the desk'),
+      {code: 'PROVIDER_PAYMENT', message: /paid by card online/});
+  assert.equal((await listed()).status, 'pending');
+  // The member's checkout then settles that same payment, once.
+  const session = paid(await sessionFor(result.id));
+  await billing.apply(session);
+  assert.equal((await state(result.id)).status, 'confirmed');
+  const records = await pool.query('SELECT paymentid,paymentstatus FROM payment WHERE paymentid=$1 OR reference=$2', [paymentId, session.id]);
+  assert.deepEqual(records.rows, [{paymentid: paymentId, paymentstatus: 'paid'}]);
+  assert.equal((await listed()).onlineCheckout, true);
+
+  // A desk payment recorded on a hold before this guard existed, whose checkout then expired,
+  // can still be refunded at the desk.
+  const expired = await service.create(member, booking());
+  const deskPaid = (await pool.query('SELECT payment_id FROM reservation WHERE reservationid=$1', [expired.id])).rows[0].payment_id;
+  await pool.query("UPDATE payment SET paymentstatus='paid',method='cash',revision=revision+1 WHERE paymentid=$1", [deskPaid]);
+  await billing.apply(Object.assign(await sessionFor(expired.id), {status: 'expired'}));
+  assert.equal((await state(expired.id)).status, 'cancelled');
+  const refundable = (await new StaffModel(pool).payments(member)).find(p => p.id === deskPaid)!;
+  assert.deepEqual([refundable.status, refundable.onlineCheckout], ['paid', false]);
+  const refunded = await staff.paymentStatus(admin, deskPaid, 'refunded', 'cash', '', refundable.revision, 'Booking released; cash returned');
+  assert.equal(refunded.status, 'refunded');
 });

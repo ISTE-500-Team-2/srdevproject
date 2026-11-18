@@ -80,6 +80,8 @@ export interface Payment {
   equipmentReservationId?: number | null;
   /** Stripe refund state for that invoice or checkout, once a refund has been asked for. */
   refundStatus?: string | null;
+  /** An equipment booking paid by online card checkout: the checkout settles it, not the desk. */
+  onlineCheckout?: boolean;
 }
 export interface PaymentSummary {
   count: number;

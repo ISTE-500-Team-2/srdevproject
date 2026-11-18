@@ -35,6 +35,8 @@ export interface PaymentListItem {
   equipmentReservationId: number | null;
   /** Stripe state of the latest refund of the invoice or checkout above. */
   refundStatus: string | null;
+  /** An equipment booking's online card checkout owns this payment (or is still open for it); staff can't record it at the desk. */
+  onlineCheckout: boolean;
   planName: string;
 }
 
@@ -132,6 +134,8 @@ export class PaymentRepository {
       p.paymentdate AT TIME ZONE 'UTC' AS "recordedAt",p.updated_at AS "updatedAt",
       invoice.id AS "invoiceId",pass_checkout.id::text AS "passCheckoutId",equipment_checkout.reservation_id AS "equipmentReservationId",
       COALESCE(invoice.refund_status,pass_checkout.refund_status,equipment_checkout.refund_status) AS "refundStatus",
+      EXISTS(SELECT 1 FROM app_equipment_checkout c WHERE c.payment_id=p.paymentid
+        OR c.reservation_id=booking.reservationid AND c.status='pending') AS "onlineCheckout",
       COALESCE(m.plan_snapshot->>'name' || CASE WHEN ${STILL_OVERLAPS} THEN $7::text ELSE '' END,
         d.plan_snapshot->>'name',pass_checkout.plan_snapshot->>'name',t.tiername,
         CASE WHEN booking.reservationid IS NOT NULL THEN 'Equipment: '||machine.name||

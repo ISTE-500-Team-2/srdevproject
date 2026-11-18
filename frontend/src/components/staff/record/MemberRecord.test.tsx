@@ -6,10 +6,12 @@ import { MemoryRouter } from "react-router-dom";
 import type { MemberDetail, MemberRequirements } from "../../../lib/staffContracts";
 import { MemberRecord } from "./MemberRecord";
 
-const { api, reload, state, actor } = vi.hoisted(() => ({
+const { api, reload, state, actor, tab } = vi.hoisted(() => ({
   api: vi.fn(),
   reload: vi.fn(),
   actor: { id: 2, roles: ["admin"] as string[] },
+  /** A member's account opened from another tab: the sign-in shows them, with staff as the actor. */
+  tab: { opened: null as null | { id: number; roles: string[] } },
   state: { detail: null as unknown as MemberDetail, req: null as unknown as MemberRequirements, supervision: null as unknown, cards: [] as unknown[], errors: {} as Record<string, string>, overrides: [] as unknown[] },
 }));
 vi.mock("../../../lib/api", () => ({
@@ -50,7 +52,7 @@ vi.mock("../../../lib/useApi", () => ({
     return { data, loading: false, refreshing: false, error: path === null ? "" : (state.errors[kind] ?? ""), reload };
   },
 }));
-vi.mock("../../../context/AuthContext", () => ({ useAuth: () => ({ user: actor }) }));
+vi.mock("../../../context/AuthContext", () => ({ useAuth: () => (tab.opened ? { user: tab.opened, actor } : { user: actor, actor: null }) }));
 
 const user = (over: Partial<MemberDetail["user"]> = {}) => ({
   id: 14,
@@ -73,6 +75,7 @@ const user = (over: Partial<MemberDetail["user"]> = {}) => ({
 beforeEach(() => {
   actor.id = 2;
   actor.roles = ["admin"];
+  tab.opened = null;
   state.detail = {
     user: user(),
     memberships: [],
@@ -277,6 +280,113 @@ test("non-admin staff opening a staff account see it, but no controls", () => {
   expect(screen.queryByRole("button", { name: "Check in" })).toBeNull();
   expect(screen.queryByRole("button", { name: /Sell or record/ })).toBeNull();
   expect(screen.queryByRole("button", { name: /^Change / })).toBeNull();
+});
+
+test("a member's account opened in another tab doesn't take away an administrator's controls", () => {
+  tab.opened = { id: 40, roles: ["member"] };
+  state.detail = { ...state.detail, user: user({ roles: ["staff"], primaryRole: "staff" }) };
+  mount();
+  expect(screen.queryByText("Only an administrator can change staff accounts.")).toBeNull();
+  expect(screen.getByRole("button", { name: "Change roles" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Change account status" })).toBeTruthy();
+});
+
+test("a cancelled day pass can't be switched back on", () => {
+  state.detail = {
+    ...state.detail,
+    passes: [
+      { id: 8, userId: 14, planId: 2, status: "cancelled", effectiveStatus: "cancelled", revision: 2, validDate: "2099-01-08", plan: { name: "Day pass" }, reason: "" },
+      { id: 9, userId: 14, planId: 2, status: "suspended", effectiveStatus: "suspended", revision: 1, validDate: "2099-01-09", plan: { name: "Day pass" }, reason: "" },
+    ],
+  };
+  mount();
+  expect(screen.getByText("Cancelled")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Change Day pass #8" })).toBeNull();
+  // The suspended pass is the current one and keeps its control.
+  expect(screen.getByRole("button", { name: "Change status" })).toBeTruthy();
+});
+
+test("ending card membership access that still renews shows why it was refused", async () => {
+  const { ApiError } = await import("../../../lib/api");
+  state.detail.memberships = [{
+    id: 1, userId: 14, planId: 3, status: "active", effectiveStatus: "active", revision: 2,
+    startsAt: "2026-11-08T20:35:00Z", endsAt: "2099-12-09T20:35:00Z",
+    plan: { name: "Monthly" }, reason: "", cardBilled: true, autoRenews: true,
+  }];
+  mount();
+  api.mockRejectedValueOnce(new ApiError(409, "CARD_RENEWAL_ACTIVE", "This membership still renews by card."));
+  fireEvent.click(screen.getByRole("button", { name: "Change membership access" }));
+  const dialog = screen.getByRole("dialog", { name: "Monthly #1" });
+  // The step is on this record, not in View as (which can't open an account on hold or restricted).
+  expect(within(dialog).getByText(/first choose Stop auto-renew on this membership/)).toBeTruthy();
+  expect(within(dialog).queryByText(/View as/)).toBeNull();
+  fireEvent.click(within(dialog).getByRole("radio", { name: /^End access now/ }));
+  fireEvent.change(within(dialog).getByLabelText("Reason"), { target: { value: "Banned" } });
+  fireEvent.submit(within(dialog).getByRole("form"));
+  expect(await within(dialog).findByRole("alert")).toHaveProperty("textContent", "This membership still renews by card.");
+  // Not a conflict: nothing changed, so the save stays available.
+  expect((within(dialog).getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
+});
+
+test("staff stop card renewal from the record while the member is on hold and restricted", async () => {
+  state.detail.user = user({ status: "suspended", accessStatus: "suspended" });
+  state.detail.memberships = [{
+    id: 1, userId: 14, planId: 3, status: "active", effectiveStatus: "active", revision: 2,
+    startsAt: "2026-11-08T20:35:00Z", endsAt: "2099-12-09T20:35:00Z",
+    plan: { name: "Monthly" }, reason: "", cardBilled: true, autoRenews: true,
+  }];
+  api.mockResolvedValueOnce({ stopped: true, endsAt: "2099-12-09T20:35:00Z", emailed: false });
+  mount();
+  fireEvent.click(screen.getByRole("button", { name: "Stop auto-renew" }));
+  const dialog = screen.getByRole("dialog", { name: "Stop auto-renew for Monthly?" });
+  expect(within(dialog).getByText(/doesn’t change access/)).toBeTruthy();
+  fireEvent.change(within(dialog).getByLabelText("Reason"), { target: { value: "Banned" } });
+  fireEvent.submit(within(dialog).getByRole("form"));
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("/admin/users/14/memberships/1/stop-renewal", { method: "POST", body: { reason: "Banned" } }),
+  );
+  // An account on hold gets no email, so staff are asked to pass the last day on.
+  expect(await screen.findByText(/^Casey’s auto-renew is off; card billing ends Dec .*Casey won’t get an email about it/)).toBeTruthy();
+});
+
+test("a stopped card renewal says so and offers no second stop", () => {
+  state.detail.memberships = [{
+    id: 1, userId: 14, planId: 3, status: "active", effectiveStatus: "active", revision: 2,
+    startsAt: "2026-11-08T20:35:00Z", endsAt: "2099-12-09T20:35:00Z",
+    plan: { name: "Monthly" }, reason: "", cardBilled: true, autoRenews: false, renewalEndsAt: "2099-12-09T20:35:00Z",
+  }];
+  mount();
+  expect(screen.getByText(/^Auto-renew is off\. Card billing ends Dec/)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /Stop auto-renew/ })).toBeNull();
+});
+
+test("a card membership whose access ended but still charges is flagged with the way to stop it", () => {
+  state.detail.memberships = [{
+    id: 5, userId: 14, planId: 3, status: "revoked", effectiveStatus: "revoked", revision: 3,
+    startsAt: "2026-11-08T20:35:00Z", endsAt: "2099-12-09T20:35:00Z",
+    plan: { name: "Monthly" }, reason: "Banned", cardBilled: true, autoRenews: true,
+  }];
+  mount();
+  expect(screen.getByText("Card still charged after access ended")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Stop auto-renew for Monthly #5" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Stop auto-renew" }));
+  expect(screen.getByRole("dialog", { name: "Stop auto-renew for Monthly?" })).toBeTruthy();
+});
+
+test("a booking payment still in online checkout says why it has no desk action", () => {
+  state.detail.payments = {
+    items: [{
+      id: 31, userId: 14, memberName: "Casey Demo", membershipId: null, dayPassId: null, amount: "40.00", status: "pending",
+      method: "unspecified", reference: "", revision: 1, recordedAt: "2026-11-08T20:35:00Z", updatedAt: "2026-11-08T20:35:00Z",
+      planName: "Equipment: Laser", onlineCheckout: true,
+    }],
+    nextOffset: null,
+  };
+  mount();
+  expect(screen.getByText(/Paid by card online: the member pays through checkout, or cancel the reservation\./)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Update payment #31" })).toBeNull();
+  // Nothing for the desk to settle, so it isn't listed as needing staff either.
+  expect(screen.queryByText("$40.00 payment pending")).toBeNull();
 });
 
 test("a minor shows the sponsor and the tag; check-in waits for the adult", () => {
