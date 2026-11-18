@@ -185,25 +185,34 @@ test('B-015/BR-010: annual waiver reminders enter the scheduling window near exp
 });
 
 test('BR-010: membership reminders skip card subscriptions that renew themselves and name the plan',async()=>{
- const desk=await freshUser('DeskRenewal'),renewing=await freshUser('AutoRenewal'),stopped=await freshUser('StoppedRenewal');
+ const desk=await freshUser('DeskRenewal'),renewing=await freshUser('AutoRenewal'),later=await freshUser('CancelsLater'),
+  cancelled=await freshUser('CancelledRenewal'),stopped=await freshUser('StoppedRenewal');
  const ids=new Map<number,number>();
- for(const userId of [desk,renewing,stopped]) ids.set(userId,await membership(userId,-20,5));
- const card=async(userId:number,cancelAtPeriodEnd:boolean)=>{
+ for(const userId of [desk,renewing,later,cancelled,stopped]) ids.set(userId,await membership(userId,-20,5));
+ // Turning off auto-renew in the app records the date it takes effect, on a period boundary (Stripe
+ // cancel_at), and leaves cancel_at_period_end false. A period ending before that date still renews.
+ const card=async(userId:number,{cancelAtPeriodEnd=false,cancelsDaysAfterEnd}:{cancelAtPeriodEnd?:boolean;cancelsDaysAfterEnd?:number}={})=>{
   const membershipId=ids.get(userId)!,billing=randomUUID(),reference='in_remind_'+randomBytes(4).toString('hex');
   const tier=(await pool.query('SELECT tierid FROM user_membership WHERE membershipid=$1',[membershipId])).rows[0].tierid;
   const payment=await new StaffModel(pool).createPayment(userId,membershipId,'50.00','paid','card',reference,'Fixture',userId);
   await pool.query(`INSERT INTO app_membership_billing(id,userid,tierid,plan_snapshot,amount_cents,status,cancel_at_period_end) VALUES($1,$2,$3,'{"name":"x"}',5000,'active',$4)`,[billing,userId,tier,cancelAtPeriodEnd]);
-  await pool.query(`INSERT INTO app_membership_invoice(id,billing_id,membership_id,payment_id,period_start,period_end) VALUES($1,$2,$3,$4,NOW(),NOW()+INTERVAL '1 month')`,[reference,billing,membershipId,payment]);
+  await pool.query(`INSERT INTO app_membership_invoice(id,billing_id,membership_id,payment_id,period_start,period_end)
+   SELECT $1,$2,membershipid,$3,startdate AT TIME ZONE 'UTC',end_date AT TIME ZONE 'UTC' FROM user_membership WHERE membershipid=$4`,[reference,billing,payment,membershipId]);
+  if(cancelsDaysAfterEnd!==undefined) await pool.query(`UPDATE app_membership_billing b SET cancellation_effective_at=i.period_end+($2*INTERVAL '1 day')
+   FROM app_membership_invoice i WHERE i.billing_id=b.id AND b.id=$1`,[billing,cancelsDaysAfterEnd]);
  };
- await card(renewing,false);await card(stopped,true);
+ await card(renewing);await card(later,{cancelsDaysAfterEnd:30});await card(cancelled,{cancelsDaysAfterEnd:0});await card(stopped,{cancelAtPeriodEnd:true});
  await scheduleExpirationNotifications(pool);
  assert.equal((await emails('membership_expiring',renewing)).length,0,'Stripe renews it; the renewal notice covers it');
+ assert.equal((await emails('membership_expiring',later)).length,0,'auto-renew ends after a later period, so this one still renews');
  const plan=(await pool.query(`SELECT COALESCE(m.plan_snapshot->>'name',t.tiername) AS name FROM user_membership m JOIN membership_tiers t USING(tierid) WHERE m.membershipid=$1`,[ids.get(desk)])).rows[0].name;
  assert.ok(plan&&plan!=='Membership');
- for(const userId of [desk,stopped]) {
+ for(const userId of [desk,cancelled,stopped]) {
   const sent=await emails('membership_expiring',userId);
   assert.equal(sent.length,1);assert.equal(sent[0].payload.name,plan);
  }
+ // Auto-renew turned off in the app ends with this period: its reminder is still current at dispatch.
+ assert.equal(await expirationSourceCurrent(pool,cancelled,(await emails('membership_expiring',cancelled))[0].payload,new Date()),true);
  // Auto-renew back on before the reminder goes out: the queued reminder is withdrawn at dispatch.
  const queued=(await emails('membership_expiring',stopped))[0].payload;
  assert.equal(await expirationSourceCurrent(pool,stopped,queued,new Date()),true);
@@ -345,6 +354,9 @@ test('FR-032: an enabled reader going silent alerts staff once and recovery tell
  await checkReaderHealth(pool);await checkReaderHealth(pool);
  const alerts=(await emails('system_issue',administrator.id)).filter(m=>m.payload.readerId===id);
  assert.equal(alerts.length,1);assert.match(alerts[0].payload.location,new RegExp(id));
+ // A few staff, not every account: the usual five-minute target, and no wait behind other mail.
+ assert.equal(alerts[0].payload.broadcast,undefined);
+ assert.equal(alerts[0].deadline_at.getTime()-alerts[0].due_at.getTime(),5*60_000);
  assert.equal((await emails('system_issue',staffId)).filter(m=>m.payload.readerId===id).length,1);
  assert.equal((await emails('system_issue',member.id)).filter(m=>m.payload.readerId===id).length,0);
  assert.equal((await emails('system_issue',administrator.id)).length,before+1);
@@ -409,7 +421,7 @@ test('FR-032: an announcement queues every account at once with an hour to send,
  const opened=await post('/admin/service-notices',{summary:'The laser room is closed for cleaning.'},administrator);
  assert.equal(opened.status,201);
  const id=opened.body.data.id;
- const queued=(await pool.query(`SELECT userid,dedupe_key AS key,status,EXTRACT(EPOCH FROM deadline_at-due_at)::float AS seconds
+ const queued=(await pool.query(`SELECT userid,dedupe_key AS key,status,EXTRACT(EPOCH FROM deadline_at-due_at)::float AS seconds,payload->'broadcast' AS broadcast
   FROM app_notification_outbox WHERE kind='system_issue' AND payload->>'noticeId'=$1`,[String(id)])).rows;
  const active=(await pool.query(`SELECT userid FROM "user" WHERE status='active' ORDER BY userid`)).rows.map(r=>r.userid);
  assert.deepEqual(queued.map(r=>r.userid).sort((a,b)=>a-b),active);
@@ -417,12 +429,13 @@ test('FR-032: an announcement queues every account at once with an hour to send,
   assert.equal(row.key,`system_issue:${id}:${row.userid}`);
   // Personal mail has five minutes and is sent first; the announcement has an hour.
   assert.ok(Math.abs(row.seconds-3600)<60,String(row.seconds));
+  assert.equal(row.broadcast,true);
  }
  assert.equal(queued.find(r=>r.userid===optedOut).status,'suppressed');
  assert.equal(queued.find(r=>r.userid===member.id).status,'pending');
  const resolved=await post(`/admin/service-notices/${id}/resolve`,{message:'The laser room is open again.'},administrator);
  assert.equal(resolved.status,200);
- assert.equal((await pool.query(`SELECT COUNT(*)::int AS n FROM app_notification_outbox WHERE kind='service_restored' AND payload->>'noticeId'=$1`,[String(id)])).rows[0].n,active.length);
+ assert.equal((await pool.query(`SELECT COUNT(*)::int AS n FROM app_notification_outbox WHERE kind='service_restored' AND payload->>'noticeId'=$1 AND payload @> '{"broadcast":true}'`,[String(id)])).rows[0].n,active.length);
  // INTEGER ids stop at 2147483647; a larger one is a bad request, not a server error.
  const huge=await post('/admin/service-notices/9999999999/resolve',{message:'Nothing to resolve here.'},administrator);
  assert.equal(huge.status,400);assert.equal(huge.body.error.code,'INVALID_INPUT');

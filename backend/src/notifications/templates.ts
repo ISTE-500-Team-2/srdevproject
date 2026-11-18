@@ -67,6 +67,8 @@ type Details = { [F in RenderedField]?: Shown | null };
 /** Read by the worker and scheduler, or kept for the record; never rendered. */
 interface Bookkeeping {
   sourceType?: string; sourceId?: number; confirmationHash?: string; resetHash?: string; noticeId?: number; readerId?: string;
+  /** An announcement to every account: the worker sends one person's mail ahead of it. */
+  broadcast?: true;
   /** Email-change notices go to a fixed address rather than the account's current one. */
   changeHash?: string; recipientEmail?: string;
   waiverId?: number; membershipId?: number; memberId?: number; formValues?: unknown; guardianConsent?: unknown;

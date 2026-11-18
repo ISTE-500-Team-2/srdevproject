@@ -134,4 +134,9 @@ test('the member filter finds changes made to that person, not changes they made
   const either=await as(admin).get(`/admin/audit?view=staff&action=user.role_changed&userId=${admin.user.id}`);
   assert.ok(either.body.data.items.some((i:Item)=>i.id===roleChange.id));
   assert.equal((await as(admin).get('/admin/audit?subjectId=abc')).status,400);
+  // Person ids stop at 2147483647; a larger one is a bad request, not a server error.
+  for(const field of ['subjectId','userId','actorId']) {
+    const huge=await as(admin).get(`/admin/audit?${field}=9999999999`);
+    assert.equal(huge.status,400,field);assert.equal(huge.body.error.code,'INVALID_INPUT');
+  }
 });

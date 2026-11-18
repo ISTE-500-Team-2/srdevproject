@@ -68,11 +68,14 @@ poll PostgreSQL; they do not send empty requests to Brevo. This reduces queue
 polling latency, not provider or inbox delivery time. Retry/backoff rules and
 daily sending quotas are unchanged.
 
-Each tick sends the due job with the nearest deadline first, and keeps sending
-while full batches of 20 come back, for up to one interval. It stops early after
-a retryable rejection or an unconfirmed send. An administrator's announcement to
-every account is queued in one statement with a one-hour deadline, so personal
-mail (five minutes), such as a password reset, goes ahead of it.
+Each tick sends due mail to one person, such as a password reset, before an
+administrator's announcement to every account, even one still sending after its
+hour has passed. Within each group the nearest deadline goes first. The
+announcement is queued in one statement with a one-hour deadline; personal mail
+and reader alerts to staff keep five minutes. A tick keeps sending while full
+batches of 20 come back, for up to three quarters of an interval, so the next
+tick is not skipped. It stops early after a retryable rejection or an
+unconfirmed send.
 
 The worker scans expiration sources at startup and daily, and dispatches every
 minute by default. It schedules at 09:00 in the user's zone **eight calendar days**
@@ -113,7 +116,8 @@ authenticated GET/PATCH endpoints at `/api/me/notifications`; PATCH retains norm
 Scheduler supports certification renewal/end dates, explicit waiver expiration,
 and membership expiration. Membership expiry is not an auto-renewal charge;
 recurring-billing notices come from the separate billing flow, and a card
-subscription still set to renew gets no expiry reminder.
+subscription period that Stripe will renew gets no expiry reminder. Once a member
+turns off auto-renew, the period ending on its cancellation date gets one.
 
 Templates also cover sources not yet wired: account-creation failure, account
 closure, certification changes and role changes. A template alone does not

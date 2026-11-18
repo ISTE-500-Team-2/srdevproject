@@ -26,12 +26,15 @@ const reachable = async (db: Database, audience: number[]) =>
     WHERE u.userid=ANY($1::int[]) AND u.status='active' AND COALESCE(p.enabled,true)`, [audience])).rows[0]?.count ?? 0;
 
 // Reader alerts reach a few staff and keep the usual five-minute target. An announcement to every
-// account gets an hour: the worker sends the nearest deadline first, so it cannot hold up a reset link.
-const broadcastDeadline = () => new Date(Date.now() + 60 * 60_000);
-
+// account is a broadcast: it gets an hour, and the worker sends one person's mail, such as a reset
+// link, ahead of it.
 async function notify(db: Database, audience: number[], kind: "system_issue" | "service_restored", noticeId: number, payload: object,
-  deadlineAt?: Date) {
-  await enqueueNotifications(db, audience, { kind, dedupePrefix: `${kind}:${noticeId}:`, payload: { noticeId, ...payload }, deadlineAt });
+  broadcast = false) {
+  await enqueueNotifications(db, audience, {
+    kind, dedupePrefix: `${kind}:${noticeId}:`,
+    payload: { noticeId, ...payload, ...(broadcast ? { broadcast: true as const } : {}) },
+    deadlineAt: broadcast ? new Date(Date.now() + 60 * 60_000) : undefined,
+  });
 }
 
 /** Tells staff when an enabled reader goes silent and again when it returns. The
@@ -143,7 +146,7 @@ export function serviceNoticeRoutes(pool: Pool) {
         [summary, user.id, await reachable(db, audience)],
       )).rows[0];
       await new StaffModel(db).audit(user.id, null, "service_notice.opened", "app_service_notice", notice.id, reason, null, notice);
-      await notify(db, audience, "system_issue", notice.id, { reason: summary }, broadcastDeadline());
+      await notify(db, audience, "system_issue", notice.id, { reason: summary }, true);
       return notice;
     });
     res.status(201).json({ data });
@@ -164,7 +167,7 @@ export function serviceNoticeRoutes(pool: Pool) {
         [id, user.id, message],
       )).rows[0];
       await new StaffModel(db).audit(user.id, null, "service_notice.resolved", "app_service_notice", id, reason, before, after);
-      await notify(db, await everyone(db), "service_restored", id, { reason: message }, broadcastDeadline());
+      await notify(db, await everyone(db), "service_restored", id, { reason: message }, true);
       return after;
     });
     res.json({ data });

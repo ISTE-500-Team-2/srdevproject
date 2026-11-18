@@ -51,16 +51,20 @@ test('expired lease uncertain; late/failed events remain in metric denominator',
 test('an announcement to everyone queues once per account and gives way to one person\'s mail queued after it',async()=>{
  await reset();
  const everyone=(await pool.query(`SELECT userid FROM "user" WHERE status='active' ORDER BY userid`)).rows.map(r=>r.userid as number);
- const announce=()=>enqueueNotifications(pool,everyone,{kind:'system_issue',dedupePrefix:'notice:1:',payload:{reason:'Shop closed'},
-  deadlineAt:new Date(Date.now()+3_600_000)});
+ // Still sending after its hour: the deadline has passed, and one person's mail still goes first.
+ const announce=()=>enqueueNotifications(pool,everyone,{kind:'system_issue',dedupePrefix:'notice:1:',payload:{reason:'Shop closed',broadcast:true},
+  dueAt:new Date(Date.now()-3_700_000),deadlineAt:new Date(Date.now()-100_000)});
  await announce();await announce();
  const queued=(await pool.query("SELECT userid,dedupe_key FROM app_notification_outbox WHERE kind='system_issue' ORDER BY userid")).rows;
  assert.deepEqual(queued.map(r=>r.userid),everyone);
  assert.ok(queued.every(r=>r.dedupe_key===`notice:1:${r.userid}`));
  await enqueue('personal');
+ // A reader alert to a few staff is not a broadcast, so it goes ahead too.
+ await enqueueNotifications(pool,[userId],{kind:'system_issue',dedupePrefix:'reader-alert:',payload:{reason:'Reader offline',readerId:'r1'}});
  const sent:string[]=[];
- await runNotificationBatch(pool,async row=>{sent.push(row.dedupeKey);return {messageId:row.dedupeKey};},{batchSize:1});
- assert.deepEqual(sent,['personal']);
+ await runNotificationBatch(pool,async row=>{sent.push(row.dedupeKey);return {messageId:row.dedupeKey};},{batchSize:3});
+ assert.deepEqual(sent.slice(0,2),['personal',`reader-alert:${userId}`]);
+ assert.match(sent[2]!,/^notice:1:/);
 });
 test('full batches keep draining within the budget, and a retry stops the drain',async()=>{
  await reset();

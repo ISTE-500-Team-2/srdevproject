@@ -1,6 +1,7 @@
 // Membership trend queries separate historical enrollment from currently effective access.
 
 import type { Database } from "./db.js";
+import { AUTO_RENEWING_PERIODS } from "./billing/policy.js";
 
 /** Memberships are people, not invoices: renewals never become new members. */
 export async function membershipTrends(
@@ -19,9 +20,9 @@ export async function membershipTrends(
   ), membership_windows AS MATERIALIZED (
     -- Convert each stored UTC boundary once, not once per member per bucket.
     -- A card subscription still set to renew has not lapsed, even before its next invoice posts.
+    -- An uncorrelated set, so the plan is costed as one hashed lookup rather than a scan per membership.
     SELECT userid,status,startdate AT TIME ZONE 'UTC' AS starts,end_date AT TIME ZONE 'UTC' AS ends,
-      EXISTS(SELECT 1 FROM app_membership_invoice i JOIN app_membership_billing b ON b.id=i.billing_id
-        WHERE i.membership_id=user_membership.membershipid AND b.status='active' AND NOT b.cancel_at_period_end) AS renewing
+      membershipid IN (${AUTO_RENEWING_PERIODS}) AS renewing
     FROM user_membership
   ), cancellations AS MATERIALIZED (
     -- Resolve durable cancellation evidence once, not once per estimated bucket.

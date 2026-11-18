@@ -4,14 +4,11 @@
 import type { Database } from '../db.js';
 import { enqueueNotification } from './store.js';
 import { reminderDates } from './reminderTiming.js';
+import { AUTO_RENEWING_PERIODS } from '../billing/policy.js';
 
 export { reminderDates };
 
 export const EXPIRATION_LOOKAHEAD_DAYS=30;
-/** A paid period of a card subscription that is still set to renew: Stripe renews it, so it is not
- * expiring and gets no reminder. Members get the billing flow's renewal notice instead. */
-const autoRenewing=(membership:string)=>`EXISTS(SELECT 1 FROM app_membership_invoice i JOIN app_membership_billing b ON b.id=i.billing_id
-    WHERE i.membership_id=${membership} AND b.status='active' AND NOT b.cancel_at_period_end)`;
 interface ExpirationSource {userId:number; sourceType:'certification'|'waiver'|'membership';sourceId:number;expiresAt:Date;grantedAt:Date|null;name:string;timeZone:string}
 export async function scheduleExpirationNotifications(db:Database,now=new Date()):Promise<number> {
   const {rows}=await db.query<ExpirationSource>(`WITH expirations AS (
@@ -24,7 +21,8 @@ export async function scheduleExpirationNotifications(db:Database,now=new Date()
     UNION ALL
     SELECT um.userid,'membership',um.membershipid,um.end_date AT TIME ZONE 'UTC',um.startdate AT TIME ZONE 'UTC',
       COALESCE(um.plan_snapshot->>'name',t.tiername,'Membership')
-    FROM user_membership um LEFT JOIN membership_tiers t USING(tierid) WHERE um.status='active' AND NOT ${autoRenewing('um.membershipid')}
+    -- Stripe renews a card period still set to renew, so it gets the billing flow's renewal notice instead.
+    FROM user_membership um LEFT JOIN membership_tiers t USING(tierid) WHERE um.status='active' AND um.membershipid NOT IN (${AUTO_RENEWING_PERIODS})
   ) SELECT e.userid AS "userId",source_type AS "sourceType",source_id AS "sourceId",expires_at AS "expiresAt",granted_at AS "grantedAt",name,
     COALESCE(p.time_zone,'America/New_York') AS "timeZone"
     FROM expirations e JOIN "user" u USING(userid) LEFT JOIN app_notification_preferences p USING(userid)
@@ -52,7 +50,7 @@ export async function expirationSourceCurrent(db:Database,userId:number,payload:
     :payload.sourceType==='waiver' ? `SELECT 1 FROM user_waiver uw JOIN waiver w USING(waiverid)
     WHERE uw.userid=$1 AND uw.userwaiverid=$2 AND uw.approval=true AND w.isactive=true AND date_trunc('milliseconds',uw.expires_at)=$3`
     :payload.sourceType==='membership' ? `SELECT 1 FROM user_membership um WHERE um.userid=$1 AND um.membershipid=$2 AND um.status='active'
-    AND date_trunc('milliseconds',um.end_date AT TIME ZONE 'UTC')=$3 AND NOT ${autoRenewing('um.membershipid')}`
+    AND date_trunc('milliseconds',um.end_date AT TIME ZONE 'UTC')=$3 AND um.membershipid NOT IN (${AUTO_RENEWING_PERIODS})`
     :null;
   return sql ? (await db.query(sql,values)).rows.length>0 : false;
 }

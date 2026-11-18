@@ -32,7 +32,8 @@ export function startNotificationRuntime(pool: Pool, config?: NotificationConfig
         lastScan = Date.now();
       }
       stage = 'dispatch_batch';
-      // Keeps sending while full batches come back, for up to one interval.
+      // Keeps sending while full batches come back. The budget leaves a quarter of the interval for
+      // the last batch and the reader check, so the next tick is not skipped.
       await drainNotificationBatches(pool, async job => {
         let content: ReturnType<typeof renderNotification>;
         try {
@@ -62,7 +63,7 @@ export function startNotificationRuntime(pool: Pool, config?: NotificationConfig
             });
           throw error;
         }
-      }, { budgetMs: config.intervalMs, stopping: () => stopped });
+      }, { budgetMs: Math.floor(config.intervalMs * 3 / 4), stopping: () => stopped });
       stage = 'reader_health';
       await checkReaderHealth(pool);
     })().catch(error => {
