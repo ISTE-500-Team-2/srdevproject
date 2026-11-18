@@ -311,8 +311,10 @@ const CardNav = ({
 
     fit();
     render();
+    // Content can grow without a CardNav render (a late font swap, the footer resizing itself), so it is fitted again
+    // here. fit() only writes the cap when its value changes, so the resize it causes settles on the next call.
     const observer = new ResizeObserver(() => {
-      state.height = content.offsetHeight;
+      fit();
       render();
     });
     observer.observe(content);
