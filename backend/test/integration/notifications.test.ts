@@ -5,6 +5,7 @@ import {Pool} from 'pg';
 import {initializeDemo} from '../../src/scripts/init-demo.js';
 import {enqueueNotification,enqueueNotifications,notificationMetrics,updateNotificationPreferences} from '../../src/notifications/store.js';
 import {drainNotificationBatches,runNotificationBatch,NotificationSendError} from '../../src/notifications/worker.js';
+import {previousNotificationCandidate} from '../helpers/previousNotificationClaim.js';
 import {scheduleExpirationNotifications} from '../../src/notifications/scheduler.js';
 const database='arbor_'+randomBytes(6).toString('hex')+'_notification_mvc_test';
 const admin=new Pool({connectionTimeoutMillis:5000});
@@ -30,10 +31,57 @@ test('durable dedupe and concurrent workers send one event once',async()=>{
  await Promise.all([runNotificationBatch(pool,send),runNotificationBatch(pool,send)]);
  assert.equal(count,1);assert.equal((await pool.query('SELECT status FROM app_notification_outbox')).rows[0].status,'accepted');
 });
+test('the previous worker skips all new kinds and the current worker sends them',async()=>{
+  await reset();
+  const kinds = [
+    'account_exists',
+    'membership_cancellation_confirmed',
+    'reservation_cancelled_by_staff',
+    'admin_studio_reservation_confirmed',
+    'admin_studio_reservation_cancelled',
+  ] as const;
+  // Give the new notices earlier due times, so each would outrank the compatible job.
+  const dueAt = new Date(Date.now()-60_000);
+  for (const kind of kinds)
+    await enqueueNotification(pool,{userId,kind,dedupeKey:kind,payload:{},dueAt});
+  await enqueue('compatible');
+  const now = new Date();
+  assert.equal(await previousNotificationCandidate(pool,now),'account_created');
+  assert.equal((await notificationMetrics(pool)).pending,kinds.length+1);
+
+  const sent: string[] = [];
+  const result = await runNotificationBatch(pool,async row=>{
+    sent.push(row.kind);
+    return {messageId:row.dedupeKey};
+  },{now});
+  assert.equal(result.accepted,kinds.length+1);
+  assert.deepEqual(sent,[...kinds,'account_created']);
+});
+
+test('a deferred or retried new kind stays hidden from the previous worker',async()=>{
+  await reset();
+  await enqueueNotification(pool,{userId,kind:'reservation_cancelled_by_staff',dedupeKey:'cutover-retry',payload:{}});
+  const now = new Date();
+  const deferred = await runNotificationBatch(pool,async()=>{
+    throw new NotificationSendError('account refused',{retryable:false,account:true});
+  },{now});
+  assert.equal(deferred.deferred,1);
+  assert.equal(await previousNotificationCandidate(pool,now),undefined);
+
+  const retried = await runNotificationBatch(pool,async()=>{
+    throw new NotificationSendError('rate limited',{retryable:true});
+  },{now});
+  assert.equal(retried.retried,1);
+  const next = new Date(now.getTime()+31_000);
+  assert.equal(await previousNotificationCandidate(pool,next),undefined);
+  const accepted = await runNotificationBatch(pool,async row=>({messageId:row.dedupeKey}),{now:next});
+  assert.equal(accepted.accepted,1);
+});
 test('all-event opt-out suppresses queued and newly enqueued events',async()=>{
- await reset();await enqueue('before');await updateNotificationPreferences(pool,userId,{enabled:false,timeZone:'Europe/Zagreb'});await enqueue('after');
- await runNotificationBatch(pool,async()=>{throw new Error('must not send');});
- assert.equal((await pool.query("SELECT COUNT(*)::int n FROM app_notification_outbox WHERE status='suppressed'")).rows[0].n,2);
+ await reset();await enqueue('before');await enqueue('before-v2',{kind:'reservation_cancelled_by_staff'});
+ await updateNotificationPreferences(pool,userId,{enabled:false,timeZone:'Europe/Zagreb'});await enqueue('after');
+ // The opt-out updates both queue states immediately, even if no worker is running yet.
+ assert.equal((await pool.query("SELECT COUNT(*)::int n FROM app_notification_outbox WHERE status='suppressed'")).rows[0].n,3);
 });
 test('known rejections retry boundedly; ambiguous timeout is not replayed',async()=>{
  await reset();await enqueue('retry');const now=new Date(Date.now()+1000);

@@ -98,7 +98,7 @@ export async function consumeEmailChange(db: Database, token: unknown) {
   // The old inbox no longer controls the account: its reset links stop working.
   await db.query('DELETE FROM app_password_reset WHERE userid=$1', [account.userid]);
   await db.query(`UPDATE app_notification_outbox SET status='obsolete',counts_for_sla=false,updated_at=NOW()
-    WHERE userid=$1 AND kind='password_reset' AND status='pending'`, [account.userid]);
+    WHERE userid=$1 AND kind='password_reset' AND status IN ('pending','pending_v2')`, [account.userid]);
   await retireLinkMail(db, account.userid);
   return { userId: account.userid, previousEmail: account.email, email: consumed.email };
 }

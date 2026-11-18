@@ -104,7 +104,7 @@ test("a new sign-in email applies only once its link is opened", async () => {
   assert.deepEqual(Object.keys(taken.body.data.pendingEmail).sort(), ["email", "expiresAt"]);
   assert.deepEqual(await outbox(me.user.id, "email_change_confirmation"), []);
   const otherId = (await pool.query("SELECT userid FROM \"user\" WHERE email=$1", [other.email])).rows[0].userid;
-  assert.deepEqual((await outbox(otherId, "account_exists")).map((r) => r.status), ["pending"]);
+  assert.deepEqual((await outbox(otherId, "account_exists")).map((r) => r.status), ["pending_v2"]);
   assert.equal((await ask({ email: "robin.new@example.invalid", currentPassword: "WrongPassword1!" })).body.error.code, "CURRENT_PASSWORD_INVALID");
 
   const asked = await ask({ email: "Robin.New@Example.invalid", currentPassword: account.password });

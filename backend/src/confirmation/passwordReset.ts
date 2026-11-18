@@ -29,7 +29,7 @@ export async function issuePasswordReset(db: Database, userId: number, origin: s
   const tokenHash = hash(token);
   const expiresAt = new Date(Date.now() + resetLifetimeMs);
   await db.query(`UPDATE app_notification_outbox SET status='obsolete',counts_for_sla=false,updated_at=NOW()
-    WHERE userid=$1 AND kind='password_reset' AND status='pending'`, [userId]);
+    WHERE userid=$1 AND kind='password_reset' AND status IN ('pending','pending_v2')`, [userId]);
   await db.query(`INSERT INTO app_password_reset(userid,token_hash,expires_at) VALUES($1,$2,$3)
     ON CONFLICT(userid) DO UPDATE SET token_hash=EXCLUDED.token_hash,expires_at=EXCLUDED.expires_at,created_at=NOW()`,
     [userId, tokenHash, expiresAt]);
@@ -76,7 +76,7 @@ export async function consumePasswordReset(db: Database, token: unknown, passwor
       VALUES($1,$1,'profile.email_change_cancelled','user',$1,'Cancelled because the password was reset',$2)`,
       [account.userid, JSON.stringify({ pendingEmail: cancelled })]);
   await db.query(`UPDATE app_notification_outbox SET status='obsolete',counts_for_sla=false,updated_at=NOW()
-    WHERE userid=$1 AND kind IN ('password_reset','account_confirmation') AND status='pending'`, [account.userid]);
+    WHERE userid=$1 AND kind IN ('password_reset','account_confirmation') AND status IN ('pending','pending_v2')`, [account.userid]);
   await enqueueNotification(db, { userId: account.userid, kind: 'password_changed',
     dedupeKey: `password-changed:${tokenHash}`, payload: {} });
 }

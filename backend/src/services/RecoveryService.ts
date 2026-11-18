@@ -62,7 +62,7 @@ export class RecoveryService {
           // A link sent to the old inbox must not confirm ownership of the new one.
           await db.query('DELETE FROM app_password_reset WHERE userid=$1', [account.id]);
           await db.query(`UPDATE app_notification_outbox SET status='obsolete',counts_for_sla=false,updated_at=NOW()
-            WHERE userid=$1 AND kind='password_reset' AND status='pending'`, [account.id]);
+            WHERE userid=$1 AND kind='password_reset' AND status IN ('pending','pending_v2')`, [account.id]);
         }
         await issueEmailConfirmation(db, account.id, this.origin);
       });

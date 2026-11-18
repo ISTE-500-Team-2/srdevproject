@@ -46,7 +46,7 @@ export async function runNotificationBatch(pool:Pool,send:Send,options:{batchSiz
         LEFT JOIN app_notification_preferences p ON p.userid=o.userid
         -- One person's mail, such as a reset link, goes ahead of an announcement to every account, even
         -- one still sending after its hour has passed. Within each group, the nearest deadline goes first.
-        WHERE o.status='pending' AND o.due_at<=$1 ORDER BY o.payload @> '{"broadcast":true}',o.deadline_at,o.id
+        WHERE o.status IN ('pending','pending_v2') AND o.due_at<=$1 ORDER BY o.payload @> '{"broadcast":true}',o.deadline_at,o.id
         LIMIT 1 FOR UPDATE OF o SKIP LOCKED`,[clock()]);
       const item=selected.rows[0];
       if(!item)return null;

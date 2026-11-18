@@ -120,7 +120,7 @@ test('signing up with an address that has an account looks like any sign-up, and
   assert.equal((await pool.query('SELECT 1 FROM app_pending_registration WHERE email=$1',['demo.member@collaboratory.invalid'])).rowCount,0);
   const notices=async()=>(await pool.query(`SELECT o.kind,o.status FROM app_notification_outbox o JOIN "user" u USING(userid)
     WHERE u.email='demo.member@collaboratory.invalid' AND o.kind='account_exists'`)).rows;
-  assert.deepEqual(await notices(),[{kind:'account_exists',status:'pending'}]);
+  assert.deepEqual(await notices(),[{kind:'account_exists',status:'pending_v2'}]);
   // Repeated attempts don't flood the owner's inbox.
   await request(createApp(pool,config)).post('/api/auth/register').send(person('demo.member@collaboratory.invalid'));
   assert.equal((await notices()).length,1);
@@ -137,7 +137,7 @@ test('signing up with an older unconfirmed account\'s address emails that accoun
   const id=await new UserModel(pool).create({...person(email),password:await hashPassword('LegacyPassword!')});
   await pool.query(`UPDATE "user" SET email_confirmed=false,status='pending' WHERE userid=$1`,[id]);
   assert.equal((await request(createApp(pool,config)).post('/api/auth/register').send(person(email))).status,202);
-  assert.deepEqual((await pool.query(`SELECT status FROM app_notification_outbox WHERE userid=$1 AND kind='account_exists'`,[id])).rows,[{status:'pending'}]);
+  assert.deepEqual((await pool.query(`SELECT status FROM app_notification_outbox WHERE userid=$1 AND kind='account_exists'`,[id])).rows,[{status:'pending_v2'}]);
   const sent:string[]=[];
   await runNotificationBatch(pool,async job=>{if(job.email===email)sent.push(job.kind);return{messageId:'legacy-'+randomBytes(6).toString('hex')};},{batchSize:100});
   assert.deepEqual(sent,['account_exists']);
