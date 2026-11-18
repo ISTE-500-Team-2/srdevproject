@@ -89,7 +89,7 @@ test('a category keeps one spelling, and leaves the list with its last machine',
   // The demo's removed CNC machine was the only one in its category.
   assert.equal(catalog.categories.includes('CNC machining'), false);
   const printers = catalog.groups.find((g: { name: string }) => g.name === '3D printer');
-  assert.ok(printers.machines.some((m: { id: number; image: string }) => m.id === joined.body.data.id && m.image === '/assets/3d-printer.webp'));
+  assert.ok(printers.machines.some((m: { id: number; image: string; type: string }) => m.id === joined.body.data.id && m.image === '/assets/3d-printer.webp' && m.type === '3D printer'));
   await retire(lone);
   assert.equal((await options()).categories.includes('Band saw'), false);
 });
@@ -162,6 +162,9 @@ test('a save into a category waits for one already in progress there, then sees 
 
 test('older machines that already share a name stay editable as long as the name and category are kept', async () => {
   await machine('Legacy twin', 'Legacy press', 10);
+  // Stored before names and categories were trimmed on save.
+  const padded = await machine('Legacy twin ', 'legacy press ', 10);
+  assert.equal((await edit(padded, { ...fields({ name: 'Legacy twin', type: 'legacy press', rate: 10 }), location: 'Back room', expectedRevision: 1 })).status, 200);
   const other = await machine('legacy TWIN', 'legacy PRESS', 10);
   const moved = await edit(other, { ...fields({ name: 'legacy TWIN', type: 'legacy PRESS', rate: 10 }), location: 'Back room', expectedRevision: 1 });
   assert.equal(moved.status, 200, JSON.stringify(moved.body));
@@ -201,4 +204,11 @@ test('a reader cannot be set up on a machine whose removal is in progress', asyn
     await setup.query('ROLLBACK').catch(() => {});
     remover.release(); setup.release();
   }
+});
+
+test('the options say whether an equipment waiver is published', async () => {
+  assert.equal((await options()).equipmentWaiver, true, 'the demo publishes one');
+  await pool.query("UPDATE waiver SET isactive=false WHERE policy_scope='equipment'");
+  try { assert.equal((await options()).equipmentWaiver, false); }
+  finally { await pool.query("UPDATE waiver SET isactive=true WHERE policy_scope='equipment'"); }
 });

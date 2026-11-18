@@ -19,12 +19,15 @@ export interface CertificationOption {
   /** Members with active access who hold it today. */
   holders?: number;
 }
-interface CatalogMachine { id: number; name: string; image: string }
+/** `type` is the machine's own category spelling, which decides its member card. */
+interface CatalogMachine { id: number; name: string; image: string; type?: string }
 export interface AddOptions {
   canManage: boolean;
   certifications: CertificationOption[];
   /** Categories still in the catalog, with their machines in member-page order. */
   groups?: { name: string; machines: CatalogMachine[] }[];
+  /** Whether an equipment waiver is published; without one, booking a machine that requires it fails. */
+  equipmentWaiver?: boolean;
 }
 export interface Added { id: number; name: string; note: string }
 type Tone = 'ok' | 'warn' | 'bad';
@@ -108,7 +111,7 @@ export function EquipmentAdd({ onClose, onAdded }: { onClose: () => void; onAdde
   // The member page shows one card per display group, its first machine's picture on top.
   const card = chosenCategory ? (() => {
     const title = equipmentGroup(chosenCategory);
-    return { title, machines: groups.filter(g => equipmentGroup(g.name) === title).flatMap(g => g.machines).sort((a, b) => a.id - b.id) };
+    return { title, machines: groups.flatMap(g => g.machines.filter(m => equipmentGroup(m.type ?? g.name) === title)).sort((a, b) => a.id - b.id) };
   })() : null;
   const trimmed = name.trim();
   // Names are unique within a category, as the server requires; a merged card labels each machine with its category.
@@ -133,13 +136,21 @@ export function EquipmentAdd({ onClose, onAdded }: { onClose: () => void; onAdde
     : later ? { tone: 'warn', title: `Needs ${cert.name}`, note: `It starts ${day(cert.startsOn)}. No one can book before then` }
     : cert.holders === 0 ? { tone: 'warn', title: `Needs ${cert.name}`, note: 'No member holds it yet' }
     : { tone: 'ok', title: `Needs ${cert.name}`, note: cert.holders === undefined ? 'Members need it to book' : `${plural(cert.holders, 'member')} hold${cert.holders === 1 ? 's' : ''} it today` };
+  const noWaiver = waiver && options.data?.equipmentWaiver === false;
   const items: Item[] = [listing, price, certItem,
-    waiver ? { tone: 'ok', title: 'Equipment waiver', note: 'Unsigned members are asked first' } : { tone: 'ok', title: 'No waiver needed', note: 'Members can book without signing' }];
+    !waiver ? { tone: 'ok', title: 'No waiver needed', note: 'Members can book without signing' }
+    : noWaiver ? { tone: 'warn', title: 'Equipment waiver', note: 'None is published yet. No one can book until one is' }
+    : { tone: 'ok', title: 'Equipment waiver', note: 'Unsigned members are asked first' }];
   const bad = items.filter(i => i.tone === 'bad').length;
   const warn = items.some(i => i.tone === 'warn');
+  // What still stands between members and a booking once the machine is added.
+  const waits = [
+    later ? `From ${day(cert!.startsOn)}, members who hold ${cert!.name} can book it.` : '',
+    cert?.state !== 'later' && cert?.holders === 0 ? `Members need ${cert.name} to book it, and no one holds it yet.` : '',
+    noWaiver ? 'No one can book it until an equipment waiver is published.' : '',
+  ].filter(Boolean);
   const footer = bad ? `Fix ${plural(bad, 'item')} in the booking check to add this machine.`
-    : later ? `You can add it now. Members can book from ${day(cert!.startsOn)}.`
-    : warn ? 'You can add it now. No member holds this certification yet.'
+    : waits.length ? `You can add it now. ${waits.join(' ')}`
     : 'Members can book it as soon as you add it.';
 
   // Preview: the card as members will see it.
@@ -205,8 +216,7 @@ export function EquipmentAdd({ onClose, onAdded }: { onClose: () => void; onAdde
         method: 'POST',
         body: { name: trimmed, type: chosenCategory, location: location.trim(), image: chosenPicture, rate: price.rate, certId, waiverRequired: waiver },
       });
-      onAdded({ id: saved.id, name: trimmed, note: later ? `Members can book it from ${day(cert!.startsOn)}.`
-        : cert?.holders === 0 ? `Members need ${cert.name} to book it, and no one holds it yet.` : 'Members can book it now.' });
+      onAdded({ id: saved.id, name: trimmed, note: waits.length ? waits.join(' ') : 'Members can book it now.' });
     } catch (err) { setError(errorMessage(err)); }
     finally { setBusy(false); }
   };

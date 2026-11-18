@@ -317,3 +317,22 @@ test('an unsaved Add equipment form survives the midnight refresh of the board',
     vi.useRealTimers();
   }
 });
+
+test('after the new machine is revealed once, choosing another machine sticks', async () => {
+  observedWidth = 1600;
+  canAdd();
+  mount();
+  const dialog = await startAdding('Glowforge Pro');
+  const category = within(dialog).getByRole('combobox', { name: 'Category' });
+  fireEvent.focus(category); fireEvent.change(category, { target: { value: 'Laser engraver' } }); fireEvent.blur(category);
+  fireEvent.change(within(dialog).getByLabelText('Hourly rate in dollars'), { target: { value: '20' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Add equipment' }));
+  expect(await screen.findByRole('complementary', { name: 'Glowforge Pro details' })).toBeTruthy();
+  fireEvent.click(await row('Kirk'));
+  expect(await screen.findByRole('complementary', { name: 'Kirk details' })).toBeTruthy();
+  const search = screen.getByPlaceholderText('Find a machine…');
+  fireEvent.change(search, { target: { value: 'Kirk' } });
+  fireEvent.change(search, { target: { value: '' } });
+  await row('Glowforge Pro');
+  expect(screen.getByRole('complementary', { name: 'Kirk details' })).toBeTruthy();
+});

@@ -64,10 +64,11 @@ export class EquipmentCatalogService {
    * each) with their machines, and every certification with whether it is in effect and who holds it.
    */
   async options(user: UserView) {
-    const [groups, certifications] = await Promise.all([
-      this.pool.query<{ name: string; machines: { id: number; name: string; image: string }[] }>(`
+    const [groups, certifications, waiver] = await Promise.all([
+      // Each machine keeps its own spelling (its member-facing type); the group offers the most used one.
+      this.pool.query<{ name: string; machines: { id: number; name: string; image: string; type: string }[] }>(`
         SELECT mode() WITHIN GROUP (ORDER BY trim(e.category)) AS name,
-          json_agg(json_build_object('id',e.equipmentid,'name',e.name,'image',COALESCE(e.imagepath,'/assets/3d-printer.webp'))
+          json_agg(json_build_object('id',e.equipmentid,'name',e.name,'image',COALESCE(e.imagepath,'/assets/3d-printer.webp'),'type',e.category)
             ORDER BY e.equipmentid) AS machines
         FROM equipment e WHERE trim(COALESCE(e.category,'')) <> '' AND ${active}
         GROUP BY lower(trim(e.category)) ORDER BY 1`),
@@ -83,12 +84,16 @@ export class EquipmentCatalogService {
             WHERE uc.certid=c.certid AND uc.status='active' AND u.accessstatus='active'
               AND (uc.renewaldate IS NULL OR uc.renewaldate>=NOW() AT TIME ZONE 'UTC')) AS holders
         FROM certifications c ORDER BY c.name`, [this.timeZone]),
+      // Booking a machine that requires the waiver fails until one is published (AccessService.assertWaivers).
+      this.pool.query<{ ready: boolean }>(`SELECT EXISTS(SELECT 1 FROM waiver WHERE isactive AND required AND policy_scope='equipment'
+        AND (effectivedate IS NULL OR effectivedate<=NOW() AT TIME ZONE 'UTC')) AS ready`),
     ]);
     return {
       canManage: user.roles.includes('admin'),
       categories: groups.rows.map(group => group.name),
       certifications: certifications.rows,
       groups: groups.rows,
+      equipmentWaiver: waiver.rows[0]!.ready,
     };
   }
 
@@ -115,8 +120,8 @@ export class EquipmentCatalogService {
           throw new AppError(400, 'INVALID_INPUT', 'That certification has ended, so no one could book this equipment. Choose one that is in effect.');
       }
       // A new or changed name or category is checked; an edit that keeps both leaves older data as it is.
-      const categoryChanged = !before || before.type !== f.category;
-      if (categoryChanged || before.name !== f.name) {
+      const categoryChanged = !before || before.type.trim() !== f.category;
+      if (categoryChanged || before.name.trim() !== f.name) {
         // Saves into one category take turns, so two can't both pass the checks below.
         await db.query("SELECT pg_advisory_xact_lock(hashtext('arbor-equipment-category'),hashtext(lower($1)))", [f.category]);
         // One category, one spelling: "3d printer" joins the existing "3D printer".

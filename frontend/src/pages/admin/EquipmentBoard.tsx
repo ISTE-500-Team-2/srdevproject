@@ -88,10 +88,12 @@ function BoardContent({ day, zone, now, machines, onAdd, added }: { day: string;
   const query = search.toLowerCase().trim();
   const visible = rows.filter(r => (filter === 'all' || (filter === 'use' && r.live) || (filter === 'booked' && r.bookedToday) || (filter === 'down' && r.down))
     && `${r.machine.name} ${r.machine.type} ${r.machine.location}`.toLowerCase().includes(query));
-  // Once it is listed, it opens beside the list (on a wide screen) and scrolls into view.
+  // Once it is listed, it opens beside the list (on a wide screen) and scrolls into view, once per addition.
   const addedShown = !!added && visible.some(r => r.machine.id === added.id);
+  const revealed = useRef<Added | null>(null);
   useEffect(() => {
-    if (!added || !addedShown) return;
+    if (!added || !addedShown || revealed.current === added) return;
+    revealed.current = added;
     setSelected(added.id);
     document.querySelector('.eq-row--new')?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
   }, [added, addedShown]);

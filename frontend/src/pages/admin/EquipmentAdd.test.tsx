@@ -97,7 +97,7 @@ test('ended certifications are listed but cannot be required; one that starts la
   expect(screen.queryByRole('listbox')).toBeNull();
   expect(within(dialog).getByText('Resin casting starts Dec 1. Members can’t book this machine before then.')).toBeTruthy();
   type(dialog, 'Name', 'Resin pot'); category(dialog, 'Resin'); type(dialog, 'Hourly rate in dollars', '8');
-  expect(footer(dialog)).toBe('You can add it now. Members can book from Dec 1.');
+  expect(footer(dialog)).toBe('You can add it now. From Dec 1, members who hold Resin casting can book it.');
   expect(add(dialog).disabled).toBe(false);
   // In effect but held by no one yet: allowed, with a warning.
   await pickCertification(dialog, /^Laser safety/);
@@ -184,4 +184,33 @@ test('the confirmation says so when no member holds the required certification y
   await pickCertification(dialog, /^Laser safety/);
   fireEvent.click(add(dialog));
   await waitFor(() => expect(onAdded).toHaveBeenCalledWith({ id: 12, name: 'Fiber laser', note: 'Members need Laser safety to book it, and no one holds it yet.' }));
+});
+
+test('without a published equipment waiver, a machine that requires one is added with a warning', async () => {
+  options.equipmentWaiver = false;
+  const dialog = await open();
+  type(dialog, 'Name', 'Fiber laser'); category(dialog, 'Laser engraver'); type(dialog, 'Hourly rate in dollars', '30');
+  expect(check(dialog)).toContain('None is published yet. No one can book until one is');
+  expect(footer(dialog)).toBe('You can add it now. No one can book it until an equipment waiver is published.');
+  // Not requiring the waiver clears it.
+  fireEvent.click(within(dialog).getByRole('switch', { name: /equipment waiver/ }));
+  expect(footer(dialog)).toBe('Members can book it as soon as you add it.');
+  fireEvent.click(within(dialog).getByRole('switch', { name: /equipment waiver/ }));
+  fireEvent.click(add(dialog));
+  await waitFor(() => expect(onAdded).toHaveBeenCalledWith({ id: 12, name: 'Fiber laser', note: 'No one can book it until an equipment waiver is published.' }));
+});
+
+test('the preview follows each machine’s own spelling, as the member page does', async () => {
+  // An older machine spelled differently stays on its own member card.
+  options.groups = [{ name: 'Bench Grinder', machines: [
+    { id: 20, name: 'Old grinder', image: '/old.webp', type: 'Bench grinder' },
+    { id: 21, name: 'Grinder A', image: '/a.webp', type: 'Bench Grinder' },
+    { id: 22, name: 'Grinder B', image: '/b.webp', type: 'Bench Grinder' },
+  ] }];
+  const dialog = await open();
+  type(dialog, 'Name', 'Grinder C'); category(dialog, 'bench grinder');
+  const preview = within(dialog).getByRole('complementary', { name: 'Preview and booking check' });
+  expect(preview.textContent).toContain('Grinder A · Grinder B · Grinder C');
+  expect(preview.textContent).not.toContain('Old grinder');
+  expect(preview.querySelector('.eqa-tile img')!.getAttribute('src')).toBe('/a.webp');
 });
