@@ -31,7 +31,7 @@ export function MemberCards({
     kind: "revoke" | "reactivate";
   } | null>(null);
   const [replacement, setReplacement] = useState<NfcCard | null>(null);
-  // Changes only when staff start or leave a replacement, which restarts the assignment.
+  // Changes only when staff start, switch or leave a replacement, which restarts the assignment.
   const [assignment, setAssignment] = useState(0);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
@@ -171,6 +171,8 @@ export function MemberCards({
                   type="button"
                   className="button button--quiet"
                   onClick={() => {
+                    // Already replacing this card: keep the scan and what was typed.
+                    if (replacement?.id === card.id) return;
                     setReplacement(card);
                     setAssignment((n) => n + 1);
                     setError("");

@@ -1,6 +1,6 @@
 // Staff access workspace combines card/member lookup, reader setup and decision history.
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useApi } from "../lib/useApi";
 import type { Person } from "../lib/staffContracts";
@@ -35,6 +35,15 @@ export function AccessManagementPage() {
   const setup = useApi<ReaderSetup>("/admin/access/readers", {
     retainOnReload: true,
   });
+  // Readers change while another section is open, for example when a guided setup finishes:
+  // reload them on each switch instead of showing the list fetched when the page opened.
+  const shownView = useRef(view);
+  const reloadSetup = setup.reload;
+  useEffect(() => {
+    if (shownView.current === view) return;
+    shownView.current = view;
+    reloadSetup();
+  }, [view, reloadSetup]);
   const person =
     detail.data?.user.id === Number(member) ? detail.data.user : undefined;
   return (

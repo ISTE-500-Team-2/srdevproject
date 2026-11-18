@@ -75,10 +75,12 @@ const taps: Tap[] = [
   ...[87, 86, 85].map((id) => ({ id, readerId: "front", readerName: "Front door", userId: 13, memberName: "Alex Example", last4: "5678", allowed: true, reason: "ELIGIBLE", createdAt: minutesAgo(200) })),
 ];
 let cards: Record<number, NfcCard[]>,
+  readers: ReaderSetup["readers"],
   configured: boolean,
   mutation: (path: string, body: unknown) => Promise<unknown>;
 beforeEach(() => {
   cards = { 12: [], 13: [] };
+  readers = setup.readers;
   configured = true;
   mutation = async () => ({});
   mockApi(async (path, options) => {
@@ -91,7 +93,10 @@ beforeEach(() => {
       } satisfies { items: Tap[]; nextBefore: number | null };
     }
     if (path === "/admin/access/readers")
-      return { ...setup, configured } satisfies ReaderSetup;
+      return { ...setup, readers, configured } satisfies ReaderSetup;
+    if (path === "/admin/access/resources") return [];
+    if (path === "/admin/access/reader-setup")
+      return { configured: true, gateways: [], devices: [], jobs: [] };
     if (path.startsWith("/admin/users/") && !path.includes("access-readiness"))
       return { user: path.endsWith("/12") ? jordan : alex } satisfies {
         user: Person;
@@ -457,4 +462,18 @@ test("returning to Member cards from another tab keeps the member staff were wor
   expect(
     await screen.findByRole("heading", { name: "NFC cards for Jordan Example" }),
   ).toBeTruthy();
+});
+test("coming back to Readers from another section shows readers added meanwhile", async () => {
+  mount("/admin/access?view=readers");
+  expect(await screen.findByRole("button", { name: "Manage Front door" })).toBeTruthy();
+  const tabs = screen.getByRole("navigation", { name: "Reader access sections" });
+  await userEvent.click(within(tabs).getByRole("link", { name: "Tap history" }));
+  expect(await screen.findByRole("heading", { name: "Tap history" })).toBeTruthy();
+  // A guided setup finishes while the admin is looking at tap history.
+  readers = [...setup.readers, { ...setup.readers[0]!, id: "back", name: "Back door" }];
+  await userEvent.click(within(tabs).getByRole("link", { name: "Readers" }));
+  expect(await screen.findByRole("button", { name: "Manage Back door" })).toBeTruthy();
+  expect(
+    vi.mocked(api).mock.calls.filter(([path]) => path === "/admin/access/readers"),
+  ).toHaveLength(3);
 });

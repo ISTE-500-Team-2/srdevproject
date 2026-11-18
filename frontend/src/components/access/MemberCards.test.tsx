@@ -22,7 +22,7 @@ beforeEach(() => {
     return Promise.reject(new Error(`Unexpected endpoint: ${path}`));
   });
 });
-afterEach(() => { cleanup(); vi.resetAllMocks(); });
+afterEach(() => { cleanup(); vi.resetAllMocks(); vi.useRealTimers(); });
 
 const openRevoke = async (onChanged = vi.fn()) => {
   render(<MemberCards userId={14} memberName="Casey Demo" onChanged={onChanged} />);
@@ -125,26 +125,51 @@ test("refreshing the cards keeps a scan in progress and what staff typed", async
 });
 
 test("a late tap keeps the typed label and reason, and they survive the scan expiring and a new scan", async () => {
+  // Fake time drives the 1 s enrollment poll and the expiry tick, so this never waits on the clock.
+  vi.useFakeTimers();
+  const advance = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
   let scan: () => Partial<CardScan> = () => ({ status: "waiting" });
   scanServer([], () => scan());
   render(<MemberCards userId={14} memberName="Casey Demo" />);
-  fireEvent.click(await screen.findByRole("button", { name: "Start card scan" }));
-  await screen.findByText("Tap one NFC card at Front door for Casey Demo.");
+  await settle();
+  fireEvent.click(screen.getByRole("button", { name: "Start card scan" }));
+  await advance(0);
+  expect(screen.getByText("Tap one NFC card at Front door for Casey Demo.")).toBeTruthy();
   typeAssignment();
   // Tapped with little time left in the window.
   scan = () => ({ status: "captured", last4: "7788", assignments: [], expiresAt: new Date(Date.now() + 1200).toISOString() });
-  await screen.findByText("Card captured · ending 7788", undefined, { timeout: 3000 });
+  await advance(1000);
+  expect(screen.getByText("Card captured · ending 7788")).toBeTruthy();
   expect(assignButton().disabled).toBe(false);
   expect((screen.getByLabelText("Card label") as HTMLInputElement).value).toBe("Spare fob");
-  await screen.findByText("This scan expired. Start a new scan.", undefined, { timeout: 3000 });
+  await advance(1500);
+  expect(screen.getByText("This scan expired. Start a new scan.")).toBeTruthy();
   expect(assignButton().disabled).toBe(true);
   expect((screen.getByLabelText("Assignment reason") as HTMLInputElement).value).toBe("Verified ID");
   scan = () => ({ status: "waiting" });
   fireEvent.click(screen.getByRole("button", { name: "Start over" }));
-  fireEvent.click(await screen.findByRole("button", { name: "Start card scan" }));
-  await screen.findByText("Tap one NFC card at Front door for Casey Demo.");
+  await advance(0);
+  fireEvent.click(screen.getByRole("button", { name: "Start card scan" }));
+  await advance(0);
+  expect(screen.getByText("Tap one NFC card at Front door for Casey Demo.")).toBeTruthy();
   expect((screen.getByLabelText("Card label") as HTMLInputElement).value).toBe("Spare fob");
   expect((screen.getByLabelText("Assignment reason") as HTMLInputElement).value).toBe("Verified ID");
+});
+
+test("clicking Replace again on the card already being replaced keeps the scan and what was typed", async () => {
+  scanServer([card], () => ({ status: "captured", last4: "7788", assignments: [] }));
+  render(<MemberCards userId={14} memberName="Casey Demo" />);
+  fireEvent.click(await screen.findByRole("button", { name: "Replace Blue fob" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Start card scan" }));
+  await screen.findByText("Card captured · ending 7788");
+  typeAssignment();
+  fireEvent.click(screen.getByRole("button", { name: "Replace Blue fob" }));
+  await settle();
+  expect(screen.getByText("Card captured · ending 7788")).toBeTruthy();
+  expect((screen.getByLabelText("Card label") as HTMLInputElement).value).toBe("Spare fob");
+  expect((screen.getByLabelText("Assignment reason") as HTMLInputElement).value).toBe("Verified ID");
+  expect(assignButton("Confirm replacement").disabled).toBe(false);
+  expect(cancels()).toBe(0);
 });
 
 test("revoking the card being replaced turns the replacement into a plain assignment without losing the scan", async () => {
