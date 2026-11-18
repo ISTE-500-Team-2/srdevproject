@@ -16,6 +16,8 @@ import {enqueueNotification} from '../notifications/store.js';
 import {quote} from './pricing.js';
 import {liveRefund,refundAttempt,refundTransition,replacedAttemptFailed} from './refundTransition.js';
 import {isCheckoutSessionEvent,isRefundEvent} from './stripeEvents.js';
+import {expireAbandonedMembershipCheckouts} from './openBilling.js';
+import {providerTransaction} from './providerGate.js';
 /** An app_pass_checkout row. */
 interface PassCheckoutRow {id:string;userid:number;tierid:number;valid_date:Date;plan_snapshot:Plan;amount_cents:number;
  status:'pending'|'paid'|'cancelled'|'expired';checkout_id:string|null;payment_intent:string|null;pass_id:number|null;payment_id:number|null;
@@ -25,6 +27,9 @@ export interface PassCheckoutRequest {[field:string]:unknown;validDate?:unknown;
 /** Free monthly membership request; each field is validated by PassBilling.freeMembership. */
 export interface FreeMembershipRequest {[field:string]:unknown;planId?:unknown;expectedRevision?:unknown;pricingRevision?:unknown;}
 const objectId=(v:string|{id:string}|null|undefined):string|undefined=>typeof v==='string'?v:v?.id;
+// A checkout whose session was never stored: nobody got its payment link, and any session the failed
+// call created expired with Stripe's 24-hour default. A day later it is abandoned, not pending.
+const ABANDONED="status='pending' AND checkout_id IS NULL AND created_at<now()-interval '24 hours'";
 export class PassBilling {
  constructor(readonly pool:Pool,readonly stripe?:StudioStripe,readonly zone='America/New_York'){}
  provider(){if(!this.stripe)throw new AppError(503,'PAYMENTS_UNAVAILABLE','Card checkout is not configured.');return this.stripe;}
@@ -84,6 +89,7 @@ export class PassBilling {
    if(!plan?.active||plan.kind!=='day_pass')throw new AppError(400,'INVALID_PLAN','Choose an active day-pass plan.');
    const offer=await quote(db,userid,plan,date);
    if(body.expectedRevision!==plan.revision||body.pricingRevision!==offer.pricingRevision||body.amountCents!==offer.amountCents)throw new AppError(409,'PRICE_CHANGED','Refresh and review the current price.');
+   await db.query(`UPDATE app_pass_checkout SET status='expired' WHERE userid=$1 AND valid_date=$2 AND ${ABANDONED}`,[userid,date]);
    const old=(await db.query<PassCheckoutRow>("SELECT * FROM app_pass_checkout WHERE userid=$1 AND valid_date=$2 AND status NOT IN ('expired','cancelled') FOR UPDATE",[userid,date])).rows[0];
    if(old){if(old.tierid!==id||old.amount_cents!==offer.amountCents)throw new AppError(409,'CHECKOUT_EXISTS','Cancel the existing checkout before changing plans.');return {...old,email:user.email};}
    if(await model.passExists(userid,date))throw new AppError(409,'PASS_EXISTS','You already have a pass for this date.');
@@ -94,7 +100,7 @@ export class PassBilling {
   });
   if(row.amount_cents===0)return {issued:true};
   if(row.status!=='pending')throw new AppError(409,'PASS_EXISTS','This pass is already issued or cancelled. Refresh its status.');
-  if(!row.checkout_id&&Date.now()-new Date(row.created_at).getTime()>23*3600000)throw new AppError(409,'RECONCILE_REQUIRED','Staff must reconcile this checkout.');
+  if(!row.checkout_id&&Date.now()-new Date(row.created_at).getTime()>23*3600000)throw new AppError(409,'RECONCILE_REQUIRED','This checkout can no longer be resumed. Try again in an hour to start a new one.');
   const p=this.provider(),s=row.checkout_id?await p.sdk.checkout.sessions.retrieve(row.checkout_id):await p.sdk.checkout.sessions.create({mode:'payment',payment_method_types:['card'],client_reference_id:row.id,customer_email:row.email,
    metadata:{dayPassCheckoutId:row.id},success_url:p.config.origin+returnPath+(returnPath.includes('?')?'&':'?')+'pass=returned',cancel_url:p.config.origin+returnPath+(returnPath.includes('?')?'&':'?')+'pass=cancelled',
    payment_intent_data:{metadata:{dayPassCheckoutId:row.id}},line_items:[{quantity:1,price_data:{currency:'usd',unit_amount:row.amount_cents,product_data:{name:row.plan_snapshot.name}}}]},{idempotencyKey:'daypass-checkout:'+row.id});
@@ -123,6 +129,7 @@ export class PassBilling {
    // The facility zone: a free membership's end date is a month later on the facility's clock.
    const model=new StaffModel(db,this.zone),plan=await model.plan(positiveId(body.planId),true);
    if(!plan?.active||plan.kind!=='membership'||plan.months!==1)throw new AppError(400,'INVALID_PLAN','Choose an active monthly plan.');
+   await expireAbandonedMembershipCheckouts(db,userid);
    const start=new Date().toISOString(),window=await model.membershipWindow(userid,start,1);
    const offer=await quote(db,userid,plan,new Date(window.endsAt).toISOString().slice(0,10));
    if(offer.amountCents!==0)throw new AppError(403,'FREE_ACCESS_INELIGIBLE','Staff-verified free access is required.');
@@ -150,13 +157,16 @@ export class PassBilling {
   if(['cancelled','expired'].includes(row.status))return {cancelled:true};
   if(row.status==='pending'){
    const sdk=this.provider().sdk;
-   if(!row.checkout_id)throw new AppError(409,'RECONCILE_REQUIRED','Resume checkout before cancelling.');
+   if(!row.checkout_id){
+    if((await this.pool.query(`UPDATE app_pass_checkout SET status='expired' WHERE id=$1 AND ${ABANDONED}`,[id])).rowCount)return {cancelled:true};
+    throw new AppError(409,'RECONCILE_REQUIRED','Resume checkout before cancelling.');
+   }
    let s=await sdk.checkout.sessions.retrieve(row.checkout_id);
    if(s.status==='open')s=await sdk.checkout.sessions.expire(s.id);
    if(s.status!=='expired')throw new AppError(409,'PAYMENT_PROCESSING','Payment completed. Refresh after verification before cancelling.');
    await this.pool.query("UPDATE app_pass_checkout SET status='expired',cancel_requested_at=NULL WHERE id=$1 AND status='pending'",[id]);return {cancelled:true};
   }
-  return transaction(this.pool,async db=>{
+  return providerTransaction(this.pool,async db=>{
    const r=(await db.query<PassCheckoutRow>('SELECT * FROM app_pass_checkout WHERE id::text=$1 FOR UPDATE',[id])).rows[0]!;
    if(r.status==='cancelled')return {cancelled:true};
    if(r.amount_cents===0){await this.finishCancel(db,r);return {cancelled:true};}
@@ -209,7 +219,7 @@ export class PassBilling {
  async webhook(event:Stripe.Event){
   if(event.livemode)throw new AppError(400,'LIVE_PAYMENT_FORBIDDEN','Test events only.');
   const sdk=this.provider().sdk;
-  await transaction(this.pool,async db=>{
+  await providerTransaction(this.pool,async db=>{
    if(!(await db.query('INSERT INTO app_pass_stripe_event(id) VALUES($1) ON CONFLICT DO NOTHING RETURNING id',[event.id])).rowCount)return;
    if(isRefundEvent(event)){await this.refundEvent(db,event.data.object);return;}
    if(!isCheckoutSessionEvent(event))return;

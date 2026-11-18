@@ -22,6 +22,10 @@ for (const kind of ['billing','pass']) {
     auth.user = {id:7,roles:['staff']}; mount(`/checkout-return?member=42&${kind}=cancelled`);
     expect(screen.getByText(`/admin/members?${kind}=cancelled&member=42`)).toBeTruthy();
   });
+  test(`${kind}: staff paying for their own membership return to their own membership page`, () => {
+    auth.user = {id:7,roles:['staff']}; mount(`/checkout-return?member=7&${kind}=returned`);
+    expect(screen.getByText(`/membership?${kind}=returned`)).toBeTruthy();
+  });
   test(`${kind}: existing pending sessions with the old member callback preserve staff context`, () => {
     auth.actor = {id:7,roles:['admin']}; rememberAssistedReturn(7,42); mount(`/membership?${kind}=returned`);
     expect(screen.getByText(`/admin/members?${kind}=returned&member=42`)).toBeTruthy();
