@@ -167,6 +167,21 @@ test('changing an unconfirmed email invalidates reset links sent to the previous
   assert.equal(result.status, 202); assert.equal((await check(token)).status, 400);
 });
 
+test('repeating an unconfirmed email change after it moved sends a fresh link and keeps reset links to the new inbox', async () => {
+  const user = await person('repeatchange'), moved = 'repeatchange-new@example.invalid';
+  await pool.query('UPDATE "user" SET email_confirmed=false WHERE userid=$1',[user.id]);
+  await issueEmailConfirmation(pool,user.id,'http://localhost:8080');
+  const wait = () => pool.query("UPDATE app_email_confirmation SET created_at=NOW()-INTERVAL '61 seconds' WHERE userid=$1", [user.id]);
+  const resend = () => request(app).post('/api/auth/confirmation').send({ ...user, newEmail: moved });
+  await wait(); assert.equal((await resend()).status, 202);
+  const first = await confirmationToken(pool, moved);
+  await ask(moved); const reset = await tokenFor(user.id);
+  // The page repeats the same pair, since its answer never says whether the change took.
+  await wait(); assert.equal((await resend()).status, 202);
+  assert.notEqual(await confirmationToken(pool, moved), first);
+  assert.equal((await check(reset)).status, 204, 'the address did not change again, so its reset link stands');
+});
+
 test('a login verified with the old password cannot create a session after reset wins the account lock', async () => {
   const user = await person('loginrace');
   await pool.query('UPDATE "user" SET email_confirmed=true WHERE userid=$1', [user.id]);

@@ -14,7 +14,6 @@ export function ConfirmEmailPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [email, setEmail] = useState(location.state?.email ?? "");
-  const [newEmail, setNewEmail] = useState("");
   // Fragment is not sent to the web server; remove it after capturing to keep it out of history.
   // Pasting the emailed link into this same tab is a fragment-only navigation, so capture
   // a new fragment whenever one arrives, not just on the first render.
@@ -42,7 +41,7 @@ export function ConfirmEmailPage() {
     setError("");
     setMessage("");
     const form = new FormData(event.currentTarget);
-    const next = newEmail.trim();
+    const next = String(form.get("newEmail") ?? "").trim();
     try {
       const result = await api<{ message: string }>("/auth/confirmation", {
         method: "POST",
@@ -52,12 +51,10 @@ export function ConfirmEmailPage() {
           ...(next ? { newEmail: next } : {}),
         },
       });
+      // Both addresses stay as typed. The answer never says whether a correction moved the
+      // sign-up (a mistyped password moves nothing), so a retry repeats the same pair and the
+      // server looks under either address.
       setMessage(result.message);
-      // The sign-up now waits under the corrected address; send later requests there.
-      if (next) {
-        setEmail(next);
-        setNewEmail("");
-      }
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -154,12 +151,7 @@ export function ConfirmEmailPage() {
               </label>
               <label className="form-field">
                 <span>Corrected email (optional)</span>
-                <input
-                  name="newEmail"
-                  type="email"
-                  value={newEmail}
-                  onChange={(e) => setNewEmail(e.target.value)}
-                />
+                <input name="newEmail" type="email" />
               </label>
               <button className="button button--primary" disabled={busy}>
                 Send confirmation email

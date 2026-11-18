@@ -68,6 +68,27 @@ test('duplicate requests cannot replace passwords or spam an inbox, while authen
   assert.notEqual(await confirmationToken(pool,'corrected@example.invalid'),old);
 });
 
+// The answer never says whether a correction moved anything, so the page repeats the same pair.
+test('a corrected resend retried after a mistyped password, or after it already moved, still reaches the sign-up',async()=>{
+  const flow=createApp(pool,config);
+  const input=person('retry-typo@example.invalid'),corrected='retry-right@example.invalid';
+  const resend=(password:string)=>request(flow).post('/api/auth/confirmation').send({...input,password,newEmail:corrected});
+  const wait=()=>pool.query("UPDATE app_pending_registration SET sent_at=NOW()-INTERVAL '61 seconds' WHERE email=ANY($1::text[])",[[input.email,corrected]]);
+  await register(input.email);await wait();
+  const first=await confirmationToken(pool,input.email);
+  assert.equal((await resend('WrongPassword!')).status,202);
+  assert.equal(await confirmationToken(pool,input.email),first,'a wrong password moves nothing');
+  assert.equal((await resend(input.password)).status,202);
+  assert.equal((await pool.query('SELECT 1 FROM app_pending_registration WHERE email=$1',[input.email])).rowCount,0);
+  const moved=await confirmationToken(pool,corrected);
+  await wait();
+  assert.equal((await resend(input.password)).status,202);
+  const again=await confirmationToken(pool,corrected);
+  assert.notEqual(again,moved,'the repeat finds the sign-up under the corrected address and sends a fresh link');
+  const confirmed=await request(flow).post('/api/auth/confirm').send({token:again});
+  assert.equal(confirmed.status,200);assert.equal(confirmed.body.data.user.email,corrected);
+});
+
 test('the email worker sends staged confirmation without activating a member and expired requests are purged',async()=>{
   await register('worker@example.invalid');
   const sent:string[]=[];

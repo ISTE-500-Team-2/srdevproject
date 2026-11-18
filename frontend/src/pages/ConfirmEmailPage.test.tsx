@@ -3,7 +3,6 @@ import { afterEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { ConfirmEmailPage } from './ConfirmEmailPage';
-import { ApiError } from '../lib/api';
 const { confirmEmail, api } = vi.hoisted(() => ({ confirmEmail: vi.fn(), api: vi.fn() }));
 vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ confirmEmail }) }));
 vi.mock('../lib/api', async (original) => ({ ...(await original<typeof import('../lib/api')>()), api }));
@@ -44,32 +43,23 @@ test('a confirmation link pasted into the waiting tab is captured and stripped',
   await screen.findByRole('heading', { name: 'Dashboard' });
   expect(confirmEmail).toHaveBeenCalledWith('pasted-token');
 });
-test('after resending to a corrected address, later resends go to that address', async () => {
+test('a corrected resend keeps both addresses, so a retry after a mistyped password still reaches the sign-up', async () => {
+  // The answer is the same whether or not anything moved, so the page cannot assume the correction took.
   api.mockResolvedValue({ message: 'Queued.' });
   render(<MemoryRouter initialEntries={[{ pathname: '/confirm-email', state: { email: 'typo@example.test' } }]}><ConfirmEmailPage /></MemoryRouter>);
   const field = (name: string) => screen.getByLabelText(name) as HTMLInputElement;
-  fireEvent.change(field('Password'), { target: { value: 'ValidPassword!' } });
-  fireEvent.change(field('Corrected email (optional)'), { target: { value: ' right@example.test ' } });
+  fireEvent.change(field('Password'), { target: { value: 'Mistyped!' } });
+  fireEvent.change(field('Corrected email (optional)'), { target: { value: 'right@example.test' } });
   const send = screen.getByText('Send confirmation email');
   fireEvent.click(send);
   await screen.findByText('Queued.');
-  expect(api).toHaveBeenLastCalledWith('/auth/confirmation', { method: 'POST', body: { email: 'typo@example.test', password: 'ValidPassword!', newEmail: 'right@example.test' } });
-  expect(field('Signup email').value).toBe('right@example.test');
-  expect(field('Corrected email (optional)').value).toBe('');
-  fireEvent.click(send);
-  await waitFor(() => expect(api).toHaveBeenCalledTimes(2));
-  expect(api).toHaveBeenLastCalledWith('/auth/confirmation', { method: 'POST', body: { email: 'right@example.test', password: 'ValidPassword!' } });
-});
-test('a failed resend keeps the corrected address to try again', async () => {
-  api.mockRejectedValue(new ApiError(429, 'CONFIRMATION_RATE_LIMITED', 'Wait one minute before requesting another confirmation.'));
-  render(<MemoryRouter initialEntries={[{ pathname: '/confirm-email', state: { email: 'typo@example.test' } }]}><ConfirmEmailPage /></MemoryRouter>);
-  const field = (name: string) => screen.getByLabelText(name) as HTMLInputElement;
-  fireEvent.change(field('Password'), { target: { value: 'ValidPassword!' } });
-  fireEvent.change(field('Corrected email (optional)'), { target: { value: 'right@example.test' } });
-  fireEvent.click(screen.getByText('Send confirmation email'));
-  await screen.findByText('Wait one minute before requesting another confirmation.');
+  expect(api).toHaveBeenLastCalledWith('/auth/confirmation', { method: 'POST', body: { email: 'typo@example.test', password: 'Mistyped!', newEmail: 'right@example.test' } });
   expect(field('Signup email').value).toBe('typo@example.test');
   expect(field('Corrected email (optional)').value).toBe('right@example.test');
+  fireEvent.change(field('Password'), { target: { value: 'ValidPassword!' } });
+  fireEvent.click(send);
+  await waitFor(() => expect(api).toHaveBeenCalledTimes(2));
+  expect(api).toHaveBeenLastCalledWith('/auth/confirmation', { method: 'POST', body: { email: 'typo@example.test', password: 'ValidPassword!', newEmail: 'right@example.test' } });
 });
 test('disabled local email is explicit without restoring the old recovery form', () => {
   render(<MemoryRouter initialEntries={[{ pathname: '/confirm-email', state: { email: 'test@example.test', emailSendingEnabled: false } }]}><ConfirmEmailPage /></MemoryRouter>);
