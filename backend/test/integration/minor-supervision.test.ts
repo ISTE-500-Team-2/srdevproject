@@ -57,11 +57,18 @@ test('both visitors need their own access; adult presence gates minor bookings a
  const body={roomId:room,startTime:new Date(base+3600000).toISOString(),endTime:new Date(base+7200000).toISOString()};
  assert.equal((await post(minor,'/reservations',body)).body.error.code,'SPONSOR_REQUIRED');
  assert.equal((await post(admin,`${root()}/check-in`,{reason:'Minor arrived'})).status,403);
+ // Desk arrivals count where reports, "Checked in today" and recent check-ins look: check_in.
+ const deskCheckIns=async(userId:number)=>(await pool.query(`SELECT i.location,i.buildingid,i.origin FROM check_in i
+  WHERE i.userid=$1 ORDER BY i.checkinid`,[userId])).rows;
+ const buildingName=(await pool.query('SELECT name FROM building WHERE buildingid=1')).rows[0].name;
+ assert.deepEqual(await deskCheckIns(minor.user.id),[],'a refused desk check-in records nothing');
  // A desk check-in needs no note; the change log still records one.
  const r=await post(admin,`/admin/users/${adult.user.id}/supervision/check-in`,{});
  assert.equal(r.status,200,JSON.stringify(r.body));
  assert.equal((await pool.query(`SELECT reason FROM app_staff_audit WHERE subject_id=$1 AND action='visit.check-in' ORDER BY id DESC LIMIT 1`,[adult.user.id])).rows[0].reason,'Checked in at the front desk');
  assert.equal((await post(admin,`${root()}/check-in`,{reason:'Arrived together'})).status,200);
+ for (const who of [adult,minor])
+  assert.deepEqual(await deskCheckIns(who.user.id),[{location:buildingName,buildingid:1,origin:'portal'}]);
  // Use exactly whole-hour duration, independent of successive clock reads.
  body.endTime=new Date(new Date(body.startTime).getTime()+3600000).toISOString();
  const booked=await post(minor,'/reservations',body);assert.equal(booked.status,201,JSON.stringify(booked.body));booking=booked.body.data.id;
