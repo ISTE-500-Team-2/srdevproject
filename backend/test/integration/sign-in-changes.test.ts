@@ -35,7 +35,7 @@ async function register(name: string, password = "GoodPassword123!") {
   const signup = createApp(pool, config);
   assert.equal((await request(signup).post("/api/auth/register")
     .send({ firstName: name, lastName: "Tester", email, phone: "1112223333", dob: "1990-01-01", password })).status, 202);
-  await request(signup).post("/api/auth/confirm").send({ token: await confirmationToken(pool, email) });
+  await request(signup).post("/api/auth/confirm").send({ token: await confirmationToken(pool, email), password });
   return { email, password };
 }
 const outbox = async (userId: number, kind: string) => (await pool.query(

@@ -58,8 +58,9 @@ export async function noticeAddressInUse(db: Database, userId: number) {
  * Stage a sign-up and email its confirmation link. Every attempt looks the same to the caller, so
  * sign-up never reveals whether an address belongs to a member: an existing account's owner gets a
  * notice instead. A newer sign-up for a still-pending address replaces its details, password and
- * link, so a stranger who staged that address first can't have their password become the account
- * its owner later confirms. Sign-ups send one address at most three links an hour.
+ * link, so the owner can always take back a sign-up a stranger started. Whoever signed up last, the
+ * link alone never decides the password: confirming also asks for it (consumeRegistration). Sign-ups
+ * send one address at most three links an hour.
  */
 export async function stageRegistration(db: Database, input: RegistrationInput, origin: string) {
   await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,30))', [input.email]);
@@ -82,9 +83,21 @@ export async function stageRegistration(db: Database, input: RegistrationInput, 
   await db.query(`UPDATE app_pending_registration SET token_hash=NULL,expires_at=NOW()+INTERVAL '24 hours' WHERE id=$1`, [row.id]);
 }
 
+/**
+ * Confirming takes the sign-up's password as well as the link. Every sign-up mails its link to the
+ * address, so a stranger who signs the address up (before or after its owner) puts a working link in
+ * the owner's inbox; if the link alone created the account, the owner could click it and get an
+ * account with the stranger's password.
+ */
+export const confirmationPasswordMismatch = () => new AppError(401, 'CONFIRMATION_PASSWORD_MISMATCH',
+  'That isn’t the password this sign-up was made with. Check it and try again, or sign up again to start over.', 'password');
+
 /** Possession of a live, single-use inbox token is required before allocating a user, role or session. */
-/** Consume a valid staged confirmation and create the member once; return null for an unusable token. */
-export async function consumeRegistration(db: Database, token: unknown): Promise<number | null> {
+/**
+ * Consume a valid staged confirmation and create the member once, if `password` is the one the
+ * sign-up was made with; return null for a token that isn't a staged sign-up's.
+ */
+export async function consumeRegistration(db: Database, token: unknown, password: string): Promise<number | null> {
   if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
   // Take the email lock before the row lock, matching registration and resend lock order.
   const found = (await db.query('SELECT email FROM app_pending_registration WHERE token_hash=$1', [digest(token)])).rows[0];
@@ -93,6 +106,8 @@ export async function consumeRegistration(db: Database, token: unknown): Promise
   const row = (await db.query('SELECT * FROM app_pending_registration WHERE token_hash=$1 FOR UPDATE', [digest(token)])).rows[0];
   if (!row) return null;
   if (row.expires_at <= new Date()) throw new AppError(400, 'CONFIRMATION_INVALID', 'This confirmation link is invalid or expired. Request a new email.');
+  // A wrong password leaves the link working, so a typo can be corrected.
+  if (!await verifyPassword(password, row.password_hash)) throw confirmationPasswordMismatch();
   const id = await new UserModel(db).create({ firstName:row.first_name,lastName:row.last_name,email:row.email,
     phone:row.phone,dob:row.dob.toISOString ? row.dob.toISOString().slice(0,10) : row.dob,password:row.password_hash });
   await updateNotificationPreferences(db, id, { enabled:true,timeZone:row.time_zone });

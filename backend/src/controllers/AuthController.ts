@@ -195,9 +195,13 @@ export class AuthController {
     res.status(202).json({data:{confirmationRequired:true,email:input.email,emailSendingEnabled:!!this.config.notifications,notification}});
   };
   confirm = async (req: Request,res: Response) => {
+    // The link proves the inbox and the password proves who signed up (see consumeRegistration).
+    const password = req.body.password;
+    if (typeof password !== 'string' || !password)
+      throw new AppError(400, 'INVALID_INPUT', 'Enter the password you chose when you signed up.', 'password');
     const { session, notification } = await transaction(this.pool,async db => {
       // Existing confirmation links remain usable; new sign-ups allocate their account here.
-      const userId=await consumeRegistration(db,req.body.token) ?? await consumeEmailConfirmation(db,req.body.token);
+      const userId=await consumeRegistration(db,req.body.token,password) ?? await consumeEmailConfirmation(db,req.body.token,password);
       const session = await new SessionModel(db,this.config.jwtKey,this.config.accessTokenSeconds,this.config.refreshTokenSeconds,this.config.timeZone).create(userId,false);
       const user = await new UserModel(db,this.config.timeZone).findById(userId);
       const notification = renderNotificationTemplate('accountCreation', {

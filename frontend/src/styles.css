@@ -2727,6 +2727,7 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 .email-confirm-button:hover { background: #874a00; }
 .email-confirm-button:focus-visible { outline: 3px solid #291607; outline-offset: 4px; }
 .email-confirm-button:disabled { opacity: .65; cursor: wait; }
+.email-confirm-form { display: grid; gap: 20px; text-align: left; }
 .email-confirm-error { margin-top: 22px; color: #9c2626; }
 .email-confirm-error a { color: #754500; text-decoration: underline; }
 

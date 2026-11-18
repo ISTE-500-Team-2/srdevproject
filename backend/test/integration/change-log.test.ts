@@ -31,7 +31,7 @@ before(async()=>{
   // Someone else is promoted, so the demo member stays a member without change log access.
   const email='changelog-target@example.invalid';
   assert.equal((await request(app).post('/api/auth/register').send({firstName:'Quill',lastName:'Ledgerwood',email,phone:'1112223333',dob:'1990-01-01',password:'GoodPassword123!'})).status,202);
-  target=(await request(app).post('/api/auth/confirm').send({token:await confirmationToken(pool,email)})).body.data;
+  target=(await request(app).post('/api/auth/confirm').send({token:await confirmationToken(pool,email),password:'GoodPassword123!'})).body.data;
   const person=(await as(admin).get(`/admin/users/${target.user.id}`)).body.data.user;
   const changed=await as(admin).post(`/admin/users/${target.user.id}/role`,{role:'staff',revision:person.revision,reason:'Change log fixture'});
   assert.equal(changed.status,200,JSON.stringify(changed.body));

@@ -28,7 +28,7 @@ test('email-only registration normalizes addresses and keeps confirmation and pa
   assert.equal(registered.status,202);assert.equal(registered.body.data.email,input.email);
   const pending=await request(app).post('/api/auth/login').send({email:input.email,password:input.password});
   assert.equal(pending.status,403);assert.equal(pending.body.error.code,'EMAIL_CONFIRMATION_REQUIRED');
-  member=(await request(app).post('/api/auth/confirm').send({token:await confirmationToken(pool,input.email)})).body.data;
+  member=(await request(app).post('/api/auth/confirm').send({token:await confirmationToken(pool,input.email),password:input.password})).body.data;
   assert(!Object.hasOwn(member.user,'username'));
   for(const email of [input.email,input.email.toUpperCase(),' '+input.email+' ']){
     const login=await request(app).post('/api/auth/login').send({email,password:input.password});
@@ -59,7 +59,7 @@ test('duplicate emails, including concurrent case-only duplicates, cannot create
   assert.deepEqual(race.map(r=>r.status).sort(),[202,202]);
   assert.equal((await pool.query(`SELECT COUNT(*)::int AS n FROM app_pending_registration WHERE email='race.email@example.invalid'`)).rows[0].n,1);
   assert.equal((await pool.query(`SELECT COUNT(*)::int AS n FROM "user" WHERE lower(email)='race.email@example.invalid'`)).rows[0].n,0);
-  assert.equal((await request(app).post('/api/auth/confirm').send({token:await confirmationToken(pool,'race.email@example.invalid')})).status,200);
+  assert.equal((await request(app).post('/api/auth/confirm').send({token:await confirmationToken(pool,'race.email@example.invalid'),password:input.password})).status,200);
   assert.equal((await pool.query(`SELECT COUNT(*)::int AS n FROM "user" WHERE lower(email)='race.email@example.invalid'`)).rows[0].n,1);
   // The database protects direct writers as well as the registration endpoint.
   await assert.rejects(pool.query(`INSERT INTO "user"(firstname,lastname,email,phone,password,status)

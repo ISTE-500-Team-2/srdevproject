@@ -24,7 +24,7 @@ test('registration queues one event; preference ownership, CSRF, validation and 
   const registration={firstName:'Notice',lastName:'Tester',email:'notice@example.invalid',phone:'0000000000',dob:'2000-01-01',password:'StrongPassword123!',timeZone:'Pacific/Auckland'};
   let response=await request(app).post('/api/auth/register').send(registration);
   assert.equal(response.status,202);
-  response=await request(app).post("/api/auth/confirm").send({token:await confirmationToken(pool,registration.email)});
+  response=await request(app).post("/api/auth/confirm").send({token:await confirmationToken(pool,registration.email),password:registration.password});
   assert.equal(response.status,200);
   const {user,csrfToken,accessToken}=response.body.data;
   const agent=request.agent(app).set('Authorization','Bearer '+accessToken);

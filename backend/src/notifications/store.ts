@@ -61,11 +61,12 @@ async function insertOutbox(db: Database, recipients: number | number[], dedupeK
   // Event notices have a measurable five-minute dispatch target, not a promised delivery SLA.
   const deadlineAt = input.deadlineAt ?? new Date(dueAt.getTime()+5*60_000);
   if (!Number.isFinite(dueAt.getTime()) || !Number.isFinite(deadlineAt.getTime())) throw new Error('Invalid notification date');
-  // Legacy unverified accounts may still receive their confirmation or password-reset link while held in pending status.
+  // Legacy unverified accounts may still receive their confirmation or password-reset link while held in pending status,
+  // and the notice that someone tried to sign up with their address (which points them to sign-in or a reset).
   await db.query(`INSERT INTO app_notification_outbox(userid,kind,dedupe_key,payload,due_at,deadline_at,status,counts_for_sla)
     SELECT u.userid,$2,${many ? '$3::text||u.userid' : '$3'},$4::jsonb,$5,$6,
-      CASE WHEN (COALESCE(p.enabled,true) OR $2=ANY($8::text[])) AND (u.status='active' OR ($2 IN ('account_confirmation','password_reset') AND u.status='pending')) THEN 'pending' ELSE 'suppressed' END,
-      $7::boolean AND (COALESCE(p.enabled,true) OR $2=ANY($8::text[])) AND (u.status='active' OR ($2 IN ('account_confirmation','password_reset') AND u.status='pending'))
+      CASE WHEN (COALESCE(p.enabled,true) OR $2=ANY($8::text[])) AND (u.status='active' OR ($2 IN ('account_confirmation','password_reset','account_exists') AND u.status='pending')) THEN 'pending' ELSE 'suppressed' END,
+      $7::boolean AND (COALESCE(p.enabled,true) OR $2=ANY($8::text[])) AND (u.status='active' OR ($2 IN ('account_confirmation','password_reset','account_exists') AND u.status='pending'))
     FROM "user" u LEFT JOIN app_notification_preferences p USING(userid) WHERE ${many ? 'u.userid=ANY($1::int[])' : 'u.userid=$1'}
     ON CONFLICT(dedupe_key) DO UPDATE SET due_at=EXCLUDED.due_at,deadline_at=EXCLUDED.deadline_at,updated_at=NOW()
     WHERE app_notification_outbox.status='pending' AND app_notification_outbox.attempts=0

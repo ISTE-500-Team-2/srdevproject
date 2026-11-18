@@ -27,9 +27,11 @@ Account IDs, emails, passwords, memberships, roles and sessions are preserved.
 Previously applied migrations, including `023_usernames.sql`, remain unchanged.
 
 New requests stay in `app_pending_registration` until a single-use inbox link is
-consumed. Duplicate pending requests remain neutral and do not overwrite passwords
-or enqueue repeated emails; an already-confirmed account produces the existing
-recoverable email-unavailable error. Verification remains required before membership.
+consumed. A newer sign-up for a pending address replaces its details, password and
+link (at most three links an hour), and confirming takes the sign-up's password as
+well as the link, so whoever signs an address up, only its owner's password can become
+the account. Sign-up answers an address that already has an account like any other;
+that account's owner is emailed a notice instead. Verification remains required before membership.
 
 Regression coverage checks email-only signup and sign-in, email confirmation, invalid
 credentials, case-insensitive duplicates (including simultaneous registrations and

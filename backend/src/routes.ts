@@ -131,7 +131,9 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   routes.patch("/me/notifications", permit("notification", "update", "own"), settingsAreMemberOnly, requireCsrf, notifications.update);
 
   // Every save keeps a full before-and-after copy in the change log, and people rarely edit their profile.
-  const profileLimit = authRateLimit({ limit: 60, message: "Too many profile saves. Please wait a few minutes and try again." });
+  // Counted per account, so one member saving over and over never blocks the others on a shared network.
+  const profileLimit = authRateLimit({ limit: 60, key: operator, perAddress: false,
+    message: "Too many profile saves. Please wait a few minutes and try again." });
   routes.patch("/me/profile", profileLimit, permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, member.profile);
   // Both check the current password, so they share one attempt budget.
   routes.post("/me/password", credentialLimit, permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, auth.changePassword);

@@ -8,17 +8,23 @@ vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ confirmEmail }) }))
 vi.mock('../lib/api', async (original) => ({ ...(await original<typeof import('../lib/api')>()), api }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 function mount() { render(<MemoryRouter initialEntries={['/confirm-email#test-token']}><Routes><Route path="/confirm-email" element={<ConfirmEmailPage />} /><Route path="/" element={<h1>Dashboard</h1>} /></Routes></MemoryRouter>); }
-test('email link shows only confirmation and opens dashboard after success', async () => {
+const password = () => screen.getByLabelText('Password') as HTMLInputElement;
+// Anyone can sign an address up, and every link lands in the owner's inbox, so the link alone
+// must not decide whose password the account gets.
+test('email link asks for the sign-up password, then opens the dashboard', async () => {
   confirmEmail.mockResolvedValue('member'); mount();
   expect(screen.getAllByRole('button')).toHaveLength(1);
   expect(screen.queryByRole('textbox')).toBeNull();
   expect(screen.queryByText('Need another email?')).toBeNull();
+  expect(password().required).toBe(true);
+  fireEvent.change(password(), { target: { value: 'ValidPassword!' } });
   fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }));
   await screen.findByRole('heading', { name: 'Dashboard' });
-  expect(confirmEmail).toHaveBeenCalledWith('test-token');
+  expect(confirmEmail).toHaveBeenCalledWith('test-token', 'ValidPassword!');
 });
 test('failure offers recovery without showing forms on the token landing', async () => {
   confirmEmail.mockRejectedValue(new Error('Expired link')); mount();
+  fireEvent.change(password(), { target: { value: 'ValidPassword!' } });
   fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }));
   await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
   expect(screen.getByRole('link', { name: 'Request a new confirmation email' }).getAttribute('href')).toBe('/confirm-email');
@@ -39,9 +45,10 @@ test('a confirmation link pasted into the waiting tab is captured and stripped',
   fireEvent.click(screen.getByText('Paste link'));
   expect(await screen.findByText('Confirm your email')).toBeTruthy();
   expect(screen.getByTestId('location').textContent).toBe('/confirm-email');
+  fireEvent.change(password(), { target: { value: 'ValidPassword!' } });
   fireEvent.click(screen.getByText('Confirm email'));
   await screen.findByRole('heading', { name: 'Dashboard' });
-  expect(confirmEmail).toHaveBeenCalledWith('pasted-token');
+  expect(confirmEmail).toHaveBeenCalledWith('pasted-token', 'ValidPassword!');
 });
 test('a corrected resend keeps both addresses, so a retry after a mistyped password still reaches the sign-up', async () => {
   // The answer is the same whether or not anything moved, so the page cannot assume the correction took.

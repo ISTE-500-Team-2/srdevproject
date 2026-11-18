@@ -52,7 +52,7 @@ async function register() {
     email, password, firstName: 'JWT', lastName: 'Test', phone: '0000000000', dob: '2000-01-01',
   });
   assert.equal(res.status, 202);
-  res=await request(app).post('/api/auth/confirm').send({token:await confirmationToken(pool,email)});
+  res=await request(app).post('/api/auth/confirm').send({token:await confirmationToken(pool,email),password});
   assert.equal(res.status,200);
   return { email, password, userId: res.body.data.user.id as number, token: browserToken(res), csrf: res.body.data.csrfToken as string, res };
 }

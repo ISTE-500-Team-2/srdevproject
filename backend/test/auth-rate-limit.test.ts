@@ -77,12 +77,27 @@ test('an IPv6 /56 counts as one address; IPv4, mapped and loopback addresses cou
   assert.equal(addressBudget(undefined), 'unknown');
 });
 
-test('a full table forgets its oldest entry instead of refusing every newcomer', () => {
+test('a full table forgets its least-used entry instead of refusing every newcomer', () => {
   const limiter = authRateLimit({ limit: 5 });
   const res = { set() { return this; }, once() { return this; } } as unknown as Response;
   const attempt = (ip: string) => { let passed = false; limiter({ ip } as Request, res, () => { passed = true; }); return passed; };
   for (let i = 0; i < 2048; i++) assert.ok(attempt(`10.0.${i >> 8}.${i & 255}`));
   assert.ok(attempt('198.51.100.7'));
+});
+
+// Flooding the table with fresh keys must not wipe the count someone is trying to get past.
+test('filling the table with new keys never frees the oldest, used-up budget', () => {
+  const limiter = authRateLimit({ limit: 5 });
+  const res = { set() { return this; }, once() { return this; } } as unknown as Response;
+  const attempt = (ip: string) => {
+    let passed = false;
+    try { limiter({ ip } as Request, res, () => { passed = true; }); } catch (error) { if ((error as AppError).status !== 429) throw error; }
+    return passed;
+  };
+  for (let i = 0; i < 5; i++) assert.ok(attempt('203.0.113.9'));
+  assert.equal(attempt('203.0.113.9'), false);
+  for (let i = 0; i < 4096; i++) assert.ok(attempt(`10.${i >> 16}.${(i >> 8) & 255}.${i & 255}`));
+  assert.equal(attempt('203.0.113.9'), false);
 });
 
 test('a second refresh cookie (planted from a sibling site) is never used to pick the session', () => {

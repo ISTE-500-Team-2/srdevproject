@@ -30,7 +30,7 @@ before(async()=>{
  await pool.query("UPDATE \"user\" SET dob='1990-01-01' WHERE userid=$1",[adult.user.id]);
  const input={firstName:'Young',lastName:'Member',email:'family@example.invalid',phone:'1112223333',dob:'2010-01-01',password:'GoodPassword123!'};
  assert.equal((await request(server).post('/api/auth/register').send(input)).status,202);
- minor=(await request(server).post('/api/auth/confirm').send({token:await confirmationToken(pool,input.email)})).body.data;
+ minor=(await request(server).post('/api/auth/confirm').send({token:await confirmationToken(pool,input.email),password:input.password})).body.data;
  await pool.query(`INSERT INTO user_membership(userid,tierid,startdate,end_date,status)
   VALUES($1,1,(now()-interval '1 day') AT TIME ZONE 'UTC',(now()+interval '30 days') AT TIME ZONE 'UTC','active')`,[minor.user.id]);
  await sign(adult);await sign(minor);

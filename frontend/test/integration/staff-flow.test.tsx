@@ -75,7 +75,7 @@ async function registerMember(lastName: string): Promise<Member> {
     dob: "2000-01-01",
   });
   expect(registration.status).toBe(202);
-  const confirmed = await direct("/auth/confirm",{token:await confirmationToken(bridge.pool,email)});
+  const confirmed = await direct("/auth/confirm",{token:await confirmationToken(bridge.pool,email),password});
   expect(confirmed.status).toBe(200);
   const session = (await confirmed.json()).data;
   const waivers = (await (await bridge.fetch("/api/me/waivers")).json()).data;

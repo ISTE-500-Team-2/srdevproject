@@ -129,8 +129,10 @@ target; no unsolicited notice is sent to arbitrary failed-registration addresses
 New accounts remain pending until a single-use confirmation link is consumed.
 Existing accounts remain confirmed. Tokens expire after 24 hours (an implementation
 default), are stored hashed, and are sent in a URL fragment. The page explicitly
-POSTs confirmation so a mail scanner's GET cannot consume the link. Confirmation
-creates the login session. Resend and email correction require the pending account's
+POSTs confirmation so a mail scanner's GET cannot consume the link. The page also
+asks for the password chosen at sign-up and the server checks it, so a link from a
+stranger's sign-up of the same address (it still lands in the owner's inbox) can never
+create the account with the stranger's password. Confirmation creates the login session. Resend and email correction require the pending account's
 password, have a 60-second cooldown and invalidate older links. Email-off environments
 show that delivery is disabled; demo users remain available without registration.
 

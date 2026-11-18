@@ -216,8 +216,15 @@ export function authRateLimit(
       : options.perAddress === false ? narrowed : `${address}\n${narrowed}`;
     let record = attempts.get(key);
     if (!record) {
-      // A full table forgets its oldest entry; refusing every newcomer would lock out the site.
-      if (attempts.size >= 2048) attempts.delete(attempts.keys().next().value!);
+      // A full table forgets the entry with the fewest attempts (the oldest of those); refusing
+      // every newcomer would lock out the site. Never simply the oldest: anyone could flood the
+      // table with fresh keys to wipe the count they are trying to get past.
+      if (attempts.size >= 2048) {
+        let fewest: string | undefined, least = Infinity;
+        for (const [entry, value] of attempts)
+          if (value.count < least) { fewest = entry; least = value.count; }
+        attempts.delete(fewest!);
+      }
       record = { count: 0, until: now + windowMs };
       attempts.set(key, record);
     }
