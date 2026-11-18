@@ -89,6 +89,17 @@ describe('focus', () => {
     expect(declarations(twins, ':root[data-theme="dark"] .form-field__control:focus-within').get('border-bottom-color')?.value)
       .toBe('var(--focus-ring)');
   });
+
+  test('the equipment filter and class search show focus in the ring token, not the faint orange', () => {
+    const styles = parse('styles.css');
+    expect(declarations(styles, '.select-control select').get('outline')?.value).toBe('0');
+    expect(declarations(styles, '.select-control:has(select:focus-visible)').get('outline')?.value).toBe('3px solid var(--focus-ring)');
+    const classes = parse('pages/classes.css');
+    expect(declarations(classes, '.class-search input').get('outline')?.value).toBe('0');
+    const search = declarations(classes, '.class-search:focus-within');
+    expect(search.get('border-bottom-color')?.value).toBe('var(--focus-ring)');
+    expect(search.get('box-shadow')?.value).toBe('0 1px 0 var(--focus-ring)');
+  });
 });
 
 describe('dark mode', () => {
