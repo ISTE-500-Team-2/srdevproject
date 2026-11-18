@@ -33,6 +33,12 @@ export interface PaymentListItem {
   planName: string;
 }
 
+/**
+ * The note on a card membership payment that Stripe took for dates another membership already
+ * covered (for example one sold at the desk). The Payments list flags it while it stays paid.
+ */
+export const OVERLAPPING_CARD_PAYMENT_NOTE = "Stripe test recurring membership; overlaps another membership";
+
 const paymentRecordColumns = `paymentid AS id,userid AS "userId",price::text AS amount,paymentstatus AS status,method,reference,note,revision`;
 // $1 member, $2 status, $3/$4 recorded-at window (ISO instants); paymentdate is stored as UTC.
 const PAYMENT_FILTER = `($1::int IS NULL OR p.userid=$1) AND ($2::text IS NULL OR p.paymentstatus=$2)
@@ -106,7 +112,8 @@ export class PaymentRepository {
       p.membershipid AS "membershipId",d.dayid AS "dayPassId",p.price::text AS amount,p.paymentstatus AS status,p.method,p.reference,p.revision,
       p.paymentdate AT TIME ZONE 'UTC' AS "recordedAt",p.updated_at AS "updatedAt",
       invoice.id AS "invoiceId",invoice.refund_status AS "refundStatus",
-      COALESCE(m.plan_snapshot->>'name',d.plan_snapshot->>'name',t.tiername,
+      COALESCE(m.plan_snapshot->>'name' || CASE WHEN p.note=$6 AND p.paymentstatus='paid' THEN ' (dates overlap another membership; check for a double charge)' ELSE '' END,
+        d.plan_snapshot->>'name',t.tiername,
         CASE WHEN booking.reservationid IS NOT NULL THEN 'Equipment: '||machine.name||
           CASE WHEN booking.status='cancelled' AND p.paymentstatus='paid' THEN ' (cancelled; refund due)' ELSE '' END END,
         CASE WHEN training.class_id IS NOT NULL THEN 'Training class: '||class.title||
@@ -120,7 +127,7 @@ export class PaymentRepository {
       LEFT JOIN app_training_class class ON class.id=training.class_id
       LEFT JOIN LATERAL(SELECT id,refund_status FROM app_membership_invoice WHERE payment_id=p.paymentid ORDER BY period_start DESC LIMIT 1) invoice ON true
       WHERE ${PAYMENT_FILTER} ORDER BY p.paymentid DESC LIMIT 51 OFFSET $5`,
-        [userId, filters.status ?? null, filters.from ?? null, filters.to ?? null, offset],
+        [userId, filters.status ?? null, filters.from ?? null, filters.to ?? null, offset, OVERLAPPING_CARD_PAYMENT_NOTE],
       )
     ).rows;
   }

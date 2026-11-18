@@ -188,6 +188,40 @@ test('expired or cancelled unpaid checkouts release slots; stale expiry cannot c
   await service.create(member, {...data, requestKey: randomUUID()});
 });
 
+test('a hold whose checkout never opened is released once it passes instead of blocking the slot for good', async () => {
+  const unopened = async () => {
+    const data = booking();
+    const fail = mock.method(provider.sdk.checkout.sessions, 'create', async () => { throw new Error('Stripe timed out'); });
+    try { await assert.rejects(service.create(member, data), {code: 'CHECKOUT_UNAVAILABLE'}); }
+    finally { fail.mock.restore(); }
+    const id = (await pool.query('SELECT reservation_id FROM app_equipment_checkout WHERE request_key=$1 AND checkout_id IS NULL', [data.requestKey])).rows[0].reservation_id as number;
+    return {data, id};
+  };
+  const released = async (id: number) => {
+    assert.equal((await state(id)).status, 'cancelled');
+    assert.equal((await state(id)).paymentStatus, 'expired');
+    assert.equal((await pool.query('SELECT paymentstatus FROM payment WHERE paymentid=(SELECT payment_id FROM reservation WHERE reservationid=$1)', [id])).rows[0].paymentstatus, 'void');
+  };
+  const passed = (id: number) => pool.query("UPDATE app_equipment_checkout SET hold_until=now()-interval '1 second' WHERE reservation_id=$1", [id]);
+  const first = await unopened();
+  // While the hold lasts it can only be resumed (with the same idempotency key).
+  await assert.rejects(billing.cancelPending(member, first.id), {code: 'RECONCILE_REQUIRED'});
+  await passed(first.id);
+  await billing.reconcile();
+  await released(first.id);
+  await assert.rejects(billing.checkout(member, first.id), {code: 'CHECKOUT_EXPIRED'});
+  await service.create(member, {...first.data, requestKey: randomUUID()});
+  // Cancelling or resuming one after its hold passed releases it the same way.
+  const second = await unopened();
+  await passed(second.id);
+  assert.deepEqual(await billing.cancelPending(member, second.id), {cancelled: true});
+  await released(second.id);
+  const third = await unopened();
+  await passed(third.id);
+  await assert.rejects(billing.checkout(member, third.id), {code: 'CHECKOUT_EXPIRED'});
+  await released(third.id);
+});
+
 test('paid-state reconciliation recovers a missed webhook; no Stripe config fails closed; zero rate needs no payment', async () => {
   const data = booking(), result = await service.create(member, data);
   paid(await sessionFor(result.id));
