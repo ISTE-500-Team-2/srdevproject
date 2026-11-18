@@ -1,8 +1,8 @@
 // Staff editor for reader names, resource targets and enabled state, using server revisions to
 // detect stale changes.
 
-import { useState, type FormEvent } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, ApiError, errorMessage } from "../../lib/api";
 import { editingFormRef } from "../../lib/editingForms";
 import { useApi } from "../../lib/useApi";
@@ -16,7 +16,7 @@ import {
 import { LoadState } from "../Management";
 import { Modal } from "../Modal";
 import {ReaderSetupWizard,type ReaderDiscovery} from './ReaderSetupWizard';
-import { ReaderHealthBoard } from "./ReaderHealthBoard";
+import { ReaderHealthBoard, readerLink } from "./ReaderHealthBoard";
 import { ReaderDetail } from "./ReaderDetail";
 
 export function ReaderManager({
@@ -34,6 +34,20 @@ export function ReaderManager({
     retainOnReload: true,
     refreshInterval: 5000,
   });
+  // A reader added or changed elsewhere (setup wizard, another staff member)
+  // shows up on the board first; reload the reader list once per difference.
+  const synced = useRef("");
+  useEffect(() => {
+    if (!health.data) return;
+    const board = new Set(health.data.readers.map((reader) => reader.id));
+    const listed = new Set(setup.readers.map((reader) => reader.id));
+    const difference = [...board].filter((id) => !listed.has(id))
+      .concat([...listed].filter((id) => !board.has(id)))
+      .sort()
+      .join(",");
+    if (difference && difference !== synced.current) reload();
+    synced.current = difference;
+  }, [health.data, setup.readers, reload]);
   const [adding,setAdding]=useState(false);
   const discovery=useApi<ReaderDiscovery>(setup.configured?'/admin/access/reader-setup':null,{retainOnReload:true,refreshInterval:5000});
   const detected=discovery.data?.devices.filter(d=>d.connected&&!discovery.data?.jobs.some(j=>j.gatewayId===d.gatewayId&&j.deviceId===d.id&&!['failed','cancelled','expired'].includes(j.status))).length??0;
@@ -219,10 +233,39 @@ export function ReaderManager({
           stale={!!health.error}
         />
       ) : (
-        <LoadState {...health} />
+        <>
+          <LoadState {...health} />
+          {(!setup.configured || health.error) && setup.readers.length ? (
+            <ReaderList readers={setup.readers} onManage={manage} />
+          ) : null}
+        </>
       )}
       {dialogs}
     </section>
+  );
+}
+
+/** Plain reader list for when live health is unavailable, so Manage stays reachable. */
+function ReaderList({ readers, onManage }: { readers: AccessReader[]; onManage: (reader: AccessReader) => void }) {
+  return (
+    <ul className="nfc-card-list" aria-label="Readers">
+      {readers.map((reader) => (
+        <li className="nfc-card" key={reader.id}>
+          <div className="nfc-section__heading">
+            <h3>
+              <Link to={readerLink(reader.id)}>{reader.name}</Link>
+            </h3>
+            <span className={`activity-badge is-${reader.enabled ? "allowed" : "neutral"}`}>
+              {reader.enabled ? "Enabled" : "Disabled"}
+            </span>
+          </div>
+          <p>{reader.resourceName}</p>
+          <button type="button" className="button button--quiet" onClick={() => onManage(reader)}>
+            Manage {reader.name}
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
 

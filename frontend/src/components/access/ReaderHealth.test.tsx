@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { AccessReader, ReaderHealthBoard, ReaderHealthDetail, ReaderHealthSummary } from "../../lib/nfc";
 import { ReaderManager } from "./ReaderManager";
@@ -9,6 +9,7 @@ import { activityLine, duration } from "./readerHealthText";
 
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
 vi.mock("../../lib/api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../lib/api")>()), api }));
+import { ApiError } from "../../lib/api";
 
 const NOW = Date.parse("2026-11-18T20:35:00Z");
 const minutesAgo = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
@@ -77,13 +78,13 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
-const mount = (search = "?view=readers") =>
+const mount = (
+  search = "?view=readers",
+  { configured = true, readers = [setupReader("front", "Front door"), setupReader("shop", "Wood shop")], reload = () => undefined } = {},
+) =>
   render(
     <MemoryRouter initialEntries={[`/admin/access${search}`]}>
-      <ReaderManager
-        setup={{ configured: true, timeZone: "America/New_York", readers: [setupReader("front", "Front door"), setupReader("shop", "Wood shop")] }}
-        reload={() => undefined}
-      />
+      <ReaderManager setup={{ configured, timeZone: "America/New_York", readers }} reload={reload} />
     </MemoryRouter>,
   );
 
@@ -133,4 +134,35 @@ test("summaries stay short", () => {
   });
   expect(pathParts("not_reporting")).toEqual({ reader: "unknown", readerLink: "unknown", gateway: "bad", cloudLink: "bad" });
   expect(pathParts("unreachable").readerLink).toBe("bad");
+});
+
+test("without live health the readers stay listed and manageable", async () => {
+  api.mockImplementation((path: string) => {
+    if (path === "/admin/access/resources") return Promise.resolve([]);
+    if (path === "/admin/access/reader-setup") return Promise.resolve({ devices: [], jobs: [], gateways: [] });
+    return Promise.reject(new ApiError(500, "server_error", "Reader health unavailable"));
+  });
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Manage Front door" }));
+  expect(screen.getByRole("dialog", { name: "Manage reader" })).toBeTruthy();
+});
+
+test("an unconfigured setup lists its readers without asking for health", async () => {
+  mount("?view=readers", { configured: false });
+  expect(await screen.findByRole("button", { name: "Manage Wood shop" })).toBeTruthy();
+  expect(api.mock.calls.some(([path]) => path === "/admin/access/reader-health")).toBe(false);
+});
+
+test("a reader the board knows but the list lacks reloads the list once", async () => {
+  const reload = vi.fn();
+  mount("?view=readers", { readers: [setupReader("front", "Front door")], reload });
+  await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+  await screen.findByRole("link", { name: "Front door: Working" });
+  expect(reload).toHaveBeenCalledTimes(1);
+});
+
+test("a reader still in setup says so on its page", async () => {
+  mount("?view=readers&reader=shop", { readers: [setupReader("front", "Front door")] });
+  expect(await screen.findByText("This reader is still being set up.")).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Readers" })).toBeTruthy();
 });

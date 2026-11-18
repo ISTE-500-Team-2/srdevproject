@@ -300,7 +300,12 @@ async function summaries(db: Database, readerId: string | null) {
       `SELECT r.id,r.name,r.enabled,${readerLastSeen} AS "lastSeenAt",r.health,
          r.health_reported_at AS "healthReportedAt"
        FROM app_access_reader r ${readerPresenceJoin}
-       WHERE $1::text IS NULL OR r.id=$1 ORDER BY r.name,r.id`,
+       -- The board matches the reader list, which hides readers mid-setup; a
+       -- reader's own page still loads while its setup finishes.
+       WHERE ($1::text IS NULL AND NOT EXISTS (
+           SELECT 1 FROM app_reader_setup_job j WHERE j.reader_id=r.id AND j.status<>'complete'))
+         OR r.id=$1
+       ORDER BY r.name,r.id`,
       [readerId],
     )
   ).rows;

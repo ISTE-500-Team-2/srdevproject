@@ -178,6 +178,13 @@ export function ReaderDetail({
       Readers
     </Link>
   );
+  if (detail && !reader)
+    return (
+      <div className="reader-detail">
+        {back}
+        <p className="empty-state">This reader is still being set up.</p>
+      </div>
+    );
   if (!detail || !reader)
     return (
       <div className="reader-detail">
