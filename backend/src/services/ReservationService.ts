@@ -11,17 +11,18 @@ import { PermissionModel } from "../models/PermissionModel.js";
 import { enqueueNotification } from "../notifications/store.js";
 import type { Pool } from "pg";
 import { transaction, type Database } from "../db.js";
-import { AppError, positiveId, reservationWindow } from "../domain.js";
+import { AppError, integerId, positiveId, reservationWindow } from "../domain.js";
 import { EquipmentModel } from "../models/EquipmentModel.js";
 import {
   ReservationModel,
+  pendingCheckoutRefusal,
   RESERVATION_COOLDOWN_MINUTES,
   type ReservationRecord,
   type ReservationResource,
 } from "../models/ReservationModel.js";
 import { RoomModel } from "../models/RoomModel.js";
 import { AccessService } from "./AccessService.js";
-import { equipmentPrice, reviewEquipmentPrice, saveReservationPrice, cancelReservationPayment } from '../equipmentPricing.js';
+import { equipmentPrice, reviewEquipmentPrice, checkReservationPrice, saveReservationPrice, cancelReservationPayment } from '../equipmentPricing.js';
 
 /** Whole hours in a reservation window; reservationWindow already caps it at 24. */
 function bookedHours(start: Date, end: Date): number {
@@ -136,6 +137,9 @@ function assertOnlinePayable(rate: string | null, hours: number, clientAmountCen
     throw new AppError(409, 'PRICE_CHANGED', 'The equipment rate changed. Review the updated total and try again.');
 }
 
+const STAFF_CANCELLED_REFUND =
+  "You paid for this booking. Contact the studio to arrange a refund to your original payment method; no refund has been recorded yet.";
+
 /** Effects every cancellation applies after its own guarded status change succeeded. */
 async function applyCancellation(
   db: Database,
@@ -157,15 +161,21 @@ async function applyCancellation(
     before,
     result,
   );
+  // A member who cancelled gets a confirmation; one whose booking staff cancelled is told the
+  // studio did it, and how to get back money already paid (cancelling never refunds it).
+  const byStaff = actorId !== memberId;
+  const paid = byStaff && result.paymentId !== null && (await db.query(
+    "SELECT 1 FROM payment WHERE paymentid=$1 AND paymentstatus='paid'", [result.paymentId])).rowCount === 1;
   await enqueueNotification(db, {
     userId: memberId,
-    kind: "reservation_cancelled",
+    kind: byStaff ? "reservation_cancelled_by_staff" : "reservation_cancelled",
     dedupeKey: `reservation-cancelled:${result.id}`,
     payload: {
       reservationId: result.id,
       resourceName: result.equipmentName,
       startsAt: new Date(result.startTime).toISOString(),
       endsAt: new Date(result.endTime).toISOString(),
+      ...(paid && { instructions: STAFF_CANCELLED_REFUND }),
     },
   });
 }
@@ -188,6 +198,8 @@ export class ReservationService {
       requestKey?: unknown;
       amountCents?: unknown;
       expectedPrice?: unknown;
+      /** Staff collecting payment at the desk: confirm now with the payment due, no online checkout. */
+      payAtDesk?: unknown;
     },
   ) {
     const hasEquipment =
@@ -201,18 +213,21 @@ export class ReservationService {
       );
 
     const resourceRef: ReservationResource = hasEquipment
-      ? { equipmentId: positiveId(input.equipmentId, "Equipment") }
-      : { roomId: positiveId(input.roomId, "Room") };
+      ? { equipmentId: integerId(input.equipmentId, "Equipment") }
+      : { roomId: integerId(input.roomId, "Room") };
     const equipmentId = resourceRef.equipmentId ?? null;
     const roomId = resourceRef.roomId ?? null;
     const { start, end } = reservationWindow(input.startTime, input.endTime);
     const targetId =
-      input.userId == null ? userId : positiveId(input.userId, "Member");
+      input.userId == null ? userId : integerId(input.userId, "Member");
     const hours = bookedHours(start, end);
 
     const requestKey = input.requestKey ?? randomUUID();
     if (typeof requestKey !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestKey))
       throw new AppError(400, 'INVALID_INPUT', 'Invalid reservation request key.');
+    if (input.payAtDesk !== undefined && typeof input.payAtDesk !== 'boolean')
+      throw new AppError(400, 'INVALID_INPUT', 'payAtDesk must be true or false.');
+    const payAtDesk = input.payAtDesk === true;
     const billing = new EquipmentBilling(this.pool, this.stripe, this.timeZone);
     if (equipmentId) await billing.reconcile(userId);
     const created = await transaction(this.pool, async (db) => {
@@ -235,6 +250,8 @@ export class ReservationService {
           "STAFF_REQUIRED",
           "Only staff can book for another member.",
         );
+      if (payAtDesk && !actor.roles.some((role) => ["staff", "admin"].includes(role)))
+        throw new AppError(403, "STAFF_REQUIRED", "Only staff can take payment at the desk.");
       if (
         !(await new PermissionModel(db).allows(
           actor,
@@ -281,12 +298,16 @@ export class ReservationService {
       if (resource.kind === "equipment") reviewEquipmentPrice(price, input.expectedPrice);
       const amountCents = price?.totalCents ?? 0;
       if (amountCents > 0) {
-        stripeCheckout = !!this.stripe;
+        // Desk bookings are confirmed with their payment due, as every paid booking is without
+        // card checkout, so staff collect it in Payments instead of the hold expiring unpaid.
+        stripeCheckout = !!this.stripe && !payAtDesk;
         if (stripeCheckout) {
           if (start.getTime() < Date.now() + 30 * 60_000)
             throw new AppError(400, 'PAYMENT_TIME_REQUIRED', 'Choose a start at least 30 minutes away to allow time for payment.');
           billing.provider();
         } else if (input.expectedPrice === undefined) {
+          // A payment record saved without checkout needs the reviewed quote.
+          if (payAtDesk) throw new AppError(409, 'PRICE_CHANGED', 'Review the current price before booking.');
           billing.provider();
         }
       }
@@ -395,8 +416,13 @@ export class ReservationService {
           "CLASS_WORKFLOW_REQUIRED",
           "Cancel and reschedule this training through Classes to preserve enrollment records.",
         );
-      if ((await db.query('SELECT 1 FROM app_equipment_checkout WHERE reservation_id=$1', [reservationId])).rowCount)
-        throw new AppError(409, 'PAYMENT_WORKFLOW_REQUIRED', 'Contact staff to reconcile payment before changing a paid reservation.');
+      // Online checkout bought this machine and these hours, so staff can't change them (see
+      // docs/equipment-payments.md). Only staff reach here, so the message speaks to them.
+      const checkout = (await db.query('SELECT status,payer_id FROM app_equipment_checkout WHERE reservation_id=$1', [reservationId])).rows[0];
+      if (checkout?.status === 'pending')
+        throw await pendingCheckoutRefusal(db, { userId: before.userId, payerId: checkout.payer_id }, actorId, 'change');
+      if (checkout)
+        throw new AppError(409, 'PAYMENT_WORKFLOW_REQUIRED', 'This booking was paid online, so its time, machine and member can’t be changed. Cancel it and rebook with the member instead; refunds aren’t automatic.');
       const expectedRevision = positiveId(input.expectedRevision, "revision");
       if (before.revision !== expectedRevision)
         throw new AppError(
@@ -411,7 +437,7 @@ export class ReservationService {
       const targetId =
         input.userId == null
           ? before.userId
-          : positiveId(input.userId, "Member");
+          : integerId(input.userId, "Member");
       if (
         !(await new PermissionModel(db).allows(
           actor,
@@ -431,13 +457,13 @@ export class ReservationService {
           ? before.equipmentId
           : input.equipmentId === null
             ? null
-            : positiveId(input.equipmentId, "Equipment");
+            : integerId(input.equipmentId, "Equipment");
       const roomId =
         input.roomId === undefined
           ? before.roomId
           : input.roomId === null
             ? null
-            : positiveId(input.roomId, "Room");
+            : integerId(input.roomId, "Room");
       if (!!equipmentId === !!roomId)
         throw new AppError(
           400,
@@ -474,11 +500,15 @@ export class ReservationService {
         const target = await new EquipmentModel(db).findForUpdate(equipmentId!);
         const rate = target!.rate === null ? null : Number(target!.rate);
         const source = (await db.query('SELECT hourlyrate FROM equipment WHERE equipmentid=$1', [maintenance.sourceEquipmentId])).rows[0];
-        if (maintenance.preview) return {
-          reservationId, expectedRevision, equipmentId, equipmentName: resource.name,
-          startTime: start.toISOString(), endTime: end.toISOString(),
-          oldRate: source.hourlyrate === null ? null : Number(source.hourlyrate), rate, priceSnapshot: price,
-        };
+        if (maintenance.preview) {
+          // Refuse here what confirming would refuse when it saves the new price.
+          await checkReservationPrice(db, reservationId, targetId, price);
+          return {
+            reservationId, expectedRevision, equipmentId, equipmentName: resource.name,
+            startTime: start.toISOString(), endTime: end.toISOString(),
+            oldRate: source.hourlyrate === null ? null : Number(source.hourlyrate), rate, priceSnapshot: price,
+          };
+        }
         if (maintenance.expectedRate !== rate)
           throw new AppError(409, "RATE_CHANGED", "The hourly rate changed. Review this move again before confirming.");
       }
@@ -519,6 +549,20 @@ export class ReservationService {
           endsAt: end.toISOString(),
         },
       });
+      // Given to another member: the original member loses it and is told, with the booking they had.
+      if (targetId !== before.userId && before.userId !== actorId)
+        await enqueueNotification(db, {
+          userId: before.userId,
+          kind: "reservation_cancelled_by_staff",
+          dedupeKey: `reservation-reassigned:${reservation.id}:${reservation.revision}`,
+          payload: {
+            reservationId: reservation.id,
+            resourceName: before.equipmentName,
+            startsAt: new Date(before.startTime).toISOString(),
+            endsAt: new Date(before.endTime).toISOString(),
+            reason: "Staff moved this booking to another member.",
+          },
+        });
       return reservation;
     });
   }
@@ -641,7 +685,7 @@ export class ReservationService {
       if (expected && ((expected.sourceEquipmentId !== undefined && before.equipmentId !== expected.sourceEquipmentId)
         || before.revision !== positiveId(expected.expectedRevision, "Revision")))
         throw new AppError(409, "STALE_RECORD", "This reservation changed. Refresh it before cancelling.");
-      const result = await model.cancelAny(reservationId);
+      const result = await model.cancelAny(reservationId, actorId);
       if (!result)
         throw new AppError(
           409,

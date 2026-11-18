@@ -5,6 +5,7 @@ import { Check, ChevronRight, Download, Search } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { apiText, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
+import { onArrowKeys } from "../lib/rovingFocus";
 import type { ComplianceBreakdown, ComplianceIssue, ComplianceReport, Plan } from "../lib/staffContracts";
 import { KeptResults, useResultsPaging } from "../components/KeptResults";
 import { LoadState, Pager } from "../components/Management";
@@ -96,8 +97,11 @@ export function StaffCompliance() {
       const link = document.createElement("a");
       link.href = url;
       link.download = "compliance-report.csv";
+      document.body.appendChild(link);
       link.click();
-      URL.revokeObjectURL(url);
+      link.remove();
+      // Some browsers start the download after click() returns; revoking at once can cancel it.
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (error) {
       setExportError(errorMessage(error));
     }
@@ -117,7 +121,11 @@ export function StaffCompliance() {
           <Download aria-hidden="true" /> Export CSV
         </button>
       </div>
-      {exportError ? <p className="form-error">{exportError}</p> : null}
+      {exportError ? (
+        <p className="form-error" role="alert">
+          {exportError}
+        </p>
+      ) : null}
       <LoadState {...report} loading={report.loading && !report.data} />
       {data ? (
         <>
@@ -136,7 +144,7 @@ export function StaffCompliance() {
           </KeptResults>
 
           <div className="cw-toolbar">
-            <div className="cw-chips" role="radiogroup" aria-label="Show">
+            <div className="cw-chips" role="radiogroup" aria-label="Show" onKeyDown={onArrowKeys}>
               {(
                 [
                   // Not the window's count: the chip reads the same on "Expiring in 30 days".
@@ -151,6 +159,7 @@ export function StaffCompliance() {
                   role="radio"
                   ref={view === "everyone" ? everyone : undefined}
                   aria-checked={filters.view === view}
+                  tabIndex={filters.view === view ? 0 : -1}
                   className="cw-chip"
                   onClick={() => set({ view })}
                 >

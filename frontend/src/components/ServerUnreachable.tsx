@@ -1,5 +1,5 @@
 import { CircleAlert, LoaderCircle, RefreshCw, WifiOff } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { unreachableMessage } from '../lib/api';
 
 /** Seconds before each automatic attempt: quick at first, then every half minute. */
@@ -14,11 +14,14 @@ const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds
  * backing off, while the tab is visible, and at once when the browser comes back
  * online, so an unattended screen (front desk, reader) recovers by itself.
  * The countdown is not a live region: screen readers hear the alert once, not every tick.
+ * As a `banner` it sits over a page that stays open (a check failed in the background),
+ * retrying the same way without taking the page or anything typed into it away.
  */
-export function ServerUnreachable({ message, retrying, onRetry }: {
+export function ServerUnreachable({ message, retrying, onRetry, banner = false }: {
   message: string;
   retrying: boolean;
   onRetry: (supersede?: boolean) => void;
+  banner?: boolean;
 }) {
   const [attempts, setAttempts] = useState(0);
   const [remaining, setRemaining] = useState(retryDelays[0]);
@@ -59,7 +62,39 @@ export function ServerUnreachable({ message, retrying, onRetry }: {
     };
   }, []);
 
+  // The banner reports its height so a toast shown with it sits just above it
+  // instead of over its Try again button (see styles.css).
+  const bannerRef = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const el = bannerRef.current;
+    if (!banner || !el) return;
+    const root = document.documentElement.style;
+    const report = () => root.setProperty('--connection-banner-height', `${el.offsetHeight}px`);
+    report();
+    const resized = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(report);
+    resized?.observe(el);
+    return () => {
+      resized?.disconnect();
+      root.removeProperty('--connection-banner-height');
+    };
+  }, [banner]);
+
   const unreachable = message === unreachableMessage;
+  const status = retrying ? 'Checking the connection…' : <>Trying again in <b>{clock(remaining)}</b></>;
+  if (banner) return <section ref={bannerRef} className="connection-banner" aria-label="Connection status">
+    {unreachable ? <WifiOff aria-hidden="true" /> : <CircleAlert aria-hidden="true" />}
+    <div>
+      <p role="alert">
+        <strong>{unreachable ? 'Connection lost.' : 'Your account didn’t refresh.'}</strong>
+        {' '}{unreachable ? '' : `${message} `}This page stays open, and anything you’ve typed is kept.
+      </p>
+      <p className="connection-banner__status">{status}</p>
+    </div>
+    <button className="button" type="button" disabled={retrying} onClick={() => retryNow()}>
+      {retrying ? <LoaderCircle className="spin" aria-hidden="true" /> : <RefreshCw aria-hidden="true" />}
+      {retrying ? 'Trying again…' : 'Try again'}
+    </button>
+  </section>;
   return <section className="server-unreachable" aria-labelledby="server-unreachable-title">
     <img className="server-unreachable__logo" src="/assets/collaboratory-logo.webp" alt="The Collaboratory" />
     <div role="alert">
@@ -75,9 +110,7 @@ export function ServerUnreachable({ message, retrying, onRetry }: {
       {retrying ? <LoaderCircle className="spin" aria-hidden="true" /> : <RefreshCw aria-hidden="true" />}
       {retrying ? 'Trying again…' : 'Try again'}
     </button>
-    <p className="server-unreachable__status">
-      {retrying ? 'Checking the connection…' : <>Trying again in <b>{clock(remaining)}</b></>}
-    </p>
+    <p className="server-unreachable__status">{status}</p>
     <p className="server-unreachable__help">Still not working? Check your internet connection, or let a staff member know.</p>
   </section>;
 }

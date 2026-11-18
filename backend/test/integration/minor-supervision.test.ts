@@ -17,7 +17,7 @@ import {MemberModel} from '../../src/models/MemberModel.js';
 const database='arbor_family_'+randomBytes(5).toString('hex')+'_mvc_test';
 const owner=new Pool(),pool=new Pool({database});
 let app:any,server:any,admin:any,adult:any,minor:any,room:number,booking:number;
-const post=(who:any,path:string,body:any={},csrf=true)=>{let r=request(server).post('/api'+path).set('Authorization','Bearer '+who.accessToken);if(csrf)r=r.set('X-CSRF-Token',who.csrfToken);return r.send(body);};
+const post=(who:any,path:string,body:any={},csrf=true,subjectId=who.user.id)=>{let r=request(server).post('/api'+path).set('Authorization','Bearer '+who.accessToken).set('X-Account-Subject',String(subjectId));if(csrf)r=r.set('X-CSRF-Token',who.csrfToken);return r.send(body);};
 async function sign(who:any){for(const w of (await request(server).get('/api/me/waivers').set('Authorization','Bearer '+who.accessToken)).body.data)
   if(!w.signed)assert.equal((await post(who,`/me/waivers/${w.id}/sign`,waiverAcceptance(w))).status,200);}
 before(async()=>{
@@ -30,7 +30,7 @@ before(async()=>{
  await pool.query("UPDATE \"user\" SET dob='1990-01-01' WHERE userid=$1",[adult.user.id]);
  const input={firstName:'Young',lastName:'Member',email:'family@example.invalid',phone:'1112223333',dob:'2010-01-01',password:'GoodPassword123!'};
  assert.equal((await request(server).post('/api/auth/register').send(input)).status,202);
- minor=(await request(server).post('/api/auth/confirm').send({token:await confirmationToken(pool,input.email)})).body.data;
+ minor=(await request(server).post('/api/auth/confirm').send({token:await confirmationToken(pool,input.email),password:input.password})).body.data;
  await pool.query(`INSERT INTO user_membership(userid,tierid,startdate,end_date,status)
   VALUES($1,1,(now()-interval '1 day') AT TIME ZONE 'UTC',(now()+interval '30 days') AT TIME ZONE 'UTC','active')`,[minor.user.id]);
  await sign(adult);await sign(minor);
@@ -57,11 +57,24 @@ test('both visitors need their own access; adult presence gates minor bookings a
  const body={roomId:room,startTime:new Date(base+3600000).toISOString(),endTime:new Date(base+7200000).toISOString()};
  assert.equal((await post(minor,'/reservations',body)).body.error.code,'SPONSOR_REQUIRED');
  assert.equal((await post(admin,`${root()}/check-in`,{reason:'Minor arrived'})).status,403);
+ // Desk arrivals count where reports, "Checked in today" and recent check-ins look: check_in.
+ const deskCheckIns=async(userId:number)=>(await pool.query(`SELECT i.location,i.buildingid,i.origin,i.statusdesc FROM check_in i
+  WHERE i.userid=$1 ORDER BY i.checkinid`,[userId])).rows;
+ const buildingName=(await pool.query('SELECT name FROM building WHERE buildingid=1')).rows[0].name;
+ assert.deepEqual(await deskCheckIns(minor.user.id),[],'a refused desk check-in records nothing');
  // A desk check-in needs no note; the change log still records one.
  const r=await post(admin,`/admin/users/${adult.user.id}/supervision/check-in`,{});
  assert.equal(r.status,200,JSON.stringify(r.body));
  assert.equal((await pool.query(`SELECT reason FROM app_staff_audit WHERE subject_id=$1 AND action='visit.check-in' ORDER BY id DESC LIMIT 1`,[adult.user.id])).rows[0].reason,'Checked in at the front desk');
  assert.equal((await post(admin,`${root()}/check-in`,{reason:'Arrived together'})).status,200);
+ for (const who of [adult,minor])
+  assert.deepEqual(await deskCheckIns(who.user.id),[{location:buildingName,buildingid:1,origin:'desk',statusdesc:'Checked in at the front desk'}]);
+ // The member record shows a desk check-in once: the database copy of the check_in row is
+ // saved at the same moment as the staff action, which is how the activity feed spots it.
+ const moments=(await pool.query(`SELECT action,created_at FROM app_staff_audit WHERE subject_id=$1
+  AND action IN ('visit.check-in','check_in.insert') ORDER BY action`,[adult.user.id])).rows;
+ assert.deepEqual(moments.map(m=>m.action),['check_in.insert','visit.check-in']);
+ assert.equal(moments[0].created_at.getTime(),moments[1].created_at.getTime());
  // Use exactly whole-hour duration, independent of successive clock reads.
  body.endTime=new Date(new Date(body.startTime).getTime()+3600000).toISOString();
  const booked=await post(minor,'/reservations',body);assert.equal(booked.status,201,JSON.stringify(booked.body));booking=booked.body.data.id;
@@ -141,7 +154,7 @@ test('staff repeating an adult arrival keeps their second-building visit and sup
   const overview=await request(server).get('/api/me/overview').set('Authorization','Bearer '+admin.accessToken);
   assert.equal(overview.body.data.checkInBuildingId,other);
   assert.equal(overview.body.data.canCheckIn,true);
-  const checked=await post(admin,'/me/check-ins');
+  const checked=await post(admin,'/me/check-ins',{},true,adult.user.id);
   assert.equal(checked.status,201,JSON.stringify(checked.body));
  } finally {
   const closed=await post(admin,'/admin/account-mode/end');
@@ -239,7 +252,7 @@ test('adults request a link, the minor confirms it, and either side can undo it 
  assert.deepEqual(await outbox(stale),[],'a rejected answer sends nothing');
  assert.equal((await get(kid,'/me/supervision')).body.data.sponsor.id,parent.user.id);
  await pool.query("UPDATE app_minor_sponsor_request SET status='cancelled',resolved_at=now() WHERE id=$1",[stale]);
- assert.deepEqual((await get(parent,'/me/minors')).body.data,{minors:[{id:kid.user.id,name:'Link kid',visit:null}],requests:[]});
+ assert.deepEqual((await get(parent,'/me/minors')).body.data,{minors:[{id:kid.user.id,name:'Link kid',visit:null}],requests:[],canSponsor:true,dobOnFile:true});
  await pool.query('INSERT INTO app_facility_visit(user_id,building_id,sponsor_id) VALUES($1,1,$2)',[kid.user.id,parent.user.id]);
  const visiting=(await get(parent,'/me/minors')).body.data.minors[0].visit;
  assert.equal(visiting.buildingName,'Collaboratory');assert.ok(visiting.checkedInAt);
@@ -491,12 +504,66 @@ test('an eligible adult cannot make themselves present from the web; staff at th
  const denied=await atReader(kid.user.id,kidSpace);assert.equal(denied.allowed,false);assert.equal(denied.reason,'SPONSOR_REQUIRED');
  // Staff at the desk, in the adult's open account, may check them in.
  const opened=await post(admin,'/admin/account-mode',{userId:parent.user.id});assert.equal(opened.status,200,JSON.stringify(opened.body));
- const checkedIn=await post({...admin,csrfToken:opened.body.data.csrfToken},'/me/check-ins',{roomId:space});
+ const checkedIn=await post({...admin,csrfToken:opened.body.data.csrfToken},'/me/check-ins',{roomId:space},true,parent.user.id);
  const closed=await post({...admin,csrfToken:opened.body.data.csrfToken},'/admin/account-mode/end');
  assert.equal(checkedIn.status,201,JSON.stringify(checkedIn.body));assert.equal(closed.status,200,JSON.stringify(closed.body));
  assert.equal((await pool.query('SELECT userid FROM check_in WHERE checkinid=$1',[checkedIn.body.data.id])).rows[0].userid,parent.user.id);
  assert.deepEqual(await presence(),{checkIns:1,visits:1});
  assert.equal((await transaction(pool,db=>new MinorSupervision(db).requireSponsor(kid.user.id)))?.id,parent.user.id);
  const allowed=await atReader(kid.user.id,kidSpace);assert.equal(allowed.allowed,true,JSON.stringify(allowed));
+ await transaction(pool,db=>new MinorSupervision(db).checkout(parent.user.id));
+});
+test('an adult with no date of birth on file is told they cannot sponsor yet, and staff can add it once',async()=>{
+ // Accounts made before 005_user_dob have none, so the session doesn't call them minors either.
+ const password='GoodPassword123!',email='legacy.adult@example.invalid';
+ const id=(await pool.query(`INSERT INTO "user"(firstname,lastname,email,password,phone,status,email_confirmed)
+  VALUES('Legacy','Adult',$1,$2,'1112223333','active',true) RETURNING userid`,[email,await hashPassword(password)])).rows[0].userid;
+ await pool.query("INSERT INTO user_role(userid,roleid) SELECT $1,roleid FROM role WHERE role='member'",[id]);
+ const legacy=(await request(server).post('/api/auth/login').send({email,password})).body.data;
+ assert.equal(legacy.user.isMinor,false);
+ assert.deepEqual((await get(legacy,'/me/minors')).body.data,{minors:[],requests:[],canSponsor:false,dobOnFile:false});
+ const patch=(body:any)=>request(server).patch(`/api/admin/users/${id}/profile`).set('Authorization','Bearer '+admin.accessToken).set('X-CSRF-Token',admin.csrfToken).send(body);
+ const before=(await get(admin,`/admin/users/${id}`)).body.data.user;assert.equal(before.dobOnFile,false);
+ const body={firstName:'Legacy',lastName:'Adult',phone:'1112223333',revision:before.revision};
+ assert.equal((await patch({...body,dob:'2999-01-01'})).status,400,'a future date is refused');
+ const added=await patch({...body,dob:'1980-06-15'});assert.equal(added.status,200,JSON.stringify(added.body));
+ assert.equal(added.body.data.dobOnFile,true);
+ const dob=async()=>(await pool.query('SELECT dob::text FROM "user" WHERE userid=$1',[id])).rows[0].dob;
+ assert.equal(await dob(),'1980-06-15');
+ assert.equal((await pool.query(`SELECT reason FROM app_staff_audit WHERE subject_id=$1 AND action='user.profile_updated' ORDER BY id DESC LIMIT 1`,[id])).rows[0].reason,'Date of birth added');
+ // Once on file it isn't changed this way: that would change who counts as a minor.
+ const again=await patch({...body,revision:added.body.data.revision,dob:'1990-01-01'});
+ assert.equal(again.status,409);assert.equal(again.body.error.code,'DOB_ON_FILE');
+ assert.equal((await patch({...body,revision:added.body.data.revision,firstName:'Renamed'})).status,200,'a name edit leaves it alone');
+ assert.equal(await dob(),'1980-06-15');
+ assert.deepEqual((await get(legacy,'/me/minors')).body.data,{minors:[],requests:[],canSponsor:true,dobOnFile:true});
+});
+test("a desk check-in with no building named follows the visit under way, or a minor's present sponsor",async()=>{
+ const parent=await account('desk.parent@example.invalid','1980-01-01'),kid=await account('desk.kid@example.invalid','2012-01-01');
+ for(const who of [parent,kid]){
+  await pool.query(`INSERT INTO user_membership(userid,tierid,startdate,end_date,status)
+   VALUES($1,1,(now()-interval '1 day') AT TIME ZONE 'UTC',(now()+interval '30 days') AT TIME ZONE 'UTC','active')`,[who.user.id]);
+  await sign(who);
+ }
+ await pool.query('INSERT INTO app_minor_sponsor(minor_id,adult_id) VALUES($1,$2)',[kid.user.id,parent.user.id]);
+ const other=(await pool.query("INSERT INTO building(name) VALUES('Desk second building') RETURNING buildingid")).rows[0].buildingid;
+ await transaction(pool,db=>new MinorSupervision(db).startVisit(parent.user.id,other));
+ // The minor joins their sponsor's building instead of being refused at the default one.
+ const kidIn=await post(admin,`/admin/users/${kid.user.id}/supervision/check-in`,{});
+ assert.equal(kidIn.status,200,JSON.stringify(kidIn.body));
+ assert.equal(kidIn.body.data.visit.buildingId,other);
+ // Repeating the adult's arrival keeps them, and the minor with them, where they are.
+ const again=await post(admin,`/admin/users/${parent.user.id}/supervision/check-in`,{});
+ assert.equal(again.status,200,JSON.stringify(again.body));
+ const visits=(await pool.query('SELECT building_id FROM app_facility_visit WHERE user_id=ANY($1::int[]) AND checked_out_at IS NULL',[[parent.user.id,kid.user.id]])).rows;
+ assert.deepEqual(visits.map(v=>v.building_id),[other,other]);
+ // With no visit under way, an adult arrives at the default building; a named one still wins.
+ await transaction(pool,db=>new MinorSupervision(db).checkout(parent.user.id));
+ const fresh=await post(admin,`/admin/users/${parent.user.id}/supervision/check-in`,{});
+ assert.equal(fresh.status,200,JSON.stringify(fresh.body));
+ assert.equal(fresh.body.data.visit.buildingId,1);
+ await transaction(pool,db=>new MinorSupervision(db).checkout(parent.user.id));
+ const named=await post(admin,`/admin/users/${parent.user.id}/supervision/check-in`,{buildingId:other});
+ assert.equal(named.body.data.visit.buildingId,other);
  await transaction(pool,db=>new MinorSupervision(db).checkout(parent.user.id));
 });

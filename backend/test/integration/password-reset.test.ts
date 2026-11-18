@@ -1,3 +1,4 @@
+import { previousNotificationCandidate } from '../helpers/previousNotificationClaim.js';
 import { confirmationToken } from '../helpers/confirmation.js';
 import { issueEmailConfirmation } from '../../src/confirmation/emailConfirmation.js';
 import assert from 'node:assert/strict';
@@ -11,6 +12,8 @@ import { initializeDemo } from '../../src/scripts/init-demo.js';
 import { consumePasswordReset } from '../../src/confirmation/passwordReset.js';
 import { updateNotificationPreferences } from '../../src/notifications/store.js';
 import { runNotificationBatch } from '../../src/notifications/worker.js';
+import { migrate } from '../../src/scripts/migrate.js';
+import { verifyMigrations } from '../../src/scripts/verify-migrations.js';
 
 const database = 'arbor_reset_' + randomBytes(6).toString('hex') + '_mvc_test';
 const admin = new Pool({ connectionTimeoutMillis: 5000 });
@@ -32,7 +35,7 @@ async function person(name: string) {
   const response = await request(app).post('/api/auth/register').send(input);
   assert.equal(response.status, 202);
   // Password recovery fixtures are verified members; pending requests cannot reset into an account.
-  assert.equal((await request(app).post('/api/auth/confirm').send({token:await confirmationToken(pool,input.email)})).status,200);
+  assert.equal((await request(app).post('/api/auth/confirm').send({token:await confirmationToken(pool,input.email),password:input.password})).status,200);
   const id = (await pool.query('SELECT userid FROM "user" WHERE email=$1', [input.email])).rows[0].userid;
   return { ...input, id };
 }
@@ -167,6 +170,21 @@ test('changing an unconfirmed email invalidates reset links sent to the previous
   assert.equal(result.status, 202); assert.equal((await check(token)).status, 400);
 });
 
+test('repeating an unconfirmed email change after it moved sends a fresh link and keeps reset links to the new inbox', async () => {
+  const user = await person('repeatchange'), moved = 'repeatchange-new@example.invalid';
+  await pool.query('UPDATE "user" SET email_confirmed=false WHERE userid=$1',[user.id]);
+  await issueEmailConfirmation(pool,user.id,'http://localhost:8080');
+  const wait = () => pool.query("UPDATE app_email_confirmation SET created_at=NOW()-INTERVAL '61 seconds' WHERE userid=$1", [user.id]);
+  const resend = () => request(app).post('/api/auth/confirmation').send({ ...user, newEmail: moved });
+  await wait(); assert.equal((await resend()).status, 202);
+  const first = await confirmationToken(pool, moved);
+  await ask(moved); const reset = await tokenFor(user.id);
+  // The page repeats the same pair, since its answer never says whether the change took.
+  await wait(); assert.equal((await resend()).status, 202);
+  assert.notEqual(await confirmationToken(pool, moved), first);
+  assert.equal((await check(reset)).status, 204, 'the address did not change again, so its reset link stands');
+});
+
 test('a login verified with the old password cannot create a session after reset wins the account lock', async () => {
   const user = await person('loginrace');
   await pool.query('UPDATE "user" SET email_confirmed=true WHERE userid=$1', [user.id]);
@@ -189,11 +207,14 @@ test('a login verified with the old password cannot create a session after reset
   } finally { await blocker.query('ROLLBACK'); blocker.release(); await login; }
 });
 
-test('all three public reset routes share the existing authentication throttle', async () => {
+// Each reset route has its own budget: spending one (or failed sign-ins) never blocks another.
+test('each public reset route is throttled on its own budget', async () => {
   for (let i = 0; i < 30; i++) assert.equal((await check('bad')).status, 400);
-  for (const response of [await ask('unknown@example.invalid'), await check('bad'), await confirm('bad')]) {
-    assert.equal(response.status, 429); assert.equal(response.body.error.code, 'RATE_LIMITED'); assert.ok(response.headers['retry-after']);
-  }
+  const response = await check('bad');
+  assert.equal(response.status, 429); assert.equal(response.body.error.code, 'RATE_LIMITED'); assert.ok(response.headers['retry-after']);
+  for (let i = 0; i < 31; i++) await request(app).post('/api/auth/login').send({ email: 'unknown@example.invalid', password: 'WrongPassword!' });
+  assert.equal((await ask('unknown@example.invalid')).status, 202);
+  assert.equal((await confirm('bad')).status, 400);
 });
 
 test('concurrent correct legacy logins both succeed when only one bcrypt upgrade wins', async () => {
@@ -247,4 +268,97 @@ test('admin reset requires admin and CSRF, queues and audits in account mode, an
   app = createApp(pool, { ...config, demoLogin: true });
   assert.equal((await post(adminSession)).status, 503);
   assert.equal((await pool.query('SELECT 1 FROM app_password_reset WHERE userid=$1', [target.id])).rowCount, 0);
+});
+
+test('previous release reset cleanup obsoletes and scrubs a protected reset after account activation', async () => {
+  const user = await person('rollbackreset');
+  await pool.query(`UPDATE "user" SET status='pending',email_confirmed=false WHERE userid=$1`, [user.id]);
+  assert.equal((await ask(user.email)).status, 202);
+  const token = await tokenFor(user.id);
+  await pool.query(`UPDATE "user" SET status='active',email_confirmed=true WHERE userid=$1`, [user.id]);
+  // c95a2b5 uses this cleanup before issuing a fresh reset to the now-active account.
+  await pool.query(`UPDATE app_notification_outbox SET status='obsolete',counts_for_sla=false,updated_at=NOW()
+    WHERE userid=$1 AND kind='password_reset' AND status='pending'`, [user.id]);
+  assert.deepEqual(await resetRows(user.id), [{ status: 'obsolete', link: false, hash: sha256(token) }]);
+});
+
+test('an older account that never confirmed its email can reset its password, which confirms and activates it', async () => {
+  const user = await person('legacypending');
+  await pool.query("DELETE FROM app_notification_outbox WHERE userid=$1 AND kind='account_created'", [user.id]);
+  // Migration 030 holds these accounts as 'pending' until their inbox is proven.
+  await pool.query(`UPDATE "user" SET status='pending',email_confirmed=false WHERE userid=$1`, [user.id]);
+  assert.equal((await request(app).post('/api/auth/login').send(user)).body.error.code, 'EMAIL_CONFIRMATION_REQUIRED');
+  assert.equal((await ask(user.email)).status, 202);
+  const original = await tokenFor(user.id);
+  assert.equal(await previousNotificationCandidate(pool, new Date()), undefined);
+  await pool.query("UPDATE app_password_reset SET created_at=NOW()-INTERVAL '61 seconds' WHERE userid=$1", [user.id]);
+  assert.equal((await ask(user.email)).status, 202);
+  const token = await tokenFor(user.id);
+  assert.notEqual(token, original);
+  assert.deepEqual(await resetRows(user.id), [
+    { status: 'obsolete', link: false, hash: sha256(original) },
+    { status: 'pending', link: true, hash: sha256(token) },
+  ]);
+  assert.equal(await previousNotificationCandidate(pool, new Date()), undefined);
+  const sent: string[] = [];
+  await runNotificationBatch(pool, async row => {
+    sent.push(new URL(String(row.payload.resetUrl)).hash.slice(1));
+    return { messageId: `legacy-${row.id}` };
+  });
+  assert.deepEqual(sent, [token]);
+  assert.deepEqual((await resetRows(user.id)).at(-1), { status: 'accepted', link: false, hash: sha256(token) });
+  assert.equal((await check(token)).status, 204);
+  assert.equal((await confirm(token)).status, 204);
+  const account = (await pool.query('SELECT status,email_confirmed FROM "user" WHERE userid=$1', [user.id])).rows[0];
+  assert.deepEqual(account, { status: 'active', email_confirmed: true });
+  assert.equal((await request(app).post('/api/auth/login').send({ ...user, password: 'NewPassword!' })).status, 200);
+});
+
+test('a pending account whose email is already confirmed, or a suspended one, still gets no reset', async () => {
+  const pending = await person('pendingconfirmed');
+  await pool.query(`UPDATE "user" SET status='pending' WHERE userid=$1`, [pending.id]);
+  const suspended = await person('suspendedreset');
+  await pool.query(`UPDATE "user" SET status='suspended',email_confirmed=false WHERE userid=$1`, [suspended.id]);
+  for (const user of [pending, suspended]) {
+    assert.equal((await ask(user.email)).status, 202);
+    assert.equal((await pool.query('SELECT 1 FROM app_password_reset WHERE userid=$1', [user.id])).rowCount, 0, user.email);
+  }
+});
+
+const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
+const resetRows = async (id: number) => (await pool.query(`SELECT status,payload ? 'resetUrl' AS link,payload->>'resetHash' AS hash
+  FROM app_notification_outbox WHERE userid=$1 AND kind='password_reset' ORDER BY id`, [id])).rows;
+
+test('reset links are kept only until their email goes out or is replaced', async () => {
+  const user = await person('forgetlinks');
+  await ask(user.email); const sent = await tokenFor(user.id);
+  assert.deepEqual(await resetRows(user.id), [{ status: 'pending', link: true, hash: sha256(sent) }]);
+  await runNotificationBatch(pool, async row => ({ messageId: `forget-${row.id}` }));
+  // The hash stays for delivery checks; the usable link doesn't.
+  assert.deepEqual(await resetRows(user.id), [{ status: 'accepted', link: false, hash: sha256(sent) }]);
+  // The emailed link still works: only the stored copy is gone.
+  assert.equal((await check(sent)).status, 204);
+  await pool.query("UPDATE app_password_reset SET created_at=NOW()-INTERVAL '61 seconds' WHERE userid=$1", [user.id]);
+  await ask(user.email); const replaced = await tokenFor(user.id);
+  await pool.query("UPDATE app_password_reset SET created_at=NOW()-INTERVAL '61 seconds' WHERE userid=$1", [user.id]);
+  await ask(user.email); const latest = await tokenFor(user.id);
+  assert.deepEqual((await resetRows(user.id)).slice(1), [
+    { status: 'obsolete', link: false, hash: sha256(replaced) },
+    { status: 'pending', link: true, hash: sha256(latest) },
+  ]);
+});
+
+test('the migration also clears links left in emails sent before it, and can run again', async () => {
+  const user = await person('oldlinks');
+  await ask(user.email); const token = await tokenFor(user.id);
+  // As a row sent by the previous release looked.
+  await pool.query('ALTER TABLE app_notification_outbox DISABLE TRIGGER app_forget_sent_link');
+  try { await pool.query("UPDATE app_notification_outbox SET status='accepted' WHERE userid=$1 AND kind='password_reset'", [user.id]); }
+  finally { await pool.query('ALTER TABLE app_notification_outbox ENABLE TRIGGER app_forget_sent_link'); }
+  assert.deepEqual(await resetRows(user.id), [{ status: 'accepted', link: true, hash: sha256(token) }]);
+  await assert.rejects(verifyMigrations(pool), /cleanup of previously sent links is incomplete/);
+  await migrate(pool);
+  await migrate(pool);
+  await verifyMigrations(pool);
+  assert.deepEqual(await resetRows(user.id), [{ status: 'accepted', link: false, hash: sha256(token) }]);
 });

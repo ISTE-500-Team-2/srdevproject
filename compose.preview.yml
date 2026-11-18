@@ -8,7 +8,8 @@ services:
   frontend:
     image: arbor-equipment-dependencies
     working_dir: /app/frontend
-    command: ["npm", "run", "dev"]
+    # Inside the container Vite must listen beyond loopback; the port is published to 127.0.0.1 only.
+    command: ["npm", "run", "dev:container"]
     environment:
       DEV_API_TARGET: http://app:8080
       CHOKIDAR_USEPOLLING: "true"

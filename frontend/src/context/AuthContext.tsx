@@ -13,7 +13,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useLocation } from 'react-router-dom';
-import { api, ApiError, errorMessage, setCsrfToken, setAccessToken } from '../lib/api';
+import { api, ApiError, errorMessage, setAccountSubject, setCsrfToken, setAccessToken } from '../lib/api';
 import type { NotificationMessage, Registration, Session, User } from '../lib/contracts';
 import type { UserRole } from '../types';
 import { forgetRecentAccounts } from '../lib/recentAccounts';
@@ -39,7 +39,7 @@ interface AuthContextValue {
   ) => Promise<UserRole>;
   loginAs: (role: UserRole) => Promise<UserRole>;
   register: (input: Registration) => Promise<{confirmationRequired:true;email:string;emailSendingEnabled:boolean}>;
-  confirmEmail: (token:string) => Promise<UserRole>;
+  confirmEmail: (token:string, password:string) => Promise<UserRole>;
   logout: () => Promise<void>;
   /**
    * Re-read `/auth/session`. Joins a read already in flight for the same router
@@ -65,6 +65,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState('');
   const [demoLogin, setDemoLogin] = useState(false);
   const [signedOut, setSignedOut] = useState(false);
+  // Changes name the account whose pages are on screen, so the tab's open account is set
+  // when they commit (the member site rebuilds its page for it in the same commit, see
+  // AppShell), not when a session read arrives: until then the page showing belongs to the
+  // account before, and a change sent from it must say so for the server to refuse it.
+  const subject = user?.id ?? null;
+  useLayoutEffect(() => { setAccountSubject(subject); }, [subject]);
   const revision = useRef(0);
   const acceptSession = useCallback((session: Session) => {
     revision.current++;
@@ -139,8 +145,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setCsrfToken(null);
         setAccessToken(null);
     };
+    const changed = () => void refresh(false, { fresh: true });
     window.addEventListener('session-expired', expired);
-    return () => window.removeEventListener('session-expired', expired);
+    window.addEventListener('account-changed', changed);
+    return () => {
+      window.removeEventListener('session-expired', expired);
+      window.removeEventListener('account-changed', changed);
+    };
   }, [refresh]);
   const login = useCallback(
     async (email: string, password: string, remember: boolean) =>
@@ -163,7 +174,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (input: Registration) => api<{confirmationRequired:true;email:string;emailSendingEnabled:boolean}>('/auth/register', {method:'POST',body:{...input,timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone}}),
     [],
   );
-  const confirmEmail = useCallback(async (token:string) => acceptSession(await api<Session>('/auth/confirm',{method:'POST',body:{token}})),[acceptSession]);
+  const confirmEmail = useCallback(async (token:string, password:string) => acceptSession(await api<Session>('/auth/confirm',{method:'POST',body:{token,password}})),[acceptSession]);
   const logout = useCallback(async () => {
     // Invalidate in-flight session reads before and after server revocation.
     revision.current++;

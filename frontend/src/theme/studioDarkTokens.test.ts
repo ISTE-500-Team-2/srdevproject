@@ -25,18 +25,26 @@ function declarations(root: postcss.Root, keep: (rule: Rule) => boolean) {
   return found;
 }
 
-const studios = declarations(read('pages/studios.css'), () => true);
+// Staff pages that keep their dividers and secondary text in local variables.
+const STYLESHEETS = ['pages/studios.css', 'pages/admin/today.css', 'pages/plans.css'];
 const dark = declarations(read('theme/dark.css'), (rule) => rule.selectors.some((s) => DARK_ROOT.test(s)));
 const darkRoot = declarations(read('theme/dark.css'), (rule) => rule.selector === ":root[data-theme='dark']").get(":root[data-theme='dark']")!;
 
-const colorVariables = [...studios].flatMap(([selector, props]) =>
-  [...props].filter(([, value]) => COLOR.test(value)).map(([prop]) => ({ selector, prop })),
+const colorVariables = STYLESHEETS.flatMap((file) =>
+  [...declarations(read(file), () => true)].flatMap(([selector, props]) =>
+    [...props].filter(([, value]) => COLOR.test(value)).map(([prop]) => ({ selector, prop })),
+  ),
 );
 
-test('studios.css still keeps its desk colors in local variables', () => {
+test('the staff desk, Today and Plans pages still keep these colors in local variables', () => {
   expect(colorVariables).toEqual([
     { selector: '.studio-desk', prop: '--desk-line' },
     { selector: '.studio-desk', prop: '--desk-muted' },
+    { selector: '.today', prop: '--today-line' },
+    { selector: '.today', prop: '--today-line-strong' },
+    { selector: '.today', prop: '--today-muted' },
+    { selector: '.plans', prop: '--plans-line' },
+    // --plans-muted follows the --ink-soft theme token (see plansContrast.test.ts), not a literal.
   ]);
 });
 
@@ -44,8 +52,29 @@ test.each(colorVariables)('dark.css gives $selector $prop a dark value', ({ sele
   expect(dark.get(`:root[data-theme='dark'] ${selector}`)?.get(prop)).toBeTruthy();
 });
 
-test('dark desk text keeps body-text contrast on the dark card', () => {
-  const muted = dark.get(":root[data-theme='dark'] .studio-desk")?.get('--desk-muted');
-  const resolved = muted?.replace(/^var\((--[\w-]+)\)$/, (_, name: string) => darkRoot.get(name) ?? '');
-  expect(contrast(parseColor(resolved ?? '')!, parseColor(darkRoot.get('--dk-card')!)!)).toBeGreaterThanOrEqual(4.5);
+test.each(colorVariables.filter(({ prop }) => prop.endsWith('-muted')))(
+  'dark $selector $prop text keeps body-text contrast on the dark card',
+  ({ selector, prop }) => {
+    const muted = dark.get(`:root[data-theme='dark'] ${selector}`)?.get(prop);
+    const resolved = muted?.replace(/^var\((--[\w-]+)\)$/, (_, name: string) => darkRoot.get(name) ?? '');
+    expect(contrast(parseColor(resolved ?? '')!, parseColor(darkRoot.get('--dk-card')!)!)).toBeGreaterThanOrEqual(4.5);
+  },
+);
+
+test("the occupancy board's Today tag keeps dark ink on its orange tag", () => {
+  // The compiled twin copies `color: var(--ink)`, which turns cream in the dark.
+  // dark.css must repeat the twin's selector so its later rule wins.
+  const tags: string[] = [];
+  read('pages/studios.css').walkRules((rule) => {
+    if (rule.selector.includes('.desk-today-tag')) tags.push(rule.selector);
+  });
+  expect(tags).toHaveLength(1);
+  let ink = '';
+  read('theme/dark.css').walkRules((rule) => {
+    if (rule.selectors.includes(`:root[data-theme='dark'] ${tags[0]}`))
+      rule.walkDecls('color', (decl) => { ink = decl.value; });
+  });
+  expect(ink).not.toBe('');
+  const resolved = ink.replace(/^var\((--[\w-]+)\)$/, (_, name: string) => darkRoot.get(name) ?? '');
+  expect(contrast(parseColor(resolved)!, parseColor(darkRoot.get('--orange')!)!)).toBeGreaterThanOrEqual(4.5);
 });

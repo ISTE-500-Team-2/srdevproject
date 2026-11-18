@@ -19,12 +19,17 @@ export function CheckoutReturn({ children }: { children?: ReactNode }) {
       ? /^\d+$/.test(raw) && Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
       : legacyAssistedMember(purchaser?.id);
     const search = new URLSearchParams({ [kind]: status });
-    if (isWorkspaceUser(purchaser) && member) {
+    // Staff who bought for themselves belong on their own membership page, not the member workspace.
+    if (isWorkspaceUser(purchaser) && member && member !== purchaser?.id) {
       search.set('member', String(member));
       return <Navigate replace to={`/admin/members?${search}`} />;
     }
-    if (location.pathname === '/checkout-return')
+    if (location.pathname === '/checkout-return') {
+      // Lets the membership page wait on this checkout rather than any other pending one.
+      const checkout = params.get('checkout');
+      if (checkout) search.set('checkout', checkout);
       return <Navigate replace to={`/membership?${search}`} />;
+    }
   }
   return children ?? <Navigate replace to="/membership" />;
 }

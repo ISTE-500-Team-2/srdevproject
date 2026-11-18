@@ -14,7 +14,10 @@ const database='arbor_combined_'+randomBytes(6).toString('hex')+'_mvc_test';
 const owner=new Pool(),pool=new Pool({database});
 const secret=randomBytes(32).toString('hex'),uid='04A1B2C3D4E5F6';
 const provider=new StudioStripe({key:'sk_test_fixture',webhookSecret:'whsec_fixture',origin:'http://localhost'});
-const billing=new PassBilling(pool,provider),pricing=new BillingPricing(pool);
+// This test exercises same-day access. The checkout cutoff has its own tests.
+const newYorkHour=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'numeric',hourCycle:'h23'}).format();
+const zone=newYorkHour==='23'?'America/Chicago':'America/New_York';
+const billing=new PassBilling(pool,provider,zone),pricing=new BillingPricing(pool);
 let created=false,server:any,staff:any,member:any,room:number,session:any,providerCalls=0;
 (provider.sdk.checkout.sessions.create as any)=async(params:any)=>{
   providerCalls++;assert.deepEqual(params.payment_method_types,['card']);
@@ -28,7 +31,7 @@ before(async()=>{
   await owner.query(`CREATE DATABASE "${database}"`);created=true;await initializeDemo(pool);
   room=(await pool.query("INSERT INTO room(name,location,status) VALUES('Combined fixture room','Fixture','available') RETURNING roomid")).rows[0].roomid;
   const app=createApp(pool,{jwtKey:randomBytes(32),port:8080,host:'127.0.0.1',secureCookies:false,demoLogin:true,
-    allowedOrigins:[],timeZone:'America/New_York',devices:{cardHashKey:randomBytes(32).toString('hex'),readers:[{id:'combined',secret,kind:'room',resourceId:room}]}});
+    allowedOrigins:[],timeZone:zone,devices:{cardHashKey:randomBytes(32).toString('hex'),readers:[{id:'combined',secret,kind:'room',resourceId:room}]}});
   server=app.listen(0,'127.0.0.1');await new Promise<void>(resolve=>server.once('listening',resolve));
   for(const role of ['admin','member']){
     const r=await request(server).post('/api/auth/demo').send({role});assert.equal(r.status,200);
@@ -48,7 +51,7 @@ function scan(){
     .set('X-Reader-Timestamp',stamp).set('X-Reader-Signature',createHmac('sha256',secret).update(stamp+'\n'+body).digest('hex')).send(body);
 }
 test('combined pricing, TOS, paid passes, bounded NFC decisions and policy replacement share one current eligibility state',async()=>{
-  const today=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+  const today=new Intl.DateTimeFormat('en-CA',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
   const plans=await pricing.offers(member.user.id,today),pass=plans.find(p=>p.kind==='day_pass')!;
   assert.equal(pass.amountCents,2500);assert.equal(plans.find(p=>p.kind==='membership')!.amountCents,9500);
   const input={planId:pass.id,expectedRevision:pass.revision,pricingRevision:pass.pricingRevision,amountCents:2500,validDate:today};
@@ -61,7 +64,9 @@ test('combined pricing, TOS, paid passes, bounded NFC decisions and policy repla
   await pool.query("INSERT INTO reservation(userid,roomid,location,starttime,endtime,status) VALUES($1,$2,'Combined fixture room',(now()-interval '1 minute') AT TIME ZONE 'UTC',(now()+interval '30 minutes') AT TIME ZONE 'UTC','confirmed')",[member.user.id,room]);
   assert.equal((await scan()).body.data.allowed,false,'A checkout is not a paid entitlement');
   await billing.checkout(member.user.id,input);
-  assert.equal(session.success_url,`http://localhost/checkout-return?member=${member.user.id}&pass=returned`);
+  const checkoutId=(await pool.query('SELECT id FROM app_pass_checkout WHERE userid=$1',[member.user.id])).rows[0].id;
+  // The return names its own checkout so the page doesn't wait on an older abandoned one.
+  assert.equal(session.success_url,`http://localhost/checkout-return?member=${member.user.id}&pass=returned&checkout=${checkoutId}`);
   assert.equal(session.cancel_url,`http://localhost/checkout-return?member=${member.user.id}&pass=cancelled`);
   await billing.checkout(member.user.id,input);
   assert.equal(providerCalls,1,'A resumed checkout preserves its member-safe callback and session');
@@ -81,4 +86,21 @@ test('combined pricing, TOS, paid passes, bounded NFC decisions and policy repla
   const history=(await get('/me/signed-waivers')).body.data;
   assert.ok(history.some((w:any)=>w.waiverId===waivers.find((w:any)=>w.name==='Terms of Service').id));
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM app_pass_checkout')).rows[0].n,1);
+});
+test('a paid pass staff put on hold or revoked is listed with that status, not as paid',async()=>{
+  const pass=(await pool.query("SELECT id,pass_id FROM app_pass_checkout WHERE userid=$1 AND status='paid' AND pass_id IS NOT NULL",[member.user.id])).rows[0];
+  assert.ok(pass,'Needs the paid pass the previous test issues; run this whole file, not this test alone');
+  const listed=async()=>{
+    const r=await get('/me/billing/passes');assert.equal(r.status,200);
+    return r.body.data.find((p:any)=>p.id===pass.id)?.status;
+  };
+  const change=async(status:string)=>{
+    const {revision}=(await pool.query('SELECT revision FROM day_pass WHERE dayid=$1',[pass.pass_id])).rows[0];
+    const r=await post(`/admin/users/${member.user.id}/entitlements/day_pass/${pass.pass_id}/status`,{status,revision,reason:'Synthetic hold check'},staff);
+    assert.equal(r.status,200,JSON.stringify(r.body));
+  };
+  assert.equal(await listed(),'paid');
+  await change('suspended');assert.equal(await listed(),'suspended');
+  await change('active');assert.equal(await listed(),'paid');
+  await change('revoked');assert.equal(await listed(),'revoked');
 });

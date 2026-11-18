@@ -51,7 +51,8 @@ const gatedPool = new Proxy(pool, {
   },
 });
 const post = (path: string, body: object = {}, actor = member) => request(server).post('/api' + path)
-  .set('Authorization', 'Bearer ' + actor.accessToken).set('X-CSRF-Token', actor.csrfToken).send(body);
+  .set('Authorization', 'Bearer ' + actor.accessToken).set('X-CSRF-Token', actor.csrfToken)
+  .set('X-Account-Subject', String(actor.user.id)).send(body);
 
 before(async () => {
   if (!process.env.PGHOST || process.env.DATABASE_URL) throw Error('Explicit isolated PostgreSQL required');

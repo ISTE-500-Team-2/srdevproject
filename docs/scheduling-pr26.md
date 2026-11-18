@@ -83,7 +83,13 @@ resource check preserves them without permitting new resource-less reservations.
 
 A `BEFORE INSERT OR UPDATE` trigger overrides attempts to write the flag directly:
 
-- Inserts are always enforced.
+- Inserts are enforced, except a room-only booking that explicitly sets
+  `cooldown_enforced = false`. Class scheduling does this (`050_class_room_cooldown.sql`), because
+  a class's room booking is stored under the staff member who scheduled it and
+  back-to-back classes in one room are normal. Equipment bookings, and inserts that
+  leave the column at its default, are always enforced. The room no-overlap
+  exclusion (`app_room_reservation_no_overlap`) covers every active room booking,
+  exempt or not, so a class still cannot double-book a room.
 - Changing owner, equipment, room, start, or end activates enforcement.
 - Moving from an inactive status to `confirmed` or `pending` activates enforcement.
 - Metadata edits and cancellation do not invalidate an unchanged grandfathered booking.
@@ -92,7 +98,9 @@ A `BEFORE INSERT OR UPDATE` trigger overrides attempts to write the flag directl
 Partial GiST exclusions protect enforced bookings against concurrent enforced
 bookings. The trigger checks enforced bookings against grandfathered active rows.
 Grandfathered blockers can only remain unchanged or cease being exempt/active;
-concurrent writers cannot introduce new exempt blockers. This combination preserves
+concurrent writers cannot introduce new exempt blockers. The one new kind, a class's
+room booking, is written under the room row lock that member room bookings also
+take, so it cannot slip past a concurrent enforced booking. This combination preserves
 old conflicting pairs while preventing a new or changed booking from bypassing them.
 Application prechecks include both grandfathered and enforced rows.
 

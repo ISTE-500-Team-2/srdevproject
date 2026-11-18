@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
 import {before,after,test} from 'node:test';
 import {Pool} from 'pg';
+import type Stripe from 'stripe';
+import {stripeMock,type StripeFixture} from '../helpers/stripeFixtures.js';
 import {initializeDemo} from '../../src/scripts/init-demo.js';
 import {PassBilling} from '../../src/billing/passes.js';
 import {BillingPricing} from '../../src/billing/pricing.js';
@@ -14,7 +16,18 @@ const service=new PassBilling(pool,provider),pricing=new BillingPricing(pool);
 (provider.sdk.checkout.sessions.retrieve as any)=async()=>session;
 (provider.sdk.checkout.sessions.expire as any)=async()=>({...session,status:'expired'});
 (provider.sdk.refunds.list as any)=async()=>({data:[],has_more:false});
-(provider.sdk.refunds.create as any)=async(p:any)=>{refundCalls++;return {id:'re_pass',...p,currency:'usd',status:'succeeded'};};
+const stripe=stripeMock(provider);
+const earlyRefund={id:'re_early',payment_intent:'pi_early_refund',currency:'usd',amount:1000,status:'succeeded' as const};
+let createdRefund:StripeFixture<Stripe.Refund>;
+stripe.refundCreate(async p=>{
+ refundCalls++;
+ return createdRefund={id:'re_pass',payment_intent:p?.payment_intent,amount:p?.amount,currency:'usd',status:'succeeded'};
+});
+stripe.refundRetrieve(async id=>{
+ if(id===earlyRefund.id)return earlyRefund;
+ assert.equal(id,createdRefund?.id);
+ return createdRefund;
+});
 const event=(id:string)=>({id,livemode:false,type:'checkout.session.completed',data:{object:session}} as any);
 const input=(date:string,amount=1500,rev=0)=>({planId:plan.id,expectedRevision:plan.revision,pricingRevision:rev,amountCents:amount,validDate:date});
 before(async()=>{
@@ -97,9 +110,9 @@ test('missing waiver blocks purchase and unverified users cannot claim a free mo
 
 test('refund before checkout delivery cannot grant usable access on a late paid event',async()=>{
  await service.checkout(member,input('2030-07-10',1000,1));session={...session,status:'complete',payment_status:'paid',payment_intent:'pi_early_refund'};
- (provider.sdk.refunds.list as any)=async()=>({has_more:false,data:[{id:'re_early',payment_intent:'pi_early_refund',currency:'usd',amount:1000,status:'succeeded'}]});
+ stripe.refundList(async()=>({has_more:false,data:[earlyRefund]}));
  await service.webhook(event('evt_late_checkout'));
  const r=(await pool.query("SELECT * FROM app_pass_checkout WHERE payment_intent='pi_early_refund'")).rows[0];assert.equal(r.status,'cancelled');
- assert.equal((await pool.query('SELECT status FROM day_pass WHERE dayid=$1',[r.pass_id])).rows[0].status,'cancelled');
+ assert.equal(r.pass_id,null);
  assert.equal((await pool.query('SELECT paymentstatus FROM payment WHERE paymentid=$1',[r.payment_id])).rows[0].paymentstatus,'refunded');
 });

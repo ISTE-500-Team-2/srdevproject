@@ -24,6 +24,12 @@ test('each invalid signup property is named in the error body',async()=>{
     ['firstName',{firstName:''}],
     ['lastName',{lastName:'x'.repeat(51)}],
     ['phone',{phone:'0'.repeat(16)}],
+    ['phone',{phone:'call me'}],
+    ['phone',{phone:'555-01'}],
+    ['phone',{phone:'+1 (410) 555-0182 x123'}],
+    ['phone',{phone:'1+410 555 0182'}],
+    // With its +, a 15-digit number would not fit the 15-character column.
+    ['phone',{phone:'+123456789012345'}],
     ['email',{email:'not-an-email'}],
     ['dob',{dob:'01/02/2000'}],
     ['dob',{dob:'2999-01-01'}],
@@ -42,10 +48,11 @@ test('each invalid signup property is named in the error body',async()=>{
   assert.equal((await pool.query('SELECT COUNT(*)::int AS n FROM app_pending_registration')).rows[0].n,0);
 });
 
-test('an address that already has an account is an email error',async()=>{
+// Sign-up never says whether an address is a member's; the owner is emailed instead.
+test('an address that already has an account is not reported as an error',async()=>{
   const response=await register({...person,email:'demo.member@collaboratory.invalid'});
-  assert.equal(response.status,409);
-  assert.deepEqual(response.body.error,{code:'EMAIL_ALREADY_REGISTERED',message:'An account with that email address already exists.',field:'email'});
+  assert.equal(response.status,202);
+  assert.equal(response.body.error,undefined);
 });
 
 test('errors outside signup keep their existing body',async()=>{
@@ -55,4 +62,14 @@ test('errors outside signup keep their existing body',async()=>{
   const accepted=await register(person);
   assert.equal(accepted.status,202);
   assert.equal(accepted.body.error,undefined);
+});
+
+test('a formatted phone number is saved whole, as its digits after any leading +',async()=>{
+  // The + stays, as the profile saves it, so an international number is never shown as a US one.
+  for(const [n,phone,saved] of [[1,'+1 (410) 555-0182','+14105550182'],[2,'(410) 555-0182','4105550182'],[3,'+49 30 123456','+4930123456']] as const){
+    const email=`formatted-phone-${n}@example.invalid`;
+    assert.equal((await register({...person,email,phone})).status,202);
+    const row=(await pool.query('SELECT phone FROM app_pending_registration WHERE email=$1',[email])).rows[0];
+    assert.equal(row.phone,saved);
+  }
 });

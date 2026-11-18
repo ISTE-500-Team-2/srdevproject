@@ -2,7 +2,7 @@ import { ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import { dollars } from "../../../lib/display";
 import type { Page, Payment } from "../../../lib/staffContracts";
-import { paymentAction, paymentMethodName, paymentStatusName, paymentStatusTone, refundNote } from "../PaymentControls";
+import { checkoutNote, paymentAction, paymentMethodName, paymentStatusName, paymentStatusTone, refundNote } from "../PaymentControls";
 import { day, Row, type OpenDialog } from "./recordParts";
 
 /** The member's latest payments, each with the one change staff can make to it. */
@@ -16,13 +16,15 @@ export function RecordPayments({ personId, payments, canManage, open }: { person
       {payments.items.length ? (
         payments.items.slice(0, 6).map((p) => {
           const action = canManage ? paymentAction(p) : null;
+          const actionLabel = action === "review" ? "Review refund" : action === "refund" ? "Refund" : "Update";
           const note = refundNote(p);
+          const checkout = checkoutNote(p);
           return (
             <Row
               key={p.id}
               icon="receipt"
               title={p.planName || "Payment"}
-              detail={`${day(p.recordedAt)} · ${paymentMethodName(p.method)}${p.reference ? ` · ${p.reference}` : ""} · #${p.id}`}
+              detail={`${day(p.recordedAt)} · ${paymentMethodName(p.method)}${p.reference ? ` · ${p.reference}` : ""} · #${p.id}${checkout ? `. ${checkout}` : ""}`}
               end={
                 <>
                   <strong>{dollars(p.amount)}</strong>
@@ -33,10 +35,10 @@ export function RecordPayments({ personId, payments, canManage, open }: { person
                       <button
                         type="button"
                         className="today-link"
-                        aria-label={`${action === "refund" ? "Refund" : "Update"} payment #${p.id}`}
-                        onClick={() => open(action === "refund" ? { kind: "refund", payment: p } : { kind: "payment", payment: p })}
+                        aria-label={`${actionLabel} payment #${p.id}`}
+                        onClick={() => open(action === "update" ? { kind: "payment", payment: p } : { kind: "refund", payment: p })}
                       >
-                        {action === "refund" ? "Refund…" : "Update"}
+                        {action === "update" ? actionLabel : actionLabel + "…"}
                       </button>
                     ) : null}
                   </span>

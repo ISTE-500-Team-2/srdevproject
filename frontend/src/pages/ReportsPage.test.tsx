@@ -110,7 +110,7 @@ test("each period is named once, machines nobody used wait behind a toggle, and 
   mount("/admin/reports?range=custom&from=2026-09-01&to=2026-09-30&group=weekly", report(), report({ from: "2026-08-02", to: "2026-08-31" }));
   const revenue = screen.getByRole("region", { name: "Revenue" });
   const cells = within(revenue).getAllByText((_, el) => el?.tagName === "TD" && el.textContent!.startsWith("Week of Aug 31"));
-  expect(cells[1].className).toBe("reports-repeat");
+  expect(cells[1].classList.contains("reports-repeat")).toBe(true);
   // The range starts Sep 1, so the week of Aug 31 is only partly in it.
   expect(cells[0].textContent).toBe("Week of Aug 31Partial week");
   // Gross and net on the total row.
@@ -125,6 +125,24 @@ test("each period is named once, machines nobody used wait behind a toggle, and 
   expect(within(live).getByText("Laser")).toBeTruthy();
   expect(within(live).getByText("Machine")).toBeTruthy();
   expect(within(live).getByText("2 people")).toBeTruthy();
+});
+
+test("the section bar moves keyboard focus to the section it scrolls to, without animating for reduced motion", () => {
+  const scroll = vi.fn();
+  Element.prototype.scrollIntoView = scroll;
+  window.matchMedia = vi.fn().mockReturnValue({ matches: true }) as never;
+  try {
+    mount("/admin/reports?range=custom&from=2026-09-01&to=2026-09-30&group=weekly", report(), report({ from: "2026-08-02", to: "2026-08-31" }));
+    const bar = screen.getByRole("navigation", { name: "Report sections" });
+    fireEvent.click(within(bar).getByRole("button", { name: "Equipment" }));
+    const equipment = screen.getByRole("region", { name: "Equipment" });
+    expect(scroll.mock.contexts[0]).toBe(equipment);
+    expect(scroll).toHaveBeenCalledWith({ behavior: "auto", block: "start" });
+    expect(document.activeElement).toBe(within(equipment).getByRole("heading", { name: "Equipment" }));
+  } finally {
+    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    delete (window as { matchMedia?: unknown }).matchMedia;
+  }
 });
 
 test("a building reader is the front door, never the machine that shares its number", () => {
@@ -247,4 +265,79 @@ test("new dates keep the last report on screen, out of reach, while the date con
   expect(screen.getByRole("status").textContent).toBe("Updating…");
   expect(results.contains(screen.getByRole("combobox", { name: "Date range" }))).toBe(false);
   expect((screen.getByRole("button", { name: "Export CSV" }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+test("the grouping switch is one Tab stop and arrow keys move it", () => {
+  mount("/admin/reports?range=custom&from=2026-09-01&to=2026-09-30&group=weekly", report(), report({ from: "2026-08-02", to: "2026-08-31" }));
+  const radios = within(screen.getByRole("radiogroup", { name: "Group results by" })).getAllByRole("radio");
+  expect(radios.map((radio) => radio.tabIndex)).toEqual([-1, 0, -1]);
+  radios[1].focus();
+  fireEvent.keyDown(radios[1], { key: "ArrowLeft" });
+  expect(document.activeElement).toBe(radios[0]);
+  expect(radios.map((radio) => radio.getAttribute("aria-checked"))).toEqual(["true", "false", "false"]);
+  expect(vi.mocked(useApi).mock.calls.map(([url]) => String(url))).toContain("/admin/reports?from=2026-09-01&to=2026-09-30&period=daily");
+});
+
+test("period names stay on one line; long names in the other tables are free to wrap", () => {
+  mount("/admin/reports?range=custom&from=2026-09-01&to=2026-09-30&group=weekly", report(), report({ from: "2026-08-02", to: "2026-08-31" }));
+  const revenue = screen.getByRole("region", { name: "Revenue" });
+  const periods = within(revenue).getAllByText((_, el) => el?.tagName === "TD" && el.textContent!.startsWith("Week of Aug 31"));
+  expect(periods.every((cell) => cell.classList.contains("reports-nowrap"))).toBe(true);
+  const machine = within(screen.getByRole("region", { name: "Equipment" })).getByRole("link", { name: "Laser" }).closest("td")!;
+  expect(machine.classList.contains("reports-nowrap")).toBe(false);
+});
+
+test("a busiest-times machine that drops out of the data clears its filter instead of claiming no bookings", () => {
+  const slot = (id: number, name: string, hour: number) => ({ id, name, weekday: 2, hour, bookedHours: "2" });
+  let current = report({ patterns: [slot(1, "Laser", 10), slot(2, "Lathe", 14)] });
+  vi.mocked(useApi).mockImplementation(((url: string) =>
+    url === "/config" ? config : { data: current, loading: false, refreshing: false, stale: false, error: "", reload: vi.fn() }) as never);
+  // A fresh element each time, so a rerender reaches the page as a refresh would.
+  const page = () => (
+    <MemoryRouter initialEntries={["/admin/reports?range=custom&from=2026-09-01&to=2026-09-30&group=weekly"]}>
+      <ReportsPage />
+    </MemoryRouter>
+  );
+  const { rerender } = render(page());
+  const equipment = () => screen.getByRole("region", { name: "Equipment" });
+  fireEvent.change(within(equipment()).getByRole("combobox", { name: "Machine" }), { target: { value: "2" } });
+  expect(within(equipment()).getByText("Tue 2pm")).toBeTruthy();
+
+  // The next refresh no longer has the lathe's booking: the laser's hours show, not "No bookings".
+  current = report({ patterns: [slot(1, "Laser", 10)] });
+  rerender(page());
+  expect(within(equipment()).queryByText("No bookings in this period.")).toBeNull();
+  expect(within(equipment()).getByText("Tue 10am")).toBeTruthy();
+  expect(within(equipment()).queryByRole("combobox", { name: "Machine" })).toBeNull();
+
+  // The lathe coming back later doesn't silently bring the old filter with it.
+  current = report({ patterns: [slot(1, "Laser", 10), slot(2, "Lathe", 14)] });
+  rerender(page());
+  expect((within(equipment()).getByRole("combobox", { name: "Machine" }) as HTMLSelectElement).value).toBe("");
+});
+
+test("a busiest-times filter stays visible while it is on, even with one machine left", () => {
+  const slot = (id: number, name: string) => ({ id, name, weekday: 2, hour: 10, bookedHours: "2" });
+  let current = report({ patterns: [slot(1, "Laser"), slot(2, "Lathe")] });
+  vi.mocked(useApi).mockImplementation(((url: string) =>
+    url === "/config" ? config : { data: current, loading: false, refreshing: false, stale: false, error: "", reload: vi.fn() }) as never);
+  // A fresh element each time, so a rerender reaches the page as a refresh would.
+  const page = () => (
+    <MemoryRouter initialEntries={["/admin/reports?range=custom&from=2026-09-01&to=2026-09-30&group=weekly"]}>
+      <ReportsPage />
+    </MemoryRouter>
+  );
+  const { rerender } = render(page());
+  const equipment = () => screen.getByRole("region", { name: "Equipment" });
+  fireEvent.change(within(equipment()).getByRole("combobox", { name: "Machine" }), { target: { value: "1" } });
+  current = report({ patterns: [slot(1, "Laser")] });
+  rerender(page());
+  const select = within(equipment()).getByRole("combobox", { name: "Machine" }) as HTMLSelectElement;
+  expect(select.value).toBe("1");
+
+  // Clearing it goes back to every machine, and with only one left the select steps aside.
+  fireEvent.change(select, { target: { value: "" } });
+  expect(within(equipment()).queryByRole("combobox", { name: "Machine" })).toBeNull();
+  expect(within(equipment()).queryByText("No bookings in this period.")).toBeNull();
+  expect(within(equipment()).getByText("Tue 10am")).toBeTruthy();
 });

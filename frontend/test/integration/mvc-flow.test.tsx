@@ -95,9 +95,9 @@ test('signup form creates an account with DOB and the new password policy', asyn
   const token = await confirmationToken(bridge.pool, email);
   cleanup();
   mount('/confirm-email#' + token);
-  await user.click(
-    await screen.findByRole('button', { name: 'Confirm email' }),
-  );
+  // The link alone doesn't create the account: it takes the password chosen at sign-up.
+  await user.type(await screen.findByLabelText('Password'), 'ValidPassword!');
+  await user.click(screen.getByRole('button', { name: 'Confirm email' }));
   await screen.findByRole(
     'heading',
     { name: /Welcome back/ },
@@ -133,12 +133,14 @@ test('signup form creates an account with DOB and the new password policy', asyn
   }
 }, 120000);
 
-test('duplicate email returns to the contact step and can be corrected without retyping other fields',async()=>{
+// Sign-up never reveals whether an address is a member's: an existing address gets the same
+// answer as a new one (its owner is emailed instead), so the visitor sees no account error.
+test('signing up with an address that already has an account looks like any other sign-up',async()=>{
   vi.stubGlobal('fetch',bridge.fetch);
   const email=randomUUID()+'@example.invalid';
   const response=await bridge.fetch('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({firstName:'Existing',lastName:'Test',email,password:'ValidPassword!',phone:'0000000000',dob:'2000-01-01'})});
   expect(response.status).toBe(202);
-  const confirmed=await bridge.fetch('/api/auth/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:await confirmationToken(bridge.pool,email)})});
+  const confirmed=await bridge.fetch('/api/auth/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:await confirmationToken(bridge.pool,email),password:'ValidPassword!'})});
   expect(confirmed.status).toBe(200);
   mount();const user=userEvent.setup();await user.click(await screen.findByRole('button',{name:'Sign up'}));
   const dialog=screen.getByRole('dialog',{name:'Create your account'});
@@ -154,19 +156,10 @@ test('duplicate email returns to the contact step and can be corrected without r
   const create=within(dialog).getByRole('button',{name:'Create account'});
   await waitFor(()=>expect((create as HTMLButtonElement).disabled).toBe(false));
   await user.click(create);
-  expect((await within(dialog).findByRole('alert')).textContent).toContain('An account with that email address already exists');
-  expect((await within(dialog).findByLabelText('Email') as HTMLInputElement).value).toBe(email.toUpperCase());
-  expect((within(dialog).getByLabelText('Phone') as HTMLInputElement).value).toBe('0000000000');
-  // The error selects Contact; earlier fields and the password survive correction.
-  await user.click(within(dialog).getByRole('button',{name:'Back'}));
-  expect((await within(dialog).findByLabelText('First name') as HTMLInputElement).value).toBe('Retry');
-  await next();
-  await user.clear(await within(dialog).findByLabelText('Email'));
-  await user.type(within(dialog).getByLabelText('Email'),'retry_'+email);
-  await next();
-  expect((await within(dialog).findByLabelText('Password',{exact:false}) as HTMLInputElement).value).toBe('ValidPassword!');
-  await user.click(within(dialog).getByRole('button',{name:'Create account'}));
   expect(await screen.findByRole('heading',{name:'Email unavailable'})).toBeTruthy();
+  expect(screen.queryByText(/already exists/)).toBeNull();
+  const accounts=await bridge.pool.query('SELECT COUNT(*)::int AS n FROM "user" WHERE lower(email)=$1',[email]);
+  expect(accounts.rows[0].n).toBe(1);
 });
 
 test('React → Express controllers/models → PostgreSQL: login, save, refresh, cancel, waive and check in', async () => {
@@ -198,9 +191,10 @@ test('React → Express controllers/models → PostgreSQL: login, save, refresh,
     ).getByRole('link', { name: 'Equipment', exact: true }),
   );
   await user.click(
+    // A type's card button lists its machines as its description.
     await screen.findByRole(
       'button',
-      { name: /Rachel/ },
+      { description: /Rachel/ },
       { timeout: 20000 },
     ),
   );
@@ -249,6 +243,9 @@ test('React → Express controllers/models → PostgreSQL: login, save, refresh,
     { timeout: 20000 },
   );
   await user.click(screen.getByRole('button', { name: 'Cancel reservation' }));
+  await user.click(
+    within(screen.getByRole('dialog', { name: 'Cancel this reservation?' })).getByRole('button', { name: 'Cancel reservation' }),
+  );
   await screen.findByText('Reservation cancelled.', {}, { timeout: 20000 });
   const cancelled = await bridge.pool.query(
     "SELECT COUNT(*)::int AS count FROM reservation WHERE status='cancelled'",

@@ -141,11 +141,75 @@ test("a card refund needs explicit confirmation and isn't offered while one is p
   await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("region", { name: "Payments" })));
 });
 
+test("a card refund Stripe didn't complete is an alert, not the green confirmation", async () => {
+  vi.mocked(api).mockResolvedValue({ status: "failed" } as never);
+  mount([card]);
+  fireEvent.click(screen.getByRole("button", { name: "Refund payment #209 for Chris Walker" }));
+  const form = screen.getByRole("form", { name: "Refund $45.00 to Chris Walker's card" });
+  fireEvent.change(within(form).getByLabelText("Reason for refund"), { target: { value: "Cancelled in first week" } });
+  fireEvent.click(within(form).getByRole("checkbox", { name: /Refund \$45.00 to Chris Walker/ }));
+  fireEvent.click(within(form).getByRole("button", { name: "Refund $45.00" }));
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toBe("Stripe didn't complete the refund to Chris Walker's card. Check it in Stripe.");
+  expect(alert.className).toBe("payments__notice payments__notice--problem");
+  expect(screen.queryByRole("status")).toBeNull();
+});
+
 test("a failed refund isn't offered again; staff are pointed to Stripe", () => {
   mount([{ ...card, refundStatus: "failed" } as Payment]);
   expect(screen.getByText("Refund failed")).toBeTruthy();
   expect(screen.getByText("Check this refund in Stripe.")).toBeTruthy();
   expect(screen.queryByRole("button", { name: /payment #209/ })).toBeNull();
+});
+
+test("a day-pass refund requiring review offers a review without offering another refund", async () => {
+  vi.mocked(api).mockResolvedValue({ status: "reviewed" });
+  mount([{ ...card, invoiceId: null, passCheckoutId: "pc-1", refundStatus: "needs_review" }]);
+  expect(screen.getByText("Refund needs staff review")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /^Refund payment #209/ })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: /^Review refund payment #209/ }));
+  fireEvent.change(screen.getByLabelText("Reason for closing review"), { target: { value: "Shift log confirms admission" } });
+  fireEvent.click(screen.getByRole("button", { name: "Complete review" }));
+  await waitFor(() => expect(vi.mocked(api)).toHaveBeenCalledWith("/billing-management/passes/pc-1/refund", {
+    method: "POST",
+    body: { reason: "Shift log confirms admission", review: true },
+  }));
+  expect(await screen.findByText("Refund review completed for payment #209.")).toBeTruthy();
+});
+
+test("staff can choose to honor a visit and see when the day pass is issued", async () => {
+  vi.mocked(api).mockResolvedValue({ status: "reviewed", passIssued: true });
+  mount([{ ...card, invoiceId: null, passCheckoutId: "pc-1", refundStatus: "needs_review" }]);
+  fireEvent.click(screen.getByRole("button", { name: /^Review refund payment #209/ }));
+  fireEvent.click(screen.getByRole("checkbox", { name: /Honor the visit/ }));
+  fireEvent.change(screen.getByLabelText("Reason for closing review"), { target: { value: "Honor the visit" } });
+  fireEvent.click(screen.getByRole("button", { name: "Complete review" }));
+  await waitFor(() => expect(vi.mocked(api)).toHaveBeenCalledWith("/billing-management/passes/pc-1/refund", {
+    method: "POST",
+    body: { reason: "Honor the visit", review: true, honorVisit: true },
+  }));
+  expect(await screen.findByText("Day pass issued for payment #209.")).toBeTruthy();
+});
+
+test.each([
+  [{ passCancelled: true }, "Day pass cancelled for payment #209."],
+  [{ passKept: true }, "Existing day pass kept as approved for payment #209."],
+])("staff see the outcome of a reviewed overlap (%j)", async (effect, message) => {
+  vi.mocked(api).mockResolvedValue({ status: "reviewed", ...effect });
+  mount([{ ...card, dayPassId: 42, invoiceId: null, passCheckoutId: "pc-1", refundStatus: "needs_review" }]);
+  fireEvent.click(screen.getByRole("button", { name: /^Review refund payment #209/ }));
+  expect(screen.getByText(/A confirmed full refund closes the day pass/)).toBeTruthy();
+  if ("passKept" in effect) fireEvent.click(screen.getByRole("checkbox", { name: /Honor the visit/ }));
+  fireEvent.change(screen.getByLabelText("Reason for closing review"), { target: { value: "Checked the original Stripe charge" } });
+  fireEvent.click(screen.getByRole("button", { name: "Complete review" }));
+  expect(await screen.findByText(message)).toBeTruthy();
+});
+
+test("a failed day-pass refund can be retried, so staff are told to use Refund again", () => {
+  mount([{ ...card, invoiceId: null, passCheckoutId: "pc-1", refundStatus: "failed" } as unknown as Payment]);
+  expect(screen.getByText("Refund failed")).toBeTruthy();
+  expect(screen.getByText("Use Refund to try again.")).toBeTruthy();
+  expect(screen.queryByText("Check this refund in Stripe.")).toBeNull();
 });
 
 test("filters reach the request and the totals cover the filtered set", () => {
@@ -167,7 +231,7 @@ function mountAt(now: string, config: { timeZone: string } | "loading" | "failed
   render(<StaffPayments />);
 }
 const fromFor = (period: string) => {
-  fireEvent.change(screen.getByLabelText("Period"), { target: { value: period } });
+  fireEvent.change(screen.getByLabelText("Recorded"), { target: { value: period } });
   return new URL(vi.mocked(useApi).mock.lastCall?.[0] as string, "http://x").searchParams.get("from");
 };
 
@@ -183,10 +247,10 @@ test("periods start at midnight in the facility's time zone, not the browser's",
 
 test("the period filter waits for the facility zone, and falls back to New York when it can't be read", () => {
   mountAt("2026-11-11T03:00:00Z", "loading");
-  expect((screen.getByLabelText("Period") as HTMLSelectElement).disabled).toBe(true);
+  expect((screen.getByLabelText("Recorded") as HTMLSelectElement).disabled).toBe(true);
   cleanup();
   mountAt("2026-11-11T03:00:00Z", "failed");
-  expect((screen.getByLabelText("Period") as HTMLSelectElement).disabled).toBe(false);
+  expect((screen.getByLabelText("Recorded") as HTMLSelectElement).disabled).toBe(false);
   // Still Nov 10 in New York (UTC-5).
   expect(fromFor("today")).toBe("2026-11-10T05:00:00.000Z");
 });
@@ -262,10 +326,17 @@ test("when \"Today\" moves on at midnight, the new day starts from its first pag
       : { data, loading: false, refreshing: false, error: "", reload }) as never);
   render(<StaffPayments />);
   const last = () => new URL(vi.mocked(useApi).mock.calls.map(([path]) => path).filter((path) => path?.startsWith("/admin/payments")).at(-1)!, "http://x").searchParams;
-  fireEvent.change(screen.getByLabelText("Period"), { target: { value: "today" } });
+  fireEvent.change(screen.getByLabelText("Recorded"), { target: { value: "today" } });
   fireEvent.click(screen.getByRole("button", { name: "Next page" }));
   expect(last().get("offset")).toBe("50");
   act(() => vi.advanceTimersByTime(15 * 60_000));
   expect(last().get("from")).toBe("2026-12-01T05:00:00.000Z");
   expect(last().get("offset")).toBe("0");
+});
+
+test("the page says studio rentals are kept on the Studios page, not in this list or its totals", () => {
+  mount([desk]);
+  expect(document.querySelector(".payments__intro")?.textContent).toMatch(
+    /Studio\s+rentals are paid and refunded on the Studios page, so they aren't in this list or its totals\./,
+  );
 });

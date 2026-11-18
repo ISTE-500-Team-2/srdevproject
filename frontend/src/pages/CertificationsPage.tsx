@@ -22,6 +22,7 @@ import { Link } from 'react-router-dom';
 import { ClassThumb } from '../components/classes/ClassBits';
 import {
   byStart,
+  hasEnded,
   hasStarted,
   isCancelled,
   seatText,
@@ -111,16 +112,28 @@ function certificationItems(
         (id !== null ? c.certificationId === id : norm(c.certificationName) === norm(name)),
     );
     const upcoming = matches.filter((c) => !isCancelled(c) && !hasStarted(c, now)).sort(byStart);
-    const registered = upcoming.find((c) => c.myStatus === 'enrolled') ?? null;
-    const approvedAt = record ? new Date(record.approvedAt ?? record.trainedAt ?? 0).getTime() : 0;
+    // You're registered until the class ends, including while it's running, even once
+    // the instructor has taken attendance.
+    const registered =
+      matches
+        .filter((c) => !isCancelled(c) && !hasEnded(c, now) && (c.myStatus === 'enrolled' || c.myStatus === 'attended'))
+        .sort(byStart)[0] ?? null;
+    // Training on or before the last approval or revocation can't lead to a new approval.
+    const cutoff = record
+      ? Math.max(
+          new Date(record.approvedAt ?? record.trainedAt ?? 0).getTime(),
+          record.revokedAt ? new Date(record.revokedAt).getTime() : 0,
+        )
+      : 0;
     const trained =
       matches
         .filter(
           (c) =>
             !isCancelled(c) &&
-            hasStarted(c, now) &&
+            // A class is finished when it ends, not when attendance is taken.
+            hasEnded(c, now) &&
             (c.myStatus === 'attended' || c.myStatus === 'enrolled') &&
-            new Date(c.startsAt).getTime() > approvedAt,
+            new Date(c.startsAt).getTime() > cutoff,
         )
         .sort((a, b) => byStart(b, a))[0] ?? null;
     const renewal = record?.renewalDate ? new Date(record.renewalDate).getTime() : null;
@@ -197,8 +210,11 @@ function recordFacts(item: CertItem) {
   const facts: string[] = [];
   if (record.instructorName) facts.push(`Approved by ${record.instructorName}`);
   if (record.trainedAt) facts.push(`Trained ${day(record.trainedAt)}`);
-  if (item.state === 'revoked') facts.push('Retraining needed');
-  else if (record.renewalDate)
+  // A revoked record's renewal date no longer means anything.
+  if (record.status === 'revoked') {
+    if (record.revokedAt) facts.push(`Revoked ${day(record.revokedAt)}`);
+    if (item.state === 'revoked') facts.push('Retraining needed');
+  } else if (record.renewalDate)
     facts.push(`${new Date(record.renewalDate).getTime() < Date.now() ? 'Expired' : 'Renews'} ${day(record.renewalDate)}`);
   else if (record.valid) facts.push('No renewal needed');
   return facts;
@@ -232,7 +248,7 @@ function NextClass({ item }: { item: CertItem }) {
         </Link>
       </div>
     );
-  const registered = next.myStatus === 'enrolled';
+  const registered = next.myStatus === 'enrolled' || next.myStatus === 'attended';
   const full = seatsLeft(next) === 0;
   const refresher = state === 'current' || state === 'expiring';
   return (
@@ -313,6 +329,14 @@ function CertRow({ item }: { item: CertItem }) {
 
 /** A signature this close to running out is flagged so members are not surprised at the door. */
 const EXPIRY_WARNING_DAYS = 30;
+/**
+ * Signed, but close to running out (the same 30 days as the expiry reminder email), so a new
+ * agreement renews it without a gap. The server decides, by its own clock, so the page never offers
+ * a signature the server would not record.
+ */
+const renewable = (item: Waiver) => item.signed && !!item.renewable;
+/** Waiting for the member's agreement: unsigned, out of date, expired, or about to expire. */
+const signable = (item: Waiver) => !item.signed || renewable(item);
 
 function waiverPill(item: Waiver) {
   const terms = item.name === 'Terms of Service';
@@ -354,7 +378,9 @@ function ErrorLine({ error, reload }: { error: string; reload: () => void }) {
 }
 
 export function CertificationsPage() {
-  const { user } = useAuth();
+  const { user, actor } = useAuth();
+  // Staff in a member's account can read the policies, but only the member can sign them.
+  const canSign = !actor || actor.id === user?.id;
   const staff = !!user?.roles.some((r) => ['admin', 'staff', 'instructor'].includes(r));
   const waivers = useApi<Waiver[]>('/me/waivers');
   const certifications = useApi<Certification[]>('/me/certifications');
@@ -396,7 +422,7 @@ export function CertificationsPage() {
       setBusy(false);
     }
   };
-  const agreementControls = selected && !selected.signed ? (
+  const agreementControls = selected && signable(selected) ? (
     <>
       <label className="check-control">
         <input type="checkbox" checked={accepted} disabled={busy}
@@ -534,6 +560,11 @@ export function CertificationsPage() {
             <p className="certs-waivers__lead">
               Required before you book equipment. Each signature lasts 1 year (365 days) from the day you sign. A policy update may require you to sign again sooner.
             </p>
+            {!canSign && toSign ? (
+              <p className="certs-waivers__lead">
+                <b>{user?.firstName ?? 'The member'} has to sign {toSign === 1 ? 'this' : 'these'} in their own account.</b>
+              </p>
+            ) : null}
             {waivers.loading ? <p role="status">Loading policies…</p> : null}
             {waivers.error ? <ErrorLine error={waivers.error} reload={waivers.reload} /> : null}
             {!waivers.loading && !waivers.error && !waivers.data?.length ? (
@@ -559,13 +590,21 @@ export function CertificationsPage() {
                         </span>
                       </div>
                       {!item.signed && <p>{item.scope === 'equipment' ? 'Required before booking or using equipment that requires a waiver' : 'Required for facility access and day passes'}</p>}
-                      {item.signed ? null : item.expiredSignature ? (
+                      {renewable(item) ? (
+                        <p>{item.scope === 'equipment'
+                          ? 'Sign it again now to keep booking equipment that needs this waiver past its expiry date.'
+                          : 'Sign it again now to keep facility access and day passes without a gap.'}</p>
+                      ) : item.signed ? null : item.expiredSignature ? (
                         <p>Your signature has expired. Review and sign again. Last signed: {item.signedVersion}.</p>
                       ) : item.outdatedSignature ? (
                         <p>New version needs your signature. Last signed: {item.signedVersion ?? 'earlier version'}.</p>
                       ) : null}
                     </div>
-                    {item.signed ? (
+                    {renewable(item) && canSign ? (
+                      <button type="button" className="button button--primary button--small" onClick={() => open(item)}>
+                        Sign again
+                      </button>
+                    ) : item.signed || !canSign ? (
                       <button type="button" className="text-link" onClick={() => open(item)}>
                         View policy
                       </button>
@@ -595,7 +634,7 @@ export function CertificationsPage() {
           if (!busy) setSelected(null);
         }}
       >
-        {selected?.formFields?.length && !selected.signed ? (
+        {selected?.formFields?.length && signable(selected) && canSign ? (
           <WaiverDocumentForm key={selected.id} waiver={selected} user={user} busy={busy}
             onSubmit={(values, guardianConsent) => void sign(values, guardianConsent)}>
             {agreementControls}
@@ -606,7 +645,11 @@ export function CertificationsPage() {
             <p className="policy-text">
               {selected.description || 'Policy content has not been provided.'}
             </p>
-            {!selected.signed ? agreementControls : (
+            {signable(selected) ? (
+              canSign ? agreementControls : (
+                <p>{user?.firstName ?? 'The member'} has to sign this in their own account.</p>
+              )
+            ) : (
               <p>
                 {selected.name === 'Terms of Service'
                   ? 'Terms of Service completed.'

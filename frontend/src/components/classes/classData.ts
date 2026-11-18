@@ -26,6 +26,13 @@ export type ClassRecord = {
   startsAt: string;
   endsAt: string;
   myStatus: string | null;
+  /**
+   * Whether the member's membership or day pass covers this class's time; null once the class
+   * has started or closed. Older servers leave it out.
+   */
+  myEntitled?: boolean | null;
+  /** Registrations with no attendance recorded yet; only for staff and the class's instructor. */
+  pendingAttendance?: number | null;
 };
 export type RosterPerson = { userId: number; name: string; email: string; status: string };
 /** Names are only sent to people registered for the class (and its instructor and staff). */
@@ -43,6 +50,8 @@ export type ScheduleSeed = Partial<{
   description: string;
   certificationId: number;
   instructorId: number;
+  /** Shown for the seeded instructor, so staff see a name rather than an ID. */
+  instructorName: string;
   roomId: number;
   capacity: number;
   start: string;
@@ -59,6 +68,7 @@ export function registrationPrice(c: ClassRecord, certified: boolean) {
 
 export const isCancelled = (c: ClassRecord) => c.status === "cancelled";
 export const hasStarted = (c: ClassRecord, now = Date.now()) => new Date(c.startsAt).getTime() <= now;
+export const hasEnded = (c: ClassRecord, now = Date.now()) => new Date(c.endsAt).getTime() <= now;
 export const seatsLeft = (c: { capacity: number; enrolled: number }) => Math.max(0, c.capacity - c.enrolled);
 export const byStart = (a: ClassRecord, b: ClassRecord) => a.startsAt.localeCompare(b.startsAt);
 
@@ -73,6 +83,8 @@ export function dateParts(value: string) {
 export const timeRange = (c: ClassRecord) => `${timeOnly(c.startsAt)} – ${timeOnly(c.endsAt)}`;
 export const longDate = (value: string) =>
   new Date(value).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+/** Names one session for buttons, so same-titled classes on different days can be told apart. */
+export const sessionName = (c: Pick<ClassRecord, "title" | "startsAt">) => `${c.title} on ${longDate(c.startsAt)}`;
 export const monthLabel = (value: string) =>
   new Date(value).toLocaleDateString("en-US", { month: "long", year: "numeric" });
 export function seatText(c: { capacity: number; enrolled: number }) {

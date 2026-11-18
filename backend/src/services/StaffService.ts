@@ -9,11 +9,13 @@ import { AppError, type UserView } from "../domain.js";
 import { UserModel } from "../models/UserModel.js";
 import { ProfilePhotoModel } from "../models/ProfilePhotoModel.js";
 import { StaffModel } from "../models/StaffModel.js";
+import { billingRenewsSql } from "../models/staff/entitlements.js";
 import type { IssueInput, PlanInput } from "../staffDomain.js";
 import { PermissionModel } from "../models/PermissionModel.js";
 import { planInput } from "../staffDomain.js";
 import { retireSupersededPolicies } from "../policyLifecycle.js";
 import { AccessService } from "./AccessService.js";
+import { assertNoCardBillingFrom } from "../billing/openBilling.js";
 import type { PolicyScope } from "../staffDomain.js";
 
 const missing = () =>
@@ -24,6 +26,25 @@ const conflict = () =>
     "STALE_RECORD",
     "This record changed. Refresh it before making another change.",
   );
+/**
+ * The version in force stays current over any version dated before it, so publishing one would
+ * retire it on the spot.
+ */
+function startsBeforeCurrent(since: Date | null | undefined, timeZone: string) {
+  const when = since
+    ? new Intl.DateTimeFormat("en-US", {
+        timeZone, year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short",
+      }).format(since)
+    : null;
+  return new AppError(
+    409,
+    "POLICY_STARTS_TOO_EARLY",
+    when
+      ? `The version now in force started ${when}. Choose a start at or after that time, or the new version would be retired as soon as it's published.`
+      : "The version now in force started later than this. Choose a later start, or the new version would be retired as soon as it's published.",
+    "effectiveAt",
+  );
+}
 const staffAccount = () =>
   new AppError(
     403,
@@ -166,16 +187,22 @@ export class StaffService {
     phone: string,
     revision: number,
     reason: string,
+    dob: string | null = null,
   ) {
     return this.write(actorId, false, "user", "update", async (model, actor) => {
       const before = await this.target(model, actor, id);
       this.expectRevision(before.revision, revision);
+      // Staff add a date of birth that was never recorded. Changing one would change who
+      // counts as a minor under existing sponsor links, so that isn't done here.
+      if (dob && before.dobOnFile)
+        throw new AppError(409, "DOB_ON_FILE", "A date of birth is already on file for this account.");
       const after = await model.updatePerson(
         id,
         firstName,
         lastName,
         phone,
         revision,
+        dob,
       );
       if (!after) throw conflict();
       await model.audit(
@@ -387,6 +414,8 @@ export class StaffService {
             "MEMBERSHIP_OVERLAP",
             "An active or suspended membership already covers part of that period. For renewal, start at the existing end time.",
           );
+        // A card subscription or checkout would charge again for these dates.
+        await assertNoCardBillingFrom(db, userId, input.startsAt, this.timeZone);
         id = await model.createMembership(
           userId,
           plan,
@@ -419,6 +448,23 @@ export class StaffService {
             409,
             "PASS_EXISTS",
             "An active or suspended pass already exists for that date.",
+          );
+        // A desk pass would leave the member's open card checkout paying for a second one.
+        // Staff can cancel that checkout themselves from the member's account (account mode).
+        const checkoutBlock = await model.passCheckoutBlock(userId, input.validDate);
+        if (checkoutBlock === "review")
+          throw new AppError(
+            409,
+            "CHECKOUT_OPEN",
+            "The member already paid by card for this visit. Open the payment under Payments and choose Review refund before issuing access.",
+          );
+        if (checkoutBlock === "processing")
+          throw new AppError(409, "CHECKOUT_OPEN", "The member already paid by card. Wait for payment verification before issuing access.");
+        if (checkoutBlock === "open")
+          throw new AppError(
+            409,
+            "CHECKOUT_OPEN",
+            "This member has an unfinished card checkout for that date. To take payment here instead, open their account with View as, choose Cancel checkout under Membership & passes, then try again.",
           );
         await new AccessService(db, this.timeZone).assertWaivers(userId);
         id = await model.createPass(
@@ -483,8 +529,8 @@ export class StaffService {
     revision: number,
     reason: string,
   ) {
-    return this.write(actorId, false, "entitlement", "update", async (model, actor) => {
-      await this.target(model, actor, userId);
+    return this.write(actorId, false, "entitlement", "update", async (model, actor, db) => {
+      const member = await this.target(model, actor, userId);
       const before = await model.entitlement(kind, id);
       if (!before || before.userId !== userId) throw missing();
       this.expectRevision(before.revision, revision);
@@ -493,6 +539,32 @@ export class StaffService {
           409,
           "REVOKED_ENTITLEMENT",
           "Issue a new entitlement instead of restoring a revoked one.",
+        );
+      // A pass the member cancelled (and may have been refunded for) stays closed.
+      if (!["active", "suspended", "revoked"].includes(before.status))
+        throw new AppError(
+          409,
+          "ENTITLEMENT_CLOSED",
+          `This ${kind === "membership" ? "membership" : "day pass"} is ${before.status || "closed"}. Issue a new one instead of changing it.`,
+        );
+      // Ending access doesn't stop card billing, and each paid renewal would charge for a period
+      // that stays ended. Renewal has to be turned off first, which staff do from the member's
+      // record (MembershipBilling.stopRenewal) even while the account is on hold or restricted.
+      if (
+        kind === "membership" &&
+        status === "revoked" &&
+        (
+          await db.query(
+            `SELECT 1 FROM app_membership_invoice i JOIN app_membership_billing b ON b.id=i.billing_id
+            WHERE i.membership_id=$1 AND ${billingRenewsSql} LIMIT 1`,
+            [id],
+          )
+        ).rowCount
+      )
+        throw new AppError(
+          409,
+          "CARD_RENEWAL_ACTIVE",
+          `This membership still renews by card. First choose Stop auto-renew on ${member.firstName}’s membership, then end access. Billing ends on the first billing date at least 30 days away, so there may be one more charge.`,
         );
       const after = await model.changeEntitlement(
         kind,
@@ -542,6 +614,17 @@ export class StaffService {
       if (before.userId !== owner.userid) throw conflict();
       if ((await db.query('SELECT id::text FROM app_membership_invoice WHERE payment_id=$1 UNION ALL SELECT id::text FROM app_pass_checkout WHERE payment_id=$1 AND amount_cents>0 UNION ALL SELECT reservation_id::text FROM app_equipment_checkout WHERE payment_id=$1',[id])).rowCount)
         throw new AppError(409,'PROVIDER_PAYMENT','Use the Stripe billing refund workflow for this payment.');
+      // While a booking's card checkout is open, its payment is linked only from the reservation.
+      // Recording it at the desk would leave the checkout able to charge again, or let the unpaid
+      // hold cancel a booking the member paid for.
+      // Only whoever opened the checkout can cancel it: the member, or the staff member who booked for them.
+      const open = (await db.query<{ payer_id: number; userid: number }>("SELECT c.payer_id,r.userid FROM reservation r JOIN app_equipment_checkout c ON c.reservation_id=r.reservationid WHERE r.payment_id=$1 AND c.status='pending'",[id])).rows[0];
+      if (open)
+        throw new AppError(409,'PROVIDER_PAYMENT',open.payer_id===actorId
+          ? 'You opened an online card checkout for this booking, so its payment can’t be recorded at the desk. To release the booking, choose Cancel checkout under My reservations on the Equipment page; an unpaid checkout also releases it when it expires.'
+          : open.payer_id===open.userid
+            ? 'This booking is waiting for online card payment, so the member pays through its checkout. To release it instead, open the account that booked it with View as and choose Cancel checkout on the Equipment page; an unpaid checkout also releases it when it expires.'
+            : 'This booking is waiting on an online card checkout another staff member opened, so its payment can’t be recorded at the desk. They can cancel that checkout from their Equipment page; an unpaid checkout also releases it when it expires.');
       this.expectRevision(before.revision, revision);
       const transitions: Record<string, string[]> = {
         pending: ["paid", "void", "waived"],
@@ -598,9 +681,14 @@ export class StaffService {
     },
   ) {
     return this.write(actorId, true, "waiver", "create", async (model, _actor, db) => {
+      const versions = (await model.policies()).filter(policy => policy.name === input.name);
       // Omitted scope on older clients must not turn an equipment waiver's
       // replacement into a facility-wide prerequisite.
-      const previous = (await model.policies()).find(policy => policy.name === input.name);
+      const previous = versions[0];
+      // Checked up front so the admin hears when the version in force started.
+      const inForce = versions.find(policy => policy.active && (policy.effectiveAt === null || policy.effectiveAt.getTime() <= Date.now()));
+      if (inForce?.effectiveAt && Date.parse(input.effectiveAt) < inForce.effectiveAt.getTime())
+        throw startsBeforeCurrent(inForce.effectiveAt, this.timeZone);
       const after = await model.createPolicy(
         input.name,
         input.version,
@@ -628,7 +716,9 @@ export class StaffService {
         actorId,
         reason: input.reason,
       });
-      return { ...after, active: after.active && !retired.includes(after.id) };
+      // Never report success for a version that is already retired; roll it back instead.
+      if (retired.includes(after.id)) throw startsBeforeCurrent(inForce?.effectiveAt, this.timeZone);
+      return after;
     });
   }
   retirePolicy(actorId: number, id: number, reason: string) {

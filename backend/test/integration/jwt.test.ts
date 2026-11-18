@@ -9,7 +9,7 @@ import { createApp } from '../../src/app.js';
 import type { AppConfig } from '../../src/config.js';
 import { cookieName } from '../../src/middleware/auth.js';
 import { jwtIssuer, jwtAudience, sessionLifetimeSeconds, rememberedLifetimeSeconds } from '../../src/jwt.js';
-import { tokenHash } from '../../src/models/SessionModel.js';
+import { refreshReuseGraceSeconds, tokenHash } from '../../src/models/SessionModel.js';
 import { SessionModel } from '../../src/models/SessionModel.js';
 import { transaction } from '../../src/db.js';
 import { initializeDemo } from '../../src/scripts/init-demo.js';
@@ -52,7 +52,7 @@ async function register() {
     email, password, firstName: 'JWT', lastName: 'Test', phone: '0000000000', dob: '2000-01-01',
   });
   assert.equal(res.status, 202);
-  res=await request(app).post('/api/auth/confirm').send({token:await confirmationToken(pool,email)});
+  res=await request(app).post('/api/auth/confirm').send({token:await confirmationToken(pool,email),password});
   assert.equal(res.status,200);
   return { email, password, userId: res.body.data.user.id as number, token: browserToken(res), csrf: res.body.data.csrfToken as string, res };
 }
@@ -195,6 +195,11 @@ test('same key survives app restart; a rotated signing key and expired registry 
 
 function refreshCookie(res: request.Response) { return (res.headers['set-cookie'] as unknown as string[]).find((c:string)=>c.startsWith(cookieName+'='))!.split(';')[0]!; }
 function renew(cookie: string, csrf: string) { return request(app).post('/api/auth/refresh').set('Cookie',cookie).set('X-CSRF-Token',csrf).send({}); }
+// Age the user's used-up refresh tokens past the reuse grace window, as if time had passed.
+async function afterGrace(userId: number) {
+  await pool.query(`UPDATE app_refresh_token SET consumed_at=NOW()-($2::int+1)*INTERVAL '1 second'
+    WHERE consumed AND family_id IN (SELECT id FROM app_refresh_family WHERE userid=$1)`,[userId,refreshReuseGraceSeconds]);
+}
 test('account suspension/blocking revokes every session; restoration requires fresh login and retains history', async () => {
   const operator = await request(app).post('/api/auth/demo').send({role:'admin'});
   assert.equal(operator.status,200);
@@ -284,13 +289,26 @@ test('session creation and refresh wait for account status transactions and reje
     assert.equal((await creation).code,'ACCOUNT_INACTIVE');
   } finally { await lock.query('ROLLBACK'); lock.release(); }
 });
-test('refresh rotates once; replay commits family revocation for old and new access tokens', async () => {
+test('refresh rotates once; replay after the grace window commits family revocation for old and new access tokens', async () => {
   const a = await register(), cookie=refreshCookie(a.res);
   assert.equal((await request(app).get('/api/auth/session').set('Cookie',cookie)).status,401,'refresh cookie is not an access credential');
   const refreshed = await renew(cookie,a.csrf);
   assert.equal(refreshed.status,200);
   assert.notEqual(refreshCookie(refreshed),cookie);
   assert.equal((await current(browserToken(refreshed))).status,200);
+  await afterGrace(a.userId);
+  assert.equal((await request(app).get('/api/auth/csrf').set('Cookie',cookie)).body.data.csrfToken,null);
+  assert.equal((await renew(cookie,a.csrf)).status,401);
+  assert.equal((await current(browserToken(refreshed))).status,401);
+  assert.equal((await renew(refreshCookie(refreshed),a.csrf)).status,401);
+});
+test('a token used up before the grace window existed has no use time, so its replay still ends the sign-in', async () => {
+  const a = await register(), cookie=refreshCookie(a.res);
+  const refreshed = await renew(cookie,a.csrf);
+  assert.equal(refreshed.status,200);
+  // Tokens consumed before 047_refresh_reuse_grace.sql kept consumed_at NULL; that must never read as recent.
+  await pool.query('UPDATE app_refresh_token SET consumed_at=NULL WHERE token_hash=$1',[tokenHash(cookie.slice(cookieName.length+1))]);
+  assert.equal((await request(app).get('/api/auth/csrf').set('Cookie',cookie)).body.data.csrfToken,null);
   assert.equal((await renew(cookie,a.csrf)).status,401);
   assert.equal((await current(browserToken(refreshed))).status,401);
   assert.equal((await renew(refreshCookie(refreshed),a.csrf)).status,401);
@@ -347,12 +365,33 @@ test('refresh rejects missing CSRF, bad origin, expiration and inactive account'
   await pool.query(`UPDATE "user" SET status='inactive' WHERE userid=$1`,[b.userId]);
   assert.equal((await renew(refreshCookie(b.res),b.csrf)).status,401);
 });
-test('concurrent refresh reuse cannot issue two valid successors', async () => {
+test('two tabs renewing with one cookie at once both stay signed in; the cookie the browser dropped cannot be replayed later', async () => {
   const a=await register(), cookie=refreshCookie(a.res);
   const results=await Promise.all([renew(cookie,a.csrf),renew(cookie,a.csrf)]);
-  assert.deepEqual(results.map(r=>r.status).sort(),[200,401]);
-  const success=results.find(r=>r.status===200)!;
-  assert.equal((await current(browserToken(success))).status,401);
+  assert.deepEqual(results.map(r=>r.status),[200,200]);
+  for (const result of results) assert.equal((await current(browserToken(result))).status,200);
+  const [kept,dropped]=results.map(refreshCookie) as [string,string];
+  assert.notEqual(kept,dropped);
+  // The browser keeps one of the two cookies; the next renewal with it retires the other.
+  const next=await renew(kept,a.csrf);
+  assert.equal(next.status,200);
+  assert.equal((await current(browserToken(next))).status,200);
+  await afterGrace(a.userId);
+  assert.equal((await renew(dropped,a.csrf)).status,401);
+  assert.equal((await current(browserToken(next))).status,401,'a later replay still ends the whole sign-in');
+});
+test('a refresh whose response was lost can be retried briefly, without extending the window', async () => {
+  const a=await register(), cookie=refreshCookie(a.res);
+  const usedAt=async()=>(await pool.query('SELECT consumed_at FROM app_refresh_token WHERE token_hash=$1',[tokenHash(cookie.slice(cookieName.length+1))])).rows[0].consumed_at as Date;
+  assert.equal((await renew(cookie,a.csrf)).status,200);
+  const first=await usedAt();
+  // A reload during that refresh never stored the rotated cookie, so the old one comes back.
+  assert.equal((await request(app).get('/api/auth/csrf').set('Cookie',cookie)).body.data.csrfToken,a.csrf);
+  const retried=await renew(cookie,a.csrf);
+  assert.equal(retried.status,200);
+  assert.equal((await current(browserToken(retried))).status,200);
+  assert.equal((await usedAt()).getTime(),first.getTime(),'reuse never restarts the grace window');
+  assert.equal((await renew(refreshCookie(retried),a.csrf)).status,200);
 });
 test('refresh reloads role claims and logout revokes refresh as well as access', async () => {
   const a=await register();

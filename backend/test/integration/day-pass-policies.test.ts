@@ -14,6 +14,7 @@ import { ReservationService } from '../../src/services/ReservationService.js';
 import { evaluateReaderAccess } from '../../src/services/ReaderEligibility.js';
 import { accessDeadline } from '../../src/accessDeadline.js';
 import { waiverAcceptance, equipmentWaiverName, withSignedCopiesUnlocked } from '../helpers/waiver.js';
+import { stripeMock } from '../helpers/stripeFixtures.js';
 
 const database = `arbor_day_policies_${randomBytes(5).toString('hex')}_mvc_test`;
 const owner = new Pool({ connectionTimeoutMillis: 5000 });
@@ -171,4 +172,28 @@ test('new versions inherit applicability for older clients, and a new facility v
   assert.equal(replacement.status, 201); assert.equal(replacement.body.data.scope, 'facility');
   await assert.rejects(passes.checkout(member.user.id, await input('2035-06-11')), { code: 'WAIVER_REQUIRED' });
   assert.equal((await pool.query('SELECT approval FROM user_waiver WHERE userid=$1 AND waiverid=$2', [member.user.id, terms.id])).rows[0].approval, true);
+});
+
+test('a pass checkout whose first Stripe call failed is abandoned after a day instead of blocking that date for good', async () => {
+  await sign('facility');
+  stripeMock(provider).checkoutSessionList(async () => ({ data: [], has_more: false }));
+  const create = provider.sdk.checkout.sessions.create;
+  (provider.sdk.checkout.sessions.create as any) = async () => { throw new Error('Stripe timed out'); };
+  try { await assert.rejects(passes.checkout(member.user.id, await input('2035-07-10')), /Stripe timed out/); }
+  finally { (provider.sdk.checkout.sessions.create as any) = create; }
+  const date = (on: string) => pool.query('SELECT id,status,checkout_id FROM app_pass_checkout WHERE userid=$1 AND valid_date=$2 ORDER BY created_at', [member.user.id, on]);
+  const stuck = (await date('2035-07-10')).rows[0].id;
+  // Within a day the same checkout is resumed (Stripe's idempotency covers the retry), not replaced.
+  await assert.rejects(passes.cancel(member.user.id, stuck), { code: 'RECONCILE_REQUIRED' });
+  await pool.query("UPDATE app_pass_checkout SET created_at=now()-interval '25 hours' WHERE id=$1", [stuck]);
+  assert.ok((await passes.checkout(member.user.id, await input('2035-07-10'))).checkoutUrl);
+  const rows = (await date('2035-07-10')).rows;
+  assert.deepEqual(rows.map(r => r.status), ['expired', 'pending']);
+  assert.ok(rows[1].checkout_id);
+  // An abandoned checkout can be cancelled too.
+  const abandoned = randomUUID();
+  await pool.query(`INSERT INTO app_pass_checkout(id,userid,tierid,valid_date,plan_snapshot,amount_cents,created_at)
+    VALUES($1,$2,$3,'2035-07-11','{"name":"Day pass"}',1500,now()-interval '25 hours')`, [abandoned, member.user.id, day.id]);
+  assert.deepEqual(await passes.cancel(member.user.id, abandoned), { cancelled: true });
+  assert.deepEqual((await date('2035-07-11')).rows.map(r => r.status), ['expired']);
 });

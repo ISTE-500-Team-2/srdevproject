@@ -37,6 +37,8 @@ services:
       PGUSER: arbor
       PGDATABASE: arbor
       ENABLE_DEMO_LOGIN: 'false'
+      # Caddy is the one proxy in front of the app; it names the visitor in X-Forwarded-For.
+      TRUST_PROXY: '1'
       APP_ORIGIN: https://${PUBLIC_HOST:?Set your domain}
       JWT_SECRET_FILE: /run/secrets/jwt_key
     command: [sh, -eu, -c, 'export PGPASSWORD="$$(cat /run/secrets/db_password)"; exec node backend/dist/server.js']

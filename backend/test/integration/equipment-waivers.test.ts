@@ -61,7 +61,8 @@ before(async () => {
   for (const [agent, role] of [[memberAgent, 'member'], [adminAgent, 'admin']] as const) {
     const response = await agent.post('/api/auth/demo').send({role});
     assert.equal(response.status, 200, response.text);
-    agent.set('Authorization', 'Bearer ' + response.body.data.accessToken).set('X-CSRF-Token', response.body.data.csrfToken);
+    agent.set('Authorization', 'Bearer ' + response.body.data.accessToken).set('X-CSRF-Token', response.body.data.csrfToken)
+      .set('X-Account-Subject', String(response.body.data.user.id));
     if (role === 'member') member = response.body.data.user.id; else admin = response.body.data.user.id;
   }
   await pool.query("UPDATE user_membership SET end_date='2031-01-01',status='active' WHERE userid IN ($1,$2)", [member, admin]);
@@ -76,6 +77,8 @@ before(async () => {
     return sessions.get(id);
   });
   mock.method(prototype, 'retrieve', async (id: string) => sessions.get(id));
+  // A newly paid booking checks for a refund made in Stripe before the payment was recorded; there are none here.
+  mock.method(Object.getPrototypeOf(provider.sdk.refunds), 'list', async () => ({object: 'list', data: [], has_more: false, url: '/v1/refunds'}));
 });
 beforeEach(async () => {
   await pool.query('UPDATE user_waiver SET approval=false,expires_at=NULL WHERE userid IN ($1,$2)', [member, admin]);

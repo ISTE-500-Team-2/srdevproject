@@ -10,6 +10,7 @@ const headings = {
   email_change_requested: 'Your sign-in email is changing',
   photo_removed: 'Your profile photo was removed',
   account_created: 'Your account has been created',
+  account_exists: 'You already have an account',
   account_creation_failed: 'Account creation could not be completed',
   account_closed: 'Your account has been closed',
   waiver_signed: 'Your signed waiver copy',
@@ -19,16 +20,18 @@ const headings = {
   certification_revoked: 'Your certification has been revoked',
   certification_required: 'Training is required before booking',
   membership_renewal: 'Your membership renewal is approaching',
-  membership_expiring: 'Your membership expiration or renewal is approaching',
+  membership_expiring: 'Your membership is ending soon',
   membership_confirmed: 'Your membership is confirmed',
   membership_issued: 'Your membership is confirmed',
   membership_cancelled: 'Auto-renew is off for your membership',
+  membership_cancellation_confirmed: 'Your membership cancellation is confirmed',
   day_pass_confirmed: 'Your day pass is confirmed',
   day_pass_issued: 'Your day pass is confirmed',
   reservation_confirmed: 'Your reservation is confirmed',
   reservation_created: 'Your reservation is confirmed',
   reservation_updated: 'Your reservation has been updated',
   reservation_cancelled: 'Your reservation cancellation is confirmed',
+  reservation_cancelled_by_staff: 'Your reservation has been cancelled',
   studio_reservation_confirmed: 'Your studio reservation is confirmed',
   studio_reservation_cancelled: 'Your studio cancellation is confirmed',
   payment_receipt: 'Your payment receipt',
@@ -44,12 +47,14 @@ const headings = {
   sponsor_request_accepted: 'Your sponsor request was accepted',
   sponsor_request_declined: 'Your sponsor request was declined',
   admin_certification_revoked: 'Certification revocation recorded',
+  admin_studio_reservation_confirmed: 'Studio booking recorded',
+  admin_studio_reservation_cancelled: 'Studio cancellation recorded',
 } as const;
 
 
 export type NotificationKind = keyof typeof headings;
 /** Account-security mail: always sent, whatever the member's notification preferences say. */
-export const securityKinds: readonly NotificationKind[] = ['password_reset', 'password_changed', 'email_change_confirmation', 'email_change_requested'];
+export const securityKinds: readonly NotificationKind[] = ['password_reset', 'password_changed', 'email_change_confirmation', 'email_change_requested', 'account_exists'];
 export const notificationKinds = Object.keys(headings) as NotificationKind[];
 export const isNotificationKind = (kind: string): kind is NotificationKind => Object.hasOwn(headings, kind);
 export type NotificationPayload = Record<string, unknown>;
@@ -67,6 +72,8 @@ type Details = { [F in RenderedField]?: Shown | null };
 /** Read by the worker and scheduler, or kept for the record; never rendered. */
 interface Bookkeeping {
   sourceType?: string; sourceId?: number; confirmationHash?: string; resetHash?: string; noticeId?: number; readerId?: string;
+  /** An announcement to every account: the worker sends one person's mail ahead of it. */
+  broadcast?: true;
   /** Email-change notices go to a fixed address rather than the account's current one. */
   changeHash?: string; recipientEmail?: string;
   waiverId?: number; membershipId?: number; memberId?: number; formValues?: unknown; guardianConsent?: unknown;
@@ -115,7 +122,9 @@ function text(value: unknown): string {
 
 type Tone = 'success' | 'info' | 'warning' | 'danger';
 interface Facts { item: string; money: string; role: string; refund: string; certificationName: string; memberName: string;
-  adultName: string; minorName: string }
+  adultName: string; minorName: string;
+  /** The refund outcome told to staff rather than to the member. */
+  staffRefund: string }
 interface Copy {
   category: string;
   status: string;
@@ -130,6 +139,7 @@ interface Copy {
 const membership = ['Manage membership', '/membership'] as const;
 const certifications = ['View certifications', '/certifications'] as const;
 const reservations = ['View my reservations', '/equipment'] as const;
+const studioDesk = ['Open the studio desk', '/admin/studios'] as const;
 const booked = (f: Facts) => f.item ? `Your ${f.item} session is booked` : '';
 const received = (f: Facts) => f.money ? `We received your ${f.money} payment` : '';
 const refunded = (f: Facts) => f.money ? `Your ${f.money} refund has been issued` : '';
@@ -153,6 +163,10 @@ const copy: Record<NotificationKind, Copy> = {
     cta: ['Go to login', '/login'] },
   account_created: { category: 'Account', status: 'Ready', tone: 'success',
     intro: () => 'Your email is confirmed and you’re ready to sign in.', cta: ['Open my dashboard', '/'] },
+  // Sign-up and email change answer every address the same way, so the owner hears about it here instead.
+  account_exists: { category: 'Account', status: 'Already registered', tone: 'info',
+    intro: () => 'Someone tried to sign up with this email address, or to switch another account to it. It already belongs to your member account, so no new account was created and no other account can use it.',
+    cta: ['Go to login', '/login'] },
   account_creation_failed: { category: 'Account', status: 'Not completed', tone: 'danger',
     intro: () => 'We couldn’t finish setting up your account. Please try signing up again.', cta: ['Try again', '/login'] },
   account_closed: { category: 'Account', status: 'Closed', tone: 'info',
@@ -173,14 +187,20 @@ const copy: Record<NotificationKind, Copy> = {
     intro: f => `You need to finish training before you can book ${f.item || 'this equipment'}.`, cta: ['See training', '/training'] },
   membership_renewal: { category: 'Membership', status: 'Renewal coming up', tone: 'warning',
     intro: () => 'Check the details below so there are no surprises.', cta: membership },
+  // Card subscriptions that renew themselves get no reminder. Online checkout opens once this one
+  // ends, so before then only staff can extend it.
   membership_expiring: { category: 'Membership', status: 'Expiring soon', tone: 'warning',
-    intro: () => 'Renew it to keep your studio access.', cta: membership },
+    intro: () => 'It won’t renew on its own. To keep your studio access without a break, ask staff to renew it, or choose a new plan once it ends.',
+    cta: membership },
   membership_confirmed: { category: 'Membership', status: 'Active', tone: 'success',
     intro: () => 'You’re all set. Here are the details.', cta: membership },
   membership_issued: { category: 'Membership', status: 'Active', tone: 'success',
     intro: () => 'You’re all set. Here are the details.', cta: membership },
   membership_cancelled: { category: 'Membership', status: 'Auto-renew off', tone: 'info',
     intro: () => 'You turned off automatic payments. Your membership ends on the date below and won’t renew after that.', cta: membership },
+  // Desk-paid and free memberships never had automatic payments, so say nothing about them.
+  membership_cancellation_confirmed: { category: 'Membership', status: 'Ending', tone: 'info',
+    intro: () => 'Your membership stays active until the end date below, then it ends.', cta: membership },
   day_pass_confirmed: { category: 'Day pass', status: 'Confirmed', tone: 'success',
     intro: () => 'Here are the details.', cta: ['View membership', '/membership'] },
   day_pass_issued: { category: 'Day pass', status: 'Confirmed', tone: 'success',
@@ -194,6 +214,12 @@ const copy: Record<NotificationKind, Copy> = {
   reservation_cancelled: { category: 'Reservation', status: 'Cancelled', tone: 'info',
     title: f => f.item ? `Your ${f.item} session is cancelled` : '',
     intro: f => f.item ? 'It’s been removed from your reservations.' : 'Here are the details.' },
+  // Staff cancelled it, or gave it to another member (the payload's reason says which): the member
+  // didn't ask for this, so say who did and where to ask, in words true of both.
+  reservation_cancelled_by_staff: { category: 'Reservation', status: 'Cancelled', tone: 'warning',
+    title: f => f.item ? `Your ${f.item} session was cancelled` : '',
+    intro: () => 'Studio staff took this booking off your reservations, so this time is no longer held for you. Contact the studio if you have questions.',
+    cta: reservations },
   studio_reservation_confirmed: { category: 'Studio rental', status: 'Confirmed', tone: 'success',
     title: f => `You’re booked in ${f.item || 'the studio'}`,
     intro: () => 'It’s all yours for the dates below. You can manage the rental from the Studios page.', cta: ['View my rental', '/studios'] },
@@ -235,6 +261,14 @@ const copy: Record<NotificationKind, Copy> = {
     title: f => f.certificationName ? `${f.certificationName} certification revoked` : '',
     intro: f => `${f.memberName ? `${f.memberName}’s` : 'A member’s'} certification was revoked. This copy is for the staff record; the member gets their own notice.`,
     cta: ['Review certifications', '/admin?tab=adminCertWaiver&section=certifications'] },
+  admin_studio_reservation_confirmed: { category: 'Staff notice', status: 'Confirmed', tone: 'success',
+    title: f => `${f.memberName || 'A member'} booked ${f.item || 'a studio'}`,
+    intro: () => 'The rental is paid and confirmed. This copy is for the staff record; the member gets their own confirmation.',
+    cta: studioDesk },
+  admin_studio_reservation_cancelled: { category: 'Staff notice', status: 'Cancelled', tone: 'info',
+    title: f => `${f.memberName || 'A member'} cancelled ${f.item ? `their ${f.item} booking` : 'a studio booking'}`,
+    intro: f => `${f.staffRefund ? f.staffRefund + ' ' : ''}This copy is for the staff record; the member gets their own notice.`,
+    cta: studioDesk },
 };
 
 const tones: Record<Tone, { ink: string; wash: string }> = {
@@ -362,7 +396,9 @@ export function renderNotification(kind: NotificationKind, payload: Notification
   const allDay = /^\d{4}-\d{2}-\d{2}$/.test(start) && /^\d{4}-\d{2}-\d{2}$/.test(end);
   const range = start && end ? displayRange(start, end, timeZone) : '';
   const amount = money(field('amount'), currency);
-  const refundAmount = kind === 'studio_reservation_cancelled' ? field('refundAmount') : '';
+  const studio = kind.startsWith('studio_') || kind.startsWith('admin_studio_');
+  const refundAmount = kind === 'studio_reservation_cancelled' || kind === 'admin_studio_reservation_cancelled'
+    ? field('refundAmount') : '';
   const refund = refundAmount && money(refundAmount, currency);
   const paid = field('paymentStatus');
   const facts: Facts = {
@@ -374,6 +410,12 @@ export function renderNotification(kind: NotificationKind, payload: Notification
           : 'You weren’t charged for this rental, so there’s nothing to refund.'
         : paid === 'refunded' ? `${refund} has been returned to your original payment method.`
           : `We’re returning ${refund} to your original payment method. You’ll get another email once it’s done.`,
+    staffRefund: !refundAmount ? ''
+      : Number(refundAmount) <= 0
+        ? paid === 'paid' ? 'No refund is due under the studio’s cancellation policy.' : 'They hadn’t paid, so no refund is due.'
+        : paid === 'refunded' ? `${refund} has been refunded.`
+          : field('method') === 'manual' ? `${refund} is owed back to them. Record the refund on the studio desk once it’s returned.`
+            : `${refund} is being refunded to their card. A refund that fails shows on the studio desk.`,
   };
   const sourceName = field('name');
 
@@ -394,7 +436,7 @@ export function renderNotification(kind: NotificationKind, payload: Notification
     row('Signed by', signature);
     row('Signed at', displayDate(signedAt, timeZone));
   } else {
-    row(kind.startsWith('studio_') ? 'Studio' : 'Equipment', item);
+    row(studio ? 'Studio' : 'Equipment', item);
     row('Waiver', field('waiverName') || (kind === 'waiver_expiring' ? sourceName : ''));
     row('Certification', field('certificationName') || (kind === 'certification_expiring' ? sourceName : ''));
     row('Membership', field('membershipName') || (kind === 'membership_expiring' || kind === 'membership_renewal' ? sourceName : ''));
@@ -406,7 +448,7 @@ export function renderNotification(kind: NotificationKind, payload: Notification
     row('Date', field('validDate') && displayDate(field('validDate'), timeZone));
     row('Expires', field('expiresAt') && displayDate(field('expiresAt'), timeZone));
     row('Renews', field('renewsAt') && displayDate(field('renewsAt'), timeZone));
-    row(kind.startsWith('studio_') ? 'Rental total' : kind === 'payment_refunded' || kind === 'refund_confirmed' ? 'Refund amount'
+    row(studio ? 'Rental total' : kind === 'payment_refunded' || kind === 'refund_confirmed' ? 'Refund amount'
       : kind === 'payment_receipt' || kind === 'payment_recorded' ? 'Amount paid' : 'Amount', amount);
     row('Refund', refund);
     row('Payment method', field('method') && (methods[field('method')] ?? field('method')));
@@ -448,6 +490,11 @@ export function renderNotification(kind: NotificationKind, payload: Notification
     rows.length = 0;
     row('New email', field('newEmail'));
     notes.push('If this was you, there’s nothing else to do.', 'If it wasn’t you, change your password right away and contact the studio.');
+    if (cta && preferenceLink) action = { label: cta[0], url: new URL(cta[1], preferenceLink).href };
+  } else if (kind === 'account_exists') {
+    rows.length = 0;
+    notes.push('If this was you, sign in instead. Forgot your password? Choose Forgot password on the login page.',
+      'If it wasn’t you, you can ignore this email. Nothing about your account has changed.');
     if (cta && preferenceLink) action = { label: cta[0], url: new URL(cta[1], preferenceLink).href };
   } else if (cta && preferenceLink) {
     action = { label: cta[0], url: new URL(cta[1], preferenceLink).href };

@@ -37,8 +37,9 @@ type Source = "" | "reader" | "staff";
 
 /** Staff see what's broken now and what broke before; administrators tell members about it. */
 export function ServiceNotices() {
-  const { user } = useAuth();
-  const isAdmin = !!user?.roles.includes("admin");
+  // The signed-in staff member, even while a member's account is open in another tab.
+  const { user, actor } = useAuth();
+  const isAdmin = !!(actor ?? user)?.roles.includes("admin");
   const config = useApi<{ timeZone: string }>("/config", { reuse: true });
   const zone = config.data?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const [period, setPeriod] = useState<Period>("30d");

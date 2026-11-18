@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import { Pool } from 'pg';
 import { loadReport } from '../../src/reports/service.js';
@@ -40,15 +40,23 @@ test('equipment and training income is labelled in the revenue report as on the 
   await pool.query('INSERT INTO app_training_enrollment(class_id,user_id,training_fee_cents,payment_id) VALUES($1,$2,2000,$3)', [course, user, trainingPayment]);
   // A fee whose enrollment link is gone still carries its description, as on the Payments screen.
   await payment(5, 'Equipment booking: legacy drill press');
+  // An online day-pass payment refunded instead of issued has no pass; its checkout names the plan.
+  const unissuedPayment = (await pool.query(`INSERT INTO payment(userid,price,paymentstatus,paymentdate,method,note)
+    VALUES($1,15,'refunded',TIMESTAMP '2030-01-02 15:00','card','Online day pass (not issued)') RETURNING paymentid`, [user])).rows[0].paymentid as number;
+  await pool.query(`INSERT INTO app_pass_checkout(id,userid,tierid,valid_date,plan_snapshot,amount_cents,status,payment_id)
+    SELECT $3,$1,tierid,DATE '2030-01-01',jsonb_build_object('name','Category day pass'),1500,'cancelled',$2
+    FROM membership_tiers WHERE kind='day_pass' LIMIT 1`, [user, unissuedPayment, randomUUID()]);
 
   const ledger = new Map((await new PaymentRepository(pool).payments(null)).map(p => [p.id, p.planName]));
   assert.equal(ledger.get(equipmentPayment), 'Equipment: Category laser');
   assert.equal(ledger.get(trainingPayment), 'Training class: Category safety class');
+  assert.equal(ledger.get(unissuedPayment), 'Category day pass');
 
   const report = await loadReport(pool, 'America/New_York', { from: '2030-01-02', to: '2030-01-02', period: 'daily' });
   const categories = report.revenue.map(r => r.category);
-  for (const label of ['Equipment: Category laser', 'Training class: Category safety class', 'Equipment booking: legacy drill press'])
+  for (const label of ['Equipment: Category laser', 'Training class: Category safety class', 'Equipment booking: legacy drill press', 'Category day pass'])
     assert.ok(categories.includes(label), `${label} in ${JSON.stringify(categories)}`);
   assert.ok(!categories.includes('Unclassified payment'), JSON.stringify(report.revenue));
-  assert.equal(report.revenue.reduce((sum, r) => sum + Number(r.gross), 0), 39, 'each payment counted once');
+  assert.equal(report.revenue.reduce((sum, r) => sum + Number(r.gross), 0), 54, 'each payment counted once');
+  assert.equal(Number(report.revenue.find(r => r.category === 'Category day pass')?.refunds), 15, 'the refund is reported');
 });

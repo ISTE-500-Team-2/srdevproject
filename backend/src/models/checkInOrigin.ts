@@ -1,5 +1,8 @@
-/** How a check-in was recorded; stored in check_in.origin (migration 040). */
-export type CheckInOrigin = "nfc" | "portal";
+/**
+ * How a check-in was recorded; stored in check_in.origin (migration 040, with "desk" for staff
+ * check-ins at the front desk since migration 051).
+ */
+export type CheckInOrigin = "nfc" | "portal" | "desk";
 
 /**
  * SQL expression for a check-in's origin, where `table` is the check_in table

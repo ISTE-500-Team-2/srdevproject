@@ -37,6 +37,14 @@ export function frontendEnv(parent) {
   for(const key of Object.keys(env)) if(/^(PG|DATABASE_URL$|EMAIL_|BREVO_|JWT_|STRIPE_)/i.test(key)) delete env[key];
   env.NODE_ENV='development'; return env;
 }
+/**
+ * Vite listens on APP_ORIGIN's own host name, so the address it prints is the origin the API accepts
+ * for sign-in (a 127.0.0.1 page is a different origin from localhost).
+ */
+export function viteArgs(env) {
+  const origin=new URL(env.APP_ORIGIN);
+  return ['--host',origin.hostname,'--port',origin.port,'--strictPort'];
+}
 /** Fail before launching either service when a required loopback port is already occupied. */
 export async function assertFree(port) {
   await new Promise((resolve,reject) => {
@@ -110,7 +118,7 @@ async function main() {
       p.once('error',()=>stop(1)); p.once('exit',code=>{if(!stopping){console.error('A development process stopped; shutting down the other process.');stop(code || 1);}});
     };
     launch([path.join(root,'backend/node_modules/tsx/dist/cli.mjs'),'watch','src/server.ts'],{cwd:path.join(root,'backend'),env});
-    launch([path.join(root,'frontend/node_modules/vite/bin/vite.js'),'--host','127.0.0.1','--port','5173','--strictPort'],{cwd:path.join(root,'frontend'),env:clean});
+    launch([path.join(root,'frontend/node_modules/vite/bin/vite.js'),...viteArgs(env)],{cwd:path.join(root,'frontend'),env:clean});
   } catch(error) { stop(1); throw error; }
 }
 if(process.argv[1] && import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href) {

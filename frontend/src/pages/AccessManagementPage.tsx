@@ -1,7 +1,8 @@
 // Staff access workspace combines card/member lookup, reader setup and decision history.
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 import { useApi } from "../lib/useApi";
 import type { Person } from "../lib/staffContracts";
 import type { ReaderSetup } from "../lib/nfc";
@@ -35,6 +36,15 @@ export function AccessManagementPage() {
   const setup = useApi<ReaderSetup>("/admin/access/readers", {
     retainOnReload: true,
   });
+  // Readers change while another section is open, for example when a guided setup finishes:
+  // reload them on each switch instead of showing the list fetched when the page opened.
+  const shownView = useRef(view);
+  const reloadSetup = setup.reload;
+  useEffect(() => {
+    if (shownView.current === view) return;
+    shownView.current = view;
+    reloadSetup();
+  }, [view, reloadSetup]);
   const person =
     detail.data?.user.id === Number(member) ? detail.data.user : undefined;
   return (
@@ -54,7 +64,7 @@ export function AccessManagementPage() {
           <Link
             key={key}
             aria-current={view === key ? "page" : undefined}
-            to={`?${new URLSearchParams({ ...(view === "cards" && member ? { member } : {}), ...(key === "cards" ? {} : { view: key }) })}`}
+            to={`?${new URLSearchParams({ ...(member ? { member } : {}), ...(key === "cards" ? {} : { view: key }) })}`}
           >
             {label}
           </Link>
@@ -127,12 +137,19 @@ function finePointer() {
 }
 function MemberWorkspace({ person }: { person: Person }) {
   const [revision, setRevision] = useState(0);
+  // Same rule as the member record (and the server): only an administrator changes a staff or admin account.
+  const { user, actor } = useAuth();
+  const locked =
+    !(actor ?? user)?.roles.includes("admin") && person.roles.some((r) => r === "admin" || r === "staff")
+      ? "Only an administrator can change staff accounts."
+      : "";
   return (
     <>
       <MemberCards
         userId={person.id}
         memberName={`${person.firstName} ${person.lastName}`}
         onChanged={() => setRevision((n) => n + 1)}
+        locked={locked}
       />
       <AccessReadiness userId={person.id} revision={revision} />
       <p className="nfc-help">

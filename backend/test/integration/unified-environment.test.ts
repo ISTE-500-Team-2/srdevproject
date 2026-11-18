@@ -52,7 +52,7 @@ test('new website identity is immediately available to staff/card assignment thr
   const signup=await member.post('/api/auth/register').send({email,password:'GoodPassword123!',
     firstName:'Unified',lastName:'Fixture',dob:'2000-01-01',phone:'0000000000'});
   assert.equal(signup.status,202,JSON.stringify(signup.body));
-  const confirmed=await member.post('/api/auth/confirm').send({token:await confirmationToken(pool,email)});
+  const confirmed=await member.post('/api/auth/confirm').send({token:await confirmationToken(pool,email),password:'GoodPassword123!'});
   assert.equal(confirmed.status,200);memberCsrf=confirmed.body.data.csrfToken;userId=confirmed.body.data.user.id;
   member.set('Authorization','Bearer '+confirmed.body.data.accessToken);
   const users=await staff.get('/api/admin/users').query({search:email});

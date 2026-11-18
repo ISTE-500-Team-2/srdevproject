@@ -95,6 +95,7 @@ const post = (p: string, b: string | object) =>
   staff
     .post("/api" + p)
     .set("X-CSRF-Token", csrf)
+    .set("X-Account-Subject", String(adminId))
     .send(b);
 const memberPost = (p: string, b: string | object) =>
   member
@@ -509,15 +510,13 @@ test("real reports reconcile refunds, clip usage, export structured CSV/PDF and 
       (x: any) => x.actorId === adminId && x.action === "training.approved",
     ),
   );
-  assert.equal(
-    (
-      await post(`/classes/${classId}/cancel`, {
-        expectedRevision: 1,
-        reason: "Schedule changed",
-      })
-    ).status,
-    200,
-  );
+  // The class already ran (attendance is recorded), so it can no longer be cancelled.
+  r = await post(`/classes/${classId}/cancel`, {
+    expectedRevision: 1,
+    reason: "Schedule changed",
+  });
+  assert.equal(r.status, 409, JSON.stringify(r.body));
+  assert.equal(r.body.error.code, "CLASS_CLOSED");
 });
 
 test('software authorization matrix has no false grants across 128 eligibility combinations',async()=>{

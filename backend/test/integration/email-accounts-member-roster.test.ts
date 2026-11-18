@@ -28,7 +28,7 @@ test('email-only registration normalizes addresses and keeps confirmation and pa
   assert.equal(registered.status,202);assert.equal(registered.body.data.email,input.email);
   const pending=await request(app).post('/api/auth/login').send({email:input.email,password:input.password});
   assert.equal(pending.status,403);assert.equal(pending.body.error.code,'EMAIL_CONFIRMATION_REQUIRED');
-  member=(await request(app).post('/api/auth/confirm').send({token:await confirmationToken(pool,input.email)})).body.data;
+  member=(await request(app).post('/api/auth/confirm').send({token:await confirmationToken(pool,input.email),password:input.password})).body.data;
   assert(!Object.hasOwn(member.user,'username'));
   for(const email of [input.email,input.email.toUpperCase(),' '+input.email+' ']){
     const login=await request(app).post('/api/auth/login').send({email,password:input.password});
@@ -50,14 +50,16 @@ test('login requires an email field and rejects removed account identifiers',asy
 
 test('duplicate emails, including concurrent case-only duplicates, cannot create multiple accounts',async()=>{
   for(const email of [input.email,input.email.toUpperCase(),' '+input.email+' ']){
+    // Answered like any sign-up, so the address's membership stays private; nothing is staged.
     const duplicate=await request(app).post('/api/auth/register').send({...input,email});
-    assert.equal(duplicate.status,409);assert.equal(duplicate.body.error.code,'EMAIL_ALREADY_REGISTERED');
+    assert.equal(duplicate.status,202);
   }
+  assert.equal((await pool.query('SELECT COUNT(*)::int AS n FROM app_pending_registration WHERE lower(email)=lower($1)',[input.email])).rows[0].n,0);
   const race=await Promise.all(['Race.Email@example.invalid','RACE.EMAIL@EXAMPLE.INVALID'].map(email=>request(app).post('/api/auth/register').send({...input,email})));
   assert.deepEqual(race.map(r=>r.status).sort(),[202,202]);
   assert.equal((await pool.query(`SELECT COUNT(*)::int AS n FROM app_pending_registration WHERE email='race.email@example.invalid'`)).rows[0].n,1);
   assert.equal((await pool.query(`SELECT COUNT(*)::int AS n FROM "user" WHERE lower(email)='race.email@example.invalid'`)).rows[0].n,0);
-  assert.equal((await request(app).post('/api/auth/confirm').send({token:await confirmationToken(pool,'race.email@example.invalid')})).status,200);
+  assert.equal((await request(app).post('/api/auth/confirm').send({token:await confirmationToken(pool,'race.email@example.invalid'),password:input.password})).status,200);
   assert.equal((await pool.query(`SELECT COUNT(*)::int AS n FROM "user" WHERE lower(email)='race.email@example.invalid'`)).rows[0].n,1);
   // The database protects direct writers as well as the registration endpoint.
   await assert.rejects(pool.query(`INSERT INTO "user"(firstname,lastname,email,phone,password,status)
@@ -107,7 +109,7 @@ test('member roster shows only first name/last initial and current seats; withdr
   const cert=(await pool.query("INSERT INTO certifications(certid,name,validity_days) SELECT COALESCE(MAX(certid),0)+1,'Private roster safety',365 FROM certifications RETURNING certid")).rows[0].certid;
   const room=(await pool.query("SELECT roomid FROM room WHERE status='available' AND capacity>=2 LIMIT 1")).rows[0].roomid;
   const starts=new Date(Date.now()+86400000),ends=new Date(starts.getTime()+3600000);
-  const c=await request(app).post('/api/classes').set('Authorization','Bearer '+admin.accessToken).set('X-CSRF-Token',admin.csrfToken).send({title:'Privacy regression class',certificationId:cert,instructorId,roomId:room,capacity:2,startsAt:starts.toISOString(),endsAt:ends.toISOString(),reason:'Isolated regression fixture'});
+  const c=await request(app).post('/api/classes').set('Authorization','Bearer '+admin.accessToken).set('X-CSRF-Token',admin.csrfToken).set('X-Account-Subject',String(admin.user.id)).send({title:'Privacy regression class',certificationId:cert,instructorId,roomId:room,capacity:2,startsAt:starts.toISOString(),endsAt:ends.toISOString(),reason:'Isolated regression fixture'});
   assert.equal(c.status,201,JSON.stringify(c.body));classId=c.body.data.id;
   await pool.query("INSERT INTO app_training_enrollment(class_id,user_id) VALUES($1,$2)",[classId,member.user.id]);
   let r=await get(`/classes/${classId}/member-roster`);
@@ -139,7 +141,7 @@ test('names go only to classmates, the instructor and staff, and minors are neve
   const cert=(await pool.query("INSERT INTO certifications(certid,name,validity_days) SELECT COALESCE(MAX(certid),0)+1,'Roster privacy safety',365 FROM certifications RETURNING certid")).rows[0].certid;
   const room=(await pool.query("SELECT roomid FROM room WHERE status='available' AND capacity>=4 ORDER BY roomid LIMIT 1")).rows[0].roomid;
   const starts=new Date(Date.now()+3*86400000),ends=new Date(starts.getTime()+3600000);
-  const c=await request(app).post('/api/classes').set('Authorization','Bearer '+admin.accessToken).set('X-CSRF-Token',admin.csrfToken).send({title:'Roster privacy class',certificationId:cert,instructorId,roomId:room,capacity:4,startsAt:starts.toISOString(),endsAt:ends.toISOString(),reason:'Isolated privacy fixture'});
+  const c=await request(app).post('/api/classes').set('Authorization','Bearer '+admin.accessToken).set('X-CSRF-Token',admin.csrfToken).set('X-Account-Subject',String(admin.user.id)).send({title:'Roster privacy class',certificationId:cert,instructorId,roomId:room,capacity:4,startsAt:starts.toISOString(),endsAt:ends.toISOString(),reason:'Isolated privacy fixture'});
   assert.equal(c.status,201,JSON.stringify(c.body));
   const path=`/classes/${c.body.data.id}/member-roster`;
   for(const id of [member.user.id,adult.id,minor.id])await pool.query('INSERT INTO app_training_enrollment(class_id,user_id) VALUES($1,$2)',[c.body.data.id,id]);
@@ -206,7 +208,7 @@ test('class routes reject overflowing INTEGER class IDs before querying',async()
     }
     for(const [suffix,actor] of [['enroll',member],['withdraw',member],['attendance',instructor],['cancel',admin]] as const){
       const response=await request(app).post(`/api/classes/${id}/${suffix}`)
-        .set('Authorization','Bearer '+actor.accessToken).set('X-CSRF-Token',actor.csrfToken).send({});
+        .set('Authorization','Bearer '+actor.accessToken).set('X-CSRF-Token',actor.csrfToken).set('X-Account-Subject',String(actor.user.id)).send({});
       assert.equal(response.status,400,JSON.stringify(response.body));
       assert.equal(response.body.error.code,'INVALID_INPUT');
     }

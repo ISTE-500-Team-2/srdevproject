@@ -4,7 +4,7 @@
 import type { Request, Response } from "express";
 import type { Pool } from "pg";
 import { transaction } from "../db.js";
-import { AppError, integerId, positiveId, profileFields, textField } from "../domain.js";
+import { AppError, checkProfileFieldTotal, integerId, positiveId, profileFields, textField } from "../domain.js";
 import { authState } from "../middleware/auth.js";
 import { UserModel } from "../models/UserModel.js";
 import { ProfilePhotoModel } from "../models/ProfilePhotoModel.js";
@@ -34,7 +34,7 @@ export class MemberController {
       user = authState(res).user;
     const [memberships, passes] = await Promise.all([
       model.memberships(user.id),
-      model.passes(user.id),
+      model.passes(user.id, true),
     ]);
     res.json({
       data: {
@@ -47,11 +47,18 @@ export class MemberController {
   };
   payments = async (req: Request, res: Response) => {
     const offset = pageOffset(req.query.offset);
+    // `status=paid` lets the profile show the latest payment actually made, not an
+    // abandoned (void) or unfinished (pending) checkout.
+    const status =
+      req.query.status == null || req.query.status === ""
+        ? null
+        : oneOf(req.query.status, ["paid"] as const, "Payment status");
     res.json({
       data: page(
         await new StaffModel(this.pool, this.timeZone).payments(
           authState(res).user.id,
           offset,
+          { status },
         ),
         offset,
       ),
@@ -89,6 +96,9 @@ export class MemberController {
       ]);
       const model = new UserModel(db, this.timeZone),
         before = await model.profile(userId);
+      // Checked against what is stored, under the row lock: each save merges into it.
+      checkProfileFieldTotal(before?.address, address, "Address");
+      checkProfileFieldTotal(before?.contactPreferences, contactPreferences, "Contact preferences");
       const updated = await model.updateProfile(
         authState(res).user.id,
         textField(req.body.firstName, "First name", 50),
@@ -241,8 +251,9 @@ export class MemberController {
     const record = await transaction(this.pool, async (db) => {
       const access = new AccessService(db, this.timeZone);
       const grant = await access.accessForTarget(userId,target);
+      // Only staff reach this, so it is a front-desk check-in, as at the member record.
       const checkIn = await new MemberModel(db, this.timeZone).createCheckIn(userId,grant.location,target.roomId ?? null,
-        grant.buildingId,target.equipmentId ?? null,grant.reservationId);
+        grant.buildingId,target.equipmentId ?? null,grant.reservationId,'desk');
       await new StaffModel(db, this.timeZone).audit(
         userId,
         userId,

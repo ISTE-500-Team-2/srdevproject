@@ -34,6 +34,9 @@ export interface StudioRentalRow {
   refund_cents: number;
   created_at: Date;
   hold_until: Date;
+  /** Background reconciliation failures for a lapsed card hold, and when it may be checked again. */
+  reconcile_failures: number;
+  reconcile_after: Date | null;
 }
 
 /** A row with its rental dates rendered as YYYY-MM-DD strings. */
@@ -61,6 +64,16 @@ export interface StudioConfigureRequest {
   policyConfirmed?: unknown;
   monthlyCents?: unknown;
   revision?: unknown;
+}
+
+/**
+ * The rental state a member's cancellation was reviewed against (the refund terms shown depend on
+ * it); StudioService.cancel refuses when the rental has moved on since. Both fields are optional.
+ */
+export interface StudioCancelRequest {
+  [field: string]: unknown;
+  expectedStatus?: unknown;
+  expectedPaymentStatus?: unknown;
 }
 
 /** Studio rental request; each field is validated by StudioService.create. */

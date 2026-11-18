@@ -33,7 +33,8 @@ after(async () => {
   await pool.end(); if (created) await owner.query(`DROP DATABASE "${database}"`); await owner.end();
 });
 const post = (path: string, body: object) =>
-  request(app).post('/api/' + path).set('Authorization', 'Bearer ' + admin.token).set('X-CSRF-Token', admin.csrf).send(body);
+  request(app).post('/api/' + path).set('Authorization', 'Bearer ' + admin.token).set('X-CSRF-Token', admin.csrf)
+    .set('X-Account-Subject', String(admin.id)).send(body);
 
 test('migration 041 widens both reason columns to 500 characters', async () => {
   const { rows } = await pool.query(`SELECT table_name,character_maximum_length AS length FROM information_schema.columns

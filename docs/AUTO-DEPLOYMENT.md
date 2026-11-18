@@ -9,6 +9,9 @@ not deploy. The gateway, database containers, volumes, credentials and Pi stay p
 
 1. A user-level systemd timer checks main about once a minute, after the previous
    check/release finishes. Idle checks use `git ls-remote`, not GitHub API polling.
+   While a new SHA waits for CI, its GitHub check status is read at most every
+   four minutes (unauthenticated reads are limited to 60 an hour, two per check),
+   so a release can start up to four minutes after its checks pass.
 2. A new SHA must pass application verification, sponsor-container rehearsal,
    Docker developer smoke and the Linux/macOS/Windows launcher tests. All checks
    must be from GitHub Actions on the exact SHA; successful main push workflows
@@ -24,6 +27,12 @@ not deploy. The gateway, database containers, volumes, credentials and Pi stay p
 4. Read-only migration/checksum verification runs against both existing databases.
    **It never applies migrations, seeds, recreates volumes or resets data.** If a
    release needs a migration, an operator must review and authorize it separately.
+   For migrations 045 to 055, use the guarded owner script for the numbered
+   SQL, then run the post-commit online phase, including validation of the 055
+   pending-registration constraint. The deployer checks that validation before
+   starting standby. Keep cutover paused until both databases pass verification
+   and the reader compaction grant is in place.
+   [Migration procedure](prewarmed-production-releases.md#applying-migrations-045-to-055)
 5. Fresh public/demo database dumps must succeed and pass `pg_restore --list`.
    This establishes readable archives, not a complete recovery test.
 6. Localhost-only canaries (18082/18081) use the new image with email disabled.
@@ -114,6 +123,11 @@ systemctl --user stop arbor-auto-release.timer
 Each release keeps `previous-compose.json` and two database dumps under
 `/srv/arbor-full/auto-deploy/releases/<SHA>/`. Old images and archives are retained;
 there is no automatic deletion policy. Monitor disk space before many releases.
+
+Keep applied migrations in place during application rollback. The previous release
+cannot confirm or resend a usable link for staged sign-ups created, replaced or
+resent by the new release. Those members can continue once the password-aware
+release returns, or sign up again if their request has expired.
 
 For an operator-directed manual rollback, keep the timer paused, restore the
 recorded previous Compose file (save the current one first), then run:

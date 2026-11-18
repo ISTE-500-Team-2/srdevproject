@@ -19,7 +19,7 @@ export function createPool(): Pool {
   const configuredMax = process.env.ARBOR_DB_POOL_MAX ?? '10';
   if (!/^[1-9]\d?$/.test(configuredMax) || Number(configuredMax) > 30)
     throw new Error('ARBOR_DB_POOL_MAX must be an integer from 1 to 30');
-  return new Pool({
+  const pool = new Pool({
     ...(process.env.DATABASE_URL
       ? { connectionString: process.env.DATABASE_URL }
       : {}),
@@ -29,6 +29,21 @@ export function createPool(): Pool {
     statement_timeout: 10000,
     application_name: 'collaboratory-mvc',
   });
+  // A connection the server drops (restart, failover, terminated backend) emits 'error' on its
+  // client, often twice, whether it sits idle in the pool or is checked out by a transaction or
+  // background job. Node ends the process on an 'error' event nobody listens for, so every client
+  // keeps a listener for life and its first error is logged. The query in flight still fails (a
+  // transaction rolls back), and the pool discards the broken client and connects afresh.
+  const lost = (error: Error & { code?: unknown }) =>
+    console.error('Database connection lost', {
+      code: typeof error.code === 'string' ? error.code : undefined,
+    });
+  pool.on('connect', (client) => {
+    client.once('error', lost).on('error', () => {});
+  });
+  // pg-pool repeats an idle client's error here; the client's own listener has logged it.
+  pool.on('error', () => {});
+  return pool;
 }
 
 /**

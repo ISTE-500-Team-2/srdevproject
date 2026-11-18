@@ -10,12 +10,16 @@ import userEvent from "@testing-library/user-event";
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { MemoryRouter } from "react-router-dom";
 import App from "../../src/App";
+import { loadStaffArea } from "../../src/areas/load";
 import { createBrowserBridge } from "../../../backend/test/helpers/browserBridge";
 
 let bridge: Awaited<ReturnType<typeof createBrowserBridge>>;
 const gatewaySecret = "g".repeat(64),
   deviceId = "usb-" + "a".repeat(24);
 beforeAll(async () => {
+  // Compile the staff workspace here, under the hook's long timeout, so the first
+  // page wait below measures the app and API rather than on-demand compilation.
+  await loadStaffArea();
   bridge = await createBrowserBridge({
     devices: {
       cardHashKey: randomBytes(32).toString("hex"),
@@ -83,11 +87,9 @@ test("real React → Express → PostgreSQL onboarding: USB detection, generated
     </MemoryRouter>,
   );
   const user = userEvent.setup();
-  const add = await screen.findByRole(
-    "button",
-    { name: "Add reader" },
-    { timeout: 10000 },
-  );
+  // Uses the suite-wide wait from setup.ts: on a busy machine the session check and
+  // the reader reads behind this page can take longer than 10 seconds.
+  const add = await screen.findByRole("button", { name: "Add reader" });
   await user.click(add);
   await user.click(
     await screen.findByRole("button", { name: "Set up ESP32-C3 mini" }),
@@ -108,6 +110,13 @@ test("real React → Express → PostgreSQL onboarding: USB detection, generated
     dialog.getByLabelText("Reason for change"),
     "Install additional workshop reader",
   );
+  // Setup needs the device seen in the last 12 seconds. A real Pi reports every few
+  // seconds; report again here, since filling in the form on a busy machine can take
+  // longer than that after the first report.
+  await signed("/devices/setup/poll", "pi", gatewaySecret, {
+    devices,
+    updates: [],
+  });
   fireEvent.submit(
     dialog.getByRole("button", { name: "Connect reader" }).closest("form")!,
   );

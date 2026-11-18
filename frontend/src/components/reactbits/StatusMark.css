@@ -159,8 +159,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* !important so the site-wide reduced-motion reset (styles.css) can't freeze it. */
   .status-mark[data-indeterminate] .status-mark__ring {
-    animation: sm-breathe 1400ms var(--sm-ease-in-out) infinite;
+    animation: sm-breathe 1400ms var(--sm-ease-in-out) infinite !important;
   }
 
   .status-mark__check,

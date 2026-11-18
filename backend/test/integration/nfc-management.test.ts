@@ -8,6 +8,7 @@ import { Pool } from "pg";
 import request from "supertest";
 import { createApp } from "../../src/app.js";
 import { initializeDemo } from "../../src/scripts/init-demo.js";
+import { compactReaderRenewals } from "../../src/readerLeaseCompaction.js";
 import type { AppConfig } from "../../src/config.js";
 
 const database = `arbor_nfc_${randomBytes(6).toString("hex")}_mvc_test`;
@@ -568,6 +569,35 @@ test("card metadata records the last successful physical tap, excluding renewal 
   assert.equal(physical.body.data.allowed, true, JSON.stringify(physical.body));
   const renewed = await tap("AA998877", { renewal: true });
   assert.equal(renewed.body.data.allowed, true);
+  // Readers renew about once a second while a card stays on; only taps and refused
+  // renewals reach the permanent audit log.
+  const refused = await tap("CC445566", { renewal: true });
+  assert.equal(refused.body.data.allowed, false);
+  const decisions = [physical, renewed, refused].map((r) => r.body.data.decisionId);
+  assert.deepEqual(
+    (
+      await pool.query(
+        "SELECT entity_id::int AS id FROM app_staff_audit WHERE entity_type='app_device_access_event' AND entity_id=ANY($1::int[]) ORDER BY entity_id",
+        [decisions],
+      )
+    ).rows.map((r) => r.id),
+    [decisions[0], decisions[2]],
+  );
+  // Live-lease counts look up every unexpired grant without a machine id.
+  const planner = await pool.connect();
+  try {
+    await planner.query("BEGIN");
+    await planner.query("SET LOCAL enable_seqscan=off");
+    const plan = (
+      await planner.query(
+        "EXPLAIN SELECT target_kind,target_id FROM app_device_access_event WHERE allowed=true AND expires_at>NOW()",
+      )
+    ).rows.map((r) => r["QUERY PLAN"]).join("\n");
+    assert.match(plan, /app_device_event_live_leases/);
+  } finally {
+    await planner.query("ROLLBACK");
+    planner.release();
+  }
   const event = (
     await pool.query(
       "SELECT created_at FROM app_device_access_event WHERE id=$1",
@@ -590,5 +620,239 @@ test("card metadata records the last successful physical tap, excluding renewal 
     !history.body.data.items.some(
       (e: any) => e.id === renewed.body.data.decisionId,
     ),
+  );
+});
+test("a card scan cannot start on a reader someone is using, and counts down by the server's clock", async () => {
+  // The previous test left an allowed check-in tap on "front", a building reader.
+  const place = (
+    await pool.query(
+      "SELECT location FROM check_in WHERE userid=$1 AND origin='nfc' ORDER BY checkinid DESC LIMIT 1",
+      [memberId],
+    )
+  ).rows[0].location;
+  const building = (
+    await pool.query("SELECT name FROM building WHERE buildingid=1")
+  ).rows[0].name;
+  assert.equal(place, building, "check-ins name the place, not the reader ID");
+  // A member's session renews its lease every second.
+  assert.equal(
+    (await tap("AA998877", { renewal: true })).body.data.allowed,
+    true,
+  );
+  const busy = await post("/admin/access/enrollments", {
+    purpose: "assign",
+    readerId: "front",
+    userId: memberId,
+  });
+  assert.equal(busy.status, 409, JSON.stringify(busy.body));
+  assert.equal(busy.body.error.code, "READER_IN_USE");
+  // Their next renewal still keeps the door or machine on.
+  const renewed = await tap("AA998877", { renewal: true });
+  assert.equal(renewed.body.data.allowed, true);
+  assert.equal(renewed.body.data.mode, "access");
+  // Once the renewals stop, the lease lapses and the scan can start.
+  await pool.query(
+    "UPDATE app_device_access_event SET created_at=created_at-INTERVAL '1 minute' WHERE reader_id='front'",
+  );
+  const session = await start();
+  assert.ok(
+    session.expiresInMs > 110000 && session.expiresInMs <= 120000,
+    JSON.stringify(session),
+  );
+  const polled = (await get(`/admin/access/enrollments/${session.id}`)).body
+    .data;
+  assert.ok(polled.expiresInMs > 0 && polled.expiresInMs <= session.expiresInMs);
+  await cancel(session.id);
+});
+test("a reader can be moved to another location; the move is checked and recorded", async () => {
+  const created = await post("/admin/access/readers", {
+    id: "movable",
+    name: "Movable",
+    kind: "building",
+    resourceId: 1,
+    reason: "New reader",
+  });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const patch = (body: object) =>
+    request(app)
+      .patch("/api/admin/access/readers/movable")
+      .set("Authorization", "Bearer " + token)
+      .set("X-CSRF-Token", csrf.get(token)!)
+      .send({ name: "Movable", enabled: true, expectedRevision: 1, ...body });
+  const room = (
+    await pool.query(
+      "INSERT INTO room(name,location,status) VALUES('Reader move room','Test','available') RETURNING roomid",
+    )
+  ).rows[0].roomid;
+  assert.equal(
+    (await patch({ kind: "room", resourceId: 2147483000, reason: "Move" })).status,
+    404,
+  );
+  assert.equal(
+    (await patch({ kind: "garage", resourceId: room, reason: "Move" })).status,
+    400,
+  );
+  assert.equal((await patch({ kind: "room", reason: "Move" })).status, 400);
+  const moved = await patch({
+    kind: "room",
+    resourceId: room,
+    reason: "Wrong room picked",
+  });
+  assert.equal(moved.status, 200, JSON.stringify(moved.body));
+  assert.equal(moved.body.data.kind, "room");
+  assert.equal(moved.body.data.resourceId, room);
+  // Renaming alone, as older clients do, keeps the new location.
+  const renamed = await patch({
+    name: "Reader move door",
+    expectedRevision: 2,
+    reason: "Rename",
+  });
+  assert.equal(renamed.status, 200, JSON.stringify(renamed.body));
+  const saved = (await get("/admin/access/readers")).body.data.readers.find(
+    (r: any) => r.id === "movable",
+  );
+  assert.equal(saved.kind, "room");
+  assert.equal(saved.resourceId, room);
+  assert.equal(saved.resourceName, "Reader move room");
+  const audit = (
+    await pool.query(
+      "SELECT before_state,after_state FROM app_staff_audit WHERE action='access.reader_updated' AND reason='Wrong room picked'",
+    )
+  ).rows[0];
+  assert.equal(audit.before_state.kind, "building");
+  assert.equal(audit.after_state.kind, "room");
+  assert.equal(audit.after_state.resourceId, room);
+});
+test("ending supervised use after it ran out changes nothing and keeps the session's booking", async () => {
+  const equipment = (
+    await pool.query(
+      "SELECT equipmentid FROM equipment WHERE status='available' ORDER BY equipmentid LIMIT 1",
+    )
+  ).rows[0].equipmentid;
+  const created = await post("/admin/access/overrides", {
+    userId: memberId,
+    kind: "equipment",
+    resourceId: equipment,
+    durationMinutes: 5,
+    reason: "Supervision",
+  });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const { id, reservationid } = created.body.data;
+  assert.ok(created.body.data.owns_reservation);
+  await pool.query(
+    "UPDATE app_access_override SET ends_at=NOW()-INTERVAL '1 second' WHERE id=$1",
+    [id],
+  );
+  const late = await post(`/admin/access/overrides/${id}/revoke`, {
+    reason: "Finished",
+  });
+  assert.equal(late.status, 409);
+  assert.equal(late.body.error.code, "OVERRIDE_ENDED");
+  assert.equal(
+    (
+      await pool.query(
+        "SELECT revoked_at FROM app_access_override WHERE id=$1",
+        [id],
+      )
+    ).rows[0].revoked_at,
+    null,
+  );
+  assert.equal(
+    (
+      await pool.query(
+        "SELECT status FROM reservation WHERE reservationid=$1",
+        [reservationid],
+      )
+    ).rows[0].status,
+    "confirmed",
+  );
+});
+
+test("ended renewal runs collapse to their first and last rows without changing usage, presence or the audit log", async () => {
+  const reader = "compaction-reader", machine = 990001;
+  const base: Date = (await pool.query("SELECT date_trunc('second',NOW())-INTERVAL '3 hours' AS t")).rows[0].t;
+  // Rows a reader would have written three hours ago: one tap, then a renewal every second.
+  const events = (userId: number, from: number, to: number, kind: "tap" | "renewal" | "refusal" = "renewal") =>
+    pool.query(
+      `INSERT INTO app_device_access_event(reader_id,request_id,user_id,target_kind,target_id,allowed,reason,expires_at,created_at,is_tap)
+      SELECT $1::text,gen_random_uuid(),$2::int,'equipment',$3::int,$6::text<>'refusal',CASE WHEN $6::text='refusal' THEN 'NOT_TRAINED' ELSE 'ELIGIBLE' END,
+        CASE WHEN $6::text<>'refusal' THEN start+INTERVAL '5 seconds' END,start,$6::text='tap'
+      FROM (SELECT $7::timestamptz+s*INTERVAL '1 second' AS start FROM generate_series($4::int,$5::int) s) t`,
+      [reader, userId, machine, from, to, kind, base],
+    );
+  await events(memberId, 0, 0, "tap");
+  await events(memberId, 1, 30);
+  await events(otherId, 10, 40); // another member on the same reader is a separate run
+  await events(memberId, 66, 66, "refusal"); // the refused renewal that ended the session
+  await events(memberId, 120, 129); // a later session after a gap
+  await events(memberId, 200, 200); // a single renewal stays as it is
+  // Leases still live, or ended within the last ten minutes, are left alone.
+  await pool.query(
+    `INSERT INTO app_device_access_event(reader_id,request_id,user_id,target_kind,target_id,allowed,reason,expires_at,created_at,is_tap)
+    SELECT $1::text,gen_random_uuid(),$2::int,'equipment',$3::int,true,'ELIGIBLE',NOW()-s*INTERVAL '1 minute'+INTERVAL '5 seconds',NOW()-s*INTERVAL '1 minute',false
+    FROM generate_series(0,4) s`,
+    [reader, memberId, machine],
+  );
+  const usage = async () =>
+    (
+      await pool.query(
+        `SELECT range_agg(tstzrange(created_at,expires_at,'[)'))::text AS spans,max(created_at) AS seen,
+          (SELECT count(*)::int FROM app_staff_audit WHERE entity_type='app_device_access_event') AS audits
+        FROM app_device_access_event WHERE reader_id=$1 AND allowed AND expires_at>created_at`,
+        [reader],
+      )
+    ).rows[0];
+  const start = await usage();
+  assert.equal(await compactReaderRenewals(pool), 28 + 29 + 8);
+  assert.deepEqual(await usage(), start, "authorized time, latest activity and the audit log are unchanged");
+  // The session continues; the next pass folds the new renewals into the same run.
+  await events(memberId, 31, 60);
+  const continued = await usage();
+  assert.equal(await compactReaderRenewals(pool), 30);
+  assert.deepEqual(await usage(), continued);
+  assert.equal(await compactReaderRenewals(pool), 0, "a repeated pass changes nothing");
+  const kept = (
+    await pool.query(
+      `SELECT user_id AS "userId",is_tap AS tap,allowed,EXTRACT(EPOCH FROM created_at-$2::timestamptz)::int AS "from",
+        EXTRACT(EPOCH FROM expires_at-$2::timestamptz)::int AS "until"
+      FROM app_device_access_event WHERE reader_id=$1 AND created_at<NOW()-INTERVAL '1 hour' ORDER BY user_id,created_at`,
+      [reader, base],
+    )
+  ).rows;
+  assert.deepEqual(kept, [
+    { userId: memberId, tap: true, allowed: true, from: 0, until: 5 },
+    { userId: memberId, tap: false, allowed: true, from: 1, until: 64 },
+    { userId: memberId, tap: false, allowed: true, from: 60, until: 65 },
+    { userId: memberId, tap: false, allowed: false, from: 66, until: null },
+    { userId: memberId, tap: false, allowed: true, from: 120, until: 133 },
+    { userId: memberId, tap: false, allowed: true, from: 129, until: 134 },
+    { userId: memberId, tap: false, allowed: true, from: 200, until: 205 },
+    { userId: otherId, tap: false, allowed: true, from: 10, until: 44 },
+    { userId: otherId, tap: false, allowed: true, from: 40, until: 45 },
+  ]);
+  assert.equal(
+    (
+      await pool.query(
+        "SELECT count(*)::int AS n FROM app_device_access_event WHERE reader_id=$1 AND created_at>NOW()-INTERVAL '1 hour'",
+        [reader],
+      )
+    ).rows[0].n,
+    5,
+  );
+  // Deleting a tap or a refusal is still audited.
+  const refusal = (
+    await pool.query(
+      "DELETE FROM app_device_access_event WHERE reader_id=$1 AND NOT allowed RETURNING id",
+      [reader],
+    )
+  ).rows[0].id;
+  assert.equal(
+    (
+      await pool.query(
+        "SELECT count(*)::int AS n FROM app_staff_audit WHERE action='app_device_access_event.delete' AND entity_id=$1",
+        [refusal],
+      )
+    ).rows[0].n,
+    1,
   );
 });

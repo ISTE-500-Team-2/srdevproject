@@ -28,6 +28,7 @@
   margin: 0;
 }
 .payments__summary > div {
+  min-width: 0;
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 14px 16px;
@@ -43,8 +44,10 @@
 }
 .payments__summary dd {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 8px;
+  /* On phones a four-figure total and its count don't fit side by side; the count drops below. */
+  gap: 2px 8px;
   margin: 4px 0 0;
   font-size: var(--text-xl);
   font-weight: 700;
@@ -62,6 +65,10 @@
   background: #e3f6e6;
   color: #1f6b32;
   font-weight: 600;
+}
+.payments__notice--problem {
+  background: var(--hold-danger-bg);
+  color: var(--hold-danger-text);
 }
 .payments__empty {
   display: grid;

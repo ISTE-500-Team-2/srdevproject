@@ -2,18 +2,22 @@
 // preserves revision checks.
 
 import "./plans.css";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useImperativeHandle, useRef, useState, type FormEvent, type Ref } from "react";
 import { ChevronDown, ChevronRight, GraduationCap, Plus, School, X } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
+import { onArrowKeys } from "../lib/rovingFocus";
 import type { Plan } from "../lib/staffContracts";
 import type { EligibilityPrice } from "../lib/billingContracts";
 import { ActionForm, Field, LoadState } from "../components/Management";
 import { MemberSelect } from "../components/MemberSelect";
+import { Modal } from "../components/Modal";
 import { cents, dollars } from "../lib/display";
 
 type Selection = { mode: "new" } | { mode: "edit"; id: number } | null;
+/** Runs `then` once the open editor's unsaved changes, if any, are confirmed as discarded. */
+type EditorHandle = { leave: (then: () => void) => void };
 
 const period = (plan: Pick<Plan, "kind" | "months">) =>
   plan.kind === "day_pass" ? "day" : plan.months === 1 ? "month" : `${plan.months} months`;
@@ -22,14 +26,16 @@ const firstBenefit = (benefits: string) =>
   benefits.split(/\r?\n/).map((line) => line.replace(/^[-*•]\s*/, "").trim()).find(Boolean) ?? "";
 
 export function StaffPlans() {
-  const { user } = useAuth();
-  // Student and school-partner rates are admin-only on the server.
-  const isAdmin = !!user?.roles.includes("admin");
+  const { user, actor } = useAuth();
+  // Student and school-partner rates are admin-only on the server. With a member's
+  // account open in another tab, `user` is that member; this page still runs as `actor`.
+  const isAdmin = !!(actor ?? user)?.roles.includes("admin");
   const plans = useApi<Plan[]>("/admin/plans", { retainOnReload: true });
   const prices = useApi<EligibilityPrice[]>(isAdmin ? "/billing-management/pricing" : null, { retainOnReload: true });
   const [selected, setSelected] = useState<Selection>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [notice, setNotice] = useState("");
+  const newPlan = useRef<HTMLButtonElement>(null);
   const all = plans.data ?? [];
   const live = all.filter((p) => p.active);
   const archived = all.filter((p) => !p.active);
@@ -39,11 +45,33 @@ export function StaffPlans() {
     setNotice("");
     setSelected(next);
   };
+  const editor = useRef<EditorHandle>(null);
+  const editorKey = selected && (selected.mode === "new" || editing) ? (editing?.id ?? "new") : null;
+  /**
+   * A row or "New plan" while the editor is open. Another plan remounts the editor (see its key),
+   * which would drop the draft, so that goes through the editor's unsaved-changes check first.
+   */
+  const choose = (next: Exclude<Selection, null>) => {
+    const key = next.mode === "edit" ? next.id : "new";
+    if (editor.current && key !== editorKey) editor.current.leave(() => open(next));
+    else open(next);
+  };
+  /**
+   * The editor held focus when it closed. Return it to the plan's row, or to "New plan"
+   * when that row isn't listed yet or will move (a new plan, or one put on or off sale).
+   */
+  const returnFocus = (plan: Plan | null) => {
+    const row = plan ? all.find((p) => p.id === plan.id && p.active === plan.active) : undefined;
+    requestAnimationFrame(() => {
+      const button = row ? document.getElementById(`plan-${row.id}-open`) : null;
+      (button ?? newPlan.current)?.focus();
+    });
+  };
   const rowProps = {
     isAdmin,
     selectedId: editing?.id ?? null,
     priceFor,
-    onOpen: (plan: Plan) => open({ mode: "edit", id: plan.id }),
+    onOpen: (plan: Plan) => choose({ mode: "edit", id: plan.id }),
   };
   return (
     <div className="plans">
@@ -52,7 +80,7 @@ export function StaffPlans() {
           What members can buy. Changes apply to new purchases; anyone who already
           bought a plan keeps the price and terms they paid for.
         </p>
-        <button className="button button--primary plans-new" onClick={() => open({ mode: "new" })}>
+        <button ref={newPlan} className="button button--primary plans-new" onClick={() => choose({ mode: "new" })}>
           <Plus aria-hidden="true" /> New plan
         </button>
       </header>
@@ -98,16 +126,18 @@ export function StaffPlans() {
         </div>
         {selected && (selected.mode === "new" || editing) ? (
           <PlanEditor
-            key={editing?.id ?? "new"}
+            ref={editor}
+            key={editorKey}
             plan={editing}
             priceFor={priceFor}
             isAdmin={isAdmin}
             notice={notice}
-            onClose={() => {
+            onClose={(current) => {
               // A partial save may have persisted the plan while the editor stayed open.
               plans.reload();
               prices.reload();
               open(null);
+              returnFocus(current);
             }}
             onSaved={(saved, problem) => {
               prices.reload();
@@ -119,6 +149,7 @@ export function StaffPlans() {
                 plans.reload();
                 setSelected(null);
                 setNotice(`Saved ${saved.name}.`);
+                returnFocus(saved);
               }
             }}
           />
@@ -168,6 +199,7 @@ function PlanGroup({
                 <div className="plans-row__name">
                   <h3>
                     <button
+                      id={`plan-${plan.id}-open`}
                       className="plans-row__open"
                       aria-current={plan.id === selectedId ? "true" : undefined}
                       onClick={() => onOpen(plan)}
@@ -211,6 +243,7 @@ function PlanGroup({
 }
 
 function PlanEditor({
+  ref,
   plan: initialPlan,
   priceFor,
   isAdmin,
@@ -218,11 +251,13 @@ function PlanEditor({
   onClose,
   onSaved,
 }: {
+  ref: Ref<EditorHandle>;
   plan: Plan | null;
   priceFor: (id: number) => EligibilityPrice | undefined;
   isAdmin: boolean;
   notice: string;
-  onClose: () => void;
+  /** Gets the plan as last saved by this editor, or null for a new plan that wasn't created. */
+  onClose: (plan: Plan | null) => void;
   onSaved: (plan: Plan, problem?: string) => void;
 }) {
   // Advance the baseline after a successful plan write, even if discounts fail.
@@ -233,6 +268,13 @@ function PlanEditor({
   const [active, setActive] = useState(plan?.active ?? true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(notice);
+  // Edits are only thrown away on purpose: closing a changed form, or opening another plan
+  // over it, asks first. `discard` is what to do once staff confirm.
+  const [dirty, setDirty] = useState(false);
+  const [discard, setDiscard] = useState<(() => void) | null>(null);
+  const leave = (then: () => void) => (dirty ? setDiscard(() => then) : then());
+  const requestClose = () => leave(() => onClose(plan));
+  useImperativeHandle(ref, () => ({ leave }));
   const panel = useRef<HTMLElement>(null);
   useEffect(() => {
     // On narrow screens the editor sits above the list; bring it into view.
@@ -310,13 +352,17 @@ function PlanEditor({
       ref={panel}
       className="plans-editor"
       onKeyDown={(e) => {
-        if (e.key === "Escape") onClose();
+        // Presses in the portalled confirmation below are its own. One from the editor must
+        // not also reach the window listener that confirmation adds when it opens.
+        if (e.key !== "Escape" || !e.currentTarget.contains(e.target as Node)) return;
+        e.stopPropagation();
+        requestClose();
       }}
     >
-      <form onSubmit={submit} aria-label={title}>
+      <form onSubmit={submit} onChange={() => setDirty(true)} aria-label={title}>
         <div className="plans-editor__head">
           <h2>{plan ? plan.name : "New plan"}</h2>
-          <button type="button" className="plans-icon-button" aria-label="Close editor" onClick={onClose}>
+          <button type="button" className="plans-icon-button" aria-label="Close editor" onClick={requestClose}>
             <X aria-hidden="true" />
           </button>
         </div>
@@ -331,15 +377,19 @@ function PlanEditor({
                 <span className="plans-hint">The type can't change after a plan is created.</span>
               </p>
             ) : (
-              <div className="segmented plans-kind" role="radiogroup" aria-labelledby="plan-kind-label">
+              <div className="segmented plans-kind" role="radiogroup" aria-labelledby="plan-kind-label" onKeyDown={onArrowKeys}>
                 {(["membership", "day_pass"] as const).map((value) => (
                   <button
                     key={value}
                     type="button"
                     role="radio"
                     aria-checked={kind === value}
+                    tabIndex={kind === value ? 0 : -1}
                     className={kind === value ? "is-selected" : ""}
-                    onClick={() => setKind(value)}
+                    onClick={() => {
+                      setKind(value);
+                      setDirty(true);
+                    }}
                   >
                     {value === "membership" ? "Membership" : "Day pass"}
                   </button>
@@ -367,11 +417,16 @@ function PlanEditor({
                   name="price"
                   type="number"
                   min="0"
+                  max="100000"
                   step="0.01"
                   required
+                  aria-describedby="plan-price-hint"
                   defaultValue={plan?.price ?? "0.00"}
                 />
               </span>
+              <p className="plans-hint" id="plan-price-hint">
+                $0.00 for free, or $0.50 to $100,000.00: card checkout can't take other amounts.
+              </p>
             </div>
             {kind === "membership" ? (
               <div className="plans-field">
@@ -484,12 +539,32 @@ function PlanEditor({
             <button className="button button--primary" type="submit">
               {busy ? "Saving…" : plan ? "Save plan" : "Create plan"}
             </button>
-            <button type="button" className="button button--quiet" onClick={onClose}>
+            <button type="button" className="button button--quiet" onClick={requestClose}>
               Cancel
             </button>
           </div>
         </fieldset>
       </form>
+      {discard ? (
+        <Modal open width="compact" title="Discard unsaved changes?" onClose={() => setDiscard(null)}>
+          <p>Your changes to this plan haven't been saved. Keep editing to retain your draft.</p>
+          <div className="management-actions">
+            <button type="button" className="button button--primary" onClick={() => setDiscard(null)}>
+              Keep editing
+            </button>
+            <button
+              type="button"
+              className="button button--quiet"
+              onClick={() => {
+                setDiscard(null);
+                discard();
+              }}
+            >
+              Discard changes
+            </button>
+          </div>
+        </Modal>
+      ) : null}
     </aside>
   );
 }

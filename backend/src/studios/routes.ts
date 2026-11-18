@@ -6,7 +6,7 @@ import {MembershipBilling} from '../billing/service.js';
 import { requirePermission } from '../middleware/permissions.js';
 import { Router, type Request, type Response } from "express";
 import type { Pool } from "pg";
-import { AppError, positiveId } from "../domain.js";
+import { AppError, integerId } from "../domain.js";
 import { authState, requireCsrf } from "../middleware/auth.js";
 import { StudioService } from "./service.js";
 import { StudioStripe, type StudioStripeConfig } from "./stripe.js";
@@ -44,12 +44,12 @@ export function studioRoutes(
     requireCsrf,
     async (req, res) =>
       res.json({
-        data: await service.syncPayment(user(res), positiveId(req.params.id)),
+        data: await service.syncPayment(user(res), integerId(req.params.id, "Rental")),
       }),
   );
   router.post("/studio-rentals/:id/cancel", permit("reservation","update"), requireCsrf, async (req, res) =>
     res.json({
-      data: await service.cancel(user(res), positiveId(req.params.id)),
+      data: await service.cancel(user(res), integerId(req.params.id, "Rental"), req.body ?? {}),
     }),
   );
   router.get("/studio-management/rentals", permit("payment","update","global"), async (_req, res) =>
@@ -63,7 +63,7 @@ export function studioRoutes(
       res.json({
         data: await service.configure(
           user(res),
-          positiveId(req.params.id),
+          integerId(req.params.id, "Studio"),
           req.body,
         ),
       }),
@@ -76,7 +76,7 @@ export function studioRoutes(
       res.json({
         data: await service.manualPay(
           user(res),
-          positiveId(req.params.id),
+          integerId(req.params.id, "Rental"),
           req.body.reference,
         ),
       }),
@@ -89,7 +89,7 @@ export function studioRoutes(
       res.json({
         data: await service.manualRefund(
           user(res),
-          positiveId(req.params.id),
+          integerId(req.params.id, "Rental"),
           req.body.reference,
         ),
       }),
@@ -100,17 +100,23 @@ export function studioRoutes(
     requireCsrf,
     async (req, res) => {
       await service.staffList(user(res));
-      await service.retryRefund(positiveId(req.params.id));
+      await service.retryRefund(integerId(req.params.id, "Rental"));
       res.json({ data: { retried: true } });
     },
   );
   return router;
 }
+/**
+ * Anyone can post to the callback, and each security event row is also kept in the
+ * append-only staff audit trail, so bad signatures are recorded at most once per window.
+ */
+const INVALID_SIGNATURE_WINDOW_MS = 10 * 60_000;
 export function studioWebhook(
   pool: Pool,
   zone: string,
   config?: StudioStripeConfig,
 ) {
+  let invalidSignatureRecordedAt = -Infinity;
   return async (req: Request, res: Response) => {
     if (!config)
       throw new AppError(
@@ -128,7 +134,11 @@ export function studioWebhook(
       );
     } catch {
       // Fixed fields only; do not retain attacker bodies, signatures or credentials.
-      await pool.query("INSERT INTO app_payment_security_event(kind) VALUES('stripe.invalid_signature')");
+      const now = Date.now();
+      if (now - invalidSignatureRecordedAt >= INVALID_SIGNATURE_WINDOW_MS) {
+        invalidSignatureRecordedAt = now;
+        await pool.query("INSERT INTO app_payment_security_event(kind) VALUES('stripe.invalid_signature')");
+      }
       throw new AppError(
         400,
         "INVALID_SIGNATURE",
