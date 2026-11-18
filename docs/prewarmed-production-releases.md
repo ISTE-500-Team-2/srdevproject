@@ -98,7 +98,7 @@ Schema-changing releases still require separately reviewed backward-compatible
 database changes. This deployer never executes DDL; exact migration checksums
 remain a hard prerequisite.
 
-## Applying migrations 045 to 054
+## Applying migrations 045 to 055
 
 1. Pause automatic cutover using the [pause procedure](AUTO-DEPLOYMENT.md#pause-recover-and-retry).
    Leave the previous release serving. Take fresh public and demo backups and
@@ -106,8 +106,8 @@ remain a hard prerequisite.
    companion [online code](../backend/src/scripts/online-migrations.ts) at the
    exact candidate revision.
 2. On each database, use the server's guarded reviewed-migration script as the
-   owner to apply and record the exact checksums for all ten numbered files
-   from `045_reader_setup_again.sql` through `054_notification_worker_compatibility.sql`.
+   owner to apply and record the exact checksums for all eleven numbered files
+   from `045_reader_setup_again.sql` through `055_pending_registration_password_confirmation.sql`.
    Serialize migration work using the existing session advisory lock
    `pg_advisory_lock(hashtext('arbor-mvc-migrations'))`. In the schema transaction,
    set `SET LOCAL lock_timeout = '250ms';` before applying this batch. Migration
@@ -129,10 +129,10 @@ remain a hard prerequisite.
    Use autocommit for concurrent index commands. The online phase builds the
    replacement reader setup index before removing the old one. It builds the
    lease expiry index, the unique refund index and both checkout reconciliation
-   indexes. It validates the check-in constraint, removes the refund write guard
-   once uniqueness is enforced, scrubs previously sent notification links and
-   queues legacy checkout refund work in committed batches. It records the
-   refund backfill completion in the migration ledger.
+   indexes. It validates the check-in and pending-registration constraints,
+   removes the refund write guard once uniqueness is enforced, scrubs previously
+   sent notification links and queues legacy checkout refund work in committed
+   batches. It records refund backfill completion in the migration ledger.
 
    Retry this phase after a lock conflict, interrupted build or incomplete
    cleanup. It reuses matching valid indexes and rebuilds matching invalid
@@ -168,6 +168,13 @@ release. A legacy pending account's reset expires 30 minutes after issuance.
 If rollback outlasts the reset, the member can request a fresh one after the new
 release returns. During rollback they can also use email confirmation to
 activate the account and then request a reset through the previous release.
+
+For staged sign-ups created, replaced or resent by the new release, the previous
+release may deliver a queued confirmation email, but it rejects the link and
+cannot resend a usable link for that request. Those sign-ups can resume when the
+password-aware release returns. If the request has expired by then, the member
+must sign up again. Older staged sign-ups left untouched by the new release
+retain their previous confirmation behavior during rollback.
 
 After cutover, if a Stripe checkout webhook failed around the release and its
 checkout is still unresolved, resend the affected checkout event to the original

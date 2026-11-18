@@ -12,7 +12,10 @@ interface RegistrationInput {
   firstName: string; lastName: string; email: string; phone: string;
   dob: string; password: string; timeZone: string;
 }
-const digest = (token: string) => createHash('sha256').update(token).digest('hex');
+// The old release looks up SHA-256 hex. The prefix keeps new hashes outside that
+// namespace, and base64url fits the full digest and prefix in the existing column.
+const passwordBoundDigest = (token: string) => `v2:${createHash('sha256').update(token).digest('base64url')}`;
+const legacyDigest = (token: string) => createHash('sha256').update(token).digest('hex');
 
 /** Expired requests and their queued mail are removed without ever creating member records. */
 /**
@@ -35,10 +38,11 @@ async function retireQueuedLinks(db: Database, id: number) {
 /** Only the latest token can complete a request; resends invalidate earlier queued links. */
 export async function sendRegistrationConfirmation(db: Database, id: number, origin: string) {
   const token = randomBytes(32).toString('base64url');
-  const hash = digest(token);
+  const hash = passwordBoundDigest(token);
   const expires = new Date(Date.now() + 24 * 60 * 60_000);
   await retireQueuedLinks(db, id);
-  await db.query('UPDATE app_pending_registration SET token_hash=$2,expires_at=$3,sent_at=NOW() WHERE id=$1', [id, hash, expires]);
+  await db.query(`UPDATE app_pending_registration
+    SET confirmation_requires_password=true,token_hash=$2,expires_at=$3,sent_at=NOW() WHERE id=$1`, [id, hash, expires]);
   const url = new URL('/confirm-email', origin); url.hash = token;
   await db.query(`INSERT INTO app_notification_outbox(registration_id,kind,dedupe_key,payload,deadline_at,counts_for_sla)
     VALUES($1,'account_confirmation',$2,$3::jsonb,NOW()+INTERVAL '5 minutes',false)`,
@@ -72,9 +76,12 @@ export async function stageRegistration(db: Database, input: RegistrationInput, 
   await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,30))', [input.email]);
   const existing = (await db.query<{ userid: number }>('SELECT userid FROM "user" WHERE lower(email)=$1', [input.email])).rows[0];
   if (existing) return noticeAddressInUse(db, existing.userid);
-  const row = (await db.query<{ id: number }>(`INSERT INTO app_pending_registration(email,first_name,last_name,phone,dob,password_hash,time_zone)
-    VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(email) DO UPDATE SET first_name=EXCLUDED.first_name,last_name=EXCLUDED.last_name,
-    phone=EXCLUDED.phone,dob=EXCLUDED.dob,password_hash=EXCLUDED.password_hash,time_zone=EXCLUDED.time_zone RETURNING id`,
+  // Clear the previous token and mark the row even when the email cap prevents a new link.
+  const row = (await db.query<{ id: number }>(`INSERT INTO app_pending_registration(
+    email,first_name,last_name,phone,dob,password_hash,time_zone,confirmation_requires_password)
+    VALUES($1,$2,$3,$4,$5,$6,$7,true) ON CONFLICT(email) DO UPDATE SET first_name=EXCLUDED.first_name,last_name=EXCLUDED.last_name,
+    phone=EXCLUDED.phone,dob=EXCLUDED.dob,password_hash=EXCLUDED.password_hash,time_zone=EXCLUDED.time_zone,
+    confirmation_requires_password=true,token_hash=NULL RETURNING id`,
     [input.email,input.firstName,input.lastName,input.phone,input.dob,input.password,input.timeZone])).rows[0]!;
   // Repeat sign-ups must not flood the address's inbox. Count the links that went out, or are
   // going out, this past hour (a queued one a newer link replaced never left). Past the cap a
@@ -86,7 +93,7 @@ export async function stageRegistration(db: Database, input: RegistrationInput, 
   if (sent < signupEmailsPerHour) return sendRegistrationConfirmation(db, row.id, origin);
   await retireQueuedLinks(db, row.id);
   // sent_at stays put: it times resends, and no email went out.
-  await db.query(`UPDATE app_pending_registration SET token_hash=NULL,expires_at=NOW()+INTERVAL '24 hours' WHERE id=$1`, [row.id]);
+  await db.query(`UPDATE app_pending_registration SET expires_at=NOW()+INTERVAL '24 hours' WHERE id=$1`, [row.id]);
 }
 
 /**
@@ -105,11 +112,12 @@ export const confirmationPasswordMismatch = () => new AppError(401, 'CONFIRMATIO
  */
 export async function consumeRegistration(db: Database, token: unknown, password: string): Promise<number | null> {
   if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
+  const hashes = [passwordBoundDigest(token), legacyDigest(token)];
   // Take the email lock before the row lock, matching registration and resend lock order.
-  const found = (await db.query('SELECT email FROM app_pending_registration WHERE token_hash=$1', [digest(token)])).rows[0];
+  const found = (await db.query('SELECT email FROM app_pending_registration WHERE token_hash IN ($1,$2)', hashes)).rows[0];
   if (!found) return null;
   await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,30))', [found.email]);
-  const row = (await db.query('SELECT * FROM app_pending_registration WHERE token_hash=$1 FOR UPDATE', [digest(token)])).rows[0];
+  const row = (await db.query('SELECT * FROM app_pending_registration WHERE token_hash IN ($1,$2) FOR UPDATE', hashes)).rows[0];
   if (!row) return null;
   if (row.expires_at <= new Date()) throw new AppError(400, 'CONFIRMATION_INVALID', 'This confirmation link is invalid or expired. Request a new email.');
   // A wrong password leaves the link working, so a typo can be corrected.

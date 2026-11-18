@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { before, after, test } from 'node:test';
 import { Pool } from 'pg';
 import request from 'supertest';
@@ -8,6 +8,8 @@ import { initializeDemo } from '../../src/scripts/init-demo.js';
 import { confirmationToken } from '../helpers/confirmation.js';
 import { runNotificationBatch } from '../../src/notifications/worker.js';
 import { pruneRegistrations } from '../../src/confirmation/pendingRegistration.js';
+import { transaction } from '../../src/db.js';
+import { hashPassword } from '../../src/passwords.js';
 
 // These tests use isolated database rows and a fake email sender, never real member inboxes.
 const database='arbor_registration_'+randomBytes(6).toString('hex')+'_mvc_test';
@@ -19,6 +21,17 @@ before(async()=>{if(!process.env.PGHOST||process.env.DATABASE_URL)throw Error('I
 after(async()=>{await pool.end();if(created)await owner.query(`DROP DATABASE "${database}"`);await owner.end();});
 const person=(email:string)=>({firstName:'Pending',lastName:'Test',email,phone:'0000000000',dob:'2000-01-01',password:'ValidPassword!'});
 const register=(email:string)=>request(app).post('/api/auth/register').send(person(email));
+
+// The previous release hashes the link as plain SHA-256 hex and stores it in token_hash.
+const legacyDigest = (token: string) => createHash('sha256').update(token).digest('hex');
+
+async function stageLegacyRegistration(input: ReturnType<typeof person>) {
+  const token = randomBytes(32).toString('base64url');
+  await pool.query(`INSERT INTO app_pending_registration(email,first_name,last_name,phone,dob,password_hash,time_zone,token_hash)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+  [input.email, input.firstName, input.lastName, input.phone, input.dob, await hashPassword(input.password), config.timeZone, legacyDigest(token)]);
+  return token;
+}
 
 test('garbage email formats cannot create users, staged requests or email jobs',async()=>{
   const separate=createApp(pool,config);
@@ -72,6 +85,47 @@ test('a newer sign-up replaces a pending one: earlier links stop working and the
   assert.equal(confirmed.status,200);assert.equal(confirmed.body.data.user.firstName,'Pending');
   assert.equal((await request(app).post('/api/auth/login').send({email:input.email,password:'StrangerPassword!'})).status,401);
   assert.equal((await request(app).post('/api/auth/login').send({email:input.email,password:input.password})).status,200);
+});
+
+test('rollback cannot consume a replacement link or mint a legacy link for the replaced sign-up', async () => {
+  const input = person('rollback-registration@example.invalid');
+  const original = await stageLegacyRegistration(input);
+  const password = 'ReplacementPassword!';
+  assert.equal((await request(app).post('/api/auth/register').send({ ...input, password })).status, 202);
+  const replacement = await confirmationToken(pool, input.email);
+  assert.notEqual(replacement, original);
+
+  // Run both lookup statements from c95a2b5's consumeRegistration, including the row lock.
+  await transaction(pool, async db => {
+    for (const token of [original, replacement]) {
+      const hash = legacyDigest(token);
+      const found = await db.query('SELECT email FROM app_pending_registration WHERE token_hash=$1', [hash]);
+      assert.equal(found.rowCount, 0, 'old confirmation must not find either link');
+      await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,30))', [input.email]);
+      const locked = await db.query('SELECT * FROM app_pending_registration WHERE token_hash=$1 FOR UPDATE', [hash]);
+      assert.equal(locked.rowCount, 0);
+    }
+  });
+
+  // The old resend path authenticates with the pending password, then attempts to write
+  // a token its one-click confirmation could consume. The database must reject that write.
+  const { id } = (await pool.query('SELECT id FROM app_pending_registration WHERE email=$1', [input.email])).rows[0];
+  await assert.rejects(pool.query('UPDATE app_pending_registration SET token_hash=$2,expires_at=$3,sent_at=NOW() WHERE id=$1',
+    [id, legacyDigest(randomBytes(32).toString('base64url')), new Date(Date.now() + 86_400_000)]),
+  { code: '23514', constraint: 'app_pending_registration_password_confirmation' });
+
+  const confirm = (token: string, password: string) => request(app).post('/api/auth/confirm').send({ token, password });
+  assert.equal((await confirm(original, password)).status, 400);
+  assert.equal((await confirm(replacement, input.password)).status, 401);
+  assert.equal((await confirm(replacement, password)).status, 200);
+});
+
+test('password-aware confirmation still accepts outstanding links issued by the previous release', async () => {
+  const input = person('legacy-staged-link@example.invalid');
+  const token = await stageLegacyRegistration(input);
+  const confirm = (password: string) => request(app).post('/api/auth/confirm').send({ token, password });
+  assert.equal((await confirm('WrongPassword!')).status, 401);
+  assert.equal((await confirm(input.password)).status, 200);
 });
 
 // The other order: a stranger signs the address up after its owner, and their link is mailed to the
@@ -288,7 +342,7 @@ test('migration quarantines a legacy unconfirmed account and preserves its confi
       ALTER TABLE app_notification_outbox DROP COLUMN registration_id;
       ALTER TABLE app_notification_outbox ALTER COLUMN userid SET NOT NULL;
       DROP TABLE app_pending_registration;
-      DELETE FROM app_migration WHERE name='030_pending_registration.sql'`);
+      DELETE FROM app_migration WHERE name IN ('030_pending_registration.sql','055_pending_registration_password_confirmation.sql')`);
     const { UserModel }=await import('../../src/models/UserModel.js');
     const { hashPassword }=await import('../../src/passwords.js');
     const { issueEmailConfirmation }=await import('../../src/confirmation/emailConfirmation.js');
