@@ -97,3 +97,40 @@ test("a failed cancel request still shows the server error", async () => {
   fireEvent.click(within(screen.getByRole("dialog", { name: "Cancel day pass?" })).getByRole("button", { name: "Cancel day pass" }));
   expect((await screen.findByRole("alert")).textContent).toBe("Day passes require at least 3 days cancellation notice.");
 });
+
+/** A card payment refunded because no pass could be issued (its date had ended), whose refund failed. */
+const unissued = { id: "pass-2", plan: dayPass, validDate: future(-2), cancelBy: new Date(Date.now() - 5 * 86400000).toISOString(), status: "paid", refundStatus: "failed" };
+
+/** Retries that refund and returns the page message. */
+async function retryWith(response: Record<string, unknown>) {
+  mount(unissued);
+  api.mockResolvedValue(response);
+  // Its date has passed, but the failed refund still offers a retry.
+  fireEvent.click(screen.getByRole("button", { name: "Retry refund" }));
+  const message = await screen.findByText((_, el) => !!el && /membership-message|form-error/.test(el.className) && el.tagName === "P");
+  expect(api).toHaveBeenCalledWith("/me/billing/passes/pass-2/cancel", { method: "POST", body: {} });
+  return message;
+}
+
+test("a failed retry for a payment that never became a pass doesn't call a pass active", async () => {
+  const message = await retryWith({ cancelled: false, refundStatus: "failed", passIssued: false });
+  expect(message.textContent).toBe("We couldn't refund this payment. No day pass was issued for it. Please ask staff at the front desk.");
+  expect(message.getAttribute("role")).toBe("alert");
+});
+
+test("a successful retry for a payment that never became a pass reports the refund, not a cancellation", async () => {
+  const message = await retryWith({ cancelled: true, refundStatus: "succeeded", passIssued: false });
+  expect(message.textContent).toBe("Your payment was refunded. No day pass was issued for it.");
+  expect(message.getAttribute("role")).toBe("status");
+});
+
+test("a pending retry for a payment that never became a pass says the refund is coming", async () => {
+  const message = await retryWith({ cancelled: false, refundStatus: "pending", passIssued: false });
+  expect(message.textContent).toMatch(/refund is on its way\. No day pass was issued/);
+  expect(message.textContent).not.toMatch(/cancel/i);
+});
+
+test("a past pass whose refund didn't fail is no longer listed", () => {
+  mount({ ...unissued, refundStatus: null });
+  expect(screen.queryByRole("heading", { name: "Upcoming day passes" })).toBeNull();
+});

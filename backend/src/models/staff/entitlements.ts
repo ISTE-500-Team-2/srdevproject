@@ -50,6 +50,15 @@ export interface MembershipWindow {
   overlap: boolean;
 }
 
+/**
+ * When an online day-pass checkout stops taking payment: the end of its visit date on the facility's
+ * clock, kept inside the 30-minute to 24-hour window Stripe allows. It is derived from the stored row
+ * rather than the current time, so a retried session create sends Stripe the same parameters under the
+ * same idempotency key. `zone` is the query parameter holding the facility time zone.
+ */
+const passCheckoutPayBy = (zone: string) =>
+  `LEAST(created_at+INTERVAL '23 hours',GREATEST((valid_date+1)::timestamp AT TIME ZONE ${zone},created_at+INTERVAL '45 minutes'))`;
+
 function entitlementTable(kind: EntitlementKind) {
   return kind === "membership"
     ? { table: "user_membership", key: "membershipid" }
@@ -122,6 +131,27 @@ export class EntitlementRepository {
         [userId, startsAt, months, this.timeZone],
       )
     ).rows[0]!;
+  }
+  /** When the online checkout `id` stops taking payment. */
+  async passCheckoutPayBy(id: string): Promise<Date> {
+    return (
+      await this.db.query<{ payBy: Date }>(
+        `SELECT ${passCheckoutPayBy("$2")} AS "payBy" FROM app_pass_checkout WHERE id=$1`,
+        [id, this.timeZone],
+      )
+    ).rows[0]!.payBy;
+  }
+  /** Whether the member has an online checkout for that date that could still be paid. */
+  async openPassCheckout(userId: number, date: string): Promise<boolean> {
+    return (
+      (
+        await this.db.query(
+          `SELECT id FROM app_pass_checkout WHERE userid=$1 AND valid_date=$2::date AND status='pending'
+      AND checkout_id IS NOT NULL AND now()<${passCheckoutPayBy("$3")}`,
+          [userId, date, this.timeZone],
+        )
+      ).rows.length > 0
+    );
   }
   async passExists(userId: number, date: string): Promise<boolean> {
     return (

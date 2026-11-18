@@ -15,6 +15,11 @@ import { StatusPill } from "./StatusPill";
 const PAGE_SIZE = 50;
 // Methods staff record for payments taken in person (see PaymentControls).
 const DESK_METHODS = new Set(["cash", "external_card", "bank_transfer", "other"]);
+const TABS = [
+  { id: "records", label: "Memberships & passes" },
+  { id: "payments", label: "Payments" },
+] as const;
+type Tab = (typeof TABS)[number]["id"];
 
 export function History({
   memberships,
@@ -24,7 +29,7 @@ export function History({
   passes: Entitlement[];
 }) {
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<"records" | "payments">("records");
+  const [tab, setTab] = useState<Tab>("records");
   const ids = useId();
   return (
     <section className="panel membership-history">
@@ -32,7 +37,8 @@ export function History({
         <button
           className="membership-history__toggle"
           aria-expanded={open}
-          aria-controls="membership-history-body"
+          // The body only exists while open, so only point at it then.
+          aria-controls={open ? "membership-history-body" : undefined}
           onClick={() => setOpen((v) => !v)}
         >
           <span>
@@ -44,29 +50,24 @@ export function History({
       </h2>
       {open ? (
         <div id="membership-history-body">
+          {/* The arrow keys, Home and End move between the tabs (the ARIA tabs pattern); Tab moves into the panel. */}
           <div className="membership-tabs" role="tablist" aria-label="History" onKeyDown={onArrowKeys}>
-            <button
-              id={`${ids}-records`}
-              role="tab"
-              aria-selected={tab === "records"}
-              aria-controls={`${ids}-panel`}
-              tabIndex={tab === "records" ? 0 : -1}
-              onClick={() => setTab("records")}
-            >
-              Memberships &amp; passes
-            </button>
-            <button
-              id={`${ids}-payments`}
-              role="tab"
-              aria-selected={tab === "payments"}
-              aria-controls={`${ids}-panel`}
-              tabIndex={tab === "payments" ? 0 : -1}
-              onClick={() => setTab("payments")}
-            >
-              Payments
-            </button>
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                id={`${ids}-${t.id}`}
+                aria-selected={tab === t.id}
+                aria-controls={`${ids}-panel`}
+                tabIndex={tab === t.id ? 0 : -1}
+                onClick={() => setTab(t.id)}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
-          <div role="tabpanel" id={`${ids}-panel`} aria-labelledby={`${ids}-${tab}`}>
+          <div role="tabpanel" id={`${ids}-panel`} aria-labelledby={`${ids}-${tab}`} tabIndex={0}>
             {tab === "records" ? (
               <Records memberships={memberships} passes={passes} />
             ) : (

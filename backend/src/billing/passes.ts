@@ -28,6 +28,8 @@ export interface PassCheckoutRequest {[field:string]:unknown;validDate?:unknown;
 /** Free monthly membership request; each field is validated by PassBilling.freeMembership. */
 export interface FreeMembershipRequest {[field:string]:unknown;planId?:unknown;expectedRevision?:unknown;pricingRevision?:unknown;}
 const objectId=(v:string|{id:string}|null|undefined):string|undefined=>typeof v==='string'?v:v?.id;
+/** Marks a refunded payment that never became a pass (see refundUnissued), so the member isn't told about a pass. */
+const unissued=(r:Pick<PassCheckoutRow,'pass_id'|'payment_id'>)=>r.payment_id&&!r.pass_id?{passIssued:false as const}:{};
 // A checkout whose session was never stored: nobody got its payment link, and any session the failed
 // call created expired with Stripe's 24-hour default. A day later it is abandoned, not pending.
 const ABANDONED="status='pending' AND checkout_id IS NULL AND created_at<now()-interval '24 hours'";
@@ -105,8 +107,16 @@ export class PassBilling {
   if(row.amount_cents===0)return {issued:true};
   if(row.status!=='pending')throw new AppError(409,'PASS_EXISTS','This pass is already issued or cancelled. Refresh its status.');
   if(!row.checkout_id&&Date.now()-new Date(row.created_at).getTime()>23*3600000)throw new AppError(409,'RECONCILE_REQUIRED','This checkout can no longer be resumed. Try again in an hour to start a new one.');
-  const p=this.provider(),s=row.checkout_id?await p.sdk.checkout.sessions.retrieve(row.checkout_id):await p.sdk.checkout.sessions.create({mode:'payment',payment_method_types:['card'],client_reference_id:row.id,customer_email:row.email,
+  // Stop taking payment when the visit date ends, so a late payment can't buy a day that is over.
+  const p=this.provider(),payBy=row.checkout_id?null:await new StaffModel(this.pool,this.zone).passCheckoutPayBy(row.id);
+  if(payBy&&payBy.getTime()-Date.now()<31*60000){
+   // Stripe needs 30 minutes; a checkout that never got a session can't have been paid, so start over.
+   await this.pool.query("UPDATE app_pass_checkout SET status='expired' WHERE id=$1 AND status='pending' AND checkout_id IS NULL",[row.id]);
+   throw new AppError(409,'CHECKOUT_EXPIRED','Checkout expired. Refresh and try again.');
+  }
+  const s=row.checkout_id?await p.sdk.checkout.sessions.retrieve(row.checkout_id):await p.sdk.checkout.sessions.create({mode:'payment',payment_method_types:['card'],client_reference_id:row.id,customer_email:row.email,
    metadata:{dayPassCheckoutId:row.id},success_url:p.config.origin+returnPath+(returnPath.includes('?')?'&':'?')+'pass=returned&checkout='+row.id,cancel_url:p.config.origin+returnPath+(returnPath.includes('?')?'&':'?')+'pass=cancelled',
+   expires_at:Math.floor(payBy!.getTime()/1000),
    payment_intent_data:{metadata:{dayPassCheckoutId:row.id}},line_items:[{quantity:1,price_data:{currency:'usd',unit_amount:row.amount_cents,product_data:{name:row.plan_snapshot.name}}}]},{idempotencyKey:'daypass-checkout:'+row.id});
   if(s.livemode)throw new AppError(400,'LIVE_PAYMENT_FORBIDDEN','Test payments only.');
   await this.pool.query('UPDATE app_pass_checkout SET checkout_id=$2 WHERE id=$1 AND checkout_id IS NULL',[row.id,s.id]);
@@ -115,7 +125,8 @@ export class PassBilling {
   return {checkoutUrl:s.url};
  }
  async issue(db:Database,r:PassCheckoutRow,reference:string){
-  if(r.pass_id)return;
+  // A payment without a pass was refunded instead of issued (see refundUnissued).
+  if(r.pass_id||r.payment_id)return;
   const model=new StaffModel(db,this.zone),date=new Date(r.valid_date).toISOString().slice(0,10);
   if(await model.passExists(r.userid,date))throw new AppError(409,'PASS_EXISTS','An existing pass requires payment reconciliation.');
   const pass=await model.createPass(r.userid,r.plan_snapshot,date,r.userid,'Online day pass');
@@ -124,6 +135,28 @@ export class PassBilling {
   await db.query("UPDATE app_pass_checkout SET pass_id=$2,payment_id=$3,status='paid' WHERE id=$1",[r.id,pass,payment]);
   await model.audit(r.userid,r.userid,'daypass.issued','day_pass',pass,'Online day pass',null,{payment,reference});
   await enqueueNotification(db,{userId:r.userid,kind:'payment_receipt',dedupeKey:'daypass-receipt:'+r.id,payload:{amount:(r.amount_cents/100).toFixed(2),currency:'USD',reference,method:r.amount_cents?'Card (test mode)':'Approved free access',paymentId:payment,membershipName:r.plan_snapshot.name,validDate:date}});
+ }
+ /** Why a paid online checkout can no longer become a pass, or null when it can. */
+ async unissuable(db:Database,r:PassCheckoutRow){
+  const date=new Date(r.valid_date).toISOString().slice(0,10);
+  // Staff may have issued a pass at the desk while the member's checkout was still open.
+  if(await new StaffModel(db,this.zone).passExists(r.userid,date))return 'You already had a day pass for this date, so this payment did not buy a second one.';
+  if(date<businessToday(this.zone))return 'Your payment arrived after this date had ended, so no pass was issued for it.';
+  return null;
+ }
+ /**
+  * Records the card charge for a paid checkout that can't become a pass and refunds it to the card,
+  * so the payment is acknowledged rather than retried by Stripe and lost. The recorded cancellation
+  * request lets the member retry a refund that fails.
+  */
+ async refundUnissued(db:Database,r:PassCheckoutRow,reference:string,reason:string){
+  const model=new StaffModel(db,this.zone),amount=(r.amount_cents/100).toFixed(2);
+  const payment=await model.createPayment(r.userid,null,amount,'paid','card',reference,'Online day pass (not issued)',r.userid);
+  await db.query("UPDATE app_pass_checkout SET payment_id=$2,status='paid',cancel_requested_at=COALESCE(cancel_requested_at,now()) WHERE id=$1",[r.id,payment]);
+  await model.audit(r.userid,r.userid,'daypass.not_issued','payment',payment,reason,null,{checkoutId:r.id,reference});
+  await enqueueNotification(db,{userId:r.userid,kind:'payment_status_changed',dedupeKey:'daypass-not-issued:'+r.id,payload:{paymentId:payment,amount,currency:'USD',
+   method:'Card (test mode)',reference,planName:r.plan_snapshot.name,validDate:new Date(r.valid_date).toISOString().slice(0,10),instructions:reason+' We are refunding it to your original card.'}});
+  await this.cardRefund(db,r);
  }
  async freeMembership(userid:number,body:FreeMembershipRequest){
   return transaction(this.pool,async db=>{
@@ -158,7 +191,7 @@ export class PassBilling {
    if(r.status==='paid'&&!r.cancel_requested_at&&!r.timely)throw new AppError(409,'CANCELLATION_NOTICE','Day passes require at least 3 days cancellation notice.');
    await db.query("UPDATE app_pass_checkout SET cancel_requested_at=COALESCE(cancel_requested_at,now()) WHERE id=$1 AND status='paid'",[id]);return r;
   });
-  if(['cancelled','expired'].includes(row.status))return {cancelled:true};
+  if(['cancelled','expired'].includes(row.status))return {cancelled:true,...unissued(row)};
   if(row.status==='pending'){
    const sdk=this.provider().sdk;
    if(!row.checkout_id){
@@ -172,24 +205,29 @@ export class PassBilling {
   }
   return providerTransaction(this.pool,async db=>{
    const r=(await db.query<PassCheckoutRow>('SELECT * FROM app_pass_checkout WHERE id::text=$1 FOR UPDATE',[id])).rows[0]!;
-   if(r.status==='cancelled')return {cancelled:true};
+   if(r.status==='cancelled')return {cancelled:true,...unissued(r)};
    if(r.amount_cents===0){await this.finishCancel(db,r);return {cancelled:true};}
-   if(!r.payment_intent)throw new AppError(409,'RECONCILE_REQUIRED','Original card payment must be reconciled.');
-   const sdk=this.provider().sdk,existing=await sdk.refunds.list({payment_intent:r.payment_intent,limit:100});
-   // Retrying after a failure submits a new refund (see refundAttempt).
-   const attempt=refundAttempt('daypass-refund:'+id,existing);
-   const f=liveRefund(existing,r.amount_cents)??await sdk.refunds.create({payment_intent:r.payment_intent,amount:r.amount_cents,...(attempt.metadata?{metadata:attempt.metadata}:{})},
-    {idempotencyKey:attempt.key});
-   await this.applyRefund(db,f);return {cancelled:f.status==='succeeded',refundStatus:f.status};
+   const f=await this.cardRefund(db,r);return {cancelled:f.status==='succeeded',refundStatus:f.status,...unissued(r)};
   });
+ }
+ /** Refunds a paid online checkout to its original card and records the result. */
+ async cardRefund(db:Database,r:PassCheckoutRow){
+  if(!r.payment_intent)throw new AppError(409,'RECONCILE_REQUIRED','Original card payment must be reconciled.');
+  const sdk=this.provider().sdk,existing=await sdk.refunds.list({payment_intent:r.payment_intent,limit:100});
+  // Retrying after a failure submits a new refund (see refundAttempt).
+  const attempt=refundAttempt('daypass-refund:'+r.id,existing);
+  const f=liveRefund(existing,r.amount_cents)??await sdk.refunds.create({payment_intent:r.payment_intent,amount:r.amount_cents,...(attempt.metadata?{metadata:attempt.metadata}:{})},
+   {idempotencyKey:attempt.key});
+  await this.applyRefund(db,f);return f;
  }
  /**
   * Staff refund of an online card day pass to the original card, at any time: the member's own
-  * cancellation needs 3 days' notice. It shares the member's refund key, so the two can't refund twice,
-  * and the pass is cancelled once the refund succeeds.
+  * cancellation needs 3 days' notice. It shares the member's refund key (see cardRefund), so the two
+  * can't refund twice, and the pass is cancelled once the refund succeeds.
   */
  async staffRefund(actor:number,id:string,reason:unknown){
-  const explanation=textField(reason,'Refund reason',255,3),sdk=this.provider().sdk;
+  const explanation=textField(reason,'Refund reason',255,3);
+  this.provider();
   return providerTransaction(this.pool,async db=>{
    const operator=await requireActor(db,actor,{staff:true});
    const owner=(await db.query<{userid:number}>('SELECT userid FROM app_pass_checkout WHERE id::text=$1',[id])).rows[0];
@@ -203,11 +241,7 @@ export class PassBilling {
    const r=(await db.query<PassCheckoutRow>('SELECT * FROM app_pass_checkout WHERE id::text=$1 FOR UPDATE',[id])).rows[0]!;
    if(r.refund_status==='succeeded')return {status:'succeeded'};
    if(r.status!=='paid'||r.amount_cents===0||!r.payment_intent||!r.payment_id)throw new AppError(409,'NOT_PAID','Only a day pass paid by card can be refunded.');
-   const existing=await sdk.refunds.list({payment_intent:r.payment_intent,limit:100});
-   const attempt=refundAttempt('daypass-refund:'+r.id,existing);
-   const f=liveRefund(existing,r.amount_cents)??await sdk.refunds.create({payment_intent:r.payment_intent,amount:r.amount_cents,...(attempt.metadata?{metadata:attempt.metadata}:{})},
-    {idempotencyKey:attempt.key});
-   await this.applyRefund(db,f);
+   const f=await this.cardRefund(db,r);
    await new StaffModel(db).audit(actor,r.userid,'billing.refund.requested','payment',r.payment_id,explanation,null,{refundId:f.id,status:f.status});
    return {status:f.status};
   });
@@ -237,7 +271,9 @@ export class PassBilling {
    await db.query("UPDATE payment SET paymentstatus='paid',updated_at=now(),revision=revision+1 WHERE paymentid=$1 AND paymentstatus='refunded'",[r.payment_id]);
    await db.query("UPDATE app_notification_outbox SET status='obsolete',updated_at=now() WHERE dedupe_key=ANY($1::text[]) AND status='pending'",[[`daypass-refund:${r.id}`,`daypass-refund:${r.id}:${f.id}`]]);
    // The pass is only cancelled once a refund succeeds, so say whether it is still usable.
-   await enqueueNotification(db,{userId:r.userid,kind:'payment_status_changed',dedupeKey:`daypass-refund-failed:${r.id}:${f.id}`,payload:{paymentId:r.payment_id,reference:f.id,instructions:r.status==='cancelled'
+   await enqueueNotification(db,{userId:r.userid,kind:'payment_status_changed',dedupeKey:`daypass-refund-failed:${r.id}:${f.id}`,payload:{paymentId:r.payment_id,reference:f.id,instructions:!r.pass_id
+    ?'The original-card refund for your day-pass payment did not go through. No pass was issued for it; contact staff to complete the refund.'
+    :r.status==='cancelled'
     ?'The original-card refund for your cancelled day pass failed after it was confirmed. Your pass stays cancelled; contact staff to complete the refund.'
     :'The original-card refund for your day pass did not go through, so the pass has not been cancelled and is still valid. Retry the refund from Membership & passes, or contact staff.'}});
   }
@@ -278,6 +314,8 @@ export class PassBilling {
    if(s.status!=='complete'||s.payment_status!=='paid')return;
    const pi=objectId(s.payment_intent);if(!pi)throw new AppError(400,'PAYMENT_MISMATCH','Original payment missing.');
    await db.query('UPDATE app_pass_checkout SET checkout_id=$2,payment_intent=$3 WHERE id=$1',[id,s.id,pi]);
+   const unissuable=r.pass_id||r.payment_id?null:await this.unissuable(db,r);
+   if(unissuable){await this.refundUnissued(db,{...r,checkout_id:s.id,payment_intent:pi},s.id,unissuable);return;}
    await this.issue(db,r,s.id);
    // Refund delivery can precede checkout delivery. Reconcile the original
    // payment so a late checkout cannot grant access to an already-refunded pass.

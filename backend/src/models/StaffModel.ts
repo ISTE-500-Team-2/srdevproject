@@ -119,6 +119,12 @@ export class StaffModel {
   passExists(userId: number, date: string) {
     return this.entitlements.passExists(userId, date);
   }
+  passCheckoutPayBy(id: string) {
+    return this.entitlements.passCheckoutPayBy(id);
+  }
+  openPassCheckout(userId: number, date: string) {
+    return this.entitlements.openPassCheckout(userId, date);
+  }
   createMembership(userId: number, plan: Plan, startsAt: string, endsAt: Date, actorId: number, reason: string) {
     return this.entitlements.createMembership(userId, plan, startsAt, endsAt, actorId, reason);
   }
