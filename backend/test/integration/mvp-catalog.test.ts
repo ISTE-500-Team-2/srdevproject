@@ -123,28 +123,68 @@ test('apply merges look-alike courses an earlier run created into the course the
  const legacyCnc=await course('CNC Training',generated),legacyLathe=await course('Metal Lathe Training',generated),edited=await course('Wood Lathe Training','Staff-written course');
  for(const id of [legacyCnc,legacyLathe]) await pool.query('INSERT INTO app_training_requirement(certification_id,duration_minutes,fee_cents) VALUES($1,60,2000)',[id]);
  const member=(await request(server).post('/api/auth/demo').send({role:'member'})).body.data.user.id;
- const record=async(userId:number,certId:number)=>(await pool.query(`INSERT INTO user_certifications(usercertid,userid,certid,status,trained_at,approved_at,approved_by,verified_in_person,training_minutes)
-   SELECT COALESCE(MAX(usercertid),0)+1,$1,$2,'active',NOW(),NOW(),$3,true,60 FROM user_certifications RETURNING usercertid`,[userId,certId,admin.user.id])).rows[0].usercertid;
- // The administrator was trained only under the look-alike; the member holds both courses.
- const trained=await record(admin.user.id,legacyCnc);await record(member,legacyCnc);await record(member,cnc);
- const start=new Date(Date.now()+2*86400000);
- const scheduled=await post('/classes',{certificationId:legacyCnc,title:'CNC safety',instructorId:admin.user.id,roomId:room,capacity:5,
+ const person=async(name:string)=>(await pool.query(`INSERT INTO "user"(firstname,lastname,email,password,phone,dob,status,email_confirmed)
+   VALUES('Merge',$1,$2,'unused','1112223333','1990-01-01','active',true) RETURNING userid`,[name,`merge-${name}@example.invalid`])).rows[0].userid;
+ // Training and revocation times are days ago.
+ const record=async(userId:number,certId:number,trained=0,revoked?:number)=>{
+  const id=(await pool.query(`INSERT INTO user_certifications(usercertid,userid,certid,status,trained_at,approved_at,approved_by,verified_in_person,training_minutes)
+    SELECT COALESCE(MAX(usercertid),0)+1,$1,$2,'active',NOW()-$4*INTERVAL '1 day',NOW()-$4*INTERVAL '1 day',$3,true,60 FROM user_certifications RETURNING usercertid`,
+    [userId,certId,admin.user.id,trained])).rows[0].usercertid;
+  if(revoked!==undefined) {
+   await pool.query("UPDATE user_certifications SET status='revoked' WHERE usercertid=$1",[id]);
+   await pool.query("UPDATE user_certifications SET revoked_at=NOW()-$2*INTERVAL '1 day' WHERE usercertid=$1",[id,revoked]);
+  }
+  return id;
+ };
+ // The administrator was trained only under the look-alike. The member's course record is newer
+ // than their look-alike one. One person was retrained under the look-alike after the course was
+ // revoked, another was trained under it before that revocation, and one person's revocation was
+ // recorded only under the look-alike.
+ const [retrained,stale,flagged]=[await person('retrained'),await person('stale'),await person('flagged')];
+ const trained=await record(admin.user.id,legacyCnc);
+ const memberLookAlike=await record(member,legacyCnc,3),memberCourse=await record(member,cnc,1);
+ const retrainedCourse=await record(retrained,cnc,30,5),retrainedLookAlike=await record(retrained,legacyCnc,2);
+ const staleCourse=await record(stale,cnc,30,5),staleLookAlike=await record(stale,legacyCnc,10);
+ const flaggedCourse=await record(flagged,lathe,30),flaggedLookAlike=await record(flagged,legacyLathe,40,3);
+ const schedule=(certificationId:number,days:number)=>{
+  const start=new Date(Date.now()+days*86400000);
+  return post('/classes',{certificationId,title:'CNC safety',instructorId:admin.user.id,roomId:room,capacity:5,
    startsAt:start.toISOString(),endsAt:new Date(start.getTime()+3600000).toISOString(),reason:'Look-alike course class'});
+ };
+ const scheduled=await schedule(legacyCnc,2);
  assert.equal(scheduled.status,201,JSON.stringify(scheduled.body));
  const plan=await configureMvpCatalog(pool);
  const byName=Object.fromEntries(plan.training.map((t:any)=>[t.name,t]));
- assert.deepEqual(byName['CNC'].duplicates,[{certificationId:legacyCnc,name:'CNC Training',members:2,classes:1}]);
- assert.deepEqual(byName['Metal Lathe'].duplicates,[{certificationId:legacyLathe,name:'Metal Lathe Training',members:0,classes:0}]);
+ assert.deepEqual(byName['CNC'].duplicates,[{certificationId:legacyCnc,name:'CNC Training',members:4,classes:1,alsoHoldCourse:[
+   {userId:member,recordId:memberLookAlike,courseRecordId:memberCourse,outcome:'retire'},
+   {userId:retrained,recordId:retrainedLookAlike,courseRecordId:retrainedCourse,outcome:'replace-course-record'},
+   {userId:stale,recordId:staleLookAlike,courseRecordId:staleCourse,outcome:'retire'}]}]);
+ assert.deepEqual(byName['Metal Lathe'].duplicates,[{certificationId:legacyLathe,name:'Metal Lathe Training',members:1,classes:0,alsoHoldCourse:[
+   {userId:flagged,recordId:flaggedLookAlike,courseRecordId:flaggedCourse,outcome:'staff-review'}]}]);
  assert.deepEqual(byName['Wood Lathe'].duplicates,[],'a course staff edited is not a generated duplicate');
- assert.equal((await pool.query('SELECT certid FROM user_certifications WHERE usercertid=$1',[trained])).rows[0].certid,legacyCnc,'preview writes nothing');
+ assert.equal((await pool.query('SELECT count(*)::int n FROM user_certifications WHERE certid=$1',[legacyCnc])).rows[0].n,4,'preview writes nothing');
+ const lookAlikeTraining=(await pool.query('SELECT trained_at FROM user_certifications WHERE usercertid=$1',[retrainedLookAlike])).rows[0].trained_at;
  await configureMvpCatalog(pool,true,admin.user.id);await configureMvpCatalog(pool,true,admin.user.id);
  assert.equal((await pool.query('SELECT certid FROM user_certifications WHERE usercertid=$1',[trained])).rows[0].certid,cnc,'training under the look-alike now unlocks the CNC machines');
- assert.deepEqual((await pool.query('SELECT certid FROM user_certifications WHERE userid=$1 ORDER BY certid',[member])).rows.map(r=>r.certid),[cnc,legacyCnc]);
+ const held=async(userId:number)=>(await pool.query('SELECT usercertid AS id,certid,status,trained_at,revoked_at FROM user_certifications WHERE userid=$1 ORDER BY usercertid',[userId])).rows;
+ assert.deepEqual((await held(member)).map(r=>r.id),[memberCourse],'the older look-alike record is retired');
+ const [renewed,...rest]=await held(retrained);
+ assert.deepEqual(rest,[]);
+ assert.equal(renewed.id,retrainedCourse);assert.equal(renewed.status,'active','retraining after the revocation unlocks the machines again');
+ assert.deepEqual(renewed.trained_at,lookAlikeTraining);assert.ok(renewed.revoked_at,'the revocation boundary is kept');
+ assert.deepEqual((await held(stale)).map(r=>[r.id,r.status]),[[staleCourse,'revoked']],'training before the revocation does not lift it');
+ assert.deepEqual((await held(flagged)).map(r=>[r.id,r.certid,r.status]),[[flaggedCourse,lathe,'active'],[flaggedLookAlike,legacyLathe,'revoked']],
+   'a revocation recorded only under the look-alike stays for staff to review');
  assert.equal((await pool.query('SELECT certification_id FROM app_training_class WHERE id=$1',[scheduled.body.data.id])).rows[0].certification_id,cnc);
- assert.deepEqual((await pool.query('SELECT certid FROM certifications WHERE certid=ANY($1::int[]) ORDER BY certid',[[legacyCnc,legacyLathe,edited]])).rows.map(r=>r.certid),
-   [legacyCnc,edited],'an unused look-alike is removed; one a member still holds and a staff-edited course stay');
+ assert.deepEqual((await pool.query('SELECT certid,enddate IS NOT NULL AS ended FROM certifications WHERE certid=ANY($1::int[]) ORDER BY certid',[[legacyCnc,legacyLathe,edited]])).rows,
+   [{certid:legacyLathe,ended:true},{certid:edited,ended:false}],'a resolved look-alike is removed; one kept for review is ended; a staff-edited course stays');
+ assert.equal((await schedule(legacyLathe,3)).body.error.code,'CERTIFICATION_REQUIRED','an ended look-alike is no longer offered for classes');
  assert.equal((await pool.query('SELECT certid FROM equipment WHERE name=$1',['Kirk'])).rows[0].certid,lathe);
- const merged=(await pool.query("SELECT subject_id,entity_id FROM app_staff_audit WHERE action='training.course_merged'")).rows;
- assert.deepEqual(merged.map(r=>[r.subject_id,Number(r.entity_id)]),[[admin.user.id,trained]]);
+ const audited=async(action:string)=>(await pool.query('SELECT subject_id,entity_id FROM app_staff_audit WHERE action=$1 ORDER BY entity_id',[action])).rows
+   .map(r=>[r.subject_id,Number(r.entity_id)]);
+ assert.deepEqual(await audited('training.course_merged'),[[admin.user.id,trained],[retrained,retrainedCourse]].sort((a,b)=>a[1]!-b[1]!));
+ assert.deepEqual(await audited('training.duplicate_retired'),[[member,memberLookAlike],[retrained,retrainedLookAlike],[stale,staleLookAlike]]);
  assert.equal((await pool.query("SELECT count(*)::int n FROM app_staff_audit WHERE action='certification.duplicate_merged'")).rows[0].n,2,'a repeated apply records nothing new');
+ const again:any=(await configureMvpCatalog(pool)).training.find(t=>t.name==='Metal Lathe');
+ assert.equal(again.duplicates[0].alsoHoldCourse[0].outcome,'staff-review','the record kept for review is still listed');
 });

@@ -8,6 +8,7 @@ import { Pool } from "pg";
 import request from "supertest";
 import { createApp } from "../../src/app.js";
 import { initializeDemo } from "../../src/scripts/init-demo.js";
+import { compactReaderRenewals } from "../../src/readerLeaseCompaction.js";
 import type { AppConfig } from "../../src/config.js";
 
 const database = `arbor_nfc_${randomBytes(6).toString("hex")}_mvc_test`;
@@ -619,5 +620,94 @@ test("card metadata records the last successful physical tap, excluding renewal 
     !history.body.data.items.some(
       (e: any) => e.id === renewed.body.data.decisionId,
     ),
+  );
+});
+
+test("ended renewal runs collapse to their first and last rows without changing usage, presence or the audit log", async () => {
+  const reader = "compaction-reader", machine = 990001;
+  const base: Date = (await pool.query("SELECT date_trunc('second',NOW())-INTERVAL '3 hours' AS t")).rows[0].t;
+  // Rows a reader would have written three hours ago: one tap, then a renewal every second.
+  const events = (userId: number, from: number, to: number, kind: "tap" | "renewal" | "refusal" = "renewal") =>
+    pool.query(
+      `INSERT INTO app_device_access_event(reader_id,request_id,user_id,target_kind,target_id,allowed,reason,expires_at,created_at,is_tap)
+      SELECT $1::text,gen_random_uuid(),$2::int,'equipment',$3::int,$6::text<>'refusal',CASE WHEN $6::text='refusal' THEN 'NOT_TRAINED' ELSE 'ELIGIBLE' END,
+        CASE WHEN $6::text<>'refusal' THEN start+INTERVAL '5 seconds' END,start,$6::text='tap'
+      FROM (SELECT $7::timestamptz+s*INTERVAL '1 second' AS start FROM generate_series($4::int,$5::int) s) t`,
+      [reader, userId, machine, from, to, kind, base],
+    );
+  await events(memberId, 0, 0, "tap");
+  await events(memberId, 1, 30);
+  await events(otherId, 10, 40); // another member on the same reader is a separate run
+  await events(memberId, 66, 66, "refusal"); // the refused renewal that ended the session
+  await events(memberId, 120, 129); // a later session after a gap
+  await events(memberId, 200, 200); // a single renewal stays as it is
+  // Leases still live, or ended within the last ten minutes, are left alone.
+  await pool.query(
+    `INSERT INTO app_device_access_event(reader_id,request_id,user_id,target_kind,target_id,allowed,reason,expires_at,created_at,is_tap)
+    SELECT $1::text,gen_random_uuid(),$2::int,'equipment',$3::int,true,'ELIGIBLE',NOW()-s*INTERVAL '1 minute'+INTERVAL '5 seconds',NOW()-s*INTERVAL '1 minute',false
+    FROM generate_series(0,4) s`,
+    [reader, memberId, machine],
+  );
+  const usage = async () =>
+    (
+      await pool.query(
+        `SELECT range_agg(tstzrange(created_at,expires_at,'[)'))::text AS spans,max(created_at) AS seen,
+          (SELECT count(*)::int FROM app_staff_audit WHERE entity_type='app_device_access_event') AS audits
+        FROM app_device_access_event WHERE reader_id=$1 AND allowed AND expires_at>created_at`,
+        [reader],
+      )
+    ).rows[0];
+  const start = await usage();
+  assert.equal(await compactReaderRenewals(pool), 28 + 29 + 8);
+  assert.deepEqual(await usage(), start, "authorized time, latest activity and the audit log are unchanged");
+  // The session continues; the next pass folds the new renewals into the same run.
+  await events(memberId, 31, 60);
+  const continued = await usage();
+  assert.equal(await compactReaderRenewals(pool), 30);
+  assert.deepEqual(await usage(), continued);
+  assert.equal(await compactReaderRenewals(pool), 0, "a repeated pass changes nothing");
+  const kept = (
+    await pool.query(
+      `SELECT user_id AS "userId",is_tap AS tap,allowed,EXTRACT(EPOCH FROM created_at-$2::timestamptz)::int AS "from",
+        EXTRACT(EPOCH FROM expires_at-$2::timestamptz)::int AS "until"
+      FROM app_device_access_event WHERE reader_id=$1 AND created_at<NOW()-INTERVAL '1 hour' ORDER BY user_id,created_at`,
+      [reader, base],
+    )
+  ).rows;
+  assert.deepEqual(kept, [
+    { userId: memberId, tap: true, allowed: true, from: 0, until: 5 },
+    { userId: memberId, tap: false, allowed: true, from: 1, until: 64 },
+    { userId: memberId, tap: false, allowed: true, from: 60, until: 65 },
+    { userId: memberId, tap: false, allowed: false, from: 66, until: null },
+    { userId: memberId, tap: false, allowed: true, from: 120, until: 133 },
+    { userId: memberId, tap: false, allowed: true, from: 129, until: 134 },
+    { userId: memberId, tap: false, allowed: true, from: 200, until: 205 },
+    { userId: otherId, tap: false, allowed: true, from: 10, until: 44 },
+    { userId: otherId, tap: false, allowed: true, from: 40, until: 45 },
+  ]);
+  assert.equal(
+    (
+      await pool.query(
+        "SELECT count(*)::int AS n FROM app_device_access_event WHERE reader_id=$1 AND created_at>NOW()-INTERVAL '1 hour'",
+        [reader],
+      )
+    ).rows[0].n,
+    5,
+  );
+  // Deleting a tap or a refusal is still audited.
+  const refusal = (
+    await pool.query(
+      "DELETE FROM app_device_access_event WHERE reader_id=$1 AND NOT allowed RETURNING id",
+      [reader],
+    )
+  ).rows[0].id;
+  assert.equal(
+    (
+      await pool.query(
+        "SELECT count(*)::int AS n FROM app_staff_audit WHERE action='app_device_access_event.delete' AND entity_id=$1",
+        [refusal],
+      )
+    ).rows[0].n,
+    1,
   );
 });

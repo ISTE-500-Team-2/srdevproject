@@ -35,7 +35,7 @@ async function preview(db:Database) {
     (SELECT count(*)::int FROM app_training_class t WHERE t.certification_id=c.certid) AS classes
     FROM certifications c WHERE c.name=ANY($1::text[]) OR c.certid=ANY($2::int[]) ORDER BY c.certid`,
     [groups.flatMap(g=>[g.name,g.legacyName]),machineCerts])).rows;
-  return {retire,training:groups.map(g=>{
+  const training=groups.map(g=>{
     const machines=equipment.filter(e=>g.machines.includes(e.name));
     // The course these machines already require wins (the most common one, then the oldest);
     // otherwise reuse a course by name and create one only when none exists.
@@ -50,17 +50,56 @@ async function preview(db:Database) {
     // Generated look-alikes of this course that unlock no machine; apply merges them into it.
     const duplicates=cert?certs.filter(c=>c!==cert&&!c.linked&&[g.name,g.legacyName].includes(c.name)
       &&generatedDescriptions.includes(c.description??''))
-      .map(c=>({certificationId:c.certid,name:c.name,members:c.members,classes:c.classes})):[];
+      .map(c=>({certificationId:c.certid,name:c.name,members:c.members,classes:c.classes,
+        alsoHoldCourse:[] as {userId:number;recordId:number;courseRecordId:number;outcome:Outcome}[]})):[];
     return {name:cert?.name??g.name,machines:g.machines,certificationId:cert?.certid??null,current,proposed,action,
       equipment:machines,link:machines.filter(m=>m.certid===null),duplicates};
-  }),
+  });
+  for(const group of training) for(const duplicate of group.duplicates)
+    duplicate.alsoHoldCourse=(await overlaps(db,duplicate.certificationId,group.certificationId!))
+      .map(({userId,recordId,courseRecordId,outcome})=>({userId,recordId,courseRecordId,outcome}));
+  return {retire,training,
     preservedHistory:true,expiryPolicy:'Existing certification validity is preserved. New definitions require staff to set their approved validity before training can be granted.'};
 }
+// A member can hold both a look-alike record and the real course. The look-alike record replaces
+// the course record when it is current, its training came after any revocation of the course
+// (as recertification requires), and the course record is no longer current or is older. A later
+// revocation recorded only under the look-alike never took effect, so that record stays for staff
+// to review. Otherwise the course record already covers it, and the look-alike record is retired.
+type Outcome='replace-course-record'|'retire'|'staff-review';
+const currentRecord=(r:string)=>`(${r}.status='active' AND (${r}.renewaldate IS NULL OR ${r}.renewaldate>=NOW() AT TIME ZONE 'UTC'))`;
+async function overlaps(db:Database,from:number,into:number,lock=false) {
+  return (await db.query<{userId:number;recordId:number;courseRecordId:number;outcome:Outcome;lookAlike:object;course:object}>(`
+    SELECT d.userid AS "userId",d.usercertid AS "recordId",r.usercertid AS "courseRecordId",to_jsonb(d) AS "lookAlike",to_jsonb(r) AS course,
+      CASE WHEN ${currentRecord('d')} AND (r.revoked_at IS NULL OR d.trained_at>r.revoked_at)
+          AND (NOT ${currentRecord('r')} OR COALESCE(d.approved_at,d.trained_at)>COALESCE(r.approved_at,r.trained_at)) THEN 'replace-course-record'
+        WHEN d.status='revoked' AND ${currentRecord('r')} AND d.revoked_at>COALESCE(r.approved_at,r.trained_at,'-infinity') THEN 'staff-review'
+        ELSE 'retire' END AS outcome
+    FROM user_certifications d JOIN user_certifications r ON r.userid=d.userid AND r.certid=$2
+    WHERE d.certid=$1 ORDER BY d.usercertid${lock?' FOR UPDATE':''}`,[from,into])).rows;
+}
 // Training recorded under a look-alike course was meant for the real one, so it moves there and
-// unlocks the member's machines. A member who already holds the real course keeps both records,
-// and a look-alike anyone still holds is kept rather than deleted.
+// unlocks the member's machines. A look-alike course is deleted once nothing refers to it; one kept
+// for staff review is ended so it is no longer offered for new training or classes.
 async function mergeDuplicate(db:Database,actor:number,from:number,into:number) {
   const model=new StaffModel(db);
+  const both=await overlaps(db,from,into,true);
+  for(const pair of both) {
+    if(pair.outcome==='staff-review') continue;
+    if(pair.outcome==='replace-course-record') {
+      const updated=(await db.query(`UPDATE user_certifications r SET status=d.status,renewaldate=d.renewaldate,statusdesc=d.statusdesc,
+        trained_at=d.trained_at,approved_at=d.approved_at,approved_by=d.approved_by,verification_reference=d.verification_reference,
+        training_source=d.training_source,verified_in_person=d.verified_in_person,training_minutes=d.training_minutes,
+        revoked_at=GREATEST(r.revoked_at,d.revoked_at),revision=r.revision+1
+        FROM user_certifications d WHERE r.usercertid=$1 AND d.usercertid=$2 RETURNING to_jsonb(r) AS row`,[pair.courseRecordId,pair.recordId])).rows[0]!.row;
+      await model.audit(actor,pair.userId,'training.course_merged','user_certification',pair.courseRecordId,
+        'MVP catalog: newer current training recorded under a duplicate course replaces this course record',pair.course,updated);
+    }
+    await db.query('DELETE FROM user_certifications WHERE usercertid=$1',[pair.recordId]);
+    await model.audit(actor,pair.userId,'training.duplicate_retired','user_certification',pair.recordId,
+      'MVP catalog: training record under a duplicate course retired; the member holds the course its machines require',
+      pair.lookAlike,{courseRecordId:pair.courseRecordId,courseRecordReplaced:pair.outcome==='replace-course-record'});
+  }
   const moved=(await db.query<{id:number;userId:number}>(`UPDATE user_certifications uc SET certid=$2,revision=revision+1
     WHERE certid=$1 AND NOT EXISTS(SELECT 1 FROM user_certifications x WHERE x.userid=uc.userid AND x.certid=$2)
     RETURNING usercertid AS id,userid AS "userId"`,[from,into])).rows;
@@ -73,9 +112,13 @@ async function mergeDuplicate(db:Database,actor:number,from:number,into:number) 
   const removed=(await db.query(`DELETE FROM certifications c WHERE certid=$1
     AND NOT EXISTS(SELECT 1 FROM equipment WHERE certid=$1) AND NOT EXISTS(SELECT 1 FROM user_certifications WHERE certid=$1)
     RETURNING certid,name,description`,[from])).rows[0];
-  if(moved.length||classes.length||removed) await model.audit(actor,null,'certification.duplicate_merged','certification',from,
+  const ended=removed?undefined:(await db.query(`UPDATE certifications SET enddate=NOW() AT TIME ZONE 'UTC',revision=revision+1
+    WHERE certid=$1 AND (enddate IS NULL OR enddate>NOW() AT TIME ZONE 'UTC') RETURNING certid`,[from])).rows[0];
+  const retired=both.filter(p=>p.outcome!=='staff-review');
+  if(moved.length||classes.length||removed||ended||retired.length) await model.audit(actor,null,'certification.duplicate_merged','certification',from,
     'MVP catalog: duplicate course merged into the course its machines require',removed??{certificationId:from},
-    {certificationId:into,movedTraining:moved.map(r=>r.id),movedClasses:classes.map(c=>c.id),deleted:!!removed});
+    {certificationId:into,movedTraining:moved.map(r=>r.id),retiredTraining:retired.map(p=>p.recordId),movedClasses:classes.map(c=>c.id),
+      deleted:!!removed,ended:!!ended,keptForReview:both.filter(p=>p.outcome==='staff-review').map(p=>p.recordId)});
 }
 export async function configureMvpCatalog(pool:Pool,apply=false,actorId?:number) {
   return transaction(pool,async db=>{
