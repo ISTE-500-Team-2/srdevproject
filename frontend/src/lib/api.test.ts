@@ -125,3 +125,40 @@ test('a text download with a plain error body shows it as sent', async () => {
     message: 'The request could not be completed.',
   });
 });
+
+test('two tabs renew one after the other, each sending the cookie the last renewal set', async () => {
+  // A stand-in for the browser: one shared refresh cookie, read when a request is sent and
+  // replaced when a refresh answers, and Web Locks that queue requests for the same name.
+  let cookie = 0;
+  const log: string[] = [];
+  let queue: Promise<unknown> = Promise.resolve();
+  const request = vi.fn((_name: string, callback: () => Promise<unknown>) => {
+    const turn = queue.then(callback);
+    queue = turn.catch(() => undefined);
+    return turn;
+  });
+  Object.defineProperty(navigator, 'locks', { configurable: true, value: { request } });
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit & { headers: Record<string, string> }) => {
+    const sent = cookie;
+    await new Promise(resolve => setTimeout(resolve, 5));
+    if (url === '/api/auth/csrf') { log.push(`csrf r${sent}`); return Response.json({ data: { csrfToken: 'csrf' } }); }
+    if (url === '/api/auth/refresh') {
+      log.push(`refresh r${sent}`);
+      cookie = sent + 1;
+      return Response.json({ data: { accessToken: `access${cookie}`, csrfToken: 'csrf' } });
+    }
+    return Response.json({ data: init.headers.Authorization });
+  }));
+  try {
+    vi.resetModules();
+    const tabA = await import('./api');
+    vi.resetModules();
+    const tabB = await import('./api');
+    const tokens = await Promise.all([tabA.api('/me/overview'), tabB.api('/me/overview')]);
+    expect(request).toHaveBeenCalledWith('arbor-session-renewal', expect.any(Function));
+    expect(log).toEqual(['csrf r0', 'refresh r0', 'csrf r1', 'refresh r1']);
+    expect(tokens).toEqual(['Bearer access1', 'Bearer access2']);
+  } finally {
+    delete (navigator as { locks?: unknown }).locks;
+  }
+});

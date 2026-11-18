@@ -119,10 +119,11 @@ export function errorMessage(error: unknown) {
  * Every request waits on one shared renewal, so a renewal that never answers would hold
  * them all (and every retry of a failed page). The CSRF read is safe to abandon and
  * repeat, so it is bounded. The refresh POST is not: the server rotates the refresh
- * token and treats a second use as replay, revoking the session, so it is never cut
- * short or re-sent while pending. A refresh that stalls therefore keeps its callers
- * waiting with no app deadline: a known limit of the current protocol, which only
- * idempotent rotation on the server would lift.
+ * token and forgives a second use for only a few seconds before treating it as replay
+ * and revoking the session, so it is never cut short or re-sent while pending. A
+ * refresh that stalls therefore keeps its callers, and other tabs' renewals, waiting
+ * with no app deadline: a known limit of the current protocol, which only idempotent
+ * rotation on the server would lift.
  */
 const csrfReadTimeoutMs = 10_000;
 async function readCsrf() {
@@ -139,16 +140,28 @@ async function readCsrf() {
   } finally { clearTimeout(timer); }
 }
 
+/**
+ * Tabs share one refresh cookie and each renewal rotates it, so tabs renew one at a time:
+ * each then sends the cookie the previous renewal set, never the same one at once.
+ * Browsers without Web Locks (or plain-HTTP pages) rely on the server's grace window.
+ */
+function oneTabAtATime(renewal: () => Promise<void>): Promise<void> {
+  const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
+  return locks ? locks.request('arbor-session-renewal', renewal) : renewal();
+}
+
 async function renew(): Promise<void> {
   if (refreshing) return refreshing;
   refreshing = (async () => {
     try {
-      // Read CSRF via same-origin response; refresh credentials remain HttpOnly.
-      const session = await readCsrf();
-      // No refresh session: signed out. Skip the refresh call that could only fail.
-      if (!session.csrfToken) throw new ApiError(401, 'UNAUTHENTICATED', 'Sign in to continue.');
-      csrfToken = session.csrfToken;
-      await api('/auth/refresh', {method:'POST'});
+      await oneTabAtATime(async () => {
+        // Read CSRF via same-origin response; refresh credentials remain HttpOnly.
+        const session = await readCsrf();
+        // No refresh session: signed out. Skip the refresh call that could only fail.
+        if (!session.csrfToken) throw new ApiError(401, 'UNAUTHENTICATED', 'Sign in to continue.');
+        csrfToken = session.csrfToken;
+        await api('/auth/refresh', {method:'POST'});
+      });
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         accessToken = null; csrfToken = null;
