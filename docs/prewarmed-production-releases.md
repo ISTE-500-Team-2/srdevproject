@@ -112,8 +112,8 @@ remain a hard prerequisite.
    `pg_advisory_lock(hashtext('arbor-mvc-migrations'))`. In the schema transaction,
    set `SET LOCAL lock_timeout = '250ms';` before applying this batch. Migration
    048 takes the reader table lock with `NOWAIT`, as does 054 for the outbox.
-   Migration 053 adds nullable columns, a checkout request flag with a constant
-   default, and adjusts audit triggers. These changes do not rewrite either
+   Migration 053 adds nullable columns and flags with constant defaults, and
+   adjusts audit triggers. These changes do not rewrite either
    checkout table. Migration 055 adds a flag with a constant default and
    installs a `NOT VALID` constraint that applies to new writes immediately.
    The table scan for validation runs after commit. A busy lock can abort the
@@ -200,6 +200,55 @@ payment intent. Compare the Stripe payment and refund records with the staff
 ledger after delivery. Replay records the existing refund. Do not create another
 refund to repair the ledger. Repeat this review for any period when an application
 rollback handled webhook traffic.
+
+### Captured day-pass payments during rollback
+
+Run the [read-only day-pass query](../database/fixes/list-day-pass-rollback-payments.sql)
+against each affected database as soon as the previous release takes webhook traffic,
+and at the start of each shift while it does. From the repository root, use
+`psql -X -v ON_ERROR_STOP=1 -f database/fixes/list-day-pass-rollback-payments.sql`
+with that database's normal operator connection. The query includes future retry
+deadlines, charges waiting for a pass, and payments flagged for staff review.
+Prioritize upcoming visits in date order, and give staff the checkout ID and
+payment ID for follow-up.
+
+For each row, compare the Checkout Session, captured amount, and all refunds on
+the listed Payment Intent in the matching Stripe account. Also check the
+member's day passes for that visit date.
+
+- **Captured in full, no live refund, visit still available.** Restore a compatible
+  release and replay the original paid Checkout event so the app can issue the
+  pass against the existing payment. If the member arrives while rollback is
+  still active, staff can verify their waivers and eligibility and admit them
+  manually without taking another payment if facility policy permits. Record
+  the admission and checkout ID in the shift log for reconciliation. Leave
+  the pass and payment records to the compatible worker so it can link the
+  original charge and avoid a duplicate pass.
+- **Visit ended or a pass already exists.** Restore a compatible release and
+  let its worker reconcile the existing charge. It refunds an unissuable charge
+  if no refund is in progress or confirmed. If staff must resolve it during
+  rollback, coordinate with the operator and recheck for pending and succeeded
+  refunds just before submitting a full refund on the original Stripe Payment
+  Intent. If either exists, follow the next step instead. Record the resulting
+  refund ID and amount for the later ledger check. Keep a single operator
+  responsible for the refund.
+- **Refund already pending, partial, or complete.** Compare the sum of successful
+  refunds with the captured amount and check any pending refunds. Never submit
+  a second full refund. For a partial or unclear result, escalate to the
+  payments owner before granting access or refunding any remaining balance.
+  Record the Stripe IDs and confirmed amounts so staff can verify the ledger
+  when the compatible release returns.
+
+The previous webhook acknowledges an event ID already stored in
+`app_pass_stripe_event` without processing it. The new release can store that
+ID and commit the charge before its refund lookup fails. Resending the same
+event to the previous release leaves that charge queued, and its worker cannot
+process the queue. Replay to the previous release can reach its handler only
+for an event whose ID has not already been stored. Use the compatible webhook
+or worker to finish queued events. The compatible webhook resumes queued work
+on duplicate Checkout deliveries. Keep event receipts intact. When the
+compatible release returns, rerun the query and verify each open item against
+Stripe and the staff ledger, including any manual admissions or refunds.
 
 ## Verification
 

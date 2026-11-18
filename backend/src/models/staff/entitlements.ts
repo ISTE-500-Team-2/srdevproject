@@ -50,13 +50,8 @@ export interface MembershipWindow {
   overlap: boolean;
 }
 
-/**
- * When an online day-pass checkout stops taking payment: the end of its visit date on the facility's
- * clock, kept inside the 30-minute to 24-hour window Stripe allows. It is derived from the stored row
- * rather than the current time, so a retried session create sends Stripe the same parameters under the
- * same idempotency key. `zone` is the query parameter holding the facility time zone.
- */
-const passCheckoutPayBy = (zone: string) =>
+// Keep the original expiry for sessions created before the visit deadline was enforced.
+const legacyPassCheckoutPayBy = (zone: string) =>
   `LEAST(created_at+INTERVAL '23 hours',GREATEST((valid_date+1)::timestamp AT TIME ZONE ${zone},created_at+INTERVAL '45 minutes'))`;
 
 function entitlementTable(kind: EntitlementKind) {
@@ -132,12 +127,12 @@ export class EntitlementRepository {
       )
     ).rows[0]!;
   }
-  /** When the online checkout `id` stops taking payment. */
-  async passCheckoutPayBy(id: string): Promise<Date> {
+  /** When a new card session stops taking payment, capped at the end of the visit date. */
+  async newPassCheckoutPayBy(date: string, start: Date): Promise<Date> {
     return (
       await this.db.query<{ payBy: Date }>(
-        `SELECT ${passCheckoutPayBy("$2")} AS "payBy" FROM app_pass_checkout WHERE id=$1`,
-        [id, this.timeZone],
+        `SELECT LEAST($2::timestamptz+INTERVAL '23 hours',($1::date+1)::timestamp AT TIME ZONE $3) AS "payBy"`,
+        [date, start, this.timeZone],
       )
     ).rows[0]!.payBy;
   }
@@ -148,8 +143,8 @@ export class EntitlementRepository {
         await this.db.query(
           `SELECT id FROM app_pass_checkout WHERE userid=$1 AND valid_date=$2::date AND status='pending'
       AND checkout_id IS NOT NULL AND (
-        payment_id IS NOT NULL OR now()<CASE WHEN checkout_has_expiry THEN ${passCheckoutPayBy("$3")}
-          ELSE created_at+INTERVAL '24 hours' END
+        payment_id IS NOT NULL OR now()<COALESCE(checkout_expires_at,CASE WHEN checkout_has_expiry THEN ${legacyPassCheckoutPayBy("$3")}
+          ELSE created_at+INTERVAL '24 hours' END)
       )`,
           [userId, date, this.timeZone],
         )

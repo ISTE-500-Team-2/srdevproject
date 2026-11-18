@@ -141,7 +141,8 @@ export class PaymentRepository {
       p.membershipid AS "membershipId",d.dayid AS "dayPassId",p.price::text AS amount,p.paymentstatus AS status,p.method,p.reference,p.revision,
       p.paymentdate AT TIME ZONE 'UTC' AS "recordedAt",p.updated_at AS "updatedAt",
       invoice.id AS "invoiceId",pass_checkout.id::text AS "passCheckoutId",equipment_checkout.reservation_id AS "equipmentReservationId",
-      COALESCE(invoice.refund_status,pass_checkout.refund_status,equipment_checkout.refund_status) AS "refundStatus",
+      CASE WHEN pass_checkout.refund_needs_review THEN 'needs_review'
+        ELSE COALESCE(invoice.refund_status,pass_checkout.refund_status,equipment_checkout.refund_status) END AS "refundStatus",
       EXISTS(SELECT 1 FROM app_equipment_checkout c WHERE c.payment_id=p.paymentid
         OR c.reservation_id=booking.reservationid AND c.status='pending') AS "onlineCheckout",
       (SELECT CASE WHEN c.payer_id=$8::int THEN 'viewer' WHEN c.payer_id=p.userid THEN 'member' ELSE 'staff' END

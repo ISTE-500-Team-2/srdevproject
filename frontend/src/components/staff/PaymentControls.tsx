@@ -35,6 +35,7 @@ const failedRefund = (payment: Payment) => payment.refundStatus === "failed" || 
 
 /** What a card payment's Stripe refund is doing, if one was asked for and hasn't finished. */
 export function refundNote(payment: Payment) {
+  if (payment.refundStatus === "needs_review") return "Refund needs staff review";
   if (payment.refundStatus === "pending" || payment.refundStatus === "requires_action") return "Refund pending";
   // A failed membership invoice refund is sorted out in Stripe; a day pass's or booking's can be retried (see paymentAction).
   if (failedRefund(payment)) return "Refund failed";

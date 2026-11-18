@@ -142,3 +142,21 @@ test('a retry that fails at once is recorded even while the attempt it replaced 
   assert.deepEqual(await passes.cancel(member, pass.id), { cancelled: false, refundStatus: 'pending' });
   assert.equal(refunds.filter(f => f.payment_intent === pass.pi).length, 3);
 });
+
+test('refund webhooks reconcile multiple successful partial refunds on an issued pass only once', async () => {
+  const pass = await paidPass('2033-07-01');
+  const previousCreates = keys.length;
+  const first: Refund = { id: 're_' + randomUUID(), status: 'succeeded', amount: 1000, currency: 'usd', payment_intent: pass.pi };
+  const second: Refund = { id: 're_' + randomUUID(), status: 'pending', amount: 500, currency: 'usd', payment_intent: pass.pi };
+  refunds.unshift(first, second);
+  await settle(first.id!, 'succeeded');
+  assert.equal((await pass.state()).pass, 'active');
+  const model = new StaffModel(pool);
+  assert.equal((await model.payments(member)).find(p => p.passCheckoutId === pass.id)?.refundStatus, 'needs_review');
+  await settle(second.id!, 'succeeded');
+  await settle(first.id!, 'succeeded');
+  assert.deepEqual(await pass.state(), { checkout: 'cancelled', refund_id: null, refund_status: 'succeeded', pass: 'cancelled', payment: 'refunded' });
+  assert.equal((await model.payments(member)).find(p => p.passCheckoutId === pass.id)?.refundStatus, 'succeeded');
+  assert.equal((await pool.query('SELECT id FROM app_notification_outbox WHERE dedupe_key=$1', ['daypass-refund:' + pass.id + ':split'])).rowCount, 1);
+  assert.equal(keys.length, previousCreates);
+});

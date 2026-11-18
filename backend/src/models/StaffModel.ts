@@ -119,8 +119,8 @@ export class StaffModel {
   passExists(userId: number, date: string) {
     return this.entitlements.passExists(userId, date);
   }
-  passCheckoutPayBy(id: string) {
-    return this.entitlements.passCheckoutPayBy(id);
+  newPassCheckoutPayBy(date: string, start: Date) {
+    return this.entitlements.newPassCheckoutPayBy(date, start);
   }
   openPassCheckout(userId: number, date: string) {
     return this.entitlements.openPassCheckout(userId, date);

@@ -6,6 +6,10 @@ ALTER TABLE app_equipment_checkout ADD COLUMN refund_reconcile_after TIMESTAMPTZ
 ALTER TABLE app_equipment_checkout ADD COLUMN refund_checked_at TIMESTAMPTZ;
 -- Older app processes keep inserting rows with the original Stripe request shape.
 ALTER TABLE app_pass_checkout ADD COLUMN checkout_has_expiry BOOLEAN NOT NULL DEFAULT false;
+-- New requests pin their email and expiry. NULL preserves the request shape of older checkouts.
+ALTER TABLE app_pass_checkout ADD COLUMN checkout_email TEXT,
+  ADD COLUMN checkout_expires_at TIMESTAMPTZ,
+  ADD COLUMN refund_needs_review BOOLEAN NOT NULL DEFAULT false;
 
 -- A change to the next sweep time is bookkeeping, like the hold backoff in 052.
 DROP TRIGGER app_capture_change ON app_pass_checkout;

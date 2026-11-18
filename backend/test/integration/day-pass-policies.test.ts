@@ -14,6 +14,7 @@ import { ReservationService } from '../../src/services/ReservationService.js';
 import { evaluateReaderAccess } from '../../src/services/ReaderEligibility.js';
 import { accessDeadline } from '../../src/accessDeadline.js';
 import { waiverAcceptance, equipmentWaiverName } from '../helpers/waiver.js';
+import { stripeMock } from '../helpers/stripeFixtures.js';
 
 const database = `arbor_day_policies_${randomBytes(5).toString('hex')}_mvc_test`;
 const owner = new Pool({ connectionTimeoutMillis: 5000 });
@@ -175,6 +176,7 @@ test('new versions inherit applicability for older clients, and a new facility v
 
 test('a pass checkout whose first Stripe call failed is abandoned after a day instead of blocking that date for good', async () => {
   await sign('facility');
+  stripeMock(provider).checkoutSessionList(async () => ({ data: [], has_more: false }));
   const create = provider.sdk.checkout.sessions.create;
   (provider.sdk.checkout.sessions.create as any) = async () => { throw new Error('Stripe timed out'); };
   try { await assert.rejects(passes.checkout(member.user.id, await input('2035-07-10')), /Stripe timed out/); }

@@ -46,6 +46,7 @@ export function stripeMock(provider: StudioStripe) {
   const named = <Resource extends object, Name extends keyof Resource>(resource: Resource, name: Name) =>
     (mock: MockOf<Resource[Name]>) => replace(resource, name, mock);
   return {
+    checkoutSessionList: named(sdk.checkout.sessions, 'list'),
     checkoutSessionCreate: named(sdk.checkout.sessions, 'create'),
     checkoutSessionRetrieve: named(sdk.checkout.sessions, 'retrieve'),
     subscriptionRetrieve: named(sdk.subscriptions, 'retrieve'),
