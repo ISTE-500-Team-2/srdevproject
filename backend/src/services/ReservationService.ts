@@ -15,6 +15,7 @@ import { AppError, integerId, positiveId, reservationWindow } from "../domain.js
 import { EquipmentModel } from "../models/EquipmentModel.js";
 import {
   ReservationModel,
+  pendingCheckoutRefusal,
   RESERVATION_COOLDOWN_MINUTES,
   type ReservationRecord,
   type ReservationResource,
@@ -417,11 +418,11 @@ export class ReservationService {
         );
       // Online checkout bought this machine and these hours, so staff can't change them (see
       // docs/equipment-payments.md). Only staff reach here, so the message speaks to them.
-      const checkout = (await db.query('SELECT status FROM app_equipment_checkout WHERE reservation_id=$1', [reservationId])).rows[0];
+      const checkout = (await db.query('SELECT status,payer_id FROM app_equipment_checkout WHERE reservation_id=$1', [reservationId])).rows[0];
+      if (checkout?.status === 'pending')
+        throw pendingCheckoutRefusal({ userId: before.userId, payerId: checkout.payer_id }, actorId, 'change');
       if (checkout)
-        throw new AppError(409, 'PAYMENT_WORKFLOW_REQUIRED', checkout.status === 'pending'
-          ? 'This booking is waiting for the member’s online payment, so it can’t be changed yet.'
-          : 'This booking was paid online, so its time, machine and member can’t be changed. Cancel it and rebook with the member instead; refunds aren’t automatic.');
+        throw new AppError(409, 'PAYMENT_WORKFLOW_REQUIRED', 'This booking was paid online, so its time, machine and member can’t be changed. Cancel it and rebook with the member instead; refunds aren’t automatic.');
       const expectedRevision = positiveId(input.expectedRevision, "revision");
       if (before.revision !== expectedRevision)
         throw new AppError(
@@ -684,7 +685,7 @@ export class ReservationService {
       if (expected && ((expected.sourceEquipmentId !== undefined && before.equipmentId !== expected.sourceEquipmentId)
         || before.revision !== positiveId(expected.expectedRevision, "Revision")))
         throw new AppError(409, "STALE_RECORD", "This reservation changed. Refresh it before cancelling.");
-      const result = await model.cancelAny(reservationId);
+      const result = await model.cancelAny(reservationId, actorId);
       if (!result)
         throw new AppError(
           409,
