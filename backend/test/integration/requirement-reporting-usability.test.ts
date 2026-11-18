@@ -336,7 +336,7 @@ test("ended without renewing leaves out periods still running and card subscript
   const member = async (
     label: string,
     endsInHours: number,
-    billing?: { cancelAtPeriodEnd?: boolean; cancelsHoursAfterEnd?: number },
+    billing?: { cancelAtPeriodEnd?: boolean; cancelsHoursAfterEnd?: number; confirmed?: boolean },
   ) => {
     const userId = (
       await pool.query(
@@ -361,14 +361,15 @@ test("ended without renewing leaves out periods still running and card subscript
       )
     ).rows[0].paymentid;
     await pool.query(
-      `INSERT INTO app_membership_billing(id,userid,tierid,plan_snapshot,amount_cents,status,cancel_at_period_end,cancellation_effective_at)
-       VALUES($1,$2,$3,'{}',5000,'active',$4,$5)`,
+      `INSERT INTO app_membership_billing(id,userid,tierid,plan_snapshot,amount_cents,status,cancel_at_period_end,cancellation_effective_at,cancellation_confirmed)
+       VALUES($1,$2,$3,'{}',5000,'active',$4,$5,$6)`,
       [
         billingId,
         userId,
         tier,
         billing.cancelAtPeriodEnd ?? false,
         billing.cancelsHoursAfterEnd === undefined ? null : new Date(now + (endsInHours + billing.cancelsHoursAfterEnd) * hour),
+        billing.confirmed ?? true,
       ],
     );
     await pool.query(
@@ -381,6 +382,7 @@ test("ended without renewing leaves out periods still running and card subscript
   await member("renewing", -1, {}); // Stripe renews it; the invoice has not posted yet
   await member("later", -1, { cancelsHoursAfterEnd: 30 * 24 }); // auto-renew ends after the next period: renews
   await member("cancelled", -1, { cancelsHoursAfterEnd: 0 }); // auto-renew turned off in the app, ending here: counted
+  await member("unconfirmed", -1, { cancelsHoursAfterEnd: 0, confirmed: false }); // Stripe never confirmed the stop: renews
   await member("stopped", -1, { cancelAtPeriodEnd: true }); // cancelled at period end in Stripe: counted
   assert.equal((await ended()) - baseline, 3);
 });

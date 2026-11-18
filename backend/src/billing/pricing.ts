@@ -63,7 +63,7 @@ export class BillingPricing {
   return transaction(this.pool,async db=>{
    const operator=await requireActor(db,actor,{staff:true});
    // Partner eligibility can make plans free, so nobody approves their own, and only administrators approve a staff account's.
-   if(actor===userid)throw new AppError(409,'SELF_CHANGE_FORBIDDEN','Another staff member must verify your school-partner eligibility.');
+   if(actor===userid)throw new AppError(409,'SELF_CHANGE_FORBIDDEN','Another administrator must verify your school-partner eligibility.');
    if(!await new StaffModel(db).person(positiveId(userid),true))throw new AppError(404,'NOT_FOUND','Member not found.');
    await assertManageable(db,operator,userid);
    await db.query(`INSERT INTO app_partner_eligibility(userid,reference,valid_until,verified_by) VALUES($1,$2,$3,$4)

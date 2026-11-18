@@ -35,7 +35,8 @@ after(async () => {
 });
 
 test('nobody verifies their own school-partner eligibility, and only administrators verify a staff account', async () => {
-  await assert.rejects(pricing.verifyPartner(staff, staff, verification), { code: 'SELF_CHANGE_FORBIDDEN' });
+  // Staff verifying a colleague is refused below, so the message must point to an administrator.
+  await assert.rejects(pricing.verifyPartner(staff, staff, verification), { code: 'SELF_CHANGE_FORBIDDEN', message: /Another administrator/ });
   await assert.rejects(pricing.verifyPartner(staff, colleague, verification), { code: 'ADMIN_REQUIRED' });
   await assert.rejects(pricing.verifyPartner(staff, admin, verification), { code: 'ADMIN_REQUIRED' });
   await assert.rejects(pricing.verifyPartner(admin, admin, verification), { code: 'SELF_CHANGE_FORBIDDEN' });
