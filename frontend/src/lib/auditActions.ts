@@ -131,6 +131,7 @@ const TITLES: Record<string, string> = {
   "billing.partner.verified": "Partner discount verified",
   "billing.pricing.updated": "Pricing updated",
   "billing.refund.requested": "Refund requested",
+  "billing.renewal_stopped": "Auto-renew stopped",
   "certification.created": "Certification created",
   "certification.updated": "Certification updated",
   "check_in.created": "Check-in recorded",

@@ -61,7 +61,7 @@ export async function runNotificationBatch(pool:Pool,send:(notification:PendingN
         if (!current.rows.length) {await finish('obsolete');result.obsolete++;continue;}
       } else {
         const allowed=await pool.query(`SELECT 1 FROM "user" u LEFT JOIN app_notification_preferences p USING(userid)
-          WHERE u.userid=$1 AND (u.status='active' OR ($2='account_confirmation' AND u.status='pending'))
+          WHERE u.userid=$1 AND (u.status='active' OR ($2 IN ('account_confirmation','password_reset') AND u.status='pending'))
           AND (COALESCE(p.enabled,true) OR $2=ANY($3::text[]))`,[row.userId,row.kind,securityKinds]);
         if(!allowed.rows.length) {await finish('suppressed');result.suppressed++;continue;}
         if (row.kind === 'account_confirmation') {
