@@ -269,7 +269,9 @@ test('FR-057: cancelling a long staff-issued membership ends it 30 days from now
  assert.ok(row.cancellation_requested_at);assert.equal(row.status,'active');
  assert.ok(Math.abs(new Date(row.ends).getTime()-(Date.now()+30*DAY))<60_000);
  assert.equal(new Date(r.body.data.endsAt).getTime(),new Date(row.ends).getTime());
- const mail=(await emails('membership_cancelled',member.id)).at(-1);
+ // Desk-paid: a cancellation confirmation, not the card flow's "auto-renew is off" notice.
+ assert.equal((await emails('membership_cancelled',member.id)).filter(m=>m.payload.membershipId===id).length,0);
+ const mail=(await emails('membership_cancellation_confirmed',member.id)).at(-1);
  assert.ok(mail);assert.ok(mail.payload.endsAt);
  assert.equal((await pool.query(`SELECT 1 FROM app_staff_audit WHERE action='membership.cancelled' AND entity_id=$1`,[id])).rowCount,1);
  const listed=(await get('/me/memberships',member)).body.data.memberships.find((m:any)=>m.id===id);
@@ -279,7 +281,7 @@ test('FR-057: cancelling a long staff-issued membership ends it 30 days from now
  const again=await post(`/me/billing/memberships/${id}/cancel`,{},member);
  assert.equal(again.status,200);
  assert.equal(new Date(again.body.data.endsAt).getTime(),new Date(row.ends).getTime());
- assert.equal((await emails('membership_cancelled',member.id)).filter(m=>m.payload.membershipId===id).length,1);
+ assert.equal((await emails('membership_cancellation_confirmed',member.id)).filter(m=>m.payload.membershipId===id).length,1);
  await pool.query(`UPDATE user_membership SET status='revoked' WHERE membershipid=$1`,[id]);
 });
 test('FR-057: a membership ending inside the notice period keeps its end date',async()=>{
@@ -466,5 +468,5 @@ test('FR-057: cancelling an older membership with no saved plan details still na
  await pool.query('UPDATE user_membership SET plan_snapshot=NULL WHERE membershipid=$1',[id]);
  const tier=(await pool.query('SELECT t.tiername FROM user_membership m JOIN membership_tiers t USING(tierid) WHERE m.membershipid=$1',[id])).rows[0].tiername;
  await new PassBilling(pool).cancelMembership(userId,id);
- assert.equal((await emails('membership_cancelled',userId))[0].payload.membershipName,tier);
+ assert.equal((await emails('membership_cancellation_confirmed',userId))[0].payload.membershipName,tier);
 });

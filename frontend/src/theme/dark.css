@@ -318,6 +318,19 @@
   --desk-muted: var(--muted);
 }
 
+/* ---------- Staff Today and Plans ---------- */
+/* Same local-variable pattern as the desk: row dividers and secondary text. */
+:root[data-theme='dark'] .today {
+  --today-line: var(--dk-hairline);
+  --today-line-strong: rgba(255, 232, 210, 0.18);
+  --today-muted: var(--muted);
+}
+
+:root[data-theme='dark'] .plans {
+  --plans-line: var(--dk-hairline);
+  --plans-muted: var(--muted);
+}
+
 /* ---------- Cards, wells, panels ---------- */
 :root[data-theme='dark'] .panel,
 :root[data-theme='dark'] .summary-card,

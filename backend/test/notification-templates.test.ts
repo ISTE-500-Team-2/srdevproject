@@ -156,6 +156,14 @@ test('turning off auto-renew sends an auto-renew confirmation',()=>{
  const r=renderNotification('membership_cancelled',{membershipName:'Monthly',endsAt:'2026-12-02T05:00:00Z'},context);
  assert.match(r.subject,/Auto-renew is off/);assert.match(r.textContent,/turned off automatic payments/);
 });
+test('cancelling a desk-paid membership confirms the cancellation without mentioning automatic payments',()=>{
+ const r=renderNotification('membership_cancellation_confirmed',{membershipName:'Monthly',endsAt:'2026-12-02T05:00:00Z',
+  instructions:'If you paid at the front desk, ask staff about any refund.'},context);
+ assert.match(r.subject,/Your membership cancellation is confirmed/);
+ assert.match(r.textContent,/stays active until the end date below/);
+ assert.match(r.textContent,/Membership: Monthly/);assert.match(r.textContent,/Ends: /);
+ for(const part of [r.subject,r.textContent,r.htmlContent])assert.doesNotMatch(part,/auto-renew|automatic payments/i);
+});
 test('sponsor requests name people by first name only and link to where the answer lives',()=>{
  // Even if a caller slipped an email into the payload, only the approved first-name fields render.
  const leaked={adultName:'Dana',minorName:'Emma',email:'dana.parent@example.com',adultEmail:'dana.parent@example.com'};

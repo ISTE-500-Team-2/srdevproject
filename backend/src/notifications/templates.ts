@@ -23,6 +23,7 @@ const headings = {
   membership_confirmed: 'Your membership is confirmed',
   membership_issued: 'Your membership is confirmed',
   membership_cancelled: 'Auto-renew is off for your membership',
+  membership_cancellation_confirmed: 'Your membership cancellation is confirmed',
   day_pass_confirmed: 'Your day pass is confirmed',
   day_pass_issued: 'Your day pass is confirmed',
   reservation_confirmed: 'Your reservation is confirmed',
@@ -187,6 +188,9 @@ const copy: Record<NotificationKind, Copy> = {
     intro: () => 'You’re all set. Here are the details.', cta: membership },
   membership_cancelled: { category: 'Membership', status: 'Auto-renew off', tone: 'info',
     intro: () => 'You turned off automatic payments. Your membership ends on the date below and won’t renew after that.', cta: membership },
+  // Desk-paid and free memberships never had automatic payments, so say nothing about them.
+  membership_cancellation_confirmed: { category: 'Membership', status: 'Ending', tone: 'info',
+    intro: () => 'Your membership stays active until the end date below, then it ends.', cta: membership },
   day_pass_confirmed: { category: 'Day pass', status: 'Confirmed', tone: 'success',
     intro: () => 'Here are the details.', cta: ['View membership', '/membership'] },
   day_pass_issued: { category: 'Day pass', status: 'Confirmed', tone: 'success',
