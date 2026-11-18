@@ -137,6 +137,7 @@ function CurrentPlan({
       </div>
       {bar}
       {item.cancellationRequestedAt ? <p className="mr-plan__note">{first} asked to cancel; it ends on the date shown and won’t renew.</p> : null}
+      {item.cardBilled && item.renewalEndsAt ? <p className="mr-plan__note">Auto-renew is off. Card billing ends {day(item.renewalEndsAt)}.</p> : null}
       {held && item.effectiveStatus === "active" ? <p className="mr-plan__note">Still running{item.cardBilled ? " and billing" : ""} while {first} is on hold.</p> : null}
       {canManage && item.status !== "revoked" ? (
         <div className="mr-plan__buttons">
@@ -148,6 +149,11 @@ function CurrentPlan({
           <button type="button" className="today-button" onClick={() => open({ kind: "entitlement", item, entitlementKind: kind })}>
             {kind === "membership" ? "Change membership access" : "Change status"}
           </button>
+          {kind === "membership" && item.autoRenews ? (
+            <button type="button" className="today-button" onClick={() => open({ kind: "stopRenewal", item })}>
+              Stop auto-renew
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>

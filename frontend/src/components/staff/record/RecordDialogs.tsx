@@ -27,6 +27,7 @@ export type DialogState =
   | { kind: "photo"; version: string }
   | { kind: "sell"; renewal?: Entitlement }
   | { kind: "entitlement"; item: Entitlement; entitlementKind: "membership" | "day_pass" }
+  | { kind: "stopRenewal"; item: Entitlement }
   | { kind: "payment"; payment: Payment }
   | { kind: "refund"; payment: Payment }
   | { kind: "assign"; replacement?: NfcCard }
@@ -341,6 +342,25 @@ export function RecordDialogHost({
         </RecordDialog>
       );
     }
+    case "stopRenewal":
+      return (
+        <RecordDialog
+          {...common}
+          title="Stop auto-renew"
+          submitLabel="Stop auto-renew"
+          danger
+          onSubmit={async (f) => {
+            await api(`/admin/users/${id}/memberships/${dialog.item.id}/stop-renewal`, { method: "POST", body: { reason: f.get("reason") } });
+            return `${first}’s auto-renew is off. ${first} gets an email with the last day.`;
+          }}
+        >
+          <p className="mr-dialog__lead">
+            For when {first} can’t do it from their own account. It works as if {first} had: billing ends on the first billing
+            date at least 30 days from today, so there may be one more charge, and the membership runs until then.
+          </p>
+          <Reason />
+        </RecordDialog>
+      );
     case "sell":
       return (
         <Modal open width="regular" title={dialog.renewal ? `Renew ${dialog.renewal.plan?.name ?? "membership"}` : "Sell or record a payment"} onClose={onClose} className="mr-dialog">
