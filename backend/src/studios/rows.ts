@@ -63,6 +63,16 @@ export interface StudioConfigureRequest {
   revision?: unknown;
 }
 
+/**
+ * The rental state a member's cancellation was reviewed against (the refund terms shown depend on
+ * it); StudioService.cancel refuses when the rental has moved on since. Both fields are optional.
+ */
+export interface StudioCancelRequest {
+  [field: string]: unknown;
+  expectedStatus?: unknown;
+  expectedPaymentStatus?: unknown;
+}
+
 /** Studio rental request; each field is validated by StudioService.create. */
 export interface StudioRentalRequest {
   [field: string]: unknown;

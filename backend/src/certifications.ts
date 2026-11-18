@@ -73,6 +73,28 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
       ).rows,
     });
   });
+  // The catalog cards' counts: how many active members are current on each certification,
+  // how many of those run out within 30 days, and how many have lapsed or been revoked.
+  // Certifications nobody holds are left out.
+  router.get("/training/catalog/holders", async (_req, res) => {
+    await actor(pool, authState(res).user.id, "read", "catalog");
+    const { rows } = await pool.query(
+      `SELECT certid AS id,
+         COUNT(*) FILTER (WHERE valid)::int AS current,
+         COUNT(*) FILTER (WHERE valid AND expires_at<=NOW() AT TIME ZONE 'UTC'+INTERVAL '30 days')::int AS "expiringSoon",
+         COUNT(*) FILTER (WHERE NOT valid AND status IS DISTINCT FROM 'revoked')::int AS expired,
+         COUNT(*) FILTER (WHERE status='revoked')::int AS revoked
+       FROM (SELECT uc.certid,uc.status,LEAST(uc.renewaldate,c.enddate) AS expires_at,
+           COALESCE(uc.status='active' AND (uc.renewaldate IS NULL OR uc.renewaldate>=NOW() AT TIME ZONE 'UTC')
+             AND (c.effectivedate IS NULL OR c.effectivedate<=NOW() AT TIME ZONE 'UTC')
+             AND (c.enddate IS NULL OR c.enddate>=NOW() AT TIME ZONE 'UTC'),false) AS valid
+         FROM user_certifications uc JOIN certifications c USING(certid)
+         JOIN "user" u ON u.userid=uc.userid
+         WHERE u.status='active') held
+       GROUP BY certid ORDER BY certid`,
+    );
+    res.json({ data: rows });
+  });
   // Instructors need a narrow identity lookup, not access to the admin user API.
   router.get("/training/members", async (req, res) => {
     await actor(pool, authState(res).user.id, "read", "read");

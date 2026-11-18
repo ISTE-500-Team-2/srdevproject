@@ -198,12 +198,15 @@ export function readerSetupPoll(
             !reader?.last_seen_at ||
             reader.last_seen_at < job.created_at ||
             Date.now() - new Date(reader.last_seen_at).getTime() > 15000
-          )
-            throw new AppError(
-              409,
-              "READER_NOT_VERIFIED",
-              "Reader verification is not complete.",
+          ) {
+            // Not verified yet: keep checking and let the Pi report again. Refusing the whole
+            // poll would also roll back this Pi's presence and every other reader's progress.
+            await db.query(
+              "UPDATE app_reader_setup_job SET status='verifying',updated_at=NOW() WHERE id=$1 AND status<>'verifying'",
+              [job.id],
             );
+            continue;
+          }
           if (reader.enabled || reader.revision !== 1) {
             await db.query(
               "UPDATE app_reader_setup_job SET status='failed',error_code='verification_failed',payload_encrypted=NULL,updated_at=NOW() WHERE id=$1",
@@ -215,6 +218,22 @@ export function readerSetupPoll(
             "UPDATE app_access_reader SET enabled=true,revision=revision+1 WHERE id=$1",
             [job.reader_id],
           );
+          // Setting a device up again replaces its pairing, so the reader it was set up as
+          // before no longer has a device. Turn that one off now, not when setup starts, so a
+          // failed attempt leaves the working reader as it was.
+          const retired = (
+            await db.query(
+              `UPDATE app_access_reader r SET enabled=false,revision=r.revision+1 FROM app_reader_setup_job j
+              WHERE j.reader_id=r.id AND j.device_id=$1 AND j.status='complete' AND j.id<>$2 AND r.enabled
+              RETURNING r.id`,
+              [job.device_id, job.id],
+            )
+          ).rows.map((r) => r.id);
+          if (retired.length)
+            await db.query(
+              "UPDATE app_card_enrollment SET cancelled_at=NOW() WHERE reader_id=ANY($1) AND completed_at IS NULL AND cancelled_at IS NULL",
+              [retired],
+            );
         }
         if (["cancelled", "expired"].includes(u.status)) continue; // Admin/server-owned transitions.
         await db.query(
@@ -281,12 +300,15 @@ export function readerSetupRoutes(
         [ids],
       )
     ).rows;
+    // A device that finished setup stays listed, named after the reader it is set up as, so
+    // it can be set up again after a Wi-Fi change, a reset or a move.
     const devices = (
       await pool.query(
         `SELECT d.gateway_id AS "gatewayId",d.device_id AS id,d.model,d.firmware,d.transport,
-      d.last_seen_at AS "lastSeenAt",d.last_seen_at>NOW()-INTERVAL '12 seconds' AS connected
-      FROM app_reader_setup_device d WHERE d.gateway_id=ANY($1) AND NOT EXISTS
-      (SELECT 1 FROM app_reader_setup_job j WHERE j.gateway_id=d.gateway_id AND j.device_id=d.device_id AND j.status='complete')
+      d.last_seen_at AS "lastSeenAt",d.last_seen_at>NOW()-INTERVAL '12 seconds' AS connected,
+      (SELECT r.name FROM app_reader_setup_job j JOIN app_access_reader r ON r.id=j.reader_id
+        WHERE j.device_id=d.device_id AND j.status='complete' ORDER BY j.created_at DESC LIMIT 1) AS "readerName"
+      FROM app_reader_setup_device d WHERE d.gateway_id=ANY($1)
       ORDER BY d.gateway_id,d.device_id`,
         [ids],
       )
@@ -376,10 +398,11 @@ export function readerSetupRoutes(
             "USB_REQUIRED",
             "Connect this reader to the Pi by USB to securely finish setup.",
           );
+        // A finished setup does not block another: completing the new one retires that reader.
         const existing = (
           await db.query(
             `SELECT id FROM app_reader_setup_job WHERE gateway_id=$1 AND device_id=$2
-        AND status NOT IN ('failed','cancelled','expired')`,
+        AND status NOT IN ('complete','failed','cancelled','expired')`,
             [gatewayId, detectedId],
           )
         ).rows[0];

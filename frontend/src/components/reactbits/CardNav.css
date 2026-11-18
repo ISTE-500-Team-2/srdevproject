@@ -79,8 +79,7 @@
 
 .card-nav__menu:focus-visible,
 .card-nav__logo:focus-visible,
-.card-nav__cta:focus-visible,
-.card-nav__link:focus-visible {
+.card-nav__cta:focus-visible {
   outline: 2px solid var(--cn-ring);
   outline-offset: 2px;
 }
@@ -215,6 +214,8 @@
   padding: 0 var(--cn-inset) var(--cn-inset);
   box-sizing: border-box;
   perspective: 900px;
+  /* When CardNav.jsx caps a tall menu to the screen, scrolling to its end stays in the menu. */
+  overscroll-behavior: contain;
 }
 
 .card-nav__content {
@@ -324,6 +325,13 @@
 }
 
 .card-nav__link:hover {
+  opacity: 1;
+}
+
+/* Links sit on cards that can be tinted any colour; a ring in the link's own ink reads on all of them. */
+.card-nav__link:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
   opacity: 1;
 }
 

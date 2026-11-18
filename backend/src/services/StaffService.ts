@@ -14,6 +14,7 @@ import { PermissionModel } from "../models/PermissionModel.js";
 import { planInput } from "../staffDomain.js";
 import { retireSupersededPolicies } from "../policyLifecycle.js";
 import { AccessService } from "./AccessService.js";
+import { assertNoCardBillingFrom } from "../billing/openBilling.js";
 import type { PolicyScope } from "../staffDomain.js";
 
 const missing = () =>
@@ -406,6 +407,8 @@ export class StaffService {
             "MEMBERSHIP_OVERLAP",
             "An active or suspended membership already covers part of that period. For renewal, start at the existing end time.",
           );
+        // A card subscription or checkout would charge again for these dates.
+        await assertNoCardBillingFrom(db, userId, input.startsAt);
         id = await model.createMembership(
           userId,
           plan,
