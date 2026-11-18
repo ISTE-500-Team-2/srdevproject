@@ -59,7 +59,13 @@ export const primaryRoleSql = (user: string) =>
   `CASE WHEN ${user}.primary_role IN ('subscriber','day_pass') THEN 'member' ELSE ${user}.primary_role END`;
 export const storedRolesSql = (user: string) => `COALESCE((SELECT json_agg(k.role ORDER BY k.role) FROM (
     SELECT r.role FROM user_role ur JOIN role r USING(roleid) WHERE ur.userid=${user}.userid AND r.role NOT IN ('subscriber','day_pass')
-    UNION SELECT 'member' WHERE ${user}.primary_role IN ('subscriber','day_pass')) k),'[]')`;
+    UNION SELECT 'member' WHERE ${user}.primary_role IN ('subscriber','day_pass')
+    /* An account an older app version left holding only automatic roles reads as community
+       member, which is what those roles granted. */
+    UNION SELECT 'member' WHERE EXISTS (SELECT 1 FROM user_role ur JOIN role r USING(roleid)
+        WHERE ur.userid=${user}.userid AND r.role IN ('subscriber','day_pass'))
+      AND NOT EXISTS (SELECT 1 FROM user_role ur JOIN role r USING(roleid)
+        WHERE ur.userid=${user}.userid AND r.role NOT IN ('subscriber','day_pass'))) k),'[]')`;
 
 const personColumns = (zone: string) => `u.userid AS id,u.firstname AS "firstName",u.lastname AS "lastName",u.email,u.phone,u.status,u.statusdesc AS "accountReason",
   ${primaryRoleSql("u")} AS "primaryRole",u.is_student AS "isStudent",u.accessstatus AS "accessStatus",u.accessreason AS "accessReason",u.revision,

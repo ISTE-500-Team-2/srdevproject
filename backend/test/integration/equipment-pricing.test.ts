@@ -120,8 +120,10 @@ test('rescheduling a waived booking keeps the waiver; a newly priced booking get
 async function waitForCollectionToBlock(editorPid: number) {
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
+    // The editor holds only the member row's share lock, so any session it blocks is waiting for
+    // that lock. Query text is not matched: pg_stat_activity truncates long member queries.
     const blocked = await pool.query(`SELECT pid FROM pg_stat_activity WHERE datname=current_database()
-      AND query LIKE '%FOR %UPDATE OF u%' AND $1=ANY(pg_blocking_pids(pid))`, [editorPid]);
+      AND wait_event_type='Lock' AND $1=ANY(pg_blocking_pids(pid))`, [editorPid]);
     if (blocked.rowCount) return;
     await new Promise(resolve => setTimeout(resolve, 10));
   }
