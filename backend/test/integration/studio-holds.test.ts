@@ -360,7 +360,82 @@ test("card holds whose Stripe verdict never arrived are settled once their deadl
     logged.mock.restore();
     checkout.retrieve = retrieve;
   }
+  // The failure is backed off; once that wait is over, the next pass settles the hold.
+  assert.equal((await row(stuck.id)).reconcile_failures, 1);
+  await pool.query("UPDATE app_studio_rental SET reconcile_after=now()-interval '1 second' WHERE id=$1", [stuck.id]);
   await service.reconcileLapsedHolds();
   assert.equal((await row(stuck.id)).status, "expired", "an open checkout past the deadline is expired, then released");
   assert.ok(expired.includes((await row(stuck.id)).checkout_id));
+});
+
+test("lapsed holds that fail on every pass back off, so a newer lapsed hold behind them is still settled", async () => {
+  // Twenty older holds whose checkout Stripe no longer has (test data deleted or the key moved to
+  // another account), and a newer one whose checkout expired but whose webhook was lost.
+  const holds: { id: number; checkout: string }[] = [];
+  for (let i = 0; i < 21; i++) {
+    const checkoutId = `cs_test_backoff_${i}_${randomBytes(4).toString("hex")}`;
+    const id = (
+      await pool.query(
+        `INSERT INTO app_studio_rental(studio_id,userid,starts_on,ends_on,amount_cents,cancellation_policy,payment_method,request_key,checkout_id,hold_until)
+         VALUES(8,$1,DATE '2033-01-01'+make_interval(months=>$2),DATE '2033-01-01'+make_interval(months=>$2+1),20000,'full_before_start','stripe_test',$3,$4,now()-make_interval(mins=>60-$2))
+         RETURNING id`,
+        [member, i, randomUUID(), checkoutId],
+      )
+    ).rows[0].id;
+    sessions.set(checkoutId, {
+      id: checkoutId, object: "checkout.session", livemode: false, mode: "payment", status: "expired", payment_status: "unpaid",
+      amount_total: 20000, currency: "usd", client_reference_id: String(id), metadata: { studioRentalId: String(id) },
+      payment_intent: null, url: null,
+    });
+    holds.push({ id, checkout: checkoutId });
+  }
+  const blocked = holds.slice(0, 20),
+    abandoned = holds[20]!;
+  const missing = new Set(blocked.map((hold) => hold.checkout)),
+    lookups = new Map<string, number>();
+  const looked = (hold: { checkout: string }) => lookups.get(hold.checkout) ?? 0;
+  const backoff = async () =>
+    (
+      await pool.query(
+        `SELECT reconcile_failures AS failures,round(extract(epoch FROM reconcile_after-now())/60)::int AS minutes
+         FROM app_studio_rental WHERE id=ANY($1) ORDER BY id`,
+        [blocked.map((hold) => hold.id)],
+      )
+    ).rows;
+  const retrieve = checkout.retrieve;
+  checkout.retrieve = async (id: string) => {
+    lookups.set(id, (lookups.get(id) ?? 0) + 1);
+    if (missing.has(id))
+      throw Object.assign(new Error("No such checkout.session"), { type: "StripeInvalidRequestError", code: "resource_missing" });
+    return sessions.get(id);
+  };
+  const logged = mock.method(console, "error", () => {});
+  try {
+    // The batch is full of failing holds, oldest first; each failure is recorded and backed off.
+    await service.reconcileLapsedHolds();
+    assert.equal(looked(abandoned), 0);
+    assert.deepEqual(await backoff(), blocked.map(() => ({ failures: 1, minutes: 1 })));
+    assert.equal((await row(abandoned.id)).status, "pending");
+
+    // While they wait out their backoff, the newer hold gets a slot and is released.
+    await service.reconcileLapsedHolds();
+    assert.equal(looked(abandoned), 1);
+    assert.equal((await row(abandoned.id)).status, "expired");
+    assert.ok(blocked.every((hold) => looked(hold) === 1), "failing holds are not rechecked during their backoff");
+
+    // Each further failure waits twice as long, and only failing holds are retried.
+    await pool.query("UPDATE app_studio_rental SET reconcile_after=now()-interval '1 second' WHERE id=ANY($1)", [
+      blocked.map((hold) => hold.id),
+    ]);
+    await service.reconcileLapsedHolds();
+    assert.deepEqual(await backoff(), blocked.map(() => ({ failures: 2, minutes: 2 })));
+    assert.equal(logged.mock.callCount(), 40);
+
+    // Finish card payment still checks a backed-off hold at once.
+    missing.delete(blocked[0]!.checkout);
+    assert.equal((await service.syncPayment(member, blocked[0]!.id)).status, "expired");
+  } finally {
+    logged.mock.restore();
+    checkout.retrieve = retrieve;
+  }
 });

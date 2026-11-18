@@ -571,20 +571,33 @@ export class StudioService {
    * Card holds past their deadline that still wait on Stripe's verdict because its expired or
    * completed webhook was lost or is late. Each is reconciled as Finish card payment would (confirmed
    * if paid, released once its checkout has expired), so one lost event can't keep a studio blocked
-   * until the member comes back. A provider error leaves that hold for the next pass.
+   * until the member comes back. A provider error leaves that hold for a later pass: it waits out a
+   * backoff, and holds that have never failed go first, so a few holds that fail on every pass can't
+   * fill every slot of the batch. Finish card payment still checks a backed-off hold at once.
    */
   async reconcileLapsedHolds() {
     if (!this.stripe) return;
     const lapsed = (
       await this.pool.query<StudioRentalRow>(
-        "SELECT * FROM app_studio_rental WHERE status='pending' AND payment_method='stripe_test' AND checkout_id IS NOT NULL AND hold_until<=now() ORDER BY hold_until LIMIT 20",
+        `SELECT * FROM app_studio_rental WHERE status='pending' AND payment_method='stripe_test' AND checkout_id IS NOT NULL AND hold_until<=now()
+           AND (reconcile_after IS NULL OR reconcile_after<=now())
+         ORDER BY reconcile_failures,hold_until LIMIT 20`,
       )
     ).rows;
     for (const r of lapsed)
-      await this.reconcileHold(r).catch((error: unknown) =>
+      await this.reconcileHold(r).catch(async (error: unknown) => {
         // Log only the error class and SQLSTATE or Stripe error type, never messages or bodies.
-        console.error("Studio hold reconciliation deferred", { rentalId: r.id, ...errorIdentifier(error) }),
-      );
+        console.error("Studio hold reconciliation deferred", { rentalId: r.id, ...errorIdentifier(error) });
+        // Wait longer after each failure (1 minute, doubling, at most an hour) before the next check.
+        await this.pool
+          .query(
+            `UPDATE app_studio_rental SET reconcile_failures=reconcile_failures+1,
+               reconcile_after=now()+LEAST(interval '1 hour',interval '1 minute'*power(2,LEAST(reconcile_failures,6)))
+             WHERE id=$1 AND status='pending'`,
+            [r.id],
+          )
+          .catch(() => undefined);
+      });
   }
   /**
    * Brings a pending card hold in line with its checkout: confirms it if paid, releases it once the
