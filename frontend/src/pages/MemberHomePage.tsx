@@ -300,8 +300,8 @@ export function MemberHomePage() {
                   <b>
                     {dateTime(last.checkedInAt)} · {last.location}
                   </b>
-                  {/* Members now check in only at the reader, so a newer non-NFC check-in was staff at the
-                      desk; older ones may be the member's own web check-in. Both share one origin. */}
+                  {/* Members now check in only at the reader, so any other check-in was staff at the desk
+                      ('desk'), or an older web check-in by the member or staff ('portal'). */}
                   <small>{last.method === 'nfc' ? 'With your NFC tag' : 'Without your NFC tag'}</small>
                 </p>
               ) : summary.canCheckIn ? (

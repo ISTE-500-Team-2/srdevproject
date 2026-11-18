@@ -420,7 +420,7 @@ export class ReservationService {
       // docs/equipment-payments.md). Only staff reach here, so the message speaks to them.
       const checkout = (await db.query('SELECT status,payer_id FROM app_equipment_checkout WHERE reservation_id=$1', [reservationId])).rows[0];
       if (checkout?.status === 'pending')
-        throw pendingCheckoutRefusal({ userId: before.userId, payerId: checkout.payer_id }, actorId, 'change');
+        throw await pendingCheckoutRefusal(db, { userId: before.userId, payerId: checkout.payer_id }, actorId, 'change');
       if (checkout)
         throw new AppError(409, 'PAYMENT_WORKFLOW_REQUIRED', 'This booking was paid online, so its time, machine and member can’t be changed. Cancel it and rebook with the member instead; refunds aren’t automatic.');
       const expectedRevision = positiveId(input.expectedRevision, "revision");

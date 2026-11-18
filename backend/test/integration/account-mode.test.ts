@@ -88,6 +88,9 @@ test('changes made in an open account are logged under the staff member',async()
   const onBehalf=await as(admin).post('/me/check-ins',{roomId:room});
   assert.equal(onBehalf.status,201,JSON.stringify(onBehalf.body));
   assert.equal(await checkIns(),before+1);
+  // It is staff at the front desk, so the Today board shows it as a desk check-in, not the member's own.
+  assert.deepEqual((await pool.query('SELECT origin,statusdesc FROM check_in WHERE checkinid=$1',[onBehalf.body.data.id])).rows,
+    [{origin:'desk',statusdesc:'Checked in at the front desk'}]);
   assert.deepEqual(await audits('check_in.created'),[{actorId:admin.user.id,subjectId:member.user.id}]);
   // The automatic database row for the new check-in names the admin too.
   const inserted=await pool.query(`SELECT actor_id AS "actorId" FROM app_staff_audit WHERE action='check_in.insert' ORDER BY id DESC LIMIT 1`);

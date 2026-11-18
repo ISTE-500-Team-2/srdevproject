@@ -59,7 +59,10 @@ export class MemberModel {
       )
     ).rows;
   }
-  /** `origin` is 'portal' when members check themselves in and 'desk' when staff check them in. */
+  /**
+   * `origin` is 'desk' when staff check a member in, the only web check-in now: members tap their
+   * NFC tag at a reader. 'portal' is how web check-ins were stored before migration 051.
+   */
   async createCheckIn(userId: number, location: string, roomId: number | null = null,
     buildingId: number | null = null, equipmentId: number | null = null, reservationId: number | null = null,
     origin: Exclude<CheckInOrigin, 'nfc'> = 'portal') {

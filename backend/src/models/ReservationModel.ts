@@ -61,19 +61,31 @@ export type ReservationWrite = ReservationResource & {
  * Staff can't cancel or change a booking while its online checkout is open. Only the payer can
  * cancel that checkout (from My reservations on the Equipment page), which releases the booking.
  * The payer is the member, or the staff member who booked for them, possibly the one asking.
+ * View as opens only plain member accounts (accountModeRefusal), so staff are pointed to it only
+ * for a member's own checkout; a staff, instructor or admin account's own checkout is left to them.
  */
-export function pendingCheckoutRefusal(booking: { userId: number; payerId: number | null }, actorId: number | undefined, action: 'cancel' | 'change') {
-  const message = booking.payerId != null && booking.payerId === actorId
+export async function pendingCheckoutRefusal(db: Database, booking: { userId: number; payerId: number | null },
+  actorId: number | undefined, action: 'cancel' | 'change') {
+  const mine = booking.payerId != null && booking.payerId === actorId;
+  const ownAccount = !mine && booking.payerId === booking.userId;
+  const member = ownAccount && !(await db.query(
+    "SELECT 1 FROM user_role ur JOIN role r USING(roleid) WHERE ur.userid=$1 AND r.role IN ('staff','admin','instructor')",
+    [booking.userId])).rowCount;
+  const message = mine
     ? action === 'cancel'
       ? 'You opened an online checkout for this booking, so it can’t be cancelled here. To release it, choose Cancel checkout under My reservations on the Equipment page.'
       : 'You opened an online checkout for this booking, so it can’t be changed. Choose Cancel checkout under My reservations on the Equipment page, then book again.'
-    : booking.payerId === booking.userId
+    : member
       ? action === 'cancel'
         ? 'This booking is waiting for the member’s online payment, so it can’t be cancelled yet. To release it now, open the account that booked it with View as and choose Cancel checkout on the Equipment page. If they pay, you can cancel it then; if their checkout expires unpaid, the booking is released on its own.'
         : 'This booking is waiting for the member’s online payment, so it can’t be changed yet.'
-      : action === 'cancel'
-        ? 'This booking is waiting on an online checkout another staff member opened, so it can’t be cancelled yet. They can cancel that checkout from their Equipment page; if it expires unpaid, the booking is released on its own.'
-        : 'This booking is waiting on an online checkout another staff member opened, so it can’t be changed yet.';
+      : ownAccount
+        ? action === 'cancel'
+          ? 'This booking is waiting on an online checkout the person who booked it opened, so it can’t be cancelled yet. They can cancel that checkout from their Equipment page; if it expires unpaid, the booking is released on its own.'
+          : 'This booking is waiting on an online checkout the person who booked it opened, so it can’t be changed yet.'
+        : action === 'cancel'
+          ? 'This booking is waiting on an online checkout another staff member opened, so it can’t be cancelled yet. They can cancel that checkout from their Equipment page; if it expires unpaid, the booking is released on its own.'
+          : 'This booking is waiting on an online checkout another staff member opened, so it can’t be changed yet.';
   return new AppError(409, 'PAYMENT_WORKFLOW_REQUIRED', message);
 }
 
@@ -292,7 +304,7 @@ export class ReservationModel {
     const before = await this.find(id, true);
     if (!before || (before.status !== 'confirmed' && before.status !== 'pending')) return null;
     if (before.paymentStatus === 'pending' && before.payerId != null)
-      throw pendingCheckoutRefusal(before, actorId, 'cancel');
+      throw await pendingCheckoutRefusal(this.db, before, actorId, 'cancel');
     await this.db.query(
       `UPDATE reservation SET status='cancelled',statusdesc='Cancelled by staff' WHERE reservationid=$1`,
       [id],

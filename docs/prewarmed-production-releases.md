@@ -100,9 +100,14 @@ remain a hard prerequisite.
 
 ## Migrations 045 to 052: one new runtime grant
 
-Apply `045_reader_setup_again.sql` through `050_class_room_cooldown.sql` with the
-existing owner migration process on both the public and demo databases. They add
-no tables or sequences. One grant is new: every minute the application now
+Apply `045_reader_setup_again.sql` through `052_studio_hold_reconcile_backoff.sql`
+with the existing owner migration process on both the public and demo databases.
+The read-only rollout gate refuses the release while any of them is missing. They
+add no tables or sequences. `051_desk_check_in_origin.sql` re-checks every
+existing `check_in` row against the widened origin check, and its lock makes new
+check-ins wait until the migration commits; `052_studio_hold_reconcile_backoff.sql`
+likewise briefly locks `app_studio_rental` and `app_equipment_checkout` to replace
+their audit triggers. One grant is new: every minute the application now
 compacts ended reader lease renewals (`backend/src/readerLeaseCompaction.ts`),
 which updates and deletes rows in `app_device_access_event`. Before this release
 it only inserted and read them. On each database whose runtime role has only

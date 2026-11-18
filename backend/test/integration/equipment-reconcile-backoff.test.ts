@@ -69,6 +69,10 @@ test('checkouts that keep failing back off, so an abandoned hold behind them is 
     round(extract(epoch FROM reconcile_after-now())/60)::int AS minutes FROM app_equipment_checkout WHERE reservation_id=ANY($1) ORDER BY reservation_id`,
     [blocked.map(hold => hold.id)])).rows;
   const looked = (hold: { checkout: string }) => lookups.get(hold.checkout) ?? 0;
+  // Database writes the change log shows for the stuck holds; the backoff bookkeeping is not one.
+  const changes = async () => Number((await pool.query(`SELECT count(*) FROM app_staff_audit
+    WHERE action='app_equipment_checkout.update' AND entity_id=ANY($1)`, [blocked.map(hold => hold.id)])).rows[0].count);
+  const recorded = await changes();
 
   try {
     lookups.clear();
@@ -92,6 +96,8 @@ test('checkouts that keep failing back off, so an abandoned hold behind them is 
     // The member's own view still checks their own holds, so a fixed problem clears without waiting.
     await billing.reconcile(member);
     assert.ok(blocked.every(hold => looked(hold) === 3));
+    // A checkout that can never be settled would otherwise add an audit row on every failed pass.
+    assert.equal(await changes(), recorded, 'backing off a checkout writes nothing to the append-only audit');
   } finally {
     error.mock.restore();
   }

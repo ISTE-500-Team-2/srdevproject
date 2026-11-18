@@ -251,8 +251,9 @@ export class MemberController {
     const record = await transaction(this.pool, async (db) => {
       const access = new AccessService(db, this.timeZone);
       const grant = await access.accessForTarget(userId,target);
+      // Only staff reach this, so it is a front-desk check-in, as at the member record.
       const checkIn = await new MemberModel(db, this.timeZone).createCheckIn(userId,grant.location,target.roomId ?? null,
-        grant.buildingId,target.equipmentId ?? null,grant.reservationId);
+        grant.buildingId,target.equipmentId ?? null,grant.reservationId,'desk');
       await new StaffModel(db, this.timeZone).audit(
         userId,
         userId,
