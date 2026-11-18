@@ -405,7 +405,9 @@ test('a page loaded for one person is rebuilt, not kept, when another person is 
   await waitFor(()=>expect(authProbe.current!.user?.id).toBe(2));
   await waitFor(()=>expect(draft()).toBe(''));
 });
-test('staff opening a member’s account keep the page in place',async()=>{
+// Only the guard's frame: the staff workspace must not remount (arriving there closes
+// an open account). Member pages are rebuilt per open account (AppShell.test.tsx).
+test('staff opening a member’s account keep the frame the guard shows in place',async()=>{
   person=2;roles=['staff'];mount();await screen.findByText('Private profile');
   fireEvent.change(screen.getByLabelText('Unsaved name'),{target:{value:'Keep my edit'}});
   // Staff member 2 opens member 1's account.

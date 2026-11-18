@@ -65,6 +65,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState('');
   const [demoLogin, setDemoLogin] = useState(false);
   const [signedOut, setSignedOut] = useState(false);
+  // Changes name the account whose pages are on screen, so the tab's open account is set
+  // when they commit (the member site rebuilds its page for it in the same commit, see
+  // AppShell), not when a session read arrives: until then the page showing belongs to the
+  // account before, and a change sent from it must say so for the server to refuse it.
+  const subject = user?.id ?? null;
+  useLayoutEffect(() => { setAccountSubject(subject); }, [subject]);
   const revision = useRef(0);
   const acceptSession = useCallback((session: Session) => {
     revision.current++;
@@ -72,7 +78,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSignedOut(false);
     if (session.accessToken) setAccessToken(session.accessToken);
     setCsrfToken(session.csrfToken);
-    setAccountSubject(session.user.id);
     setUser(session.user);
     setActor(session.actingAs?.actor ?? null);
     if (session.notification) setNotification(session.notification);
@@ -95,7 +100,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       if (requestRevision !== revision.current) return;
       if (err instanceof ApiError && err.status === 401) {
-        setAccountSubject(null);
         setUser(null);
         setActor(null);
         setCsrfToken(null);
@@ -136,7 +140,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
       setError('');
       setNotification(null);
-      setAccountSubject(null);
       setUser(null);
       setActor(null);
       setCsrfToken(null);
@@ -182,7 +185,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAccessToken(null);
     // Same render as clearing the user, so the route guard never sees one without the other.
     setSignedOut(true);
-    setAccountSubject(null);
     setUser(null);
     setActor(null);
     setNotification(null);
