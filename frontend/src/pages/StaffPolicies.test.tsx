@@ -4,8 +4,9 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import type { ReactNode } from "react";
 import { StaffPolicies, suggestVersion } from "./StaffPolicies";
 import { useApi } from "../lib/useApi";
-import { api } from "../lib/api";
+import { api, ApiError } from "../lib/api";
 import { documentText } from "../lib/documentText";
+import { localInput } from "../lib/display";
 const auth = vi.hoisted(() => ({ user: { roles: ['admin'] } }));
 vi.mock('../context/AuthContext', () => ({ useAuth: () => auth }));
 vi.mock('../lib/useApi', () => ({ useApi: vi.fn() }));
@@ -112,6 +113,21 @@ test('administrators can publish an equipment waiver without making it a day-pas
   expect(within(editor).getByText(/Until they do, they can't book or use equipment/)).toBeTruthy();
   fireEvent.submit(within(editor).getByRole('button', { name: 'Publish version' }).closest('form')!);
   await waitFor(() => expect(api).toHaveBeenCalledWith('/admin/policies', expect.objectContaining({ body: expect.objectContaining({ scope: 'equipment' }) })));
+});
+
+test('a new version cannot start before the version in force, and the server saying so keeps the form', async () => {
+  vi.mocked(useApi).mockImplementation(path => ({ data: path === '/admin/policies' ? [current] : null, loading: false, refreshing: false, stale: false, error: '', reload: vi.fn() }));
+  vi.mocked(api).mockRejectedValue(new ApiError(409, 'POLICY_STARTS_TOO_EARLY', 'The version now in force started Jan 1, 2020. Choose a start at or after that time.', 'effectiveAt'));
+  render(<StaffPolicies />);
+  fireEvent.click(screen.getByRole('button', { name: 'Publish new version' }));
+  const dialog = screen.getByRole('dialog');
+  const startsAt = within(dialog).getByLabelText('Takes effect') as HTMLInputElement;
+  expect(startsAt.min).toBe(localInput(new Date(current.effectiveAt)));
+  fireEvent.change(within(dialog).getByLabelText(/Approval/), { target: { value: 'Board vote' } });
+  fireEvent.change(within(dialog).getByLabelText(/Reason/), { target: { value: 'Correct the wording' } });
+  fireEvent.submit(startsAt.closest('form')!);
+  expect((await within(dialog).findByRole('alert')).textContent).toContain('The version now in force started Jan 1, 2020.');
+  expect(screen.getByRole('dialog')).toBe(dialog);
 });
 
 test('publishing a new equipment version retains its applicability', () => {

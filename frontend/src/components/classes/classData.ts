@@ -49,6 +49,8 @@ export type ScheduleSeed = Partial<{
   description: string;
   certificationId: number;
   instructorId: number;
+  /** Shown for the seeded instructor, so staff see a name rather than an ID. */
+  instructorName: string;
   roomId: number;
   capacity: number;
   start: string;
@@ -80,6 +82,8 @@ export function dateParts(value: string) {
 export const timeRange = (c: ClassRecord) => `${timeOnly(c.startsAt)} – ${timeOnly(c.endsAt)}`;
 export const longDate = (value: string) =>
   new Date(value).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+/** Names one session for buttons, so same-titled classes on different days can be told apart. */
+export const sessionName = (c: Pick<ClassRecord, "title" | "startsAt">) => `${c.title} on ${longDate(c.startsAt)}`;
 export const monthLabel = (value: string) =>
   new Date(value).toLocaleDateString("en-US", { month: "long", year: "numeric" });
 export function seatText(c: { capacity: number; enrolled: number }) {

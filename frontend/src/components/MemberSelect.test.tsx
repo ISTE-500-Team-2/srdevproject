@@ -121,6 +121,25 @@ test("Escape closes the matches, not the dialog the field is in", async () => {
   expect(close).toHaveBeenCalledOnce();
 });
 
+test("in an instructor-only picker, Escape also closes the suggestions without closing the dialog", async () => {
+  vi.mocked(api).mockResolvedValue({ items: [{ id: 12, name: "Jordan Example", email: "jordan@example.invalid" }], hasMore: false });
+  const user = userEvent.setup();
+  const close = vi.fn();
+  render(
+    <Modal open title="Schedule a class" onClose={close}>
+      <MemberSelect name="instructorId" label="Instructor" instructorsOnly />
+    </Modal>,
+  );
+  await user.type(screen.getByRole("combobox", { name: "Instructor" }), "Jordan");
+  await screen.findByRole("option", { name: /Jordan Example/ });
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("listbox")).toBeNull();
+  expect(close).not.toHaveBeenCalled();
+  // With the suggestions already closed, Escape closes the dialog as usual.
+  await user.keyboard("{Escape}");
+  expect(close).toHaveBeenCalledTimes(1);
+});
+
 test("after a pick, focus moves to the choice and the choice is announced", async () => {
   vi.mocked(api).mockResolvedValue({ items: [{ id: 12, name: "Jordan Example", email: "jordan@example.invalid" }], hasMore: false });
   const user = userEvent.setup();

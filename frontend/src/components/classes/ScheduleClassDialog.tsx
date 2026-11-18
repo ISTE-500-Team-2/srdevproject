@@ -169,7 +169,7 @@ export function ScheduleClassDialog({
     changed(true);
   }
   return (
-    <Modal open title="Schedule a class" onClose={onClose} dirty={dirty}>
+    <Modal open title="Schedule a class" onClose={onClose} dirty={dirty} dismissible={!busy}>
       {(requestClose) => <form className="class-form" onSubmit={(e) => void submit(e)}>
         {error ? (
           <p className="class-banner class-banner--error" role="alert">
@@ -375,6 +375,11 @@ export function ScheduleClassDialog({
               label="Instructor"
               instructorsOnly
               value={form.instructorId}
+              selectedMember={
+                seed.instructorId && seed.instructorName
+                  ? { id: seed.instructorId, name: seed.instructorName, email: "" }
+                  : undefined
+              }
               onChange={(value) => set("instructorId", value)}
             />
             {instructorError ? (
@@ -397,7 +402,7 @@ export function ScheduleClassDialog({
         </fieldset>
         <div className="class-dialog-actions">
           <span>Members see it once published.</span>
-          <button type="button" className="button button--quiet" onClick={requestClose}>
+          <button type="button" className="button button--quiet" onClick={requestClose} disabled={busy}>
             Cancel
           </button>
           <button

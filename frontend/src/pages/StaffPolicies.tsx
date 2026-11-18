@@ -114,6 +114,9 @@ function PublishPanel({
       if (run === importRun.current) setImporting(false);
     }
   };
+  // A version starting before the one in force would be retired the moment it's published.
+  const inForceSince = waiver?.current?.effectiveAt ? Date.parse(waiver.current.effectiveAt) : null;
+  const earliestStart = inForceSince === null ? undefined : localInput(new Date(Math.ceil(inForceSince / 60000) * 60000));
   // A document dropped anywhere on the form fills the text box, on either tab. Dropped anywhere else,
   // the browser would open the file in place of the app and lose the draft, so the rest of the
   // screen refuses the drop and shows the no-drop cursor. Drags the form already took are left alone.
@@ -280,7 +283,7 @@ function PublishPanel({
           <div className="cw-hinted">
             <label className="cw-field">
               <span>Takes effect</span>
-              <input type="datetime-local" value={effectiveAt} onChange={(e) => setEffectiveAt(e.target.value)} required />
+              <input type="datetime-local" value={effectiveAt} min={earliestStart} onChange={(e) => setEffectiveAt(e.target.value)} required />
             </label>
             <small>Members keep the current version until then.</small>
           </div>
