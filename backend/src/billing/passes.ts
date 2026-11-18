@@ -23,7 +23,7 @@ import {providerTransaction} from './providerGate.js';
 /** An app_pass_checkout row. */
 interface PassCheckoutRow {id:string;userid:number;tierid:number;valid_date:Date;plan_snapshot:Plan;amount_cents:number;
  status:'pending'|'paid'|'cancelled'|'expired';checkout_id:string|null;payment_intent:string|null;pass_id:number|null;payment_id:number|null;
- cancel_requested_at:Date|null;refund_id:string|null;refund_status:string|null;refund_needs_review:boolean;refund_reconcile_after:Date|null;checkout_has_expiry:boolean;checkout_email:string|null;checkout_expires_at:Date|null;created_at:Date;}
+ cancel_requested_at:Date|null;refund_id:string|null;refund_status:string|null;refund_needs_review:boolean;refund_review_inconsistent:boolean;refund_reconcile_after:Date|null;checkout_has_expiry:boolean;checkout_email:string|null;checkout_expires_at:Date|null;created_at:Date;}
 /** Day-pass checkout request; each field is validated by PassBilling.checkout. */
 export interface PassCheckoutRequest {[field:string]:unknown;validDate?:unknown;planId?:unknown;expectedRevision?:unknown;pricingRevision?:unknown;amountCents?:unknown;}
 /** Free monthly membership request; each field is validated by PassBilling.freeMembership. */
@@ -304,7 +304,7 @@ export class PassBilling {
            AND a.entity_id=c.payment_id AND a.action='billing.refund.reviewed'
            AND a.after_state->>'checkoutId'=c.id::text AND a.after_state->>'keptPassId'=c.pass_id::text))
     ORDER BY p.paymentdate,c.id LIMIT 20 FOR UPDATE OF c SKIP LOCKED
-   ) UPDATE app_pass_checkout c SET refund_needs_review=true FROM candidates WHERE c.id=candidates.id RETURNING c.id`);
+   ) UPDATE app_pass_checkout c SET refund_needs_review=true,refund_review_inconsistent=false FROM candidates WHERE c.id=candidates.id RETURNING c.id`);
   for(const {id} of flagged.rows)
    console.error('Day-pass payment requires staff reconciliation',{checkoutId:id,code:'RECONCILE_REQUIRED'});
  }
@@ -323,7 +323,7 @@ export class PassBilling {
    // A truncated search proves nothing. Keep unbound pending checkouts queued at a low cadence.
    if(row.status==='pending'&&!row.checkout_id&&!row.payment_intent&&!row.payment_id&&
       (row.refund_needs_review||error instanceof AppError&&error.code==='CHECKOUT_SEARCH_LIMIT')){
-    await db.query("UPDATE app_pass_checkout SET refund_needs_review=true,refund_reconcile_after=now()+interval '1 hour' WHERE id=$1",[id]);
+    await db.query("UPDATE app_pass_checkout SET refund_needs_review=true,refund_review_inconsistent=false,refund_reconcile_after=now()+interval '1 hour' WHERE id=$1",[id]);
     return false;
    }
    const result=await db.query<{due:Date|null}>(`WITH retry_window AS (
@@ -353,7 +353,7 @@ export class PassBilling {
    ?await new StaffModel(db,this.zone).createPayment(r.userid,null,(r.amount_cents/100).toFixed(2),'paid','card',
     r.checkout_id,'Online day pass awaiting reconciliation',r.userid)
    :null);
-  await db.query(`UPDATE app_pass_checkout SET payment_id=$2,refund_needs_review=true,refund_reconcile_after=NULL WHERE id=$1`,[r.id,payment]);
+  await db.query(`UPDATE app_pass_checkout SET payment_id=$2,refund_needs_review=true,refund_review_inconsistent=false,refund_reconcile_after=NULL WHERE id=$1`,[r.id,payment]);
  }
  private async reconcileRefund(id:string){
   let token:string|undefined;
@@ -444,9 +444,11 @@ export class PassBilling {
   if(!outcome&&refundingUnissued&&!r.refund_needs_review&&!r.refund_id)
    outcome=await this.submitRefund(db,r,refunds);
   const pending=refunds.data.some(refundPending)||!!outcome&&outcome!=='review'&&outcome!=='split'&&refundPending(outcome);
+  // submitRefund saw Stripe confirm the refund while its reads disagreed: keep rechecking until they agree.
+  const unrecorded=!!outcome&&outcome!=='review'&&outcome!=='split'&&outcome.status==='needs_review';
   const monitoring=r.refund_status==='partial'&&outcome!=='split'&&
    (outcome==='review'||outcome?.status!=='succeeded');
-  if(pending||refunds.inconsistent){
+  if(pending||refunds.inconsistent||unrecorded){
    await this.scheduleRefundCheck(db,r);
   }else if(monitoring){
    await db.query(`UPDATE app_pass_checkout SET refund_reconcile_after=(
@@ -578,7 +580,7 @@ export class PassBilling {
    {idempotencyKey:attempt.key});
   if(f.status==='succeeded'&&!sameRefund(f,await this.provider().sdk.refunds.retrieve(f.id))){
    await db.query('UPDATE app_pass_checkout SET refund_id=$2,refund_status=NULL WHERE id=$1',[r.id,f.id]);
-   await this.flagRefundReview(db,r);
+   await this.flagRefundReview(db,r,true);
    // Stripe confirmed the refund, but its reads lag. Keep checking so the pass is cancelled once they agree.
    await this.scheduleRefundCheck(db,r,true);
    return {id:f.id,status:'needs_review'};
@@ -676,7 +678,7 @@ export class PassBilling {
     const voidPaymentIds=matchingPayments.filter(p=>p.paymentid!==originalPaymentId).map(p=>p.paymentid);
     if(voidPaymentIds.length)
      await db.query("UPDATE payment SET paymentstatus='void',updated_at=now(),revision=revision+1 WHERE paymentid=ANY($1::int[])",[voidPaymentIds]);
-    await db.query(`UPDATE app_pass_checkout SET refund_needs_review=false,
+    await db.query(`UPDATE app_pass_checkout SET refund_needs_review=false,refund_review_inconsistent=false,
      refund_id=CASE WHEN $2 THEN NULL ELSE refund_id END,
      refund_status=CASE WHEN $2 THEN 'partial' WHEN refund_status='partial' THEN NULL ELSE refund_status END,
      refund_reconcile_after=CASE WHEN $2 THEN now()+interval '5 minutes' END WHERE id=$1`,[id,!!partial]);
@@ -750,17 +752,27 @@ export class PassBilling {
   await db.query("UPDATE payment SET paymentstatus='refunded',updated_at=now(),revision=revision+1 WHERE paymentid=$1 AND paymentstatus IS DISTINCT FROM 'refunded'",[r.payment_id]);
   await this.finishCancel(db,r);
  }
- private async flagRefundReview(db:Database,r:PassCheckoutRow){
-  if(r.refund_needs_review)return;
-  await db.query('UPDATE app_pass_checkout SET refund_needs_review=true WHERE id=$1',[r.id]);
-  console.error('Day-pass refund requires staff reconciliation',{checkoutId:r.id,code:'RECONCILE_REQUIRED'});
+ /**
+  * inconsistent: raised only because Stripe's reads disagree, so a later consistent read that records the
+  * full refund settles it (see settleInconsistentReview). Any other reason keeps the review for staff.
+  */
+ private async flagRefundReview(db:Database,r:PassCheckoutRow,inconsistent=false){
+  const raised=await db.query(`UPDATE app_pass_checkout SET refund_needs_review=true,refund_review_inconsistent=$2 AND NOT refund_needs_review
+   WHERE id=$1 AND (NOT refund_needs_review OR refund_review_inconsistent AND NOT $2)`,[r.id,inconsistent]);
+  if(raised.rowCount&&!r.refund_needs_review)
+   console.error('Day-pass refund requires staff reconciliation',{checkoutId:r.id,code:'RECONCILE_REQUIRED'});
+ }
+ /** A full refund recorded from reads that agree settles a review raised only because earlier reads disagreed. */
+ private async settleInconsistentReview(db:Database,r:PassCheckoutRow){
+  await db.query(`UPDATE app_pass_checkout SET refund_needs_review=false,refund_review_inconsistent=false
+   WHERE id=$1 AND refund_needs_review AND refund_review_inconsistent`,[r.id]);
  }
  /** Reconcile against the whole payment. A webhook's individual refund can already be superseded. */
  private async observeRefunds(db:Database,r:PassCheckoutRow,list:Stripe.ApiList<Stripe.Refund>&{inconsistent:boolean},verifiedCharge?:string,staffReview=false):
   Promise<'review'|'split'|Pick<Stripe.Refund,'id'|'status'>|{status:'partial';amount:number;refundIds:string[]}|undefined>{
 
   if(list.inconsistent){
-   await this.flagRefundReview(db,r);
+   await this.flagRefundReview(db,r,true);
    // Stripe's reads disagree for now. The flag alone would leave a confirmed refund's pass active,
    // so recheck automatically: a consistent read records the refund and cancels the pass.
    await this.scheduleRefundCheck(db,r,true);
@@ -779,6 +791,7 @@ export class PassBilling {
   if(complete&&total===r.amount_cents&&settled.length===live.length){
    if(settled.length===1){
     await this.applyRefund(db,settled[0]!);
+    await this.settleInconsistentReview(db,r);
     return settled[0]!;
    }
    // Replace a previously recorded full refund ID too, so a delayed failure
@@ -787,6 +800,7 @@ export class PassBilling {
     await db.query("UPDATE app_pass_checkout SET refund_id=NULL,refund_status='succeeded' WHERE id=$1",[r.id]);
     await this.recordConfirmedRefund(db,r,r.payment_intent!,settled.map(f=>f.id).sort(),'split');
    }
+   await this.settleInconsistentReview(db,r);
    return 'split';
   }
   if(complete&&total>0&&total<r.amount_cents&&settled.length===live.length&&r.refund_status!=='succeeded'){

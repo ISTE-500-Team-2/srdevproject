@@ -81,6 +81,32 @@ async function paidPass(date: string) {
   return { id, pi, state, emails, retry, runRetry, audits };
 }
 
+/** The member's view of a checkout in Membership & passes. */
+const listed = async (id: string) => {
+  const row = (await passes.mine(member)).find(p => p.id === id)!;
+  return { status: row.status, refundStatus: row.refundStatus };
+};
+const refundEmails = async (id: string) => (await pool.query(
+  'SELECT count(*)::int AS n FROM app_notification_outbox WHERE dedupe_key LIKE $1', [`daypass-refund:${id}:%`])).rows[0].n as number;
+const refundCreates = (id: string) => keys.filter(k => k.startsWith(`daypass-refund:${id}`)).length;
+
+/** A card payment that never became a pass (a desk pass already covered the visit), waiting for the job's automatic refund. */
+async function unissuedPayment(date: string) {
+  const model = new StaffModel(pool), id = randomUUID(), pi = 'pi_' + randomBytes(4).toString('hex');
+  const payment = await model.createPayment(member, null, '15.00', 'paid', 'card', 'cs_' + id, 'Unissued refund fixture', member);
+  await pool.query(`INSERT INTO app_pass_checkout(id,userid,tierid,valid_date,plan_snapshot,amount_cents,status,checkout_id,payment_intent,payment_id,
+    cancel_requested_at,refund_reconcile_after) VALUES($1,$2,$3,$4,$5,1500,'paid',$6,$7,$8,now(),now())`, [id, member, day.id, date, day, 'cs_' + id, pi, payment]);
+  const state = async () => (await pool.query(`SELECT c.status AS checkout,c.refund_id,c.refund_status,p.paymentstatus AS payment
+    FROM app_pass_checkout c JOIN payment p ON p.paymentid=c.payment_id WHERE c.id=$1`, [id])).rows[0];
+  const retry = async () => (await pool.query('SELECT refund_reconcile_after IS NOT NULL AS scheduled,refund_needs_review AS review FROM app_pass_checkout WHERE id=$1', [id])).rows[0];
+  const runRetry = async () => {
+    await pool.query('UPDATE app_pass_checkout SET refund_reconcile_after=now() WHERE id=$1 AND refund_reconcile_after IS NOT NULL', [id]);
+    await passes.reconcileRefunds();
+  };
+  const audits = async () => (await pool.query(`SELECT count(*)::int AS n FROM app_staff_audit WHERE entity_id=$1 AND action='daypass.refunded'`, [payment])).rows[0].n as number;
+  return { id, pi, state, retry, runRetry, audits };
+}
+
 test('retrying a failed day-pass refund submits a new refund, and the failure email matches the still-active pass', async () => {
   const pass = await paidPass('2033-03-01');
   nextStatus = 'failed';
@@ -245,7 +271,8 @@ test('a full refund Stripe lists as succeeded while its own read disagrees is re
   readLag.clear();
   await pass.runRetry();
   assert.deepEqual(await pass.state(), { checkout: 'cancelled', refund_id: full.id, refund_status: 'succeeded', pass: 'cancelled', payment: 'refunded' });
-  assert.equal((await pass.retry()).scheduled, false, 'the retry stops once the refund is recorded');
+  assert.deepEqual(await pass.retry(), { scheduled: false, review: false }, 'the retry stops, and the disagreement no longer needs review');
+  assert.deepEqual(await listed(pass.id), { status: 'cancelled', refundStatus: 'succeeded' });
   // Repeats change nothing: one refund record, one email.
   await pass.runRetry();
   await passes.webhook(stripeEvent('evt_' + randomUUID(), 'refund.updated', { ...full }));
@@ -270,6 +297,9 @@ test('a member refund Stripe confirms while a follow-up read disagrees is retrie
   await pass.runRetry();
   assert.equal(keys.length, previousCreates + 1, 'the retry never submits a second refund');
   assert.equal(await pass.audits(), 1);
+  assert.equal(await refundEmails(pass.id), 1);
+  assert.deepEqual(await pass.retry(), { scheduled: false, review: false });
+  assert.deepEqual(await listed(pass.id), { status: 'cancelled', refundStatus: 'succeeded' });
 });
 
 test('a partial refund seen through an inconsistent list never cancels the pass', async () => {
@@ -285,4 +315,42 @@ test('a partial refund seen through an inconsistent list never cancels the pass'
   assert.deepEqual(await pass.state(), { checkout: 'paid', refund_id: null, refund_status: null, pass: 'active', payment: 'paid' });
   assert.deepEqual(await pass.retry(), { scheduled: false, review: true }, 'staff settle a partial refund; the retry stops once reads agree');
   assert.equal(await pass.audits(), 0);
+  assert.deepEqual(await listed(pass.id), { status: 'paid', refundStatus: 'needs_review' });
+  // The rest arrives and Stripe's reads agree: the pass is cancelled, but the partial refund still needs staff review.
+  const rest: Refund = { id: 're_' + randomUUID(), status: 'succeeded', amount: 1000, currency: 'usd', payment_intent: pass.pi };
+  refunds.unshift(rest);
+  await settle(rest.id!, 'succeeded');
+  assert.deepEqual(await pass.state(), { checkout: 'cancelled', refund_id: null, refund_status: 'succeeded', pass: 'cancelled', payment: 'refunded' });
+  assert.equal((await pass.retry()).review, true, 'a review raised for a partial refund is not cleared automatically');
+  assert.deepEqual(await listed(pass.id), { status: 'cancelled', refundStatus: 'needs_review' });
+});
+
+test('a refund the reconciliation job submits is retried when Stripe confirms it but the reads lag, and recorded once', async () => {
+  const unissued = await unissuedPayment('2033-10-04');
+  nextStatus = 'succeeded';
+  // Stripe's create says succeeded; the reads made right after it still show the refund pending.
+  onCreate = id => { readLag.set(id, { status: 'pending' }); listLag.set(id, { status: 'pending' }); };
+  await passes.reconcileRefunds();
+  onCreate = undefined;
+  assert.equal(refundCreates(unissued.id), 1);
+  const refund = refunds[0]!.id!;
+  assert.deepEqual(await unissued.retry(), { scheduled: true, review: true }, 'the job keeps the recheck it queued');
+  assert.equal((await unissued.state()).payment, 'paid');
+
+  // Still lagging on the next run: nothing is recorded and no second refund is submitted.
+  await unissued.runRetry();
+  assert.equal((await unissued.state()).payment, 'paid');
+  assert.equal((await unissued.retry()).scheduled, true);
+
+  readLag.clear(); listLag.clear();
+  await unissued.runRetry();
+  assert.deepEqual(await unissued.state(), { checkout: 'cancelled', refund_id: refund, refund_status: 'succeeded', payment: 'refunded' });
+  assert.deepEqual(await unissued.retry(), { scheduled: false, review: false });
+  assert.deepEqual(await listed(unissued.id), { status: 'cancelled', refundStatus: 'succeeded' });
+  // Repeats change nothing: one refund, one record, one email.
+  await unissued.runRetry();
+  await passes.webhook(stripeEvent('evt_' + randomUUID(), 'refund.updated', { ...refunds[0]! }));
+  assert.equal(refundCreates(unissued.id), 1, 'never a second Stripe refund');
+  assert.equal(await unissued.audits(), 1);
+  assert.equal(await refundEmails(unissued.id), 1);
 });
