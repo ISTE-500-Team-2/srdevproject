@@ -565,14 +565,17 @@ function MinorsSection({ notify, readOnly }: { notify: (message: string) => void
   );
 }
 
+/** `studioBookingAlerts` comes back only for staff and administrator accounts. */
+type NotificationSettings = { enabled: boolean; timeZone: string; studioBookingAlerts?: boolean };
+
 function NotificationsSection({ readOnly }: { readOnly: boolean }) {
-  const [settings, setSettings] = useState<{ enabled: boolean; timeZone: string } | null>(null);
+  const [settings, setSettings] = useState<NotificationSettings | null>(null);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
-    api<{ enabled: boolean; timeZone: string }>("/me/notifications", { signal: controller.signal })
+    api<NotificationSettings>("/me/notifications", { signal: controller.signal })
       .then(setSettings)
       .catch((err) => {
         if (!controller.signal.aborted) setError(errorMessage(err));
@@ -580,7 +583,7 @@ function NotificationsSection({ readOnly }: { readOnly: boolean }) {
     return () => controller.abort();
   }, []);
   // Each change saves straight away, like a phone's settings screen.
-  const update = async (next: { enabled: boolean; timeZone: string }) => {
+  const update = async (next: NotificationSettings) => {
     const previous = settings;
     setSettings(next);
     setBusy(true);
@@ -626,6 +629,23 @@ function NotificationsSection({ readOnly }: { readOnly: boolean }) {
               onClick={() => void update({ ...settings, enabled: !settings.enabled })}
             />
           </div>
+          {settings.studioBookingAlerts !== undefined ? (
+            <div className="account-toggle">
+              <div>
+                <b id="studio-alerts-label">Studio booking alerts</b>
+                <p>A copy of every member’s studio booking and cancellation. Your own receipts and notices still come.</p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={settings.studioBookingAlerts && settings.enabled}
+                aria-labelledby="studio-alerts-label"
+                className="account-switch"
+                disabled={busy || readOnly || !settings.enabled}
+                onClick={() => void update({ ...settings, studioBookingAlerts: !settings.studioBookingAlerts })}
+              />
+            </div>
+          ) : null}
           <div className="account-toggle">
             <div>
               <b>Reminder time zone</b>

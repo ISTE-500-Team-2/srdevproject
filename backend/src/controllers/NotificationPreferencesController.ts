@@ -20,11 +20,12 @@ export class NotificationPreferencesController {
     });
   };
   update = async (req: Request, res: Response) => {
-    const { enabled, timeZone } = req.body ?? {};
+    const { enabled, timeZone, studioBookingAlerts } = req.body ?? {};
     if (
       typeof enabled !== "boolean" ||
       typeof timeZone !== "string" ||
-      timeZone.length > 100
+      timeZone.length > 100 ||
+      (studioBookingAlerts !== undefined && typeof studioBookingAlerts !== "boolean")
     )
       throw new AppError(
         400,
@@ -51,6 +52,8 @@ export class NotificationPreferencesController {
         const after = await updateNotificationPreferences(db, id, {
           enabled,
           timeZone: canonical,
+          // Only staff accounts have studio alerts; anyone else's request leaves it alone.
+          ...(before.studioBookingAlerts !== undefined && { studioBookingAlerts }),
         });
         await new StaffModel(db).audit(
           id,
