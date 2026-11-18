@@ -253,3 +253,26 @@ test("discovery refresh preserves an edited form and stale disconnected reports 
     (screen.getByLabelText("Wi-Fi network") as HTMLInputElement).value,
   ).toBe("Workshop");
 });
+test("a reader that already finished setup can be set up again, and says which reader it replaces", async () => {
+  data.devices[0]!.readerName = "Front door";
+  mount();
+  expect(await screen.findByText("Set up as Front door")).toBeTruthy();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Set up ESP32-C3 mini again" }),
+  );
+  expect(
+    screen.getByText(/This reader is set up as Front door/).textContent,
+  ).toMatch(/turned off once the new setup finishes/);
+  expect((screen.getByLabelText("Reader name") as HTMLInputElement).value).toBe(
+    "Front door",
+  );
+  details();
+  fireEvent.submit(
+    screen.getByRole("button", { name: "Connect reader" }).closest("form")!,
+  );
+  expect(
+    await screen.findByRole("heading", {
+      name: "Checking the reader and server",
+    }),
+  ).toBeTruthy();
+});
