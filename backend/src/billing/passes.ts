@@ -84,24 +84,39 @@ export class PassBilling {
   });
  }
  // Card subscriptions stop through Stripe; everything else (desk-paid, free access) stops here.
+ // FR-057: a running membership, on hold or not, ends 30 days from the request (or on its own end
+ // date if that comes first) and keeps its status meanwhile. One that hasn't started yet is
+ // cancelled outright, so it never grants access. Refunds stay with staff.
  async cancelMembership(userid:number,id:number){
   return transaction(this.pool,async db=>{
    await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,userid]);
    // Staff status changes lock the member before the entitlement. Audit writes
    // also need the member's FK lock, so keep the same order here.
    await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR UPDATE',[userid]);
-   const r=(await db.query<{status:string;cancellation_requested_at:Date|null;plan_name:string;ends:Date;running:boolean}>(`SELECT m.status,m.cancellation_requested_at,COALESCE(m.plan_snapshot->>'name',t.tiername,'Membership') AS plan_name,m.end_date AT TIME ZONE 'UTC' AS ends,
-    m.startdate<=NOW() AT TIME ZONE 'UTC' AND m.end_date>NOW() AT TIME ZONE 'UTC' AS running
+   const r=(await db.query<{status:string;cancellation_requested_at:Date|null;plan_name:string;starts:Date;ends:Date;started:boolean;ended:boolean}>(`SELECT m.status,m.cancellation_requested_at,COALESCE(m.plan_snapshot->>'name',t.tiername,'Membership') AS plan_name,
+    m.startdate AT TIME ZONE 'UTC' AS starts,m.end_date AT TIME ZONE 'UTC' AS ends,
+    m.startdate<=NOW() AT TIME ZONE 'UTC' AS started,m.end_date<=NOW() AT TIME ZONE 'UTC' AS ended
     FROM user_membership m LEFT JOIN membership_tiers t USING(tierid) WHERE m.membershipid=$1 AND m.userid=$2 FOR UPDATE OF m`,[id,userid])).rows[0];
    if(!r)throw new AppError(404,'NOT_FOUND','Membership not found.');
    if((await db.query('SELECT id FROM app_membership_invoice WHERE membership_id=$1',[id])).rowCount)throw new AppError(409,'PROVIDER_PAYMENT','Stop auto-renew to cancel a card membership.');
-   if(r.cancellation_requested_at)return {cancelled:true,endsAt:r.ends};
-   if(r.status!=='active'||!r.running)throw new AppError(409,'INVALID_STATUS','Contact staff about this membership.');
+   if(r.cancellation_requested_at)return {cancelled:true,endsAt:r.status==='cancelled'?null:r.ends};
+   if(!['active','suspended'].includes(r.status)||r.ended)throw new AppError(409,'INVALID_STATUS','Contact staff about this membership.');
+   const model=new StaffModel(db),instructions='If you paid at the front desk, ask staff about any refund.';
+   if(!r.started){
+    await db.query(`UPDATE user_membership SET status='cancelled',statusdesc='Member cancelled before it started',
+     cancellation_requested_at=NOW(),revision=revision+1 WHERE membershipid=$1`,[id]);
+    await model.audit(userid,userid,'membership.cancelled','membership',id,'Member cancelled before it started',
+     {status:r.status,startsAt:r.starts,endsAt:r.ends},{status:'cancelled'});
+    // No end date: the template says it never starts.
+    await enqueueNotification(db,{userId:userid,kind:'membership_cancellation_confirmed',dedupeKey:'membership-manual-cancel:'+id,
+     payload:{membershipId:id,membershipName:r.plan_name,instructions}});
+    return {cancelled:true,endsAt:null};
+   }
    const ends=(await db.query<{ends:Date}>(`UPDATE user_membership SET end_date=LEAST(end_date,(NOW() AT TIME ZONE 'UTC')+INTERVAL '30 days'),
     cancellation_requested_at=NOW(),revision=revision+1 WHERE membershipid=$1 RETURNING end_date AT TIME ZONE 'UTC' AS ends`,[id])).rows[0]!.ends;
-   await new StaffModel(db).audit(userid,userid,'membership.cancelled','membership',id,'Member cancellation with 30 days notice',{endsAt:r.ends},{endsAt:ends});
+   await model.audit(userid,userid,'membership.cancelled','membership',id,'Member cancellation with 30 days notice',{endsAt:r.ends},{endsAt:ends});
    await enqueueNotification(db,{userId:userid,kind:'membership_cancellation_confirmed',dedupeKey:'membership-manual-cancel:'+id,
-    payload:{membershipId:id,membershipName:r.plan_name,endsAt:new Date(ends).toISOString(),instructions:'If you paid at the front desk, ask staff about any refund.'}});
+    payload:{membershipId:id,membershipName:r.plan_name,endsAt:new Date(ends).toISOString(),instructions}});
    return {cancelled:true,endsAt:ends};
   });
  }
