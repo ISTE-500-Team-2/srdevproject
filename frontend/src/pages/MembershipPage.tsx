@@ -157,7 +157,10 @@ export function MembershipPage() {
       run(path, {}, (r) => {
         if (path.includes("/passes/")) return passCancelMessage(r);
         if (path.includes("/memberships/"))
-          return "Membership cancelled. Your last day is shown below.";
+          // A membership cancelled before it started has no last day: it never begins.
+          return r.endsAt === null
+            ? "Upcoming membership cancelled. It won't start."
+            : "Membership cancelled. Your last day is shown below.";
         const record = billing.data?.records.find((b) => path.includes(b.id));
         return record?.status === "pending"
           ? "Checkout cancelled. You haven't been charged."

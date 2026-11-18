@@ -194,6 +194,8 @@
 .mr-roles__row > :last-child { justify-self: center; }
 .mr-roles input { width: 17px; height: 17px; accent-color: var(--orange); }
 .mr-roles input[type='radio']:disabled { opacity: 0.25; }
+.mr-roles--automatic .mr-roles__row { color: var(--ink-soft); }
+.mr-roles__note { margin: 0; color: var(--ink-soft); font-size: var(--text-sm); }
 
 @container record (max-width: 820px) {
   .mr-grid { grid-template-columns: minmax(0, 1fr); }

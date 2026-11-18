@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import type { NfcCard } from "../../../lib/nfc";
 import type { MemberRequirements, Person } from "../../../lib/staffContracts";
 import { RecordCards } from "./RecordCards";
+import { RecordMembership } from "./RecordMembership";
 import { RecordSupervision } from "./RecordSupervision";
 import { DeskAction, RequirementList } from "./RecordVerdict";
 
@@ -126,4 +127,16 @@ test("supervised use drops an unlock and its End button the moment it ends, with
   });
   expect(screen.queryByText("Lathe")).toBeNull();
   expect(screen.queryByRole("button", { name: "End" })).toBeNull();
+});
+
+test("B-003: the current membership shows why it was sold at its price", () => {
+  const later = (days: number) => new Date(Date.now() + days * 86400000).toISOString();
+  const membership = { userId: 14, planId: 1, revision: 1, reason: "", cardBilled: false, id: 1, status: "active", effectiveStatus: "active", startsAt: later(-2), endsAt: later(28) };
+  const show = (plan: { name: string; price: string; priceBasis?: string }) =>
+    render(<RecordMembership person={person()} memberships={[{ ...membership, plan }]} passes={[]} canManage allEarlier showAllEarlier={vi.fn()} open={vi.fn()} />);
+  show({ name: "Monthly", price: "30.00", priceBasis: "student" });
+  expect(screen.getByText("$30.00 a month · student price · paid at the desk")).toBeTruthy();
+  cleanup();
+  show({ name: "Monthly", price: "50.00", priceBasis: "standard" });
+  expect(screen.getByText("$50.00 a month · paid at the desk")).toBeTruthy();
 });

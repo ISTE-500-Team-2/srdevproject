@@ -29,6 +29,8 @@ export interface Person {
   address: Record<string, string | boolean>;
   contactPreferences: Record<string, string | boolean>;
   roles: string[];
+  /** Subscriber / day-pass customer, worked out from current purchases; never set by hand. */
+  automaticRoles?: string[];
   primaryRole?: string;
   isStudent?: boolean;
   revision: number;
@@ -51,7 +53,8 @@ export interface Entitlement {
   startsAt?: string;
   endsAt?: string;
   validDate?: string;
-  plan: Partial<Plan> | null;
+  /** The plan as sold; priceBasis says why its price differs (student, school_partner), when it does. */
+  plan: (Partial<Plan> & { priceBasis?: string }) | null;
   reason: string;
   cancellationRequestedAt?: string | null;
   cardBilled?: boolean;

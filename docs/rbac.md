@@ -14,6 +14,17 @@ booking exemption. Existing student assignments are retained during migration an
 backfilled into the modifier. Pricing/school-billing behavior belongs to payment
 policy work, not authorization.
 
+## Purchase roles (FR-006/FR-008)
+
+`subscriber` and `day_pass` are not assigned. Staff screens show them as
+`automaticRoles`, worked out on every read from what the member holds: subscriber
+while an active membership hasn't ended (running or scheduled), day-pass customer
+while an active pass for today or later exists. A suspended entitlement gives no
+label while on hold. They carry no permissions (every account keeps a stored
+primary role, community member at least) and the role API refuses them. Migration
+062 removed the hand-set copies, moved any such primary role to `member`, and
+logged each change with the system as actor.
+
 ## Editing roles
 
 Only administrators can edit other accounts. The staff account screen selects
