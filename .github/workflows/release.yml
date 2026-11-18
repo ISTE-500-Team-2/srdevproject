@@ -77,11 +77,12 @@ jobs:
           RLES_ENV_FILE: ${{ vars.RLES_ENV_FILE }}
           RLES_DOCKER_NETWORK: ${{ vars.RLES_DOCKER_NETWORK }}
           RLES_HTTP_PORT: ${{ vars.RLES_HTTP_PORT }}
+          RLES_JWT_KEY_FILE: ${{ vars.RLES_JWT_KEY_FILE }}
         shell: bash
         run: |
           set -euo pipefail
           [[ "$RLES_HOST" =~ ^[a-zA-Z0-9.-]+$ && "$RLES_USER" =~ ^[a-zA-Z0-9_-]+$ && "$RLES_PORT" =~ ^[0-9]+$ ]]
-          [[ "$RLES_RELEASE_ROOT" =~ ^/[a-zA-Z0-9_./-]+$ && "$RLES_ENV_FILE" =~ ^/[a-zA-Z0-9_./-]+$ && "$RLES_DOCKER_NETWORK" =~ ^[a-zA-Z0-9_.-]+$ && "$RLES_HTTP_PORT" =~ ^[0-9]+$ ]]
+          [[ "$RLES_RELEASE_ROOT" =~ ^/[a-zA-Z0-9_./-]+$ && "$RLES_ENV_FILE" =~ ^/[a-zA-Z0-9_./-]+$ && "$RLES_DOCKER_NETWORK" =~ ^[a-zA-Z0-9_.-]+$ && "$RLES_HTTP_PORT" =~ ^[0-9]+$ && "$RLES_JWT_KEY_FILE" =~ ^/[a-zA-Z0-9_./-]+$ ]]
           [[ -n "$RLES_SSH_KEY" && -n "$RLES_KNOWN_HOSTS" ]]
           mkdir -p "$HOME/.ssh"
           chmod 700 "$HOME/.ssh"
@@ -90,7 +91,7 @@ jobs:
           chmod 600 "$HOME/.ssh/arbor_release" "$HOME/.ssh/known_hosts"
           target="$RLES_USER@$RLES_HOST"
           options=(-i "$HOME/.ssh/arbor_release" -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10)
-          # An operator prepares root/environment/network and backup permissions first.
-          ssh "${options[@]}" -p "$RLES_PORT" "$target" "test -d '$RLES_RELEASE_ROOT' && test -f '$RLES_ENV_FILE'"
+          # An operator prepares root/environment/signing key/network and backup permissions first.
+          ssh "${options[@]}" -p "$RLES_PORT" "$target" "test -d '$RLES_RELEASE_ROOT' && test -f '$RLES_ENV_FILE' && test -f '$RLES_JWT_KEY_FILE'"
           scp "${options[@]}" -P "$RLES_PORT" deploy/compose.release.yml deploy/deploy-arbor.sh "$target:$RLES_RELEASE_ROOT/"
-          ssh "${options[@]}" -p "$RLES_PORT" "$target" "bash '$RLES_RELEASE_ROOT/deploy-arbor.sh' '$RELEASE_ENVIRONMENT' '$ARBOR_RELEASE_IMAGE' '$RLES_RELEASE_ROOT' '$RLES_ENV_FILE' '$RLES_DOCKER_NETWORK' '$RLES_HTTP_PORT'"
+          ssh "${options[@]}" -p "$RLES_PORT" "$target" "bash '$RLES_RELEASE_ROOT/deploy-arbor.sh' '$RELEASE_ENVIRONMENT' '$ARBOR_RELEASE_IMAGE' '$RLES_RELEASE_ROOT' '$RLES_ENV_FILE' '$RLES_DOCKER_NETWORK' '$RLES_HTTP_PORT' '$RLES_JWT_KEY_FILE'"

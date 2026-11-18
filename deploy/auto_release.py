@@ -26,6 +26,9 @@ DATABASES = (('arbor-email-db', 'arbor_email', 'arbor_email_dev'),
 # local_frontend_release.py (as ops.MAIN_PUSH_WORKFLOWS); install both together.
 MAIN_PUSH_WORKFLOWS = ('.github/workflows/mvc-verify.yml', '.github/workflows/dev-setup.yml',
                        '.github/workflows/sponsor-hosting.yml')
+# GitHub allows 60 unauthenticated API reads an hour per address and each CI check uses two.
+# The timer ticks about once a minute, so recheck the same waiting revision at most this often.
+CI_POLL_SECONDS = 240
 
 
 class ReleaseCheckError(RuntimeError):
@@ -376,7 +379,7 @@ def tick(root, retry=False):
         return
     sha = main_sha()
     if state.get('candidateSha') != sha:
-        for name in ('stage', 'stageStartedAt', 'stages', 'ci', 'preparedSha', 'preparationFailedSha'):
+        for name in ('stage', 'stageStartedAt', 'stages', 'ci', 'ciCheckedAt', 'preparedSha', 'preparationFailedSha'):
             state.pop(name, None)
     state['candidateSha'] = sha
     if sha == state.get('deployedSha'):
@@ -384,6 +387,14 @@ def tick(root, retry=False):
     elif sha == state.get('failedSha') and not retry:
         state['phase'] = 'blocked'
     else:
+        # A new revision or an operator retry checks at once; a revision still waiting backs off.
+        now = time.time()
+        checked = state.get('ciCheckedAt')
+        if (not retry and state.get('phase') == 'waiting-for-ci' and isinstance(checked, (int, float))
+                and 0 <= now - checked < CI_POLL_SECONDS):
+            write_json(state_file, state)
+            return
+        state['ciCheckedAt'] = now
         detail = {}
         try:
             ci_ready = ready(sha, detail)

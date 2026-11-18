@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeEnv,frontendEnv,assertFree,assertNodeVersion } from './dev.mjs';
+import { makeEnv,frontendEnv,assertFree,assertNodeVersion,viteArgs } from './dev.mjs';
 import { createServer } from 'node:net';
 test('demo cannot inherit real sending or shared DB settings',()=>{
  const env=makeEnv({DATABASE_URL:'shared',PGSERVICE:'shared',EMAIL_ENABLED:'true',BREVO_API_KEY:'secret',ENABLE_DEMO_LOGIN:'false'}, {},false);
@@ -31,4 +31,12 @@ test('local Stripe settings reach only the backend and preserve the controlled r
  const env=makeEnv({}, {STRIPE_TEST_SECRET_KEY:'sk_test_example',STRIPE_STUDIO_WEBHOOK_SECRET:'whsec_example',APP_ORIGIN:'https://wrong'},false);
  assert.equal(env.STRIPE_TEST_SECRET_KEY,'sk_test_example');assert.equal(env.STRIPE_STUDIO_WEBHOOK_SECRET,'whsec_example');
  assert.equal(env.APP_ORIGIN,'http://localhost:5173');
+});
+
+test('Vite prints the same origin the API accepts for sign-in',()=>{
+ for(const email of [false,true]){
+  const env=makeEnv({}, {BREVO_API_KEY:'local-test-key'},email),args=viteArgs(env);
+  assert.deepEqual(args,['--host','localhost','--port','5173','--strictPort']);
+  assert.equal(`http://${args[1]}:${args[3]}`,new URL(env.APP_ORIGIN).origin);
+ }
 });
