@@ -3,10 +3,13 @@ import { cleanup, fireEvent, render, screen, within, waitFor } from '@testing-li
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import App from '../../src/App';
+import { loadStaffArea } from '../../src/areas/load';
 import { createBrowserBridge } from '../../../backend/test/helpers/browserBridge';
 
 let bridge: Awaited<ReturnType<typeof createBrowserBridge>>;
-beforeAll(async () => { bridge = await createBrowserBridge(); }, 120000);
+// Compile the staff workspace here, under the hook's long timeout, so the first
+// page wait measures the app and API rather than on-demand compilation.
+beforeAll(async () => { await loadStaffArea(); bridge = await createBrowserBridge(); }, 120000);
 afterAll(async () => { cleanup(); vi.unstubAllGlobals(); await bridge?.close(); }, 30000);
 test('administrator takes equipment down, reviews and moves one booking, cancels another, and restores service', async () => {
   vi.stubGlobal('fetch', bridge.fetch);
