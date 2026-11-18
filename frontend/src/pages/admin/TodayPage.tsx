@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 import {
   Banknote,
   ChevronRight,
+  ConciergeBell,
   Drill,
   FilePenLine,
   GraduationCap,
@@ -433,6 +434,8 @@ function CheckedInPanel({ state, report, zone }: { state: Result<unknown> | unde
               <span className="today-who-time">
                 {person.method === "nfc" ? (
                   <Nfc role="img" aria-label="Tag at a reader" />
+                ) : person.method === "desk" ? (
+                  <ConciergeBell role="img" aria-label="At the front desk" />
                 ) : (
                   <Monitor role="img" aria-label="Member portal" />
                 )}

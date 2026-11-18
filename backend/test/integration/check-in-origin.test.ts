@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { Pool } from 'pg';
@@ -49,7 +49,11 @@ const today = async () => {
 };
 
 test('migration 040 leaves existing rows to the fallback without rewriting them', async () => {
-  const sql = await readFile(path.join(repositoryRoot, 'database/migrations/040_check_in_origin.sql'), 'utf8');
+  const migrations = path.join(repositoryRoot, 'database/migrations');
+  const sql = await readFile(path.join(migrations, '040_check_in_origin.sql'), 'utf8');
+  const desk = (await readdir(migrations)).find(name => /^\d+_desk_check_in_origin\.sql$/.test(name));
+  assert.ok(desk, 'the migration that allows desk check-ins exists');
+  const deskSql = await readFile(path.join(migrations, desk), 'utf8');
   // Recreate the pre-040 table shape and replay the migration against legacy rows.
   await pool.query('ALTER TABLE check_in DROP COLUMN origin');
   try {
@@ -63,7 +67,9 @@ test('migration 040 leaves existing rows to the fallback without rewriting them'
       `INSERT INTO check_in(userid,location,checkintime,status,statusdesc) VALUES($1,$2,NOW() AT TIME ZONE 'UTC','approved',$3) RETURNING checkinid`,
       [member.user.id, location, statusdesc])).rows[0].checkinid);
     const auditsBefore = Number((await pool.query("SELECT COUNT(*) FROM app_staff_audit WHERE action='check_in.update'")).rows[0].count);
+    // Replay in release order: 040 adds the column, the desk migration widens its check.
     await pool.query(sql);
+    await pool.query(deskSql);
     assert.deepEqual(await origins(legacy), [null, null, null, null]);
     const auditsAfter = Number((await pool.query("SELECT COUNT(*) FROM app_staff_audit WHERE action='check_in.update'")).rows[0].count);
     assert.equal(auditsAfter - auditsBefore, 0, 'no existing check-in is rewritten');
@@ -75,24 +81,26 @@ test('migration 040 leaves existing rows to the fallback without rewriting them'
   }
 });
 
-test('origin is constrained to nfc or portal and may be absent', async () => {
+test('origin is constrained to nfc, portal or desk and may be absent', async () => {
   await assert.rejects(insert(member.user.id, 'Kiosk', 'Kiosk tap', 'kiosk'), { code: '23514' });
   await assert.rejects(insert(member.user.id, 'Kiosk', 'Kiosk tap', 'NFC'), { code: '23514' });
   const row = (await insert(member.user.id, 'Old release', 'Authenticated NFC eligibility decision', null)).rows[0].checkinid;
-  assert.deepEqual(await origins([row]), [null]);
+  const desk = (await insert(member.user.id, 'Front desk', 'Checked in at the front desk', 'desk')).rows[0].checkinid;
+  assert.deepEqual(await origins([row, desk]), [null, 'desk']);
   await pool.query('DELETE FROM check_in');
 });
 
 test('readers use the stored origin, not the status wording, and fall back only when it is absent', async () => {
-  const [a, b, c] = (await pool.query(`INSERT INTO "user"(firstname,lastname,email,password,phone,status)
-    SELECT 'Origin','Visitor '||g,'origin-'||g||'@example.invalid','x','0000000000','active' FROM generate_series(1,3) g RETURNING userid`))
+  const [a, b, c, d] = (await pool.query(`INSERT INTO "user"(firstname,lastname,email,password,phone,status)
+    SELECT 'Origin','Visitor '||g,'origin-'||g||'@example.invalid','x','0000000000','active' FROM generate_series(1,4) g RETURNING userid`))
     .rows.map(row => row.userid as number);
   await insert(a!, 'Reworded reader', 'Card accepted at the door', 'nfc');
   await insert(b!, 'Portal mentioning NFC', 'Member portal (no NFC card needed)', 'portal');
   await insert(c!, 'Previous release', 'Authenticated NFC eligibility decision', null);
+  await insert(d!, 'Front desk', 'Checked in at the front desk', 'desk');
   const byUser = Object.fromEntries((await today()).map(person => [person.userId, person.method]));
-  assert.deepEqual([byUser[a!], byUser[b!], byUser[c!]], ['nfc', 'portal', 'nfc']);
-  for (const [userId, method] of [[a, 'nfc'], [b, 'portal'], [c, 'nfc']] as const)
+  assert.deepEqual([byUser[a!], byUser[b!], byUser[c!], byUser[d!]], ['nfc', 'portal', 'nfc', 'desk']);
+  for (const [userId, method] of [[a, 'nfc'], [b, 'portal'], [c, 'nfc'], [d, 'desk']] as const)
     assert.equal((await new MemberModel(pool).recentCheckIns(userId!))[0]!.method, method);
   await pool.query('DELETE FROM check_in');
 });

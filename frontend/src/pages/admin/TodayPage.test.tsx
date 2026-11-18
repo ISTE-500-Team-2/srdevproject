@@ -82,6 +82,21 @@ test("a capped check-in list says how many people it leaves out", async () => {
   expect(screen.getByText("Member 50")).toBeTruthy();
   expect(screen.getByText("Showing the 50 most recent of 73 people.")).toBeTruthy();
 });
+test("each check-in says whether it was a tag, the member portal or the front desk", async () => {
+  const original = api.getMockImplementation()!;
+  const three = (["nfc", "portal", "desk"] as const).map((method, i) => ({ ...people[0]!, userId: i + 1, name: `Member ${i + 1}`, method }));
+  api.mockImplementation((path: string) => path.startsWith("/admin/reports?")
+    ? original(path).then((report: object) => ({ ...report, checkedInTodayCount: 3, checkedInToday: three }))
+    : original(path));
+  mount();
+  const row = async (name: string) => (await screen.findByText(name)).closest(".today-who") as HTMLElement;
+  expect(within(await row("Member 1")).getByRole("img", { name: "Tag at a reader" })).toBeTruthy();
+  expect(within(await row("Member 2")).getByRole("img", { name: "Member portal" })).toBeTruthy();
+  // Staff checked this member in; it must not read as the member using the portal.
+  const desk = await row("Member 3");
+  expect(within(desk).getByRole("img", { name: "At the front desk" })).toBeTruthy();
+  expect(within(desk).queryByRole("img", { name: "Member portal" })).toBeNull();
+});
 test("renders needs-you empty state only when its data has loaded", async () => {
   mount(); expect(await screen.findByText("Nothing needs you right now.")).toBeTruthy();
 });
