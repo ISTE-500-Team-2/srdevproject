@@ -74,6 +74,21 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
             "INVALID_INPUT",
             "Schedule a future class of up to eight hours.",
           );
+        if (
+          !(
+            await db.query(
+              // The lock makes classes scheduled at the same time for one instructor take turns. It is
+              // taken before the room lock, the same user-then-room order as door access and bookings.
+              `SELECT u.userid FROM "user" u JOIN user_role ur USING(userid) JOIN role role USING(roleid) WHERE u.userid=$1 AND role.role='instructor' AND u.status='active' AND u.accessstatus='active' FOR NO KEY UPDATE OF u`,
+              [instructorId],
+            )
+          ).rowCount
+        )
+          throw new AppError(
+            400,
+            "INSTRUCTOR_REQUIRED",
+            "Assign an active instructor.",
+          );
         const room = (
           await db.query(
             "SELECT capacity,status FROM room WHERE roomid=$1 FOR UPDATE",
@@ -88,20 +103,6 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
             400,
             "CAPACITY_LIMIT",
             "Classes allow at most 15 people and cannot exceed the room's capacity.",
-          );
-        if (
-          !(
-            await db.query(
-              // The lock makes classes scheduled at the same time for one instructor take turns.
-              `SELECT u.userid FROM "user" u JOIN user_role ur USING(userid) JOIN role role USING(roleid) WHERE u.userid=$1 AND role.role='instructor' AND u.status='active' AND u.accessstatus='active' FOR NO KEY UPDATE OF u`,
-              [instructorId],
-            )
-          ).rowCount
-        )
-          throw new AppError(
-            400,
-            "INSTRUCTOR_REQUIRED",
-            "Assign an active instructor.",
           );
         const course = certId ? (await db.query(`SELECT certid,training_minutes FROM certifications WHERE certid=$1
           AND (effectivedate IS NULL OR effectivedate<=now() AT TIME ZONE 'UTC')

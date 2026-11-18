@@ -222,8 +222,11 @@ function ScheduleRow({
         className="class-table__actions"
         ref={menuRef}
         onBlur={(event) => {
-          // Tabbing out of an open menu closes it.
-          if (menu && !event.currentTarget.contains(event.relatedTarget as Node | null)) setMenu(false);
+          // Tabbing out of an open menu closes it. A blur with nowhere to go is ignored: Safari and
+          // Firefox on Mac blur on a mouse press without focusing the clicked button, so closing
+          // here would drop the menu before its item's click runs. The mousedown listener above
+          // closes it on outside clicks.
+          if (menu && event.relatedTarget && !event.currentTarget.contains(event.relatedTarget as Node)) setMenu(false);
         }}
       >
         <button type="button" className="button button--quiet button--small" aria-label={`Roster for ${c.title}`} onClick={() => onRoster(c)}>

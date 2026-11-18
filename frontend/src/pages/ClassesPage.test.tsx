@@ -280,6 +280,9 @@ test('a day pass for the class day lets a member register ahead, and a membershi
   expect(screen.getByRole('button', { name: 'Register for Safety 5' })).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Register for Safety 6' })).toBeNull();
   expect(screen.getAllByRole('link', { name: 'Membership or day pass needed' })).toHaveLength(1);
+  // The side panel agrees with the rows rather than with today's answer.
+  expect(screen.getByRole('heading', { name: 'You can register for some classes' })).toBeTruthy();
+  expect(screen.queryByRole('heading', { name: 'Membership or day pass needed' })).toBeNull();
 });
 
 test('class tabs move with the arrow keys, and a menu choice hands focus back to its button', async () => {
@@ -312,6 +315,30 @@ test('class tabs move with the arrow keys, and a menu choice hands focus back to
   // The dialog returns focus to the button that opened it.
   await click('Keep class');
   expect(document.activeElement).toBe(more);
+});
+
+test('a mouse press that blurs the row menu without moving focus still runs the chosen item', async () => {
+  await mount();
+  const more = screen.getByRole('button', { name: 'More actions for Safety 5' });
+  // Safari and Firefox on Mac blur the focused item on mouse press without focusing the pressed one.
+  const press = async (target: Element) => {
+    await act(async () => { fireEvent.focusOut(document.activeElement!, { relatedTarget: null }); });
+    await act(async () => { fireEvent.click(target); });
+  };
+  await act(async () => { fireEvent.click(more); });
+  await press(screen.getByRole('menuitem', { name: /Cancel class/ }));
+  expect(screen.getByRole('button', { name: 'Keep class' })).toBeTruthy();
+  await click('Keep class');
+  // Pressing "More actions" again closes the open menu instead of reopening it.
+  await act(async () => { fireEvent.click(more); });
+  await press(more);
+  expect(screen.queryByRole('menu')).toBeNull();
+  // Focus that moves on to something outside the row's actions still closes the menu.
+  await act(async () => { fireEvent.click(more); });
+  await act(async () => {
+    fireEvent.focusOut(document.activeElement!, { relatedTarget: screen.getByRole('tab', { name: /^Upcoming/ }) });
+  });
+  expect(screen.queryByRole('menu')).toBeNull();
 });
 
 test('nobody is pre-marked; saving needs a note and only sends chosen people', async () => {

@@ -86,6 +86,34 @@ test('an instructor cannot be booked to teach two classes at the same time', asy
   await schedule({ instructorId: second, roomId: projectRoom, startsAt: at(1), endsAt: at(3), capacity: 5, title: 'Moved back' });
 });
 
+test('scheduling locks the instructor before the room, the order door access uses', async () => {
+  const lockRoom = await room('Lock order room', 10);
+  const access = await pool.connect();
+  try {
+    // Door access holds the person first, then locks the room.
+    await access.query('BEGIN');
+    await access.query('SELECT 1 FROM "user" WHERE userid=$1 FOR SHARE', [second]);
+    const scheduled = post('/classes', body({ instructorId: second, roomId: lockRoom, startsAt: at(200), endsAt: at(201), title: 'Lock order' }))
+      .then(r => r);
+    for (let tries = 0; ; tries++) {
+      const waiting = await pool.query(`SELECT 1 FROM pg_stat_activity WHERE datname=current_database()
+        AND wait_event_type='Lock' AND query LIKE '%FOR NO KEY UPDATE OF u%'`);
+      if (waiting.rowCount) break;
+      assert.ok(tries < 400, 'scheduling never waited for the instructor');
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    // Scheduling waits on the person without holding the room, so this neither waits nor deadlocks.
+    await access.query("SET LOCAL lock_timeout='5s'");
+    await access.query('SELECT 1 FROM room WHERE roomid=$1 FOR UPDATE', [lockRoom]);
+    await access.query('COMMIT');
+    const r = await scheduled;
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+  } finally {
+    await access.query('ROLLBACK').catch(() => {});
+    access.release();
+  }
+});
+
 test('a room with no seat count entered takes classes of up to 15', async () => {
   const open = await room('No seat count', null);
   await schedule({ roomId: open, capacity: 15, startsAt: at(24), endsAt: at(25) });

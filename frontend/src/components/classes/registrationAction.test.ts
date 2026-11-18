@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { ClassRecord } from "./classData";
-import { classEligibility, registrationAction, sponsorReason, type Eligibility } from "./registrationAction";
+import { classEligibility, registrationAction, sponsorReason, upcomingEligibility, type Eligibility } from "./registrationAction";
 
 const course: ClassRecord = {
   id: 5,
@@ -48,6 +48,18 @@ test("the class's own time decides: a pass for the class day counts, a membershi
   // A sponsor problem still stands in the way, and older servers fall back to today's answer.
   expect(classEligibility("no-sponsor", { ...course, myEntitled: true })).toBe("no-sponsor");
   expect(classEligibility("ineligible", { ...course, myEntitled: null })).toBe("ineligible");
+});
+
+test("the access panel follows the per-class answers, and today's answer only without them", () => {
+  const covered = { ...course, myEntitled: true }, outside = { ...course, id: 6, myEntitled: false };
+  expect(upcomingEligibility("ineligible", [covered])).toBe("eligible");
+  expect(upcomingEligibility("eligible", [outside])).toBe("ineligible");
+  expect(upcomingEligibility("ineligible", [covered, outside])).toBe("some");
+  // A cancelled class offers nothing to register for.
+  expect(upcomingEligibility("eligible", [covered, { ...outside, status: "cancelled" }])).toBe("eligible");
+  expect(upcomingEligibility("eligible", [{ ...course, myEntitled: null }])).toBe("eligible");
+  expect(upcomingEligibility("unknown", [])).toBe("unknown");
+  expect(upcomingEligibility("no-sponsor", [covered])).toBe("no-sponsor");
 });
 
 test("register is offered, and off while busy, unpriced or blocked by a sponsor problem", () => {

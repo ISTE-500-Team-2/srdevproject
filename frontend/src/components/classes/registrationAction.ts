@@ -1,4 +1,4 @@
-import { registrationPrice, seatsLeft, type ClassRecord } from "./classData";
+import { isCancelled, registrationPrice, seatsLeft, type ClassRecord } from "./classData";
 
 /**
  * Whether the member can register. A member under 18 also needs a linked sponsoring
@@ -41,6 +41,18 @@ export const sponsorReason = (eligibility: Eligibility): SponsorBlock | null =>
 export function classEligibility(eligibility: Eligibility, c: ClassRecord): Eligibility {
   if (sponsorReason(eligibility) || c.myEntitled == null) return eligibility;
   return c.myEntitled ? "eligible" : "ineligible";
+}
+
+/**
+ * The page-wide answer for the access panel, built from the same per-class answers as the rows
+ * so the two never disagree: `some` when the member's membership or day pass covers some of the
+ * upcoming classes but not others. With no per-class answer (no upcoming class, or an older
+ * server) it is today's answer; a sponsor problem passes through unchanged.
+ */
+export function upcomingEligibility(eligibility: Eligibility, upcoming: ClassRecord[]): Eligibility | "some" {
+  const answers = upcoming.filter((c) => !isCancelled(c) && c.myEntitled != null).map((c) => c.myEntitled);
+  if (sponsorReason(eligibility) || !answers.length) return eligibility;
+  return answers.every(Boolean) ? "eligible" : answers.some(Boolean) ? "some" : "ineligible";
 }
 
 /**
