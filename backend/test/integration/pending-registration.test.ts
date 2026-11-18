@@ -99,6 +99,30 @@ test('signing up with an address that has an account looks like any sign-up, and
   assert.equal((await request(app).post('/api/auth/login').send({email:'demo.member@collaboratory.invalid',password:'AnotherPassword!'})).status,401);
 });
 
+// Sign-up answers alike for every address, so without a cap anyone could make it email one inbox endlessly.
+test('repeated sign-ups email one address at most three times an hour; the newest can still ask for a link',async()=>{
+  const signups=createApp(pool,config), email='flooded@example.invalid';
+  const links:string[]=[];
+  const deliver=()=>runNotificationBatch(pool,async job=>{
+    if(job.email===email)links.push(new URL(String(job.payload.confirmationUrl)).hash.slice(1));
+    return{messageId:'flood-'+randomBytes(6).toString('hex')};
+  });
+  for(let i=0;i<6;i++){
+    assert.equal((await request(signups).post('/api/auth/register').send({...person(email),password:`FloodPassword${i}!`})).status,202);
+    await deliver();
+  }
+  assert.equal(links.length,3);
+  // Past the cap a sign-up still takes the request over: no link already sent works any more.
+  for(const token of links)assert.equal((await request(app).post('/api/auth/confirm').send({token})).status,400);
+  // The newest person to sign up asks for a link with their password, as the confirm page offers.
+  await pool.query("UPDATE app_pending_registration SET sent_at=NOW()-INTERVAL '61 seconds' WHERE email=$1",[email]);
+  assert.equal((await request(signups).post('/api/auth/confirmation').send({email,password:'FloodPassword5!'})).status,202);
+  await deliver();
+  assert.equal(links.length,4);
+  assert.equal((await request(app).post('/api/auth/confirm').send({token:links.at(-1)})).status,200);
+  assert.equal((await request(app).post('/api/auth/login').send({email,password:'FloodPassword5!'})).status,200);
+});
+
 test('the email worker sends staged confirmation without activating a member and expired requests are purged',async()=>{
   await register('worker@example.invalid');
   const sent:string[]=[];
@@ -113,9 +137,9 @@ test('the email worker sends staged confirmation without activating a member and
   assert.equal((await pool.query('SELECT 1 FROM app_notification_outbox WHERE payload->>\'confirmationUrl\' LIKE $1',['%'+token])).rowCount,0);
 });
 
-test('public signup has an independent ten-attempt IP limit',async()=>{
+test('public signup has an independent thirty-attempt IP limit',async()=>{
   const limited=createApp(pool,config);
-  for(let i=0;i<10;i++)assert.equal((await request(limited).post('/api/auth/register').send({})).status,400);
+  for(let i=0;i<30;i++)assert.equal((await request(limited).post('/api/auth/register').send({})).status,400);
   const response=await request(limited).post('/api/auth/register').send(person('limited@example.invalid'));
   assert.equal(response.status,429);assert.ok(response.headers['retry-after']);
 });

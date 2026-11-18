@@ -55,7 +55,8 @@ def slot_config(original, image, port):
     service = startup_healthcheck(original['services']['arbor-email-app'])
     service.pop('depends_on', None)
     service.update(image=image, container_name=container, ports=[f'127.0.0.1:{port}:8080'])
-    # The RLES edge names the visitor in X-Forwarded-For, so sign-in limits count each visitor
+    # The RLES edge names the client in X-Forwarded-For (the visitor once its
+    # GATEWAY_TRUST_FORWARDED_FOR is checked and set), so sign-in limits count each visitor
     # rather than the edge. Safe before that edge is installed: the older one strips the header,
     # so the app still sees only its direct peer. A TRUST_PROXY in compose.json's environment wins
     # (one in an env_file would not: Compose prefers environment).

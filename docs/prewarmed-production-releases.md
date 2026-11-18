@@ -48,6 +48,15 @@ installed, the running gateway strips `X-Forwarded-For`, so this changes nothing
 yet. To use another value, set `TRUST_PROXY` in the public service's
 `environment` in `compose.json`; Compose prefers that over an environment file.
 
+The new edge names every visitor as the front proxy (172.16.1.254) until
+`GATEWAY_TRUST_FORWARDED_FOR=1` is set in its environment, so sign-in limits still
+share one budget, as today. Set it only after checking on the host that the front
+proxy appends the visitor's address to `X-Forwarded-For` or replaces the header
+(for example, send a request through the public address with a made-up
+`X-Forwarded-For: 192.0.2.1` and capture what reaches the edge: the last entry must
+be your real address). If the front proxy passes the header through unchanged,
+leave it unset: any visitor could then pick the address the limits count.
+
 The app's existing outbox `FOR UPDATE SKIP LOCKED` leases and unique notification
 keys coordinate concurrent public processes; uncertain provider acceptance is not
 automatically resent. Policy retirement uses its existing transaction advisory

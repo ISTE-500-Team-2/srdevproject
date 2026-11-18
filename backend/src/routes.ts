@@ -17,7 +17,7 @@ import {studioRoutes} from './studios/routes.js';
 import { requirePermission } from './middleware/permissions.js';
 import { WaiverRecordsController } from './controllers/WaiverRecordsController.js';
 import { NotificationPreferencesController } from "./controllers/NotificationPreferencesController.js";
-import { Router, type Request } from "express";
+import { Router, type Request, type Response } from "express";
 import type { Pool } from "pg";
 import type { AppConfig } from "./config.js";
 import { AuthController } from "./controllers/AuthController.js";
@@ -47,10 +47,12 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   const permit = (resource: string, action: string, scope: "own" | "global" = "global") => requirePermission(pool,resource,action,scope);
   const protectedRoute = requireUser(pool, config);
   // Every route has its own budget, so one endpoint's traffic never spends another's allowance.
-  // Sign-in counts failures only, so a busy class signing in spends nothing. Per address: 10 for
-  // one account and 30 in all, and a refused retry costs nothing, so one person's typos never
-  // lock out everyone else on that address. Across every address one account gets 100, which
-  // bounds guessing spread over many addresses; locking its owner out takes ten or more of them.
+  // Sign-in counts failures only, so a busy class signing in spends nothing. Per address (an IPv6
+  // /56 counts as one): 10 for one account and 30 in all, and a refused retry costs nothing, so
+  // one person's typos never lock out everyone else on that address. Across every address one
+  // account gets 100, which bounds guessing spread over many addresses. The price: anyone with
+  // ten addresses (proxies and cloud hosts make that cheap) can keep a chosen account locked out
+  // of sign-in, 15 minutes at a time; no other account is affected.
   const loginEmail = (req: Request) =>
     typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase().slice(0, 254) : "";
   const loginAccountLimit = authRateLimit({ limit: 10, failuresOnly: true, key: loginEmail });
@@ -59,8 +61,10 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   const confirmLimit = authRateLimit({ failuresOnly: true });
   const resendLimit = authRateLimit();
   const demoLimit = authRateLimit();
-  // Sign-up has its own smaller IP budget so garbage registrations do not exhaust login attempts.
-  const signupLimit = authRateLimit({ limit:10, message:"Too many sign-up attempts. Please wait 15 minutes before trying again." });
+  // Sign-up has its own address budget, so garbage registrations do not exhaust login attempts.
+  // Every sign-up counts (each sends an email), but a class signing up together on the studio's
+  // Wi-Fi fits; repeat sign-ups for one address are capped separately (stageRegistration).
+  const signupLimit = authRateLimit({ limit:30, message:"Too many sign-up attempts. Please wait 15 minutes before trying again." });
   // Failed sign-ins, other members on a shared network and public reset traffic must not lock
   // people out of recovery, or administrators out of sending a reset.
   const resetMessage = "Too many password reset attempts. Please wait a few minutes and try again.";
@@ -70,8 +74,13 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   const emailChangeConfirmLimit = authRateLimit({ message: resetMessage });
   const adminResetLimit = authRateLimit({ message: resetMessage });
   // Both check the current password; wrong guesses count against the person at the keyboard only.
+  const operator = (_req: Request, res: Response) => { const { user, actor } = authState(res); return String((actor ?? user).id); };
   const credentialLimit = authRateLimit({ failuresOnly: true, message: "Too many password attempts. Please wait 15 minutes and try again.",
-    key: (_req, res) => { const { user, actor } = authState(res); return String((actor ?? user).id); } });
+    key: operator });
+  // Every email change request or resend sends mail (a link, a heads-up, or an address owner's
+  // notice), so each one counts, per account wherever it signs in from.
+  const emailChangeLimit = authRateLimit({ limit: 10, perAddress: false, key: operator,
+    message: "Too many email change requests. Please wait 15 minutes and try again." });
   // Cookie rotations have their own bounded throttle, not the sign-in budget. Every page load
   // renews, so only failed renewals count. CSRF, origin and rotating-cookie validation are unchanged.
   const refreshLimit = authRateLimit({ limit: 120, windowMs: 60000, failuresOnly: true,
@@ -124,8 +133,8 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   routes.patch("/me/profile", permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, member.profile);
   // Both check the current password, so they share one attempt budget.
   routes.post("/me/password", credentialLimit, permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, auth.changePassword);
-  routes.post("/me/email-change", credentialLimit, permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, auth.requestEmailChange);
-  routes.post("/me/email-change/resend", permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, auth.resendEmailChange);
+  routes.post("/me/email-change", credentialLimit, emailChangeLimit, permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, auth.requestEmailChange);
+  routes.post("/me/email-change/resend", emailChangeLimit, permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, auth.resendEmailChange);
   routes.delete("/me/email-change", permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, auth.cancelEmailChange);
   routes.get("/me/photo", permit("user", "read", "own"), member.photo);
   routes.put("/me/photo", permit("user", "update", "own"), settingsAreMemberOnly, requireCsrf, member.savePhoto);

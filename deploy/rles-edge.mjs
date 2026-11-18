@@ -18,14 +18,19 @@ export function readProductionRoute(file) {
   return route;
 }
 
-// Only allowed peers get this far. The last X-Forwarded-For entry is the address the front
-// proxy itself saw (anything left of it came from the client); a direct peer is named as-is.
-export function clientAddress(req) {
+// Only allowed peers get this far. With trustForwardedFor, the last X-Forwarded-For entry is the
+// address the front proxy itself saw (anything left of it came from the client); a direct peer is
+// named as-is. That holds only if the front proxy appends to or replaces the header: one that
+// passed a client's header through unchanged would let every visitor pick the address the app's
+// sign-in limits count. So it is opt-in (GATEWAY_TRUST_FORWARDED_FOR=1), once checked on the host;
+// until then every visitor is named as the peer, as the app saw them before this edge.
+export function clientAddress(req,trustForwardedFor=false) {
+  if (!trustForwardedFor) return req.socket.remoteAddress;
   const last=String(req.headers['x-forwarded-for'] ?? '').split(',').map(s=>s.trim()).filter(Boolean).at(-1);
   return last && isIP(last) ? last : req.socket.remoteAddress;
 }
 
-export function createEdge({digest,allowedPeers,stateFile,applicationPort=8082,routeFile}) {
+export function createEdge({digest,allowedPeers,stateFile,applicationPort=8082,routeFile,trustForwardedFor=false}) {
   if (!/^[a-f0-9]{64}$/.test(digest)) throw Error('Invalid credential digest');
   const expected=Buffer.from(digest,'hex');
   const peers=new Set(allowedPeers);
@@ -39,9 +44,8 @@ export function createEdge({digest,allowedPeers,stateFile,applicationPort=8082,r
       if (req.url?.startsWith('/api/gateway/')) return send(404,{error:'Not found'});
       const headers={...req.headers,'x-forwarded-proto':'https'};
       delete headers.forwarded;
-      // Exactly one address, the visitor's, so the app's sign-in limits (TRUST_PROXY=1) count
-      // each person instead of treating every visitor as this edge.
-      headers['x-forwarded-for']=clientAddress(req);
+      // Exactly one address, so the app (TRUST_PROXY=1) never takes a client-written one.
+      headers['x-forwarded-for']=clientAddress(req,trustForwardedFor);
       // Snapshot one owner-written atomic route per request. Never route to a
       // demo port or retry access decisions against another application.
       let route;
@@ -106,6 +110,7 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href===impor
     allowedPeers:(process.env.GATEWAY_PROXY_PEERS || '172.16.1.254,127.0.0.1').split(','),
     stateFile:process.env.GATEWAY_STATE_FILE || '/state/heartbeat.json',
     routeFile:process.env.GATEWAY_ROUTE_FILE,
+    trustForwardedFor:process.env.GATEWAY_TRUST_FORWARDED_FOR === '1',
   });
   server.listen(8080,process.env.GATEWAY_BIND_ADDRESS || '172.16.0.2',()=>console.log('Gateway health adapter listening'));
   for(const signal of ['SIGTERM','SIGINT']) process.on(signal,()=>server.close(()=>process.exit(0)));

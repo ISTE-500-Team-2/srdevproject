@@ -72,11 +72,11 @@ test('retrying after an account is limited never spends the address\'s budget', 
   assert.equal((await post(app, '/auth/login', '203.0.113.13', malformed())).status, 429);
 });
 
-test('an IPv6 visitor\'s whole /64 shares one budget', async () => {
+test('an IPv6 visitor\'s whole /56 (every /64 a home connection holds) shares one budget', async () => {
   const app = behindProxy();
-  for (let i = 0; i < 30; i++) assert.equal((await post(app, '/auth/login', `2001:db8:1:2::${(i + 1).toString(16)}`, malformed())).status, 400);
-  assert.equal((await post(app, '/auth/login', '2001:db8:1:2:ffff::7', malformed())).status, 429);
-  assert.equal((await post(app, '/auth/login', '2001:db8:1:3::1', malformed())).status, 400);
+  for (let i = 0; i < 30; i++) assert.equal((await post(app, '/auth/login', `2001:db8:1:2${i.toString(16).padStart(2, '0')}::1`, malformed())).status, 400);
+  assert.equal((await post(app, '/auth/login', '2001:db8:1:2ff:ffff::7', malformed())).status, 429);
+  assert.equal((await post(app, '/auth/login', '2001:db8:1:300::1', malformed())).status, 400);
 });
 
 test('guesses at one account spread over many addresses share one larger budget', async () => {

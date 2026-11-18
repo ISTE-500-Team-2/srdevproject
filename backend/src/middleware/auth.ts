@@ -162,8 +162,9 @@ export function checkOrigin(config: AppConfig) {
 }
 
 /**
- * The budget a client address falls in. An IPv6 visitor usually holds a whole /64 and can pick
- * any address in it, so the /64 shares one budget. IPv4 (IPv4-mapped too) counts by address.
+ * The budget a client address falls in. An IPv6 visitor can pick any address in the block their
+ * connection is given, often a /56 (256 /64s) at home, so a /56 shares one budget. IPv4
+ * (IPv4-mapped too) counts by address.
  */
 export function addressBudget(ip: string | undefined): string {
   if (!ip) return "unknown";
@@ -175,16 +176,17 @@ export function addressBudget(ip: string | undefined): string {
     const rest = tail ? tail.split(":") : [];
     groups.push(...Array<string>(8 - groups.length - rest.length).fill("0"), ...rest);
   }
-  const prefix = groups.slice(0, 4).map((group) => parseInt(group, 16).toString(16));
-  // ::/64 holds loopback and the IPv4-mapped forms: single hosts, not one visitor's block.
-  return prefix.every((group) => group === "0") ? address : `${prefix.join(":")}::/64`;
+  // The first 56 bits: three groups and the top half of the fourth.
+  const prefix = groups.slice(0, 4).map((group, i) => parseInt(group, 16) & (i === 3 ? 0xff00 : 0xffff));
+  // ::/56 holds loopback and the IPv4-mapped forms: single hosts, not one visitor's block.
+  return prefix.every((group) => group === 0) ? address : `${prefix.map((group) => group.toString(16)).join(":")}::/56`;
 }
 
 /**
  * Create a bounded, process-local attempt budget. Give each route its own instance, so one
  * endpoint's traffic never spends another's allowance. Budgets are per client address (req.ip,
  * which is the visitor only when 'trust proxy' names the proxies in front of the app; an IPv6
- * /64 counts as one address); `key` narrows one further, for example to one account from one
+ * /56 counts as one address); `key` narrows one further, for example to one account from one
  * address, or with `perAddress: false` names the budget on its own, across every address. With
  * `failuresOnly`, only requests that fail count: one that succeeds hands its attempt back, so
  * ordinary sign-ins and session renewals never use up anyone's allowance, and so does a request

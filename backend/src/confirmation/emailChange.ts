@@ -5,6 +5,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import type { Database } from '../db.js';
 import { AppError } from '../domain.js';
 import { enqueueNotification } from '../notifications/store.js';
+import { noticeAddressInUse } from './pendingRegistration.js';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 export const emailChangeLifetimeMs = 24 * 60 * 60 * 1000;
@@ -13,10 +14,10 @@ const invalid = () => new AppError(400, 'EMAIL_CHANGE_INVALID',
 
 export interface PendingEmail { email: string; expiresAt: string }
 
-/** Another account already signs in with `email` (case-insensitive). */
-export async function emailTaken(db: Database, email: string, userId: number) {
-  const { rows } = await db.query('SELECT 1 FROM "user" WHERE lower(email)=lower($1) AND userid<>$2', [email, userId]);
-  return rows.length > 0;
+/** The other account that already signs in with `email` (case-insensitive), if there is one. */
+async function emailOwner(db: Database, email: string, userId: number) {
+  const { rows } = await db.query<{ userid: number }>('SELECT userid FROM "user" WHERE lower(email)=lower($1) AND userid<>$2', [email, userId]);
+  return rows[0]?.userid;
 }
 
 /** The member's unexpired pending change, with when its link was last sent. Caller holds the account lock. */
@@ -35,6 +36,8 @@ async function retireLinkMail(db: Database, userId: number) {
 /**
  * Replace any earlier pending change and queue the link to the new address. `notifyCurrent` also
  * sends the current address a heads-up: once per address asked for, not on every resend.
+ * An address another account already uses is handled the same way, so the answer never reveals
+ * who is a member, except that no link goes to it: its owner is told someone tried to use it.
  * Caller owns the transaction and the account row lock.
  */
 export async function issueEmailChange(db: Database, userId: number, currentEmail: string, newEmail: string, origin: string,
@@ -48,8 +51,11 @@ export async function issueEmailChange(db: Database, userId: number, currentEmai
       expires_at=EXCLUDED.expires_at,created_at=NOW()`, [userId, newEmail, digest, expiresAt]);
   const confirmationUrl = new URL('/confirm-email-change', origin);
   confirmationUrl.hash = token;
-  // Both go to fixed addresses: the link to the new one, the heads-up to the one in use now.
-  await enqueueNotification(db, { userId, kind: 'email_change_confirmation', dedupeKey: `email-change:${digest}`,
+  // Both go to fixed addresses: the link to the new one, the heads-up to the one in use now. An
+  // address that is already taken gets its owner's notice instead of the link.
+  const owner = await emailOwner(db, newEmail, userId);
+  if (owner !== undefined) await noticeAddressInUse(db, owner);
+  else await enqueueNotification(db, { userId, kind: 'email_change_confirmation', dedupeKey: `email-change:${digest}`,
     payload: { confirmationUrl: confirmationUrl.href, expiresAt: expiresAt.toISOString(), changeHash: digest, recipientEmail: newEmail } });
   if (notifyCurrent)
     await enqueueNotification(db, { userId, kind: 'email_change_requested', dedupeKey: `email-change-notice:${digest}`,
@@ -86,7 +92,7 @@ export async function consumeEmailChange(db: Database, token: unknown) {
   const consumed = (await db.query<{ email: string }>(`DELETE FROM app_email_change
     WHERE userid=$1 AND token_hash=$2 AND expires_at>NOW() RETURNING new_email AS email`, [account.userid, digest])).rows[0];
   if (!consumed) throw invalid();
-  if (await emailTaken(db, consumed.email, account.userid))
+  if (await emailOwner(db, consumed.email, account.userid) !== undefined)
     throw new AppError(409, 'EMAIL_ALREADY_REGISTERED', 'Another account now signs in with that email, so yours hasn’t changed.');
   await db.query('UPDATE "user" SET email=$2,email_confirmed=true,revision=revision+1 WHERE userid=$1', [account.userid, consumed.email]);
   // The old inbox no longer controls the account: its reset links stop working.

@@ -23,13 +23,21 @@ export async function pruneRegistrations(db: Database) {
   await db.query('DELETE FROM app_pending_registration WHERE expires_at<=NOW()');
 }
 
+/** Sign-ups email one pending address at most this many confirmation links an hour. */
+const signupEmailsPerHour = 3;
+
+/** Queued mail must never deliver a link that a newer one (or none) has replaced. */
+async function retireQueuedLinks(db: Database, id: number) {
+  await db.query(`UPDATE app_notification_outbox SET status='obsolete',counts_for_sla=false,updated_at=NOW()
+    WHERE registration_id=$1 AND status='pending'`, [id]);
+}
+
 /** Only the latest token can complete a request; resends invalidate earlier queued links. */
 export async function sendRegistrationConfirmation(db: Database, id: number, origin: string) {
   const token = randomBytes(32).toString('base64url');
   const hash = digest(token);
   const expires = new Date(Date.now() + 24 * 60 * 60_000);
-  await db.query(`UPDATE app_notification_outbox SET status='obsolete',counts_for_sla=false,updated_at=NOW()
-    WHERE registration_id=$1 AND status='pending'`, [id]);
+  await retireQueuedLinks(db, id);
   await db.query('UPDATE app_pending_registration SET token_hash=$2,expires_at=$3,sent_at=NOW() WHERE id=$1', [id, hash, expires]);
   const url = new URL('/confirm-email', origin); url.hash = token;
   await db.query(`INSERT INTO app_notification_outbox(registration_id,kind,dedupe_key,payload,deadline_at,counts_for_sla)
@@ -38,26 +46,40 @@ export async function sendRegistrationConfirmation(db: Database, id: number, ori
 }
 
 /**
+ * Tell the member who signs in with an address that someone tried to use it for another account
+ * (a sign-up, or another member's email change), at most once an hour.
+ */
+export async function noticeAddressInUse(db: Database, userId: number) {
+  await enqueueNotification(db, { userId, kind: 'account_exists',
+    dedupeKey: `account-exists:${userId}:${Math.floor(Date.now() / 3_600_000)}`, payload: {} });
+}
+
+/**
  * Stage a sign-up and email its confirmation link. Every attempt looks the same to the caller, so
  * sign-up never reveals whether an address belongs to a member: an existing account's owner gets a
- * notice instead (at most one an hour). A newer sign-up for a still-pending address replaces its
- * details, password and link, so a stranger who staged that address first can't have their
- * password become the account its owner later confirms.
+ * notice instead. A newer sign-up for a still-pending address replaces its details, password and
+ * link, so a stranger who staged that address first can't have their password become the account
+ * its owner later confirms. Sign-ups send one address at most three links an hour.
  */
 export async function stageRegistration(db: Database, input: RegistrationInput, origin: string) {
   await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,30))', [input.email]);
   const existing = (await db.query<{ userid: number }>('SELECT userid FROM "user" WHERE lower(email)=$1', [input.email])).rows[0];
-  if (existing) {
-    await enqueueNotification(db, { userId: existing.userid, kind: 'account_exists',
-      dedupeKey: `account-exists:${existing.userid}:${Math.floor(Date.now() / 3_600_000)}`, payload: {} });
-    return;
-  }
+  if (existing) return noticeAddressInUse(db, existing.userid);
   const row = (await db.query<{ id: number }>(`INSERT INTO app_pending_registration(email,first_name,last_name,phone,dob,password_hash,time_zone)
     VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(email) DO UPDATE SET first_name=EXCLUDED.first_name,last_name=EXCLUDED.last_name,
     phone=EXCLUDED.phone,dob=EXCLUDED.dob,password_hash=EXCLUDED.password_hash,time_zone=EXCLUDED.time_zone RETURNING id`,
     [input.email,input.firstName,input.lastName,input.phone,input.dob,input.password,input.timeZone])).rows[0]!;
-  // A fresh token: links sent for an earlier sign-up stop working.
-  await sendRegistrationConfirmation(db, row.id, origin);
+  // Repeat sign-ups must not flood the address's inbox. Count the links that went out, or are
+  // going out, this past hour (a queued one a newer link replaced never left). Past the cap a
+  // sign-up still takes the request over and every earlier link stops working, but nothing is
+  // sent: the newest person to sign up can ask for a link with their password (resendRegistration).
+  const { sent } = (await db.query<{ sent: number }>(`SELECT COUNT(*)::int AS sent FROM app_notification_outbox
+    WHERE registration_id=$1 AND status IN ('sending','accepted','uncertain') AND created_at>NOW()-INTERVAL '1 hour'`,
+    [row.id])).rows[0]!;
+  if (sent < signupEmailsPerHour) return sendRegistrationConfirmation(db, row.id, origin);
+  await retireQueuedLinks(db, row.id);
+  // sent_at stays put: it times resends, and no email went out.
+  await db.query(`UPDATE app_pending_registration SET token_hash=NULL,expires_at=NOW()+INTERVAL '24 hours' WHERE id=$1`, [row.id]);
 }
 
 /** Possession of a live, single-use inbox token is required before allocating a user, role or session. */

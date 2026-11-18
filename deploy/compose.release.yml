@@ -9,7 +9,7 @@ services:
       HOST: 0.0.0.0
       PORT: 8080
       ENABLE_DEMO_LOGIN: 'false'
-      # The RLES edge names the visitor in X-Forwarded-For (deploy/rles-edge.mjs).
+      # The RLES edge names the client in X-Forwarded-For (deploy/rles-edge.mjs).
       TRUST_PROXY: '1'
     ports: ['127.0.0.1:${ARBOR_HTTP_PORT:-8080}:8080']
     networks: [existing]

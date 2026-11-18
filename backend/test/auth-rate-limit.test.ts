@@ -66,11 +66,12 @@ test('with perAddress: false, a key shares one budget across every address', asy
   assert.equal((await from(server, '192.0.2.1', { email: 'b' })).status, 401);
 });
 
-test('an IPv6 /64 counts as one address; IPv4, mapped and loopback addresses count alone', () => {
-  assert.equal(addressBudget('2001:db8:0:1::5'), '2001:db8:0:1::/64');
-  assert.equal(addressBudget('2001:0DB8:0000:0001:aaaa:bbbb:cccc:dddd'), '2001:db8:0:1::/64');
-  assert.equal(addressBudget('2001:db8::'), '2001:db8:0:0::/64');
-  assert.equal(addressBudget('fe80::1%eth0'), 'fe80:0:0:0::/64');
+test('an IPv6 /56 counts as one address; IPv4, mapped and loopback addresses count alone', () => {
+  assert.equal(addressBudget('2001:db8:0:1::5'), '2001:db8:0:0::/56');
+  assert.equal(addressBudget('2001:0DB8:0000:01ff:aaaa:bbbb:cccc:dddd'), '2001:db8:0:100::/56');
+  assert.equal(addressBudget('2001:db8:0:1ab::1'), '2001:db8:0:100::/56');
+  assert.equal(addressBudget('2001:db8::'), '2001:db8:0:0::/56');
+  assert.equal(addressBudget('fe80::1%eth0'), 'fe80:0:0:0::/56');
   for (const alone of ['203.0.113.9', '::ffff:203.0.113.9', '::ffff:cb00:7109', '::1', 'unknown'])
     assert.equal(addressBudget(alone), alone);
   assert.equal(addressBudget(undefined), 'unknown');

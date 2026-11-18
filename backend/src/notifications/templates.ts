@@ -154,9 +154,9 @@ const copy: Record<NotificationKind, Copy> = {
     cta: ['Go to login', '/login'] },
   account_created: { category: 'Account', status: 'Ready', tone: 'success',
     intro: () => 'Your email is confirmed and you’re ready to sign in.', cta: ['Open my dashboard', '/'] },
-  // Sign-up answers every address the same way, so the owner hears about it here instead.
+  // Sign-up and email change answer every address the same way, so the owner hears about it here instead.
   account_exists: { category: 'Account', status: 'Already registered', tone: 'info',
-    intro: () => 'Someone tried to sign up with this email address. It already belongs to your member account, so no new account was created.',
+    intro: () => 'Someone tried to sign up with this email address, or to switch another account to it. It already belongs to your member account, so no new account was created and no other account can use it.',
     cta: ['Go to login', '/login'] },
   account_creation_failed: { category: 'Account', status: 'Not completed', tone: 'danger',
     intro: () => 'We couldn’t finish setting up your account. Please try signing up again.', cta: ['Try again', '/login'] },
