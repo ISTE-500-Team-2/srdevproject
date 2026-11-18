@@ -36,6 +36,7 @@ import {
 import { dollars, statusLabel, timeOnly, zonedDay } from "../lib/display";
 import { useFacilityZone } from "../lib/facilityZone";
 import type { Report } from "../lib/reportContracts";
+import { jumpToSection } from "../lib/sectionJump";
 import { useApi } from "../lib/useApi";
 import { onArrowKeys } from "../lib/rovingFocus";
 import "../assets/css/analyticsDashboard.css";
@@ -197,7 +198,10 @@ function Panel({
     <section className="panel reports-panel" id={id} aria-labelledby={`${id}-title`}>
       <div className="analytics-panel-head">
         <span className="reports-panel-title">
-          <h2 id={`${id}-title`}>{title}</h2>
+          {/* Focusable so the section bar can move keyboard focus here (jumpToSection). */}
+          <h2 id={`${id}-title`} tabIndex={-1}>
+            {title}
+          </h2>
           {info && <InfoTip label="What this card counts">{info}</InfoTip>}
         </span>
         {aside}
@@ -563,8 +567,7 @@ function JumpNav({ warnings }: { warnings: number }) {
           aria-current={active === id ? "location" : undefined}
           onClick={() => {
             setActive(id);
-            const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-            document.getElementById(id)?.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "start" });
+            jumpToSection(id);
           }}
         >
           {label}

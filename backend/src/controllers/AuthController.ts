@@ -43,8 +43,8 @@ function signupField<T>(field: string, read: () => T): T {
 }
 
 /**
- * Sign-up phone: formatting such as '+1 (410) 555-0182' is accepted and only the digits are kept, as the
- * profile's Contact form saves them. Free text, or fewer than 7 or more than 15 digits, is refused.
+ * Sign-up phone: formatting such as '+1 (410) 555-0182' is accepted and only the digits are kept. Free text,
+ * or fewer than 7 or more than 15 digits, is refused.
  */
 function signupPhone(value: unknown): string {
   const typed = textField(value, 'Phone', 20);

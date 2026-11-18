@@ -176,6 +176,30 @@ test("name and phone save with a blank phone and no note", async () => {
   );
 });
 
+test("an account with no date of birth on file can get one from the name and phone dialog", async () => {
+  state.detail.user = user({ dobOnFile: false });
+  api.mockResolvedValue(user({ dobOnFile: true, revision: 8 }));
+  mount();
+  fireEvent.click(screen.getByRole("button", { name: "Add date of birth" }));
+  const dialog = screen.getByRole("dialog", { name: "Name, phone & date of birth" });
+  fireEvent.change(within(dialog).getByLabelText(/^Date of birth/), { target: { value: "1984-02-29" } });
+  fireEvent.submit(within(dialog).getByRole("form"));
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("/admin/users/14/profile", {
+      method: "PATCH",
+      body: { firstName: "Casey", lastName: "Demo", phone: "5855550142", dob: "1984-02-29", reason: undefined, revision: 7 },
+    }),
+  );
+});
+
+test("a date of birth already on file isn't offered for editing", () => {
+  state.detail.user = user({ dobOnFile: true });
+  mount();
+  expect(screen.queryByRole("button", { name: "Add date of birth" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Edit name & phone" }));
+  expect(within(screen.getByRole("dialog", { name: "Name & phone" })).queryByLabelText(/^Date of birth/)).toBeNull();
+});
+
 test("suspending card membership access never promises to pause billing", async () => {
   api.mockResolvedValue({});
   state.detail.user = user({ status: "suspended" });

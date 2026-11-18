@@ -21,11 +21,13 @@ export interface StaffPerson {
   roles: string[];
   /** Directory and record reads only: the member's photo version, null without one. */
   photoVersion?: string | null;
+  /** Whether a date of birth is recorded. Accounts made before it was collected have none. */
+  dobOnFile: boolean;
 }
 
 const personColumns = `u.userid AS id,u.firstname AS "firstName",u.lastname AS "lastName",u.email,u.phone,u.status,u.statusdesc AS "accountReason",
   u.primary_role AS "primaryRole",u.is_student AS "isStudent",u.accessstatus AS "accessStatus",u.accessreason AS "accessReason",u.revision,
-  COALESCE(u.conductflag,false) AS "conductFlag",
+  COALESCE(u.conductflag,false) AS "conductFlag",u.dob IS NOT NULL AS "dobOnFile",
   u.profile_address AS address,u.contact_preferences AS "contactPreferences",
   COALESCE((SELECT json_agg(r.role ORDER BY r.role) FROM user_role ur JOIN role r USING(roleid) WHERE ur.userid=u.userid),'[]') AS roles`;
 
@@ -58,10 +60,12 @@ export class PeopleRepository {
     lastName: string,
     phone: string,
     revision: number,
+    // Only fills a missing date of birth; one already on file is never replaced here.
+    dob: string | null = null,
   ): Promise<StaffPerson | undefined> {
     const result = await this.db.query(
-      `UPDATE "user" SET firstname=$2,lastname=$3,phone=$4,revision=revision+1 WHERE userid=$1 AND revision=$5 RETURNING userid`,
-      [id, firstName, lastName, phone, revision],
+      `UPDATE "user" SET firstname=$2,lastname=$3,phone=$4,dob=COALESCE(dob,$6::date),revision=revision+1 WHERE userid=$1 AND revision=$5 RETURNING userid`,
+      [id, firstName, lastName, phone, revision, dob],
     );
     return result.rowCount ? this.person(id) : undefined;
   }

@@ -252,7 +252,7 @@ test('adults request a link, the minor confirms it, and either side can undo it 
  assert.deepEqual(await outbox(stale),[],'a rejected answer sends nothing');
  assert.equal((await get(kid,'/me/supervision')).body.data.sponsor.id,parent.user.id);
  await pool.query("UPDATE app_minor_sponsor_request SET status='cancelled',resolved_at=now() WHERE id=$1",[stale]);
- assert.deepEqual((await get(parent,'/me/minors')).body.data,{minors:[{id:kid.user.id,name:'Link kid',visit:null}],requests:[]});
+ assert.deepEqual((await get(parent,'/me/minors')).body.data,{minors:[{id:kid.user.id,name:'Link kid',visit:null}],requests:[],canSponsor:true,dobOnFile:true});
  await pool.query('INSERT INTO app_facility_visit(user_id,building_id,sponsor_id) VALUES($1,1,$2)',[kid.user.id,parent.user.id]);
  const visiting=(await get(parent,'/me/minors')).body.data.minors[0].visit;
  assert.equal(visiting.buildingName,'Collaboratory');assert.ok(visiting.checkedInAt);
@@ -512,6 +512,31 @@ test('an eligible adult cannot make themselves present from the web; staff at th
  assert.equal((await transaction(pool,db=>new MinorSupervision(db).requireSponsor(kid.user.id)))?.id,parent.user.id);
  const allowed=await atReader(kid.user.id,kidSpace);assert.equal(allowed.allowed,true,JSON.stringify(allowed));
  await transaction(pool,db=>new MinorSupervision(db).checkout(parent.user.id));
+});
+test('an adult with no date of birth on file is told they cannot sponsor yet, and staff can add it once',async()=>{
+ // Accounts made before 005_user_dob have none, so the session doesn't call them minors either.
+ const password='GoodPassword123!',email='legacy.adult@example.invalid';
+ const id=(await pool.query(`INSERT INTO "user"(firstname,lastname,email,password,phone,status,email_confirmed)
+  VALUES('Legacy','Adult',$1,$2,'1112223333','active',true) RETURNING userid`,[email,await hashPassword(password)])).rows[0].userid;
+ await pool.query("INSERT INTO user_role(userid,roleid) SELECT $1,roleid FROM role WHERE role='member'",[id]);
+ const legacy=(await request(server).post('/api/auth/login').send({email,password})).body.data;
+ assert.equal(legacy.user.isMinor,false);
+ assert.deepEqual((await get(legacy,'/me/minors')).body.data,{minors:[],requests:[],canSponsor:false,dobOnFile:false});
+ const patch=(body:any)=>request(server).patch(`/api/admin/users/${id}/profile`).set('Authorization','Bearer '+admin.accessToken).set('X-CSRF-Token',admin.csrfToken).send(body);
+ const before=(await get(admin,`/admin/users/${id}`)).body.data.user;assert.equal(before.dobOnFile,false);
+ const body={firstName:'Legacy',lastName:'Adult',phone:'1112223333',revision:before.revision};
+ assert.equal((await patch({...body,dob:'2999-01-01'})).status,400,'a future date is refused');
+ const added=await patch({...body,dob:'1980-06-15'});assert.equal(added.status,200,JSON.stringify(added.body));
+ assert.equal(added.body.data.dobOnFile,true);
+ const dob=async()=>(await pool.query('SELECT dob::text FROM "user" WHERE userid=$1',[id])).rows[0].dob;
+ assert.equal(await dob(),'1980-06-15');
+ assert.equal((await pool.query(`SELECT reason FROM app_staff_audit WHERE subject_id=$1 AND action='user.profile_updated' ORDER BY id DESC LIMIT 1`,[id])).rows[0].reason,'Date of birth added');
+ // Once on file it isn't changed this way: that would change who counts as a minor.
+ const again=await patch({...body,revision:added.body.data.revision,dob:'1990-01-01'});
+ assert.equal(again.status,409);assert.equal(again.body.error.code,'DOB_ON_FILE');
+ assert.equal((await patch({...body,revision:added.body.data.revision,firstName:'Renamed'})).status,200,'a name edit leaves it alone');
+ assert.equal(await dob(),'1980-06-15');
+ assert.deepEqual((await get(legacy,'/me/minors')).body.data,{minors:[],requests:[],canSponsor:true,dobOnFile:true});
 });
 test("a desk check-in with no building named follows the visit under way, or a minor's present sponsor",async()=>{
  const parent=await account('desk.parent@example.invalid','1980-01-01'),kid=await account('desk.kid@example.invalid','2012-01-01');

@@ -149,6 +149,8 @@ test('an adult supervising a checked-in minor sees them in the card and access b
   const minors: SupervisedMinors = {
     minors: [{ id: 142, name: 'Emma Lin', visit: { buildingName: 'Main shop', checkedInAt: visit.checkedInAt } }],
     requests: [],
+    canSponsor: true,
+    dobOnFile: true,
   };
   mount({ '/me/overview': overview(), '/me/supervision': adultSummary({ visit: { ...visit, sponsorId: null } }), '/me/minors': minors });
   const card = await checkInCard();

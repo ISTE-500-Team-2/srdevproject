@@ -127,7 +127,10 @@ export class MinorSupervision {
   async isAdult(id:number) {
     return !!(await this.db.query(`SELECT 1 FROM "user" WHERE userid=$1 AND ${adultSql(2)}`,[id,this.zone])).rowCount;
   }
-  /** Minors an adult sponsors (with today's open visit) and the adult's pending outgoing requests. */
+  /**
+   * Minors an adult sponsors (with today's open visit), the adult's pending outgoing requests,
+   * and whether they may send a new one: older accounts have no date of birth on file.
+   */
   async minors(adultId:number) {
     const minors=(await this.db.query(`SELECT s.minor_id AS id,u.firstname||' '||u.lastname AS name,
       b.name AS "buildingName",v.checked_in_at AS "checkedInAt"
@@ -140,7 +143,9 @@ export class MinorSupervision {
     const requests=(await this.db.query(`SELECT r.id::int AS id,u.firstname AS "minorName",r.created_at AS "createdAt"
       FROM app_minor_sponsor_request r JOIN "user" u ON u.userid=r.minor_id
       WHERE r.adult_id=$1 AND r.status='pending' ORDER BY r.created_at,r.id`,[adultId])).rows;
-    return {minors,requests};
+    const self=(await this.db.query(`SELECT dob IS NOT NULL AS "dobOnFile",(${adultSql(2)}) AS "canSponsor"
+      FROM "user" WHERE userid=$1`,[adultId,this.zone])).rows[0];
+    return {minors,requests,canSponsor:self?.canSponsor===true,dobOnFile:self?.dobOnFile===true};
   }
 }
 

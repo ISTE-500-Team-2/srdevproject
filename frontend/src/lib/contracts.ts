@@ -199,6 +199,10 @@ export interface SponsorRequest {
 export interface SupervisedMinors {
   minors: { id: number; name: string; visit: { buildingName: string; checkedInAt: string } | null }[];
   requests: MinorLinkRequest[];
+  /** Whether this account may send a new link request: an active adult with a date of birth on file. */
+  canSponsor: boolean;
+  /** Older accounts have no date of birth recorded; staff add it from the member record. */
+  dobOnFile: boolean;
 }
 export interface MinorLinkRequest {
   id: number;

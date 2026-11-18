@@ -254,20 +254,24 @@ export function RecordDialogHost({
           <Reason />
         </RecordDialog>
       );
-    case "profile":
+    case "profile": {
+      // Older accounts have no date of birth, so they can't sponsor a minor until staff add one.
+      const addBirthDate = person.dobOnFile === false;
       return (
         <RecordDialog
           {...common}
-          title="Name & phone"
+          title={addBirthDate ? "Name, phone & date of birth" : "Name & phone"}
           submitLabel="Save"
           onSubmit={async (f) => {
+            const dob = String(f.get("dob") ?? "");
             await write(`/admin/users/${id}/profile`, "PATCH", {
               firstName: f.get("firstName"),
               lastName: f.get("lastName"),
               phone: f.get("phone"),
+              ...(dob ? { dob } : {}),
               reason: String(f.get("reason") ?? "").trim() || undefined,
             });
-            return "Name and phone saved.";
+            return dob ? "Name, phone and date of birth saved." : "Name and phone saved.";
           }}
         >
           <div className="mr-grid2">
@@ -286,10 +290,24 @@ export function RecordDialogHost({
             </span>
             <input name="phone" type="tel" defaultValue={person.phone} maxLength={15} autoComplete="off" />
           </label>
+          {addBirthDate ? (
+            <label className="form-field">
+              <span>
+                Date of birth<span className="mr-optional"> (optional)</span>
+              </span>
+              <input name="dob" type="date" max={new Date().toISOString().slice(0, 10)} autoComplete="off" aria-describedby="mr-dob-hint" />
+            </label>
+          ) : null}
+          {addBirthDate ? (
+            <p id="mr-dob-hint" className="mr-dialog__hint">
+              None is on file, so {first} can’t sponsor a minor yet. Check it before saving: it can’t be changed here afterwards.
+            </p>
+          ) : null}
           <p className="mr-dialog__hint">Email is how {first} signs in, so they change it from their own profile.</p>
           <Reason optional />
         </RecordDialog>
       );
+    }
     case "photo":
       return (
         <RecordDialog

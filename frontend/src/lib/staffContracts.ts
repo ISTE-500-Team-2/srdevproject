@@ -34,6 +34,8 @@ export interface Person {
   revision: number;
   /** Member directory and record reads: their photo version, null without one. */
   photoVersion?: string | null;
+  /** Whether a date of birth is recorded. Staff can add a missing one, once. */
+  dobOnFile?: boolean;
 }
 export interface Entitlement {
   id: number;

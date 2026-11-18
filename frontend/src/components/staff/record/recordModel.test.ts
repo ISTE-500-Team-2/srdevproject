@@ -191,6 +191,9 @@ test("phone numbers read grouped when they are plain digits", () => {
   expect(phoneText("5855550142")).toBe("(585) 555-0142");
   expect(phoneText("15855550142")).toBe("(585) 555-0142");
   expect(phoneText("+44 20 7946")).toBe("+44 20 7946");
+  // Ten digits after a country code are not a US number; +1 and ten digits is.
+  expect(phoneText("+4930123456")).toBe("+4930123456");
+  expect(phoneText("+15855550142")).toBe("(585) 555-0142");
 });
 
 describe("day labels across the spring clock change", () => {

@@ -3,7 +3,7 @@
 
 import type { Request, Response } from "express";
 import type { Pool } from "pg";
-import { AppError, bigintId, integerId, positiveId, textField } from "../domain.js";
+import { AppError, bigintId, dateOfBirthField, integerId, positiveId, textField } from "../domain.js";
 import { authState } from "../middleware/auth.js";
 import { AUDIT_VIEWS_LIST, COMPLIANCE_EXPORT_LIMIT, StaffModel } from "../models/StaffModel.js";
 import { auditChanges } from "../auditChanges.js";
@@ -165,6 +165,8 @@ export class StaffController {
     });
   };
   profile = async (req: Request, res: Response) => {
+    // Optional: only for an account with no date of birth on file yet.
+    const dob = req.body.dob == null || req.body.dob === "" ? null : dateOfBirthField(req.body.dob);
     res.json({
       data: await this.service.profile(
         authState(res).user.id,
@@ -174,7 +176,8 @@ export class StaffController {
         // A blank phone clears it: not every member gives one.
         textField(req.body.phone ?? "", "Phone", 15, 0),
         revisionField(req.body.revision),
-        optionalReasonField(req.body.reason, "Name or phone updated"),
+        optionalReasonField(req.body.reason, dob ? "Date of birth added" : "Name or phone updated"),
+        dob,
       ),
     });
   };
