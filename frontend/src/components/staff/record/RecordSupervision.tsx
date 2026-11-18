@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { timeOnly } from "../../../lib/display";
 import type { Person } from "../../../lib/staffContracts";
@@ -18,7 +19,16 @@ export function RecordSupervision({
   canManage: boolean;
   open: OpenDialog;
 }) {
+  const [, setTick] = useState(0);
   const liveOverrides = (overrides ?? []).filter((o) => !o.revokedAt && Date.parse(o.endsAt) > Date.now());
+  // Hide each unlock, and its End button, the moment it ends. Refreshes wait while staff
+  // edit a form, so they can't be relied on to do it.
+  const nextEnd = Math.min(...liveOverrides.map((o) => Date.parse(o.endsAt)));
+  useEffect(() => {
+    if (!Number.isFinite(nextEnd)) return;
+    const timer = window.setTimeout(() => setTick((n) => n + 1), Math.max(0, nextEnd - Date.now()) + 50);
+    return () => window.clearTimeout(timer);
+  }, [nextEnd]);
   return (
     <section className="today-panel" aria-labelledby={`mr-sup-title-${u.id}`}>
       <div className="today-panel-head">

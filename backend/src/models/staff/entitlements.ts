@@ -15,6 +15,12 @@ export interface MembershipRecord {
   revision: number;
   cancellationRequestedAt: Date | null;
   cardBilled: boolean;
+  /** Card billing that will charge again: no stop has been confirmed by the payment provider. */
+  autoRenews: boolean;
+  /** The last day of card billing once someone asked to stop it. */
+  renewalEndsAt: Date | null;
+  /** A stop was asked for but the payment provider hasn't confirmed it, so billing may still renew. */
+  renewalStopPending: boolean;
   startsAt: Date | null;
   endsAt: Date | null;
   plan: PlanSnapshot;
@@ -59,6 +65,14 @@ function entitlementTable(kind: EntitlementKind) {
     : { table: "day_pass", key: "dayid" };
 }
 
+/**
+ * SQL that is true while an app_membership_billing row (alias `b`) will still charge again. A stop counts
+ * only once the payment provider confirms it: the last day is saved before the provider is asked, and that
+ * request can fail, leaving the subscription renewing.
+ */
+export const billingRenewsSql = `(b.status NOT IN ('canceled','incomplete_expired','expired') AND NOT b.cancel_at_period_end
+  AND NOT (b.cancellation_effective_at IS NOT NULL AND b.cancellation_confirmed))`;
+
 /** Memberships and day passes held by members. */
 export class EntitlementRepository {
   constructor(
@@ -70,11 +84,16 @@ export class EntitlementRepository {
       await this.db.query<MembershipRecord>(
         `SELECT m.membershipid AS id,m.userid AS "userId",m.tierid AS "planId",m.status,m.statusdesc AS reason,m.revision,m.cancellation_requested_at AS "cancellationRequestedAt",
       EXISTS(SELECT 1 FROM app_membership_invoice i WHERE i.membership_id=m.membershipid) AS "cardBilled",
+      COALESCE(${billingRenewsSql},false) AS "autoRenews",b.cancellation_effective_at AS "renewalEndsAt",
+      COALESCE(${billingRenewsSql} AND b.cancellation_effective_at IS NOT NULL,false) AS "renewalStopPending",
       m.startdate AT TIME ZONE 'UTC' AS "startsAt",m.end_date AT TIME ZONE 'UTC' AS "endsAt",
       COALESCE(m.plan_snapshot,jsonb_build_object('name',t.tiername,'price',t.tierprice::text,'benefits',t.benefits)) AS plan,
       CASE WHEN m.status<>'active' THEN m.status WHEN m.end_date<=NOW() AT TIME ZONE 'UTC' THEN 'expired'
         WHEN m.startdate>NOW() AT TIME ZONE 'UTC' THEN 'scheduled' ELSE 'active' END AS "effectiveStatus"
-      FROM user_membership m LEFT JOIN membership_tiers t USING(tierid) WHERE m.userid=$1 ORDER BY m.startdate DESC,m.membershipid DESC LIMIT 100`,
+      FROM user_membership m LEFT JOIN membership_tiers t USING(tierid)
+      LEFT JOIN LATERAL (SELECT b.status,b.cancellation_effective_at,b.cancellation_confirmed,b.cancel_at_period_end FROM app_membership_invoice i
+        JOIN app_membership_billing b ON b.id=i.billing_id WHERE i.membership_id=m.membershipid LIMIT 1) b ON true
+      WHERE m.userid=$1 ORDER BY m.startdate DESC,m.membershipid DESC LIMIT 100`,
         [userId],
       )
     ).rows;

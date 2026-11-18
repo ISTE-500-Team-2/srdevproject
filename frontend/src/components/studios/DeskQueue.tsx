@@ -1,10 +1,13 @@
 // Staff queue for studio payments and refund tasks that still require an operator action.
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Banknote, CircleAlert, RotateCcw, Undo2 } from "lucide-react";
 import { errorMessage } from "../../lib/api";
 import { memberName, type DeskTask } from "../../lib/studioDesk";
 import { money, rentalRange } from "../../lib/studioDisplay";
+import { dayKey } from "../../lib/today";
+import { bookingReference } from "./BookingReference";
+import { holdTime } from "./OccupancyBoard";
 
 export type Perform = (path: string, body: unknown, done: string) => Promise<void>;
 
@@ -58,10 +61,18 @@ function DeskTaskRow({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const input = useRef<HTMLInputElement>(null);
+  // On narrow screens the form only appears once opened, and the button that
+  // opened it hides; move focus to the receipt box so it isn't lost.
+  useEffect(() => {
+    if (open) input.current?.focus();
+  }, [open]);
   const name = memberName(r);
-  const holdEnds = Date.parse(r.hold_until);
-  const urgent = kind === "collect" && holdEnds - now < 2 * 864e5;
-  const deadline = new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", timeZone }).format(holdEnds);
+  // Desk holds last about 30 minutes, so count down in minutes.
+  const minutesLeft = Math.ceil((Date.parse(r.hold_until) - now) / 60000);
+  const lapsed = kind === "collect" && minutesLeft <= 0;
+  const urgent = kind === "collect" && !lapsed && minutesLeft <= 10;
+  const deadline = holdTime(r.hold_until, timeZone, dayKey(now, timeZone));
   const failed = r.payment_status === "refund_failed";
   const manualFailed = kind === "refund" && failed;
 
@@ -69,7 +80,9 @@ function DeskTaskRow({
     kind === "collect" ? `Collect from ${name}` : kind === "card" ? `${failed ? "Card refund failed" : "Card refund pending"} for ${name}` : `Refund ${name}`;
   const detail =
     kind === "collect"
-      ? `Pay at desk · hold ends ${deadline}`
+      ? lapsed
+        ? `Hold ran out at ${deadline}. It can't be paid now.`
+        : `Ref ${bookingReference(r.id)} · hold ends ${deadline}${minutesLeft <= 60 ? ` · ${minutesLeft} min left` : ""}`
       : kind === "card"
         ? failed ? "Stripe couldn't complete it" : "Stripe hasn't confirmed it yet"
         : manualFailed ? "Refund failed · check the record" : "Paid at the desk · refund the same way";
@@ -95,7 +108,7 @@ function DeskTaskRow({
       </span>
       <div className="desk-task__who">
         <strong>{title}</strong>
-        <span className={kind === "card" && failed ? "desk-bad" : urgent ? "desk-warn" : undefined}>{detail}</span>
+        <span className={(kind === "card" && failed) || lapsed ? "desk-bad" : urgent ? "desk-warn" : undefined}>{detail}</span>
       </div>
       <div className="desk-task__where">
         <strong>{r.name}</strong>
@@ -119,13 +132,20 @@ function DeskTaskRow({
             <RotateCcw aria-hidden="true" />
             {r.refund_id && failed ? "Recheck refund" : "Retry refund"}
           </button>
-        ) : manualFailed ? null : (
+        ) : manualFailed || lapsed ? null : (
           <>
-            <button type="button" className={`button desk-task__start${urgent ? " button--primary" : " button--quiet"}`} onClick={() => setOpen(true)}>
+            <button
+              type="button"
+              className={`button desk-task__start${urgent ? " button--primary" : " button--quiet"}`}
+              aria-expanded={open}
+              aria-controls={`desk-form-${r.id}`}
+              onClick={() => setOpen(true)}
+            >
               {kind === "collect" ? <Banknote aria-hidden="true" /> : <Undo2 aria-hidden="true" />}
               {action}
             </button>
             <form
+              id={`desk-form-${r.id}`}
               className="desk-task__form"
               onSubmit={(e) => {
                 e.preventDefault();
@@ -140,11 +160,11 @@ function DeskTaskRow({
                 {kind === "collect" ? `Receipt or check number for ${name}` : `Refund reference for ${name}`}
               </label>
               <input
+                ref={input}
                 id={`desk-ref-${r.id}`}
                 minLength={3}
                 maxLength={200}
                 required
-                autoFocus={open}
                 placeholder={kind === "collect" ? "Receipt or check no." : "Refund reference"}
                 value={reference}
                 onChange={(e) => setReference(e.target.value)}

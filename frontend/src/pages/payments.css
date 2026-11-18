@@ -66,6 +66,10 @@
   color: #1f6b32;
   font-weight: 600;
 }
+.payments__notice--problem {
+  background: var(--hold-danger-bg);
+  color: var(--hold-danger-text);
+}
 .payments__empty {
   display: grid;
   justify-items: start;

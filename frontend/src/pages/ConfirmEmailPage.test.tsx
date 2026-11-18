@@ -31,3 +31,11 @@ test('disabled local email is explicit without restoring the old recovery form',
   expect(screen.queryByRole('heading', { name: 'Confirmation sent' })).toBeNull();
   expect(screen.getByText('Didn’t get the email?').closest('details')?.open).toBe(false);
 });
+test('arriving from the login page opens the resend form with the email filled in', () => {
+  render(<MemoryRouter initialEntries={[{ pathname: '/confirm-email', state: { email: 'casey@example.invalid', resend: true } }]}><ConfirmEmailPage /></MemoryRouter>);
+  // Nothing was sent just now, so the page doesn't say it was.
+  expect(screen.getByRole('heading', { name: 'Check your email' })).toBeTruthy();
+  expect(screen.getByText('Didn’t get the email?').closest('details')?.open).toBe(true);
+  expect((screen.getByLabelText('Signup email') as HTMLInputElement).value).toBe('casey@example.invalid');
+  expect(document.activeElement).toBe(screen.getByLabelText('Password'));
+});
