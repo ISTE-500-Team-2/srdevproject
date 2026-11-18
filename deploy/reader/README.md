@@ -23,6 +23,10 @@ A standalone Pi service must connect the real UART/USB/Wi-Fi scan transport to t
 
 Tests: `python3 -m unittest discover -s deploy/reader -v`. These use simulated callbacks only; no GPIO, card reader or production endpoint is touched.
 
+## Reader health in the heartbeat
+
+Gateways add a `health.reader` report to each signed heartbeat: whether the gateway can reach the reader, milliseconds since its last authenticated answer, and, when reachable, the reader's own `ready`, `doorState`, `uptimeMs`, `firmware`, `rssi` and `address`. Only well-formed values are sent; the backend stores invalid ones as null and never fails a heartbeat over telemetry. The classic bridge reports a reader it cannot reach on its normal heartbeat; the direct gateway reports a reader that stops polling at the same rate. Staff see the result in **Reader access → Readers**. Older gateways keep working and show as Online without detail.
+
 ## Reader setup and tap enrollment
 
 Apply `027_reader_enrollment.sql` through the normal migration command before rolling out this version. Keep the existing `ACCESS_CARD_HASH_KEY` unchanged: it fingerprints NFC cards and encrypts stored reader credentials. A deployment with just this key can add its first reader in **Reader access → Readers**. `ACCESS_READERS_JSON` is optional; existing entries are imported once per ID, retaining their credentials. Later admin renames and disabled states take precedence over the environment. Removing an environment entry does not delete its reader: disable it in the admin screen.

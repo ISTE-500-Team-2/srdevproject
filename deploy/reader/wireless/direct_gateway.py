@@ -15,7 +15,7 @@ import threading
 import time
 
 from signed_decision import TRANSPORT_FAULTS
-from .reader_bridge import BackendClient, BridgeError, body_json, write_status
+from .reader_bridge import BackendClient, BridgeError, body_json, health_report, write_status
 
 EXPECTED_FAULTS = (BridgeError, *TRANSPORT_FAULTS)
 
@@ -38,6 +38,7 @@ class PollProtocol:
         self.last_result = None
         self.last_seen = 0
         self.last_scan = None
+        self.started = time.monotonic()
 
     # Separate protocol message domains so a valid signature for one message type cannot authorize
     # another.
@@ -46,7 +47,7 @@ class PollProtocol:
 
     # Validate signature, session and monotonic counters before handling a scan or returning reader
     # commands.
-    def poll(self, raw, signature):
+    def poll(self, raw, signature, peer=None):
         if len(raw) > 2048 or not hmac.compare_digest(self.mac(b'reader-poll', raw), signature):
             raise ValueError('unauthorized')
         v = json.loads(raw)
@@ -70,11 +71,14 @@ class PollProtocol:
             self.sessions.move_to_end(v['session'])
             while len(self.sessions) > 64:
                 self.sessions.popitem(last=False)
-            self.last_seen = time.monotonic()
             now = time.monotonic()
+            # A reader that was reported offline is announced back at once.
+            if self.last_seen and now - self.last_seen > 4:
+                self.health_at = 0
+            self.last_seen = now
             if now >= self.health_at:
                 try:
-                    self.healthy = self.backend.health()
+                    self.healthy = self.backend.health(health_report(True, 0, v, peer))
                 except EXPECTED_FAULTS:
                     self.healthy = False
                 except Exception as error:
@@ -120,11 +124,34 @@ class PollProtocol:
             write_status(self.status_file, True, reply['ready'], reason, v, self.last_result, proof=getattr(self,'profile_generation',None))
             return body_json(reply)
 
+    def report_offline(self):
+        """Tell the backend this reader has stopped polling, at the heartbeat rate.
+
+        Without this the backend only sees heartbeats stop, which looks the same
+        as the gateway itself being down. The network call runs outside the lock.
+        """
+        with self.lock:
+            now = time.monotonic()
+            # Give a freshly started gateway time to hear from its reader first.
+            if now - self.last_seen <= 4 or now - self.started < 10 or now < self.health_at:
+                return
+            self.health_at = now + 10
+            age_ms = (now - self.last_seen) * 1000 if self.last_seen else None
+        try:
+            self.backend.health(health_report(False, age_ms))
+        except EXPECTED_FAULTS:
+            pass
+        except Exception as error:
+            report_fault('offline_health', error)
+
     def offline_watchdog(self, stop):
         while not stop.wait(1):
             with self.lock:
-                if time.monotonic() - self.last_seen > 4:
+                offline = time.monotonic() - self.last_seen > 4
+                if offline:
                     write_status(self.status_file, False, False, 'reader_offline', None, self.last_result)
+            if offline:
+                self.report_offline()
 
 
 class Server(ThreadingHTTPServer):
@@ -194,9 +221,9 @@ class Handler(BaseHTTPRequestHandler):
             if len(raw) != length:
                 raise ValueError('incomplete')
             if hasattr(self.server.protocol, 'signed_poll'):
-                body, reply_signature = self.server.protocol.signed_poll(raw, self.headers.get('X-Arbor-Signature', ''))
+                body, reply_signature = self.server.protocol.signed_poll(raw, self.headers.get('X-Arbor-Signature', ''), self.client_address[0])
             else:
-                body = self.server.protocol.poll(raw, self.headers.get('X-Arbor-Signature', ''))
+                body = self.server.protocol.poll(raw, self.headers.get('X-Arbor-Signature', ''), self.client_address[0])
                 reply_signature = self.server.protocol.mac(b'gateway-reply', body)
         except (ValueError, TypeError, KeyError):
             self.send_error(401)
