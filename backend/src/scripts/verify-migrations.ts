@@ -1,34 +1,16 @@
-// Checks migration history against repository files without treating a missing or modified
-// migration as safe to ignore.
+// Checks migration history and online work without changing the database.
 
-import { readFile, readdir } from "node:fs/promises";
-import { createHash } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Pool } from "pg";
 import { createPool } from "../db.js";
-import { repositoryRoot } from "./migrate.js";
+import { verifyMigrationHistory } from "./migrate.js";
+import { verifyOnlineMigrations } from "./online-migrations.js";
+
 // Read-only deployment gate: never runs DDL, seed or repairs.
 export async function verifyMigrations(pool: Pool) {
-  const directory = path.join(repositoryRoot, "database/migrations");
-  const files = (await readdir(directory))
-    .filter((n) => /^\d+.*\.sql$/.test(n))
-    .sort();
-  const rows = (
-    await pool.query<{ name: string; checksum: string }>(
-      "SELECT name,checksum FROM app_migration",
-    )
-  ).rows;
-  for (const name of files) {
-    const checksum = createHash("sha256")
-      .update(await readFile(path.join(directory, name)))
-      .digest("hex");
-    const existing = rows.find((r) => r.name === name);
-    if (!existing)
-      throw Error(`Reviewed migration is required before rollout: ${name}`);
-    if (existing.checksum !== checksum)
-      throw Error(`Migration checksum mismatch: ${name}`);
-  }
+  await verifyMigrationHistory(pool);
+  await verifyOnlineMigrations(pool);
 }
 if (
   process.argv[1] &&
@@ -38,7 +20,7 @@ if (
   try {
     await verifyMigrations(pool);
     console.log(
-      "All required migration checksums verified; database unchanged.",
+      "Migration checksums and online work verified; database unchanged.",
     );
   } finally {
     await pool.end();

@@ -98,38 +98,66 @@ Schema-changing releases still require separately reviewed backward-compatible
 database changes. This deployer never executes DDL; exact migration checksums
 remain a hard prerequisite.
 
-## Migrations 045 to 054
+## Applying migrations 045 to 054
 
-Apply `045_reader_setup_again.sql` through `054_notification_worker_compatibility.sql`
-with the existing owner migration process on both the public and demo databases.
-The read-only rollout gate refuses the release while any of them is missing. They
-add no tables or sequences. `051_desk_check_in_origin.sql` re-checks every
-existing `check_in` row against the widened origin check, and its lock makes new
-check-ins wait until the migration commits; `052_studio_hold_reconcile_backoff.sql`
-likewise briefly locks `app_studio_rental` and `app_equipment_checkout` to replace
-their audit triggers. One grant is new: every minute the application now
-compacts ended reader lease renewals (`backend/src/readerLeaseCompaction.ts`),
-which updates and deletes rows in `app_device_access_event`. Before this release
-it only inserted and read them. On each database whose runtime role has only
-the privileges it needed so far, run as the owner:
+1. Pause automatic cutover using the [pause procedure](AUTO-DEPLOYMENT.md#pause-recover-and-retry).
+   Leave the previous release serving. Take fresh public and demo backups and
+   check both archives with `pg_restore --list`. Review the numbered SQL and its
+   companion [online code](../backend/src/scripts/online-migrations.ts) at the
+   exact candidate revision.
+2. On each database, use the server's guarded reviewed-migration script as the
+   owner to apply and record the exact checksums for all ten numbered files
+   from `045_reader_setup_again.sql` through `054_notification_worker_compatibility.sql`.
+   Serialize migration work using the existing session advisory lock
+   `pg_advisory_lock(hashtext('arbor-mvc-migrations'))`. In the schema transaction,
+   set `SET LOCAL lock_timeout = '250ms';` before applying this batch. Migration
+   048 takes the reader table lock with `NOWAIT`, as does 054 for the outbox.
+   Migration 053 only adds nullable columns and adjusts audit triggers in this
+   transaction. A busy lock can abort the
+   transaction with SQLSTATE `55P03`. Roll back and retry the pending schema
+   batch during a quieter period. Release the session advisory lock when the
+   guarded script finishes.
+3. After the schema transaction commits, run the reviewed online phase on each
+   database as owner. The candidate image provides a command for this phase:
 
-```sql
-GRANT UPDATE, DELETE ON app_device_access_event TO <runtime role>;
-```
+   ```sh
+   node backend/dist/scripts/migrate.js --finish-online
+   ```
 
-Without it nothing else breaks, but every pass fails with permission denied: the
-service log shows `Reader lease compaction failed; retrying on the next interval`
-(code `42501`) once a minute, and the once-a-second renewal rows keep growing as
-they did before. A role that owns the tables, such as the sponsor hosting kit's
-`arbor` user, needs nothing.
+   This mode acquires the same advisory lock, checks the numbered migration
+   history, and runs only the post-commit steps. The guarded process can invoke
+   this command or execute the same reviewed sequence in its own owner session.
+   Use autocommit for concurrent index commands. Build the replacement reader setup index
+   before removing the old one, build the lease expiry and unique refund
+   indexes and both checkout reconciliation indexes, validate the check-in constraint, remove the refund write guard
+   after uniqueness is enforced, and scrub previously sent notification links
+   in committed batches. The online phase also queues legacy checkout refund
+   lookups in committed batches and records their completion in the migration
+   ledger. Repeat the online phase after a lock conflict,
+   interrupted build or incomplete cleanup. It reuses matching valid indexes
+   and rebuilds matching invalid indexes. If an index definition differs from
+   the reviewed definition, investigate before retrying.
+4. On each database where the runtime role lacks either privilege, grant both
+   as owner for the reader lease compaction job.
 
-Migration 053 takes a brief exclusive outbox lock to add a nullable column and
+   ```sql
+   GRANT UPDATE, DELETE ON app_device_access_event TO <runtime role>;
+   ```
+
+   Substitute the database's actual runtime role. A table owner already has
+   both privileges. Desk check-in, payments and studio reconciliation use
+   existing table grants.
+5. Run `node backend/dist/scripts/verify-migrations.js` from the candidate image
+   against both databases. Keep the candidate application stopped and cutover
+   paused until both verifications pass and the grants are in place. Then use
+   the [resume procedure](AUTO-DEPLOYMENT.md#pause-recover-and-retry).
+
+Migration 054 takes a brief exclusive outbox lock to add a nullable column and
 install its queue trigger. It leaves the existing due index in place and does
-not scan or rewrite outbox rows. If 053 cannot get its lock immediately, the
+not scan or rewrite outbox rows. If 054 cannot get its lock immediately, the
 migration transaction rolls back. Retry through the owner migration process
 during a quieter interval. Rehearse the complete migration batch against a
-restored backup because earlier migrations in the same transaction, including
-046's link cleanup, can hold locks for longer.
+restored backup, including the online phase.
 
 On an application rollback, keep all applied migrations in place. The previous
 worker continues to send compatible mail and can still obsolete queued resets,
@@ -139,6 +167,13 @@ release. A legacy pending account's reset expires 30 minutes after issuance.
 If rollback outlasts the reset, the member can request a fresh one after the new
 release returns. During rollback they can also use email confirmation to
 activate the account and then request a reset through the previous release.
+
+After cutover, if a Stripe checkout webhook failed around the release and its
+checkout is still unresolved, resend the affected checkout event to the original
+webhook endpoint from Stripe. Check the booking or pass and its payment in the
+staff ledger after delivery. For a checkout already acknowledged by the previous
+release, check the Stripe payment and refund records before taking any manual
+action.
 
 ## Verification
 

@@ -12,9 +12,8 @@ import { initializeDemo } from '../../src/scripts/init-demo.js';
 import { consumePasswordReset } from '../../src/confirmation/passwordReset.js';
 import { updateNotificationPreferences } from '../../src/notifications/store.js';
 import { runNotificationBatch } from '../../src/notifications/worker.js';
-import { readdir, readFile } from 'node:fs/promises';
-import path from 'node:path';
-import { repositoryRoot } from '../../src/scripts/migrate.js';
+import { migrate } from '../../src/scripts/migrate.js';
+import { verifyMigrations } from '../../src/scripts/verify-migrations.js';
 
 const database = 'arbor_reset_' + randomBytes(6).toString('hex') + '_mvc_test';
 const admin = new Pool({ connectionTimeoutMillis: 5000 });
@@ -357,12 +356,9 @@ test('the migration also clears links left in emails sent before it, and can run
   try { await pool.query("UPDATE app_notification_outbox SET status='accepted' WHERE userid=$1 AND kind='password_reset'", [user.id]); }
   finally { await pool.query('ALTER TABLE app_notification_outbox ENABLE TRIGGER app_forget_sent_link'); }
   assert.deepEqual(await resetRows(user.id), [{ status: 'accepted', link: true, hash: sha256(token) }]);
-  // Found by name, not number: the migration may be renumbered when it is merged.
-  const migrations = path.join(repositoryRoot, 'database/migrations');
-  const [file, ...extra] = (await readdir(migrations)).filter(name => name.endsWith('_forget_sent_links.sql'));
-  assert.ok(file && !extra.length, 'exactly one *_forget_sent_links.sql migration');
-  const sql = await readFile(path.join(migrations, file), 'utf8');
-  await pool.query(sql);
-  await pool.query(sql);
+  await assert.rejects(verifyMigrations(pool), /cleanup of previously sent links is incomplete/);
+  await migrate(pool);
+  await migrate(pool);
+  await verifyMigrations(pool);
   assert.deepEqual(await resetRows(user.id), [{ status: 'accepted', link: false, hash: sha256(token) }]);
 });
