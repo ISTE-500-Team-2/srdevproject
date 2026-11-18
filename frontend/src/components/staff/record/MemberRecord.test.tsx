@@ -383,7 +383,7 @@ test("a booking payment still in online checkout says why it has no desk action"
     nextOffset: null,
   };
   mount();
-  expect(screen.getByText(/Paid by card online: the member pays through checkout, or cancel the reservation\./)).toBeTruthy();
+  expect(screen.getByText(/Not paid yet: the member pays through online card checkout, or cancel the reservation\./)).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Update payment #31" })).toBeNull();
   // Nothing for the desk to settle, so it isn't listed as needing staff either.
   expect(screen.queryByText("$40.00 payment pending")).toBeNull();
