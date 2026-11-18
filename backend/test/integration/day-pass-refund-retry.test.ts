@@ -20,9 +20,13 @@ const stripe = stripeMock(provider);
 
 // A small Stripe stand-in: refunds per payment intent (newest first) and idempotent creates.
 let refunds: Refund[] = [], hidden = new Set<string>(), nextStatus: Stripe.Refund['status'] = 'failed';
+// Stripe's list and single-refund reads are not always in step: these overlay a lagging view of one refund.
+const listLag = new Map<string, Refund>(), readLag = new Map<string, Refund>();
 const keys: string[] = [], byKey = new Map<string, Refund>();
-stripe.refundList(async params => ({ data: refunds.filter(f => f.payment_intent === params?.payment_intent && !hidden.has(f.id!)), has_more: false }));
-stripe.refundRetrieve(async id => refunds.find(f => f.id === id)!);
+let onCreate: ((id: string) => void) | undefined;
+stripe.refundList(async params => ({ data: refunds.filter(f => f.payment_intent === params?.payment_intent && !hidden.has(f.id!))
+  .map(f => ({ ...f, ...listLag.get(f.id!) })), has_more: false }));
+stripe.refundRetrieve(async id => { const f = refunds.find(r => r.id === id)!; return { ...f, ...readLag.get(id) }; });
 stripe.refundCreate(async (params, options) => {
   const key = options!.idempotencyKey!;
   keys.push(key);
@@ -31,7 +35,8 @@ stripe.refundCreate(async (params, options) => {
     amount: params!.amount!, currency: 'usd', payment_intent: params!.payment_intent as string, created: refunds.length,
     metadata: params!.metadata as Record<string, string> ?? {} };
   refunds.unshift(refund); byKey.set(key, refund);
-  return refund;
+  onCreate?.(refund.id!);
+  return { ...refund };
 });
 const settle = (id: string, status: Stripe.Refund['status']) => {
   const refund = refunds.find(f => f.id === id)!; refund.status = status;
@@ -65,7 +70,15 @@ async function paidPass(date: string) {
     FROM app_pass_checkout c JOIN day_pass d ON d.dayid=c.pass_id JOIN payment p ON p.paymentid=c.payment_id WHERE c.id=$1`, [id])).rows[0];
   const emails = async () => (await pool.query(`SELECT payload->>'instructions' AS text FROM app_notification_outbox
     WHERE dedupe_key LIKE $1 ORDER BY id`, [`daypass-refund-failed:${id}:%`])).rows.map(r => r.text as string);
-  return { id, pi, state, emails };
+  const retry = async () => (await pool.query('SELECT refund_reconcile_after IS NOT NULL AS scheduled,refund_needs_review AS review FROM app_pass_checkout WHERE id=$1', [id])).rows[0];
+  /** Runs the reconciliation job as if this checkout's retry were due now. */
+  const runRetry = async () => {
+    await pool.query('UPDATE app_pass_checkout SET refund_reconcile_after=now() WHERE id=$1 AND refund_reconcile_after IS NOT NULL', [id]);
+    await passes.reconcileRefunds();
+  };
+  const audits = async () => (await pool.query(`SELECT count(*)::int AS n FROM app_staff_audit a JOIN app_pass_checkout c ON a.entity_id=c.payment_id
+    WHERE c.id=$1 AND a.action='daypass.refunded'`, [id])).rows[0].n as number;
+  return { id, pi, state, emails, retry, runRetry, audits };
 }
 
 test('retrying a failed day-pass refund submits a new refund, and the failure email matches the still-active pass', async () => {
@@ -212,4 +225,64 @@ test('both split refunds failing before delivery leave a review staff can close 
   assert.equal(keys.length, previousCreates + 1);
   assert.equal((await pass.state()).payment, 'refunded');
   assert.equal((await pass.state()).pass, 'cancelled');
+});
+
+test('a full refund Stripe lists as succeeded while its own read disagrees is retried until it cancels the pass once', async () => {
+  const pass = await paidPass('2033-10-01');
+  // Refunded in full from the Stripe Dashboard. Stripe's list already shows it succeeded; the single read lags.
+  const full: Refund = { id: 're_' + randomUUID(), status: 'succeeded', amount: 1500, currency: 'usd', payment_intent: pass.pi };
+  refunds.unshift(full);
+  readLag.set(full.id!, { status: 'pending' });
+  await passes.webhook(stripeEvent('evt_' + randomUUID(), 'refund.created', { ...full }));
+  assert.equal((await pass.state()).pass, 'active', 'an inconsistent view is not trusted yet');
+  assert.deepEqual(await pass.retry(), { scheduled: true, review: true }, 'a retry is queued, not only a staff flag');
+
+  // Still inconsistent on the first retry: nothing changes and the retry stays queued.
+  await pass.runRetry();
+  assert.equal((await pass.state()).pass, 'active');
+  assert.equal((await pass.retry()).scheduled, true);
+
+  readLag.clear();
+  await pass.runRetry();
+  assert.deepEqual(await pass.state(), { checkout: 'cancelled', refund_id: full.id, refund_status: 'succeeded', pass: 'cancelled', payment: 'refunded' });
+  assert.equal((await pass.retry()).scheduled, false, 'the retry stops once the refund is recorded');
+  // Repeats change nothing: one refund record, one email.
+  await pass.runRetry();
+  await passes.webhook(stripeEvent('evt_' + randomUUID(), 'refund.updated', { ...full }));
+  assert.equal(await pass.audits(), 1);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM app_notification_outbox WHERE dedupe_key LIKE $1', [`daypass-refund:${pass.id}:%`])).rows[0].n, 1);
+});
+
+test('a member refund Stripe confirms while a follow-up read disagrees is retried until it cancels the pass', async () => {
+  const pass = await paidPass('2033-10-02');
+  nextStatus = 'succeeded';
+  const previousCreates = keys.length;
+  // The create response confirms success; the reads made right after it still show the refund pending.
+  onCreate = id => { readLag.set(id, { status: 'pending' }); listLag.set(id, { status: 'pending' }); };
+  await assert.rejects(passes.cancel(member, pass.id), { code: 'RECONCILE_REQUIRED' });
+  onCreate = undefined;
+  assert.equal((await pass.state()).pass, 'active');
+  assert.deepEqual(await pass.retry(), { scheduled: true, review: true });
+
+  readLag.clear(); listLag.clear();
+  await pass.runRetry();
+  assert.deepEqual(await pass.state(), { checkout: 'cancelled', refund_id: refunds[0]!.id, refund_status: 'succeeded', pass: 'cancelled', payment: 'refunded' });
+  await pass.runRetry();
+  assert.equal(keys.length, previousCreates + 1, 'the retry never submits a second refund');
+  assert.equal(await pass.audits(), 1);
+});
+
+test('a partial refund seen through an inconsistent list never cancels the pass', async () => {
+  const pass = await paidPass('2033-10-03');
+  const part: Refund = { id: 're_' + randomUUID(), status: 'succeeded', amount: 500, currency: 'usd', payment_intent: pass.pi };
+  refunds.unshift(part);
+  readLag.set(part.id!, { status: 'pending' });
+  await passes.webhook(stripeEvent('evt_' + randomUUID(), 'refund.created', { ...part }));
+  assert.equal((await pass.state()).pass, 'active');
+  readLag.clear();
+  await pass.runRetry();
+  await pass.runRetry();
+  assert.deepEqual(await pass.state(), { checkout: 'paid', refund_id: null, refund_status: null, pass: 'active', payment: 'paid' });
+  assert.deepEqual(await pass.retry(), { scheduled: false, review: true }, 'staff settle a partial refund; the retry stops once reads agree');
+  assert.equal(await pass.audits(), 0);
 });

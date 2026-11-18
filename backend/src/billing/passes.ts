@@ -446,7 +446,7 @@ export class PassBilling {
   const pending=refunds.data.some(refundPending)||!!outcome&&outcome!=='review'&&outcome!=='split'&&refundPending(outcome);
   const monitoring=r.refund_status==='partial'&&outcome!=='split'&&
    (outcome==='review'||outcome?.status!=='succeeded');
-  if(pending){
+  if(pending||refunds.inconsistent){
    await this.scheduleRefundCheck(db,r);
   }else if(monitoring){
    await db.query(`UPDATE app_pass_checkout SET refund_reconcile_after=(
@@ -579,6 +579,8 @@ export class PassBilling {
   if(f.status==='succeeded'&&!sameRefund(f,await this.provider().sdk.refunds.retrieve(f.id))){
    await db.query('UPDATE app_pass_checkout SET refund_id=$2,refund_status=NULL WHERE id=$1',[r.id,f.id]);
    await this.flagRefundReview(db,r);
+   // Stripe confirmed the refund, but its reads lag. Keep checking so the pass is cancelled once they agree.
+   await this.scheduleRefundCheck(db,r,true);
    return {id:f.id,status:'needs_review'};
   }
   await this.applyRefund(db,f);
@@ -759,6 +761,9 @@ export class PassBilling {
 
   if(list.inconsistent){
    await this.flagRefundReview(db,r);
+   // Stripe's reads disagree for now. The flag alone would leave a confirmed refund's pass active,
+   // so recheck automatically: a consistent read records the refund and cancels the pass.
+   await this.scheduleRefundCheck(db,r,true);
    return 'review';
   }
   const live=list.data.filter(f=>!failedRefund(f));
@@ -823,14 +828,16 @@ export class PassBilling {
   await this.flagRefundReview(db,r);
   return 'review';
  }
- private async scheduleRefundCheck(db:Database,r:PassCheckoutRow){
+ /** keepEarlier: queue a check without postponing one that is already due sooner. */
+ private async scheduleRefundCheck(db:Database,r:PassCheckoutRow,keepEarlier=false){
   // Continue tracking a known pending refund after the honor window, at a
   // lower cadence. Successful reads do not turn a pending refund terminal.
-  await db.query(`UPDATE app_pass_checkout SET refund_reconcile_after=now()+CASE WHEN $2='partial' AND EXISTS (
+  await db.query(`UPDATE app_pass_checkout SET refund_reconcile_after=CASE WHEN $6 THEN LEAST(refund_reconcile_after,next) ELSE next END
+   FROM (SELECT now()+CASE WHEN $2='partial' AND EXISTS (
     SELECT 1 FROM app_staff_audit WHERE subject_id=$3 AND entity_id=$4 AND action='billing.refund.reviewed'
      AND after_state->>'checkoutId'=$1::text AND after_state ? 'refundIds' AND created_at>now()-$5*interval '1 day'
-   ) THEN interval '5 minutes' WHEN $2='partial' THEN interval '1 day' ELSE interval '1 minute' END
-   WHERE id::text=$1`,[r.id,r.refund_status,r.userid,r.payment_id,HONORED_REFUND_CAP_DAYS]);
+   ) THEN interval '5 minutes' WHEN $2='partial' THEN interval '1 day' ELSE interval '1 minute' END AS next) due
+   WHERE id::text=$1`,[r.id,r.refund_status,r.userid,r.payment_id,HONORED_REFUND_CAP_DAYS,keepEarlier]);
  }
  private async refundSnapshot(r:PassCheckoutRow,fresh?:Stripe.Refund){
   const sdk=this.provider().sdk;
