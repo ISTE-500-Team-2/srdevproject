@@ -118,4 +118,8 @@ test("profile saves are rate limited", async () => {
   const limited = await member.patch("/me/profile", profile());
   assert.equal(limited.status, 429);
   assert.equal(limited.body.error.code, "RATE_LIMITED");
+  // Counted per account: another member on the same network still saves.
+  const neighbour = client();
+  await neighbour.register();
+  assert.equal((await neighbour.patch("/me/profile", profile())).status, 200);
 });

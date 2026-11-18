@@ -22,7 +22,7 @@ before(async () => {
   await initializeDemo(pool);
   const app = createApp(pool, config);
   assert.equal((await request(app).post('/api/auth/register').send(member)).status, 202);
-  assert.equal((await request(app).post('/api/auth/confirm').send({ token: await confirmationToken(pool, member.email) })).status, 200);
+  assert.equal((await request(app).post('/api/auth/confirm').send({ token: await confirmationToken(pool, member.email), password: member.password })).status, 200);
 });
 after(async () => { await pool.end(); if (created) await owner.query(`DROP DATABASE "${database}"`); await owner.end(); });
 
@@ -41,7 +41,7 @@ test('one address\'s failed sign-ins lock out only that address', async () => {
   assert.equal(blocked.status, 429); assert.equal(blocked.body.error.code, 'RATE_LIMITED');
   // Everyone else still signs in, and email confirmation has its own budget.
   assert.equal((await post(app, '/auth/login', '198.51.100.7', member)).status, 200);
-  assert.equal((await post(app, '/auth/confirm', '203.0.113.9', { token: 'bad' })).status, 400);
+  assert.equal((await post(app, '/auth/confirm', '203.0.113.9', { token: 'bad', password: member.password })).status, 400);
 });
 
 test('successful sign-ins are not counted against the address', async () => {

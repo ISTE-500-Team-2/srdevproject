@@ -1,5 +1,5 @@
-// Consumes an email confirmation link and provides recovery/resend feedback when the link is
-// invalid or expired.
+// Consumes an email confirmation link, with the password chosen at sign-up, and provides
+// recovery/resend feedback when the link is invalid or expired.
 
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -25,11 +25,14 @@ export function ConfirmEmailPage() {
     setError("");
     navigate("/confirm-email", { replace: true, state: location.state });
   }, [location.hash, location.key, navigate]);
-  async function confirm() {
+  // The link alone never decides the account's password: anyone can sign an address up, and the
+  // link still lands in its owner's inbox, so confirming also asks for the password.
+  async function confirm(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     setBusy(true);
     setError("");
     try {
-      await confirmEmail(token);
+      await confirmEmail(token, String(new FormData(event.currentTarget).get("password") ?? ""));
       navigate("/", { replace: true });
     } catch (err) {
       setError(errorMessage(err));
@@ -76,14 +79,22 @@ export function ConfirmEmailPage() {
               ✉
             </div>
             <h1 id="email-confirm-title">Confirm your email</h1>
-            <p>One click and you’re ready to get started.</p>
-            <button
-              className="email-confirm-button"
-              disabled={busy}
-              onClick={() => void confirm()}
-            >
-              {busy ? "Confirming…" : "Confirm email"}
-            </button>
+            <p>Enter the password you chose when you signed up, and you’re ready to get started.</p>
+            <form className="email-confirm-form" onSubmit={confirm}>
+              <label className="form-field">
+                <span>Password</span>
+                <input
+                  name="password"
+                  type="password"
+                  required
+                  autoComplete="current-password"
+                  autoFocus
+                />
+              </label>
+              <button className="email-confirm-button" disabled={busy}>
+                {busy ? "Confirming…" : "Confirm email"}
+              </button>
+            </form>
             {error ? (
               <div role="alert" className="email-confirm-error">
                 <p>{error}</p>

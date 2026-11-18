@@ -42,7 +42,7 @@ test('signup stages an expiring request with no member, role, preference or sess
   await request(app).post('/api/auth/password-reset').send({email:input.email});
   assert.equal((await pool.query('SELECT 1 FROM app_password_reset')).rowCount,0);
   const token=await confirmationToken(pool,input.email);
-  const results=await Promise.all([1,2].map(()=>request(app).post('/api/auth/confirm').send({token})));
+  const results=await Promise.all([1,2].map(()=>request(app).post('/api/auth/confirm').send({token,password:input.password})));
   assert.deepEqual(results.map(r=>r.status).sort(),[200,400]);
   const member=results.find(r=>r.status===200)!.body.data;
   assert(!Object.hasOwn(member.user,'username'));
@@ -50,7 +50,7 @@ test('signup stages an expiring request with no member, role, preference or sess
   assert.equal((await pool.query('SELECT 1 FROM app_pending_registration WHERE email=$1',[input.email])).rowCount,0);
   assert.equal((await pool.query('SELECT COUNT(*)::int AS n FROM "user" WHERE email=$1',[input.email])).rows[0].n,1);
   // Opening the link again after it worked says it may already have been used.
-  const again=await request(app).post('/api/auth/confirm').send({token});
+  const again=await request(app).post('/api/auth/confirm').send({token,password:input.password});
   assert.equal(again.body.error.code,'CONFIRMATION_INVALID');assert.match(again.body.error.message,/already used/);
 });
 
@@ -67,11 +67,37 @@ test('a newer sign-up replaces a pending one: earlier links stop working and the
   const current=await confirmationToken(pool,input.email);
   assert.notEqual(current,strangers);
   assert.equal((await pool.query(`SELECT COUNT(*)::int AS n FROM app_notification_outbox WHERE status='pending' AND registration_id=(SELECT id FROM app_pending_registration WHERE email=$1)`,[input.email])).rows[0].n,1);
-  assert.equal((await request(app).post('/api/auth/confirm').send({token:strangers})).status,400);
-  const confirmed=await request(app).post('/api/auth/confirm').send({token:current});
+  assert.equal((await request(app).post('/api/auth/confirm').send({token:strangers,password:'StrangerPassword!'})).status,400);
+  const confirmed=await request(app).post('/api/auth/confirm').send({token:current,password:input.password});
   assert.equal(confirmed.status,200);assert.equal(confirmed.body.data.user.firstName,'Pending');
   assert.equal((await request(app).post('/api/auth/login').send({email:input.email,password:'StrangerPassword!'})).status,401);
   assert.equal((await request(app).post('/api/auth/login').send({email:input.email,password:input.password})).status,200);
+});
+
+// The other order: a stranger signs the address up after its owner, and their link is mailed to the
+// owner's inbox. If the link alone created the account, the owner clicking the newest email would
+// give the stranger an account in the owner's name.
+test('confirming takes the sign-up password, so a link from a stranger\'s later sign-up never creates the account',async()=>{
+  const input=person('owner-first@example.invalid');
+  const accounts=async()=>(await pool.query('SELECT COUNT(*)::int AS n FROM "user" WHERE email=$1',[input.email])).rows[0].n;
+  assert.equal((await register(input.email)).status,202);
+  assert.equal((await request(app).post('/api/auth/register').send({...input,firstName:'Stranger',password:'StrangerPassword!'})).status,202);
+  const strangers=await confirmationToken(pool,input.email);
+  // The owner opens the newest email and enters their own password: nothing is created.
+  const refused=await request(app).post('/api/auth/confirm').send({token:strangers,password:input.password});
+  assert.equal(refused.status,401);assert.equal(refused.body.error.code,'CONFIRMATION_PASSWORD_MISMATCH');
+  // The link alone does nothing either.
+  const bare=await request(app).post('/api/auth/confirm').send({token:strangers});
+  assert.equal(bare.status,400);assert.equal(bare.body.error.field,'password');
+  assert.equal(await accounts(),0);
+  // Signing up again takes the request back, and only the owner's password confirms it.
+  assert.equal((await register(input.email)).status,202);
+  const owners=await confirmationToken(pool,input.email);
+  assert.equal((await request(app).post('/api/auth/confirm').send({token:owners,password:'StrangerPassword!'})).status,401);
+  const confirmed=await request(app).post('/api/auth/confirm').send({token:owners,password:input.password});
+  assert.equal(confirmed.status,200);assert.equal(confirmed.body.data.user.firstName,'Pending');
+  assert.equal(await accounts(),1);
+  assert.equal((await request(app).post('/api/auth/login').send({email:input.email,password:'StrangerPassword!'})).status,401);
 });
 
 test('authenticated resends rotate links, at most once a minute',async()=>{
@@ -80,7 +106,7 @@ test('authenticated resends rotate links, at most once a minute',async()=>{
   assert.equal((await request(app).post('/api/auth/confirmation').send({...input,newEmail:'corrected@example.invalid'})).status,429);
   await pool.query("UPDATE app_pending_registration SET sent_at=NOW()-INTERVAL '61 seconds' WHERE email=$1",[input.email]);
   assert.equal((await request(app).post('/api/auth/confirmation').send({...input,newEmail:'corrected@example.invalid'})).status,202);
-  assert.equal((await request(app).post('/api/auth/confirm').send({token:old})).status,400);
+  assert.equal((await request(app).post('/api/auth/confirm').send({token:old,password:input.password})).status,400);
   assert.equal((await pool.query('SELECT 1 FROM "user" WHERE email=$1',['corrected@example.invalid'])).rowCount,0);
   assert.notEqual(await confirmationToken(pool,'corrected@example.invalid'),old);
 });
@@ -102,6 +128,21 @@ test('signing up with an address that has an account looks like any sign-up, and
   assert.equal((await request(app).post('/api/auth/login').send({email:'demo.member@collaboratory.invalid',password:'AnotherPassword!'})).status,401);
 });
 
+// Older accounts that never confirmed their email are held as 'pending'. Their owners are the likeliest
+// to sign up again, and sign-up now answers 'check your inbox', so the notice must actually reach them.
+test('signing up with an older unconfirmed account\'s address emails that account the notice',async()=>{
+  const email='legacy-unconfirmed@example.invalid';
+  const { UserModel }=await import('../../src/models/UserModel.js');
+  const { hashPassword }=await import('../../src/passwords.js');
+  const id=await new UserModel(pool).create({...person(email),password:await hashPassword('LegacyPassword!')});
+  await pool.query(`UPDATE "user" SET email_confirmed=false,status='pending' WHERE userid=$1`,[id]);
+  assert.equal((await request(createApp(pool,config)).post('/api/auth/register').send(person(email))).status,202);
+  assert.deepEqual((await pool.query(`SELECT status FROM app_notification_outbox WHERE userid=$1 AND kind='account_exists'`,[id])).rows,[{status:'pending'}]);
+  const sent:string[]=[];
+  await runNotificationBatch(pool,async job=>{if(job.email===email)sent.push(job.kind);return{messageId:'legacy-'+randomBytes(6).toString('hex')};},{batchSize:100});
+  assert.deepEqual(sent,['account_exists']);
+});
+
 // Sign-up answers alike for every address, so without a cap anyone could make it email one inbox endlessly.
 test('repeated sign-ups email one address at most three times an hour; the newest can still ask for a link',async()=>{
   const signups=createApp(pool,config), email='flooded@example.invalid';
@@ -116,13 +157,13 @@ test('repeated sign-ups email one address at most three times an hour; the newes
   }
   assert.equal(links.length,3);
   // Past the cap a sign-up still takes the request over: no link already sent works any more.
-  for(const token of links)assert.equal((await request(app).post('/api/auth/confirm').send({token})).status,400);
+  for(const token of links)assert.equal((await request(app).post('/api/auth/confirm').send({token,password:'FloodPassword5!'})).status,400);
   // The newest person to sign up asks for a link with their password, as the confirm page offers.
   await pool.query("UPDATE app_pending_registration SET sent_at=NOW()-INTERVAL '61 seconds' WHERE email=$1",[email]);
   assert.equal((await request(signups).post('/api/auth/confirmation').send({email,password:'FloodPassword5!'})).status,202);
   await deliver();
   assert.equal(links.length,4);
-  assert.equal((await request(app).post('/api/auth/confirm').send({token:links.at(-1)})).status,200);
+  assert.equal((await request(app).post('/api/auth/confirm').send({token:links.at(-1),password:'FloodPassword5!'})).status,200);
   assert.equal((await request(app).post('/api/auth/login').send({email,password:'FloodPassword5!'})).status,200);
 });
 
@@ -143,7 +184,7 @@ test('a corrected resend retried after a mistyped password, or after it already 
   assert.equal((await resend(input.password)).status,202);
   const again=await confirmationToken(pool,corrected);
   assert.notEqual(again,moved,'the repeat finds the sign-up under the corrected address and sends a fresh link');
-  const confirmed=await request(flow).post('/api/auth/confirm').send({token:again});
+  const confirmed=await request(flow).post('/api/auth/confirm').send({token:again,password:input.password});
   assert.equal(confirmed.status,200);assert.equal(confirmed.body.data.user.email,corrected);
 });
 
@@ -157,7 +198,7 @@ test('the email worker sends staged confirmation without activating a member and
   assert.equal((await pool.query('SELECT 1 FROM "user" WHERE email=$1',['worker@example.invalid'])).rowCount,0);
   assert.equal((await pool.query(`SELECT 1 FROM app_notification_outbox WHERE status='accepted' AND payload ? 'confirmationUrl'`)).rowCount,0);
   await pool.query("UPDATE app_pending_registration SET expires_at=NOW()-INTERVAL '1 second' WHERE email=$1",['worker@example.invalid']);
-  assert.equal((await request(app).post('/api/auth/confirm').send({token})).status,400);
+  assert.equal((await request(app).post('/api/auth/confirm').send({token,password:'ValidPassword!'})).status,400);
   await pruneRegistrations(pool);
   assert.equal((await pool.query('SELECT 1 FROM app_pending_registration WHERE email=$1',['worker@example.invalid'])).rowCount,0);
   assert.equal((await pool.query('SELECT 1 FROM app_notification_outbox WHERE payload->>\'confirmationUrl\' LIKE $1',['%'+token])).rowCount,0);
@@ -184,12 +225,12 @@ test('signup, duplicates, correction, delivery, login and password recovery shar
   assert.equal((await pool.query('SELECT COUNT(*)::int AS n FROM app_pending_registration WHERE lower(email)=$1',[initial])).rows[0].n,1);
   await pool.query("UPDATE app_pending_registration SET sent_at=NOW()-INTERVAL '61 seconds' WHERE email=$1",[initial]);
   assert.equal((await request(flow).post('/api/auth/confirmation').send({...input,newEmail:' First.Last+Workshop@Example.COM '})).status,202);
-  assert.equal((await request(flow).post('/api/auth/confirm').send({token:old})).status,400);
+  assert.equal((await request(flow).post('/api/auth/confirm').send({token:old,password:input.password})).status,400);
   const correctedToken=await confirmationToken(pool,corrected);
   const recipients:string[]=[];
   await runNotificationBatch(pool,async job=>{recipients.push(job.email);return{messageId:'identity-'+randomBytes(6).toString('hex')};});
   assert.ok(recipients.includes(corrected));
-  const confirmed=await request(flow).post('/api/auth/confirm').send({token:correctedToken});
+  const confirmed=await request(flow).post('/api/auth/confirm').send({token:correctedToken,password:input.password});
   assert.equal(confirmed.status,200);assert.equal(confirmed.body.data.user.email,corrected);
   const id=confirmed.body.data.user.id;
   const login=await request(flow).post('/api/auth/login').send({email:' First.Last+Workshop@Example.COM ',password:input.password});
@@ -252,7 +293,10 @@ test('migration quarantines a legacy unconfirmed account and preserves its confi
     const token=await confirmationToken(legacy,input.email);
     const oldApp=createApp(legacy,config);
     assert.equal((await request(oldApp).post('/api/auth/login').send(input)).body.error.code,'EMAIL_CONFIRMATION_REQUIRED');
-    const confirmed=await request(oldApp).post('/api/auth/confirm').send({token});
+    // An older account's link takes its password too, and a wrong one leaves the link working.
+    const wrong=await request(oldApp).post('/api/auth/confirm').send({token,password:'WrongPassword!'});
+    assert.equal(wrong.status,401);assert.equal(wrong.body.error.code,'CONFIRMATION_PASSWORD_MISMATCH');
+    const confirmed=await request(oldApp).post('/api/auth/confirm').send({token,password:input.password});
     assert.equal(confirmed.status,200,JSON.stringify(confirmed.body));assert.equal(confirmed.body.data.user.id,id);
     assert.equal((await legacy.query('SELECT status FROM "user" WHERE userid=$1',[id])).rows[0].status,'active');
   } finally {await legacy.end();await owner.query(`DROP DATABASE "${name}"`);}

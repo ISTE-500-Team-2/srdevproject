@@ -39,7 +39,7 @@ interface AuthContextValue {
   ) => Promise<UserRole>;
   loginAs: (role: UserRole) => Promise<UserRole>;
   register: (input: Registration) => Promise<{confirmationRequired:true;email:string;emailSendingEnabled:boolean}>;
-  confirmEmail: (token:string) => Promise<UserRole>;
+  confirmEmail: (token:string, password:string) => Promise<UserRole>;
   logout: () => Promise<void>;
   /**
    * Re-read `/auth/session`. Joins a read already in flight for the same router
@@ -171,7 +171,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (input: Registration) => api<{confirmationRequired:true;email:string;emailSendingEnabled:boolean}>('/auth/register', {method:'POST',body:{...input,timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone}}),
     [],
   );
-  const confirmEmail = useCallback(async (token:string) => acceptSession(await api<Session>('/auth/confirm',{method:'POST',body:{token}})),[acceptSession]);
+  const confirmEmail = useCallback(async (token:string, password:string) => acceptSession(await api<Session>('/auth/confirm',{method:'POST',body:{token,password}})),[acceptSession]);
   const logout = useCallback(async () => {
     // Invalidate in-flight session reads before and after server revocation.
     revision.current++;

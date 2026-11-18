@@ -35,7 +35,7 @@ async function person(name: string) {
   const response = await request(app).post('/api/auth/register').send(input);
   assert.equal(response.status, 202);
   // Password recovery fixtures are verified members; pending requests cannot reset into an account.
-  assert.equal((await request(app).post('/api/auth/confirm').send({token:await confirmationToken(pool,input.email)})).status,200);
+  assert.equal((await request(app).post('/api/auth/confirm').send({token:await confirmationToken(pool,input.email),password:input.password})).status,200);
   const id = (await pool.query('SELECT userid FROM "user" WHERE email=$1', [input.email])).rows[0].userid;
   return { ...input, id };
 }

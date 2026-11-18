@@ -21,7 +21,7 @@ test('newly registered unsigned member can fill every blank, correct errors, sig
   const email = 'new-waiver-member@example.invalid';
   await api('/auth/register', { method: 'POST', body: { firstName: 'New', lastName: 'Member', email,
     phone: '5550101234', dob: '2000-01-01', password: 'StrongPassword123!', timeZone: 'America/New_York' } });
-  await api('/auth/confirm', { method: 'POST', body: { token: await confirmationToken(bridge.pool, email) } });
+  await api('/auth/confirm', { method: 'POST', body: { token: await confirmationToken(bridge.pool, email), password: 'StrongPassword123!' } });
   const waivers = await api<any[]>('/me/waivers');
   const waiver = waivers.find(w => w.name === equipmentWaiverName)!;
   expect(waiver.signed).toBe(false);

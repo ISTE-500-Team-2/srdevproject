@@ -21,7 +21,7 @@ test('pending signup cannot log in; safe GET, single-use POST confirm creates se
  const token=await confirmationToken(pool,input.email);
  assert.notEqual((await pool.query('SELECT token_hash FROM app_pending_registration')).rows[0].token_hash,token);
  assert.notEqual((await request(app).get('/api/auth/confirm').query({token})).status,200);
- const results=await Promise.all([1,2].map(()=>request(app).post('/api/auth/confirm').send({token})));
+ const results=await Promise.all([1,2].map(()=>request(app).post('/api/auth/confirm').send({token,password:input.password})));
  assert.deepEqual(results.map(x=>x.status).sort(),[200,400]);
  assert.ok(results.find(x=>x.status===200)!.body.data.accessToken);
  assert.equal((await request(app).post('/api/auth/login').send(input)).status,200);
@@ -36,10 +36,10 @@ test('resend/change requires pending credentials, invalidates old link, enforces
  assert.equal(bad.status,202);assert.equal(bad.body.data.emailSendingEnabled,false);assert.match(bad.body.data.message,/No confirmation email will be sent/);assert.equal(await confirmationToken(pool,input.email),old);
  const res=await request(app).post('/api/auth/confirmation').send({...input,newEmail:'new@example.invalid'});
  assert.equal(res.status,202);
- assert.equal((await request(app).post('/api/auth/confirm').send({token:old})).status,400);
+ assert.equal((await request(app).post('/api/auth/confirm').send({token:old,password:input.password})).status,400);
  const current=await confirmationToken(pool,'new@example.invalid');
  await pool.query("UPDATE app_pending_registration SET expires_at=NOW()-INTERVAL '1 second',sent_at=NOW()-INTERVAL '2 minutes'");
- assert.equal((await request(app).post('/api/auth/confirm').send({token:current})).status,400);
+ assert.equal((await request(app).post('/api/auth/confirm').send({token:current,password:input.password})).status,400);
  // Pending requests have no preference or membership rows to opt out of.
  await request(app).post('/api/auth/confirmation').send({...input,email:'new@example.invalid'});
  assert.equal((await pool.query("SELECT status FROM app_notification_outbox WHERE kind='account_confirmation' ORDER BY id DESC LIMIT 1")).rows[0].status,'pending');

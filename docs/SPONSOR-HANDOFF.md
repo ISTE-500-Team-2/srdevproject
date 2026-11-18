@@ -289,7 +289,7 @@ bash docs/hosting/arbor.sh restart
 ```
 
 4. On the website, register **your own real owner email** and a private password.
-   Open the confirmation email and finish confirming. If no email arrives, stop
+   Open the confirmation email and finish confirming with that password. If no email arrives, stop
    and check Brevo/logs; do not bypass confirmation in the database.
 5. For a genuinely new database with **no active administrator**, run this command
    with that confirmed email:

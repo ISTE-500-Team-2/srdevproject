@@ -95,9 +95,9 @@ test('signup form creates an account with DOB and the new password policy', asyn
   const token = await confirmationToken(bridge.pool, email);
   cleanup();
   mount('/confirm-email#' + token);
-  await user.click(
-    await screen.findByRole('button', { name: 'Confirm email' }),
-  );
+  // The link alone doesn't create the account: it takes the password chosen at sign-up.
+  await user.type(await screen.findByLabelText('Password'), 'ValidPassword!');
+  await user.click(screen.getByRole('button', { name: 'Confirm email' }));
   await screen.findByRole(
     'heading',
     { name: /Welcome back/ },
@@ -140,7 +140,7 @@ test('signing up with an address that already has an account looks like any othe
   const email=randomUUID()+'@example.invalid';
   const response=await bridge.fetch('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({firstName:'Existing',lastName:'Test',email,password:'ValidPassword!',phone:'0000000000',dob:'2000-01-01'})});
   expect(response.status).toBe(202);
-  const confirmed=await bridge.fetch('/api/auth/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:await confirmationToken(bridge.pool,email)})});
+  const confirmed=await bridge.fetch('/api/auth/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:await confirmationToken(bridge.pool,email),password:'ValidPassword!'})});
   expect(confirmed.status).toBe(200);
   mount();const user=userEvent.setup();await user.click(await screen.findByRole('button',{name:'Sign up'}));
   const dialog=screen.getByRole('dialog',{name:'Create your account'});

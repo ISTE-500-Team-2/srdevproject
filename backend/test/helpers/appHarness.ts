@@ -151,7 +151,7 @@ export class TestClient {
       dob: '2000-01-01',
     });
     assert.equal(res.status, 202);
-    res = await this.agent.post('/api/auth/confirm').send({ token: await confirmationToken(this.pool, email) });
+    res = await this.agent.post('/api/auth/confirm').send({ token: await confirmationToken(this.pool, email), password });
     assert.equal(res.status, 200);
     this.accept(res);
     this.email = email;
