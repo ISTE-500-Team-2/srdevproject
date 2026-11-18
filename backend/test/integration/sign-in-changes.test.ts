@@ -200,7 +200,7 @@ test("staff in a member's account can't change that member's email or password",
     ["/me/password", { currentPassword: "x", newPassword: "BrandNewPassword9!" }],
     ["/me/email-change", { email: "alex.new@example.invalid", currentPassword: "x" }],
   ] as const) {
-    const refused = await as(admin).post(path, body);
+    const refused = await as(admin).post(path, body).set("X-Account-Subject", String(member.user.id));
     assert.equal(refused.status, 403, path);
     assert.equal(refused.body.error.code, "NOT_IN_ACCOUNT_MODE");
   }

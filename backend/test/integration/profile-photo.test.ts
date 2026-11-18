@@ -152,10 +152,11 @@ test("staff in a member's account see that member's photo but cannot change it",
   try {
     assert.equal(await sessionVersion(admin), version);
     assert.deepEqual((await as(admin).get("/me/photo")).body.data, { version, image });
-    const replace = await as(admin).put("/me/photo", { image: dataUrl("image/jpeg", jpeg(64, 64)) });
+    const replace = await as(admin).put("/me/photo", { image: dataUrl("image/jpeg", jpeg(64, 64)) })
+      .set("X-Account-Subject", String(member.user.id));
     assert.equal(replace.status, 403);
     assert.equal(replace.body.error.code, "NOT_IN_ACCOUNT_MODE");
-    assert.equal((await as(admin).delete("/me/photo")).status, 403);
+    assert.equal((await as(admin).delete("/me/photo").set("X-Account-Subject", String(member.user.id))).status, 403);
     assert.equal((await as(member).get("/me/photo")).body.data.version, version);
   } finally {
     await as(admin).post("/admin/account-mode/end");

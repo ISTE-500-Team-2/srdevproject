@@ -96,32 +96,35 @@ test('changes made in an open account are logged under the staff member',async()
 
 test('signatures and personal settings stay with the member',async()=>{
   await as(admin).post('/admin/account-mode',{userId:member.user.id});
-  const sign=await as(admin).post('/me/waivers/1/sign',{});
+  const headers={'X-Account-Subject':String(member.user.id)};
+  const sign=await as(admin).post('/me/waivers/1/sign',{}).set(headers);
   assert.equal(sign.status,403);assert.equal(sign.body.error.code,'NOT_IN_ACCOUNT_MODE');
-  const profile=await as(admin).patch('/me/profile',{firstName:'Changed'});
+  const profile=await as(admin).patch('/me/profile',{firstName:'Changed'}).set(headers);
   assert.equal(profile.status,403);assert.equal(profile.body.error.code,'NOT_IN_ACCOUNT_MODE');
-  const notifications=await as(admin).patch('/me/notifications',{});
+  const notifications=await as(admin).patch('/me/notifications',{}).set(headers);
   assert.equal(notifications.status,403);
 });
 
 test('path spelling can not route around account-mode limits',async()=>{
   await as(admin).post('/admin/account-mode',{userId:member.user.id});
+  const headers={'X-Account-Subject':String(member.user.id)};
   // Express matches these spellings to the same routes.
   for(const path of ['/ME/WAIVERS/1/SIGN','/me/waivers/1/sign/','/Me/Waivers/1/Sign/'])
-    assert.equal((await as(admin).post(path,{accepted:true})).status,403,path);
+    assert.equal((await as(admin).post(path,{accepted:true}).set(headers)).status,403,path);
   for(const path of ['/ME/PROFILE','/me/profile/','/me/NOTIFICATIONS'])
-    assert.equal((await as(admin).patch(path,{firstName:'Changed'})).status,403,path);
+    assert.equal((await as(admin).patch(path,{firstName:'Changed'}).set(headers)).status,403,path);
   assert.equal((await pool.query('SELECT firstname FROM "user" WHERE userid=$1',[member.user.id])).rows[0].firstname!=='Changed',true);
 });
 
 test('payment details and unlisted changes stay with the member',async()=>{
   await as(admin).post('/admin/account-mode',{userId:member.user.id});
-  const portal=await as(admin).post('/me/billing/1/portal',{});
+  const headers={'X-Account-Subject':String(member.user.id)};
+  const portal=await as(admin).post('/me/billing/1/portal',{}).set(headers);
   assert.equal(portal.status,403);assert.equal(portal.body.error.code,'NOT_IN_ACCOUNT_MODE');
-  const portalShout=await as(admin).post('/ME/BILLING/1/PORTAL/',{});
+  const portalShout=await as(admin).post('/ME/BILLING/1/PORTAL/',{}).set(headers);
   assert.equal(portalShout.status,403);
   // Writes that aren't a listed member action are refused before any route runs.
-  const unlisted=await as(admin).post('/me/billing/offers',{});
+  const unlisted=await as(admin).post('/me/billing/offers',{}).set(headers);
   assert.equal(unlisted.status,403);assert.equal(unlisted.body.error.code,'NOT_IN_ACCOUNT_MODE');
   // Reads still work.
   assert.equal((await as(admin).get('/me/overview')).status,200);
@@ -182,7 +185,7 @@ test('a change meant for an account that became restricted is refused, not made 
   const target=await register('restrictedwrite');
   await as(admin).post('/admin/account-mode',{userId:target.user.id});
   await pool.query(`UPDATE "user" SET accessstatus='suspended' WHERE userid=$1`,[target.user.id]);
-  const response=await as(admin).post('/reservations',{});
+  const response=await as(admin).post('/reservations',{}).set('X-Account-Subject',String(target.user.id));
   assert.equal(response.status,409);
   assert.equal(response.body.error.code,'ACCOUNT_MODE_CLOSED');
   assert.equal((await as(admin).get('/auth/session')).body.data.actingAs,null);
