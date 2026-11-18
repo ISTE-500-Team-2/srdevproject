@@ -55,13 +55,15 @@ export class MemberModel {
       )
     ).rows;
   }
+  /** `statusDesc` says how the check-in was verified; the front desk passes its own. */
   async createCheckIn(userId: number, location: string, roomId: number | null = null,
-    buildingId: number | null = null, equipmentId: number | null = null, reservationId: number | null = null) {
+    buildingId: number | null = null, equipmentId: number | null = null, reservationId: number | null = null,
+    statusDesc = 'Eligibility verified by member portal') {
     const { rows } = await this.db.query(
       `INSERT INTO check_in (userid,roomid,location,buildingid,equipmentid,reservationid,checkintime,status,statusdesc,origin)
-      VALUES ($1,$2,$3,$4,$5,$6,NOW() AT TIME ZONE 'UTC','approved','Eligibility verified by member portal','portal')
+      VALUES ($1,$2,$3,$4,$5,$6,NOW() AT TIME ZONE 'UTC','approved',$7,'portal')
       RETURNING checkinid AS id,location,checkintime AT TIME ZONE 'UTC' AS "checkedInAt"`,
-      [userId, roomId, location,buildingId,equipmentId,reservationId],
+      [userId, roomId, location,buildingId,equipmentId,reservationId,statusDesc],
     );
     await new MinorSupervision(this.db,this.timeZone).startVisit(userId,buildingId ?? DEFAULT_BUILDING_ID);
     return rows[0]!;

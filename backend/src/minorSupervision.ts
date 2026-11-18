@@ -313,7 +313,7 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
         if (!place) throw new AppError(409,'RESOURCE_UNAVAILABLE','This building is unavailable.');
         // Record the arrival as reader and portal check-ins do, so it counts in "Checked in
         // today", attendance reports and recent check-ins. This also starts the visit.
-        await new MemberModel(db,zone).createCheckIn(id,place.name,null,building);
+        await new MemberModel(db,zone).createCheckIn(id,place.name,null,building,null,null,'Checked in at the front desk');
       } else await service.checkout(id);
       await new StaffModel(db,zone).audit(authState(res).user.id,id,`visit.${action}`,'user',id,reason,null,{action});
       return service.summary(id);

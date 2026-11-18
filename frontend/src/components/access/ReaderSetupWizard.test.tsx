@@ -280,23 +280,52 @@ test("manual setup stays reachable when reader discovery cannot load", async () 
   fireEvent.click(screen.getByRole("button", { name: "Advanced manual setup" }));
   expect(onManual).toHaveBeenCalledTimes(1);
 });
-test("a failing discovery check waits for Retry instead of repeating its alert every 2 seconds", async () => {
+test("a failing discovery check retries every 10 seconds without repeating its alert, and recovers on its own", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   const original = failDiscovery();
   mount();
   const alert = await screen.findByRole("alert");
   await act(() => vi.advanceTimersByTimeAsync(7000));
   expect(discoveryReads()).toBe(1);
-  // The same alert stays put rather than being removed and announced again.
+  // The background retry comes 10 seconds after the failure. While it is on its way, and
+  // after it fails again, the same alert stays put rather than being removed and announced again.
+  let failAgain!: (e: Error) => void;
+  api.mockImplementation((path: string, options?: { method?: string }) =>
+    path === "/admin/access/reader-setup" && !options?.method
+      ? new Promise((_, reject) => (failAgain = reject))
+      : original(path, options),
+  );
+  await act(() => vi.advanceTimersByTimeAsync(3100));
+  expect(discoveryReads()).toBe(2);
   expect(screen.getByRole("alert")).toBe(alert);
+  expect(screen.queryByText("Loading records…")).toBeNull();
+  await act(async () =>
+    failAgain(new ApiError(500, "server_error", "Discovery failed")),
+  );
+  expect(screen.getByRole("alert")).toBe(alert);
+  // Once the network is back, the next background check clears the alert without a click.
+  api.mockImplementation(original);
+  await act(() => vi.advanceTimersByTimeAsync(10_100));
+  expect(discoveryReads()).toBe(3);
+  expect(
+    await screen.findByRole("button", { name: "Set up ESP32-C3 mini" }),
+  ).toBeTruthy();
+  expect(screen.queryByRole("alert")).toBeNull();
+  await act(() => vi.advanceTimersByTimeAsync(2100));
+  expect(discoveryReads()).toBe(4);
+}, 20_000);
+test("Retry checks discovery again at once", async () => {
+  const original = failDiscovery();
+  mount();
+  await screen.findByRole("alert");
   api.mockImplementation(original);
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   expect(
     await screen.findByRole("button", { name: "Set up ESP32-C3 mini" }),
   ).toBeTruthy();
-  await act(() => vi.advanceTimersByTimeAsync(2100));
-  expect(discoveryReads()).toBe(3);
-}, 15_000);
+  expect(discoveryReads()).toBe(2);
+  expect(screen.queryByRole("alert")).toBeNull();
+});
 test("a slow discovery answer is waited for, not cut off by the next check", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   const original = api.getMockImplementation()!;

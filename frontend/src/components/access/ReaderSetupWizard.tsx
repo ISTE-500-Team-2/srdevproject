@@ -98,21 +98,27 @@ export function ReaderSetupWizard({
   }, [open]);
   const data = discovery.data,
     job = data?.jobs.find((j) => j.id === jobId);
+  // useApi clears its error when each read starts. Keep the last failure on screen until a
+  // read succeeds, so a background retry does not remove the alert and announce it again.
+  const settled = !discovery.loading && !discovery.refreshing;
+  const [lastFailure, setLastFailure] = useState("");
+  useEffect(() => {
+    if (discovery.error || settled) setLastFailure(discovery.error);
+  }, [discovery.error, settled]);
+  const failure = discovery.error || (settled ? "" : lastFailure);
   // Refresh status without replacing or resetting the name/network form. The next check is
   // 2 seconds after the last answer, so a slow answer is never cut off by the next check.
-  // A failed check waits for Retry instead of repeating its alert, and polling stops once
-  // the setup job has finished.
-  const polling =
-    open &&
-    !discovery.loading &&
-    !discovery.refreshing &&
-    !discovery.error &&
-    !(job && !active(job));
+  // After a failed check, keep trying every 10 seconds so a brief network blip recovers on
+  // its own. Polling stops once the setup job has finished.
+  const polling = open && settled && !(job && !active(job));
   useEffect(() => {
     if (!polling) return;
-    const timer = window.setTimeout(discovery.reload, 2000);
+    const timer = window.setTimeout(
+      discovery.reload,
+      discovery.error ? 10_000 : 2000,
+    );
     return () => window.clearTimeout(timer);
-  }, [polling, discovery.reload]);
+  }, [polling, discovery.error, discovery.reload]);
   const pending = data?.jobs.filter(active) ?? [];
   const devices =
     data?.devices.filter(
@@ -195,8 +201,8 @@ export function ReaderSetupWizard({
               : "Step 1 of 3 · Find your reader"}
         </p>
         <LoadState
-          loading={discovery.loading}
-          error={discovery.error}
+          loading={discovery.loading && !failure}
+          error={failure}
           reload={discovery.reload}
         />
         {!jobId && !selected && data ? (
