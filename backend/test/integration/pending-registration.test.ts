@@ -86,6 +86,7 @@ test('confirming takes the sign-up password, so a link from a stranger\'s later 
   // The owner opens the newest email and enters their own password: nothing is created.
   const refused=await request(app).post('/api/auth/confirm').send({token:strangers,password:input.password});
   assert.equal(refused.status,401);assert.equal(refused.body.error.code,'CONFIRMATION_PASSWORD_MISMATCH');
+  assert.match(refused.body.error.message,/sign up again/);
   // The link alone does nothing either.
   const bare=await request(app).post('/api/auth/confirm').send({token:strangers});
   assert.equal(bare.status,400);assert.equal(bare.body.error.field,'password');
@@ -296,6 +297,8 @@ test('migration quarantines a legacy unconfirmed account and preserves its confi
     // An older account's link takes its password too, and a wrong one leaves the link working.
     const wrong=await request(oldApp).post('/api/auth/confirm').send({token,password:'WrongPassword!'});
     assert.equal(wrong.status,401);assert.equal(wrong.body.error.code,'CONFIRMATION_PASSWORD_MISMATCH');
+    // Signing up again only emails this account's owner, so the message points to a password reset.
+    assert.match(wrong.body.error.message,/Forgot password/);assert.doesNotMatch(wrong.body.error.message,/sign up again/);
     const confirmed=await request(oldApp).post('/api/auth/confirm').send({token,password:input.password});
     assert.equal(confirmed.status,200,JSON.stringify(confirmed.body));assert.equal(confirmed.body.data.user.id,id);
     assert.equal((await legacy.query('SELECT status FROM "user" WHERE userid=$1',[id])).rows[0].status,'active');

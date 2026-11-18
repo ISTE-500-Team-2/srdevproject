@@ -6,7 +6,6 @@ import type { Database } from '../db.js';
 import { AppError } from '../domain.js';
 import { enqueueNotification } from '../notifications/store.js';
 import { verifyPassword } from '../passwords.js';
-import { confirmationPasswordMismatch } from './pendingRegistration.js';
 const hash = (value:string) => createHash('sha256').update(value).digest('hex');
 export const confirmationLifetimeMs = 24 * 60 * 60 * 1000;
 /** Caller owns transaction and account row lock. Never return token to the registration client. */
@@ -31,12 +30,16 @@ export async function consumeEmailConfirmation(db:Database,token:unknown,passwor
   const consumed=await db.query(`DELETE FROM app_email_confirmation WHERE userid=$1 AND token_hash=$2 AND expires_at>NOW() RETURNING userid`,[row.userid,hash(token)]);
   if(!consumed.rows.length)throw invalid();
   // Throwing rolls the caller's transaction back, so a wrong password leaves the link working.
-  if(!await verifyPassword(password,row.password))throw confirmationPasswordMismatch();
+  if(!await verifyPassword(password,row.password))throw accountPasswordMismatch();
   // Legacy unverified accounts become active only when their existing inbox link is consumed.
   await db.query("UPDATE \"user\" SET email_confirmed=true,status='active' WHERE userid=$1",[row.userid]);
   await db.query(`UPDATE app_notification_outbox SET status='obsolete',counts_for_sla=false,updated_at=NOW() WHERE userid=$1 AND kind='account_confirmation' AND status='pending'`,[row.userid]);
   await enqueueNotification(db,{userId:row.userid,kind:'account_created',dedupeKey:`account-created:${row.userid}`,payload:{}});
   return row.userid;
 }
+// Not the staged sign-up's message: signing up again only emails an older account's owner that the
+// account exists. A password reset is its way out, since it also confirms the email.
+function accountPasswordMismatch(){return new AppError(401,'CONFIRMATION_PASSWORD_MISMATCH',
+  'That isn’t this account’s password. Check it and try again, or choose “Forgot password?” on the sign-in page to set a new one, which also confirms your email.','password');}
 // Also a link opened again after it worked: the page offers sign-in as well as a new email.
 function invalid(){return new AppError(400,'CONFIRMATION_INVALID','This confirmation link is invalid, has expired or was already used.');}
