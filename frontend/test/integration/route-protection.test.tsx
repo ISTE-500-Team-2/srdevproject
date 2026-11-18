@@ -40,6 +40,18 @@ test('revoked server session is removed on page return without reloading the bro
   expect(screen.queryByRole('button',{name:'Edit profile'})).toBeNull();
 });
 
+test('a tab left open is signed out, not switched over, when someone else signs in on the same browser',async()=>{
+  const demo=(role:string)=>bridge.fetch('/api/auth/demo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role})});
+  // The tab picks up the member's sign-in from the browser, as on a fresh load.
+  expect((await demo('member')).status).toBe(200);
+  mount('/profile');await screen.findByRole('button',{name:'Edit profile'});
+  // Another person signs in from a second tab; the shared refresh cookie is now theirs.
+  expect((await demo('admin')).status).toBe(200);
+  fireEvent.focus(window);await screen.findByLabelText('Password');
+  expect(screen.queryByRole('button',{name:'Edit profile'})).toBeNull();
+  expect(screen.queryByRole('navigation',{name:'Staff workspace'})).toBeNull();
+});
+
 test('profile save still displays its success popup after refreshing the session',async()=>{
   await login('member');mount('/profile');
   fireEvent.click(await screen.findByRole('button',{name:'Edit profile'}));

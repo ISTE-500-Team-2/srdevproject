@@ -39,6 +39,10 @@ export function refundNote(payment: Payment) {
   return null;
 }
 
+/** Whether Stripe took a card refund, done or on its way. Any other status means no money went back. */
+export const refundAccepted = (status: string) =>
+  status === "succeeded" || status === "pending" || status === "requires_action";
+
 // Status changes staff may record for each current status.
 const transitions: Record<string, string[]> = {
   pending: ["paid", "void", "waived"],

@@ -44,6 +44,7 @@ export interface BillingPass {
   cancelBy: string;
   status: string;
   refundStatus: string | null;
+  amountCents: number;
 }
 export interface EligibilityPrice {
   tierid: number;

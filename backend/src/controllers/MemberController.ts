@@ -4,7 +4,7 @@
 import type { Request, Response } from "express";
 import type { Pool } from "pg";
 import { transaction } from "../db.js";
-import { AppError, integerId, positiveId, profileFields, textField } from "../domain.js";
+import { AppError, checkProfileFieldTotal, integerId, positiveId, profileFields, textField } from "../domain.js";
 import { authState } from "../middleware/auth.js";
 import { UserModel } from "../models/UserModel.js";
 import { ProfilePhotoModel } from "../models/ProfilePhotoModel.js";
@@ -89,6 +89,9 @@ export class MemberController {
       ]);
       const model = new UserModel(db, this.timeZone),
         before = await model.profile(userId);
+      // Checked against what is stored, under the row lock: each save merges into it.
+      checkProfileFieldTotal(before?.address, address, "Address");
+      checkProfileFieldTotal(before?.contactPreferences, contactPreferences, "Contact preferences");
       const updated = await model.updateProfile(
         authState(res).user.id,
         textField(req.body.firstName, "First name", 50),
