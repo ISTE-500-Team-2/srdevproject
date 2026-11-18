@@ -1968,7 +1968,7 @@ small {
 
 /* The select drops its own ring, so the whole control takes the keyboard focus ring. */
 .select-control:has(select:focus-visible) {
-  outline: 3px solid var(--orange);
+  outline: 3px solid var(--focus-ring);
   outline-offset: 3px;
 }
 

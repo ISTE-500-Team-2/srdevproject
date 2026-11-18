@@ -52,8 +52,8 @@
 }
 /* The input drops its own ring, so the underline shows focus. */
 .class-search:focus-within {
-  border-bottom-color: var(--orange);
-  box-shadow: 0 1px 0 var(--orange);
+  border-bottom-color: var(--focus-ring);
+  box-shadow: 0 1px 0 var(--focus-ring);
 }
 
 /* Certification filter chips */
