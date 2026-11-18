@@ -25,7 +25,7 @@ const equipmentBilling = new EquipmentBilling(pool, provider), passes = new Pass
 const memberships = new MembershipBilling(pool, provider);
 const reservations = new ReservationService(pool, 'America/New_York', provider);
 const stripe = stripeMock(provider);
-let created = false, member: number, staff: number, admin: number, staffMembership: number, equipment: number, day: Plan, slot = 0;
+let created = false, member: number, staff: number, colleague: number, admin: number, staffMembership: number, equipment: number, day: Plan, slot = 0;
 
 // A small Stripe stand-in: checkout sessions by id, refunds per payment intent (newest first), idempotent creates.
 const sessions = new Map<string, Session>();
@@ -60,6 +60,9 @@ before(async () => {
   staff = (await pool.query(`INSERT INTO "user"(firstname,lastname,email,password,phone,status,primary_role)
     VALUES('Refund','Staff','refund-staff@example.invalid','unused','0000000000','active','staff') RETURNING userid`)).rows[0].userid;
   await pool.query("INSERT INTO user_role(userid,roleid,assignedat) SELECT $1,roleid,NOW() FROM role WHERE role='staff'", [staff]);
+  colleague = (await pool.query(`INSERT INTO "user"(firstname,lastname,email,password,phone,status,primary_role)
+    VALUES('Refund','Colleague','refund-colleague@example.invalid','unused','0000000000','active','staff') RETURNING userid`)).rows[0].userid;
+  await pool.query("INSERT INTO user_role(userid,roleid,assignedat) SELECT $1,roleid,NOW() FROM role WHERE role='staff'", [colleague]);
   // Staff are members too, so they can book machine time for themselves.
   staffMembership = (await pool.query(`INSERT INTO user_membership(userid,tierid,startdate,end_date,status,statusdesc)
     VALUES($1,1,now()-interval '1 day','2035-01-01','active','Staff refund fixture') RETURNING membershipid`, [staff])).rows[0].membershipid;
@@ -213,10 +216,14 @@ test('the refund routes need payment permission and the CSRF token', async () =>
   assert.equal(missing.status, 404, missing.text);
 });
 
-test('a booking staff made and paid for a member refunds to that card, so the refund notices go to the payer', async () => {
+test('only another administrator refunds staff-paid assisted bookings, and notices go to the payer', async () => {
   const assisted = await booking(true, staff, member);
   nextStatus = 'succeeded';
-  assert.deepEqual(await equipmentBilling.refund(staff, assisted.id, 'Desk booking cancelled'), { status: 'succeeded' });
+  const attempts = keys.length;
+  await assert.rejects(equipmentBilling.refund(staff, assisted.id, 'Desk booking cancelled'), { code: 'SELF_CHANGE_FORBIDDEN' });
+  await assert.rejects(equipmentBilling.refund(colleague, assisted.id, 'Desk booking cancelled'), { code: 'ADMIN_REQUIRED' });
+  assert.equal(keys.length, attempts, 'neither refused refund reached Stripe');
+  assert.deepEqual(await equipmentBilling.refund(admin, assisted.id, 'Desk booking cancelled'), { status: 'succeeded' });
   const refund = refunds[0]!;
   assert.equal(refund.payment_intent, assisted.intent);
   refund.status = 'failed';
@@ -230,9 +237,6 @@ test('a booking staff made and paid for a member refunds to that card, so the re
 
 test('only administrators refund a staff account\'s payments, so staff cannot refund their own', async () => {
   const own = await booking(true, staff), pass = await cardPass(staff), adminPass = await cardPass(admin);
-  const colleague = (await pool.query(`INSERT INTO "user"(firstname,lastname,email,password,phone,status,primary_role)
-    VALUES('Refund','Colleague','refund-colleague@example.invalid','unused','0000000000','active','staff') RETURNING userid`)).rows[0].userid;
-  await pool.query("INSERT INTO user_role(userid,roleid,assignedat) SELECT $1,roleid,NOW() FROM role WHERE role='staff'", [colleague]);
   const billing = randomUUID(), invoice = 'in_staff_' + randomBytes(4).toString('hex');
   await pool.query(`INSERT INTO app_membership_billing(id,userid,tierid,plan_snapshot,amount_cents,status) VALUES($1,$2,1,'{}',5000,'active')`, [billing, staff]);
   const payment = await new StaffModel(pool).createPayment(staff, staffMembership, '50.00', 'paid', 'card', invoice, 'Stripe test recurring membership', staff);
@@ -296,4 +300,41 @@ test('a failed staff refund of a pass past its cancel-by date is not the member\
   const after = (await pool.query(`SELECT c.status,d.status AS pass,d.statusdesc,p.paymentstatus AS payment
     FROM app_pass_checkout c JOIN day_pass d ON d.dayid=c.pass_id JOIN payment p ON p.paymentid=c.payment_id WHERE c.id=$1`, [id])).rows[0];
   assert.deepEqual(after, { status: 'cancelled', pass: 'cancelled', statusdesc: 'Refunded to the original card', payment: 'refunded' });
+});
+
+test('an early partial Stripe refund does not keep a paid equipment booking pending', async () => {
+  const held = await booking(false);
+  refunds.unshift({ id: 're_early_partial_' + randomUUID(), object: 'refund', status: 'succeeded', amount: 200,
+    currency: 'usd', payment_intent: held.intent, metadata: {} });
+  Object.assign(held.session, { status: 'complete', payment_status: 'paid', payment_intent: held.intent });
+  const event = stripeEvent('evt_' + randomUUID(), 'checkout.session.completed', { ...held.session });
+  await equipmentBilling.webhook(event);
+  await equipmentBilling.webhook(event);
+
+  assert.equal((await new ReservationModel(pool).find(held.id))!.status, 'confirmed');
+  assert.deepEqual(await held.state(), { refund_id: null, refund_status: null, payment: 'paid' });
+  assert.equal((await notices(`equipment-receipt:${held.id}`)).length, 1);
+  const attempts = keys.length;
+  await assert.rejects(equipmentBilling.refund(staff, held.id, 'Full refund needs reconciliation'), { code: 'RECONCILE_REQUIRED' });
+  assert.equal(keys.length, attempts, 'no full refund was submitted on top of the partial refund');
+});
+
+test('Payments can replace a refund that failed after the day pass was cancelled', async () => {
+  const { id, intent } = await cardPass(member);
+  nextStatus = 'succeeded';
+  assert.deepEqual(await passes.staffRefund(staff, id, 'Original refund'), { status: 'succeeded' });
+  const original = refunds[0]!;
+  original.status = 'failed';
+  await passes.webhook(stripeEvent('evt_' + randomUUID(), 'refund.failed', { ...original }));
+  const state = async () => (await pool.query(`SELECT c.status,c.refund_status,d.status AS pass,p.paymentstatus AS payment
+    FROM app_pass_checkout c JOIN day_pass d ON d.dayid=c.pass_id JOIN payment p ON p.paymentid=c.payment_id WHERE c.id=$1`, [id])).rows[0];
+  assert.deepEqual(await state(), { status: 'cancelled', refund_status: 'failed', pass: 'cancelled', payment: 'paid' });
+  assert.equal((await ledgerRow(row => row.passCheckoutId === id)).refundStatus, 'failed');
+
+  const attempts = keys.length;
+  const retry = () => passes.staffRefund(staff, id, 'Replace the failed refund');
+  assert.deepEqual(await Promise.all([retry(), retry()]), [{ status: 'succeeded' }, { status: 'succeeded' }]);
+  assert.deepEqual(keys.slice(attempts), [`daypass-refund:${id}:${original.id}`]);
+  assert.equal(refunds.filter(f => f.payment_intent === intent && f.status === 'succeeded').length, 1);
+  assert.deepEqual(await state(), { status: 'cancelled', refund_status: 'succeeded', pass: 'cancelled', payment: 'refunded' });
 });

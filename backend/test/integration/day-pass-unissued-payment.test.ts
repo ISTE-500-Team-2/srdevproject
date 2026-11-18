@@ -26,6 +26,7 @@ let created = false, member: number, admin: number, dayPlan: number;
 const sessions = new Map<string, Session>();
 let sessionParams: Stripe.Checkout.SessionCreateParams[] = [];
 let refunds: Refund[] = [], refundKeys: string[] = [], nextRefund: Stripe.Refund['status'] = 'succeeded';
+let lostRefundResponse = false;
 const byKey = new Map<string, Refund>();
 stripe.checkoutSessionCreate(async params => {
   sessionParams.push(params!);
@@ -45,6 +46,7 @@ stripe.refundCreate(async (params, options) => {
   const refund: Refund = { id: 're_' + randomBytes(4).toString('hex'), object: 'refund', status: nextRefund, amount: params!.amount!, currency: 'usd',
     payment_intent: params!.payment_intent as string, metadata: params!.metadata as Record<string, string> ?? {} };
   refunds.unshift(refund); byKey.set(key, refund);
+  if (lostRefundResponse) throw new Error('Stripe refund response lost');
   return refund;
 });
 
@@ -170,6 +172,39 @@ test('a payment that arrives after the visit date ended is refunded, and a faile
   row = (await pool.query('SELECT * FROM app_pass_checkout WHERE id=$1', [id])).rows[0];
   assert.deepEqual([row.status, row.refund_status], ['cancelled', 'succeeded']);
   assert.equal((await pool.query('SELECT paymentstatus FROM payment WHERE paymentid=$1', [row.payment_id])).rows[0].paymentstatus, 'refunded');
+});
+
+test('a lost automatic refund response leaves the captured charge recorded and the webhook retry reconciles it', async () => {
+  const date = '2034-05-11';
+  await staff.issue(admin, member, desk(date));
+  const { id, session } = await openCheckout(date);
+  Object.assign(session, { status: 'complete', payment_status: 'paid', payment_intent: 'pi_' + randomUUID() });
+  const event = stripeEvent('evt_' + randomUUID(), 'checkout.session.completed', { ...session });
+
+  lostRefundResponse = true;
+  try {
+    await assert.rejects(passes.webhook(event), /Stripe refund response lost/);
+  } finally {
+    lostRefundResponse = false;
+  }
+  assert.equal((await pool.query('SELECT id FROM app_pass_stripe_event WHERE id=$1', [event.id])).rowCount, 1);
+  const captured = await checkoutRow(date);
+  assert.equal(captured.id, id);
+  assert.equal(captured.status, 'paid');
+  assert.equal(captured.pass_id, null);
+  assert.equal(captured.payment_intent, session.payment_intent);
+  assert.ok(captured.cancel_requested_at, 'refund intent is durable');
+  assert.ok(captured.payment_id, 'the captured charge is visible in Payments');
+  assert.equal((await pool.query('SELECT paymentstatus FROM payment WHERE paymentid=$1', [captured.payment_id])).rows[0].paymentstatus, 'paid');
+
+  await passes.webhook(event);
+  await passes.webhook(event);
+  const reconciled = await checkoutRow(date);
+  assert.equal(reconciled.payment_id, captured.payment_id);
+  assert.deepEqual([reconciled.status, reconciled.refund_status], ['cancelled', 'succeeded']);
+  assert.deepEqual(refundKeys, [`daypass-refund:${id}`]);
+  assert.equal(await passCount(date), 1);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM payment WHERE reference=$1', [session.id])).rows[0].n, 1);
 });
 
 test('card checkout stops taking payment when the visit date ends', async () => {

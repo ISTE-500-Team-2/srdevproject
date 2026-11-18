@@ -148,8 +148,7 @@ export class EquipmentBilling {
   async apply(session: Stripe.Checkout.Session) {
     const id = session.metadata?.equipmentReservationId;
     if (!id) return;
-    // It can ask Stripe for refunds while holding the booking lock, so it runs under the provider cap.
-    await providerTransaction(this.pool, async db => {
+    const paidIntent = await transaction(this.pool, async db => {
       // Reservation first: use the same lock order as staff edits/cancellations.
       const reservation = (await db.query(`SELECT *,endtime AT TIME ZONE 'UTC' AS "endsAt" FROM reservation WHERE reservationid::text=$1 FOR UPDATE`, [id])).rows[0];
       const row = (await db.query('SELECT * FROM app_equipment_checkout WHERE reservation_id::text=$1 FOR UPDATE', [id])).rows[0];
@@ -157,15 +156,17 @@ export class EquipmentBilling {
       if (session.livemode || session.mode !== 'payment' || session.client_reference_id !== id ||
         row.checkout_id && session.id !== row.checkout_id || session.amount_total !== row.amount_cents || session.currency !== 'usd')
         throw new AppError(400, 'PAYMENT_MISMATCH', 'Equipment payment does not match this reservation.');
-      if (row.status !== 'pending') return;
-      if (session.status === 'expired' && session.payment_status === 'unpaid') {
+      if (row.status === 'pending' && session.status === 'expired' && session.payment_status === 'unpaid') {
         await db.query("UPDATE app_equipment_checkout SET status='expired',checkout_id=$2 WHERE reservation_id=$1", [id, session.id]);
         await db.query("UPDATE reservation SET status='cancelled',statusdesc='Unpaid checkout expired' WHERE reservationid=$1 AND status='pending'", [id]);
         await db.query("UPDATE payment SET paymentstatus='void',revision=revision+1,updated_at=now() WHERE paymentid=(SELECT payment_id FROM reservation WHERE reservationid=$1) AND paymentstatus='pending'", [id]);
         return;
       }
       if (session.status !== 'complete' || session.payment_status !== 'paid') return;
-      const intent = typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id;
+      const intent = objectId(session.payment_intent);
+      // A repeated checkout delivery can reconcile a refund lookup that failed after payment committed.
+      if (row.status === 'paid') return row.payment_intent === intent ? intent : undefined;
+      if (row.status !== 'pending') return;
       if (!intent || reservation.status !== 'pending') throw new AppError(409, 'RECONCILE_REQUIRED', 'Payment requires staff reconciliation.');
       // Payment alone cannot confirm a booking whose current waivers/training
       // are invalid. The same paid session can reconcile after eligibility is restored.
@@ -189,9 +190,28 @@ export class EquipmentBilling {
       await enqueueNotification(db, { userId: row.payer_id, kind: 'payment_receipt', dedupeKey: `equipment-receipt:${id}`,
         payload: { paymentId: payment, reservationId: Number(id), amount: (row.amount_cents / 100).toFixed(2),
           currency: 'USD', method: 'Card (test mode)', reference: session.id } });
-      // A refund made in Stripe before this payment was recorded matched no booking when it arrived,
-      // so record it now; otherwise the payment would read as paid with the money already returned.
-      const refund = liveRefund(await this.provider().sdk.refunds.list({ payment_intent: intent, limit: 100 }), row.amount_cents);
+      return intent;
+    });
+    if (!paidIntent) return;
+
+    // A refund delivered before the payment was recorded had no booking to match. Look it up
+    // after committing the charge so a partial refund or a Stripe outage can't undo confirmation.
+    await providerTransaction(this.pool, async db => {
+      const row = (await db.query<{ amount_cents: number }>(
+        'SELECT amount_cents FROM app_equipment_checkout WHERE reservation_id=$1 AND payment_intent=$2 FOR UPDATE',
+        [id, paidIntent])).rows[0];
+      if (!row) return;
+      const refunds = await this.provider().sdk.refunds.list({ payment_intent: paidIntent, limit: 100 });
+      let refund: Stripe.Refund | undefined;
+      try {
+        refund = liveRefund(refunds, row.amount_cents);
+      } catch (error) {
+        if (!(error instanceof AppError) || error.code !== 'RECONCILE_REQUIRED') throw error;
+        console.error('Equipment refund requires staff reconciliation', {
+          reservationId: Number(id), stage: 'equipment_reconcile_refund', ...errorIdentifier(error),
+        });
+        return;
+      }
       if (refund) await this.applyRefund(db, refund);
     });
   }
@@ -264,10 +284,11 @@ export class EquipmentBilling {
       const row = (await db.query<RefundableCheckout>(`SELECT c.*,r.userid FROM app_equipment_checkout c
         JOIN reservation r ON r.reservationid=c.reservation_id WHERE c.reservation_id=$1 FOR UPDATE OF c`, [id])).rows[0];
       if (!row) throw new AppError(404, 'NOT_FOUND', 'Equipment payment not found.');
-      // The booking stays confirmed after a refund, so the staff-account rule applies, as for membership
-      // invoices: nobody refunds their own booking, and only administrators refund staff accounts.
-      if (row.userid === actor) throw new AppError(403, 'SELF_CHANGE_FORBIDDEN', 'Another administrator must refund a payment on your own account.');
+      // The booking stays confirmed and Stripe refunds the payer's card. Protect both accounts.
+      if (row.userid === actor || row.payer_id === actor)
+        throw new AppError(403, 'SELF_CHANGE_FORBIDDEN', 'Another administrator must refund a payment on your own account.');
       await assertManageable(db, operator, row.userid);
+      if (row.payer_id !== row.userid) await assertManageable(db, operator, row.payer_id);
       if (row.refund_status === 'succeeded') return { status: 'succeeded' };
       if (row.status !== 'paid' || !row.payment_intent || !row.payment_id)
         throw new AppError(409, 'NOT_PAID', 'Only a booking paid by card can be refunded.');

@@ -15,7 +15,7 @@ import {businessToday} from '../businessDate.js';
 import {StudioStripe} from '../studios/stripe.js';
 import {enqueueNotification} from '../notifications/store.js';
 import {quote} from './pricing.js';
-import {liveRefund,refundAttempt,refundTransition,replacedAttemptFailed} from './refundTransition.js';
+import {failedRefund,liveRefund,refundAttempt,refundTransition,replacedAttemptFailed} from './refundTransition.js';
 import {isCheckoutSessionEvent,isRefundEvent} from './stripeEvents.js';
 import {expireAbandonedMembershipCheckouts} from './openBilling.js';
 import {providerTransaction} from './providerGate.js';
@@ -28,7 +28,7 @@ export interface PassCheckoutRequest {[field:string]:unknown;validDate?:unknown;
 /** Free monthly membership request; each field is validated by PassBilling.freeMembership. */
 export interface FreeMembershipRequest {[field:string]:unknown;planId?:unknown;expectedRevision?:unknown;pricingRevision?:unknown;}
 const objectId=(v:string|{id:string}|null|undefined):string|undefined=>typeof v==='string'?v:v?.id;
-/** Marks a refunded payment that never became a pass (see refundUnissued), so the member isn't told about a pass. */
+/** Marks a payment that never became a pass (see recordUnissuedPayment), so the member isn't told about a pass. */
 const unissued=(r:Pick<PassCheckoutRow,'pass_id'|'payment_id'>)=>r.payment_id&&!r.pass_id?{passIssued:false as const}:{};
 // A checkout whose session was never stored: nobody got its payment link, and any session the failed
 // call created expired with Stripe's 24-hour default. A day later it is abandoned, not pending.
@@ -40,7 +40,7 @@ export class PassBilling {
   // Staff can put an issued pass on hold or revoke it; show that, not the checkout's 'paid'.
   // cancelRequested: the member's own cancellation (or an unissued payment's refund) is recorded, so cancel()
   // retries a failed refund after the notice deadline; a staff refund isn't, so only staff retry it then.
-  // passIssued is false for a card payment that never became a pass (see refundUnissued): only its refund remains.
+  // passIssued is false for a card payment that never became a pass (see recordUnissuedPayment): only its refund remains.
   const online=(await this.pool.query(`SELECT c.id,c.plan_snapshot AS plan,to_char(c.valid_date,'YYYY-MM-DD') AS "validDate",c.amount_cents AS "amountCents",
   CASE WHEN c.status='paid' AND d.status IN ('suspended','revoked') THEN d.status ELSE c.status END AS status,c.refund_status AS "refundStatus",
   c.cancel_requested_at IS NOT NULL AS "cancelRequested",NOT (c.payment_id IS NOT NULL AND c.pass_id IS NULL) AS "passIssued",
@@ -130,7 +130,7 @@ export class PassBilling {
   return {checkoutUrl:s.url};
  }
  async issue(db:Database,r:PassCheckoutRow,reference:string){
-  // A payment without a pass was refunded instead of issued (see refundUnissued).
+  // A payment without a pass was recorded for refund (see recordUnissuedPayment).
   if(r.pass_id||r.payment_id)return;
   const model=new StaffModel(db,this.zone),date=new Date(r.valid_date).toISOString().slice(0,10);
   if(await model.passExists(r.userid,date))throw new AppError(409,'PASS_EXISTS','An existing pass requires payment reconciliation.');
@@ -150,18 +150,24 @@ export class PassBilling {
   return null;
  }
  /**
-  * Records the card charge for a paid checkout that can't become a pass and refunds it to the card,
-  * so the payment is acknowledged rather than retried by Stripe and lost. The recorded cancellation
-  * request lets the member retry a refund that fails.
+  * Record a captured charge and its refund intent before attempting the refund.
+  * The cancellation request also lets the member retry a failed refund.
   */
- async refundUnissued(db:Database,r:PassCheckoutRow,reference:string,reason:string){
+ async recordUnissuedPayment(db:Database,r:PassCheckoutRow,reference:string,reason:string){
   const model=new StaffModel(db,this.zone),amount=(r.amount_cents/100).toFixed(2);
   const payment=await model.createPayment(r.userid,null,amount,'paid','card',reference,'Online day pass (not issued)',r.userid);
   await db.query("UPDATE app_pass_checkout SET payment_id=$2,status='paid',cancel_requested_at=COALESCE(cancel_requested_at,now()) WHERE id=$1",[r.id,payment]);
   await model.audit(r.userid,r.userid,'daypass.not_issued','payment',payment,reason,null,{checkoutId:r.id,reference});
   await enqueueNotification(db,{userId:r.userid,kind:'payment_status_changed',dedupeKey:'daypass-not-issued:'+r.id,payload:{paymentId:payment,amount,currency:'USD',
    method:'Card (test mode)',reference,planName:r.plan_snapshot.name,validDate:new Date(r.valid_date).toISOString().slice(0,10),instructions:reason+' We are refunding it to your original card.'}});
-  await this.cardRefund(db,r);
+ }
+ async refundUnissued(id:string){
+  await providerTransaction(this.pool,async db=>{
+   const r=(await db.query<PassCheckoutRow>(`SELECT * FROM app_pass_checkout WHERE id=$1 AND status='paid'
+    AND pass_id IS NULL AND payment_id IS NOT NULL AND cancel_requested_at IS NOT NULL AND refund_id IS NULL FOR UPDATE`,[id])).rows[0];
+   // A member, staff or a refund webhook may have already recorded an attempt.
+   if(r)await this.cardRefund(db,r);
+  });
  }
  async freeMembership(userid:number,body:FreeMembershipRequest){
   return transaction(this.pool,async db=>{
@@ -245,7 +251,8 @@ export class PassBilling {
    await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,owner.userid]);
    const r=(await db.query<PassCheckoutRow>('SELECT * FROM app_pass_checkout WHERE id::text=$1 FOR UPDATE',[id])).rows[0]!;
    if(r.refund_status==='succeeded')return {status:'succeeded'};
-   if(r.status!=='paid'||r.amount_cents===0||!r.payment_intent||!r.payment_id)throw new AppError(409,'NOT_PAID','Only a day pass paid by card can be refunded.');
+   const retryCancelled=r.status==='cancelled'&&r.refund_id&&failedRefund({status:r.refund_status});
+   if((r.status!=='paid'&&!retryCancelled)||r.amount_cents===0||!r.payment_intent||!r.payment_id)throw new AppError(409,'NOT_PAID','Only a day pass paid by card can be refunded.');
    const f=await this.cardRefund(db,r);
    await new StaffModel(db).audit(actor,r.userid,'billing.refund.requested','payment',r.payment_id,explanation,null,{refundId:f.id,status:f.status});
    return {status:f.status};
@@ -260,7 +267,7 @@ export class PassBilling {
  async applyRefund(db:Database,f:Stripe.Refund){
   const r=(await db.query<PassCheckoutRow>('SELECT * FROM app_pass_checkout WHERE payment_intent=$1 FOR UPDATE',[objectId(f.payment_intent)])).rows[0];
   if(!r)return;
-  const failed=['failed','canceled'].includes(f.status??'');
+  const failed=failedRefund(f);
   if(refundTransition({refundId:r.refund_id,refundStatus:r.refund_status},f)==='skip')return;
   if(replacedAttemptFailed({refundId:r.refund_id,refundStatus:r.refund_status},f))return;
   if(f.amount!==r.amount_cents||f.currency!=='usd')throw new AppError(409,'RECONCILE_REQUIRED','Refund amount mismatch.');
@@ -299,8 +306,13 @@ export class PassBilling {
  async webhook(event:Stripe.Event){
   if(event.livemode)throw new AppError(400,'LIVE_PAYMENT_FORBIDDEN','Test events only.');
   const sdk=this.provider().sdk;
-  await providerTransaction(this.pool,async db=>{
-   if(!(await db.query('INSERT INTO app_pass_stripe_event(id) VALUES($1) ON CONFLICT DO NOTHING RETURNING id',[event.id])).rowCount)return;
+  const refundCheckout=await providerTransaction(this.pool,async db=>{
+   if(!(await db.query('INSERT INTO app_pass_stripe_event(id) VALUES($1) ON CONFLICT DO NOTHING RETURNING id',[event.id])).rowCount){
+    // The charge and event can be committed even when the automatic refund call failed.
+    if(!isCheckoutSessionEvent(event))return;
+    return (await db.query<{id:string}>(`SELECT id FROM app_pass_checkout WHERE checkout_id=$1 AND status='paid'
+     AND pass_id IS NULL AND payment_id IS NOT NULL AND cancel_requested_at IS NOT NULL AND refund_id IS NULL`,[event.data.object.id])).rows[0]?.id;
+   }
    if(isRefundEvent(event)){await this.refundEvent(db,event.data.object);return;}
    if(!isCheckoutSessionEvent(event))return;
    const obj=event.data.object;
@@ -324,7 +336,8 @@ export class PassBilling {
    const pi=objectId(s.payment_intent);if(!pi)throw new AppError(400,'PAYMENT_MISMATCH','Original payment missing.');
    await db.query('UPDATE app_pass_checkout SET checkout_id=$2,payment_intent=$3 WHERE id=$1',[id,s.id,pi]);
    const unissuable=r.pass_id||r.payment_id?null:await this.unissuable(db,r);
-   if(unissuable){await this.refundUnissued(db,{...r,checkout_id:s.id,payment_intent:pi},s.id,unissuable);return;}
+   if(unissuable){await this.recordUnissuedPayment(db,r,s.id,unissuable);return id;}
+   if(r.payment_id&&!r.pass_id&&!r.refund_id)return id;
    await this.issue(db,r,s.id);
    // Refund delivery can precede checkout delivery. Reconcile the original
    // payment so a late checkout cannot grant access to an already-refunded pass.
@@ -332,5 +345,6 @@ export class PassBilling {
    const refund=liveRefund(refunds,r.amount_cents)??refunds.data[0];
    if(refund)await this.applyRefund(db,refund);
   });
+  if(refundCheckout)await this.refundUnissued(refundCheckout);
  }
 }
