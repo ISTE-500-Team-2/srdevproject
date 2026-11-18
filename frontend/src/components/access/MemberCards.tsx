@@ -301,7 +301,6 @@ export function AssignCard({
     [reason, setReason] = useState("");
   const enabled = setup.configured && setup.readers.some((r) => r.enabled);
   const owner = scan.scan?.assignments?.find((a) => a.active);
-  const captured = scan.scan?.status === "captured";
   async function assign(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!manual && !captured) return;
