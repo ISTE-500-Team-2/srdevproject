@@ -451,7 +451,16 @@ export class StaffService {
           );
         // A desk pass would leave the member's open card checkout paying for a second one.
         // Staff can cancel that checkout themselves from the member's account (account mode).
-        if (await model.openPassCheckout(userId, input.validDate))
+        const checkoutBlock = await model.passCheckoutBlock(userId, input.validDate);
+        if (checkoutBlock === "review")
+          throw new AppError(
+            409,
+            "CHECKOUT_OPEN",
+            "The member already paid by card for this visit. Open the payment under Payments and choose Review refund before issuing access.",
+          );
+        if (checkoutBlock === "processing")
+          throw new AppError(409, "CHECKOUT_OPEN", "The member already paid by card. Wait for payment verification before issuing access.");
+        if (checkoutBlock === "open")
           throw new AppError(
             409,
             "CHECKOUT_OPEN",

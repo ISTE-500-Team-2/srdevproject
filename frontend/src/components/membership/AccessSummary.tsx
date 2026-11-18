@@ -470,6 +470,8 @@ function PassRow({
   } else if (p.status === "pending") {
     note = "Checkout not finished";
     action = "Cancel checkout";
+  } else if (p.refundStatus === "partial") {
+    note = "Part of this payment was refunded. Contact the front desk about any further refund.";
   } else if ((p.refundStatus && p.refundStatus !== "succeeded") || unissued(p)) {
     if (!refundFailed(p)) note = "Refund in progress";
     // The server retries after the cancel-by deadline only a refund the member's own cancellation

@@ -36,6 +36,7 @@ const failedRefund = (payment: Payment) => payment.refundStatus === "failed" || 
 /** What a card payment's Stripe refund is doing, if one was asked for and hasn't finished. */
 export function refundNote(payment: Payment) {
   if (payment.refundStatus === "needs_review") return "Refund needs staff review";
+  if (payment.refundStatus === "partial") return "Partially refunded";
   if (payment.refundStatus === "pending" || payment.refundStatus === "requires_action") return "Refund pending";
   // A failed membership invoice refund is sorted out in Stripe; a day pass's or booking's can be retried (see paymentAction).
   if (failedRefund(payment)) return "Refund failed";
@@ -187,7 +188,7 @@ export function RefundReview({ payment, onReviewed }: { payment: Payment; onRevi
       onSubmit={async (f) => {
         await api(cardRefundPath(payment) ?? "", {
           method: "POST",
-          body: { reason: f.get("reason"), review: true },
+          body: { reason: f.get("reason"), review: true, ...(f.has("honorVisit") ? { honorVisit: true } : {}) },
         });
         onReviewed();
       }}
@@ -195,8 +196,13 @@ export function RefundReview({ payment, onReviewed }: { payment: Payment; onRevi
       <p>
         Check the visit record and the refund in Stripe first. This action rechecks Stripe without sending money.
         If the full payment was refunded, the ledger records it. If no amount was refunded, the payment stays
-        on the ledger and you can choose Refund separately. A partial or pending refund still needs review.
+        on the ledger. Wait for any pending refunds to finish. If you want to return the rest of a partial
+        refund, refund the remaining amount in Stripe and then complete this review.
       </p>
+      <label className="payment-editor__confirm">
+        <input type="checkbox" name="honorVisit" />
+        <span>Honor the visit after a settled partial refund. Issue the pass if the visit can still go ahead.</span>
+      </label>
       <ReasonField label="Reason for closing review" />
     </ActionForm>
   );

@@ -122,8 +122,8 @@ export class StaffModel {
   newPassCheckoutPayBy(date: string, start: Date) {
     return this.entitlements.newPassCheckoutPayBy(date, start);
   }
-  openPassCheckout(userId: number, date: string) {
-    return this.entitlements.openPassCheckout(userId, date);
+  passCheckoutBlock(userId: number, date: string) {
+    return this.entitlements.passCheckoutBlock(userId, date);
   }
   createMembership(userId: number, plan: Plan, startsAt: string, endsAt: Date, actorId: number, reason: string) {
     return this.entitlements.createMembership(userId, plan, startsAt, endsAt, actorId, reason);

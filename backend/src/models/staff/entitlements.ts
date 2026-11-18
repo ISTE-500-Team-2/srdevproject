@@ -136,20 +136,19 @@ export class EntitlementRepository {
       )
     ).rows[0]!.payBy;
   }
-  /** Whether the member has an online checkout for that date that could still be paid. */
-  async openPassCheckout(userId: number, date: string): Promise<boolean> {
+  /** Why online checkout blocks a separate desk payment for this date. */
+  async passCheckoutBlock(userId: number, date: string): Promise<"review" | "processing" | "open" | undefined> {
     return (
-      (
-        await this.db.query(
-          `SELECT id FROM app_pass_checkout WHERE userid=$1 AND valid_date=$2::date AND status='pending'
+      await this.db.query<{ reason: "review" | "processing" | "open" }>(
+        `SELECT CASE WHEN refund_needs_review THEN 'review' WHEN payment_id IS NOT NULL THEN 'processing' ELSE 'open' END AS reason
+      FROM app_pass_checkout WHERE userid=$1 AND valid_date=$2::date AND status='pending'
       AND checkout_id IS NOT NULL AND (
         payment_id IS NOT NULL OR now()<COALESCE(checkout_expires_at,CASE WHEN checkout_has_expiry THEN ${legacyPassCheckoutPayBy("$3")}
           ELSE created_at+INTERVAL '24 hours' END)
       )`,
-          [userId, date, this.timeZone],
-        )
-      ).rows.length > 0
-    );
+        [userId, date, this.timeZone],
+      )
+    ).rows[0]?.reason;
   }
   async passExists(userId: number, date: string): Promise<boolean> {
     return (
