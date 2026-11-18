@@ -67,8 +67,10 @@ export function EquipmentPage() {
   const more = listCapped ? '+' : '';
   const machineFor = (item: Reservation) =>
     item.equipmentId == null ? undefined : catalog.data?.find(equipment => equipment.id === item.equipmentId);
+  // Only an online checkout settles on its own (paid, or released after its hold). A booking paid
+  // at the desk stays pending until staff record it, which can be days.
   useEffect(() => {
-    if (!bookings.data?.some(item => item.paymentStatus === 'pending')) return;
+    if (!bookings.data?.some(item => item.paymentStatus === 'pending' && item.payerId != null)) return;
     const timer = window.setInterval(bookings.reload, 5000);
     return () => window.clearInterval(timer);
   }, [bookings.data]);
@@ -183,7 +185,7 @@ export function EquipmentPage() {
               onChange={(event) => setFilter(event.target.value)}
             >
               <option value="all">All equipment</option>
-              <option value="ready">Eligible now</option>
+              <option value="ready">Ready to book</option>
               <option value="training">Training required</option>
             </select>
           </label>

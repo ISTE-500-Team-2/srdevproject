@@ -378,11 +378,15 @@ test("a save refused because someone else changed the reservation catches up, ke
   expect(patches.map((body) => body.expectedRevision)).toEqual([2, 3]);
 });
 
-test("a save refused because the reservation was cancelled meanwhile can't be retried", async () => {
+test.each([
+  // What the server answers when the reservation was cancelled before the save.
+  ["cancelled before the save", "INVALID_STATUS", "Only active reservations can be modified."],
+  // Changed by someone else, then cancelled before the editor read it again.
+  ["changed and then cancelled", "STALE_RECORD", "This reservation changed. Refresh it before saving."],
+])("a save refused because the reservation was %s turns Save off", async (_case, code, message) => {
   const original = api.getMockImplementation()!;
   api.mockImplementation((path: string, options?: { method?: string }) => {
-    if (path === "/admin/reservations/17" && options?.method === "PATCH")
-      return Promise.reject(new ApiError(409, "STALE_RECORD", "This reservation changed. Refresh it before saving."));
+    if (path === "/admin/reservations/17" && options?.method === "PATCH") return Promise.reject(new ApiError(409, code, message));
     if (path === "/admin/reservations/17") return Promise.resolve({ ...reservation, revision: 3, status: "cancelled" });
     return original(path, options);
   });
@@ -395,7 +399,7 @@ test("a save refused because the reservation was cancelled meanwhile can't be re
   const save = screen.getByRole("button", { name: "Save changes" }) as HTMLButtonElement;
   await waitFor(() => expect(save.disabled).toBe(false));
   fireEvent.click(save);
-  expect(await screen.findByText("Someone else changed this reservation, and it can’t be changed here any more. Go back to see it.")).toBeTruthy();
+  expect(await screen.findByText("This reservation changed and can’t be changed here any more. Go back to see it.")).toBeTruthy();
   expect(save.disabled).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "Back" }));
   expect(await screen.findByText("Cancelled")).toBeTruthy();

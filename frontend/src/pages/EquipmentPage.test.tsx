@@ -308,6 +308,26 @@ test('pending checkout cannot be resumed while its owner needs to sign required 
  expect((screen.getByRole('button',{name:'Cancel checkout'}) as HTMLButtonElement).disabled).toBe(false);
 });
 
+test('only a booking waiting on online checkout keeps re-reading reservations',async()=>{
+ const start=Date.now()+3*86400000;
+ const booking=(extra:Partial<Reservation>)=>reservation({id:8,equipmentId:4,userId:1,equipmentName:'3D Printer',startTime:new Date(start).toISOString(),endTime:new Date(start+3600000).toISOString(),status:'confirmed',paymentStatus:'pending',amountCents:700,...extra});
+ const interval=vi.spyOn(window,'setInterval');
+ const polls=()=>interval.mock.calls.filter(([,ms])=>ms===5000).length;
+ try{
+  // Paid at the desk: it stays pending until staff record the payment, which can take days.
+  records=[booking({payerId:null})];
+  await mount();
+  expect(await screen.findByText('Payment due at front desk')).toBeTruthy();
+  expect(polls()).toBe(0);
+  cleanup();
+  // An online checkout settles on its own, so the page watches for it.
+  records=[booking({status:'pending',payerId:1})];
+  await mount();
+  expect(await screen.findByText('Awaiting payment')).toBeTruthy();
+  await waitFor(()=>expect(polls()).toBe(1));
+ }finally{interval.mockRestore();}
+});
+
 test('reservations split into upcoming and past, with cancelled and expired bookings behind a toggle',async()=>{
  const hour=3600000,now=Date.now(),at=(offset:number)=>new Date(now+offset).toISOString();
  const row=(id:number,name:string,start:number,extra:Partial<Reservation>={})=>reservation({id,userId:1,equipmentId:4,equipmentName:name,location:'Makerspace',startTime:at(start),endTime:at(start+hour),status:'confirmed',...extra});

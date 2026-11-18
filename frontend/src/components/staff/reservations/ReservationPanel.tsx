@@ -372,17 +372,21 @@ export function ReservationEditor({
       onSaved(saved, !editing);
     } catch (err) {
       quote.reload();
-      if (editing && err instanceof ApiError && err.code === "STALE_RECORD") {
-        // Someone else saved first. Catch up to their version but keep staff's choices, so saving
-        // again replaces the new time on purpose instead of resending the old revision forever.
+      // STALE_RECORD: someone else saved first. INVALID_STATUS: it was cancelled or ended meanwhile.
+      if (editing && err instanceof ApiError && (err.code === "STALE_RECORD" || err.code === "INVALID_STATUS")) {
+        // Catch up to the current version but keep staff's choices, so saving again replaces the
+        // new time on purpose instead of resending the old revision forever, and Save turns off
+        // once the reservation can't be changed.
         try {
           const current = await api<Reservation>(`/admin/reservations/${editing.id}`);
           setEditing(current);
           onStale();
           setError(
-            canChange(current, now)
-              ? `Someone else changed this reservation. It’s now ${current.equipmentName}, ${dayLabel(dayKey(Date.parse(current.startTime), zone), today)}, ${timeRange(current.startTime, current.endTime, zone)}. Your choices are kept: save again to use them.`
-              : "Someone else changed this reservation, and it can’t be changed here any more. Go back to see it.",
+            !canChange(current, now)
+              ? "This reservation changed and can’t be changed here any more. Go back to see it."
+              : err.code === "STALE_RECORD"
+                ? `Someone else changed this reservation. It’s now ${current.equipmentName}, ${dayLabel(dayKey(Date.parse(current.startTime), zone), today)}, ${timeRange(current.startTime, current.endTime, zone)}. Your choices are kept: save again to use them.`
+                : errorMessage(err),
           );
           return;
         } catch {
