@@ -142,7 +142,7 @@ export function PaymentTable({
                   <tr className="payment-table__detail" id={detailId}>
                     <td colSpan={columns}>
                       {action === "review" ? (
-                        <RefundReview payment={p} onReviewed={() => finish(p, false, `Refund review completed for payment #${p.id}.`)} />
+                        <RefundReview payment={p} onReviewed={(passIssued) => finish(p, false, passIssued ? `Day pass issued for payment #${p.id}.` : `Refund review completed for payment #${p.id}.`)} />
                       ) : action === "refund" ? (
                         <CardRefund
                           payment={p}

@@ -49,6 +49,7 @@ export function stripeMock(provider: StudioStripe) {
     checkoutSessionList: named(sdk.checkout.sessions, 'list'),
     checkoutSessionCreate: named(sdk.checkout.sessions, 'create'),
     checkoutSessionRetrieve: named(sdk.checkout.sessions, 'retrieve'),
+    checkoutSessionExpire: named(sdk.checkout.sessions, 'expire'),
     subscriptionRetrieve: named(sdk.subscriptions, 'retrieve'),
     subscriptionUpdate: named(sdk.subscriptions, 'update'),
     invoiceRetrieve: named(sdk.invoices, 'retrieve'),

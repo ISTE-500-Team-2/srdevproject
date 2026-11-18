@@ -201,6 +201,23 @@ ledger after delivery. Replay records the existing refund. Do not create another
 refund to repair the ledger. Repeat this review for any period when an application
 rollback handled webhook traffic.
 
+For day passes, the previous release can return HTTP 409 for a paid retired
+Checkout Session or a refund that covers only part of the original charge. The
+new worker checks sessions it retires before confirming their Stripe state and
+monitors partial refunds for three days after staff honor the visit. Keep the failed-delivery replay step after the previous release
+drains, even if the worker has already resolved some payments.
+
+Also check successful Checkout deliveries from the overlap for held day-pass
+payments and retired replacement sessions. For each captured Checkout Session,
+verify there is one ledger payment for its Stripe reference. Verify no active
+pass belongs to a retired replacement, and confirm its charge was returned to
+the original card. The previous release can acknowledge a distinct completion
+and issue access because it ignores the held payment and the retirement record.
+If these checks find a discrepancy, put any incorrectly issued pass on hold,
+record the Stripe session and payment intent IDs and the affected ledger
+payment IDs, and escalate to the payments owner for correction. Verify Stripe
+before sending any refund.
+
 ### Captured day-pass payments during rollback
 
 Run the [read-only day-pass query](../database/fixes/list-day-pass-rollback-payments.sql)
@@ -208,18 +225,20 @@ against each affected database as soon as the previous release takes webhook tra
 and at the start of each shift while it does. From the repository root, use
 `psql -X -v ON_ERROR_STOP=1 -f database/fixes/list-day-pass-rollback-payments.sql`
 with that database's normal operator connection. The query includes future retry
-deadlines, charges waiting for a pass, and payments flagged for staff review.
-Prioritize upcoming visits in date order, and give staff the checkout ID and
-payment ID for follow-up.
+deadlines, bound sessions queued for verification, charges waiting for a pass,
+and payments flagged for staff review. Prioritize upcoming visits in date order.
+Give staff the checkout ID and any ledger payment ID for follow-up.
 
 For each row, compare the Checkout Session, captured amount, and all refunds on
-the listed Payment Intent in the matching Stripe account. Also check the
-member's day passes for that visit date.
+its Payment Intent in the matching Stripe account. If the query has a session
+ID and no Payment Intent ID, open the session in Stripe to find its latest
+payment state. Also check the member's day passes for that visit date.
 
 - **Captured in full, no live refund, visit still available.** Restore a compatible
   release and replay the original paid Checkout event so the app can issue the
-  pass against the existing payment. If the member arrives during rollback,
-  staff can verify waivers and eligibility and admit them without taking
+  pass. If a ledger payment already exists, the compatible release reuses it.
+  If the member arrives during rollback, staff can verify waivers and eligibility
+  and admit them without taking
   another payment if facility policy permits. Record the admission and checkout
   ID in the shift log. The compatible release can link the original charge
   to a pass while the visit is still available.
@@ -235,17 +254,18 @@ member's day passes for that visit date.
 - **Refund already pending, partial, or complete.** Compare all refunds against
   the original charge. The compatible release cancels access as soon as Stripe
   confirms the full refund, including one paid in parts. Payments retains any
-  review flag until staff complete **Review refund**. A partial or pending refund
-  stays flagged. Escalate unclear cases to the payments owner and record the
-  Stripe IDs and confirmed amounts for follow-up. Keep a single operator
+  review flag until staff complete **Review refund**. Choose **Honor the visit**
+  to issue an eligible held pass after verifying the retained charge in Stripe.
+  Escalate unclear cases to the payments owner and record the Stripe IDs and
+  confirmed amounts for follow-up. Keep a single operator
   responsible for resolving the payment.
 
 The previous webhook acknowledges an event ID already stored in
 `app_pass_stripe_event` without processing it. The new release can store that
-ID and commit the charge before its refund lookup fails. Resending the same
-event to the previous release leaves that charge queued, and its worker cannot
-process the queue. Replay to the previous release can reach its handler only
-for an event whose ID has not already been stored. Use the compatible webhook
+ID and queue the Checkout Session before its refund lookup succeeds. Resending
+the same event to the previous release leaves the session queued. Its worker
+cannot process the queue. Replay to the previous release can reach its handler
+only for an event whose ID has not already been stored. Use the compatible webhook
 or worker to finish queued events. The compatible webhook resumes queued work
 on duplicate Checkout deliveries. Keep event receipts intact. When the
 compatible release returns, rerun the query and verify each open item against

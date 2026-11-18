@@ -177,8 +177,8 @@ test("a day-pass refund requiring review offers a review without offering anothe
   expect(await screen.findByText("Refund review completed for payment #209.")).toBeTruthy();
 });
 
-test("staff can choose to honor a visit from a day-pass refund review", async () => {
-  vi.mocked(api).mockResolvedValue({ status: "reviewed" });
+test("staff can choose to honor a visit and see when the day pass is issued", async () => {
+  vi.mocked(api).mockResolvedValue({ status: "reviewed", passIssued: true });
   mount([{ ...card, invoiceId: null, passCheckoutId: "pc-1", refundStatus: "needs_review" }]);
   fireEvent.click(screen.getByRole("button", { name: /^Review refund payment #209/ }));
   fireEvent.click(screen.getByRole("checkbox", { name: /Honor the visit/ }));
@@ -188,6 +188,7 @@ test("staff can choose to honor a visit from a day-pass refund review", async ()
     method: "POST",
     body: { reason: "Honor the visit", review: true, honorVisit: true },
   }));
+  expect(await screen.findByText("Day pass issued for payment #209.")).toBeTruthy();
 });
 
 test("a failed day-pass refund can be retried, so staff are told to use Refund again", () => {

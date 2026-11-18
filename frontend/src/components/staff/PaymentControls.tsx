@@ -180,17 +180,17 @@ function refundEffect(payment: Payment) {
 }
 
 /** Checks Stripe and records the staff decision without submitting a refund. */
-export function RefundReview({ payment, onReviewed }: { payment: Payment; onReviewed: () => void }) {
+export function RefundReview({ payment, onReviewed }: { payment: Payment; onReviewed: (passIssued: boolean) => void }) {
   return (
     <ActionForm
       title={`Review refund for payment #${payment.id}`}
       submitLabel="Complete review"
       onSubmit={async (f) => {
-        await api(cardRefundPath(payment) ?? "", {
+        const result = await api<{ passIssued?: boolean }>(cardRefundPath(payment) ?? "", {
           method: "POST",
           body: { reason: f.get("reason"), review: true, ...(f.has("honorVisit") ? { honorVisit: true } : {}) },
         });
-        onReviewed();
+        onReviewed(result?.passIssued === true);
       }}
     >
       <p>
@@ -199,10 +199,12 @@ export function RefundReview({ payment, onReviewed }: { payment: Payment; onRevi
         on the ledger. Wait for any pending refunds to finish. If you want to return the rest of a partial
         refund, refund the remaining amount in Stripe and then complete this review.
       </p>
-      <label className="payment-editor__confirm">
-        <input type="checkbox" name="honorVisit" />
-        <span>Honor the visit after a settled partial refund. Issue the pass if the visit can still go ahead.</span>
-      </label>
+      {payment.passCheckoutId && (
+        <label className="payment-editor__confirm">
+          <input type="checkbox" name="honorVisit" />
+          <span>Honor the visit if no refund went through or only part of the payment was refunded. Issue a held pass if the visit can still go ahead.</span>
+        </label>
+      )}
       <ReasonField label="Reason for closing review" />
     </ActionForm>
   );

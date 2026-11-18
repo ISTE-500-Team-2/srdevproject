@@ -140,10 +140,10 @@ export class EntitlementRepository {
   async passCheckoutBlock(userId: number, date: string): Promise<"review" | "processing" | "open" | undefined> {
     return (
       await this.db.query<{ reason: "review" | "processing" | "open" }>(
-        `SELECT CASE WHEN refund_needs_review THEN 'review' WHEN payment_id IS NOT NULL THEN 'processing' ELSE 'open' END AS reason
+        `SELECT CASE WHEN refund_needs_review THEN 'review' WHEN payment_id IS NOT NULL OR refund_reconcile_after IS NOT NULL THEN 'processing' ELSE 'open' END AS reason
       FROM app_pass_checkout WHERE userid=$1 AND valid_date=$2::date AND status='pending'
       AND checkout_id IS NOT NULL AND (
-        payment_id IS NOT NULL OR now()<COALESCE(checkout_expires_at,CASE WHEN checkout_has_expiry THEN ${legacyPassCheckoutPayBy("$3")}
+        payment_id IS NOT NULL OR refund_reconcile_after IS NOT NULL OR now()<COALESCE(checkout_expires_at,CASE WHEN checkout_has_expiry THEN ${legacyPassCheckoutPayBy("$3")}
           ELSE created_at+INTERVAL '24 hours' END)
       )`,
         [userId, date, this.timeZone],
