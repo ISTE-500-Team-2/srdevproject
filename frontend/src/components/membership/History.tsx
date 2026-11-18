@@ -2,10 +2,11 @@
 // entitlement.
 
 import { TableScroll } from "../TableScroll";
-import { useRef, useState, type KeyboardEvent } from "react";
+import { useId, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import type { Entitlement, Page, Payment } from "../../lib/staffContracts";
 import { useApi } from "../../lib/useApi";
+import { onArrowKeys } from "../../lib/rovingFocus";
 import { dollars, shortDate, statusLabel, statusTone } from "../../lib/display";
 import { LoadState } from "../Management";
 import { KeptResults, useResultsPaging } from "../KeptResults";
@@ -19,7 +20,6 @@ const TABS = [
   { id: "payments", label: "Payments" },
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
-const tabId = (tab: Tab) => `membership-history-tab-${tab}`;
 
 export function History({
   memberships,
@@ -30,16 +30,7 @@ export function History({
 }) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("records");
-  const tabs = useRef<Partial<Record<Tab, HTMLButtonElement | null>>>({});
-  // Arrow keys, Home and End move between the tabs (the ARIA tabs pattern); Tab moves into the panel.
-  function onTabKey(event: KeyboardEvent, index: number) {
-    const to = ({ ArrowLeft: index - 1, ArrowRight: index + 1, Home: 0, End: TABS.length - 1 } as Record<string, number>)[event.key];
-    if (to === undefined) return;
-    event.preventDefault();
-    const next = TABS[(to + TABS.length) % TABS.length]!.id;
-    setTab(next);
-    tabs.current[next]?.focus();
-  }
+  const ids = useId();
   return (
     <section className="panel membership-history">
       <h2 className="membership-history__heading">
@@ -59,27 +50,24 @@ export function History({
       </h2>
       {open ? (
         <div id="membership-history-body">
-          <div className="membership-tabs" role="tablist" aria-label="History">
-            {TABS.map((t, index) => (
+          {/* The arrow keys, Home and End move between the tabs (the ARIA tabs pattern); Tab moves into the panel. */}
+          <div className="membership-tabs" role="tablist" aria-label="History" onKeyDown={onArrowKeys}>
+            {TABS.map((t) => (
               <button
                 key={t.id}
-                ref={(el) => {
-                  tabs.current[t.id] = el;
-                }}
                 type="button"
                 role="tab"
-                id={tabId(t.id)}
+                id={`${ids}-${t.id}`}
                 aria-selected={tab === t.id}
-                aria-controls="membership-history-panel"
+                aria-controls={`${ids}-panel`}
                 tabIndex={tab === t.id ? 0 : -1}
                 onClick={() => setTab(t.id)}
-                onKeyDown={(event) => onTabKey(event, index)}
               >
                 {t.label}
               </button>
             ))}
           </div>
-          <div role="tabpanel" id="membership-history-panel" aria-labelledby={tabId(tab)} tabIndex={0}>
+          <div role="tabpanel" id={`${ids}-panel`} aria-labelledby={`${ids}-${tab}`} tabIndex={0}>
             {tab === "records" ? (
               <Records memberships={memberships} passes={passes} />
             ) : (

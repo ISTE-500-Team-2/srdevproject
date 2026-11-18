@@ -26,6 +26,11 @@ const SHORT_DENIAL: Record<string, string> = {
   CERTIFICATION_REQUIRED: "training needed",
   RESOURCE_UNAVAILABLE: "unavailable",
   VERIFICATION_TIMEOUT: "timed out",
+  SPONSOR_REQUIRED: "sponsor not here",
+  SPONSOR_INELIGIBLE: "sponsor not eligible",
+  SPONSOR_BOOKING_REQUIRED: "booking needs sponsor",
+  MINOR_CHECK_IN_REQUIRED: "minor not checked in",
+  BUILDING_REQUIRED: "no building",
 };
 
 export function shortDenial(reason: string) {

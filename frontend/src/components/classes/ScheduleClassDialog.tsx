@@ -60,6 +60,7 @@ export function ScheduleClassDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [roomError, setRoomError] = useState("");
+  const [instructorError, setInstructorError] = useState("");
   // Closing with Escape, the close button, a click outside or Cancel asks before discarding a draft.
   const [dirty, setDirty] = useState(false);
   const changed = (value: boolean) => {
@@ -109,6 +110,7 @@ export function ScheduleClassDialog({
       return next;
     });
     if (key === "roomId" || key === "date" || key === "start" || key === "end") setRoomError("");
+    if (key === "instructorId" || key === "date" || key === "start" || key === "end") setInstructorError("");
     changed(true);
   }
 
@@ -122,6 +124,7 @@ export function ScheduleClassDialog({
     setBusy(true);
     setError("");
     setRoomError("");
+    setInstructorError("");
     try {
       await api("/classes", {
         method: "POST",
@@ -143,9 +146,10 @@ export function ScheduleClassDialog({
     } catch (e) {
       if (e instanceof ApiError && roomConflict.has(e.code)) {
         setRoomError("Booked for part of this time");
-        setError(
-          `${room?.name ?? "That room"} is already booked for part of this time. Pick another room or time. Bookings in the same room need 15 minutes between them.`,
-        );
+        setError(`${room?.name ?? "That room"} is already booked for part of this time. Pick another room or time.`);
+      } else if (e instanceof ApiError && e.code === "INSTRUCTOR_CONFLICT") {
+        setInstructorError("Teaching another class at this time");
+        setError("This instructor is already teaching another class at this time. Pick another instructor or time.");
       } else setError(errorMessage(e));
     } finally {
       setBusy(false);
@@ -165,7 +169,7 @@ export function ScheduleClassDialog({
     changed(true);
   }
   return (
-    <Modal open title="Schedule a class" onClose={onClose} dirty={dirty}>
+    <Modal open title="Schedule a class" onClose={onClose} dirty={dirty} dismissible={!busy}>
       {(requestClose) => <form className="class-form" onSubmit={(e) => void submit(e)}>
         {error ? (
           <p className="class-banner class-banner--error" role="alert">
@@ -371,8 +375,19 @@ export function ScheduleClassDialog({
               label="Instructor"
               instructorsOnly
               value={form.instructorId}
+              selectedMember={
+                seed.instructorId && seed.instructorName
+                  ? { id: seed.instructorId, name: seed.instructorName, email: "" }
+                  : undefined
+              }
               onChange={(value) => set("instructorId", value)}
             />
+            {instructorError ? (
+              <small className="class-field__error">
+                <AlertTriangle aria-hidden="true" />
+                {instructorError}
+              </small>
+            ) : null}
           </div>
           <label className="class-field">
             <span>Reason for change</span>
@@ -387,7 +402,7 @@ export function ScheduleClassDialog({
         </fieldset>
         <div className="class-dialog-actions">
           <span>Members see it once published.</span>
-          <button type="button" className="button button--quiet" onClick={requestClose}>
+          <button type="button" className="button button--quiet" onClick={requestClose} disabled={busy}>
             Cancel
           </button>
           <button

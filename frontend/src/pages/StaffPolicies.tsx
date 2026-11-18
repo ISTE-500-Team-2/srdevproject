@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
+import { onArrowKeys } from "../lib/rovingFocus";
 import type { ComplianceReport, Policy } from "../lib/staffContracts";
 import { LoadState } from "../components/Management";
 import { Modal } from "../components/Modal";
@@ -113,6 +114,9 @@ function PublishPanel({
       if (run === importRun.current) setImporting(false);
     }
   };
+  // A version starting before the one in force would be retired the moment it's published.
+  const inForceSince = waiver?.current?.effectiveAt ? Date.parse(waiver.current.effectiveAt) : null;
+  const earliestStart = inForceSince === null ? undefined : localInput(new Date(Math.ceil(inForceSince / 60000) * 60000));
   // A document dropped anywhere on the form fills the text box, on either tab. Dropped anywhere else,
   // the browser would open the file in place of the app and lose the draft, so the rest of the
   // screen refuses the drop and shows the no-drop cursor. Drags the form already took are left alone.
@@ -231,11 +235,13 @@ function PublishPanel({
                 e.target.value = "";
               }}
             />
-            <span className="cw-toggle" role="tablist" aria-label="Text view">
-              <button type="button" role="tab" aria-selected={tab === "edit"} onClick={() => setTab("edit")}>
+            <span className="cw-toggle" role="tablist" aria-label="Text view" onKeyDown={onArrowKeys}>
+              <button type="button" role="tab" aria-selected={tab === "edit"} aria-controls="waiver-text-view"
+                tabIndex={tab === "edit" ? 0 : -1} onClick={() => setTab("edit")}>
                 Edit
               </button>
-              <button type="button" role="tab" aria-selected={tab === "preview"} onClick={() => setTab("preview")}>
+              <button type="button" role="tab" aria-selected={tab === "preview"} aria-controls="waiver-text-view"
+                tabIndex={tab === "preview" ? 0 : -1} onClick={() => setTab("preview")}>
                 Preview
               </button>
             </span>
@@ -243,6 +249,7 @@ function PublishPanel({
           </span>
           {tab === "edit" ? (
             <textarea
+              id="waiver-text-view"
               className={dragging ? "is-dragging" : ""}
               aria-describedby="waiver-text-hint"
               aria-labelledby="waiver-text-label"
@@ -255,7 +262,7 @@ function PublishPanel({
               placeholder="Paste the approved wording, or drop a PDF, Word or text document here"
             />
           ) : (
-            <div className={dragging ? "cw-preview is-dragging" : "cw-preview"} aria-labelledby="waiver-text-label">
+            <div id="waiver-text-view" className={dragging ? "cw-preview is-dragging" : "cw-preview"} aria-labelledby="waiver-text-label">
               <h4>{name || "Untitled waiver"}</h4>
               <p className="policy-text">{text || "Nothing to preview yet."}</p>
             </div>
@@ -276,7 +283,7 @@ function PublishPanel({
           <div className="cw-hinted">
             <label className="cw-field">
               <span>Takes effect</span>
-              <input type="datetime-local" value={effectiveAt} onChange={(e) => setEffectiveAt(e.target.value)} required />
+              <input type="datetime-local" value={effectiveAt} min={earliestStart} onChange={(e) => setEffectiveAt(e.target.value)} required />
             </label>
             <small>Members keep the current version until then.</small>
           </div>
@@ -455,11 +462,14 @@ export function StaffPolicies() {
             </div>
             {stats ? (
               <div className="cw-waiver__signed">
-                <div className={`cw-bar${stats.total && stats.compliant / stats.total < 0.5 ? " cw-bar--low" : ""}`} aria-hidden="true">
+                <div className={`cw-bar${!stats.total ? " cw-bar--empty" : stats.compliant / stats.total < 0.5 ? " cw-bar--low" : ""}`} aria-hidden="true">
                   <i style={{ width: `${stats.total ? Math.round((stats.compliant / stats.total) * 100) : 100}%` }} />
                 </div>
                 <small>
-                  {stats.compliant} of {stats.total} active members signed
+                  {/* An equipment waiver is only counted for members trained on or booked on equipment that needs it. */}
+                  {stats.total
+                    ? `${stats.compliant} of ${stats.total} ${shown.scope === "equipment" ? "active equipment users" : "active members"} signed`
+                    : shown.scope === "equipment" ? "No active equipment users yet" : "No active members yet"}
                 </small>
               </div>
             ) : (

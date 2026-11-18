@@ -1,5 +1,5 @@
-// Phone numbers as members type them. Formatting is welcome while typing; only the digits are saved,
-// so sign-up and the profile's Contact form store the same number the same way.
+// Phone numbers as members type them. Formatting is welcome while typing; sign-up saves only the digits.
+// The profile's Contact form (phoneToSave in ProfilePage) also keeps a leading "+" for an international number.
 
 /** The digits of a phone number, which is what gets saved. */
 export const phoneDigits = (value: string) => value.replace(/\D/g, "");

@@ -1,7 +1,7 @@
 // Staff member workspace combines identity, readiness and history; dialog mutations refresh the
 // affected record.
 
-import { Mail, Phone } from "lucide-react";
+import { Cake, Mail, Phone } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../../context/AuthContext";
@@ -26,6 +26,7 @@ import { DeskAction, RecordVerdict, RequirementList, ViewAsButton, type ViewAs }
 import { phoneText, verdict } from "./recordModel";
 import "./memberRecord.css";
 import { MemberPhoto } from "../../MemberPhoto";
+import { canOpenAccount } from "../../admin/people";
 
 export type { ViewAs };
 
@@ -55,7 +56,7 @@ export function MemberRecord({
   onClose: () => void;
   /** A one-time message for this visit, such as a return from checkout. */
   notice?: ReactNode;
-  /** Opens the member site as this member; omitted when staff may not. */
+  /** Opens the member site as this member; the button shows only while the current record allows it. */
   viewAs?: ViewAs;
 }) {
   const { user: actor } = useAuth();
@@ -155,6 +156,14 @@ export function MemberRecord({
                 "No phone"
               )}
             </span>
+            {u.dobOnFile === false && canManage ? (
+              <span>
+                <Cake aria-hidden="true" />
+                <button type="button" className="today-link mr-add" onClick={() => setDialog({ kind: "profile" })}>
+                  Add date of birth
+                </button>
+              </span>
+            ) : null}
             <span className="mr-sub__id">#{u.id}</span>
           </p>
         ) : null}
@@ -195,7 +204,8 @@ export function MemberRecord({
                   open={setDialog}
                   visitAction={visitAction}
                 />
-                {viewAs ? <ViewAsButton viewAs={viewAs} first={u.firstName} /> : null}
+                {/* The current record decides, so a hold or a new staff role takes the button away at once. */}
+                {viewAs && canOpenAccount(u) ? <ViewAsButton viewAs={viewAs} person={{ ...u, photoVersion: d.user.photoVersion }} /> : null}
               </>
             }
             stale={stale}

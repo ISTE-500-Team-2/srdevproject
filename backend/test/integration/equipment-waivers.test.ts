@@ -76,6 +76,8 @@ before(async () => {
     return sessions.get(id);
   });
   mock.method(prototype, 'retrieve', async (id: string) => sessions.get(id));
+  // A newly paid booking checks for a refund made in Stripe before the payment was recorded; there are none here.
+  mock.method(Object.getPrototypeOf(provider.sdk.refunds), 'list', async () => ({object: 'list', data: [], has_more: false, url: '/v1/refunds'}));
 });
 beforeEach(async () => {
   await pool.query('UPDATE user_waiver SET approval=false,expires_at=NULL WHERE userid IN ($1,$2)', [member, admin]);

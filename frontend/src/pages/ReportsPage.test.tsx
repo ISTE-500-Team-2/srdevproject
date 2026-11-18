@@ -127,6 +127,24 @@ test("each period is named once, machines nobody used wait behind a toggle, and 
   expect(within(live).getByText("2 people")).toBeTruthy();
 });
 
+test("the section bar moves keyboard focus to the section it scrolls to, without animating for reduced motion", () => {
+  const scroll = vi.fn();
+  Element.prototype.scrollIntoView = scroll;
+  window.matchMedia = vi.fn().mockReturnValue({ matches: true }) as never;
+  try {
+    mount("/admin/reports?range=custom&from=2026-09-01&to=2026-09-30&group=weekly", report(), report({ from: "2026-08-02", to: "2026-08-31" }));
+    const bar = screen.getByRole("navigation", { name: "Report sections" });
+    fireEvent.click(within(bar).getByRole("button", { name: "Equipment" }));
+    const equipment = screen.getByRole("region", { name: "Equipment" });
+    expect(scroll.mock.contexts[0]).toBe(equipment);
+    expect(scroll).toHaveBeenCalledWith({ behavior: "auto", block: "start" });
+    expect(document.activeElement).toBe(within(equipment).getByRole("heading", { name: "Equipment" }));
+  } finally {
+    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    delete (window as { matchMedia?: unknown }).matchMedia;
+  }
+});
+
 test("a building reader is the front door, never the machine that shares its number", () => {
   const live = [
     { kind: "building", resourceId: 1, activeReaderLeases: 3 },

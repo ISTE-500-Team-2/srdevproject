@@ -181,7 +181,7 @@ function mountAt(now: string, config: { timeZone: string } | "loading" | "failed
   render(<StaffPayments />);
 }
 const fromFor = (period: string) => {
-  fireEvent.change(screen.getByLabelText("Period"), { target: { value: period } });
+  fireEvent.change(screen.getByLabelText("Recorded"), { target: { value: period } });
   return new URL(vi.mocked(useApi).mock.lastCall?.[0] as string, "http://x").searchParams.get("from");
 };
 
@@ -197,10 +197,10 @@ test("periods start at midnight in the facility's time zone, not the browser's",
 
 test("the period filter waits for the facility zone, and falls back to New York when it can't be read", () => {
   mountAt("2026-11-11T03:00:00Z", "loading");
-  expect((screen.getByLabelText("Period") as HTMLSelectElement).disabled).toBe(true);
+  expect((screen.getByLabelText("Recorded") as HTMLSelectElement).disabled).toBe(true);
   cleanup();
   mountAt("2026-11-11T03:00:00Z", "failed");
-  expect((screen.getByLabelText("Period") as HTMLSelectElement).disabled).toBe(false);
+  expect((screen.getByLabelText("Recorded") as HTMLSelectElement).disabled).toBe(false);
   // Still Nov 10 in New York (UTC-5).
   expect(fromFor("today")).toBe("2026-11-10T05:00:00.000Z");
 });
@@ -276,10 +276,17 @@ test("when \"Today\" moves on at midnight, the new day starts from its first pag
       : { data, loading: false, refreshing: false, error: "", reload }) as never);
   render(<StaffPayments />);
   const last = () => new URL(vi.mocked(useApi).mock.calls.map(([path]) => path).filter((path) => path?.startsWith("/admin/payments")).at(-1)!, "http://x").searchParams;
-  fireEvent.change(screen.getByLabelText("Period"), { target: { value: "today" } });
+  fireEvent.change(screen.getByLabelText("Recorded"), { target: { value: "today" } });
   fireEvent.click(screen.getByRole("button", { name: "Next page" }));
   expect(last().get("offset")).toBe("50");
   act(() => vi.advanceTimersByTime(15 * 60_000));
   expect(last().get("from")).toBe("2026-12-01T05:00:00.000Z");
   expect(last().get("offset")).toBe("0");
+});
+
+test("the page says studio rentals are kept on the Studios page, not in this list or its totals", () => {
+  mount([desk]);
+  expect(document.querySelector(".payments__intro")?.textContent).toMatch(
+    /Studio\s+rentals are paid and refunded on the Studios page, so they aren't in this list or its totals\./,
+  );
 });

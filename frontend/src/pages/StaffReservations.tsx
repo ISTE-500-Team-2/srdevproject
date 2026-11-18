@@ -14,7 +14,8 @@ import type { LiveEquipment, Reservation } from "../lib/contracts";
 import type { Page } from "../lib/staffContracts";
 import { useApi } from "../lib/useApi";
 import { addDays, dayKey, localHour, mergeBookings, previousDay } from "../lib/today";
-import { dayLabel, timeRange } from "../lib/reservationSchedule";
+import { bookedCents, dayLabel, timeRange } from "../lib/reservationSchedule";
+import { cents } from "../lib/display";
 import { useDayBookings } from "../lib/useDayBookings";
 import type { Report } from "../lib/reportContracts";
 
@@ -363,12 +364,14 @@ function Workspace({ zone, now }: { zone: string; now: number }) {
               now={now}
               today={today}
               titleRef={panelTitle}
-              onClose={() => (panel.from.reservation ? open(panel.from.reservation) : closePanel())}
+              onClose={(current) => (current ? open(current) : closePanel())}
+              onStale={reloadAll}
               onSaved={(r, created) => {
                 const when = timeRange(r.startTime, r.endTime, zone);
+                const due = created && r.paymentStatus === "pending" ? bookedCents(r) : null;
                 setToast(
                   created
-                    ? `Booked ${r.equipmentName} for ${r.memberName ?? `member #${r.userId}`}, ${when}.`
+                    ? `Booked ${r.equipmentName} for ${r.memberName ?? `member #${r.userId}`}, ${when}.${due ? ` ${cents(due)} is due at the desk.` : ""}`
                     : `Moved to ${r.equipmentName} ${onDay(dayKey(Date.parse(r.startTime), zone))}, ${when}.`,
                 );
                 reloadAll();

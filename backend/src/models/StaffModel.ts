@@ -82,8 +82,8 @@ export class StaffModel {
   person(id: number, lock?: boolean | 'no-key-update') {
     return this.people.person(id, lock);
   }
-  updatePerson(id: number, firstName: string, lastName: string, phone: string, revision: number) {
-    return this.people.updatePerson(id, firstName, lastName, phone, revision);
+  updatePerson(id: number, firstName: string, lastName: string, phone: string, revision: number, dob: string | null = null) {
+    return this.people.updatePerson(id, firstName, lastName, phone, revision, dob);
   }
   access(id: number, status: string, reason: string, revision: number) {
     return this.people.access(id, status, reason, revision);

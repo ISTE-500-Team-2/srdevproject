@@ -45,17 +45,19 @@ export class RecoveryService {
       if (error?.code === '23505') return true;
       throw error;
     });
-    const account = await new UserModel(this.pool).credentials(email);
+    const users = new UserModel(this.pool);
+    // As with a pending sign-up, a retried correction may find the account already moved.
+    const account = await users.credentials(email) ?? (newEmail ? await users.credentials(newEmail) : null);
     const valid = await verifyPassword(password, account?.password ?? await this.dummyHash);
     if (pending || !account || !valid || account.emailConfirmed) return;
     try {
       await transaction(this.pool, async db => {
-        const current = (await db.query('SELECT email_confirmed,status FROM "user" WHERE userid=$1 FOR UPDATE', [account.id])).rows[0];
+        const current = (await db.query('SELECT email,email_confirmed,status FROM "user" WHERE userid=$1 FOR UPDATE', [account.id])).rows[0];
         if (!current || current.email_confirmed || !['active', 'pending'].includes(current.status)) return;
         const previous = (await db.query('SELECT created_at FROM app_email_confirmation WHERE userid=$1', [account.id])).rows[0];
         if (previous && Date.now() - new Date(previous.created_at).getTime() < 60000)
           throw new AppError(429, 'CONFIRMATION_RATE_LIMITED', 'Wait one minute before requesting another confirmation.');
-        if (newEmail) {
+        if (newEmail && current.email.toLowerCase() !== newEmail) {
           await db.query('UPDATE "user" SET email=$2,revision=revision+1 WHERE userid=$1', [account.id, newEmail]);
           // A link sent to the old inbox must not confirm ownership of the new one.
           await db.query('DELETE FROM app_password_reset WHERE userid=$1', [account.id]);

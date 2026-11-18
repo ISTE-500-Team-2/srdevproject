@@ -246,8 +246,8 @@ test("View a member in the mobile drawer swaps the drawer for the account picker
   const drawer = screen.getByRole("dialog", { name: "Workspace navigation" });
   fireEvent.click(within(drawer).getByRole("button", { name: "View a member" }));
   expect(screen.queryByRole("dialog", { name: "Workspace navigation" })).toBeNull();
-  const picker = screen.getByRole("dialog", { name: "Whose account?" });
-  expect(picker.contains(document.activeElement)).toBe(true);
+  // Focus lands in the search box, so staff can type a name straight away.
+  expect(document.activeElement).toBe(within(screen.getByRole("dialog", { name: "Whose account?" })).getByRole("searchbox"));
   fireEvent.keyDown(window, { key: "Escape" });
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(document.activeElement).toBe(trigger);
@@ -257,7 +257,8 @@ test("staff see their tools, with admin-only and instructor actions locked", () 
   auth.user = dana;
   auth.actor = staff;
   responses.set("/me/overview", { userId:dana.id, entitlement: { membership: false, dayPass: false }, pendingWaivers: 1, activeReservations: 0, canCheckIn: false, reasons: ["Sign all current required policies and waivers first."], recentCheckIns: [] });
-  responses.set("/me/certifications", [{ id: 3, name: "Laser", status: "Expired", renewalDate: null }]);
+  // As the server sends it: status stays "active" after the renewal date, and valid turns false.
+  responses.set("/me/certifications", [{ id: 3, name: "Laser", status: "active", renewalDate: "2020-01-01T00:00:00.000Z", valid: false }]);
   at(<AccountHomePage />);
   expect(screen.getByRole("region", { name: "Staff tools" })).toBeTruthy();
   const locked = screen.getByRole("region", { name: "Needs an instructor or admin" });

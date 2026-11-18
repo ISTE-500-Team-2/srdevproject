@@ -55,16 +55,29 @@ test("a .docx that isn't really a Word file gets advice, not the unzip error", a
   }
 });
 
-/** Real small PDF with a proper object table, exercising PDF.js rather than a parser mock. */
-function pdfFile(pages: string[]) {
-  const objects = ["<< /Type /Catalog /Pages 2 0 R >>", "", "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"];
+/**
+ * Real small PDF with a proper object table, exercising PDF.js rather than a parser mock. A page is
+ * plain text, or [text, bold, x?] runs that switch fonts mid-line the way styled wording does; a run
+ * with an x is placed at that point on the same line instead of following the one before it.
+ */
+type Run = [text: string, bold: boolean, x?: number];
+function pdfFile(pages: (string | Run[])[]) {
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
+  ];
   const kids: string[] = [];
   for (const text of pages) {
     const page = objects.length + 1;
     kids.push(`${page} 0 R`);
-    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${page + 1} 0 R >>`);
-    const escaped = text.replace(/[\\()]/g, "\\$&");
-    const stream = `BT /F1 12 Tf 72 720 Td (${escaped}) Tj ET`;
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${page + 1} 0 R >>`);
+    const runs: Run[] = typeof text === "string" ? [[text, false]] : text;
+    const shown = runs
+      .map(([run, bold, x]) => `/F${bold ? 2 : 1} 12 Tf ${x === undefined ? "" : `1 0 0 1 ${x} 720 Tm `}(${run.replace(/[\\()]/g, "\\$&")}) Tj`)
+      .join(" ");
+    const stream = `BT 72 720 Td ${shown} ET`;
     objects.push(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
   }
   objects[1] = `<< /Type /Pages /Kids [${kids.join(" ")}] /Count ${pages.length} >>`;
@@ -81,6 +94,22 @@ function pdfFile(pages: string[]) {
 test("extracts all pages of a real PDF in order", async () => {
   expect(await documentText(pdfFile(["Terms of Service", "Follow the posted safety rules."])))
     .toBe("Terms of Service\n\nFollow the posted safety rules.");
+});
+
+test("bold phrases in a PDF keep single spaces and no space before punctuation", async () => {
+  const page: Run[] = [
+    ["Members agree to ", false],
+    ["wear eye protection", true],
+    [". Always ", false],
+    ["sign in", true],
+    [", then work.", false],
+  ];
+  expect(await documentText(pdfFile([page]))).toBe("Members agree to wear eye protection. Always sign in, then work.");
+});
+
+test("a line drawn out of order in a PDF still gets a space between its words", async () => {
+  // PDF.js emits no space item when text jumps back left on the same line.
+  expect(await documentText(pdfFile([[["second", false, 200], ["first", false, 72]]]))).toBe("second first");
 });
 
 test("explains a scanned/image-only PDF without silently importing an empty waiver", async () => {

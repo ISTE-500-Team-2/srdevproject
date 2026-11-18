@@ -134,6 +134,28 @@ test("activity drops database echoes and names taps, visits and changes", () => 
   expect(byDay(rows, NOW).map((g) => g.day)).toEqual(["Today"]);
 });
 
+test("each check-in shows once, and only a card tap is called a reader check-in", () => {
+  const copy = (createdAt: string) =>
+    audit({ action: "check_in.insert", entityType: "check_in", actorId: null, actorName: "System", reason: "Database change", createdAt });
+  const rows = activity([
+    // Front desk: the staff action and the database copy of its check_in row, in one transaction.
+    audit({ action: "visit.check-in", entityType: "user", reason: "Checked in at the front desk", createdAt: "2026-11-10T18:00:00Z" }),
+    copy("2026-11-10T18:00:00Z"),
+    // Staff with the member's account open.
+    audit({ action: "check_in.created", entityType: "check_in", reason: "Member checked in", createdAt: "2026-11-10T17:00:00Z" }),
+    copy("2026-11-10T17:00:00Z"),
+    // A card tap at the door.
+    audit({ action: "app_device_access_event.insert", entityType: "app_device_access_event", allowed: true, resourceName: "Main building", actorId: null, actorName: "System", createdAt: "2026-11-10T16:00:00Z" }),
+    copy("2026-11-10T16:00:00Z"),
+  ]);
+  expect(rows.map((r) => [r.title, r.detail])).toEqual([
+    ["Checked in", "by Alex Demo"],
+    ["Checked in", "by Alex Demo"],
+    ["Card tap allowed at Main building", "Reader"],
+    ["Checked in at a reader", "Card tap"],
+  ]);
+});
+
 test("needs lists only what a staff member can act on now", () => {
   const live: Entitlement = { id: 1, userId: 14, planId: 3, status: "active", effectiveStatus: "active", revision: 2, startsAt: "2026-11-08T20:35:00Z", endsAt: "2026-11-14T20:35:00Z", plan: { name: "Monthly" }, reason: "", cardBilled: false };
   const pending = { id: 12, status: "pending", amount: "95.00", planName: "Monthly", recordedAt: "2026-11-08T20:35:00Z" } as Payment;
@@ -169,6 +191,9 @@ test("phone numbers read grouped when they are plain digits", () => {
   expect(phoneText("5855550142")).toBe("(585) 555-0142");
   expect(phoneText("15855550142")).toBe("(585) 555-0142");
   expect(phoneText("+44 20 7946")).toBe("+44 20 7946");
+  // Ten digits after a country code are not a US number; +1 and ten digits is.
+  expect(phoneText("+4930123456")).toBe("+4930123456");
+  expect(phoneText("+15855550142")).toBe("(585) 555-0142");
 });
 
 describe("day labels across the spring clock change", () => {

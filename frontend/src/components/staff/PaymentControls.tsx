@@ -55,11 +55,19 @@ const transitionNames: Record<string, string> = {
   refunded: "Refunded at the desk",
 };
 
+/** Where a card payment is refunded through Stripe: its membership invoice, day-pass checkout or equipment booking. */
+export function cardRefundPath(payment: Payment) {
+  if (payment.invoiceId) return `/billing-management/invoices/${encodeURIComponent(payment.invoiceId)}/refund`;
+  if (payment.passCheckoutId) return `/billing-management/passes/${encodeURIComponent(payment.passCheckoutId)}/refund`;
+  if (payment.equipmentReservationId) return `/billing-management/equipment/${payment.equipmentReservationId}/refund`;
+  return null;
+}
+
 /** The one thing staff can do to this payment from the list, if anything. */
 export function paymentAction(payment: Payment): "update" | "refund" | null {
   if (payment.method === "card") {
     // Only before any refund was asked for: a failed one can't be retried from here (see refundNote).
-    return payment.invoiceId && payment.status === "paid" && !payment.refundStatus ? "refund" : null;
+    return cardRefundPath(payment) && payment.status === "paid" && !payment.refundStatus ? "refund" : null;
   }
   return transitions[payment.status]?.length ? "update" : null;
 }
@@ -131,7 +139,15 @@ export function PaymentEditor({
   );
 }
 
-/** Sends a card membership payment back to the card it came from, after an explicit confirmation. */
+/** What else a card refund changes, by what was paid for. */
+function refundEffect(payment: Payment) {
+  if (payment.passCheckoutId) return "The day pass is cancelled once the refund goes through.";
+  if (payment.equipmentReservationId)
+    return "The booking itself doesn't change. If it shouldn't go ahead, cancel it separately.";
+  return "Their membership and access stay as they are.";
+}
+
+/** Sends a card payment back to the card it came from, after an explicit confirmation. */
 export function CardRefund({
   payment,
   onRefunded,
@@ -146,16 +162,16 @@ export function CardRefund({
       submitLabel={`Refund ${amount}`}
       danger
       onSubmit={async (f) => {
-        const result = await api<{ status: string }>(
-          `/billing-management/invoices/${encodeURIComponent(payment.invoiceId ?? "")}/refund`,
-          { method: "POST", body: { reason: f.get("reason") } },
-        );
+        const result = await api<{ status: string }>(cardRefundPath(payment) ?? "", {
+          method: "POST",
+          body: { reason: f.get("reason") },
+        });
         onRefunded(result.status);
       }}
     >
       <p>
-        The full payment goes back to the card it was paid with. Their membership and access stay as they are.
-        Stripe is in test mode, so no real money moves.
+        The full payment goes back to the card it was paid with. {refundEffect(payment)} Stripe is in test mode, so no
+        real money moves.
       </p>
       <div className="payment-editor__fields">
         <ReasonField label="Reason for refund" />

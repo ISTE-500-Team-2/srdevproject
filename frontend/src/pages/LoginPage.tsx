@@ -181,7 +181,7 @@ export function LoginPage() {
     setSignupError('');
     setBusy(true);
     try {
-      // Saved as digits, as the profile's Contact form saves it.
+      // Saved as digits only; the profile's Contact form also keeps a leading "+".
       const result = await register({ ...signup, phone: phoneDigits(signup.phone) });
       navigate('/confirm-email', {state:{email:result.email,emailSendingEnabled:result.emailSendingEnabled}});
     } catch (err) {

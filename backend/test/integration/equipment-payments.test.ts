@@ -14,6 +14,7 @@ import { evaluateReaderAccess } from '../../src/services/ReaderEligibility.js';
 import { transaction } from '../../src/db.js';
 import { createApp } from '../../src/app.js';
 import { SessionModel } from '../../src/models/SessionModel.js';
+import { equipmentPrice } from '../../src/equipmentPricing.js';
 
 const database = 'arbor_equipment_' + randomBytes(6).toString('hex') + '_mvc_test';
 const owner = new Pool(), pool = new Pool({database});
@@ -60,6 +61,8 @@ before(async () => {
   });
   mock.method(provider.sdk.checkout.sessions, 'retrieve', async (id: string) => sessions.get(id));
   mock.method(provider.sdk.checkout.sessions, 'expire', async (id: string) => Object.assign(sessions.get(id), {status: 'expired'}));
+  // A newly paid booking checks for a refund made in Stripe before the payment was recorded; there are none here.
+  mock.method(Object.getPrototypeOf(provider.sdk.refunds), 'list', async () => ({object: 'list', data: [], has_more: false, url: '/v1/refunds'}));
 });
 after(async () => {
   mock.restoreAll();
@@ -160,7 +163,9 @@ test('a definitive checkout creation rejection releases the unpaid hold', async 
   const fail = mock.method(provider.sdk.checkout.sessions, 'create', async () => {
     throw new Stripe.errors.StripeInvalidRequestError({message: 'Invalid expiry', type: 'invalid_request_error'});
   });
-  try { await assert.rejects(service.create(member, data), {code: 'CHECKOUT_UNAVAILABLE'}); }
+  // The provider's failure stays attached so the error handler can log what it was.
+  try { await assert.rejects(service.create(member, data), (error: any) =>
+    error.code === 'CHECKOUT_UNAVAILABLE' && error.cause instanceof Stripe.errors.StripeInvalidRequestError); }
   finally { fail.mock.restore(); }
   const row = (await pool.query('SELECT reservation_id FROM app_equipment_checkout WHERE request_key=$1', [data.requestKey])).rows[0];
   assert.equal((await state(row.reservation_id)).status, 'cancelled');
@@ -354,6 +359,51 @@ test('staff and admins can resume and cancel the opened member checkout, not ano
   } finally { create.mock.restore(); retrieve.mock.restore(); expire.mock.restore(); }
 });
 
+test('staff booking a member at the desk is confirmed now with its payment due, and never opens online checkout', async () => {
+  const jwtKey = randomBytes(32);
+  const app = createApp(pool, {port: 8080, host: '127.0.0.1', secureCookies: false, demoLogin: true,
+    allowedOrigins: ['http://localhost:8080'], timeZone: 'America/New_York', jwtKey, studioStripe: provider.config});
+  const staffId = (await pool.query(`INSERT INTO "user"(firstname,lastname,email,password,phone,status,primary_role)
+    VALUES('Desk','Staff','desk-staff@example.invalid','unused','0000000000','active','staff') RETURNING userid`)).rows[0].userid;
+  await pool.query("INSERT INTO user_role(userid,roleid,assignedat) SELECT $1,roleid,NOW() FROM role WHERE role='staff'", [staffId]);
+  const staff = await new SessionModel(pool, jwtKey).create(staffId, false);
+  const asStaff = {get: (path: string) => request(app).get('/api' + path).set('Authorization', 'Bearer ' + staff.token),
+    post: (path: string, body: object) => request(app).post('/api' + path)
+      .set('Authorization', 'Bearer ' + staff.token).set('X-CSRF-Token', staff.csrfToken).send(body)};
+  // Its own machine, so a walk-in time can't run into the other tests' bookings.
+  const desk = (await pool.query("INSERT INTO equipment(name,status,hourlyrate,waiverrequired,location) VALUES('Desk test machine','available',7,false,'Makerspace') RETURNING equipmentid")).rows[0].equipmentid;
+  const expectedPrice = await equipmentPrice(pool, desk, 1);
+  // A walk-in: online payment would need 30 minutes, the desk doesn't.
+  const startTime = new Date(Date.now() + 10 * 60_000).toISOString();
+  const walkIn = {equipmentId: desk, userId: member, startTime, endTime: new Date(Date.parse(startTime) + 3_600_000).toISOString(), expectedPrice, payAtDesk: true};
+
+  await assert.rejects(service.create(member, {...walkIn, userId: undefined}), {code: 'STAFF_REQUIRED'});
+  await assert.rejects(service.create(staffId, {...walkIn, payAtDesk: 'yes'}), {code: 'INVALID_INPUT'});
+  assert.equal((await asStaff.post('/reservations', {...walkIn, expectedPrice: undefined})).body.error?.code, 'PRICE_CHANGED');
+
+  const created = await asStaff.post('/reservations', walkIn);
+  assert.equal(created.status, 201, created.text);
+  const booked = created.body.data;
+  assert.equal(booked.status, 'confirmed');
+  assert.equal(booked.checkoutUrl, undefined);
+  assert.equal(booked.payerId, null);
+  assert.equal(booked.paymentStatus, 'pending');
+  assert.equal((await pool.query('SELECT 1 FROM app_equipment_checkout WHERE reservation_id=$1', [booked.id])).rowCount, 0, 'no online checkout hold');
+  const payment = (await pool.query('SELECT p.userid,p.price,p.paymentstatus FROM payment p JOIN reservation r ON r.payment_id=p.paymentid WHERE r.reservationid=$1', [booked.id])).rows[0];
+  assert.deepEqual(payment, {userid: member, price: '7.00', paymentstatus: 'pending'});
+  assert.equal((await pool.query('SELECT 1 FROM app_notification_outbox WHERE dedupe_key=$1', [`reservation-created:${booked.id}`])).rowCount, 1);
+  // Nothing expires it: reconciliation leaves a desk booking alone.
+  await billing.reconcile();
+  assert.equal((await state(booked.id)).status, 'confirmed');
+
+  // Staff read one reservation as it is now, for a form refused as out of date.
+  const read = await asStaff.get(`/admin/reservations/${booked.id}`);
+  assert.equal(read.status, 200, read.text);
+  assert.deepEqual([read.body.data.id, read.body.data.revision, read.body.data.status], [booked.id, booked.revision, 'confirmed']);
+  assert.equal((await asStaff.get('/admin/reservations/999999999')).status, 404);
+  const memberLogin = (await request(app).post('/api/auth/demo').send({role: 'member'})).body.data;
+  assert.equal((await request(app).get(`/api/admin/reservations/${booked.id}`).set('Authorization', 'Bearer ' + memberLogin.accessToken)).status, 403);
+});
 
 test('checkout and payment never couple early building entry to early equipment access', async () => {
   await pool.query(`INSERT INTO user_waiver(userid,waiverid,signdate,approval)

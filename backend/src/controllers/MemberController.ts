@@ -47,11 +47,18 @@ export class MemberController {
   };
   payments = async (req: Request, res: Response) => {
     const offset = pageOffset(req.query.offset);
+    // `status=paid` lets the profile show the latest payment actually made, not an
+    // abandoned (void) or unfinished (pending) checkout.
+    const status =
+      req.query.status == null || req.query.status === ""
+        ? null
+        : oneOf(req.query.status, ["paid"] as const, "Payment status");
     res.json({
       data: page(
         await new StaffModel(this.pool, this.timeZone).payments(
           authState(res).user.id,
           offset,
+          { status },
         ),
         offset,
       ),
