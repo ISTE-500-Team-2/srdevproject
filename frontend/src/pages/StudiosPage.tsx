@@ -181,7 +181,9 @@ export function StudiosPage() {
       if (result.status === "confirmed")
         setMessage(`Payment received. ${r.name} is booked.`);
       else if (result.status === "expired")
-        setMessage(`The hold ran out before payment, so ${r.name} was released. Choose a size below to book again.`);
+        setMessage(
+          `The hold ran out before payment, so ${r.name} was released. ${size ? "You can book it again below." : "Choose a size below to book again."}`,
+        );
       else setMessage("Your card payment is still processing. This page updates on its own.");
     });
   }
@@ -291,7 +293,7 @@ export function StudiosPage() {
       )}
       {!loaded && !loadError && <p role="status">Loading studios…</p>}
       {error && !size && !cancelling && <p className="form-error" role="alert">{error}</p>}
-      {message && <p className="studio-message" role="status">{message}</p>}
+      {message && !size && <p className="studio-message" role="status">{message}</p>}
       {returning && returnedRental?.status === "pending" && (
         <div className="studio-message studio-payment" role="status">
           <StatusMark status="running" size={22} color="#a86008" />
@@ -337,6 +339,7 @@ export function StudiosPage() {
             onClick={() => {
               setHeld(null);
               setError("");
+              setMessage("");
               setSize(g.key);
             }}
           >
@@ -411,6 +414,7 @@ export function StudiosPage() {
         blockedReason={blockedReason}
         busy={busy}
         error={size ? error : ""}
+        notice={size ? message : ""}
         held={held}
         mine={mine}
         onClose={() => {

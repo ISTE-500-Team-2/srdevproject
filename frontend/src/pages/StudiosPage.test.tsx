@@ -318,21 +318,39 @@ test("a front-desk hold confirms the dates, price and booking reference", async 
   expect(dialog.getByText("000052")).toBeTruthy();
 });
 
-test("a booking conflict reloads availability straight away", async () => {
+test("a booking conflict reloads availability straight away and explains it once", async () => {
   api.mockImplementation((path: string, init?: { body?: unknown }) => {
     if (path === "/studios")
       return Promise.resolve({ studios, cardTestEnabled: false, timeZone: "UTC" });
-    if (path === "/studio-rentals" && init?.body)
+    if (path === "/studio-rentals" && init?.body) {
+      // Another member got Harkonnen first; the reload shows it taken.
+      studios = [
+        studio(1, "Harkonnen", [
+          { starts_on: "2030-01-15", ends_on: "2030-02-15", status: "confirmed", hold_until: "" },
+        ]),
+        studio(2, "Atreides"),
+      ];
       return Promise.reject(new Error("Someone has already booked this studio."));
+    }
     return Promise.resolve([]);
   });
   mount();
   const dialog = within(await openSmall());
   const before = calls("/studios");
   fireEvent.click(dialog.getByRole("button", { name: "Sun, Jan 20, 2030" }));
-  fireEvent.click(dialog.getByRole("button", { name: "Hold studio" }));
+  const hold = dialog.getByRole("button", { name: "Hold studio" }) as HTMLButtonElement;
+  fireEvent.click(hold);
   await dialog.findByText("Someone has already booked this studio.");
   await waitFor(() => expect(calls("/studios")).toBeGreaterThan(before));
+  const harkonnen = dialog.getByRole("radio", { name: /Harkonnen/ }) as HTMLInputElement;
+  await waitFor(() => expect(harkonnen.disabled).toBe(true));
+  // The server's reason shows; the matching "just taken" line doesn't repeat it.
+  expect(dialog.getAllByRole("alert").map((a) => a.textContent)).toEqual([
+    "Someone has already booked this studio.",
+  ]);
+  expect(hold.disabled).toBe(true);
+  fireEvent.click(dialog.getByRole("radio", { name: /Atreides/ }));
+  expect(hold.disabled).toBe(false);
 });
 
 test("coming back from a still-pending card checkout asks the server to check it once", async () => {
@@ -471,4 +489,57 @@ test("a card hold saved before checkout failed offers Finish card payment in the
   expect(dialog.queryByText(/just taken/)).toBeNull();
   fireEvent.click(dialog.getByRole("button", { name: "Finish card payment" }));
   await waitFor(() => expect(assign).toHaveBeenCalledWith("https://checkout.test/52"));
+});
+
+function cardHoldThenFinish(finished: Record<string, unknown>) {
+  const hold = rental({ id: 52, studio_id: 1, status: "pending", payment_status: "unpaid", payment_method: "stripe_test", hold_until: ownSlot.hold_until });
+  let current: unknown = null;
+  api.mockImplementation((path: string, init?: { body?: unknown }) => {
+    const held = (current as { status?: string } | null)?.status === "pending";
+    if (path === "/studios")
+      return Promise.resolve({
+        studios: held ? [studio(1, "Harkonnen", [ownSlot]), studio(2, "Atreides")] : studios,
+        cardTestEnabled: true,
+        timeZone: "UTC",
+      });
+    if (path === "/studio-rentals" && init?.body) {
+      current = hold;
+      return Promise.reject(new Error("Card checkout couldn't start."));
+    }
+    if (path === "/studio-rentals") return Promise.resolve(current ? [current] : []);
+    if (path === "/studio-rentals/52/payment-status") {
+      current = { ...hold, ...finished };
+      return Promise.resolve(current);
+    }
+    return Promise.resolve([]);
+  });
+}
+async function finishInPopUp() {
+  mount();
+  const dialog = within(await openSmall());
+  fireEvent.click(dialog.getByRole("button", { name: "Sun, Jan 20, 2030" }));
+  fireEvent.click(dialog.getByRole("radio", { name: /Pay now by card/ }));
+  fireEvent.click(dialog.getByRole("button", { name: "Continue to card payment" }));
+  await dialog.findByText("Harkonnen is held for you");
+  fireEvent.click(dialog.getByRole("button", { name: "Finish card payment" }));
+  return dialog;
+}
+
+test("a card hold that ran out while the pop-up was open says so in the pop-up", async () => {
+  cardHoldThenFinish({ status: "expired" });
+  const dialog = await finishInPopUp();
+  await dialog.findByText(
+    "The hold ran out before payment, so Harkonnen was released. You can book it again below.",
+  );
+  // Back on the form for the same studio and date, ready to book again.
+  expect(dialog.getByRole("button", { name: "Continue to card payment" })).toBeTruthy();
+  expect(dialog.queryByText("Harkonnen is held for you")).toBeNull();
+  expect(screen.getAllByText(/The hold ran out before payment, so/)).toHaveLength(1);
+});
+
+test("a card payment still processing says so in the pop-up", async () => {
+  cardHoldThenFinish({});
+  const dialog = await finishInPopUp();
+  await dialog.findByText("Your card payment is still processing. This page updates on its own.");
+  expect(dialog.getByText("Harkonnen is held for you")).toBeTruthy();
 });

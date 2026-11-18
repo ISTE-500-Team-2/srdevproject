@@ -36,6 +36,7 @@ export function StudioBooking({
   blockedReason,
   busy,
   error,
+  notice,
   held,
   mine,
   onClose,
@@ -50,6 +51,8 @@ export function StudioBooking({
   blockedReason: string;
   busy: boolean;
   error: string;
+  /** The outcome of an action taken in this pop-up, such as Finish card payment. */
+  notice: string;
   held: Rental | null;
   /** The member's own rentals, so their own new hold never reads as taken by someone else. */
   mine: Rental[];
@@ -97,6 +100,11 @@ export function StudioBooking({
   const label = size ? sizeLabel(size).toLowerCase() : "";
   return (
     <Modal open={!!size} title={`Reserve a ${label} studio`} onClose={onClose}>
+      {notice && (
+        <p className="studio-message studio-booking__notice" role="status">
+          {notice}
+        </p>
+      )}
       {yours ? (
         <div className="studio-held" role="status">
           <div className="studio-held__head">
@@ -277,15 +285,11 @@ export function StudioBooking({
               )}
             </div>
           </div>
-          {/* A server error always shows, even when availability also changed. */}
-          {stale && (
+          {/* A server error always shows. It already explains a conflict, so the
+              stale notice only speaks when there is no error. */}
+          {(error || stale) && (
             <p className="form-error" role="alert">
-              {stale}
-            </p>
-          )}
-          {error && (
-            <p className="form-error" role="alert">
-              {error}
+              {error || stale}
             </p>
           )}
           <div className="studio-booking__foot">
