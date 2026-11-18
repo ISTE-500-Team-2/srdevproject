@@ -368,7 +368,8 @@ test('staff and admins can resume and cancel the opened member checkout, not ano
   try {
     for (const actor of [admin, {accessToken: staffSession.token, csrfToken: staffSession.csrfToken}]) {
       const post = (path: string, body: object = {}) => request(app).post('/api' + path)
-        .set('Authorization', 'Bearer ' + actor.accessToken).set('X-CSRF-Token', actor.csrfToken).send(body);
+        .set('Authorization', 'Bearer ' + actor.accessToken).set('X-CSRF-Token', actor.csrfToken)
+        .set('X-Account-Subject', String(member)).send(body);
       assert.equal((await post('/admin/account-mode', {userId: member})).status, 200);
       const created = await post('/reservations', booking());
       assert.equal(created.status, 201, created.text);
@@ -376,7 +377,7 @@ test('staff and admins can resume and cancel the opened member checkout, not ano
       assert.equal(created.body.data.payerId, member);
       for (const action of ['checkout', 'cancel-checkout']) {
         const csrf = await request(app).post(`/api/reservations/${id}/${action}`)
-          .set('Authorization', 'Bearer ' + actor.accessToken).send({});
+          .set('Authorization', 'Bearer ' + actor.accessToken).set('X-Account-Subject', String(member)).send({});
         assert.equal(csrf.body.error?.code, 'CSRF_INVALID', csrf.text);
         assert.equal((await request(app).post(`/api/reservations/${id}/${action}`).send({})).status, 401);
       }
@@ -415,7 +416,8 @@ test('staff booking a member at the desk is confirmed now with its payment due, 
   const staff = await new SessionModel(pool, jwtKey).create(staffId, false);
   const asStaff = {get: (path: string) => request(app).get('/api' + path).set('Authorization', 'Bearer ' + staff.token),
     post: (path: string, body: object) => request(app).post('/api' + path)
-      .set('Authorization', 'Bearer ' + staff.token).set('X-CSRF-Token', staff.csrfToken).send(body)};
+      .set('Authorization', 'Bearer ' + staff.token).set('X-CSRF-Token', staff.csrfToken)
+      .set('X-Account-Subject', String(staffId)).send(body)};
   // Its own machine, so a walk-in time can't run into the other tests' bookings.
   const desk = (await pool.query("INSERT INTO equipment(name,status,hourlyrate,waiverrequired,location) VALUES('Desk test machine','available',7,false,'Makerspace') RETURNING equipmentid")).rows[0].equipmentid;
   const expectedPrice = await equipmentPrice(pool, desk, 1);

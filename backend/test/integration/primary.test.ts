@@ -71,7 +71,7 @@ async function deskCheckIn(staff: Client, member: Client, body: string | object)
   const opened = await staff.post("/admin/account-mode", { userId: member.id });
   assert.equal(opened.status, 200, JSON.stringify(opened.body));
   staff.adoptCsrf(opened.body.data.csrfToken);
-  const response = await staff.post("/me/check-ins", body);
+  const response = await staff.post("/me/check-ins", body).set("X-Account-Subject", String(member.id));
   const closed = await staff.post("/admin/account-mode/end");
   assert.equal(closed.status, 200, JSON.stringify(closed.body));
   staff.adoptCsrf(closed.body.data.csrfToken);

@@ -18,7 +18,8 @@ const day = new Date(Date.now() + 3 * DAY); day.setUTCHours(16, 0, 0, 0);
 const at = (hours: number) => new Date(+day + hours * HOUR).toISOString();
 const get = (path: string, actor = member) => request(server).get('/api' + path).set('Authorization', 'Bearer ' + actor.accessToken);
 const post = (path: string, body: object = {}, actor = admin) => request(server).post('/api' + path)
-  .set('Authorization', 'Bearer ' + actor.accessToken).set('X-CSRF-Token', actor.csrfToken).send(body);
+  .set('Authorization', 'Bearer ' + actor.accessToken).set('X-CSRF-Token', actor.csrfToken)
+  .set('X-Account-Subject', String(actor.user.id)).send(body);
 const body = (extra: object) => ({ title: 'Resin night', catalogId: workshop, instructorId: first, roomId: trainingRoom,
   capacity: 6, startsAt: at(0), endsAt: at(2), reason: 'Scheduling rules fixture', ...extra });
 async function schedule(extra: object) {

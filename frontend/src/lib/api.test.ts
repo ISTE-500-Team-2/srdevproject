@@ -2,7 +2,7 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { api, apiText, setAccessToken, setAccountSubject, setCsrfToken } from './api';
 
-afterEach(() => { vi.unstubAllGlobals(); setAccessToken(null); setCsrfToken(null); });
+afterEach(() => { vi.unstubAllGlobals(); setAccessToken(null); setCsrfToken(null); setAccountSubject(null); });
 test.each(['/auth/password-reset', '/auth/password-reset/check', '/auth/password-reset/confirm'])(
   '%s is callable by a signed-out visitor without attempting session refresh', async path => {
     const fetch = vi.fn().mockResolvedValue({ status: 204 });
@@ -119,6 +119,27 @@ test('a renewal for the same person retries the request as before', async () => 
   await expect(api('/me/profile', { method: 'PATCH', body: { firstName: 'A' } })).resolves.toEqual({ saved: true });
   expect(fetch.mock.calls.map(([url]) => url)).toEqual(['/api/auth/login', '/api/me/profile', '/api/auth/csrf', '/api/auth/refresh', '/api/me/profile']);
   expect(authorization(fetch.mock.calls[4]!)).toBe('Bearer renewed-1');
+});
+
+test.each([true, false])('a booking keeps its original account through renewal (had access token: %s)', async hadToken => {
+  const bookings: RequestInit[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+    if (url === '/api/auth/login') return Response.json({ data: { accessToken: 'old', csrfToken: 'csrf', user: { id: 1 } } });
+    if (url === '/api/auth/csrf') return Response.json({ data: { csrfToken: 'csrf' } });
+    if (url === '/api/auth/refresh') return Response.json({ data: { accessToken: 'fresh', csrfToken: 'csrf2', user: { id: 1 } } });
+    expect(url).toBe('/api/reservations');
+    bookings.push(init);
+    return hadToken && bookings.length === 1 ? error(401, {}) : Response.json({ data: { id: 123 } });
+  }));
+  if (hadToken) await api('/auth/login', { method: 'POST' });
+  setAccountSubject(42);
+  const booking = api('/reservations', { method: 'POST', body: { roomId: 5 } });
+  setAccountSubject(43);
+  await expect(booking).resolves.toEqual({ id: 123 });
+
+  const headers = bookings.map(({ headers }) => new Headers(headers));
+  expect(headers.map(header => header.get('X-Account-Subject'))).toEqual(hadToken ? ['42', '42'] : ['42']);
+  expect(headers.at(-1)?.get('Authorization')).toBe('Bearer fresh');
 });
 
 test('a failed /auth/ request does not end the session', async () => {

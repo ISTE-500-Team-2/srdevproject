@@ -31,7 +31,8 @@ after(async () => { await pool.end(); if (created) await owner.query(`DROP DATAB
 
 function send(method: 'get' | 'post' | 'patch', path: string, body?: object, who = administrator) {
   const req = request(app)[method]('/api' + path).set('Authorization', 'Bearer ' + who.accessToken);
-  return method === 'get' ? req : req.set('X-CSRF-Token', who.csrfToken).send(body ?? {});
+  return method === 'get' ? req : req.set('X-CSRF-Token', who.csrfToken)
+    .set('X-Account-Subject', String(who.user.id)).send(body ?? {});
 }
 async function machine(rate: number | null) {
   return (await pool.query('INSERT INTO equipment(name,status,hourlyrate,waiverrequired) VALUES($1,$2,$3,false) RETURNING equipmentid',

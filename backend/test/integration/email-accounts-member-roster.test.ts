@@ -109,7 +109,7 @@ test('member roster shows only first name/last initial and current seats; withdr
   const cert=(await pool.query("INSERT INTO certifications(certid,name,validity_days) SELECT COALESCE(MAX(certid),0)+1,'Private roster safety',365 FROM certifications RETURNING certid")).rows[0].certid;
   const room=(await pool.query("SELECT roomid FROM room WHERE status='available' AND capacity>=2 LIMIT 1")).rows[0].roomid;
   const starts=new Date(Date.now()+86400000),ends=new Date(starts.getTime()+3600000);
-  const c=await request(app).post('/api/classes').set('Authorization','Bearer '+admin.accessToken).set('X-CSRF-Token',admin.csrfToken).send({title:'Privacy regression class',certificationId:cert,instructorId,roomId:room,capacity:2,startsAt:starts.toISOString(),endsAt:ends.toISOString(),reason:'Isolated regression fixture'});
+  const c=await request(app).post('/api/classes').set('Authorization','Bearer '+admin.accessToken).set('X-CSRF-Token',admin.csrfToken).set('X-Account-Subject',String(admin.user.id)).send({title:'Privacy regression class',certificationId:cert,instructorId,roomId:room,capacity:2,startsAt:starts.toISOString(),endsAt:ends.toISOString(),reason:'Isolated regression fixture'});
   assert.equal(c.status,201,JSON.stringify(c.body));classId=c.body.data.id;
   await pool.query("INSERT INTO app_training_enrollment(class_id,user_id) VALUES($1,$2)",[classId,member.user.id]);
   let r=await get(`/classes/${classId}/member-roster`);
@@ -165,7 +165,7 @@ test('class routes reject overflowing INTEGER class IDs before querying',async()
     }
     for(const [suffix,actor] of [['enroll',member],['withdraw',member],['attendance',instructor],['cancel',admin]] as const){
       const response=await request(app).post(`/api/classes/${id}/${suffix}`)
-        .set('Authorization','Bearer '+actor.accessToken).set('X-CSRF-Token',actor.csrfToken).send({});
+        .set('Authorization','Bearer '+actor.accessToken).set('X-CSRF-Token',actor.csrfToken).set('X-Account-Subject',String(actor.user.id)).send({});
       assert.equal(response.status,400,JSON.stringify(response.body));
       assert.equal(response.body.error.code,'INVALID_INPUT');
     }

@@ -17,7 +17,7 @@ let server: Server, created=false, admin:any, member:any, machine:any, course:an
 const start = new Date(Date.now()+3*86400000); start.setUTCHours(16,0,0,0);
 const slot = (days=0,hours=2) => ({equipmentId:machine.equipmentid,startTime:new Date(+start+days*86400000).toISOString(),endTime:new Date(+start+days*86400000+hours*3600000).toISOString()});
 const get = (path:string, actor=member) => request(server).get('/api'+path).set('Authorization','Bearer '+actor.accessToken);
-const post = (path:string,body:object={},actor=member) => request(server).post('/api'+path).set('Authorization','Bearer '+actor.accessToken).set('X-CSRF-Token',actor.csrfToken).send(body);
+const post = (path:string,body:object={},actor=member) => request(server).post('/api'+path).set('Authorization','Bearer '+actor.accessToken).set('X-CSRF-Token',actor.csrfToken).set('X-Account-Subject',String(actor.user.id)).send(body);
 const patch = (path:string,body:object) => request(server).patch('/api'+path).set('Authorization','Bearer '+admin.accessToken).set('X-CSRF-Token',admin.csrfToken).send(body);
 const quote = async(hours=2) => (await get(`/equipment/${machine.equipmentid}/quote?hours=${hours}`)).body.data;
 
