@@ -96,14 +96,23 @@ export function ReaderSetupWizard({
       setReuseWifi(false);
     }
   }, [open]);
-  // Refresh status without replacing or resetting the name/network form.
-  useEffect(() => {
-    if (!open) return;
-    const timer = window.setInterval(discovery.reload, 2000);
-    return () => window.clearInterval(timer);
-  }, [open, discovery.reload]);
   const data = discovery.data,
     job = data?.jobs.find((j) => j.id === jobId);
+  // Refresh status without replacing or resetting the name/network form. The next check is
+  // 2 seconds after the last answer, so a slow answer is never cut off by the next check.
+  // A failed check waits for Retry instead of repeating its alert, and polling stops once
+  // the setup job has finished.
+  const polling =
+    open &&
+    !discovery.loading &&
+    !discovery.refreshing &&
+    !discovery.error &&
+    !(job && !active(job));
+  useEffect(() => {
+    if (!polling) return;
+    const timer = window.setTimeout(discovery.reload, 2000);
+    return () => window.clearTimeout(timer);
+  }, [polling, discovery.reload]);
   const pending = data?.jobs.filter(active) ?? [];
   const devices =
     data?.devices.filter(
@@ -253,19 +262,22 @@ export function ReaderSetupWizard({
                 Continue setup: {j.name}
               </button>
             ))}
-            <div className="management-actions">
-              <button
-                className="button button--quiet"
-                disabled={discovery.refreshing}
-                onClick={discovery.reload}
-              >
-                Check again
-              </button>
-              <button className="nfc-dismiss" onClick={onManual}>
-                Advanced manual setup
-              </button>
-            </div>
           </>
+        ) : null}
+        {/* Outside the discovery results: manual setup stays available when discovery fails. */}
+        {!jobId && !selected ? (
+          <div className="management-actions">
+            <button
+              className="button button--quiet"
+              disabled={discovery.loading || discovery.refreshing}
+              onClick={discovery.reload}
+            >
+              Check again
+            </button>
+            <button className="nfc-dismiss" onClick={onManual}>
+              Advanced manual setup
+            </button>
+          </div>
         ) : null}
         {selected && !jobId ? (
           <form ref={editingFormRef} className="management-form nfc-reader-form" onSubmit={begin}>
