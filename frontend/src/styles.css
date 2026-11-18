@@ -1942,6 +1942,12 @@ small {
   outline: 0;
 }
 
+/* The select drops its own ring, so the whole control takes the keyboard focus ring. */
+.select-control:has(select:focus-visible) {
+  outline: 3px solid var(--orange);
+  outline-offset: 3px;
+}
+
 .equipment-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
