@@ -162,6 +162,13 @@ test("a failed refund isn't offered again; staff are pointed to Stripe", () => {
   expect(screen.queryByRole("button", { name: /payment #209/ })).toBeNull();
 });
 
+test("a failed day-pass refund can be retried, so staff are told to use Refund again", () => {
+  mount([{ ...card, invoiceId: null, passCheckoutId: "pc-1", refundStatus: "failed" } as unknown as Payment]);
+  expect(screen.getByText("Refund failed")).toBeTruthy();
+  expect(screen.getByText("Use Refund to try again.")).toBeTruthy();
+  expect(screen.queryByText("Check this refund in Stripe.")).toBeNull();
+});
+
 test("filters reach the request and the totals cover the filtered set", () => {
   mount([desk]);
   expect(screen.getByText("Awaiting payment").nextElementSibling?.textContent).toContain("$45.00");

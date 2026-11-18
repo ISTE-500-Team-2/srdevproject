@@ -112,7 +112,9 @@ export function PaymentTable({
                         </span>
                       ) : null}
                     </span>
-                    {note === "Refund failed" ? <small>Check this refund in Stripe.</small> : null}
+                    {note === "Refund failed" ? (
+                      <small>{action === "refund" ? "Use Refund to try again." : "Check this refund in Stripe."}</small>
+                    ) : null}
                     {checkout ? <small>{checkout}</small> : null}
                   </td>
                   <td data-label="Amount" className="payment-table__amount">
