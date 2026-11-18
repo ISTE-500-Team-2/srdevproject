@@ -16,6 +16,7 @@ import type { EquipmentPrice, LiveEquipment, Reservation } from '../lib/contract
 import { EquipmentPriceBreakdown } from '../components/EquipmentPriceBreakdown';
 import { useApi } from '../lib/useApi';
 import { reservationInput } from '../lib/reservationInput';
+import { equipmentGroup } from '../lib/equipmentGroups';
 import { cents, dateTime, localInput, shortDate, timeOnly } from "../lib/display";
 
 export function EquipmentPage() {
@@ -602,16 +603,6 @@ function BookingRow({ item, view, machine, userId, now, card = false, children }
       {view.note ? <p className="booking-row__note">{view.note}</p> : null}
     </article>
   );
-}
-
-/** The display group for a machine type, shared by the equipment tiles and booking rows. */
-function equipmentGroup(rawType: string) {
-  const category = rawType.trim();
-  return /^3d[ -]*(print|printing|printer)$/i.test(category) ? '3D Printer'
-    : /\bcnc\b/i.test(category) ? 'CNC Machine'
-    : /\blathe\b/i.test(category) ? 'Lathe'
-    : /^laser( engraver)?$/i.test(category) ? 'Laser Engraver'
-    : category || 'Other equipment';
 }
 
 // Group presentation only; booking always retains the original machine record.

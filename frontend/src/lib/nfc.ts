@@ -28,6 +28,64 @@ export type ReaderSetup = {
   timeZone: string;
   readers: AccessReader[];
 };
+export type ReaderStatus =
+  | "disabled"
+  | "never_connected"
+  | "not_reporting"
+  | "unreachable"
+  | "reader_fault"
+  | "weak_signal"
+  | "working"
+  | "online";
+export type DoorState = "locked" | "checking" | "approved" | "denied" | "issue";
+/** The gateway's latest view of a reader; fields it could not observe are null. */
+export type ReaderHealthReport = {
+  reachable: boolean;
+  ready: boolean | null;
+  doorState: DoorState | null;
+  rssi: number | null;
+  address: string | null;
+  firmware: string | null;
+  uptimeMs: number | null;
+  lastContactMs: number | null;
+};
+export type HealthSegment = { state: "ok" | "degraded" | "down" | "unknown"; start: string; end: string };
+export type ReaderHealthSummary = {
+  id: string;
+  name: string;
+  status: ReaderStatus;
+  since: string | null;
+  health: ReaderHealthReport | null;
+  lastReport: string | null;
+  lastSeenAt: string | null;
+  lastTap: { at: string; allowed: boolean; reason: string } | null;
+  day: { segments: HealthSegment[]; dropouts: number; downMinutes: number };
+};
+export type ReaderHealthBoard = {
+  generatedAt: string;
+  readers: ReaderHealthSummary[];
+  gateway: { lastHeartbeatAt: string | null; reporting: number; reachable: number; total: number };
+};
+export type ReaderActivity = {
+  type:
+    | "tap"
+    | "unreachable"
+    | "reachable"
+    | "address_changed"
+    | "firmware_changed"
+    | "restarted"
+    | "weak_signal"
+    | "reader_fault"
+    | "reader_ready";
+  at: string;
+  detail: Record<string, unknown>;
+};
+export type ReaderHealthDetail = ReaderHealthSummary & {
+  signal: { at: string; rssi: number | null }[];
+  activity: ReaderActivity[];
+  /** The reader's own last report while reachable. */
+  lastKnown: { at: string; ready: boolean | null; rssi: number | null; address: string | null; firmware: string | null } | null;
+};
 export type AccessResource = {
   id: number;
   kind: "building" | "room" | "equipment";

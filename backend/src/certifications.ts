@@ -455,6 +455,13 @@ function equipmentList(value: unknown): number[] {
   return [...new Set(value.map((v) => positiveId(v, "Equipment")))];
 }
 async function linkEquipment(db: Database, id: number, ids: number[]) {
+  // An ended course can't be newly required: no one could book the equipment. Existing links stay.
+  const ended = (
+    await db.query<{ ended: boolean }>(
+      "SELECT enddate IS NOT NULL AND enddate<NOW() AT TIME ZONE 'UTC' AS ended FROM certifications WHERE certid=$1",
+      [id],
+    )
+  ).rows[0]?.ended;
   // Never clear existing associations implicitly or replace another required course.
   for (const equipmentId of ids) {
     const e = (
@@ -469,6 +476,12 @@ async function linkEquipment(db: Database, id: number, ids: number[]) {
         409,
         "CERTIFICATION_LINK_EXISTS",
         "Equipment already requires a different certification. Change that association through an explicitly reviewed policy change.",
+      );
+    if (ended && e.certid !== id)
+      throw new AppError(
+        400,
+        "INVALID_INPUT",
+        "This certification has ended, so no one could book equipment that newly required it. Link equipment to a certification that is in effect.",
       );
     await db.query("UPDATE equipment SET certid=$2 WHERE equipmentid=$1", [
       equipmentId,

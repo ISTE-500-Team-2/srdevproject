@@ -261,3 +261,110 @@ test('while machines or bookings load, rows are outlined instead of claiming a s
   expect(within(panel).getByRole('status', { name: 'Loading today’s bookings' })).toBeTruthy();
   expect(panel.textContent).not.toMatch(/Not in use|Loading bookings…/);
 });
+
+/** An administrator's board: the Add equipment button, its catalog options, and a save that lists the new machine. */
+function canAdd() {
+  const read = api.getMockImplementation()!;
+  api.mockImplementation((path: string, options?: { method?: string }) => {
+    if (path === '/admin/equipment/catalog-options') return Promise.resolve({ canManage: true, categories: ['Laser engraver'], certifications: [],
+      groups: [{ name: 'Laser engraver', machines: machines.map(m => ({ id: m.id, name: m.name, image: m.image })) }] });
+    if (path === '/admin/equipment' && options?.method === 'POST') { machines.push(machine(6, 'Glowforge Pro')); return Promise.resolve({ id: 6 }); }
+    return read(path);
+  });
+}
+async function startAdding(name: string) {
+  fireEvent.click(await screen.findByRole('button', { name: 'Add equipment' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Add equipment' });
+  await waitFor(() => expect((within(dialog).getByRole('combobox', { name: 'Required certification' }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: name } });
+  return dialog;
+}
+
+test('after adding, the board stays open with the new machine marked and the next step offered', async () => {
+  canAdd();
+  mount();
+  // Whatever the list was narrowed to, the new machine is shown.
+  fireEvent.change(await screen.findByPlaceholderText('Find a machine…'), { target: { value: 'Spock' } });
+  fireEvent.click(await screen.findByRole('button', { name: /1\s*Out of service/ }));
+  const dialog = await startAdding('Glowforge Pro');
+  const category = within(dialog).getByRole('combobox', { name: 'Category' });
+  fireEvent.focus(category); fireEvent.change(category, { target: { value: 'laser engraver' } }); fireEvent.blur(category);
+  fireEvent.change(within(dialog).getByLabelText('Hourly rate in dollars'), { target: { value: '20' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Add equipment' }));
+  expect((await screen.findByText(/was added/)).textContent).toBe('Glowforge Pro was added. Members can book it now.');
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(screen.getByRole('heading', { level: 1, name: 'Equipment' })).toBeTruthy();
+  await waitFor(async () => expect((await row('Glowforge Pro')).textContent).toMatch(/^Glowforge ProNew/));
+  expect((await row('Glowforge Pro')).className).toContain('eq-row--new');
+  expect(screen.getByRole('button', { name: /All/ }).getAttribute('aria-pressed')).toBe('true');
+  expect((screen.getByPlaceholderText('Find a machine…') as HTMLInputElement).value).toBe('');
+  fireEvent.click(screen.getByRole('button', { name: 'Add another' }));
+  expect(await screen.findByRole('dialog', { name: 'Add equipment' })).toBeTruthy();
+  expect(screen.queryByText(/was added/)).toBeNull();
+});
+
+test('an unsaved Add equipment form survives the midnight refresh of the board', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const tomorrow = new Date(`${todayKey()}T12:00:00Z`); tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    const tomorrowKey = tomorrow.toISOString().slice(0, 10);
+    vi.setSystemTime(localHour(tomorrowKey, 0, ZONE) - 30000);
+    canAdd();
+    mount();
+    await startAdding('Midnight laser');
+    await act(() => vi.advanceTimersByTimeAsync(61000));
+    // The board moved to the new day...
+    await waitFor(() => expect(api).toHaveBeenCalledWith(`/admin/reservations?date=${tomorrowKey}`, expect.anything()));
+    // ...and the draft is still there.
+    const dialog = screen.getByRole('dialog', { name: 'Add equipment' });
+    expect((within(dialog).getByLabelText('Name') as HTMLInputElement).value).toBe('Midnight laser');
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('after the new machine is revealed once, choosing another machine sticks', async () => {
+  observedWidth = 1600;
+  canAdd();
+  mount();
+  const dialog = await startAdding('Glowforge Pro');
+  const category = within(dialog).getByRole('combobox', { name: 'Category' });
+  fireEvent.focus(category); fireEvent.change(category, { target: { value: 'Laser engraver' } }); fireEvent.blur(category);
+  fireEvent.change(within(dialog).getByLabelText('Hourly rate in dollars'), { target: { value: '20' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Add equipment' }));
+  expect(await screen.findByRole('complementary', { name: 'Glowforge Pro details' })).toBeTruthy();
+  fireEvent.click(await row('Kirk'));
+  expect(await screen.findByRole('complementary', { name: 'Kirk details' })).toBeTruthy();
+  const search = screen.getByPlaceholderText('Find a machine…');
+  fireEvent.change(search, { target: { value: 'Kirk' } });
+  fireEvent.change(search, { target: { value: '' } });
+  await row('Glowforge Pro');
+  expect(screen.getByRole('complementary', { name: 'Kirk details' })).toBeTruthy();
+});
+
+test('the midnight refresh does not reveal the same new machine again', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const tomorrow = new Date(`${todayKey()}T12:00:00Z`); tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    const tomorrowKey = tomorrow.toISOString().slice(0, 10);
+    vi.setSystemTime(localHour(tomorrowKey, 0, ZONE) - 30000);
+    observedWidth = 1600;
+    canAdd();
+    mount();
+    const dialog = await startAdding('Glowforge Pro');
+    const category = within(dialog).getByRole('combobox', { name: 'Category' });
+    fireEvent.focus(category); fireEvent.change(category, { target: { value: 'Laser engraver' } }); fireEvent.blur(category);
+    fireEvent.change(within(dialog).getByLabelText('Hourly rate in dollars'), { target: { value: '20' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add equipment' }));
+    expect(await screen.findByRole('complementary', { name: 'Glowforge Pro details' })).toBeTruthy();
+    fireEvent.click(await row('Kirk'));
+    await screen.findByRole('complementary', { name: 'Kirk details' });
+    await act(() => vi.advanceTimersByTimeAsync(61000));
+    await waitFor(() => expect(api).toHaveBeenCalledWith(`/admin/reservations?date=${tomorrowKey}`, expect.anything()));
+    // The new day's board starts at the top of the list, not back on the machine added yesterday.
+    expect(await screen.findByRole('complementary', { name: 'Rachel details' })).toBeTruthy();
+    expect(screen.queryByRole('complementary', { name: 'Glowforge Pro details' })).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});

@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as renderInto, screen, waitFor, within } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { MemoryRouter } from "react-router-dom";
 import { ReaderManager } from "./ReaderManager";
 import type { ReaderDiscovery } from "./ReaderSetupWizard";
 import type { AccessReader, ReaderSetup } from "../../lib/nfc";
@@ -35,6 +37,9 @@ async function openManualAdd() {
   await within(dialog).findByRole("option", { name: "Main building · building" });
   return dialog;
 }
+// The live health board is not mocked here, so Manage is reached from the plain reader list
+// shown when health is unavailable.
+const render = (ui: ReactElement) => renderInto(<MemoryRouter>{ui}</MemoryRouter>);
 const field = (dialog: HTMLElement, label: string | RegExp) => within(dialog).getByLabelText(label) as HTMLInputElement;
 
 test("a reader ID that is already taken keeps the Add reader form open, with what was typed", async () => {
@@ -60,7 +65,7 @@ test("only a stale edit closes the Manage reader form", async () => {
   const reload = vi.fn();
   save = () => Promise.reject(new ApiError(409, "SETUP_INCOMPLETE", "Finish guided setup before enabling this reader."));
   render(<ReaderManager setup={setup} reload={reload} />);
-  fireEvent.click(screen.getByRole("button", { name: "Manage Front door" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Manage Front door" }));
   let dialog = screen.getByRole("dialog", { name: "Manage reader" });
   fireEvent.change(field(dialog, "Reason for change"), { target: { value: "Turn it on" } });
   fireEvent.click(within(dialog).getByRole("button", { name: "Save reader" }));
@@ -69,10 +74,10 @@ test("only a stale edit closes the Manage reader form", async () => {
   save = () => Promise.reject(new ApiError(409, "STALE_RECORD", "This reader changed. Refresh and try again."));
   fireEvent.click(within(dialog).getByRole("button", { name: "Save reader" }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Manage reader" })).toBeNull());
-  expect(screen.getByRole("alert").textContent).toBe("This reader changed. Refresh and try again.");
+  expect(screen.getAllByRole("alert").map((alert) => alert.textContent)).toContain("This reader changed. Refresh and try again.");
   expect(reload).toHaveBeenCalledTimes(2);
   // Reopening starts from the latest settings.
-  fireEvent.click(screen.getByRole("button", { name: "Manage Front door" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Manage Front door" }));
   dialog = screen.getByRole("dialog", { name: "Manage reader" });
   expect(field(dialog, "Reason for change").value).toBe("");
 });
@@ -155,7 +160,7 @@ describe("moving a reader", () => {
         reload={vi.fn()}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Manage Front door" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Manage Front door" }));
     const dialog = screen.getByRole("dialog", { name: "Manage reader" });
     await within(dialog).findByRole("option", { name: "Wood shop · room" });
     fireEvent.change(within(dialog).getByLabelText("Reason for change"), {
