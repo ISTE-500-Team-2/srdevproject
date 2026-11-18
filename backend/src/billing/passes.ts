@@ -38,10 +38,15 @@ export class PassBilling {
  provider(){if(!this.stripe)throw new AppError(503,'PAYMENTS_UNAVAILABLE','Card checkout is not configured.');return this.stripe;}
  async mine(userid:number){
   // Staff can put an issued pass on hold or revoke it; show that, not the checkout's 'paid'.
+  // cancelRequested: the member's own cancellation (or an unissued payment's refund) is recorded, so cancel()
+  // retries a failed refund after the notice deadline; a staff refund isn't, so only staff retry it then.
+  // passIssued is false for a card payment that never became a pass (see refundUnissued): only its refund remains.
   const online=(await this.pool.query(`SELECT c.id,c.plan_snapshot AS plan,to_char(c.valid_date,'YYYY-MM-DD') AS "validDate",c.amount_cents AS "amountCents",
   CASE WHEN c.status='paid' AND d.status IN ('suspended','revoked') THEN d.status ELSE c.status END AS status,c.refund_status AS "refundStatus",
+  c.cancel_requested_at IS NOT NULL AS "cancelRequested",NOT (c.payment_id IS NOT NULL AND c.pass_id IS NULL) AS "passIssued",
   ((c.valid_date-3)::timestamp AT TIME ZONE $2) AS "cancelBy" FROM app_pass_checkout c LEFT JOIN day_pass d ON d.dayid=c.pass_id WHERE c.userid=$1 ORDER BY c.created_at DESC LIMIT 100`,[userid,this.zone])).rows;
   const manual=(await this.pool.query(`SELECT 'manual:'||d.dayid AS id,d.plan_snapshot AS plan,to_char(d.validdate,'YYYY-MM-DD') AS "validDate",round(COALESCE(p.price,0)*100)::int AS "amountCents",d.status,CASE WHEN p.paymentstatus='refunded' THEN 'succeeded' ELSE NULL END AS "refundStatus",
+   false AS "cancelRequested",true AS "passIssued",
    ((d.validdate::date-3)::timestamp AT TIME ZONE $2) AS "cancelBy" FROM day_pass d LEFT JOIN payment p ON p.paymentid=d.paymentid
    WHERE d.userid=$1 AND NOT EXISTS(SELECT 1 FROM app_pass_checkout c WHERE c.pass_id=d.dayid) ORDER BY d.dayid DESC LIMIT 100`,[userid,this.zone])).rows;
   return [...online,...manual];}

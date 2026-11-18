@@ -27,6 +27,9 @@ test('each invalid signup property is named in the error body',async()=>{
     ['phone',{phone:'call me'}],
     ['phone',{phone:'555-01'}],
     ['phone',{phone:'+1 (410) 555-0182 x123'}],
+    ['phone',{phone:'1+410 555 0182'}],
+    // With its +, a 15-digit number would not fit the 15-character column.
+    ['phone',{phone:'+123456789012345'}],
     ['email',{email:'not-an-email'}],
     ['dob',{dob:'01/02/2000'}],
     ['dob',{dob:'2999-01-01'}],
@@ -61,9 +64,12 @@ test('errors outside signup keep their existing body',async()=>{
   assert.equal(accepted.body.error,undefined);
 });
 
-test('a formatted phone number is saved whole, as its digits',async()=>{
-  const email='formatted-phone@example.invalid';
-  assert.equal((await register({...person,email,phone:'+1 (410) 555-0182'})).status,202);
-  const row=(await pool.query('SELECT phone FROM app_pending_registration WHERE email=$1',[email])).rows[0];
-  assert.equal(row.phone,'14105550182');
+test('a formatted phone number is saved whole, as its digits after any leading +',async()=>{
+  // The + stays, as the profile saves it, so an international number is never shown as a US one.
+  for(const [n,phone,saved] of [[1,'+1 (410) 555-0182','+14105550182'],[2,'(410) 555-0182','4105550182'],[3,'+49 30 123456','+4930123456']] as const){
+    const email=`formatted-phone-${n}@example.invalid`;
+    assert.equal((await register({...person,email,phone})).status,202);
+    const row=(await pool.query('SELECT phone FROM app_pending_registration WHERE email=$1',[email])).rows[0];
+    assert.equal(row.phone,saved);
+  }
 });

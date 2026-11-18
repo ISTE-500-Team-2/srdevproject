@@ -356,18 +356,23 @@ async function toContactStep(dialog: HTMLElement) {
   type(await within(dialog).findByLabelText('Email'), 'casey@example.invalid');
 }
 
-test('a pasted, formatted phone number fits and is saved as digits', async () => {
+test.each([
+  ['+1 (410) 555-0182', '+14105550182'],
+  ['(410) 555-0182', '4105550182'],
+  // An international number keeps its +, so the profile doesn't show it as (493) 012-3456.
+  ['+49 30 123456', '+4930123456'],
+])('a pasted, formatted phone number %s fits and is saved as %s', async (typed, saved) => {
   auth.register.mockReturnValue(new Promise(() => {}));
   const dialog = openSignup();
   await toContactStep(dialog);
   const phone = within(dialog).getByLabelText('Phone') as HTMLInputElement;
-  expect(phone.maxLength).toBeGreaterThanOrEqual('+1 (410) 555-0182'.length);
-  type(phone, '+1 (410) 555-0182');
+  expect(phone.maxLength).toBeGreaterThanOrEqual(typed.length);
+  type(phone, typed);
   fireEvent.click(within(dialog).getByRole('button', { name: 'Continue' }));
   type(await within(dialog).findByLabelText('Password', { exact: false }), 'ValidPassword!');
   fireEvent.click(within(dialog).getByRole('button', { name: 'Create account' }));
   await waitFor(() => expect(auth.register).toHaveBeenCalledTimes(1));
-  expect(auth.register.mock.calls[0]![0].phone).toBe('14105550182');
+  expect(auth.register.mock.calls[0]![0].phone).toBe(saved);
 });
 
 test.each(['call me', '555-01', '1234567890123456'])('the contact step refuses the phone number %s', async (value) => {
