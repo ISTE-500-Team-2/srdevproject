@@ -409,6 +409,8 @@ function CheckedInPanel({ state, report, zone }: { state: Result<unknown> | unde
   const [showAll, setShowAll] = useState(false);
   const people = report?.checkedInToday ?? [];
   const count = report?.checkedInTodayCount ?? 0;
+  // The report lists at most the 50 most recent people; the count covers everyone.
+  const capped = count > people.length;
   return (
     <section className="today-panel" aria-labelledby="today-checkedin-title">
       <div className="today-panel-head">
@@ -439,10 +441,15 @@ function CheckedInPanel({ state, report, zone }: { state: Result<unknown> | unde
             </div>
           ))}
           {people.length ? null : <p className="today-empty">Nobody has checked in yet today.</p>}
+          {showAll && capped ? (
+            <p className="today-capped">
+              Showing the {people.length} most recent of {count} people.
+            </p>
+          ) : null}
           {people.length > 6 ? (
             <div className="today-panel-foot">
               <button type="button" className="today-link" aria-expanded={showAll} onClick={() => setShowAll(!showAll)}>
-                {showAll ? "Show fewer" : `Show all ${people.length}`}
+                {showAll ? "Show fewer" : capped ? `Show ${people.length} most recent of ${count}` : `Show all ${people.length}`}
                 <ChevronRight aria-hidden="true" />
               </button>
             </div>

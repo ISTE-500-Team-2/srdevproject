@@ -38,6 +38,25 @@ export interface PaymentListItem {
   planName: string;
 }
 
+/**
+ * The note on a card membership payment that Stripe took for dates another membership already
+ * covered (for example one sold at the desk). The payment list flags it while both charges stand.
+ */
+export const OVERLAPPING_CARD_PAYMENT_NOTE = "Stripe test recurring membership; overlaps another membership";
+/** How the payment list labels a possible double charge, by who is reading it. */
+const OVERLAP_LABEL = {
+  staff: " (dates overlap another membership; check for a double charge)",
+  member: " (may overlap another membership; ask staff)",
+} as const;
+export type PaymentViewer = keyof typeof OVERLAP_LABEL;
+// The flagged card charge ($6 note) still stands, and so does a charge for another membership
+// covering some of its dates: one with no payment recorded, or one not yet refunded or voided.
+// Refunding or voiding either side clears the flag.
+const STILL_OVERLAPS = `p.note=$6 AND p.paymentstatus='paid' AND EXISTS(SELECT 1 FROM user_membership other
+        WHERE other.userid=m.userid AND other.membershipid<>m.membershipid AND other.startdate<m.end_date AND other.end_date>m.startdate
+        AND (SELECT COALESCE(bool_or(charge.paymentstatus NOT IN ('refunded','void')),true) FROM payment charge
+          WHERE charge.userid=other.userid AND charge.membershipid=other.membershipid))`;
+
 const paymentRecordColumns = `paymentid AS id,userid AS "userId",price::text AS amount,paymentstatus AS status,method,reference,note,revision`;
 // $1 member, $2 status, $3/$4 recorded-at window (ISO instants); paymentdate is stored as UTC.
 const PAYMENT_FILTER = `($1::int IS NULL OR p.userid=$1) AND ($2::text IS NULL OR p.paymentstatus=$2)
@@ -104,7 +123,8 @@ export class PaymentRepository {
       )
     ).rows[0];
   }
-  async payments(userId: number | null, offset = 0, filters: PaymentFilters = {}): Promise<PaymentListItem[]> {
+  /** A page of payments; `viewer` picks staff or member wording for a possible double charge. */
+  async payments(userId: number | null, offset = 0, filters: PaymentFilters = {}, viewer: PaymentViewer = "member"): Promise<PaymentListItem[]> {
     return (
       await this.db.query<PaymentListItem>(
         `SELECT p.paymentid AS id,p.userid AS "userId",u.firstname || ' ' || u.lastname AS "memberName",
@@ -112,7 +132,8 @@ export class PaymentRepository {
       p.paymentdate AT TIME ZONE 'UTC' AS "recordedAt",p.updated_at AS "updatedAt",
       invoice.id AS "invoiceId",pass_checkout.id::text AS "passCheckoutId",equipment_checkout.reservation_id AS "equipmentReservationId",
       COALESCE(invoice.refund_status,pass_checkout.refund_status,equipment_checkout.refund_status) AS "refundStatus",
-      COALESCE(m.plan_snapshot->>'name',d.plan_snapshot->>'name',t.tiername,
+      COALESCE(m.plan_snapshot->>'name' || CASE WHEN ${STILL_OVERLAPS} THEN $7::text ELSE '' END,
+        d.plan_snapshot->>'name',t.tiername,
         CASE WHEN booking.reservationid IS NOT NULL THEN 'Equipment: '||machine.name||
           CASE WHEN booking.status='cancelled' AND p.paymentstatus='paid' THEN ' (cancelled; refund due)' ELSE '' END END,
         CASE WHEN training.class_id IS NOT NULL THEN 'Training class: '||class.title||
@@ -128,7 +149,7 @@ export class PaymentRepository {
       LEFT JOIN app_pass_checkout pass_checkout ON pass_checkout.payment_id=p.paymentid AND pass_checkout.amount_cents>0
       LEFT JOIN app_equipment_checkout equipment_checkout ON equipment_checkout.payment_id=p.paymentid
       WHERE ${PAYMENT_FILTER} ORDER BY p.paymentid DESC LIMIT 51 OFFSET $5`,
-        [userId, filters.status ?? null, filters.from ?? null, filters.to ?? null, offset],
+        [userId, filters.status ?? null, filters.from ?? null, filters.to ?? null, offset, OVERLAPPING_CARD_PAYMENT_NOTE, OVERLAP_LABEL[viewer]],
       )
     ).rows;
   }

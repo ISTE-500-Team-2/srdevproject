@@ -5,15 +5,18 @@ import {quote} from './pricing.js';
 import {cancellationBoundary} from './policy.js';
 import {liveRefund,refundAttempt,refundTransition,replacedAttemptFailed} from './refundTransition.js';
 import {isCheckoutSessionEvent,isInvoiceEvent,isRefundEvent,isSubscriptionEvent} from './stripeEvents.js';
+import {expireAbandonedMembershipCheckouts} from './openBilling.js';
+import {providerTransaction} from './providerGate.js';
 import {randomUUID} from 'node:crypto';
 import type {Pool} from 'pg';
 import type Stripe from 'stripe';
 import {transaction, type Database} from '../db.js';
 import {AppError, positiveId, textField} from '../domain.js';
 import {requireActor} from '../accountPolicy.js';
-import {assertManageable} from '../services/StaffService.js';
 import {StudioStripe} from '../studios/stripe.js';
 import {StaffModel, type Plan} from '../models/StaffModel.js';
+import {OVERLAPPING_CARD_PAYMENT_NOTE} from '../models/staff/payments.js';
+import {assertManageable} from '../services/StaffService.js';
 interface BillingRecord {id:string;userid:number;tierid:number;plan_snapshot:Plan;amount_cents:number;checkout_id:string|null;subscription_id:string|null;customer_id:string|null;status:string;created_at:Date;cancellation_effective_at:Date|null;}
 /** An app_membership_invoice row joined with its billing record's member and amount. */
 interface InvoiceRecord {id:string;billing_id:string;membership_id:number;payment_id:number;period_start:Date;period_end:Date;
@@ -51,22 +54,23 @@ export class MembershipBilling {
       if(offer.pricingRevision && (body.pricingRevision!==offer.pricingRevision||body.amountCents!==amount))
         throw new AppError(409,'PRICE_CHANGED','Refresh and review your eligible monthly price.');
       if(!Number.isSafeInteger(amount)||amount<50||amount>10000000) throw new AppError(400,'INVALID_PRICE','Staff must configure a supported monthly rate.');
+      await expireAbandonedMembershipCheckouts(db,userid);
       const old=(await db.query<BillingRecord>("SELECT * FROM app_membership_billing WHERE userid=$1 AND status NOT IN ('canceled','incomplete_expired','expired') FOR UPDATE",[userid])).rows[0];
-      if(old) {
-        if(old.status!=='pending'||old.tierid!==planId||old.amount_cents!==amount)
-          throw new AppError(409,'BILLING_EXISTS','An active membership or checkout already exists. Manage it before starting another.');
-        return {...old,email:user.email};
-      }
+      if(old&&(old.status!=='pending'||old.tierid!==planId||old.amount_cents!==amount))
+        throw new AppError(409,'BILLING_EXISTS','An active membership or checkout already exists. Manage it before starting another.');
+      // Checked on resume too: a membership issued since this checkout began must not be paid for twice.
       const existing=await db.query("SELECT membershipid FROM user_membership WHERE userid=$1 AND status IN ('active','suspended') AND end_date>NOW() AT TIME ZONE 'UTC'",[userid]);
       if(existing.rowCount) throw new AppError(409,'MEMBERSHIP_EXISTS','Contact staff before replacing an existing membership. No automatic billing was started.');
+      if(old) return {...old,email:user.email};
       const r=(await db.query<BillingRecord>(`INSERT INTO app_membership_billing(id,userid,tierid,plan_snapshot,amount_cents)
         VALUES($1,$2,$3,$4,$5) RETURNING *`,[randomUUID(),userid,planId,JSON.stringify({...plan,price:(amount/100).toFixed(2),priceBasis:offer.basis}),amount])).rows[0]!;
       return {...r,email:user.email};
     });
     // Stable server-owned ID makes retries safe; an unresolved checkout is never
-    // silently replaced after Stripe's idempotency retention window.
+    // silently replaced after Stripe's idempotency retention window. It expires as
+    // abandoned once a day old (see expireAbandonedMembershipCheckouts).
     if(!row.checkout_id && Date.now()-new Date(row.created_at).getTime()>23*3600000)
-      throw new AppError(409,'RECONCILE_REQUIRED','Staff must reconcile this old checkout before trying again.');
+      throw new AppError(409,'RECONCILE_REQUIRED','This checkout can no longer be resumed. Try again in an hour to start a new one.');
     const session=row.checkout_id ? await provider.sdk.checkout.sessions.retrieve(row.checkout_id) :
       await provider.sdk.checkout.sessions.create({
         mode:'subscription', payment_method_types:['card'], integration_identifier:'arbor-memberships-vqkntpaz',
@@ -95,7 +99,7 @@ export class MembershipBilling {
       const subscriptionId=row.subscription_id;
       // Save a stable cancellation intent before the network request. A timeout
       // can then retry the exact same provider operation without moving the date.
-      const effective=await transaction(this.pool,async db=>{
+      const effective=await providerTransaction(this.pool,async db=>{
         await db.query("SELECT pg_advisory_xact_lock(hashtext('membership-stripe'),hashtext($1))",[subscriptionId]);
         const current=(await db.query<BillingRecord>('SELECT * FROM app_membership_billing WHERE id=$1 FOR UPDATE',[row.id])).rows[0]!;
         if(current.cancellation_effective_at)return Math.floor(new Date(current.cancellation_effective_at).getTime()/1000);
@@ -106,7 +110,7 @@ export class MembershipBilling {
         await db.query('UPDATE app_membership_billing SET cancellation_requested_at=to_timestamp($2),cancellation_effective_at=to_timestamp($3) WHERE id=$1',[row.id,requested,date]);
         return date;
       });
-      await transaction(this.pool,async db=>{
+      await providerTransaction(this.pool,async db=>{
         await db.query("SELECT pg_advisory_xact_lock(hashtext('membership-stripe'),hashtext($1))",[subscriptionId]);
         const sub=await provider.sdk.subscriptions.update(subscriptionId,{cancel_at:effective,proration_behavior:'none'},
           {idempotencyKey:'membership-cancel:'+row.id});
@@ -119,7 +123,12 @@ export class MembershipBilling {
       if(s.status==='open') s=await provider.sdk.checkout.sessions.expire(s.id);
       if(s.status!=='expired') throw new AppError(409,'PAYMENT_PROCESSING','Checkout completed. Wait for verification, then turn off renewal.');
       await this.pool.query("UPDATE app_membership_billing SET status='expired' WHERE id=$1 AND status='pending'",[row.id]);
-    } else throw new AppError(409,'RECONCILE_REQUIRED','Resume checkout once before cancelling.');
+    } else {
+      // No session was ever stored, so there is nothing to expire at Stripe: an abandoned one just lapses.
+      await expireAbandonedMembershipCheckouts(this.pool,userid);
+      const current=(await this.pool.query<{status:string}>('SELECT status FROM app_membership_billing WHERE id=$1',[row.id])).rows[0]!;
+      if(!terminal.has(current.status)) throw new AppError(409,'RECONCILE_REQUIRED','Resume checkout once before cancelling.');
+    }
   }
   async portal(userid:number,id:string) {
     const p=this.provider();
@@ -167,15 +176,24 @@ export class MembershipBilling {
       throw new AppError(400,'PAYMENT_MISMATCH','Invalid paid membership period.');
     const from=new Date(start*1000),to=new Date(end*1000);
     await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,row.userid]);
-    const overlap=await db.query(`SELECT membershipid FROM user_membership WHERE userid=$1 AND status IN ('active','suspended')
-      AND startdate<$3::timestamptz AT TIME ZONE 'UTC' AND end_date>$2::timestamptz AT TIME ZONE 'UTC'`,[row.userid,from,to]);
-    if(overlap.rowCount) throw new AppError(409,'MEMBERSHIP_OVERLAP','Paid membership overlaps an existing period; staff reconciliation required.');
+    // Stripe bills one invoice per subscription period, so a second one for a recorded period is an anomaly to sort out there.
+    if((await db.query('SELECT 1 FROM app_membership_invoice WHERE billing_id=$1 AND period_start=$2 AND period_end=$3',[row.id,from,to])).rowCount)
+      throw new AppError(409,'MEMBERSHIP_OVERLAP','A second paid invoice for an already recorded period needs reconciliation in Stripe.');
+    const overlap=(await db.query<{membershipid:number}>(`SELECT membershipid FROM user_membership WHERE userid=$1 AND status IN ('active','suspended')
+      AND startdate<$3::timestamptz AT TIME ZONE 'UTC' AND end_date>$2::timestamptz AT TIME ZONE 'UTC'`,[row.userid,from,to])).rows.map(r=>r.membershipid);
+    // Stripe has already taken this money. Record it even when another membership
+    // (say, one sold at the desk) covers some of these dates: refusing would roll back
+    // and lose the payment. Staff see it flagged on Payments and can refund one charge.
     const model=new StaffModel(db);
     const membership=await model.createMembership(row.userid,row.plan_snapshot,from.toISOString(),to,row.userid,'Stripe test invoice '+invoice.id);
-    const payment=await model.createPayment(row.userid,membership,(row.amount_cents/100).toFixed(2),'paid','card',invoice.id,'Stripe test recurring membership',row.userid);
+    const payment=await model.createPayment(row.userid,membership,(row.amount_cents/100).toFixed(2),'paid','card',invoice.id,
+      overlap.length?OVERLAPPING_CARD_PAYMENT_NOTE:'Stripe test recurring membership',row.userid);
     await db.query('INSERT INTO app_membership_invoice(id,billing_id,membership_id,payment_id,period_start,period_end) VALUES($1,$2,$3,$4,$5,$6)',[invoice.id,row.id,membership,payment,from,to]);
+    if(overlap.length) await model.audit(row.userid,row.userid,'billing.membership_overlap_flagged','payment',payment,
+      'Card membership charge covers dates another membership already covers',null,{invoiceId:invoice.id,membershipId:membership,overlaps:overlap});
     await enqueueNotification(db,{userId:row.userid,kind:'payment_receipt',dedupeKey:'membership-receipt:'+invoice.id,
-      payload:{amount:(row.amount_cents/100).toFixed(2),currency:'USD',reference:invoice.id,paymentId:payment,method:'Card (test mode)',membershipName:row.plan_snapshot.name,startsAt:from.toISOString(),endsAt:to.toISOString()}});
+      payload:{amount:(row.amount_cents/100).toFixed(2),currency:'USD',reference:invoice.id,paymentId:payment,method:'Card (test mode)',membershipName:row.plan_snapshot.name,startsAt:from.toISOString(),endsAt:to.toISOString(),
+        ...(overlap.length?{instructions:'You already had a membership for some of these dates, so you may have paid twice. Ask staff at the front desk about a refund.'}:{})}});
   }
   async invoices(actor:number) {
     await requireActor(this.pool,actor,{staff:true});
@@ -186,12 +204,14 @@ export class MembershipBilling {
   }
   async refund(actor:number,id:string,reason:unknown) {
     const explanation=textField(reason,'Refund reason',255,3),sdk=this.provider().sdk;
-    return transaction(this.pool,async db=>{
+    return providerTransaction(this.pool,async db=>{
       const operator=await requireActor(db,actor,{staff:true});
       const r=(await db.query<InvoiceRecord>(`SELECT i.*,b.userid,b.amount_cents FROM app_membership_invoice i
         JOIN app_membership_billing b ON b.id=i.billing_id WHERE i.id=$1 FOR UPDATE OF i`,[id])).rows[0];
       if(!r) throw new AppError(404,'NOT_FOUND','Invoice not found.');
-      // The paid period stays after a refund, so only administrators refund a staff account's, own included.
+      // The refund leaves the paid period active, so the staff-account rule applies:
+      // nobody refunds their own card, and only administrators refund staff accounts.
+      if(r.userid===actor) throw new AppError(403,'SELF_CHANGE_FORBIDDEN','Another administrator must refund a payment on your own account.');
       await assertManageable(db,operator,r.userid);
       if(r.refund_status==='succeeded') return {status:'succeeded'};
       if(!r.payment_intent) {
@@ -280,7 +300,7 @@ export class MembershipBilling {
   async webhook(event:Stripe.Event) {
     if(event.livemode) throw new AppError(400,'LIVE_PAYMENT_FORBIDDEN','Test events only.');
     const sdk=this.provider().sdk;
-    await transaction(this.pool,async db=>{
+    await providerTransaction(this.pool,async db=>{
       if(!(await db.query('INSERT INTO app_membership_stripe_event(id) VALUES($1) ON CONFLICT DO NOTHING RETURNING id',[event.id])).rowCount) return;
       if(event.type==='checkout.session.expired') {
         const s=event.data.object as Stripe.Checkout.Session;

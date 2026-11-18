@@ -229,18 +229,26 @@ test('a booking staff made and paid for a member refunds to that card, so the re
 });
 
 test('only administrators refund a staff account\'s payments, so staff cannot refund their own', async () => {
-  const own = await booking(true, staff), pass = await cardPass(staff);
+  const own = await booking(true, staff), pass = await cardPass(staff), adminPass = await cardPass(admin);
+  const colleague = (await pool.query(`INSERT INTO "user"(firstname,lastname,email,password,phone,status,primary_role)
+    VALUES('Refund','Colleague','refund-colleague@example.invalid','unused','0000000000','active','staff') RETURNING userid`)).rows[0].userid;
+  await pool.query("INSERT INTO user_role(userid,roleid,assignedat) SELECT $1,roleid,NOW() FROM role WHERE role='staff'", [colleague]);
   const billing = randomUUID(), invoice = 'in_staff_' + randomBytes(4).toString('hex');
   await pool.query(`INSERT INTO app_membership_billing(id,userid,tierid,plan_snapshot,amount_cents,status) VALUES($1,$2,1,'{}',5000,'active')`, [billing, staff]);
   const payment = await new StaffModel(pool).createPayment(staff, staffMembership, '50.00', 'paid', 'card', invoice, 'Stripe test recurring membership', staff);
   await pool.query(`INSERT INTO app_membership_invoice(id,billing_id,membership_id,payment_id,period_start,period_end,payment_intent)
     VALUES($1,$2,$3,$4,now(),now()+interval '1 month','pi_'||$1)`, [invoice, billing, staffMembership, payment]);
-  const intents = [own.intent, pass.intent, 'pi_' + invoice];
+  const intents = [own.intent, pass.intent, adminPass.intent, 'pi_' + invoice];
 
   // A refund leaves the booking, the day pass's use and the paid period in place, so it would be free use.
-  await assert.rejects(equipmentBilling.refund(staff, own.id, 'Refunding my own booking'), { code: 'ADMIN_REQUIRED' });
-  await assert.rejects(passes.staffRefund(staff, pass.id, 'Refunding my own pass'), { code: 'ADMIN_REQUIRED' });
-  await assert.rejects(memberships.refund(staff, invoice, 'Refunding my own membership'), { code: 'ADMIN_REQUIRED' });
+  await assert.rejects(equipmentBilling.refund(staff, own.id, 'Refunding my own booking'), { code: 'SELF_CHANGE_FORBIDDEN' });
+  await assert.rejects(passes.staffRefund(staff, pass.id, 'Refunding my own pass'), { code: 'SELF_CHANGE_FORBIDDEN' });
+  await assert.rejects(memberships.refund(staff, invoice, 'Refunding my own membership'), { code: 'SELF_CHANGE_FORBIDDEN' });
+  // Another staff member can't refund them either, and an administrator can't refund their own.
+  await assert.rejects(equipmentBilling.refund(colleague, own.id, 'Refunding a colleague'), { code: 'ADMIN_REQUIRED' });
+  await assert.rejects(passes.staffRefund(colleague, pass.id, 'Refunding a colleague'), { code: 'ADMIN_REQUIRED' });
+  await assert.rejects(memberships.refund(colleague, invoice, 'Refunding a colleague'), { code: 'ADMIN_REQUIRED' });
+  await assert.rejects(passes.staffRefund(admin, adminPass.id, 'Refunding my own pass'), { code: 'SELF_CHANGE_FORBIDDEN' });
   assert.equal(refunds.filter(f => intents.includes(f.payment_intent as string)).length, 0, 'nothing was refunded');
   assert.deepEqual(await own.state(), { refund_id: null, refund_status: null, payment: 'paid' });
 

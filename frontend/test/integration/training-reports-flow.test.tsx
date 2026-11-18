@@ -110,7 +110,7 @@ test("staff training UI configures approved expiry, records actual instructor tr
     screen.getByRole("button", { name: /Hold to revoke UI printer safety/ }),
     { key: " " },
   );
-  await screen.findByText("Not current · revoked", {}, { timeout: 5000 });
+  await screen.findByText("Not current · revoked");
 });
 test("staff reports UI reads actual ledger instead of sample charts", async () => {
   await bridge.pool.query(

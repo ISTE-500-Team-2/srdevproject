@@ -58,6 +58,26 @@ test.each([
   fireEvent.change(within(form).getByLabelText("Reason for refund"), { target: { value: "Cancelled booking" } });
   fireEvent.click(within(form).getByRole("checkbox"));
   fireEvent.click(within(form).getByRole("button", { name: "Refund $14.00" }));
-  await waitFor(() => expect(onChanged).toHaveBeenCalledWith("Refunded $14.00 to Jordan Lee's card."));
+  await waitFor(() => expect(onChanged).toHaveBeenCalledWith("Refunded $14.00 to Jordan Lee's card.", false));
   expect(api).toHaveBeenCalledWith(path, { method: "POST", body: { reason: "Cancelled booking" } });
+});
+
+test.each([
+  ["succeeded", "Refunded $50.00 to Ada Lovelace's card.", false],
+  ["pending", "Refund of $50.00 to Ada Lovelace's card is on its way.", false],
+  ["failed", "Stripe didn't complete the refund to Ada Lovelace's card. Check it in Stripe.", true],
+  ["canceled", "Stripe didn't complete the refund to Ada Lovelace's card. Check it in Stripe.", true],
+])("a %s card refund from the Payments table is reported with the right tone", async (status, message, problem) => {
+  const card = {
+    id: 7, userId: 3, memberName: "Ada Lovelace", membershipId: 2, dayPassId: null, amount: "50.00", status: "paid", method: "card",
+    reference: "", revision: 1, recordedAt: "2026-11-01T12:00:00Z", updatedAt: "2026-11-01T12:00:00Z", planName: "Monthly",
+    invoiceId: "in_test", refundStatus: null,
+  } as Payment;
+  api.mockResolvedValue({ status });
+  const onChanged = vi.fn();
+  render(<PaymentTable items={[card]} caption="Payments" open={7} onOpen={() => undefined} onChanged={onChanged} />);
+  fireEvent.change(screen.getByLabelText(/Reason for refund/), { target: { value: "Duplicate charge" } });
+  fireEvent.click(screen.getByRole("checkbox"));
+  fireEvent.click(screen.getByRole("button", { name: "Refund $50.00" }));
+  await waitFor(() => expect(onChanged).toHaveBeenCalledWith(message, problem));
 });
