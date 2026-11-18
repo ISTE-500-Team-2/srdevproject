@@ -101,7 +101,13 @@ const ROLE_NAMES: Record<string, string> = {
   admin: "Administrator",
 };
 export const roleName = (role: string) => ROLE_NAMES[role] ?? role;
-export const ROLES = Object.keys(ROLE_NAMES);
+/**
+ * FR-006/FR-008: these follow what the member has bought (the server works them out from their
+ * memberships and passes), so nobody sets them by hand.
+ */
+export const AUTOMATIC_ROLES = ["subscriber", "day_pass"];
+/** The roles staff assign by hand. */
+export const ROLES = Object.keys(ROLE_NAMES).filter((role) => !AUTOMATIC_ROLES.includes(role));
 
 /**
  * Derive the member-record headline from account/access/requirements data; this display verdict is

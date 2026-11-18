@@ -29,6 +29,8 @@ export interface Person {
   address: Record<string, string | boolean>;
   contactPreferences: Record<string, string | boolean>;
   roles: string[];
+  /** Subscriber / day-pass customer, worked out from current purchases; never set by hand. */
+  automaticRoles?: string[];
   primaryRole?: string;
   isStudent?: boolean;
   revision: number;

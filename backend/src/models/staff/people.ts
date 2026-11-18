@@ -18,39 +18,63 @@ export interface StaffPerson {
   conductFlag: boolean;
   address: Record<string, unknown>;
   contactPreferences: Record<string, unknown>;
+  /** Roles staff assign by hand (staff, administrator, instructor, community member). */
   roles: string[];
+  /**
+   * Subscriber and day-pass customer: never stored or edited, they follow what the member holds now
+   * (see automaticRolesSql).
+   */
+  automaticRoles: string[];
   /** Directory and record reads only: the member's photo version, null without one. */
   photoVersion?: string | null;
   /** Whether a date of birth is recorded. Accounts made before it was collected have none. */
   dobOnFile: boolean;
 }
 
-const personColumns = `u.userid AS id,u.firstname AS "firstName",u.lastname AS "lastName",u.email,u.phone,u.status,u.statusdesc AS "accountReason",
+/**
+ * FR-006/FR-008: the subscriber and day-pass labels describe purchases, so they are read from the
+ * member's memberships and passes instead of being stored, and can't drift when one is bought,
+ * cancelled, suspended or simply runs out. Subscriber: an active membership that hasn't ended
+ * (running now or scheduled to start). Day-pass customer: an active pass for today or a later day.
+ * A suspended entitlement grants no access, so it gives no label while on hold. These labels carry
+ * no permissions: every account keeps a stored primary role (community member at least).
+ */
+export const automaticRolesSql = (user: string, zone: string) => `ARRAY_REMOVE(ARRAY[
+  CASE WHEN EXISTS(SELECT 1 FROM user_membership am WHERE am.userid=${user} AND am.status='active'
+    AND am.end_date>NOW() AT TIME ZONE 'UTC') THEN 'subscriber' END,
+  CASE WHEN EXISTS(SELECT 1 FROM day_pass ad WHERE ad.userid=${user} AND ad.status='active'
+    AND ad.validdate::date>=(NOW() AT TIME ZONE ${zone})::date) THEN 'day_pass' END]::text[],NULL)`;
+
+const personColumns = (zone: string) => `u.userid AS id,u.firstname AS "firstName",u.lastname AS "lastName",u.email,u.phone,u.status,u.statusdesc AS "accountReason",
   u.primary_role AS "primaryRole",u.is_student AS "isStudent",u.accessstatus AS "accessStatus",u.accessreason AS "accessReason",u.revision,
   COALESCE(u.conductflag,false) AS "conductFlag",u.dob IS NOT NULL AS "dobOnFile",
   u.profile_address AS address,u.contact_preferences AS "contactPreferences",
-  COALESCE((SELECT json_agg(r.role ORDER BY r.role) FROM user_role ur JOIN role r USING(roleid) WHERE ur.userid=u.userid),'[]') AS roles`;
+  COALESCE((SELECT json_agg(r.role ORDER BY r.role) FROM user_role ur JOIN role r USING(roleid) WHERE ur.userid=u.userid),'[]') AS roles,
+  ${automaticRolesSql("u.userid", zone)} AS "automaticRoles"`;
 
 /** User directory, account state and role assignments. */
 export class PeopleRepository {
-  constructor(private db: Database) {}
+  constructor(
+    private db: Database,
+    private timeZone = "America/New_York",
+  ) {}
   // Unverified legacy requests stay recoverable but never appear in the member directory.
   async users(search: string, offset: number): Promise<StaffPerson[]> {
     return (
       await this.db.query<StaffPerson>(
-        `SELECT ${personColumns},(SELECT p.version FROM app_user_photo p WHERE p.user_id=u.userid) AS "photoVersion"
+        `SELECT ${personColumns("$3")},(SELECT p.version FROM app_user_photo p WHERE p.user_id=u.userid) AS "photoVersion"
       FROM "user" u WHERE u.email_confirmed=true AND
       (u.firstname || ' ' || u.lastname || ' ' || u.email) ILIKE $1 ESCAPE '\\' ORDER BY u.lastname,u.firstname,u.userid LIMIT 51 OFFSET $2`,
         // Escaped so "%" and "_" (common in emails) match themselves, not any text.
-        ["%" + search.replace(/[\\%_]/g, (c) => "\\" + c) + "%", offset],
+        ["%" + search.replace(/[\\%_]/g, (c) => "\\" + c) + "%", offset, this.timeZone],
       )
     ).rows;
   }
   async person(id: number, lock: boolean | 'no-key-update' = false): Promise<StaffPerson | undefined> {
     return (
       await this.db.query<StaffPerson>(
-        `SELECT ${personColumns} FROM "user" u WHERE userid=$1 ${lock === 'no-key-update' ? 'FOR NO KEY UPDATE OF u' : lock ? 'FOR UPDATE OF u' : ''}`,
-        [id],
+        `SELECT ${personColumns("$2")} FROM "user" u WHERE userid=$1 ${lock === 'no-key-update' ? 'FOR NO KEY UPDATE OF u' : lock ? 'FOR UPDATE OF u' : ''}`,
+        [id, this.timeZone],
       )
     ).rows[0];
   }

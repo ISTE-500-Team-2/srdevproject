@@ -261,6 +261,20 @@ test("roles: primary is chosen among the checked roles, student is separate", as
   );
 });
 
+test("FR-006/FR-008: subscriber and day-pass customer show as automatic and can't be ticked", () => {
+  state.detail = { ...state.detail, user: user({ roles: ["member"], primaryRole: "member", automaticRoles: ["subscriber"] }) };
+  mount();
+  expect(screen.getByText(/Subscriber \(automatic\)/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Change roles" }));
+  const dialog = screen.getByRole("dialog", { name: "Roles" });
+  expect(within(dialog).queryByRole("checkbox", { name: "Subscriber" })).toBeNull();
+  expect(within(dialog).queryByRole("checkbox", { name: "Day-pass customer" })).toBeNull();
+  const automatic = within(dialog).getByRole("group", { name: "Automatic roles" });
+  expect(automatic.textContent).toMatch(/SubscriberYes/);
+  expect(automatic.textContent).toMatch(/Day-pass customerNo/);
+  expect(dialog.textContent).toMatch(/follow purchases and can’t be set here/);
+});
+
 test("your own record locks what another administrator must change, and says why", () => {
   actor.id = 14;
   mount();

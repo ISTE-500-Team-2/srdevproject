@@ -49,6 +49,7 @@ export function RecordAccount({
           value={roleName(u.primaryRole ?? u.roles[0] ?? "member")}
           small={[
             u.roles.filter((r) => r !== u.primaryRole).map(roleName).join(", ") ? `Also ${u.roles.filter((r) => r !== u.primaryRole).map(roleName).join(", ")}` : "",
+            (u.automaticRoles ?? []).map((r) => `${roleName(r)} (automatic)`).join(", "),
             u.isStudent ? "Student" : "",
           ]
             .filter(Boolean)

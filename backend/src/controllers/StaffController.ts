@@ -223,12 +223,20 @@ export class StaffController {
     });
   };
   role = async (req: Request, res: Response) => {
+    // Subscriber and day-pass customer follow what the member bought (automaticRolesSql), so
+    // nobody sets them by hand.
+    const automatic = ["subscriber", "day_pass"];
+    const requested = [req.body.primaryRole ?? req.body.role, ...(Array.isArray(req.body.roles) ? req.body.roles : [])];
+    if (requested.some((r) => automatic.includes(r)))
+      throw new AppError(
+        400,
+        "AUTOMATIC_ROLE",
+        "Subscriber and day-pass customer follow the member's memberships and passes. They can't be set by hand.",
+      );
     const allowed = [
       "member",
       "staff",
       "admin",
-      "subscriber",
-      "day_pass",
       "instructor",
     ] as const;
     const primary = oneOf(

@@ -14,7 +14,7 @@ import { MemberSelect } from "../../MemberSelect";
 import { Modal } from "../../Modal";
 import { AssistedPurchase } from "../AssistedPurchase";
 import { CardRefund, PaymentEditor, paymentStatusName, refundAccepted, RefundReview } from "../PaymentControls";
-import { ROLES, roleName } from "./recordModel";
+import { AUTOMATIC_ROLES, ROLES, roleName } from "./recordModel";
 import { day } from "./recordParts";
 import { MemberPhoto } from "../../MemberPhoto";
 import { initials } from "../../admin/people";
@@ -578,6 +578,22 @@ function RolesDialog({
           </div>
         ))}
       </div>
+      <div className="mr-roles mr-roles--automatic" role="group" aria-label="Automatic roles">
+        <div className="mr-roles__row mr-roles__row--head" aria-hidden="true">
+          <span>Automatic</span>
+          <span>Now</span>
+        </div>
+        {AUTOMATIC_ROLES.map((role) => (
+          <div className="mr-roles__row" key={role}>
+            <span>{roleName(role)}</span>
+            <span>{person.automaticRoles?.includes(role) ? "Yes" : "No"}</span>
+          </div>
+        ))}
+      </div>
+      <p className="mr-roles__note">
+        These follow purchases and can’t be set here. Subscriber applies while a membership is active or about to start;
+        Day-pass customer while a day pass for today or later is booked.
+      </p>
       <label className="mr-check">
         <input type="checkbox" name="isStudent" defaultChecked={!!person.isStudent} />
         <strong>Student</strong>
