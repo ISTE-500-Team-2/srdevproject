@@ -58,7 +58,10 @@ export function MemberRecord({
   /** Opens the member site as this member; omitted when staff may not. */
   viewAs?: ViewAs;
 }) {
-  const { user: actor } = useAuth();
+  // The signed-in staff member. A member's account opened in another tab makes `user` that
+  // member here too (the open account belongs to the sign-in), with the staff member as `actor`.
+  const { user, actor: openedBy } = useAuth();
+  const actor = openedBy ?? user;
   const navigate = useNavigate();
   const detail = useApi<MemberDetail>(`/admin/users/${id}`, { retainOnReload: true, refreshInterval: 3000 });
   const req = useApi<MemberRequirements>(`/admin/users/${id}/requirements`, { retainOnReload: true, refreshInterval: 10000 });

@@ -160,4 +160,7 @@ test("only open front-desk records are editable; card payments offer a refund on
   expect(paymentAction({ ...payment, method: "cash", status: "paid" })).toBe("update");
   for (const status of ["refunded", "void", "waived"])
     expect(paymentAction({ ...payment, method: "cash", status })).toBeNull();
+  // A booking still in its online card checkout is settled by the checkout, never at the desk.
+  expect(paymentAction({ ...payment, method: "unspecified", status: "pending", invoiceId: null, onlineCheckout: true })).toBeNull();
+  expect(paymentAction({ ...payment, method: "unspecified", status: "pending", invoiceId: null, onlineCheckout: false })).toBe("update");
 });

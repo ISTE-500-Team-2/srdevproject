@@ -22,9 +22,10 @@ const firstBenefit = (benefits: string) =>
   benefits.split(/\r?\n/).map((line) => line.replace(/^[-*•]\s*/, "").trim()).find(Boolean) ?? "";
 
 export function StaffPlans() {
-  const { user } = useAuth();
+  // The signed-in staff member, even while a member's account is open in another tab.
+  const { user, actor } = useAuth();
   // Student and school-partner rates are admin-only on the server.
-  const isAdmin = !!user?.roles.includes("admin");
+  const isAdmin = !!(actor ?? user)?.roles.includes("admin");
   const plans = useApi<Plan[]>("/admin/plans", { retainOnReload: true });
   const prices = useApi<EligibilityPrice[]>(isAdmin ? "/billing-management/pricing" : null, { retainOnReload: true });
   const [selected, setSelected] = useState<Selection>(null);

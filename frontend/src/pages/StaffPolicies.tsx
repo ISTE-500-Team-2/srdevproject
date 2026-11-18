@@ -350,8 +350,9 @@ function RetireDialog({ policy, onClose, onRetired }: { policy: Policy; onClose:
 export function StaffPolicies() {
   const policies = useApi<Policy[]>("/admin/policies");
   const compliance = useApi<ComplianceReport>("/admin/compliance?userStatus=active");
-  const { user } = useAuth();
-  const isAdmin = !!user?.roles.includes("admin");
+  // The signed-in staff member, even while a member's account is open in another tab.
+  const { user, actor } = useAuth();
+  const isAdmin = !!(actor ?? user)?.roles.includes("admin");
   const [publishing, setPublishing] = useState<{ waiver: Waiver | null } | null>(null);
   const [retiring, setRetiring] = useState<Policy | null>(null);
   const [reading, setReading] = useState<Policy | null>(null);

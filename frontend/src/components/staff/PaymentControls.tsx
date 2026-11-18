@@ -53,6 +53,8 @@ const transitionNames: Record<string, string> = {
 
 /** The one thing staff can do to this payment from the list, if anything. */
 export function paymentAction(payment: Payment): "update" | "refund" | null {
+  // Recording it at the desk would leave the open checkout able to charge the member again.
+  if (payment.onlineCheckout) return null;
   if (payment.method === "card") {
     // Only before any refund was asked for: a failed one can't be retried from here (see refundNote).
     return payment.invoiceId && payment.status === "paid" && !payment.refundStatus ? "refund" : null;

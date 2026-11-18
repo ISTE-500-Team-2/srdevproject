@@ -317,7 +317,8 @@ export function RecordDialogHost({
                 body: { status, revision: item.revision, reason: f.get("reason") },
               });
             } catch (error) {
-              if (error instanceof ApiError && error.status === 409) {
+              // Other refusals (such as card renewal still on) keep the server's own explanation.
+              if (error instanceof ApiError && error.status === 409 && error.code === "STALE_RECORD") {
                 onConflict();
                 throw new StaleDialog(`This ${noun} changed since you opened it. The latest is loaded; close this and check it before trying again.`);
               }
@@ -329,7 +330,7 @@ export function RecordDialogHost({
         >
           <p className="mr-dialog__lead">
             This changes access only; it does not extend the end date or issue a refund.
-            {item.cardBilled ? " It does not pause or cancel card billing." : ""}
+            {item.cardBilled ? ` It does not pause or cancel card billing. To end it, first stop auto-renew from ${first}’s Membership page (View as ${first}).` : ""}
           </p>
           <fieldset className="mr-options">
             <legend className="sr-only">{noun} status</legend>

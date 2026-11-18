@@ -14,6 +14,8 @@ const ENTITLEMENT_WORDS: Record<string, string> = {
   cancelled: "Cancelled",
 };
 const entitlementTone = (s: string) => (s === "active" ? "ok" : s === "suspended" || s === "scheduled" ? "warn" : "neutral");
+/** Staff change only a live membership or pass; an ended or cancelled one is replaced by a new one. */
+const changeable = (item: Entitlement) => item.status === "active" || item.status === "suspended";
 
 /** The member's current membership or day pass, then earlier ones (five until asked for all). */
 export function RecordMembership({
@@ -65,7 +67,7 @@ export function RecordMembership({
               end={
                 <>
                   <span className={`status-pill status-pill--${entitlementTone(item.effectiveStatus)}`}>{ENTITLEMENT_WORDS[item.effectiveStatus] ?? item.effectiveStatus}</span>
-                  {canManage && item.status !== "revoked" && item.effectiveStatus !== "expired" ? (
+                  {canManage && changeable(item) && item.effectiveStatus !== "expired" ? (
                     <button type="button" className="today-link" onClick={() => open({ kind: "entitlement", item, entitlementKind: kind })} aria-label={`Change ${item.plan?.name ?? kind} #${item.id}`}>
                       Change
                     </button>
@@ -138,7 +140,7 @@ function CurrentPlan({
       {bar}
       {item.cancellationRequestedAt ? <p className="mr-plan__note">{first} asked to cancel; it ends on the date shown and won’t renew.</p> : null}
       {held && item.effectiveStatus === "active" ? <p className="mr-plan__note">Still running{item.cardBilled ? " and billing" : ""} while {first} is on hold.</p> : null}
-      {canManage && item.status !== "revoked" ? (
+      {canManage && changeable(item) ? (
         <div className="mr-plan__buttons">
           {kind === "membership" && item.endsAt && !item.cardBilled ? (
             <button type="button" className="today-button" onClick={() => open({ kind: "sell", renewal: item })}>

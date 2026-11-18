@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 import { useApi } from "../lib/useApi";
 import type { Person } from "../lib/staffContracts";
 import type { ReaderSetup } from "../lib/nfc";
@@ -131,12 +132,19 @@ function finePointer() {
 }
 function MemberWorkspace({ person }: { person: Person }) {
   const [revision, setRevision] = useState(0);
+  // Same rule as the member record (and the server): only an administrator changes a staff or admin account.
+  const { user, actor } = useAuth();
+  const locked =
+    !(actor ?? user)?.roles.includes("admin") && person.roles.some((r) => r === "admin" || r === "staff")
+      ? "Only an administrator can change staff accounts."
+      : "";
   return (
     <>
       <MemberCards
         userId={person.id}
         memberName={`${person.firstName} ${person.lastName}`}
         onChanged={() => setRevision((n) => n + 1)}
+        locked={locked}
       />
       <AccessReadiness userId={person.id} revision={revision} />
       <p className="nfc-help">

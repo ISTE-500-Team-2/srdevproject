@@ -166,11 +166,20 @@ export class MembershipBilling {
       throw new AppError(400,'PAYMENT_MISMATCH','Invalid paid membership period.');
     const from=new Date(start*1000),to=new Date(end*1000);
     await db.query('SELECT pg_advisory_xact_lock($1,$2)',[7121,row.userid]);
+    // Staff status changes hold the member's row while they change a membership, so this reads
+    // a suspension or ending that is being saved right now.
+    await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR SHARE',[row.userid]);
     const overlap=await db.query(`SELECT membershipid FROM user_membership WHERE userid=$1 AND status IN ('active','suspended')
       AND startdate<$3::timestamptz AT TIME ZONE 'UTC' AND end_date>$2::timestamptz AT TIME ZONE 'UTC'`,[row.userid,from,to]);
     if(overlap.rowCount) throw new AppError(409,'MEMBERSHIP_OVERLAP','Paid membership overlaps an existing period; staff reconciliation required.');
+    // A renewal keeps staff's decision on the period before it: a suspended or ended membership
+    // doesn't switch itself back on when the next month is paid.
+    const held=(await db.query<{status:string;statusdesc:string|null}>(`SELECT m.status,m.statusdesc FROM app_membership_invoice i
+      JOIN user_membership m ON m.membershipid=i.membership_id WHERE i.billing_id=$1 ORDER BY i.period_start DESC LIMIT 1`,[row.id])).rows[0];
     const model=new StaffModel(db);
     const membership=await model.createMembership(row.userid,row.plan_snapshot,from.toISOString(),to,row.userid,'Stripe test invoice '+invoice.id);
+    if(held&&(held.status==='suspended'||held.status==='revoked'))
+      await db.query('UPDATE user_membership SET status=$2,statusdesc=$3 WHERE membershipid=$1',[membership,held.status,held.statusdesc]);
     const payment=await model.createPayment(row.userid,membership,(row.amount_cents/100).toFixed(2),'paid','card',invoice.id,'Stripe test recurring membership',row.userid);
     await db.query('INSERT INTO app_membership_invoice(id,billing_id,membership_id,payment_id,period_start,period_end) VALUES($1,$2,$3,$4,$5,$6)',[invoice.id,row.id,membership,payment,from,to]);
     await enqueueNotification(db,{userId:row.userid,kind:'payment_receipt',dedupeKey:'membership-receipt:'+invoice.id,

@@ -16,10 +16,13 @@ export function MemberCards({
   userId,
   memberName,
   onChanged,
+  locked = "",
 }: {
   userId: number;
   memberName: string;
   onChanged?: () => void;
+  /** Why this viewer can't change these cards (shown instead of the controls); empty when they can. */
+  locked?: string;
 }) {
   const cards = useApi<NfcCard[]>(`/admin/access/cards?userId=${userId}`);
   const setup = useApi<ReaderSetup>("/admin/access/readers");
@@ -99,10 +102,11 @@ export function MemberCards({
           </button>
         </p>
       ) : null}
+      {locked ? <p className="nfc-help">{locked}</p> : null}
       {cards.data?.length === 0 ? (
         <p className="empty-state">
-          No NFC cards are assigned to {memberName}. Choose a reader below to
-          assign their first card.
+          No NFC cards are assigned to {memberName}.
+          {locked ? "" : " Choose a reader below to assign their first card."}
         </p>
       ) : null}
       <div className="nfc-card-list">
@@ -130,41 +134,43 @@ export function MemberCards({
                 ? `Last used ${dateTime(card.lastUsedAt)} at ${card.lastReader}`
                 : "No recorded successful taps."}
             </p>
-            <div className="management-actions">
-              <button
-                type="button"
-                className="button button--quiet"
-                onClick={() => {
-                  setError("");
-                  setStale(false);
-                  setNotice("");
-                  setAction({
-                    card,
-                    kind: card.active ? "revoke" : "reactivate",
-                  });
-                }}
-              >
-                {card.active ? "Revoke" : "Reactivate"} {card.label}
-              </button>
-              {card.active ? (
+            {locked ? null : (
+              <div className="management-actions">
                 <button
                   type="button"
                   className="button button--quiet"
                   onClick={() => {
-                    setReplacement(card);
                     setError("");
+                    setStale(false);
                     setNotice("");
+                    setAction({
+                      card,
+                      kind: card.active ? "revoke" : "reactivate",
+                    });
                   }}
                 >
-                  Replace {card.label}
+                  {card.active ? "Revoke" : "Reactivate"} {card.label}
                 </button>
-              ) : null}
-            </div>
+                {card.active ? (
+                  <button
+                    type="button"
+                    className="button button--quiet"
+                    onClick={() => {
+                      setReplacement(card);
+                      setError("");
+                      setNotice("");
+                    }}
+                  >
+                    Replace {card.label}
+                  </button>
+                ) : null}
+              </div>
+            )}
           </article>
         ))}
       </div>
-      <LoadState {...setup} />
-      {setup.error ? (
+      {locked ? null : <LoadState {...setup} />}
+      {!locked && setup.error ? (
         <button
           type="button"
           className="button button--quiet"
@@ -173,7 +179,7 @@ export function MemberCards({
           Retry reader setup
         </button>
       ) : null}
-      {setup.data ? (
+      {!locked && setup.data ? (
         <AssignCard
           key={`${userId}:${replacement?.id ?? "new"}`}
           userId={userId}

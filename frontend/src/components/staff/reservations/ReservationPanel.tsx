@@ -359,9 +359,10 @@ export function ReservationEditor({
         endTime: new Date(start + hours * HOUR).toISOString(),
         ...(editing ? { expectedRevision: editing.revision } : {}),
       };
+      // Workspace paths act as the staff member even while a member's account is open in another tab.
       const saved = editing
         ? await api<Reservation>(`/admin/reservations/${editing.id}`, { method: "PATCH", body })
-        : await api<Reservation>("/reservations", { method: "POST", body });
+        : await api<Reservation>("/admin/reservations", { method: "POST", body });
       onSaved(saved, !editing);
     } catch (err) {
       quote.reload();

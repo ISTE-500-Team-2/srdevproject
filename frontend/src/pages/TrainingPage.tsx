@@ -15,8 +15,10 @@ import { RevokeTrainingDialog } from "./training/RevokeTrainingDialog";
 import type { Course, CourseEditor, SaveOutcome, TrainingRecord, TrainingTarget } from "./training/trainingTypes";
 import "./certwaiver.css";
 export function TrainingPage({ embedded = false }: { embedded?: boolean }) {
-  const { user } = useAuth();
-  const roles = user?.roles ?? [];
+  const { user, actor } = useAuth();
+  // In the workspace this is the signed-in staff member, even while a member's account is
+  // open in another tab; on the member site it is whoever the site is showing.
+  const roles = (embedded ? (actor ?? user) : user)?.roles ?? [];
   const permitted = roles.some((r) =>
     ["admin", "staff", "instructor"].includes(r),
   );

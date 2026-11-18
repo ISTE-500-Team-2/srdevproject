@@ -9,6 +9,7 @@ import { AppError, positiveId, textField } from "./domain.js";
 import { authState, requireCsrf } from "./middleware/auth.js";
 import { requirePermission } from "./middleware/permissions.js";
 import { StaffModel } from "./models/StaffModel.js";
+import { assertManageable } from "./services/StaffService.js";
 import {
   accessResources,
   assertReaderTarget,
@@ -183,6 +184,8 @@ export function readerManagement(
           ).rowCount
         )
           throw new AppError(404, "NOT_FOUND", "Member not found.");
+        // Refuse before the scan, not after it: the assignment itself is refused for these accounts.
+        if (userId) await assertManageable(db, authState(res).user, userId);
         await db.query(
           `UPDATE app_card_enrollment SET cancelled_at=NOW() WHERE reader_id=$1 AND expires_at<=NOW()
         AND completed_at IS NULL AND cancelled_at IS NULL`,

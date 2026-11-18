@@ -41,7 +41,7 @@ beforeEach(() => {
     if (path.startsWith("/admin/reservations?")) return Promise.resolve({ items: [booking], nextOffset: null });
     if (path.startsWith("/equipment/3/quote")) return Promise.resolve(price);
     if (path === "/admin/reservations/17/cancel") return Promise.resolve({ ...booking, status: "cancelled" });
-    if (path === "/reservations" && options?.method === "POST")
+    if (path === "/admin/reservations" && options?.method === "POST")
       return Promise.resolve({ ...reservation, id: 30, startTime: options.body!.startTime, endTime: options.body!.endTime, revision: 1 });
     return Promise.reject(new Error(`Unexpected endpoint: ${path}`));
   });
@@ -165,7 +165,7 @@ test("clicking open time books that machine at that time, with taken times cross
   await waitFor(() => expect(book.disabled).toBe(false));
   fireEvent.click(book);
   expect(await screen.findByText("Booked Laser cutter for Jordan Member, 1:00–2:00 PM.")).toBeTruthy();
-  const [, options] = api.mock.calls.find(([path, o]) => path === "/reservations" && o?.method === "POST")!;
+  const [, options] = api.mock.calls.find(([path, o]) => path === "/admin/reservations" && o?.method === "POST")!;
   expect(options.body).toMatchObject({ userId: 12, equipmentId: 3, roomId: null, startTime: "2026-11-03T18:00:00.000Z", endTime: "2026-11-03T19:00:00.000Z", expectedPrice: price });
 });
 
@@ -221,7 +221,7 @@ test("a save that finishes after staff opened something else doesn't replace it"
   const original = api.getMockImplementation()!;
   let finish: (value: Reservation) => void = () => {};
   api.mockImplementation((path: string, options?: { method?: string }) =>
-    path === "/reservations" && options?.method === "POST"
+    path === "/admin/reservations" && options?.method === "POST"
       ? new Promise<Reservation>((resolve) => { finish = resolve; })
       : original(path, options),
   );
@@ -282,7 +282,7 @@ test("a booking form opened before equipment loads books the machine it shows", 
   await waitFor(() => expect(book.disabled).toBe(false));
   fireEvent.click(book);
   expect(await screen.findByText("Booked Laser cutter for Jordan Member, 1:00–2:00 PM.")).toBeTruthy();
-  const [, options] = api.mock.calls.find(([path, o]) => path === "/reservations" && o?.method === "POST")!;
+  const [, options] = api.mock.calls.find(([path, o]) => path === "/admin/reservations" && o?.method === "POST")!;
   expect(options.body).toMatchObject({ equipmentId: 3 });
 });
 

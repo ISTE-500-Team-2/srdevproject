@@ -30,6 +30,8 @@ export interface PaymentListItem {
   updatedAt: Date;
   invoiceId: string | null;
   refundStatus: string | null;
+  /** An equipment booking's online card checkout owns this payment (or is still open for it); staff can't record it at the desk. */
+  onlineCheckout: boolean;
   planName: string;
 }
 
@@ -106,6 +108,8 @@ export class PaymentRepository {
       p.membershipid AS "membershipId",d.dayid AS "dayPassId",p.price::text AS amount,p.paymentstatus AS status,p.method,p.reference,p.revision,
       p.paymentdate AT TIME ZONE 'UTC' AS "recordedAt",p.updated_at AS "updatedAt",
       invoice.id AS "invoiceId",invoice.refund_status AS "refundStatus",
+      EXISTS(SELECT 1 FROM app_equipment_checkout c WHERE c.payment_id=p.paymentid
+        OR c.reservation_id=booking.reservationid AND c.status='pending') AS "onlineCheckout",
       COALESCE(m.plan_snapshot->>'name',d.plan_snapshot->>'name',t.tiername,
         CASE WHEN booking.reservationid IS NOT NULL THEN 'Equipment: '||machine.name||
           CASE WHEN booking.status='cancelled' AND p.paymentstatus='paid' THEN ' (cancelled; refund due)' ELSE '' END END,

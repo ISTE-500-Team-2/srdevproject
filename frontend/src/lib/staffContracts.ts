@@ -68,6 +68,8 @@ export interface Payment {
   invoiceId?: string | null;
   /** Stripe refund state for that invoice, once a refund has been asked for. */
   refundStatus?: string | null;
+  /** An equipment booking paid by online card checkout: the checkout settles it, not the desk. */
+  onlineCheckout?: boolean;
 }
 export interface PaymentSummary {
   count: number;

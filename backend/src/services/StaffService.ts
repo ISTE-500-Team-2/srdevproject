@@ -483,8 +483,8 @@ export class StaffService {
     revision: number,
     reason: string,
   ) {
-    return this.write(actorId, false, "entitlement", "update", async (model, actor) => {
-      await this.target(model, actor, userId);
+    return this.write(actorId, false, "entitlement", "update", async (model, actor, db) => {
+      const member = await this.target(model, actor, userId);
       const before = await model.entitlement(kind, id);
       if (!before || before.userId !== userId) throw missing();
       this.expectRevision(before.revision, revision);
@@ -493,6 +493,32 @@ export class StaffService {
           409,
           "REVOKED_ENTITLEMENT",
           "Issue a new entitlement instead of restoring a revoked one.",
+        );
+      // A pass the member cancelled (and may have been refunded for) stays closed.
+      if (!["active", "suspended", "revoked"].includes(before.status))
+        throw new AppError(
+          409,
+          "ENTITLEMENT_CLOSED",
+          `This ${kind === "membership" ? "membership" : "day pass"} is ${before.status || "closed"}. Issue a new one instead of changing it.`,
+        );
+      // Ending access doesn't stop card billing, and each paid renewal would charge for a period
+      // that stays ended. Renewal has to be turned off first.
+      if (
+        kind === "membership" &&
+        status === "revoked" &&
+        (
+          await db.query(
+            `SELECT 1 FROM app_membership_invoice i JOIN app_membership_billing b ON b.id=i.billing_id
+            WHERE i.membership_id=$1 AND b.status NOT IN ('canceled','incomplete_expired','expired')
+              AND NOT b.cancel_at_period_end AND b.cancellation_effective_at IS NULL LIMIT 1`,
+            [id],
+          )
+        ).rowCount
+      )
+        throw new AppError(
+          409,
+          "CARD_RENEWAL_ACTIVE",
+          `This membership still renews by card. Choose View as ${member.firstName} and stop auto-renew on their Membership page first, so they aren't charged again, then end access.`,
         );
       const after = await model.changeEntitlement(
         kind,
@@ -542,6 +568,11 @@ export class StaffService {
       if (before.userId !== owner.userid) throw conflict();
       if ((await db.query('SELECT id::text FROM app_membership_invoice WHERE payment_id=$1 UNION ALL SELECT id::text FROM app_pass_checkout WHERE payment_id=$1 AND amount_cents>0 UNION ALL SELECT reservation_id::text FROM app_equipment_checkout WHERE payment_id=$1',[id])).rowCount)
         throw new AppError(409,'PROVIDER_PAYMENT','Use the Stripe billing refund workflow for this payment.');
+      // While a booking's card checkout is open, its payment is linked only from the reservation.
+      // Recording it at the desk would leave the checkout able to charge again, or let the unpaid
+      // hold cancel a booking the member paid for.
+      if ((await db.query("SELECT 1 FROM reservation r JOIN app_equipment_checkout c ON c.reservation_id=r.reservationid WHERE r.payment_id=$1 AND c.status='pending'",[id])).rowCount)
+        throw new AppError(409,'PROVIDER_PAYMENT','This booking is paid by card online. The member pays through its checkout; if they won’t, cancel the reservation instead.');
       this.expectRevision(before.revision, revision);
       const transitions: Record<string, string[]> = {
         pending: ["paid", "void", "waived"],
