@@ -402,6 +402,14 @@ test("lapsed holds that fail on every pass back off, so a newer lapsed hold behi
         [blocked.map((hold) => hold.id)],
       )
     ).rows;
+  // Database writes the change log shows for these holds; the backoff bookkeeping is not one.
+  const changes = async () =>
+    (
+      await pool.query(
+        "SELECT entity_id AS id,count(*)::int AS n FROM app_staff_audit WHERE action='app_studio_rental.update' AND entity_id=ANY($1) GROUP BY entity_id",
+        [blocked.map((hold) => hold.id)],
+      )
+    ).rows;
   const retrieve = checkout.retrieve;
   checkout.retrieve = async (id: string) => {
     lookups.set(id, (lookups.get(id) ?? 0) + 1);
@@ -430,10 +438,13 @@ test("lapsed holds that fail on every pass back off, so a newer lapsed hold behi
     await service.reconcileLapsedHolds();
     assert.deepEqual(await backoff(), blocked.map(() => ({ failures: 2, minutes: 2 })));
     assert.equal(logged.mock.callCount(), 40);
+    // A hold that can never be settled would otherwise add an audit row on every failed pass.
+    assert.deepEqual(await changes(), [], "backing off a hold writes nothing to the append-only audit");
 
     // Finish card payment still checks a backed-off hold at once.
     missing.delete(blocked[0]!.checkout);
     assert.equal((await service.syncPayment(member, blocked[0]!.id)).status, "expired");
+    assert.deepEqual(await changes(), [{ id: blocked[0]!.id, n: 1 }], "releasing the hold is still audited");
   } finally {
     logged.mock.restore();
     checkout.retrieve = retrieve;

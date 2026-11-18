@@ -437,6 +437,7 @@ function CheckedInPanel({ state, report, zone }: { state: Result<unknown> | unde
                 ) : person.method === "desk" ? (
                   <ConciergeBell role="img" aria-label="At the front desk" />
                 ) : (
+                  // Web check-ins recorded before staff ones were stored as 'desk' (migration 051).
                   <Monitor role="img" aria-label="Member portal" />
                 )}
                 {formatTime(person.at, zone)}

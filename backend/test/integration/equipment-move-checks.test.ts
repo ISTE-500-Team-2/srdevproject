@@ -38,12 +38,12 @@ async function machine(rate: number | null) {
     [`Move check ${randomUUID().slice(0, 8)}`, 'available', rate])).rows[0].equipmentid as number;
 }
 let day = 2;
-/** A one-hour member booking on its own day, so bookings never collide. */
-async function booking(equipmentId: number) {
+/** A one-hour booking (the member's unless another account is given) on its own day, so bookings never collide. */
+async function booking(equipmentId: number, userId = member.user.id) {
   day++;
   return (await pool.query(`INSERT INTO reservation(userid,equipmentid,location,starttime,endtime,status)
     VALUES($1,$2,'Makerspace',(NOW()+$3 * INTERVAL '1 day') AT TIME ZONE 'UTC',(NOW()+$3 * INTERVAL '1 day'+INTERVAL '1 hour') AT TIME ZONE 'UTC','confirmed')
-    RETURNING reservationid AS id,revision`, [member.user.id, equipmentId, day])).rows[0] as { id: number; revision: number };
+    RETURNING reservationid AS id,revision`, [userId, equipmentId, day])).rows[0] as { id: number; revision: number };
 }
 async function deskPayment(reservationId: number, status: 'paid' | 'pending', amount: string) {
   const paymentId = await new StaffModel(pool).createPayment(member.user.id, null, amount, status, 'unspecified', '', 'Equipment booking', administrator.user.id);
@@ -137,7 +137,19 @@ test('online-paid bookings stay put with a message for staff, not "contact staff
   assert.equal(theirsCancel.body.error.code, 'PAYMENT_WORKFLOW_REQUIRED');
   assert.match(theirsCancel.body.error.message, /another staff member opened/);
   assert.doesNotMatch(theirsCancel.body.error.message, /member’s|You opened/);
-  assert.equal((await pool.query('SELECT status FROM reservation WHERE reservationid=ANY($1)', [[own.id, theirs.id]])).rows.every(r => r.status === 'confirmed'), true);
+  // A staff account's own booking: View as can't open a staff account, so that person cancels it.
+  await pool.query(`INSERT INTO user_role(userid,roleid,assignedat) SELECT $1,roleid,NOW() AT TIME ZONE 'UTC' FROM role WHERE role='staff'`, [colleague]);
+  const self = await booking(source, colleague);
+  await checkout(self.id, 'pending', colleague);
+  for (const response of [
+    await send('post', `/admin/reservations/${self.id}/cancel`, {}),
+    await moveTo(source, self, target),
+  ]) {
+    assert.equal(response.body.error.code, 'PAYMENT_WORKFLOW_REQUIRED');
+    assert.match(response.body.error.message, /the person who booked it opened/);
+    assert.doesNotMatch(response.body.error.message, /View as|member’s|You opened/);
+  }
+  assert.equal((await pool.query('SELECT status FROM reservation WHERE reservationid=ANY($1)', [[own.id, theirs.id, self.id]])).rows.every(r => r.status === 'confirmed'), true);
 });
 
 test('ids past the database integer range are refused as bad input, not a server error', async () => {
