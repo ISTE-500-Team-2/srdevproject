@@ -6,6 +6,7 @@
 2. Select a device, enter its name, choose the building/room/machine, and provide Wi-Fi details. Select **Use saved Wi-Fi** only when its saved connection already works. Network advertisements appear as hints but require USB to complete first-time pairing.
 3. **Connect reader** starts a server-tracked job: private recovery backup → Wi-Fi → unique device pairing → NFC/server verification. Close and reopen to resume viewing progress. No manual reader ID, credential copying, terminal or firmware source editing is part of this flow.
 4. The reader becomes enabled only after the newly generated backend credential has authenticated a fresh heartbeat and the bound gateway has verified a fresh, HMAC-authenticated poll with the PN532 ready. Then test a physical card; all existing membership, reservation, training and waiver rules still apply.
+5. To set a reader up again (new Wi-Fi, a reset or a move), plug it back into the Pi. **Add reader** lists it as "Set up as <name>". The new setup creates a new reader; the old one keeps its settings until the new setup finishes and is then turned off. A failed or cancelled attempt leaves it as it was. To only change the room, door or machine a reader serves, use **Manage** on the Readers list.
 
 The dialog uses the existing Modal, management form, buttons, badges, fonts and colors. Manual registration remains under **Advanced manual setup**, for operator-managed legacy installations.
 
