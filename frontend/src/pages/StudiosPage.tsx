@@ -390,7 +390,12 @@ export function StudiosPage() {
           onConfirm={() => {
             const r = cancelRental;
             void action(async () => {
-              await api(`/studio-rentals/${r.id}/cancel`, { method: "POST" });
+              // The refund terms shown follow from this state; if a payment was recorded since,
+              // the server refuses and the refresh redraws the dialog with the real terms.
+              await api(`/studio-rentals/${r.id}/cancel`, {
+                method: "POST",
+                body: { expectedStatus: r.status, expectedPaymentStatus: r.payment_status },
+              });
               setCancelling(null);
               setMessage(`${r.name} cancelled.`);
             });

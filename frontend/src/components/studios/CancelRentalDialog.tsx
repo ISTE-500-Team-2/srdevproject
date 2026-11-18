@@ -10,8 +10,8 @@ import { money, policy, rentalRange } from "../../lib/studioDisplay";
 function refundLine(r: Rental, refundable: number, started: boolean) {
   if (refundable > 0)
     return { ok: true, text: `You'll get ${money(refundable)} back to your original payment method.` };
-  // A card payment can go through before this page hears about it; the server stops the
-  // cancellation in that case so the member sees the real refund terms first.
+  // A card payment can go through before this page hears about it. The cancel request names the
+  // state shown here, so the server stops if it was paid meanwhile and the real terms are shown.
   if (r.status === "pending" && r.payment_method === "stripe_test")
     return {
       ok: true,

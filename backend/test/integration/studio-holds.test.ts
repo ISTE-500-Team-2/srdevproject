@@ -1,8 +1,9 @@
-// Studio holds: card holds whose checkout never opened, paid-before-cancel checkouts, the per-member
-// unpaid-hold cap and the staff rental list. Stripe is a local test double.
+// Studio holds: card holds whose checkout never opened, paid-before-cancel checkouts, cancel and
+// checkout races, lapsed holds whose webhook was lost, the per-member unpaid-hold cap and the staff
+// rental list. Stripe is a local test double.
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
-import { after, before, beforeEach, test } from "node:test";
+import { after, before, beforeEach, mock, test } from "node:test";
 import { Pool } from "pg";
 import { initializeDemo } from "../../src/scripts/init-demo.js";
 import { StudioService, UNPAID_HOLD_LIMIT } from "../../src/studios/service.js";
@@ -241,4 +242,125 @@ test("the staff list keeps refunds owed and future rentals however many newer ro
   assert.ok(listed.has(owed), "a refund still owed stays on the desk");
   assert.ok(listed.has(future), "a future rental keeps its member name on the board");
   assert.ok(!listed.has(finished), "finished history past the newest 200 is still capped");
+});
+
+test("a card payment confirmed after the cancel dialog was drawn stops the cancellation", async () => {
+  const r = await service.create(member, input(1, { startDate: "2030-05-31" }));
+  await pool.query("UPDATE app_studio_rental SET cancellation_policy='no_refunds' WHERE id=$1", [r.id]);
+  const session = sessions.get((await row(r.id)).checkout_id);
+  // The member opened the dialog on the unpaid hold; then the webhook (or the return-page sync) confirmed it.
+  const paid = { ...session, status: "complete", payment_status: "paid", payment_intent: `pi_test_${r.id}` };
+  sessions.set(session.id, paid);
+  await service.complete(paid);
+  await assert.rejects(service.cancel(member, r.id, { expectedStatus: "pending", expectedPaymentStatus: "unpaid" }), {
+    code: "TERMS_CHANGED",
+  });
+  let stored = await row(r.id);
+  assert.equal(stored.status, "confirmed", "a paid rental is not cancelled under terms the member never saw");
+  assert.equal(stored.payment_status, "paid");
+  // Shown the paid terms, the member can still cancel; the policy decides the refund.
+  await service.cancel(member, r.id, { expectedStatus: "confirmed", expectedPaymentStatus: "paid" });
+  stored = await row(r.id);
+  assert.equal(stored.status, "cancelled");
+  assert.equal(stored.refund_cents, 0);
+});
+
+test("a desk payment recorded after the cancel dialog was drawn stops the cancellation", async () => {
+  const r = await service.create(member, input(2, { startDate: "2030-05-31", paymentMethod: "manual" }));
+  await pool.query("UPDATE app_studio_rental SET cancellation_policy='no_refunds' WHERE id=$1", [r.id]);
+  await service.manualPay(admin, r.id, "RCPT-1001");
+  await assert.rejects(service.cancel(member, r.id, { expectedStatus: "pending", expectedPaymentStatus: "unpaid" }), {
+    code: "TERMS_CHANGED",
+  });
+  const stored = await row(r.id);
+  assert.equal(stored.status, "confirmed");
+  assert.equal(stored.payment_status, "paid");
+  await assert.rejects(service.cancel(member, r.id, { expectedStatus: "pending", expectedPaymentStatus: "nope" }), {
+    code: "INVALID_INPUT",
+  });
+});
+
+test("a hold cancelled while its checkout is being created never gets a payment link", async () => {
+  // The member cancels the new hold from another tab while Stripe is still creating its checkout.
+  duringCreate = async (params) => {
+    await service.cancel(member, Number(params.client_reference_id));
+  };
+  const r = await service.create(member, input(3, { startDate: "2030-05-31" }));
+  assert.equal(r.checkoutUrl, null);
+  assert.equal(r.status, "cancelled", "the response says the hold ended, not that it is held");
+  assert.equal(creates.length, 1);
+  assert.equal(expired.length, 1, "the session created for the cancelled hold is expired");
+  assert.equal(sessions.get(expired[0]!).client_reference_id, String(r.id));
+  assert.equal((await row(r.id)).checkout_id, null);
+});
+
+test("cancelling stops when a checkout opened after the hold was first read", async () => {
+  failCreate = true;
+  await assert.rejects(service.create(member, input(4, { startDate: "2030-05-31" })), { code: "CHECKOUT_UNAVAILABLE" });
+  const held = await pendingOn(4);
+  assert.equal(held.checkout_id, null);
+  // Between cancel()'s first read and its locked read, a Finish card payment retry opens a checkout.
+  const query = pool.query;
+  let opened = false;
+  (pool as any).query = async (...args: any[]) => {
+    const result = await (query as any).apply(pool, args);
+    if (!opened && args[0] === "SELECT * FROM app_studio_rental WHERE id=$1 AND userid=$2") {
+      opened = true;
+      await (query as any).call(pool, "UPDATE app_studio_rental SET checkout_id='cs_test_opened_meanwhile' WHERE id=$1", [
+        held.id,
+      ]);
+    }
+    return result;
+  };
+  try {
+    await assert.rejects(service.cancel(member, held.id), { code: "PAYMENT_PROCESSING" });
+  } finally {
+    delete (pool as any).query;
+  }
+  assert.ok(opened);
+  assert.equal((await row(held.id)).status, "pending", "a hold whose payment link may be in use is not cancelled");
+});
+
+test("card holds whose Stripe verdict never arrived are settled once their deadline passes", async () => {
+  const startDate = "2030-07-31";
+  const paid = await service.create(member, input(5, { startDate }));
+  const lapsed = await service.create(member, input(6, { startDate }));
+  const paidSession = sessions.get((await row(paid.id)).checkout_id);
+  sessions.set(paidSession.id, { ...paidSession, status: "complete", payment_status: "paid", payment_intent: `pi_test_${paid.id}` });
+  const lapsedSession = sessions.get((await row(lapsed.id)).checkout_id);
+  sessions.set(lapsedSession.id, { ...lapsedSession, status: "expired", url: null });
+  // Both webhooks were lost. A hold still inside its window is left alone.
+  await service.reconcileLapsedHolds();
+  assert.equal((await row(paid.id)).status, "pending");
+  assert.equal((await row(lapsed.id)).status, "pending");
+  await pool.query("UPDATE app_studio_rental SET hold_until=now()-interval '1 second' WHERE id = ANY($1)", [
+    [paid.id, lapsed.id],
+  ]);
+  await service.reconcileLapsedHolds();
+  const settled = await row(paid.id);
+  assert.equal(settled.status, "confirmed", "a paid checkout is confirmed, never released");
+  assert.equal(settled.payment_status, "paid");
+  assert.equal((await row(lapsed.id)).status, "expired");
+  assert.equal((await service.create(member, input(6, { startDate }))).status, "pending", "the studio is free again");
+
+  // A provider error keeps the hold for the next pass and logs no message or body.
+  const stuck = await service.create(member, input(7, { startDate }));
+  await pool.query("UPDATE app_studio_rental SET hold_until=now()-interval '1 second' WHERE id=$1", [stuck.id]);
+  const retrieve = checkout.retrieve;
+  checkout.retrieve = async () => {
+    throw new TypeError("secret provider body");
+  };
+  const logged = mock.method(console, "error", () => {});
+  try {
+    await service.reconcileLapsedHolds();
+    assert.equal((await row(stuck.id)).status, "pending");
+    assert.match(String(logged.mock.calls[0]!.arguments[0]), /Studio hold reconciliation deferred/);
+    assert.doesNotMatch(JSON.stringify(logged.mock.calls.map((c) => c.arguments)), /secret provider body/);
+  } finally {
+    logged.mock.restore();
+    checkout.retrieve = retrieve;
+  }
+  await service.reconcileLapsedHolds();
+  assert.equal((await row(stuck.id)).status, "expired", "an open checkout past the deadline is expired, then released");
+  assert.ok(expired.includes((await row(stuck.id)).checkout_id));
 });

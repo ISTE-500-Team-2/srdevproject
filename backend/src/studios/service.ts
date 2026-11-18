@@ -14,8 +14,10 @@ import { DEFAULT_BUILDING_ID } from "../facility.js";
 import { requireActor } from "../accountPolicy.js";
 import { businessToday } from "../businessDate.js";
 import { studioRefundDecision, studioRefundState } from "./refundDecision.js";
+import { errorIdentifier } from "../logSafety.js";
 import type {
   NamedStudioRentalRow,
+  StudioCancelRequest,
   StudioConfigureRequest,
   StudioRentalRequest,
   StudioRentalRow,
@@ -422,7 +424,21 @@ export class StudioService {
       return result;
     });
   }
-  async cancel(userid: number, id: number) {
+  /**
+   * Cancels a member's rental. `expected` is the rental state the member reviewed the refund terms
+   * against; a client showing those terms sends it so a payment recorded meanwhile (the card
+   * webhook, the return-page sync or the front desk) stops the cancellation instead of applying
+   * terms the member never saw.
+   */
+  async cancel(userid: number, id: number, expected: StudioCancelRequest = {}) {
+    const { expectedStatus, expectedPaymentStatus } = expected;
+    if (
+      (expectedStatus !== undefined &&
+        !oneOf(["pending", "confirmed", "cancelled", "expired"], expectedStatus)) ||
+      (expectedPaymentStatus !== undefined &&
+        !oneOf(["unpaid", "paid", "refund_pending", "refunded", "refund_failed"], expectedPaymentStatus))
+    )
+      throw new AppError(400, "INVALID_INPUT", "Unknown rental status in the cancellation request.");
     const initial = (
       await this.pool.query<StudioRentalRow>(
         "SELECT * FROM app_studio_rental WHERE id=$1 AND userid=$2",
@@ -483,6 +499,18 @@ export class StudioService {
           "PAYMENT_PROCESSING",
           "Card checkout just opened for this hold. Refresh, then cancel again.",
         );
+      // The refund terms the member saw follow from the payment state they saw. A payment recorded
+      // since then changes them (an unpaid hold refunds nothing, a paid no-refund rental keeps the
+      // fee), so stop and let them review the real terms first.
+      if (
+        (expectedStatus !== undefined && expectedStatus !== r.status) ||
+        (expectedPaymentStatus !== undefined && expectedPaymentStatus !== r.payment_status)
+      )
+        throw new AppError(
+          409,
+          "TERMS_CHANGED",
+          "A payment for this rental was just recorded, so the refund terms you saw no longer apply. Check what cancelling would refund now before you cancel.",
+        );
       // End dates are exclusive: from ends_on the month is over, so there is
       // nothing left to free up or refund.
       if (businessToday(this.zone) >= r.ends_on)
@@ -535,6 +563,35 @@ export class StudioService {
         "PAYMENTS_UNAVAILABLE",
         "Card test payments are not configured; contact staff.",
       );
+    return this.reconcileHold(r);
+  }
+  /**
+   * Card holds past their deadline that still wait on Stripe's verdict because its expired or
+   * completed webhook was lost or is late. Each is reconciled as Finish card payment would (confirmed
+   * if paid, released once its checkout has expired), so one lost event can't keep a studio blocked
+   * until the member comes back. A provider error leaves that hold for the next pass.
+   */
+  async reconcileLapsedHolds() {
+    if (!this.stripe) return;
+    const lapsed = (
+      await this.pool.query<StudioRentalRow>(
+        "SELECT * FROM app_studio_rental WHERE status='pending' AND payment_method='stripe_test' AND checkout_id IS NOT NULL AND hold_until<=now() ORDER BY hold_until LIMIT 20",
+      )
+    ).rows;
+    for (const r of lapsed)
+      await this.reconcileHold(r).catch((error: unknown) =>
+        // Log only the error class and SQLSTATE or Stripe error type, never messages or bodies.
+        console.error("Studio hold reconciliation deferred", { rentalId: r.id, ...errorIdentifier(error) }),
+      );
+  }
+  /**
+   * Brings a pending card hold in line with its checkout: confirms it if paid, releases it once the
+   * checkout has expired (expiring an open one whose hold deadline passed), and otherwise keeps it
+   * held with the link to finish paying.
+   */
+  private async reconcileHold(r: StudioRentalRow) {
+    const id = r.id,
+      stripe = this.stripe!;
     let opened;
     try {
       opened = await this.openCheckout(id);
@@ -552,13 +609,13 @@ export class StudioService {
     if (session.payment_status === "paid") await this.complete(session);
     else {
       if (session.status === "open" && new Date(opened.rental.hold_until) <= new Date())
-        session = await this.stripe.sdk.checkout.sessions.expire(session.id);
+        session = await stripe.sdk.checkout.sessions.expire(session.id);
       // Completed delayed-payment checkouts cannot be expired through Stripe.
       // Reconcile a failed intent if its webhook was missed; keep processing or
       // ambiguous payments held rather than releasing dates prematurely.
       if(session.status==='complete' && session.payment_status==='unpaid' && session.payment_intent) {
         const pi=typeof session.payment_intent==='string'?session.payment_intent:session.payment_intent.id;
-        const intent=await this.stripe.sdk.paymentIntents.retrieve(pi);
+        const intent=await stripe.sdk.paymentIntents.retrieve(pi);
         if(intent.id!==pi||intent.livemode||intent.amount!==r.amount_cents||intent.currency!=='usd')
           throw new AppError(400,'PAYMENT_MISMATCH','Payment intent does not match rental.');
         if(intent.status==='canceled'||intent.status==='requires_payment_method'&&intent.last_payment_error)
