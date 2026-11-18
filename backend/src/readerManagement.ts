@@ -18,6 +18,10 @@ import {
   requireDeviceConfig,
 } from "./readerRegistry.js";
 
+// Time left on a scan by the server's clock, so a browser whose clock is off still counts
+// down correctly rather than comparing its own time with expiresAt.
+const expiresInMs = `GREATEST(0,EXTRACT(EPOCH FROM expires_at-NOW())*1000)::int AS "expiresInMs"`;
+
 export function readerManagement(
   pool: Pool,
   tz: string,
@@ -91,10 +95,15 @@ export function readerManagement(
           "INVALID_INPUT",
           "Choose whether the reader is enabled.",
         );
+      // A location is optional, so older clients that only rename or disable keep working.
+      const move =
+          req.body.kind !== undefined || req.body.resourceId !== undefined,
+        kind = move ? req.body.kind : null,
+        resourceId = move ? positiveId(req.body.resourceId) : null;
       const data = await transaction(pool, async (db) => {
         const before = (
           await db.query(
-            "SELECT id,name,enabled,revision FROM app_access_reader WHERE id=$1 FOR UPDATE",
+            `SELECT id,name,kind,resource_id AS "resourceId",enabled,revision FROM app_access_reader WHERE id=$1 FOR UPDATE`,
             [req.params.id],
           )
         ).rows[0];
@@ -120,10 +129,12 @@ export function readerManagement(
             "SETUP_INCOMPLETE",
             "Finish guided setup before enabling this reader.",
           );
+        if (move) await assertReaderTarget(db, kind, resourceId!);
         const after = (
           await db.query(
-            `UPDATE app_access_reader SET name=$2,enabled=$3,revision=revision+1 WHERE id=$1 RETURNING id,name,enabled,revision`,
-            [before.id, name, req.body.enabled],
+            `UPDATE app_access_reader SET name=$2,enabled=$3,kind=COALESCE($4,kind),resource_id=COALESCE($5,resource_id),
+            revision=revision+1 WHERE id=$1 RETURNING id,name,kind,resource_id AS "resourceId",enabled,revision`,
+            [before.id, name, req.body.enabled, kind, resourceId],
           )
         ).rows[0];
         if (!after.enabled)
@@ -175,6 +186,24 @@ export function readerManagement(
             "READER_UNAVAILABLE",
             "Choose an enabled reader.",
           );
+        // A scan denies every request on its reader, lease renewals included, so starting
+        // one mid-session would cut power to a running machine or relock an open door.
+        // Readers renew once a second with leases of at most 5 seconds, so a grant decided
+        // in the last 10 seconds that has not expired means someone is using it now.
+        if (
+          (
+            await db.query(
+              `SELECT 1 FROM app_device_access_event WHERE reader_id=$1 AND allowed
+              AND created_at>NOW()-INTERVAL '10 seconds' AND expires_at>NOW() LIMIT 1`,
+              [readerId],
+            )
+          ).rowCount
+        )
+          throw new AppError(
+            409,
+            "READER_IN_USE",
+            "Someone is using this reader right now. Start the scan when they finish, or choose another reader.",
+          );
         if (
           userId &&
           !(
@@ -207,7 +236,8 @@ export function readerManagement(
         return (
           await db.query(
             `INSERT INTO app_card_enrollment(id,reader_id,user_id,actor_id,purpose)
-        VALUES($1,$2,$3,$4,$5) RETURNING id,reader_id AS "readerId",user_id AS "userId",purpose,expires_at AS "expiresAt",'waiting' AS status`,
+        VALUES($1,$2,$3,$4,$5) RETURNING id,reader_id AS "readerId",user_id AS "userId",purpose,expires_at AS "expiresAt",
+        ${expiresInMs},'waiting' AS status`,
             [randomUUID(), readerId, userId, authState(res).user.id, purpose],
           )
         ).rows[0];
@@ -219,7 +249,7 @@ export function readerManagement(
     const session = (
       await pool.query(
         `SELECT id,reader_id AS "readerId",user_id AS "userId",purpose,uid_last4 AS "last4",uid_hash,
-      expires_at AS "expiresAt",CASE WHEN cancelled_at IS NOT NULL THEN 'cancelled'
+      expires_at AS "expiresAt",${expiresInMs},CASE WHEN cancelled_at IS NOT NULL THEN 'cancelled'
       WHEN completed_at IS NOT NULL AND purpose='assign' THEN 'completed'
       WHEN expires_at<=NOW() THEN 'expired' WHEN captured_at IS NOT NULL THEN 'captured' ELSE 'waiting' END AS status
       FROM app_card_enrollment WHERE id=$1 AND actor_id=$2`,

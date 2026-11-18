@@ -7,7 +7,7 @@ import { useAuth } from "../context/AuthContext";
 import { api, errorMessage } from "../lib/api";
 import type { PendingEmail, UserProfile } from "../lib/contracts";
 import { shortDate } from "../lib/display";
-import { Detail, FormMessage, Section, SectionForm } from "./profileSections";
+import { Detail, FormMessage, Section, SectionForm, useReturnFocus } from "./profileSections";
 
 // Mirrors sign-up and reset (ResetPasswordPage): the server checks length; the form also asks for
 // an uppercase letter and a special character. Length counts UTF-8 bytes, as bcrypt does.
@@ -34,6 +34,8 @@ export function SignInSection({
 }) {
   const { user, actor, refresh } = useAuth();
   const [editing, setEditing] = useState<Editing>(null);
+  const emailOpener = useReturnFocus(editing === "email");
+  const passwordOpener = useReturnFocus(editing === "password");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   if (!user) return null;
@@ -177,10 +179,22 @@ export function SignInSection({
                 </button>
               </>
             ) : null}
-            <button type="button" className="button button--quiet" disabled={busy} onClick={() => setEditing("email")}>
+            <button
+              ref={emailOpener}
+              type="button"
+              className="button button--quiet"
+              disabled={busy}
+              onClick={() => setEditing("email")}
+            >
               <Mail aria-hidden="true" /> {pending ? "Use a different email" : "Change email"}
             </button>
-            <button type="button" className="button button--quiet" disabled={busy} onClick={() => setEditing("password")}>
+            <button
+              ref={passwordOpener}
+              type="button"
+              className="button button--quiet"
+              disabled={busy}
+              onClick={() => setEditing("password")}
+            >
               <Pencil aria-hidden="true" /> Change password
             </button>
           </div>

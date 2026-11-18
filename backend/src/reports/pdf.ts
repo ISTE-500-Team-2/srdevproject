@@ -1,4 +1,8 @@
-import { EXPORT_ROW_SECTIONS, EXPORT_SUMMARY_SECTIONS } from "./sections.js";
+import {
+  EXPORT_ROW_SECTIONS,
+  EXPORT_SUMMARY_SECTIONS,
+  exportValue,
+} from "./sections.js";
 import type { ReportData } from "./types.js";
 
 /** The report as text lines, one record per line, fields separated by " | ". */
@@ -11,12 +15,16 @@ function reportLines(d: ReportData): string[] {
     for (const row of d[section])
       rows.push([
         section,
-        ...Object.entries(row).map(([k, v]) => `${k}: ${v ?? "not recorded"}`),
+        ...Object.entries(row).map(
+          ([k, v]) => `${k}: ${exportValue(v, d.timeZone) ?? "not recorded"}`,
+        ),
       ]);
   for (const section of EXPORT_SUMMARY_SECTIONS)
     rows.push([
       section,
-      ...Object.entries(d[section]).map(([k, v]) => `${k}: ${v}`),
+      ...Object.entries(d[section]).map(
+        ([k, v]) => `${k}: ${exportValue(v, d.timeZone)}`,
+      ),
     ]);
   for (const [cohort, metrics] of Object.entries(d.notifications.cohorts))
     rows.push([

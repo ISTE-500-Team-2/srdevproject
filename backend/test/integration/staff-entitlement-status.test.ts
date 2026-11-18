@@ -138,7 +138,7 @@ test("card membership: ending access waits for renewal to stop, and a renewal ke
 
   const january = await pay();
   assert.deepEqual([january.status, january.receipt], ["active", null]);
-  assert.equal((await listed(january.id)).renewing, true);
+  assert.equal((await listed(january.id)).autoRenews, true);
   // Ending access while the card still renews would keep charging for a period that stays ended.
   await assert.rejects(change(january.id, "revoked", "Banned"), {
     code: "CARD_RENEWAL_ACTIVE",
@@ -163,12 +163,14 @@ test("card membership: ending access waits for renewal to stop, and a renewal ke
   // account can't be opened, then end access.
   await pool.query(`UPDATE "user" SET status='suspended',accessstatus='suspended' WHERE userid=$1`, [userId]);
   const stopped = await billing.stopRenewal(adminId, userId, march.id, "Banned");
-  assert.equal(stopped.renewing, false);
-  assert.equal(new Date(stopped.renewalEndsAt!).getTime(), Date.UTC(2030, 4, 1));
-  assert.deepEqual([(await listed(march.id)).renewing, new Date((await listed(march.id)).renewalEndsAt!).getTime()], [false, Date.UTC(2030, 4, 1)]);
+  assert.equal(stopped.stopped, true);
+  assert.equal(new Date(stopped.endsAt!).getTime(), Date.UTC(2030, 4, 1));
+  // An account on hold gets no email, so staff are told to pass the last day on.
+  assert.equal(stopped.emailed, false);
+  assert.deepEqual([(await listed(march.id)).autoRenews, new Date((await listed(march.id)).renewalEndsAt!).getTime()], [false, Date.UTC(2030, 4, 1)]);
   await change(march.id, "revoked", "Banned");
-  // Asking again changes nothing and adds nothing to the change log.
-  assert.equal((await billing.stopRenewal(adminId, userId, march.id, "Banned")).renewing, false);
+  // Asking again is refused (there is nothing left to stop) and adds nothing to the change log.
+  await assert.rejects(billing.stopRenewal(adminId, userId, march.id, "Banned"), { code: "RENEWAL_STOPPED" });
   assert.deepEqual(await audits(march.id), [
     { actor: adminId, action: "billing.renewal_stopped" },
     { actor: adminId, action: "entitlement.revoked" },
@@ -194,9 +196,9 @@ test("a card membership ended before renewal had to stop is flagged each time it
     { actor: null, action: "billing.charged_after_access_ended" },
   ]);
   // The record shows it still renews, and staff can stop it there.
-  assert.equal((await listed(february.id)).renewing, true);
-  assert.equal((await billing.stopRenewal(adminId, userId, february.id, "Stop the charges")).renewing, false);
-  assert.equal((await listed(february.id)).renewing, false);
+  assert.equal((await listed(february.id)).autoRenews, true);
+  assert.equal((await billing.stopRenewal(adminId, userId, february.id, "Stop the charges")).stopped, true);
+  assert.equal((await listed(february.id)).autoRenews, false);
 });
 
 test("stopping renewal needs a card membership of that member", async () => {

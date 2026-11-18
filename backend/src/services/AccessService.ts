@@ -7,6 +7,7 @@ import { AppError } from "../domain.js";
 import { accessStatusCode, entitlementCode, waiverCode } from "../eligibility.js";
 import { EligibilityModel } from "../models/EligibilityModel.js";
 import type { EquipmentRecord } from "../models/EquipmentModel.js";
+import { EXPIRATION_LOOKAHEAD_DAYS } from "../notifications/scheduler.js";
 import type { PolicyScope } from "../staffDomain.js";
 
 export interface AccessTarget {
@@ -58,9 +59,28 @@ export class AccessService {
         : 'Staff need to configure the required facility policies before access can be granted.');
     if (code === 'WAIVER_REQUIRED')
       throw new AppError(403,'WAIVER_REQUIRED',through
-        ? `Sign all current required ${scope === 'equipment' ? 'equipment waivers' : 'facility policies'} first. They must remain valid through your reservation.`
+        ? this.lapsingWaiverMessage(waivers) ?? `Sign all current required ${scope === 'equipment' ? 'equipment waivers' : 'facility policies'} first. They must remain valid through your reservation.`
         : `Sign all current required ${scope === 'equipment' ? 'equipment waivers' : 'facility policies'} first.`);
     return waivers;
+  }
+
+  /**
+   * A signature that is valid today but runs out before the reservation ends can only be renewed in
+   * its last days (MemberModel.signWaiver), so say when, rather than send the member to a waivers
+   * page that has nothing to sign yet.
+   */
+  private lapsingWaiverMessage(waivers: {name: string; signed: boolean; expiresAt: Date | null}[]) {
+    const now = Date.now();
+    const unsigned = waivers.filter(w => !w.signed);
+    // Anything never signed, outdated or already expired needs signing now: the usual message.
+    if (unsigned.some(w => !w.expiresAt || w.expiresAt.getTime() <= now)) return null;
+    const lapsing = unsigned[0];
+    if (!lapsing?.expiresAt) return null;
+    const ends = new Intl.DateTimeFormat('en-US',{timeZone:this.timeZone,month:'short',day:'numeric',year:'numeric'}).format(lapsing.expiresAt);
+    const renewable = lapsing.expiresAt.getTime() - EXPIRATION_LOOKAHEAD_DAYS * 86_400_000 <= now;
+    return `Your ${lapsing.name} signature runs out on ${ends}, before this reservation ends. ` + (renewable
+      ? 'Sign it again under Certifications & waivers, then book.'
+      : `You can sign it again in its last ${EXPIRATION_LOOKAHEAD_DAYS} days, or book a time before then.`);
   }
 
   async assertEquipmentWaivers(userId: number, through?: Date) {

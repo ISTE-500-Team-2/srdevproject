@@ -1,7 +1,7 @@
 // Staff editor for reader names, resource targets and enabled state, using server revisions to
 // detect stale changes.
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, ApiError, errorMessage } from "../../lib/api";
 import { editingFormRef } from "../../lib/editingForms";
 import { useApi } from "../../lib/useApi";
@@ -27,7 +27,16 @@ export function ReaderManager({
   const resources = useApi<AccessResource[]>("/admin/access/resources");
   const [adding,setAdding]=useState(false);
   const discovery=useApi<ReaderDiscovery>(setup.configured?'/admin/access/reader-setup':null,{retainOnReload:true,refreshInterval:5000});
-  const detected=discovery.data?.devices.filter(d=>d.connected&&!discovery.data?.jobs.some(j=>j.gatewayId===d.gatewayId&&j.deviceId===d.id&&!['failed','cancelled','expired'].includes(j.status))).length??0;
+  const detected=discovery.data?.devices.filter(d=>d.connected&&!d.readerName&&!discovery.data?.jobs.some(j=>j.gatewayId===d.gatewayId&&j.deviceId===d.id&&!['failed','cancelled','expired'].includes(j.status))).length??0;
+  // A reader joins the list only once its guided setup completes, which can happen after the
+  // wizard is closed: reload the readers whenever another setup job finishes.
+  const completed=discovery.data?.jobs.filter(j=>j.status==='complete').map(j=>j.id).join(',');
+  const seenCompleted=useRef(completed);
+  useEffect(()=>{
+    if(completed===undefined) return;
+    if(seenCompleted.current!==undefined&&seenCompleted.current!==completed) reload();
+    seenCompleted.current=completed;
+  },[completed,reload]);
   const [editing, setEditing] = useState<AccessReader | "new" | null>(null),
     [busy, setBusy] = useState(false);
   const [secret, setSecret] = useState<{ id: string; secret: string } | null>(
@@ -35,6 +44,8 @@ export function ReaderManager({
     ),
     [error, setError] = useState(""),
     [notice, setNotice] = useState("");
+  const location =
+    editing && editing !== "new" ? `${editing.kind}:${editing.resourceId}` : "";
   async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!editing) return;
@@ -63,11 +74,16 @@ export function ReaderManager({
           "Reader added. Install its credentials on the reader to connect it.",
         );
       } else {
+        // Send a location only when it changed, so renaming or disabling a reader whose
+        // location was removed still works.
+        const resource = String(f.get("resource")),
+          [kind, id] = resource.split(":");
         await api(`/admin/access/readers/${editing.id}`, {
           method: "PATCH",
           body: {
             name: f.get("name"),
             enabled: f.get("enabled") === "on",
+            ...(resource !== location ? { kind, resourceId: Number(id) } : {}),
             expectedRevision: editing.revision,
             reason: f.get("reason"),
           },
@@ -77,8 +93,15 @@ export function ReaderManager({
       setEditing(null);
       reload();
     } catch (e) {
-      setError(errorMessage(e));
-      if (e instanceof ApiError && e.status === 409) setEditing(null);
+      const code = e instanceof ApiError ? e.code : "";
+      setError(
+        editing === "new" && code === "ALREADY_EXISTS"
+          ? `A reader with the ID “${String(f.get("id"))}” already exists. Choose a different reader ID.`
+          : errorMessage(e),
+      );
+      // Only a stale edit closes the form, to reopen on the latest settings. Any other
+      // failure keeps what was typed for another try.
+      if (code === "STALE_RECORD") setEditing(null);
       reload();
     } finally {
       setBusy(false);
@@ -200,7 +223,7 @@ export function ReaderManager({
           </article>
         ))}
       </div>
-      <ReaderSetupWizard open={adding} onClose={()=>setAdding(false)} onDone={reload}
+      <ReaderSetupWizard open={adding} onClose={()=>{setAdding(false);reload();}} onDone={reload}
         onManual={()=>{setAdding(false);setEditing('new');setError('');setNotice('');}}/>
       <Modal
         open={!!editing}
@@ -228,38 +251,45 @@ export function ReaderManager({
                 />
               </label>
               {editing === "new" ? (
-                <>
-                  <label>
-                    Reader ID
-                    <input
-                      name="id"
-                      required
-                      pattern="[a-zA-Z0-9_-]{1,64}"
-                      maxLength={64}
-                      autoComplete="off"
-                    />
-                    <small className="nfc-help">
-                      A unique ID for the reader configuration, such as
-                      front-door.
-                    </small>
-                  </label>
-                  <LoadState {...resources} />
-                  <label>
-                    Reader location
-                    <select name="resource" required defaultValue="">
-                      <option value="">Choose a location</option>
-                      {resources.data?.map((r) => (
-                        <option
-                          key={`${r.kind}:${r.id}`}
-                          value={`${r.kind}:${r.id}`}
-                        >
-                          {r.name} · {r.kind}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </>
-              ) : (
+                <label>
+                  Reader ID
+                  <input
+                    name="id"
+                    required
+                    pattern="[a-zA-Z0-9_-]{1,64}"
+                    maxLength={64}
+                    autoComplete="off"
+                  />
+                  <small className="nfc-help">
+                    A unique ID for the reader configuration, such as
+                    front-door.
+                  </small>
+                </label>
+              ) : null}
+              <LoadState {...resources} />
+              <label>
+                Reader location
+                <select name="resource" required defaultValue={location}>
+                  {editing === "new" ? (
+                    <option value="">Choose a location</option>
+                  ) : (
+                    <option value={location}>
+                      {editing.resourceName} · {editing.kind}
+                    </option>
+                  )}
+                  {resources.data
+                    ?.filter((r) => `${r.kind}:${r.id}` !== location)
+                    .map((r) => (
+                      <option
+                        key={`${r.kind}:${r.id}`}
+                        value={`${r.kind}:${r.id}`}
+                      >
+                        {r.name} · {r.kind}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              {editing === "new" ? null : (
                 <label className="nfc-checkbox">
                   <input
                     name="enabled"

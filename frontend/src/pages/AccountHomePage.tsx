@@ -82,7 +82,30 @@ function ActionGroup({ title, actions, tone }: { title: string; actions: Action[
   );
 }
 
-const expired = (status: string) => /expired|revoked|lapsed/i.test(status);
+/**
+ * Why a certification no longer counts, or null while it does. `valid` covers the renewal date
+ * (status stays "active" after it passes), so it alone says whether the training lapsed. It also
+ * turns false while the certification itself is retired or not yet in effect: that is "not
+ * current", as on the Certifications page, not expired.
+ */
+const lapse = (item: Certification) =>
+  item.valid
+    ? null
+    : item.status === "revoked"
+      ? "revoked"
+      : item.renewalDate && Date.parse(item.renewalDate) < Date.now()
+        ? "expired"
+        : "not current";
+
+/** A summary row whose records failed to load: say so, and offer another try. */
+function RowFailed({ what, reload }: { what: string; reload: () => void }) {
+  return (
+    <>
+      <strong className="account-snapshot__bad" role="alert">Couldn’t load {what}</strong>
+      <button type="button" className="text-button" onClick={reload}>Retry</button>
+    </>
+  );
+}
 
 /**
  * What staff see on the member site's home page while they have someone's
@@ -139,7 +162,7 @@ export function AccountHomePage() {
     .filter((item) => item.status === "confirmed" && Date.parse(item.startTime) > now)
     .sort((a, b) => Date.parse(a.startTime) - Date.parse(b.startTime))[0];
   const lastVisit = o?.recentCheckIns[0];
-  const lapsed = (certifications.data ?? []).filter((item) => expired(item.status));
+  const lapsed = (certifications.data ?? []).filter((item) => lapse(item));
 
   const problems: { title: string; detail: string; action?: ReactNode }[] = [];
   if (o && !o.entitlement.membership && !o.entitlement.dayPass)
@@ -155,12 +178,19 @@ export function AccountHomePage() {
         ? "Sign them from Certifications & Waivers."
         : `${user.firstName} has to sign these in their own account.`,
     });
-  for (const item of lapsed)
+  for (const item of lapsed) {
+    const why = lapse(item);
     problems.push({
-      title: `${own ? "Your" : `${user.firstName}'s`} ${item.name} certification is ${item.status.toLowerCase()}.`,
-      detail: "Machines that need it stay locked until an instructor signs it off again.",
-      action: <Link className="button button--quiet account-heads__action" to="/classes">Find a class</Link>,
+      title: `${own ? "Your" : `${user.firstName}'s`} ${item.name} certification is ${why}.`,
+      // A class can renew lapsed training, but not a certification that isn't offered right now.
+      ...(why === "not current"
+        ? { detail: "Machines that need it stay locked while this certification isn't in effect." }
+        : {
+            detail: "Machines that need it stay locked until an instructor signs it off again.",
+            action: <Link className="button button--quiet account-heads__action" to="/classes">Find a class</Link>,
+          }),
     });
+  }
 
   const onBehalf: Action[] = [
     { icon: Drill, title: "Book equipment", detail: own ? "Machines you're certified on" : `Machines ${user.firstName} is certified on`, to: "/equipment" },
@@ -254,11 +284,13 @@ export function AccountHomePage() {
             <dd className="account-snapshot__tags">
               {certifications.data?.length ? (
                 certifications.data.map((item) => (
-                  <span key={item.id} className={`status-pill status-pill--${expired(item.status) ? "warn" : "neutral"}`}>
+                  <span key={item.id} className={`status-pill status-pill--${lapse(item) ? "warn" : "neutral"}`}>
                     {item.name}
-                    {expired(item.status) ? ", expired" : ""}
+                    {lapse(item) ? `, ${lapse(item)}` : ""}
                   </span>
                 ))
+              ) : certifications.error ? (
+                <RowFailed what="certifications" reload={certifications.reload} />
               ) : (
                 <strong>{certifications.data ? "None yet" : "…"}</strong>
               )}
@@ -272,6 +304,8 @@ export function AccountHomePage() {
                   <strong>{nextBooking.equipmentName}</strong>
                   <span>{dateTime(nextBooking.startTime)}</span>
                 </>
+              ) : bookings.error ? (
+                <RowFailed what="bookings" reload={bookings.reload} />
               ) : (
                 <strong>{bookings.data ? "None" : "…"}</strong>
               )}

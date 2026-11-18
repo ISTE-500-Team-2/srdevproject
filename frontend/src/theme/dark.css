@@ -28,6 +28,7 @@
   --bronze: #eba454;
   --orange: #f7961d;
   --orange-soft: #3a2611;
+  --focus-ring: #f7961d;
   --border: #46372d;
   --border-strong: #7d6656;
   --green: #8fdc9b;
@@ -53,9 +54,11 @@
   --stepper-theme-tile: #2c2119;
   --stepper-theme-tile-edge: rgba(255, 232, 210, 0.1);
   --stepper-theme-solid-ink: #1c0c03;
+  --stepper-theme-tile-highlight: rgba(255, 235, 215, 0.06);
   --nav-panel: rgba(30, 22, 17, 0.94);
   --nav-solid: #1e1611;
   --nav-edge: rgba(255, 232, 210, 0.1);
+  --nav-highlight: rgba(255, 235, 215, 0.06);
   --nav-text: #f2e8dd;
   --nav-muted: #bfae9f;
   --nav-hover: rgba(255, 240, 225, 0.07);
@@ -243,6 +246,7 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
+:root[data-theme='dark'] .class-chip[aria-pressed='true'] em,
 :root[data-theme='dark'] .desk-chip[aria-pressed='true'] em {
   color: #8a4b00;
 }
@@ -274,6 +278,7 @@
 }
 
 :root[data-theme='dark'] .plans-check input,
+:root[data-theme='dark'] .membership-consent input,
 :root[data-theme='dark'] .studio-terms__policy input,
 :root[data-theme='dark'] .studio-terms__confirm input {
   accent-color: var(--orange);
@@ -306,11 +311,29 @@
   border-color: rgba(247, 150, 29, 0.45);
 }
 
+/* --green stays light in dark mode, so its pill keeps the light theme's dark green ink. */
+:root[data-theme='dark'] .account-role--staff {
+  color: #123b1c;
+}
+
 /* ---------- Studio desk ---------- */
 /* The desk keeps its hairline and muted text in local variables, which the compiler leaves as written. */
 :root[data-theme='dark'] .studio-desk {
   --desk-line: var(--dk-hairline);
   --desk-muted: var(--muted);
+}
+
+/* ---------- Staff Today and Plans ---------- */
+/* Same local-variable pattern as the desk: row dividers and secondary text. */
+:root[data-theme='dark'] .today {
+  --today-line: var(--dk-hairline);
+  --today-line-strong: rgba(255, 232, 210, 0.18);
+  --today-muted: var(--muted);
+}
+
+:root[data-theme='dark'] .plans {
+  --plans-line: var(--dk-hairline);
+  --plans-muted: var(--muted);
 }
 
 /* ---------- Cards, wells, panels ---------- */
@@ -397,10 +420,6 @@
   border-bottom-color: var(--ink-soft);
 }
 
-:root[data-theme='dark'] .form-field__control:focus-within {
-  border-bottom-color: var(--orange);
-}
-
 :root[data-theme='dark'] .form-field__control input {
   background: transparent;
 }
@@ -418,6 +437,20 @@
   color: var(--ink);
 }
 
+/* Dropdown chevrons are SVG images, whose URL-encoded stroke the compiler can't map: the same arrows in soft ink. */
+:root[data-theme='dark'] .class-field select,
+:root[data-theme='dark'] .class-field--picker select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23bfae9f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' viewBox='0 0 24 24'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+
+:root[data-theme='dark'] .management-page .cw-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23bfae9f' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+
+:root[data-theme='dark'] .cw-field select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23bfae9f' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+
 /* ---------- Login card ---------- */
 :root[data-theme='dark'] .login-card {
   border-color: rgba(255, 232, 210, 0.12);
@@ -431,6 +464,15 @@
 
 :root[data-theme='dark'] .login-page__ambient--two {
   background: radial-gradient(circle, rgba(160, 112, 78, 0.16), transparent 68%);
+}
+
+/* Sign-up's Continue is espresso in light, like .button--primary; in dark it is copper like it, so the
+   stepper's dark solid ink reads on it. */
+:root[data-theme='dark'] .signup-stepper .stepper__button--next {
+  border-color: #e9a24f;
+  background: var(--dk-copper);
+  color: var(--dk-copper-ink);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 9px 24px rgba(0, 0, 0, 0.4);
 }
 
 /* ---------- Modals and toast ---------- */
@@ -485,12 +527,16 @@
 }
 
 /* ---------- Staff workspace ---------- */
-:root[data-theme='dark'] .admin-shell {
-  background: linear-gradient(to right, var(--surface-sunken) 251px, var(--dk-hairline) 251px 252px, transparent 252px);
+/* The stripe stands in for the sidebar, which admin.css hides at 900px and below. */
+@media (min-width: 901px) {
+  :root[data-theme='dark'] .admin-shell {
+    background: linear-gradient(to right, var(--surface-sunken) 251px, var(--dk-hairline) 251px 252px, transparent 252px);
+  }
 }
 
+/* The phone menu matches admin.css's two-class selector so its body and header share one fill. */
 :root[data-theme='dark'] .admin-side,
-:root[data-theme='dark'] .modal-card--navigation,
+:root[data-theme='dark'] .modal-card.modal-card--navigation,
 :root[data-theme='dark'] .modal-card--navigation .modal-card__header {
   border-color: var(--dk-hairline);
   background: var(--surface-sunken);
@@ -515,6 +561,10 @@
   background: rgba(20, 15, 11, 0.82);
 }
 
+/* The plain avatar comes first: its variants have the same specificity and win only by coming later. */
+:root[data-theme='dark'] .admin-avatar,
+:root[data-theme='dark'] .admin-avatar--large { background: rgba(247, 150, 29, 0.16); color: #ffc98a; }
+
 :root[data-theme='dark'] .admin-avatar--self {
   background: #3a1d0b;
   box-shadow: inset 0 0 0 1px rgba(247, 150, 29, 0.45);
@@ -524,8 +574,6 @@
 :root[data-theme='dark'] .admin-avatar--2 { background: rgba(196, 160, 214, 0.16); color: #dcc6e6; }
 :root[data-theme='dark'] .admin-avatar--3 { background: rgba(150, 184, 212, 0.16); color: #bfd4e6; }
 :root[data-theme='dark'] .admin-avatar--4 { background: rgba(242, 144, 127, 0.16); color: #f5b4a8; }
-:root[data-theme='dark'] .admin-avatar,
-:root[data-theme='dark'] .admin-avatar--large { background: rgba(247, 150, 29, 0.16); color: #ffc98a; }
 
 /* Today: the now-line must stay visible through the in-use block. */
 :root[data-theme='dark'] .today-panel {
@@ -568,7 +616,9 @@
   box-shadow: 0 0 0 1px var(--dk-copper-ink);
 }
 
-:root[data-theme='dark'] .today-nowtag {
+/* The studio board's tag repeats its studios.css selector so it matches the compiled twin. */
+:root[data-theme='dark'] .today-nowtag,
+:root[data-theme='dark'] .desk-ticks .desk-today-tag {
   color: var(--dk-copper-ink);
 }
 

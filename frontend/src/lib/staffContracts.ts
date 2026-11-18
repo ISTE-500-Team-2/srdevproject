@@ -34,6 +34,8 @@ export interface Person {
   revision: number;
   /** Member directory and record reads: their photo version, null without one. */
   photoVersion?: string | null;
+  /** Whether a date of birth is recorded. Staff can add a missing one, once. */
+  dobOnFile?: boolean;
 }
 export interface Entitlement {
   id: number;
@@ -49,10 +51,12 @@ export interface Entitlement {
   reason: string;
   cancellationRequestedAt?: string | null;
   cardBilled?: boolean;
-  /** A card membership whose subscription will charge again; staff can stop it from the record. */
-  renewing?: boolean;
-  /** Once card renewal is stopped: when the last paid period ends. */
+  /** Card billing that will charge again: no stop has been confirmed by the payment provider. */
+  autoRenews?: boolean;
+  /** The last day of card billing once someone asked to stop it. */
   renewalEndsAt?: string | null;
+  /** A stop was asked for but the payment provider hasn't confirmed it, so billing may still renew. */
+  renewalStopPending?: boolean;
 }
 export interface Payment {
   id: number;
@@ -70,7 +74,11 @@ export interface Payment {
   planName: string;
   /** Set for card membership payments; the Stripe invoice a refund goes through. */
   invoiceId?: string | null;
-  /** Stripe refund state for that invoice, once a refund has been asked for. */
+  /** Set for a card day pass bought online; its refund goes through this checkout. */
+  passCheckoutId?: string | null;
+  /** Set for an equipment booking paid by card online; its refund goes through this booking. */
+  equipmentReservationId?: number | null;
+  /** Stripe refund state for that invoice or checkout, once a refund has been asked for. */
   refundStatus?: string | null;
   /** An equipment booking paid by online card checkout: the checkout settles it, not the desk. */
   onlineCheckout?: boolean;

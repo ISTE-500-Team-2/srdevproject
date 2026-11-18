@@ -13,7 +13,10 @@ export class ApiError extends Error {
   }
 }
 let accessToken: string | null = null;
-export function setAccessToken(value: string | null) { accessToken = value; }
+// Who `accessToken` was issued to. Every tab shares one refresh cookie, so a
+// renewal answers for whoever signed in on this browser last.
+let tokenOwner: number | null = null;
+export function setAccessToken(value: string | null) { accessToken = value; if (!value) tokenOwner = null; }
 let refreshing: Promise<void> | null = null;
 let csrfToken: string | null = null;
 export function setCsrfToken(value: string | null) {
@@ -27,14 +30,15 @@ const FAILED = 'The request could not be completed.';
 /**
  * The one authenticated transport behind api() and apiText(): renews a missing
  * access token first, sends the bearer token, cookies and, for mutations, the
- * JSON body and CSRF token, and after a 401 renews once and retries. The caller
- * decodes the response.
+ * JSON body and CSRF token, and after a 401 renews once and retries (unless the
+ * renewal comes back signed in as someone else). The caller decodes the response.
  */
 async function send(
   path: string,
   { method = 'GET', body, signal, accept }: { method?: string; body?: unknown; signal?: AbortSignal; accept: string },
 ): Promise<Response> {
   const sessionless = SESSIONLESS.has(path);
+  const owner = tokenOwner;
   if (!accessToken && !sessionless) await renew();
   const mutation = !['GET', 'HEAD'].includes(method);
   const perform = () => fetch('/api' + path, {
@@ -52,9 +56,18 @@ async function send(
   let response = await perform();
   if (response.status === 401 && !sessionless) {
     await renew();
+    // Someone else signed in from another tab: never send this tab's request as them.
+    if (owner !== null && tokenOwner !== owner) throw signedInElsewhere();
     response = await perform();
   }
   return response;
+}
+
+/** This tab's sign-in was replaced by another person's: drop it and go back to sign-in. */
+function signedInElsewhere() {
+  accessToken = null; csrfToken = null; tokenOwner = null;
+  window.dispatchEvent(new Event('session-expired'));
+  return new ApiError(401, 'SIGNED_IN_ELSEWHERE', 'Someone else signed in on this browser, so you were signed out here. Sign in again to continue.');
 }
 
 type ErrorBody = { error?: { code?: string; message?: string; field?: unknown } } | null | undefined;
@@ -91,6 +104,7 @@ export async function api<T>(
   if (payload.data?.accessToken) {
     accessToken = payload.data.accessToken;
     csrfToken = payload.data.csrfToken;
+    tokenOwner = payload.data.user?.id ?? null;
   }
   return payload.data as T;
 }
@@ -119,10 +133,11 @@ export function errorMessage(error: unknown) {
  * Every request waits on one shared renewal, so a renewal that never answers would hold
  * them all (and every retry of a failed page). The CSRF read is safe to abandon and
  * repeat, so it is bounded. The refresh POST is not: the server rotates the refresh
- * token and treats a second use as replay, revoking the session, so it is never cut
- * short or re-sent while pending. A refresh that stalls therefore keeps its callers
- * waiting with no app deadline: a known limit of the current protocol, which only
- * idempotent rotation on the server would lift.
+ * token and forgives a second use for only a few seconds before treating it as replay
+ * and revoking the session, so it is never cut short or re-sent while pending. A
+ * refresh that stalls therefore keeps its callers, and other tabs' renewals, waiting
+ * with no app deadline: a known limit of the current protocol, which only idempotent
+ * rotation on the server would lift.
  */
 const csrfReadTimeoutMs = 10_000;
 async function readCsrf() {
@@ -139,19 +154,31 @@ async function readCsrf() {
   } finally { clearTimeout(timer); }
 }
 
+/**
+ * Tabs share one refresh cookie and each renewal rotates it, so tabs renew one at a time:
+ * each then sends the cookie the previous renewal set, never the same one at once.
+ * Browsers without Web Locks (or plain-HTTP pages) rely on the server's grace window.
+ */
+function oneTabAtATime(renewal: () => Promise<void>): Promise<void> {
+  const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
+  return locks ? locks.request('arbor-session-renewal', renewal) : renewal();
+}
+
 async function renew(): Promise<void> {
   if (refreshing) return refreshing;
   refreshing = (async () => {
     try {
-      // Read CSRF via same-origin response; refresh credentials remain HttpOnly.
-      const session = await readCsrf();
-      // No refresh session: signed out. Skip the refresh call that could only fail.
-      if (!session.csrfToken) throw new ApiError(401, 'UNAUTHENTICATED', 'Sign in to continue.');
-      csrfToken = session.csrfToken;
-      await api('/auth/refresh', {method:'POST'});
+      await oneTabAtATime(async () => {
+        // Read CSRF via same-origin response; refresh credentials remain HttpOnly.
+        const session = await readCsrf();
+        // No refresh session: signed out. Skip the refresh call that could only fail.
+        if (!session.csrfToken) throw new ApiError(401, 'UNAUTHENTICATED', 'Sign in to continue.');
+        csrfToken = session.csrfToken;
+        await api('/auth/refresh', {method:'POST'});
+      });
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
-        accessToken = null; csrfToken = null;
+        accessToken = null; csrfToken = null; tokenOwner = null;
         window.dispatchEvent(new Event('session-expired'));
       }
       throw error;

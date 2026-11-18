@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { act, cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { BookingReference } from "./BookingReference";
 
 afterEach(() => {
@@ -19,14 +19,22 @@ test.each([false, true])("the reference stays readable without a code input (red
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
   }));
-  render(<BookingReference id={42} />);
-  const reference = screen.getByRole("group", { name: "Booking reference 000042" });
-  const value = within(reference).getByText("000042");
+  const { container } = render(<BookingReference id={42} />);
+  const value = screen.getByText("000042");
   expect(value.closest("[inert]")).toBeNull();
-  expect(reference.querySelector("input")).toBeNull();
+  expect(container.querySelector("input")).toBeNull();
 
   act(() => vi.advanceTimersByTime(5000));
-  expect(within(reference).getByText("000042")).toBe(value);
+  expect(screen.getByText("000042")).toBe(value);
+});
+
+test("screen readers read the reference as ordinary text, not only as a label on an empty box", () => {
+  const { container } = render(<BookingReference id={42} />);
+  const reference = container.querySelector(".booking-reference")!;
+  expect(reference.textContent).toBe("Booking reference 000042");
+  expect(reference.querySelector("[aria-hidden]")).toBeNull();
+  expect(reference.closest("[aria-hidden]")).toBeNull();
+  expect(screen.queryByRole("group")).toBeNull();
 });
 
 test("the displayed reference updates for a new booking without truncating longer numbers", () => {
@@ -36,7 +44,6 @@ test("the displayed reference updates for a new booking without truncating longe
   expect(screen.queryByText("000042")).toBeNull();
 
   rerender(<BookingReference id={1234567} />);
-  const reference = screen.getByRole("group", { name: "Booking reference 1234567" });
-  expect(within(reference).getByText("1234567")).toBeTruthy();
+  expect(screen.getByText("1234567")).toBeTruthy();
   expect(screen.queryByText("000123")).toBeNull();
 });

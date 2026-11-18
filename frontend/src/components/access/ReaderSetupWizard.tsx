@@ -16,6 +16,8 @@ type DetectedReader = {
   firmware: string | null;
   transport: "usb" | "network";
   connected: boolean;
+  /** The reader this device finished setup as; setting it up again replaces that reader. */
+  readerName?: string | null;
 };
 type SetupJob = {
   id: string;
@@ -96,14 +98,29 @@ export function ReaderSetupWizard({
       setReuseWifi(false);
     }
   }, [open]);
-  // Refresh status without replacing or resetting the name/network form.
-  useEffect(() => {
-    if (!open) return;
-    const timer = window.setInterval(discovery.reload, 2000);
-    return () => window.clearInterval(timer);
-  }, [open, discovery.reload]);
   const data = discovery.data,
     job = data?.jobs.find((j) => j.id === jobId);
+  // useApi clears its error when each read starts. Keep the last failure on screen until a
+  // read succeeds, so a background retry does not remove the alert and announce it again.
+  const settled = !discovery.loading && !discovery.refreshing;
+  const [lastFailure, setLastFailure] = useState("");
+  useEffect(() => {
+    if (discovery.error || settled) setLastFailure(discovery.error);
+  }, [discovery.error, settled]);
+  const failure = discovery.error || (settled ? "" : lastFailure);
+  // Refresh status without replacing or resetting the name/network form. The next check is
+  // 2 seconds after the last answer, so a slow answer is never cut off by the next check.
+  // After a failed check, keep trying every 10 seconds so a brief network blip recovers on
+  // its own. Polling stops once the setup job has finished.
+  const polling = open && settled && !(job && !active(job));
+  useEffect(() => {
+    if (!polling) return;
+    const timer = window.setTimeout(
+      discovery.reload,
+      discovery.error ? 10_000 : 2000,
+    );
+    return () => window.clearTimeout(timer);
+  }, [polling, discovery.error, discovery.reload]);
   const pending = data?.jobs.filter(active) ?? [];
   const devices =
     data?.devices.filter(
@@ -186,8 +203,8 @@ export function ReaderSetupWizard({
               : "Step 1 of 3 · Find your reader"}
         </p>
         <LoadState
-          loading={discovery.loading}
-          error={discovery.error}
+          loading={discovery.loading && !failure}
+          error={failure}
           reload={discovery.reload}
         />
         {!jobId && !selected && data ? (
@@ -212,8 +229,15 @@ export function ReaderSetupWizard({
                 <article className="nfc-card" key={d.gatewayId + ":" + d.id}>
                   <div className="nfc-section__heading">
                     <h3>{d.model}</h3>
-                    <span className="activity-badge is-allowed">Detected</span>
+                    <span
+                      className={`activity-badge is-${d.readerName ? "neutral" : "allowed"}`}
+                    >
+                      {d.readerName ? "Set up" : "Detected"}
+                    </span>
                   </div>
+                  {d.readerName ? (
+                    <p className="nfc-help">Set up as {d.readerName}</p>
+                  ) : null}
                   <p className="nfc-help">
                     {data.gateways.find((g) => g.id === d.gatewayId)?.name} ·{" "}
                     {d.transport === "usb"
@@ -231,6 +255,7 @@ export function ReaderSetupWizard({
                     }}
                   >
                     Set up {d.model}
+                    {d.readerName ? " again" : ""}
                   </button>
                 </article>
               ))}
@@ -253,19 +278,22 @@ export function ReaderSetupWizard({
                 Continue setup: {j.name}
               </button>
             ))}
-            <div className="management-actions">
-              <button
-                className="button button--quiet"
-                disabled={discovery.refreshing}
-                onClick={discovery.reload}
-              >
-                Check again
-              </button>
-              <button className="nfc-dismiss" onClick={onManual}>
-                Advanced manual setup
-              </button>
-            </div>
           </>
+        ) : null}
+        {/* Outside the discovery results: manual setup stays available when discovery fails. */}
+        {!jobId && !selected ? (
+          <div className="management-actions">
+            <button
+              className="button button--quiet"
+              disabled={discovery.loading || discovery.refreshing}
+              onClick={discovery.reload}
+            >
+              Check again
+            </button>
+            <button className="nfc-dismiss" onClick={onManual}>
+              Advanced manual setup
+            </button>
+          </div>
         ) : null}
         {selected && !jobId ? (
           <form ref={editingFormRef} className="management-form nfc-reader-form" onSubmit={begin}>
@@ -273,6 +301,13 @@ export function ReaderSetupWizard({
               {selected.model} ·{" "}
               {data?.gateways.find((g) => g.id === selected.gatewayId)?.name}
             </p>
+            {selected.readerName ? (
+              <p className="form-notice" role="status">
+                This reader is set up as {selected.readerName}. Setting it up
+                again replaces it: {selected.readerName} is turned off once the
+                new setup finishes, and left as it is if setup fails.
+              </p>
+            ) : null}
             <fieldset disabled={busy}>
               <label>
                 Reader name
@@ -280,6 +315,7 @@ export function ReaderSetupWizard({
                   name="name"
                   required
                   maxLength={100}
+                  defaultValue={selected.readerName ?? ""}
                   placeholder="For example, Front door"
                 />
               </label>

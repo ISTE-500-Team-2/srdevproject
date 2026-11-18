@@ -29,17 +29,28 @@ import { readerManagement } from "./readerManagement.js";
 import { accessCards } from "./accessCards.js";
 import { DEFAULT_BUILDING_ID } from "./facility.js";
 export type { Reader, DeviceConfig } from "./readerRegistry.js";
-export function readDeviceConfig(): DeviceConfig | undefined {
-  if (!process.env.ACCESS_READERS_JSON && !process.env.ACCESS_CARD_HASH_KEY)
+/**
+ * An env file line such as `ACCESS_READERS_JSON=` arrives as an empty string, which means
+ * "not set" here rather than invalid JSON. Errors name the setting, never its value.
+ */
+function jsonList(env: NodeJS.ProcessEnv, name: string): unknown {
+  const raw = env[name]?.trim();
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw Error(`${name} must be a JSON array, or left blank when not used`);
+  }
+}
+export function readDeviceConfig(env: NodeJS.ProcessEnv = process.env): DeviceConfig | undefined {
+  if (!env.ACCESS_READERS_JSON?.trim() && !env.ACCESS_CARD_HASH_KEY)
     return undefined;
-  const readers = JSON.parse(process.env.ACCESS_READERS_JSON ?? "[]"),
-    cardHashKey = process.env.ACCESS_CARD_HASH_KEY ?? "";
-  if (
-    cardHashKey.length < 32 ||
-    !Array.isArray(readers) ||
-    readers.length > 100
-  )
-    throw Error("Invalid device access configuration");
+  const readers = jsonList(env, "ACCESS_READERS_JSON"),
+    cardHashKey = env.ACCESS_CARD_HASH_KEY ?? "";
+  if (cardHashKey.length < 32)
+    throw Error("ACCESS_CARD_HASH_KEY must contain at least 32 characters");
+  if (!Array.isArray(readers) || readers.length > 100)
+    throw Error("ACCESS_READERS_JSON must be a JSON array of at most 100 readers");
   const ids = new Set();
   for (const r of readers) {
     if (
@@ -52,16 +63,16 @@ export function readDeviceConfig(): DeviceConfig | undefined {
       ((r.kind !== "building" || r.resourceId !== undefined) &&
         (!Number.isSafeInteger(r.resourceId) || r.resourceId < 1))
     )
-      throw Error("Invalid reader configuration");
+      throw Error("Invalid reader entry in ACCESS_READERS_JSON");
     ids.add(r.id);
   }
-  const setupGateways = JSON.parse(process.env.ACCESS_SETUP_GATEWAYS_JSON ?? "[]");
+  const setupGateways = jsonList(env, "ACCESS_SETUP_GATEWAYS_JSON");
   if (!Array.isArray(setupGateways) || setupGateways.length > 20
       || setupGateways.some((g: any) => !g || typeof g.id !== "string"
         || !/^[a-zA-Z0-9_-]{1,64}$/.test(g.id) || typeof g.name !== "string"
         || !g.name.trim() || g.name.length > 100 || typeof g.secret !== "string"
         || g.secret.length < 32) || new Set(setupGateways.map((g: any) => g.id)).size !== setupGateways.length)
-    throw Error("Invalid reader setup gateway configuration");
+    throw Error("Invalid gateway entry in ACCESS_SETUP_GATEWAYS_JSON");
   return { readers, cardHashKey, setupGateways };
 }
 /**
@@ -237,7 +248,9 @@ export function deviceDecision(
           [
             card!.user_id,
             reader.kind === "room" ? reader.resourceId : null,
-            reader.id,
+            // Staff and members read this as where the check-in happened, so store the
+            // building, room or equipment name as desk check-ins do, never the reader ID.
+            ("location" in verdict ? verdict.location : null) ?? reader.name,
             verdict.buildingId,
             reader.kind === "equipment" ? reader.resourceId : null,
             verdict.reservationId,
@@ -526,6 +539,13 @@ export function cardManagement(
           throw new AppError(404, "NOT_FOUND", "Override not found.");
         await assertManageable(db, authState(res).user, before.user_id);
         if (before.revoked_at) return before;
+        // A finished session stays as it happened: never cancel its booking after the fact.
+        if (new Date(before.ends_at).getTime() <= Date.now())
+          throw new AppError(
+            409,
+            "OVERRIDE_ENDED",
+            "This supervised use already ended. Nothing was changed.",
+          );
         if (before.owns_reservation) {
           const cancelled = (
             await db.query(

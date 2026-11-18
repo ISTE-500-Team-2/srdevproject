@@ -91,3 +91,20 @@ test('without line kinds, headings and the acceptance method are recognised from
   expect(screen.getByText('Plain terms.')).toBeTruthy();
   expect(screen.getByRole('group', { name: 'Method of Acceptance' })).toBeTruthy();
 });
+
+test('words after a blank stay on the form, so a member reads the whole sentence they sign', () => {
+  const description = ['I, ______, acknowledge that I am at least 18 and accept all risks.', 'Date: ____'].join('\n');
+  const inline: WaiverFormField[] = [
+    { key: 'field_1', label: 'I,', line: 0, type: 'text', section: 'participant', semantic: 'other', source: 'member', required: true, maxLength: 200 },
+    { key: 'field_2', label: 'Date', line: 1, type: 'date', section: 'participant', semantic: 'signing-date', source: 'server', required: true, maxLength: 200 },
+  ];
+  const { container } = render(<WaiverDocumentForm user={user} busy={false} onSubmit={vi.fn()}
+    waiver={{ ...waiver, description, formFields: inline, formLines: ['text', 'text'] }}>
+    <button>Record agreement</button>
+  </WaiverDocumentForm>);
+  expect(screen.getByLabelText('I, (required)')).toBeTruthy();
+  expect(screen.getByText(', acknowledge that I am at least 18 and accept all risks.')).toBeTruthy();
+  // A line that ends with its blank adds nothing after the field.
+  expect([...container.querySelectorAll('.waiver-document__fields .policy-text')].map(p => p.textContent))
+    .toEqual([', acknowledge that I am at least 18 and accept all risks.']);
+});

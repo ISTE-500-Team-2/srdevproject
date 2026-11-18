@@ -1,7 +1,7 @@
 // Staff billing endpoints for a member (assisted purchase, stopping card renewal) act for the
 // member being helped while using the staff operator's authorization.
 
-import { Router } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
 import type { Pool } from 'pg';
 import { AppError, positiveId } from '../domain.js';
 import { transaction } from '../db.js';
@@ -21,13 +21,19 @@ export function staffPurchaseRoutes(pool: Pool, config?: StudioStripeConfig, zon
   const passes = new PassBilling(pool, provider, zone);
   const pricing = new BillingPricing(pool);
   const path = '/admin/users/:id/purchase';
-  routes.use(path, requireStaff, requirePermission(pool, 'entitlement', 'create', 'global'), async (req, res, next) => {
+  const member = async (req: Request, res: Response, next: NextFunction) => {
     const target = await new StaffModel(pool).person(positiveId(req.params.id));
     if (!target) throw new AppError(404, 'NOT_FOUND', 'Member not found.');
     if (target.roles.some((role: string) => role === 'admin' || role === 'staff') && !authState(res).user.roles.includes('admin'))
       throw new AppError(403, 'ADMIN_REQUIRED', 'Only administrators can manage staff accounts.');
+    // Checkout refuses a restricted member's account; say it is the member's, not the staff user's.
+    if (target.status !== 'active')
+      throw new AppError(409, 'MEMBER_RESTRICTED', 'This member’s account isn’t active. Reactivate it before selling a plan or pass.');
+    if (target.accessStatus !== 'active')
+      throw new AppError(409, 'MEMBER_RESTRICTED', `This member’s access is ${target.accessStatus}. Restore it before selling a plan or pass.`);
     next();
-  });
+  };
+  routes.use(path, requireStaff, requirePermission(pool, 'entitlement', 'create', 'global'), member);
   routes.get(path, async (req, res) => {
     const id = positiveId(req.params.id);
     res.json({ data: { enabled: !!config, offers: await pricing.offers(id, typeof req.query.date === 'string' ? req.query.date : undefined) } });
@@ -46,10 +52,12 @@ export function staffPurchaseRoutes(pool: Pool, config?: StudioStripeConfig, zon
         : await memberships.checkout(id, req.body);
     res.json({ data: result });
   });
-  // A workspace path: it works while the member's account is on hold or restricted, when staff
-  // can't open it to use the member's own Stop auto-renew.
-  routes.post('/admin/users/:id/memberships/:membershipId/stop-renewal', requireStaff, requirePermission(pool, 'payment', 'update', 'global'), requireCsrf,
-    async (req, res) => {
+  // A member who can't sign in (an account on hold, suspended facility access) can't stop their own
+  // card renewal, and staff can't open a restricted account to do it as them, so staff stop it here on
+  // the member's own terms: the same notice period and the same email. Unlike a sale, this works while
+  // the member's account or access is restricted; only staff accounts stay administrator-only.
+  routes.post('/admin/users/:id/memberships/:membershipId/stop-renewal', requireStaff,
+    requirePermission(pool, 'entitlement', 'update', 'global'), requireCsrf, async (req, res) => {
       res.json({ data: await memberships.stopRenewal(authState(res).user.id, positiveId(req.params.id), positiveId(req.params.membershipId), req.body.reason) });
     });
   return routes;

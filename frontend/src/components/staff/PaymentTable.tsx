@@ -11,6 +11,7 @@ import {
   paymentMethodName,
   paymentStatusName,
   paymentStatusTone,
+  refundAccepted,
   refundNote,
 } from "./PaymentControls";
 import "./paymentTable.css";
@@ -21,7 +22,8 @@ const thisYear = new Date().getFullYear();
 
 /**
  * Payments as a table, newest first. A row opens its editor (front-desk records)
- * or card refund in place; `onChanged` gets a sentence saying what happened.
+ * or card refund in place; `onChanged` gets a sentence saying what happened, and
+ * `problem` when it did not work (a card refund Stripe didn't complete).
  */
 export function PaymentTable({
   items,
@@ -36,16 +38,16 @@ export function PaymentTable({
   caption: string;
   open: number | null;
   onOpen: (id: number | null) => void;
-  onChanged: (message: string) => void;
+  onChanged: (message: string, problem?: boolean) => void;
   showMember?: boolean;
   canManage?: boolean;
 }) {
   const columns = showMember ? 7 : 6;
   const region = useRef<HTMLDivElement>(null);
   /** After a save the form is gone: return focus to the row's button, or to the table if the row has no action now. */
-  const finish = (payment: Payment, stillActionable: boolean, message: string) => {
+  const finish = (payment: Payment, stillActionable: boolean, message: string, problem = false) => {
     onOpen(null);
-    onChanged(message);
+    onChanged(message, problem);
     requestAnimationFrame(() => {
       const button = stillActionable ? document.getElementById(`payment-${payment.id}-action`) : null;
       (button ?? region.current)?.focus();
@@ -144,9 +146,10 @@ export function PaymentTable({
                               false,
                               result === "succeeded"
                                 ? `Refunded ${dollars(p.amount)} to ${p.memberName}'s card.`
-                                : result === "pending" || result === "requires_action"
+                                : refundAccepted(result)
                                   ? `Refund of ${dollars(p.amount)} to ${p.memberName}'s card is on its way.`
                                   : `Stripe didn't complete the refund to ${p.memberName}'s card. Check it in Stripe.`,
+                              !refundAccepted(result),
                             )
                           }
                         />

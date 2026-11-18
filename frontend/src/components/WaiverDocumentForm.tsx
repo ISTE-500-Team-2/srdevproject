@@ -14,6 +14,15 @@ const legacyLineKind = (line: string): WaiverLineKind =>
   /^Method of Acceptance:/.test(line) ? 'acceptance-method'
     : /^\d+\.\s|^Parent or Legal Guardian Consent$|^Administrative Record$/.test(line) ? 'heading' : 'text';
 
+/**
+ * The words after a line's last blank. A field's label is the text before its blank, so without
+ * this, "I, ____, accept all risks" would show only "I," to the person signing.
+ */
+const textAfterLastBlank = (line: string) => {
+  const last = [...line.matchAll(/_{3,}/g)].at(-1);
+  return last ? line.slice(last.index + last[0].length).trim() : '';
+};
+
 // The id also covers labels like "Participant date of birth", which are plain text inputs.
 const isBirthDate = (field: WaiverFormField) => field.semantic
   ? field.semantic === 'date-of-birth' && field.type === 'date' : /^date of birth$/i.test(field.label);
@@ -96,6 +105,7 @@ export function WaiverDocumentForm({ waiver, user, busy, onSubmit, children }: {
           if (kind === 'heading') return <h3 key={lineNumber}>{line}</h3>;
           return line ? <p className="policy-text" key={lineNumber}>{line}</p> : null;
         }
+        const after = textAfterLastBlank(line);
         return <div key={lineNumber} className="waiver-document__fields">
           {lineFields.some(field => field.key === firstGuardianField) ? (
             <div className="waiver-document__guardian">
@@ -133,6 +143,7 @@ export function WaiverDocumentForm({ waiver, user, busy, onSubmit, children }: {
               <small id={`${inputId}-help`} className="waiver-document__hint">{guidance.hint}</small>
             </div>;
           })}
+          {after ? <p className="policy-text">{after}</p> : null}
         </div>;
       })}
       {children}

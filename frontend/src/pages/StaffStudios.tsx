@@ -33,7 +33,7 @@ export function StaffStudios() {
   const [picker, setPicker] = useState(false);
   const [message, setMessage] = useState("");
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 60000);
+    const timer = window.setInterval(() => setNow(Date.now()), 15000);
     return () => window.clearInterval(timer);
   }, []);
 

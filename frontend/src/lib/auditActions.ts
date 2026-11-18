@@ -129,6 +129,7 @@ const TITLES: Record<string, string> = {
   "account_mode.opened": "Opened a member’s account",
   "billing.assisted_checkout_requested": "Checkout link sent",
   "billing.charged_after_access_ended": "Card charged after access ended",
+  "billing.membership_overlap_flagged": "Card charge overlapped a membership",
   "billing.partner.verified": "Partner discount verified",
   "billing.pricing.updated": "Pricing updated",
   "billing.refund.requested": "Refund requested",

@@ -43,7 +43,7 @@ after(async () => {
   await owner.end();
 });
 
-test("an active member's record shows their changes and visits, not sign-in bookkeeping", async () => {
+test("an active member's record shows their changes, visits and taps, not the database's row copies", async () => {
   const id = await new UserModel(pool).create({
     firstName: "Busy",
     lastName: "Member",
@@ -58,25 +58,31 @@ test("an active member's record shows their changes and visits, not sign-in book
        VALUES($1,$2,$3,$4,$2,'Fixture',$5,NOW()-make_interval(mins=>$6))`,
       [adminId, id, action, type, source, minutesAgo],
     );
-  // A few real things, then a week of sign-ins and queued email: far more than one page.
+  // A few real things, then weeks of sign-ins, queued email and the database's copies of
+  // visits, bookings and card use: far more than one page.
   await row("user.access_suspended", "user", "application", 600);
   await row("check_in.insert", "check_in", "database", 590);
+  await row("app_device_access_event.insert", "app_device_access_event", "database", 585);
   await row("user.access_active", "user", "application", 580);
-  for (let i = 0; i < 80; i++) {
-    const [action, type] = ([
-      ["app_session.insert", "app_session"],
-      ["app_refresh_token.insert", "app_refresh_token"],
-      ["app_refresh_family.update", "app_refresh_family"],
-      ["app_notification_outbox.insert", "app_notification_outbox"],
-    ] as const)[i % 4]!;
-    await row(action, type, "database", 500 - i);
+  const noise = [
+    "app_session",
+    "app_refresh_token",
+    "app_refresh_family",
+    "app_notification_outbox",
+    "app_facility_visit",
+    "reservation",
+    "app_access_card",
+    "user_waiver",
+  ];
+  for (let i = 0; i < 160; i++) {
+    const type = noise[i % noise.length]!;
+    await row(`${type}.${i % 3 ? "update" : "insert"}`, type, "database", 500 - i);
   }
   const r = await request(app).get(`/api/admin/users/${id}`).set("Authorization", "Bearer " + token);
   assert.equal(r.status, 200, JSON.stringify(r.body));
   const items: { action: string; entityType: string }[] = r.body.data.audit.items;
-  const noise = ["app_session", "app_refresh_token", "app_refresh_family", "app_notification_outbox"];
   assert.deepEqual(items.filter((a) => noise.includes(a.entityType)), []);
-  for (const action of ["user.access_active", "check_in.insert", "user.access_suspended"])
+  for (const action of ["user.access_active", "app_device_access_event.insert", "check_in.insert", "user.access_suspended"])
     assert.ok(items.some((a) => a.action === action), action);
   // The change log reads the same trail and still gets every row.
   const everything = await new StaffModel(pool, "America/New_York").audits({ subjectId: id });

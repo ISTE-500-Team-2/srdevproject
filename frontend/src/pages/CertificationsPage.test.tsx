@@ -14,7 +14,7 @@ const { api, reload, state } = vi.hoisted(() => ({
  state: {
   data: {} as Record<string, unknown[]>,
   errors: {} as Record<string, string>,
-  auth: { demoLogin: false, user: null as User | null },
+  auth: { demoLogin: false, user: null as User | null, actor: null as User | null },
  },
 }));
 vi.mock('../lib/api',async original=>({ApiError:(await original<typeof import('../lib/api')>()).ApiError,api,errorMessage:(error:Error)=>error.message}));
@@ -36,9 +36,10 @@ function mount({
  equipment = [],
  classes = [],
  user = member,
-}: {waivers?:Waiver[];certifications?:Certification[];equipment?:LiveEquipment[];classes?:ClassRecord[];user?:User} = {}) {
+ actor = null,
+}: {waivers?:Waiver[];certifications?:Certification[];equipment?:LiveEquipment[];classes?:ClassRecord[];user?:User;actor?:User|null} = {}) {
  state.data={'/me/waivers':waivers,'/me/certifications':certifications,'/equipment':equipment,'/classes':classes} satisfies Responses;
- state.auth={demoLogin:false,user};
+ state.auth={demoLogin:false,user,actor};
  render(<MemoryRouter><CertificationsPage /></MemoryRouter>);
 }
 const row = (name:string) => screen.getByRole('heading',{name}).closest('li')!;
@@ -89,6 +90,39 @@ test('signed waivers show when they run out and warn in the last 30 days; expire
  expect(within(expired).getByText(/^Expired .*Oct 30, 2026/)).toBeTruthy();
  expect(within(expired).getByText('Version v2')).toBeTruthy();
  expect(within(expired).getByText(/Last signed: v2/)).toBeTruthy();
+});
+
+test('a waiver running out within 30 days can be signed again early; one with months left cannot',async()=>{
+ mount({waivers:[
+  waiver({id:1,name:'Shop waiver',signed:true,signedAt:'2026-02-03T12:00:00Z',expiresAt:inDays(200),expiredSignature:false,renewable:false}),
+  waiver({id:3,name:'Laser waiver',scope:'equipment',signed:true,signedAt:'2026-02-03T12:00:00Z',expiresAt:inDays(10),expiredSignature:false,renewable:true}),
+ ]});
+ expect(within(row('Shop waiver')).queryByRole('button',{name:'Sign again'})).toBeNull();
+ const expiring = row('Laser waiver');
+ expect(within(expiring).getByText('Sign it again now to keep booking equipment that needs this waiver past its expiry date.')).toBeTruthy();
+ fireEvent.click(within(expiring).getByRole('button',{name:'Sign again'}));
+ expect(screen.queryByText('This version is already signed.')).toBeNull();
+ fireEvent.click(screen.getByRole('checkbox',{name:'I have read and agree to this version of the policy.'}));
+ api.mockResolvedValue({});
+ fireEvent.click(screen.getByRole('button',{name:'Record agreement'}));
+ await waitFor(()=>expect(api).toHaveBeenCalledWith('/me/waivers/3/sign',{method:'POST',body:{accepted:true}}));
+ expect(await screen.findByText('Your agreement has been recorded.')).toBeTruthy();
+});
+
+test('the server, not the browser clock, decides when a waiver can be signed again',()=>{
+ mount({waivers:[
+  // The browser thinks this is inside the 30 days; the server has not opened renewal yet.
+  waiver({id:1,name:'Shop waiver',signed:true,signedAt:'2026-02-03T12:00:00Z',expiresAt:inDays(29.9),expiredSignature:false,renewable:false}),
+  waiver({id:3,name:'Facility policy',signed:true,signedAt:'2026-02-03T12:00:00Z',expiresAt:inDays(20),expiredSignature:false,renewable:true}),
+ ]});
+ const early = row('Shop waiver');
+ expect(within(early).getByText(/^Expires /)).toBeTruthy();
+ expect(within(early).queryByRole('button',{name:'Sign again'})).toBeNull();
+ fireEvent.click(within(early).getByRole('button',{name:'View policy'}));
+ expect(screen.getByText('This version is already signed.')).toBeTruthy();
+ expect(screen.queryByRole('checkbox')).toBeNull();
+ // A facility policy's renewal is about keeping access, not equipment bookings.
+ expect(within(row('Facility policy')).getByText('Sign it again now to keep facility access and day passes without a gap.')).toBeTruthy();
 });
 
 test('all signed waivers say so and link to signed form copies',()=>{
@@ -267,4 +301,70 @@ test('only staff and instructors get the training records link',()=>{
  cleanup();
  mount({user:account({role:'member',roles:['instructor'],email:'i@example.com'})});
  expect(screen.getByRole('link',{name:'Manage training records'}).getAttribute('href')).toBe('/training');
+});
+
+test('staff in a member account can read a waiver but are told the member signs it, before filling anything in',()=>{
+ const staffMember = account({id:99,firstName:'Sam',role:'staff',roles:['staff'],email:'staff@example.com'});
+ const field = {key:'name',label:'Full name',line:1,type:'text' as const,section:'participant' as const,source:'member' as const,required:true,maxLength:200};
+ mount({waivers:[waiver({expiredSignature:false,formFields:[field]})],actor:staffMember});
+ const panel = screen.getByRole('region',{name:'Waivers & policies'});
+ expect(within(panel).getByText('Morgan has to sign this in their own account.')).toBeTruthy();
+ expect(screen.queryByRole('button',{name:'Review and agree'})).toBeNull();
+ fireEvent.click(within(row('Shop policy')).getByRole('button',{name:'View policy'}));
+ const dialog = screen.getByRole('dialog');
+ expect(within(dialog).getByText('Policy text')).toBeTruthy();
+ expect(within(dialog).getByText('Morgan has to sign this in their own account.')).toBeTruthy();
+ expect(within(dialog).queryByRole('checkbox')).toBeNull();
+ expect(within(dialog).queryByRole('textbox')).toBeNull();
+ expect(within(dialog).queryByRole('button',{name:/Record agreement|Submit acceptance/})).toBeNull();
+});
+
+test('members signed in to their own account still sign, even with an actor in the session',()=>{
+ mount({waivers:[waiver({expiredSignature:false})],actor:member});
+ expect(screen.getByRole('button',{name:'Review and agree'})).toBeTruthy();
+ expect(screen.queryByText(/in their own account/)).toBeNull();
+});
+
+test('a refresher taken before a revocation means retraining, not waiting for approval',()=>{
+ const revoked:Certification = {id:2,name:'CNC Training',status:'revoked',valid:false,renewalDate:inDays(200),trainedAt:inDays(-120),approvedAt:inDays(-120),revokedAt:inDays(-10),equipmentIds:[7]};
+ mount({certifications:[revoked],equipment:[cnc],classes:[klass({id:41,startsAt:inDays(-60),endsAt:inDays(-59.95),myStatus:'attended'})]});
+ let cert = row('CNC Training');
+ expect(within(cert).getByText('Revoked')).toBeTruthy();
+ expect(within(cert).queryByText('Awaiting approval')).toBeNull();
+ expect(within(cert).getByText(/Revoked .* · Retraining needed/)).toBeTruthy();
+ // Its renewal date no longer applies.
+ expect(within(cert).queryByText(/Renews/)).toBeNull();
+ cleanup();
+ // Training after the revocation is what an instructor can approve.
+ mount({certifications:[revoked],equipment:[cnc],classes:[klass({id:42,startsAt:inDays(-5),endsAt:inDays(-4.95),myStatus:'attended'})]});
+ cert = row('CNC Training');
+ expect(within(cert).getByText('Awaiting approval')).toBeTruthy();
+ expect(within(cert).getByText(/approves your certification in person/)).toBeTruthy();
+ expect(within(cert).queryByText(/Renews/)).toBeNull();
+});
+
+test('a class still running is not reported as finished',()=>{
+ mount({equipment:[cnc],classes:[klass({startsAt:inDays(-0.01),endsAt:inDays(0.04),myStatus:'enrolled'})]});
+ let cert = row('CNC Training');
+ expect(within(cert).queryByText('Class finished')).toBeNull();
+ expect(within(cert).getByText('Registered')).toBeTruthy();
+ expect(within(cert).getByText("You're registered")).toBeTruthy();
+ cleanup();
+ // Attendance taken at the start of class doesn't finish the training either.
+ mount({equipment:[cnc],classes:[klass({startsAt:inDays(-0.01),endsAt:inDays(0.04),myStatus:'attended'})]});
+ cert = row('CNC Training');
+ expect(within(cert).queryByText('Training complete')).toBeNull();
+ expect(within(cert).queryByText('Awaiting approval')).toBeNull();
+ expect(within(cert).getByText('Registered')).toBeTruthy();
+ expect(within(cert).getByText("You're registered")).toBeTruthy();
+ expect(within(cert).queryByRole('link',{name:/^Register for/})).toBeNull();
+ cleanup();
+ mount({equipment:[cnc],classes:[klass({startsAt:inDays(-0.06),endsAt:inDays(-0.01),myStatus:'attended'})]});
+ cert = row('CNC Training');
+ expect(within(cert).getByText('Training complete')).toBeTruthy();
+ expect(within(cert).getByText('Awaiting approval')).toBeTruthy();
+ cleanup();
+ mount({equipment:[cnc],classes:[klass({startsAt:inDays(-0.06),endsAt:inDays(-0.01),myStatus:'enrolled'})]});
+ cert = row('CNC Training');
+ expect(within(cert).getByText('Class finished')).toBeTruthy();
 });
