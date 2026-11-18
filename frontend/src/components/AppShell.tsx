@@ -1,6 +1,7 @@
 // Persistent member-site header, footer and route outlet, including session notifications.
 
 import { Outlet } from 'react-router-dom';
+import { PageErrorBoundary } from './ErrorBoundary';
 import { Footer } from './Footer';
 import { Header } from './Header';
 import { AccountBar } from './admin/AccountBar';
@@ -24,7 +25,9 @@ export function AppShell() {
         </div>
       ) : null}
       <main id="main-content" className="page-shell">
-        <Outlet />
+        <PageErrorBoundary>
+          <Outlet />
+        </PageErrorBoundary>
       </main>
       <Footer />
     </div>

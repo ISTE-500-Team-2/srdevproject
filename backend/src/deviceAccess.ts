@@ -539,6 +539,13 @@ export function cardManagement(
           throw new AppError(404, "NOT_FOUND", "Override not found.");
         await assertManageable(db, authState(res).user, before.user_id);
         if (before.revoked_at) return before;
+        // A finished session stays as it happened: never cancel its booking after the fact.
+        if (new Date(before.ends_at).getTime() <= Date.now())
+          throw new AppError(
+            409,
+            "OVERRIDE_ENDED",
+            "This supervised use already ended. Nothing was changed.",
+          );
         if (before.owns_reservation) {
           const cancelled = (
             await db.query(

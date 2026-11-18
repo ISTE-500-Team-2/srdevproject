@@ -10,6 +10,13 @@ import { money, policy, rentalRange } from "../../lib/studioDisplay";
 function refundLine(r: Rental, refundable: number, started: boolean) {
   if (refundable > 0)
     return { ok: true, text: `You'll get ${money(refundable)} back to your original payment method.` };
+  // A card payment can go through before this page hears about it. The cancel request names the
+  // state shown here, so the server stops if it was paid meanwhile and the real terms are shown.
+  if (r.status === "pending" && r.payment_method === "stripe_test")
+    return {
+      ok: true,
+      text: "If your card payment didn't go through, there's nothing to refund. If it did, we'll stop and show you the refund terms before anything is cancelled.",
+    };
   if (r.payment_status !== "paid")
     return { ok: true, text: "You haven't paid for this hold, so there's nothing to refund." };
   if (r.cancellation_policy === "no_refunds")

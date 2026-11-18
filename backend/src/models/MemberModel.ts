@@ -13,7 +13,7 @@ export class MemberModel {
       await this.db.query(
         `SELECT c.certid AS id,c.name,uc.status,uc.trained_at AS "trainedAt",uc.approved_at AS "approvedAt",uc.approved_by AS "approvedBy",
       (SELECT firstname||' '||lastname FROM "user" WHERE userid=uc.approved_by) AS "instructorName",
-      uc.revision,c.validity_days AS "validityDays",
+      uc.revision,c.validity_days AS "validityDays",uc.revoked_at AS "revokedAt",
       COALESCE((SELECT json_agg(e.equipmentid) FROM equipment e WHERE e.certid=c.certid
         AND NOT EXISTS(SELECT 1 FROM app_equipment_retirement r WHERE r.equipment_id=e.equipmentid)),'[]') AS "equipmentIds",uc.renewaldate AT TIME ZONE 'UTC' AS "renewalDate",
       (uc.status='active' AND (uc.renewaldate IS NULL OR uc.renewaldate>=NOW() AT TIME ZONE 'UTC')

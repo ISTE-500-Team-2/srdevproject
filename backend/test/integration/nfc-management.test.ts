@@ -634,3 +634,106 @@ test("a card scan cannot start on a reader someone is using, and counts down by 
   assert.ok(polled.expiresInMs > 0 && polled.expiresInMs <= session.expiresInMs);
   await cancel(session.id);
 });
+test("a reader can be moved to another location; the move is checked and recorded", async () => {
+  const created = await post("/admin/access/readers", {
+    id: "movable",
+    name: "Movable",
+    kind: "building",
+    resourceId: 1,
+    reason: "New reader",
+  });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const patch = (body: object) =>
+    request(app)
+      .patch("/api/admin/access/readers/movable")
+      .set("Authorization", "Bearer " + token)
+      .set("X-CSRF-Token", csrf.get(token)!)
+      .send({ name: "Movable", enabled: true, expectedRevision: 1, ...body });
+  const room = (
+    await pool.query(
+      "INSERT INTO room(name,location,status) VALUES('Reader move room','Test','available') RETURNING roomid",
+    )
+  ).rows[0].roomid;
+  assert.equal(
+    (await patch({ kind: "room", resourceId: 2147483000, reason: "Move" })).status,
+    404,
+  );
+  assert.equal(
+    (await patch({ kind: "garage", resourceId: room, reason: "Move" })).status,
+    400,
+  );
+  assert.equal((await patch({ kind: "room", reason: "Move" })).status, 400);
+  const moved = await patch({
+    kind: "room",
+    resourceId: room,
+    reason: "Wrong room picked",
+  });
+  assert.equal(moved.status, 200, JSON.stringify(moved.body));
+  assert.equal(moved.body.data.kind, "room");
+  assert.equal(moved.body.data.resourceId, room);
+  // Renaming alone, as older clients do, keeps the new location.
+  const renamed = await patch({
+    name: "Reader move door",
+    expectedRevision: 2,
+    reason: "Rename",
+  });
+  assert.equal(renamed.status, 200, JSON.stringify(renamed.body));
+  const saved = (await get("/admin/access/readers")).body.data.readers.find(
+    (r: any) => r.id === "movable",
+  );
+  assert.equal(saved.kind, "room");
+  assert.equal(saved.resourceId, room);
+  assert.equal(saved.resourceName, "Reader move room");
+  const audit = (
+    await pool.query(
+      "SELECT before_state,after_state FROM app_staff_audit WHERE action='access.reader_updated' AND reason='Wrong room picked'",
+    )
+  ).rows[0];
+  assert.equal(audit.before_state.kind, "building");
+  assert.equal(audit.after_state.kind, "room");
+  assert.equal(audit.after_state.resourceId, room);
+});
+test("ending supervised use after it ran out changes nothing and keeps the session's booking", async () => {
+  const equipment = (
+    await pool.query(
+      "SELECT equipmentid FROM equipment WHERE status='available' ORDER BY equipmentid LIMIT 1",
+    )
+  ).rows[0].equipmentid;
+  const created = await post("/admin/access/overrides", {
+    userId: memberId,
+    kind: "equipment",
+    resourceId: equipment,
+    durationMinutes: 5,
+    reason: "Supervision",
+  });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const { id, reservationid } = created.body.data;
+  assert.ok(created.body.data.owns_reservation);
+  await pool.query(
+    "UPDATE app_access_override SET ends_at=NOW()-INTERVAL '1 second' WHERE id=$1",
+    [id],
+  );
+  const late = await post(`/admin/access/overrides/${id}/revoke`, {
+    reason: "Finished",
+  });
+  assert.equal(late.status, 409);
+  assert.equal(late.body.error.code, "OVERRIDE_ENDED");
+  assert.equal(
+    (
+      await pool.query(
+        "SELECT revoked_at FROM app_access_override WHERE id=$1",
+        [id],
+      )
+    ).rows[0].revoked_at,
+    null,
+  );
+  assert.equal(
+    (
+      await pool.query(
+        "SELECT status FROM reservation WHERE reservationid=$1",
+        [reservationid],
+      )
+    ).rows[0].status,
+    "confirmed",
+  );
+});

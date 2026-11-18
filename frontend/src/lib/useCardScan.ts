@@ -92,8 +92,14 @@ export function useCardScan(purpose: "assign" | "lookup", userId?: number) {
       clearTimeout(timer);
     };
   }, [scan?.id, scan?.status, retry]);
+  // A lookup is finished once its card is captured; only an assignment still has to be
+  // confirmed before the scan expires.
+  const counting =
+    !!scan &&
+    (scan.status === "waiting" ||
+      (scan.status === "captured" && purpose === "assign"));
   useEffect(() => {
-    if (!scan || !["waiting", "captured"].includes(scan.status)) return;
+    if (!scan || !counting) return;
     const tick = () => {
       const current = Date.now();
       setNow(current);
@@ -102,11 +108,13 @@ export function useCardScan(purpose: "assign" | "lookup", userId?: number) {
     };
     const timer = setInterval(tick, 500);
     return () => clearInterval(timer);
-  }, [scan?.id, scan?.status, deadline]);
+  }, [scan?.id, scan?.status, deadline, counting]);
   return {
     scan,
     error,
     busy,
+    /** The scan is still running against its expiry: waiting, or captured for an assignment. */
+    counting,
     start,
     cancel,
     seconds: scan ? Math.max(0, Math.ceil((deadline - now) / 1000)) : 0,

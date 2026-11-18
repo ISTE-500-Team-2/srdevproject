@@ -94,10 +94,15 @@ export function readerManagement(
           "INVALID_INPUT",
           "Choose whether the reader is enabled.",
         );
+      // A location is optional, so older clients that only rename or disable keep working.
+      const move =
+          req.body.kind !== undefined || req.body.resourceId !== undefined,
+        kind = move ? req.body.kind : null,
+        resourceId = move ? positiveId(req.body.resourceId) : null;
       const data = await transaction(pool, async (db) => {
         const before = (
           await db.query(
-            "SELECT id,name,enabled,revision FROM app_access_reader WHERE id=$1 FOR UPDATE",
+            `SELECT id,name,kind,resource_id AS "resourceId",enabled,revision FROM app_access_reader WHERE id=$1 FOR UPDATE`,
             [req.params.id],
           )
         ).rows[0];
@@ -123,10 +128,12 @@ export function readerManagement(
             "SETUP_INCOMPLETE",
             "Finish guided setup before enabling this reader.",
           );
+        if (move) await assertReaderTarget(db, kind, resourceId!);
         const after = (
           await db.query(
-            `UPDATE app_access_reader SET name=$2,enabled=$3,revision=revision+1 WHERE id=$1 RETURNING id,name,enabled,revision`,
-            [before.id, name, req.body.enabled],
+            `UPDATE app_access_reader SET name=$2,enabled=$3,kind=COALESCE($4,kind),resource_id=COALESCE($5,resource_id),
+            revision=revision+1 WHERE id=$1 RETURNING id,name,kind,resource_id AS "resourceId",enabled,revision`,
+            [before.id, name, req.body.enabled, kind, resourceId],
           )
         ).rows[0];
         if (!after.enabled)

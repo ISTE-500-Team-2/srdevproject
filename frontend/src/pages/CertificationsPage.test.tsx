@@ -14,7 +14,7 @@ const { api, reload, state } = vi.hoisted(() => ({
  state: {
   data: {} as Record<string, unknown[]>,
   errors: {} as Record<string, string>,
-  auth: { demoLogin: false, user: null as User | null },
+  auth: { demoLogin: false, user: null as User | null, actor: null as User | null },
  },
 }));
 vi.mock('../lib/api',async original=>({ApiError:(await original<typeof import('../lib/api')>()).ApiError,api,errorMessage:(error:Error)=>error.message}));
@@ -36,9 +36,10 @@ function mount({
  equipment = [],
  classes = [],
  user = member,
-}: {waivers?:Waiver[];certifications?:Certification[];equipment?:LiveEquipment[];classes?:ClassRecord[];user?:User} = {}) {
+ actor = null,
+}: {waivers?:Waiver[];certifications?:Certification[];equipment?:LiveEquipment[];classes?:ClassRecord[];user?:User;actor?:User|null} = {}) {
  state.data={'/me/waivers':waivers,'/me/certifications':certifications,'/equipment':equipment,'/classes':classes} satisfies Responses;
- state.auth={demoLogin:false,user};
+ state.auth={demoLogin:false,user,actor};
  render(<MemoryRouter><CertificationsPage /></MemoryRouter>);
 }
 const row = (name:string) => screen.getByRole('heading',{name}).closest('li')!;
@@ -267,4 +268,70 @@ test('only staff and instructors get the training records link',()=>{
  cleanup();
  mount({user:account({role:'member',roles:['instructor'],email:'i@example.com'})});
  expect(screen.getByRole('link',{name:'Manage training records'}).getAttribute('href')).toBe('/training');
+});
+
+test('staff in a member account can read a waiver but are told the member signs it, before filling anything in',()=>{
+ const staffMember = account({id:99,firstName:'Sam',role:'staff',roles:['staff'],email:'staff@example.com'});
+ const field = {key:'name',label:'Full name',line:1,type:'text' as const,section:'participant' as const,source:'member' as const,required:true,maxLength:200};
+ mount({waivers:[waiver({expiredSignature:false,formFields:[field]})],actor:staffMember});
+ const panel = screen.getByRole('region',{name:'Waivers & policies'});
+ expect(within(panel).getByText('Morgan has to sign this in their own account.')).toBeTruthy();
+ expect(screen.queryByRole('button',{name:'Review and agree'})).toBeNull();
+ fireEvent.click(within(row('Shop policy')).getByRole('button',{name:'View policy'}));
+ const dialog = screen.getByRole('dialog');
+ expect(within(dialog).getByText('Policy text')).toBeTruthy();
+ expect(within(dialog).getByText('Morgan has to sign this in their own account.')).toBeTruthy();
+ expect(within(dialog).queryByRole('checkbox')).toBeNull();
+ expect(within(dialog).queryByRole('textbox')).toBeNull();
+ expect(within(dialog).queryByRole('button',{name:/Record agreement|Submit acceptance/})).toBeNull();
+});
+
+test('members signed in to their own account still sign, even with an actor in the session',()=>{
+ mount({waivers:[waiver({expiredSignature:false})],actor:member});
+ expect(screen.getByRole('button',{name:'Review and agree'})).toBeTruthy();
+ expect(screen.queryByText(/in their own account/)).toBeNull();
+});
+
+test('a refresher taken before a revocation means retraining, not waiting for approval',()=>{
+ const revoked:Certification = {id:2,name:'CNC Training',status:'revoked',valid:false,renewalDate:inDays(200),trainedAt:inDays(-120),approvedAt:inDays(-120),revokedAt:inDays(-10),equipmentIds:[7]};
+ mount({certifications:[revoked],equipment:[cnc],classes:[klass({id:41,startsAt:inDays(-60),endsAt:inDays(-59.95),myStatus:'attended'})]});
+ let cert = row('CNC Training');
+ expect(within(cert).getByText('Revoked')).toBeTruthy();
+ expect(within(cert).queryByText('Awaiting approval')).toBeNull();
+ expect(within(cert).getByText(/Revoked .* · Retraining needed/)).toBeTruthy();
+ // Its renewal date no longer applies.
+ expect(within(cert).queryByText(/Renews/)).toBeNull();
+ cleanup();
+ // Training after the revocation is what an instructor can approve.
+ mount({certifications:[revoked],equipment:[cnc],classes:[klass({id:42,startsAt:inDays(-5),endsAt:inDays(-4.95),myStatus:'attended'})]});
+ cert = row('CNC Training');
+ expect(within(cert).getByText('Awaiting approval')).toBeTruthy();
+ expect(within(cert).getByText(/approves your certification in person/)).toBeTruthy();
+ expect(within(cert).queryByText(/Renews/)).toBeNull();
+});
+
+test('a class still running is not reported as finished',()=>{
+ mount({equipment:[cnc],classes:[klass({startsAt:inDays(-0.01),endsAt:inDays(0.04),myStatus:'enrolled'})]});
+ let cert = row('CNC Training');
+ expect(within(cert).queryByText('Class finished')).toBeNull();
+ expect(within(cert).getByText('Registered')).toBeTruthy();
+ expect(within(cert).getByText("You're registered")).toBeTruthy();
+ cleanup();
+ // Attendance taken at the start of class doesn't finish the training either.
+ mount({equipment:[cnc],classes:[klass({startsAt:inDays(-0.01),endsAt:inDays(0.04),myStatus:'attended'})]});
+ cert = row('CNC Training');
+ expect(within(cert).queryByText('Training complete')).toBeNull();
+ expect(within(cert).queryByText('Awaiting approval')).toBeNull();
+ expect(within(cert).getByText('Registered')).toBeTruthy();
+ expect(within(cert).getByText("You're registered")).toBeTruthy();
+ expect(within(cert).queryByRole('link',{name:/^Register for/})).toBeNull();
+ cleanup();
+ mount({equipment:[cnc],classes:[klass({startsAt:inDays(-0.06),endsAt:inDays(-0.01),myStatus:'attended'})]});
+ cert = row('CNC Training');
+ expect(within(cert).getByText('Training complete')).toBeTruthy();
+ expect(within(cert).getByText('Awaiting approval')).toBeTruthy();
+ cleanup();
+ mount({equipment:[cnc],classes:[klass({startsAt:inDays(-0.06),endsAt:inDays(-0.01),myStatus:'enrolled'})]});
+ cert = row('CNC Training');
+ expect(within(cert).getByText('Class finished')).toBeTruthy();
 });

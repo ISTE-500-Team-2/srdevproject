@@ -179,7 +179,10 @@ export function TapHistory({
               </button>
             ) : null}
             {lookup?.id === t.id ? (
-              <AssignmentResults assignments={lookup.assignments} />
+              <AssignmentResults
+                assignments={lookup.assignments}
+                timeZone={setup.timeZone}
+              />
             ) : null}
           </article>
         ))}

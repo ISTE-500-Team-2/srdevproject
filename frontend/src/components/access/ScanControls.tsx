@@ -88,7 +88,7 @@ export function ScanControls({
                   ? "This scan expired. Start a new scan."
                   : "This scan has ended."}
           </p>
-          {["waiting", "captured"].includes(scan.scan.status) ? (
+          {scan.counting ? (
             <p className="nfc-help">
               {scan.seconds} seconds remaining. This scan does not open a door
               or activate equipment.
@@ -99,9 +99,11 @@ export function ScanControls({
             className="button button--quiet"
             onClick={() => void scan.cancel()}
           >
-            {["waiting", "captured"].includes(scan.scan.status)
+            {scan.counting
               ? "Cancel scan"
-              : "Start over"}
+              : scan.scan.status === "captured"
+                ? "Scan another card"
+                : "Start over"}
           </button>
         </>
       )}

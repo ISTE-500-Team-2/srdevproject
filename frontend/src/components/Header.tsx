@@ -19,11 +19,13 @@ import {
   type AnchorHTMLAttributes,
   type CSSProperties,
 } from "react";
-import { Link, NavLink, useNavigate } from "react-router-dom";
+import { createPortal } from "react-dom";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { errorMessage } from "../lib/api";
 import { useProfilePhoto } from "../lib/profilePhoto";
 import { AppearanceControl } from "./AppearanceControl";
+import { useModalLayer } from "./Modal";
 import CardNav from "./reactbits/CardNav";
 
 // CardNav renders plain anchors; route them through the router instead.
@@ -37,10 +39,12 @@ const cardNavStyle = {
   "--cn-panel": "var(--nav-panel)",
   "--cn-solid": "var(--nav-solid)",
   "--cn-edge": "var(--nav-edge)",
+  "--cn-highlight": "var(--nav-highlight)",
   "--cn-text": "var(--nav-text)",
   "--cn-muted": "var(--nav-muted)",
   "--cn-hover": "var(--nav-hover)",
-  "--cn-ring": "var(--orange)",
+  // The bar is near-white in light mode, where orange is ~2:1; the theme's ring reads on it.
+  "--cn-ring": "var(--focus-ring)",
   "--cn-shadow": "var(--nav-shadow)",
   "--cn-cta": "var(--nav-cta)",
   "--cn-cta-ink": "var(--nav-cta-ink)",
@@ -81,14 +85,44 @@ export function Header() {
           : null;
   const [error, setError] = useState("");
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const [searchOpen, setSearchOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [query, setQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchLayerRef = useRef<HTMLDivElement>(null);
+  const searchPanelRef = useRef<HTMLElement>(null);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
+  const accountTriggerRef = useRef<HTMLButtonElement>(null);
 
+  // Search is a modal dialog: the page behind is inert, Tab stays in it, Escape
+  // closes it, and focus goes back to the Search button.
+  useModalLayer(searchOpen, { layer: searchLayerRef, dialog: searchPanelRef, initialFocus: searchInputRef }, () => setSearchOpen(false));
+
+  // Header stays mounted across pages, so a new page closes whatever it had open.
   useEffect(() => {
-    if (searchOpen) searchInputRef.current?.focus();
-  }, [searchOpen]);
+    setAccountOpen(false);
+    setSearchOpen(false);
+  }, [pathname]);
+
+  // The account menu closes on Escape (back to its trigger) and on a press anywhere else.
+  useEffect(() => {
+    if (!accountOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setAccountOpen(false);
+      accountTriggerRef.current?.focus();
+    };
+    const onPointer = (event: PointerEvent) => {
+      if (!accountMenuRef.current?.contains(event.target as Node)) setAccountOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onPointer);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onPointer);
+    };
+  }, [accountOpen]);
 
   const results = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -214,13 +248,27 @@ export function Header() {
           ) : null}
           <button
             className="icon-button"
-            onClick={() => setSearchOpen(true)}
+            onClick={(event) => {
+              // WebKit does not focus buttons on click. Give the dialog a return target.
+              event.currentTarget.focus({ preventScroll: true });
+              setSearchOpen(true);
+            }}
             aria-label="Search"
           >
             <Search aria-hidden="true" />
           </button>
-          <div className="account-menu">
+          <div
+            className="account-menu"
+            ref={accountMenuRef}
+            onBlur={(event) => {
+              // Tabbing out closes it. A click lands with no next focus (WebKit
+              // focuses no buttons); outside presses are handled above.
+              const next = event.relatedTarget;
+              if (next instanceof Node && !event.currentTarget.contains(next)) setAccountOpen(false);
+            }}
+          >
             <button
+              ref={accountTriggerRef}
               className="icon-button account-menu__trigger"
               onClick={() => setAccountOpen((value) => !value)}
               aria-label="Open account menu"
@@ -278,19 +326,21 @@ export function Header() {
         </p>
       ) : null}
 
-      {searchOpen ? (
-        <div
-          className="search-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Site search"
-        >
-          <button
+      {searchOpen ? createPortal(
+        <div className="search-overlay" ref={searchLayerRef}>
+          {/* Pointer only: the close button and Escape serve the keyboard. */}
+          <div
             className="search-overlay__scrim"
+            aria-hidden="true"
             onClick={() => setSearchOpen(false)}
-            aria-label="Close search"
           />
-          <section className="search-panel">
+          <section
+            ref={searchPanelRef}
+            className="search-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Site search"
+          >
             <div className="search-panel__input-wrap">
               <Search aria-hidden="true" />
               <input
@@ -333,7 +383,8 @@ export function Header() {
               )}
             </div>
           </section>
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </>
   );

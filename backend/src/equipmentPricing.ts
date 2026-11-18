@@ -40,9 +40,28 @@ export async function equipmentPrice(db: Database, equipmentId: number, hours: n
  */
 export function reviewEquipmentPrice(current: EquipmentPrice | null, expected: unknown) {
   if (expected === undefined && !current?.trainingFeeCents) return; // Older clients remain usable for ordinary bookings.
+  if (current === null && expected === null) return; // Reviewed as unpriced, still unpriced.
   if (!current || !expected || typeof expected !== 'object' ||
       Object.entries(current).some(([key, value]) => (expected as Record<string, unknown>)[key] !== value))
     throw new AppError(409, 'PRICE_CHANGED', 'The booking price changed. Refresh and review the breakdown before confirming.');
+}
+
+/**
+ * Lock the booking and refuse a price or member its payment can't follow: a settled payment of
+ * another amount, or a pending charge with no price. Writes nothing, so a move preview can ask too.
+ */
+export async function checkReservationPrice(db: Database, reservationId: number, userId: number, price: EquipmentPrice | null) {
+  const before = (await db.query('SELECT payment_id,price_snapshot FROM reservation WHERE reservationid=$1 FOR UPDATE', [reservationId])).rows[0];
+  if (!before) throw new AppError(404, 'NOT_FOUND', 'Reservation not found.');
+  const payment = before.payment_id ? await new StaffModel(db).payment(before.payment_id) : null;
+  const amount = price ? (price.totalCents / 100).toFixed(2) : null;
+  if (payment?.status === 'paid') {
+    if (payment.userId !== userId || payment.amount !== amount)
+      throw new AppError(409, 'PAYMENT_SETTLED', 'This booking has a settled payment. Record the appropriate refund before changing its price or member.');
+  } else if (payment?.status === 'pending' && amount === null) {
+    throw new AppError(409, 'PRICE_NOT_CONFIGURED', 'Configure a price before moving a billed booking.');
+  }
+  return { before, payment, amount };
 }
 
 /**
@@ -51,15 +70,8 @@ export function reviewEquipmentPrice(current: EquipmentPrice | null, expected: u
  */
 export async function saveReservationPrice(db: Database, reservationId: number, userId: number,
   actorId: number, price: EquipmentPrice | null, name: string, createPayment = true) {
-  const before = (await db.query('SELECT payment_id,price_snapshot FROM reservation WHERE reservationid=$1 FOR UPDATE', [reservationId])).rows[0];
-  if (!before) throw new AppError(404, 'NOT_FOUND', 'Reservation not found.');
-  const payment = before.payment_id ? await new StaffModel(db).payment(before.payment_id) : null;
-  const amount = price ? (price.totalCents / 100).toFixed(2) : null;
-  if (payment?.status === 'paid') {
-    if (payment.userId !== userId || payment.amount !== amount)
-      throw new AppError(409, 'PAYMENT_SETTLED', 'This booking has a settled payment. Record the appropriate refund before changing its price or member.');
-  } else if (payment?.status === 'pending') {
-    if (amount === null) throw new AppError(409, 'PRICE_NOT_CONFIGURED', 'Configure a price before moving a billed booking.');
+  const { before, payment, amount } = await checkReservationPrice(db, reservationId, userId, price);
+  if (payment?.status === 'pending') {
     await db.query(`UPDATE payment SET userid=$2,price=$3,paymentstatus=$4,revision=revision+1,updated_at=now()
       WHERE paymentid=$1`, [payment.id, userId, amount, price!.totalCents === 0 ? 'waived' : 'pending']);
   }
