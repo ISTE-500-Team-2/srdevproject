@@ -122,9 +122,19 @@ test('signing up with an address that has an account looks like any sign-up, and
   const notices=async()=>(await pool.query(`SELECT o.kind,o.status FROM app_notification_outbox o JOIN "user" u USING(userid)
     WHERE u.email='demo.member@collaboratory.invalid' AND o.kind='account_exists'`)).rows;
   assert.deepEqual(await notices(),[{kind:'account_exists',status:'pending'}]);
-  // Repeated attempts don't flood the owner's inbox.
-  await request(createApp(pool,config)).post('/api/auth/register').send(person('demo.member@collaboratory.invalid'));
+  // A notice just across a clock-hour boundary is still recent. Set the row's age
+  // directly so the assertion is independent of when the suite runs.
+  const ageNotice = (age: string) => pool.query(`UPDATE app_notification_outbox
+    SET created_at=now()-$1::interval WHERE kind='account_exists' AND userid=(
+      SELECT userid FROM "user" WHERE email='demo.member@collaboratory.invalid')`, [age]);
+  const tryAgain = () => request(createApp(pool,config)).post('/api/auth/register').send(person('demo.member@collaboratory.invalid'));
+  await ageNotice('59 minutes');
+  assert.equal((await tryAgain()).status,202);
   assert.equal((await notices()).length,1);
+  await ageNotice('61 minutes');
+  const attempts = await Promise.all([tryAgain(),tryAgain()]);
+  assert.deepEqual(attempts.map(response=>response.status),[202,202]);
+  assert.equal((await notices()).length,2);
   // The account itself is untouched.
   assert.equal((await request(app).post('/api/auth/login').send({email:'demo.member@collaboratory.invalid',password:'AnotherPassword!'})).status,401);
 });

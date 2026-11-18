@@ -11,6 +11,7 @@ const { api } = vi.hoisted(() => ({ api: vi.fn() }));
 vi.mock('../../lib/api', () => ({ api, ApiError: class extends Error {}, errorMessage: (e: Error) => e.message }));
 
 const HOUR = 3600000;
+const MIDDAY = new Date('2026-11-17T17:00:00Z');
 const machine = (id: number, name: string, extra: Partial<ManagedEquipment> = {}): ManagedEquipment => ({
   id, name, type: 'Laser engraver', location: 'Makerspace', certification: null, rate: 15, image: '/m.webp', status: 'available', availabilityRevision: 1, outage: null, activeReaderLeases: 0, ...extra,
 });
@@ -27,6 +28,7 @@ const todayKey = () => dayKey(Date.now(), ZONE);
 const yesterdayKey = () => { const d = new Date(`${todayKey()}T12:00:00Z`); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); };
 let observedWidth = 0;
 beforeEach(() => {
+  vi.setSystemTime(MIDDAY);
   observedWidth = 0;
   machines = [
     machine(1, 'Rachel', { activeReaderLeases: 1 }),
@@ -35,7 +37,7 @@ beforeEach(() => {
     machine(4, 'Ross'),
     machine(5, 'Kirk'),
   ];
-  // Kept within an hour of now so the test does not straddle midnight in practice.
+  // One upcoming booking and one in progress on the same facility day.
   bookings = [booking(11, 2, 0.5, 1, 'Priya Shah'), booking(12, 4, -0.25, 0.75, 'Jordan Ortiz')];
   yesterdayBookings = [];
   api.mockImplementation((path: string) => {
@@ -59,9 +61,10 @@ beforeEach(() => {
     disconnect() {}
   } as unknown as typeof ResizeObserver;
 });
-afterEach(() => { cleanup(); vi.resetAllMocks(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.resetAllMocks(); });
 
 const mount = () => render(<MemoryRouter initialEntries={['/admin/equipment']}><Routes><Route path="/admin/equipment/:equipmentId?" element={<EquipmentManagementPage />} /></Routes></MemoryRouter>);
+const mountWithBookings = () => act(async () => { mount(); });
 const row = async (name: string) => (await screen.findByRole('link', { name: new RegExp(`^${name}`) }));
 
 test('each machine says what it is doing now and what comes next', async () => {
@@ -77,7 +80,7 @@ test('each machine says what it is doing now and what comes next', async () => {
 });
 
 test('the counts double as filters', async () => {
-  mount();
+  await mountWithBookings();
   await waitFor(() => expect(screen.getByRole('button', { name: /2\s*Booked today/ })).toBeTruthy());
   fireEvent.click(screen.getByRole('button', { name: /1\s*In use/ }));
   expect(screen.getAllByRole('link').map(l => l.textContent)).toEqual([expect.stringMatching(/^Rachel/)]);
@@ -89,7 +92,7 @@ test('the counts double as filters', async () => {
 
 test('unreadable bookings are reported as unknown, never as a free day', async () => {
   bookings = new Error('Reservation read permission is required.');
-  mount();
+  await mountWithBookings();
   expect(await screen.findByText(/Today’s bookings could not be loaded\. Reservation read permission is required\./)).toBeTruthy();
   // Reader and maintenance state do not depend on bookings.
   expect((await row('Rachel')).textContent).toContain('In use');
@@ -111,7 +114,7 @@ test('a booking that began yesterday still counts while it runs into today', asy
   finished.startTime = new Date(midnight - 3 * HOUR).toISOString(); finished.endTime = new Date(midnight - HOUR).toISOString();
   // The same booking can arrive in both lists; it is shown once.
   yesterdayBookings = [overnight, finished, (bookings as Reservation[])[1]];
-  mount();
+  await mountWithBookings();
   await waitFor(async () => expect((await row('Kirk')).textContent).toMatch(/Booked until .*Morgan Diaz/));
   expect((await row('Rachel')).textContent).not.toContain('Riley Chen');
   expect(screen.getByRole('button', { name: /3\s*Booked today/ })).toBeTruthy();
@@ -170,6 +173,7 @@ test('on a wide screen a row opens beside the list instead of leaving it', async
 
 test('a refresh that fails after a good read stops vouching for the older schedule', async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(MIDDAY);
   try {
     bookings = [];
     mount();
@@ -192,6 +196,7 @@ test('rates keep their cents when they have any', async () => {
 
 test('a retry after a failed refresh keeps the schedule unknown until it succeeds', async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(MIDDAY);
   try {
     bookings = [];
     mount();

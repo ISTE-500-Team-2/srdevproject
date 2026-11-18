@@ -47,11 +47,17 @@ export async function sendRegistrationConfirmation(db: Database, id: number, ori
 
 /**
  * Tell the member who signs in with an address that someone tried to use it for another account
- * (a sign-up, or another member's email change), at most once an hour.
+ * (a sign-up, or another member's email change), at most once in any hour.
+ * The caller owns the transaction.
  */
 export async function noticeAddressInUse(db: Database, userId: number) {
+  // Serialize both entry points so two concurrent attempts cannot each see an empty hour.
+  await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,30))', [`account-exists:${userId}`]);
+  const recent = await db.query(`SELECT 1 FROM app_notification_outbox
+    WHERE userid=$1 AND kind='account_exists' AND created_at>statement_timestamp()-interval '1 hour' LIMIT 1`, [userId]);
+  if (recent.rowCount) return;
   await enqueueNotification(db, { userId, kind: 'account_exists',
-    dedupeKey: `account-exists:${userId}:${Math.floor(Date.now() / 3_600_000)}`, payload: {} });
+    dedupeKey: `account-exists:${userId}:${randomBytes(16).toString('hex')}`, payload: {} });
 }
 
 /**
