@@ -31,11 +31,13 @@ export function paymentStatusTone(status: string): StatusTone {
   if (status === "pending") return "warn";
   return "neutral";
 }
+const failedRefund = (payment: Payment) => payment.refundStatus === "failed" || payment.refundStatus === "canceled";
+
 /** What a card payment's Stripe refund is doing, if one was asked for and hasn't finished. */
 export function refundNote(payment: Payment) {
   if (payment.refundStatus === "pending" || payment.refundStatus === "requires_action") return "Refund pending";
-  // The app reuses an invoice's existing Stripe refund, so a failed one needs sorting out in Stripe.
-  if (payment.refundStatus === "failed" || payment.refundStatus === "canceled") return "Refund failed";
+  // A failed membership invoice refund is sorted out in Stripe; a day pass's or booking's can be retried (see paymentAction).
+  if (failedRefund(payment)) return "Refund failed";
   return null;
 }
 
@@ -76,8 +78,11 @@ export function cardRefundPath(payment: Payment) {
 /** The one thing staff can do to this payment from the list, if anything. */
 export function paymentAction(payment: Payment): "update" | "refund" | null {
   if (payment.method === "card") {
-    // Only before any refund was asked for: a failed one can't be retried from here (see refundNote).
-    return cardRefundPath(payment) && payment.status === "paid" && !payment.refundStatus ? "refund" : null;
+    if (!cardRefundPath(payment) || payment.status !== "paid") return null;
+    if (!payment.refundStatus) return "refund";
+    // A failed day-pass or booking refund returned nothing, and the server submits a new attempt, so staff can
+    // retry it here: the member can't retry one staff started. A membership invoice's is sorted out in Stripe.
+    return failedRefund(payment) && !payment.invoiceId ? "refund" : null;
   }
   // A booking's online checkout settles its payment: recording it at the desk would leave the open
   // checkout able to charge the member again. (Once paid by card, it is refunded through that booking above.)

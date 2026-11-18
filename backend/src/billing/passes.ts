@@ -280,7 +280,11 @@ export class PassBilling {
     ?'The original-card refund for your day-pass payment did not go through. No pass was issued for it; contact staff to complete the refund.'
     :r.status==='cancelled'
     ?'The original-card refund for your cancelled day pass failed after it was confirmed. Your pass stays cancelled; contact staff to complete the refund.'
-    :'The original-card refund for your day pass did not go through, so the pass has not been cancelled and is still valid. Retry the refund from Membership & passes, or contact staff.'}});
+    // Only the member's own cancellation can be retried from Membership & passes after the cancel-by date: a refund
+    // staff started (here or in Stripe) may fall inside the 3-day window, where the member's cancel is refused.
+    :r.cancel_requested_at
+    ?'The original-card refund for your day pass did not go through, so the pass has not been cancelled and is still valid. Retry the refund from Membership & passes, or contact staff.'
+    :'The original-card refund for your day pass did not go through, so the pass has not been cancelled and is still valid. Contact staff to complete the refund.'}});
   }
  }
  async refundEvent(db:Database,obj:Stripe.Refund){

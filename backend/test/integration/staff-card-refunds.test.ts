@@ -275,13 +275,25 @@ test('a refund made in Stripe before the app recorded the payment is applied onc
   assert.deepEqual((await notices(`equipment-refund:${held.id}:%`)).map(n => [n.userid, n.kind]), [[member, 'payment_refunded']]);
 });
 
-test('a failed staff refund of a pass past its cancel-by date is not the member\'s to retry, and their pass list says so', async () => {
-  const { id } = await cardPass(member);
+test('a failed staff refund of a pass past its cancel-by date is not the member\'s to retry, so they are sent to staff, and staff can retry it', async () => {
+  const { id, intent } = await cardPass(member);
   nextStatus = 'failed';
   assert.deepEqual(await passes.staffRefund(staff, id, 'Visit cut short'), { status: 'failed' });
+  const failed = refunds[0]!.id!;
   // Staff refunds don't record a member cancellation, which is what lets a member retry after the deadline.
   const listed = (await passes.mine(member)).find(p => p.id === id)!;
   assert.deepEqual([listed.status, listed.refundStatus, listed.cancelRequested, listed.passIssued], ['paid', 'failed', false, true]);
   await assert.rejects(passes.cancel(member, id), { code: 'CANCELLATION_NOTICE' });
+  // So the failure email doesn't tell them to retry it from Membership & passes.
+  const [notice] = (await notices(`daypass-refund-failed:${id}:%`)).map(row => row.payload.instructions as string);
+  assert.match(notice!, /still valid\. Contact staff to complete the refund\./);
+  assert.doesNotMatch(notice!, /Retry the refund/);
+
   nextStatus = 'succeeded';
+  assert.deepEqual(await passes.staffRefund(staff, id, 'Visit cut short'), { status: 'succeeded' });
+  assert.equal(keys.at(-1), `daypass-refund:${id}:${failed}`, 'the retry is a new refund that names the failed one');
+  assert.equal(refunds.filter(f => f.payment_intent === intent).length, 2);
+  const after = (await pool.query(`SELECT c.status,d.status AS pass,d.statusdesc,p.paymentstatus AS payment
+    FROM app_pass_checkout c JOIN day_pass d ON d.dayid=c.pass_id JOIN payment p ON p.paymentid=c.payment_id WHERE c.id=$1`, [id])).rows[0];
+  assert.deepEqual(after, { status: 'cancelled', pass: 'cancelled', statusdesc: 'Refunded to the original card', payment: 'refunded' });
 });

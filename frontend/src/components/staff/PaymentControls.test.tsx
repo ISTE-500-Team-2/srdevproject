@@ -53,6 +53,9 @@ test("card day passes and equipment bookings are refunded through their own chec
     expect(paymentAction(payment)).toBe("refund");
     expect(paymentAction({ ...payment, refundStatus: "pending" })).toBeNull();
     expect(paymentAction({ ...payment, status: "refunded", refundStatus: "succeeded" })).toBeNull();
+    // A failed attempt returned nothing, and the server submits a new one, so staff can retry it.
+    expect(paymentAction({ ...payment, refundStatus: "failed" })).toBe("refund");
+    expect(paymentAction({ ...payment, refundStatus: "canceled" })).toBe("refund");
   }
 });
 

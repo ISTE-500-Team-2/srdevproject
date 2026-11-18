@@ -28,5 +28,5 @@ export async function assertNoCardBillingFrom(db:Database,userid:number,startsAt
   if(!open) return;
   throw new AppError(409,'CARD_BILLING_ACTIVE',open.status==='pending'
     ? 'This member has an online card checkout in progress. Ask them to finish or cancel it before selling a membership at the desk.'
-    : 'This member pays monthly by card, and their next card renewal would charge for these dates too. Ask them to turn off automatic renewal, then start this membership when their card billing ends.');
+    : 'This member pays monthly by card, and their next card renewal would charge for these dates too. Choose Stop auto-renew on their membership (or ask them to turn off automatic renewal), then start this membership when their card billing ends.');
 }
