@@ -98,6 +98,26 @@ Schema-changing releases still require separately reviewed backward-compatible
 database changes. This deployer never executes DDL; exact migration checksums
 remain a hard prerequisite.
 
+## Migrations 045 to 050: one new runtime grant
+
+Apply `045_reader_setup_again.sql` through `050_class_room_cooldown.sql` with the
+existing owner migration process on both the public and demo databases. They add
+no tables or sequences. One grant is new: every minute the application now
+compacts ended reader lease renewals (`backend/src/readerLeaseCompaction.ts`),
+which updates and deletes rows in `app_device_access_event`. Before this release
+it only inserted and read them. On each database whose runtime role has only
+the privileges it needed so far, run as the owner:
+
+```sql
+GRANT UPDATE, DELETE ON app_device_access_event TO <runtime role>;
+```
+
+Without it nothing else breaks, but every pass fails with permission denied: the
+service log shows `Reader lease compaction failed; retrying on the next interval`
+(code `42501`) once a minute, and the once-a-second renewal rows keep growing as
+they did before. A role that owns the tables, such as the sponsor hosting kit's
+`arbor` user, needs nothing.
+
 ## Verification
 
 `node --test deploy/rles-edge.test.mjs` exercises atomic route flips, in-flight
