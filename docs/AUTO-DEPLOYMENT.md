@@ -27,7 +27,7 @@ not deploy. The gateway, database containers, volumes, credentials and Pi stay p
 4. Read-only migration/checksum verification runs against both existing databases.
    **It never applies migrations, seeds, recreates volumes or resets data.** If a
    release needs a migration, an operator must review and authorize it separately.
-   Migrations 045 to 050 also need one new runtime grant; see
+   Migrations 045 to 052 also need one new runtime grant; see
    `docs/prewarmed-production-releases.md`.
 5. Fresh public/demo database dumps must succeed and pass `pg_restore --list`.
    This establishes readable archives, not a complete recovery test.

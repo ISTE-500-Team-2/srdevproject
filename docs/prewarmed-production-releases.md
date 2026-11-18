@@ -98,7 +98,7 @@ Schema-changing releases still require separately reviewed backward-compatible
 database changes. This deployer never executes DDL; exact migration checksums
 remain a hard prerequisite.
 
-## Migrations 045 to 050: one new runtime grant
+## Migrations 045 to 052: one new runtime grant
 
 Apply `045_reader_setup_again.sql` through `050_class_room_cooldown.sql` with the
 existing owner migration process on both the public and demo databases. They add
