@@ -25,9 +25,10 @@ export interface AddOptions {
   canManage: boolean;
   certifications: CertificationOption[];
   /** Categories still in the catalog, with their machines in member-page order. */
-  groups?: { name: string; machines: CatalogMachine[] }[];
-  /** Whether an equipment waiver is published; without one, booking a machine that requires it fails. */
-  equipmentWaiver?: boolean;
+  /** A group with no name holds machines without a category; they still appear on member cards. */
+  groups?: { name: string | null; machines: CatalogMachine[] }[];
+  /** Whether the facility and equipment waivers a waiver-required booking checks are published. */
+  waiversPublished?: boolean;
 }
 export interface Added { id: number; name: string; note: string }
 type Tone = 'ok' | 'warn' | 'bad';
@@ -75,7 +76,8 @@ function placeMenu(anchor: HTMLElement, wanted: number): MenuPlace {
 
 export function EquipmentAdd({ onClose, onAdded }: { onClose: () => void; onAdded: (added: Added) => void }) {
   const options = useApi<AddOptions>('/admin/equipment/catalog-options');
-  const groups = options.data?.groups ?? [];
+  const allGroups = options.data?.groups ?? [];
+  const groups = allGroups.flatMap(g => g.name ? [{ ...g, name: g.name }] : []);
   const certs = options.data?.certifications ?? [];
   const ids = useId();
   const [name, setName] = useState('');
@@ -111,7 +113,7 @@ export function EquipmentAdd({ onClose, onAdded }: { onClose: () => void; onAdde
   // The member page shows one card per display group, its first machine's picture on top.
   const card = chosenCategory ? (() => {
     const title = equipmentGroup(chosenCategory);
-    return { title, machines: groups.flatMap(g => g.machines.filter(m => equipmentGroup(m.type ?? g.name) === title)).sort((a, b) => a.id - b.id) };
+    return { title, machines: allGroups.flatMap(g => g.machines.filter(m => equipmentGroup(m.type ?? g.name ?? m.name) === title)).sort((a, b) => a.id - b.id) };
   })() : null;
   const trimmed = name.trim();
   // Names are unique within a category, as the server requires; a merged card labels each machine with its category.
@@ -136,10 +138,10 @@ export function EquipmentAdd({ onClose, onAdded }: { onClose: () => void; onAdde
     : later ? { tone: 'warn', title: `Needs ${cert.name}`, note: `It starts ${day(cert.startsOn)}. No one can book before then` }
     : cert.holders === 0 ? { tone: 'warn', title: `Needs ${cert.name}`, note: 'No member holds it yet' }
     : { tone: 'ok', title: `Needs ${cert.name}`, note: cert.holders === undefined ? 'Members need it to book' : `${plural(cert.holders, 'member')} hold${cert.holders === 1 ? 's' : ''} it today` };
-  const noWaiver = waiver && options.data?.equipmentWaiver === false;
+  const noWaiver = waiver && options.data?.waiversPublished === false;
   const items: Item[] = [listing, price, certItem,
     !waiver ? { tone: 'ok', title: 'No waiver needed', note: 'Members can book without signing' }
-    : noWaiver ? { tone: 'warn', title: 'Equipment waiver', note: 'None is published yet. No one can book until one is' }
+    : noWaiver ? { tone: 'warn', title: 'Equipment waiver', note: 'The required waivers aren’t all published yet. No one can book until they are' }
     : { tone: 'ok', title: 'Equipment waiver', note: 'Unsigned members are asked first' }];
   const bad = items.filter(i => i.tone === 'bad').length;
   const warn = items.some(i => i.tone === 'warn');
@@ -147,7 +149,7 @@ export function EquipmentAdd({ onClose, onAdded }: { onClose: () => void; onAdde
   const waits = [
     later ? `From ${day(cert!.startsOn)}, members who hold ${cert!.name} can book it.` : '',
     cert?.state !== 'later' && cert?.holders === 0 ? `Members need ${cert.name} to book it, and no one holds it yet.` : '',
-    noWaiver ? 'No one can book it until an equipment waiver is published.' : '',
+    noWaiver ? 'No one can book it until the required waivers are published.' : '',
   ].filter(Boolean);
   const footer = bad ? `Fix ${plural(bad, 'item')} in the booking check to add this machine.`
     : waits.length ? `You can add it now. ${waits.join(' ')}`

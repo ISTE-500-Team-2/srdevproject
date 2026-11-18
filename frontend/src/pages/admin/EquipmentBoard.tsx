@@ -1,7 +1,7 @@
 // Staff equipment overview combines availability and day bookings, with detail panels sized to the
 // workspace.
 
-import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type MutableRefObject } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowUpRight, CheckCircle2, ChevronRight, Search, Wrench, X } from 'lucide-react';
 import { useApi } from '../../lib/useApi';
@@ -46,10 +46,12 @@ export function EquipmentBoard() {
   // Kept out here so an Add equipment draft survives the midnight remount below.
   const [adding, setAdding] = useState(false);
   const [added, setAdded] = useState<Added | null>(null);
+  // The addition the board has already revealed; kept here so the midnight remount doesn't reveal it again.
+  const revealed = useRef<Added | null>(null);
   const add = () => { setAdded(null); setAdding(true); };
   return <>
     {/* Remounts at midnight so the schedule never mixes two days. */}
-    <BoardContent key={day} day={day} zone={zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone} now={now} machines={machines} onAdd={add} added={added} />
+    <BoardContent key={day} day={day} zone={zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone} now={now} machines={machines} onAdd={add} added={added} revealed={revealed} />
     {adding && <EquipmentAdd onClose={() => setAdding(false)} onAdded={item => { setAdding(false); setAdded(item); machines.reload(); }} />}
     {added && <div className="eqa-toast" role="status">
       <CheckCircle2 aria-hidden="true" />
@@ -61,7 +63,7 @@ export function EquipmentBoard() {
   </>;
 }
 
-function BoardContent({ day, zone, now, machines, onAdd, added }: { day: string; zone: string; now: number; machines: ReturnType<typeof useApi<ManagedEquipment[]>>; onAdd: () => void; added: Added | null }) {
+function BoardContent({ day, zone, now, machines, onAdd, added, revealed }: { day: string; zone: string; now: number; machines: ReturnType<typeof useApi<ManagedEquipment[]>>; onAdd: () => void; added: Added | null; revealed: MutableRefObject<Added | null> }) {
   const catalog = useApi<CatalogOptions>('/admin/equipment/catalog-options');
   // The bookings list matches by start date, so a booking running past midnight is
   // in yesterday's list: read both and keep what reaches into today.
@@ -90,13 +92,12 @@ function BoardContent({ day, zone, now, machines, onAdd, added }: { day: string;
     && `${r.machine.name} ${r.machine.type} ${r.machine.location}`.toLowerCase().includes(query));
   // Once it is listed, it opens beside the list (on a wide screen) and scrolls into view, once per addition.
   const addedShown = !!added && visible.some(r => r.machine.id === added.id);
-  const revealed = useRef<Added | null>(null);
   useEffect(() => {
     if (!added || !addedShown || revealed.current === added) return;
     revealed.current = added;
     setSelected(added.id);
     document.querySelector('.eq-row--new')?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
-  }, [added, addedShown]);
+  }, [added, addedShown, revealed]);
   const active = split ? (visible.find(r => r.machine.id === selected) ?? visible[0]) : undefined;
   // On a wide screen a row opens beside the list; modified clicks still open the page.
   const choose = (id: number) => (event: MouseEvent) => {

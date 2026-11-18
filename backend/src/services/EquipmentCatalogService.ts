@@ -65,13 +65,14 @@ export class EquipmentCatalogService {
    */
   async options(user: UserView) {
     const [groups, certifications, waiver] = await Promise.all([
-      // Each machine keeps its own spelling (its member-facing type); the group offers the most used one.
-      this.pool.query<{ name: string; machines: { id: number; name: string; image: string; type: string }[] }>(`
-        SELECT mode() WITHIN GROUP (ORDER BY trim(e.category)) AS name,
-          json_agg(json_build_object('id',e.equipmentid,'name',e.name,'image',COALESCE(e.imagepath,'/assets/3d-printer.webp'),'type',e.category)
+      // Each machine keeps its member-facing type (EquipmentModel: its category, else its name); the
+      // group offers the most used spelling. Machines without a category form one group with no name.
+      this.pool.query<{ name: string | null; machines: { id: number; name: string; image: string; type: string }[] }>(`
+        SELECT NULLIF(mode() WITHIN GROUP (ORDER BY trim(e.category)),'') AS name,
+          json_agg(json_build_object('id',e.equipmentid,'name',e.name,'image',COALESCE(e.imagepath,'/assets/3d-printer.webp'),'type',COALESCE(e.category,e.name))
             ORDER BY e.equipmentid) AS machines
-        FROM equipment e WHERE trim(COALESCE(e.category,'')) <> '' AND ${active}
-        GROUP BY lower(trim(e.category)) ORDER BY 1`),
+        FROM equipment e WHERE ${active}
+        GROUP BY lower(trim(COALESCE(e.category,''))) ORDER BY 1 NULLS LAST`),
       // Holders pass the same test booking uses (EligibilityModel.certification) and have active access.
       this.pool.query(`
         SELECT c.certid AS id,c.name,
@@ -84,16 +85,20 @@ export class EquipmentCatalogService {
             WHERE uc.certid=c.certid AND uc.status='active' AND u.accessstatus='active'
               AND (uc.renewaldate IS NULL OR uc.renewaldate>=NOW() AT TIME ZONE 'UTC')) AS holders
         FROM certifications c ORDER BY c.name`, [this.timeZone]),
-      // Booking a machine that requires the waiver fails until one is published (AccessService.assertWaivers).
-      this.pool.query<{ ready: boolean }>(`SELECT EXISTS(SELECT 1 FROM waiver WHERE isactive AND required AND policy_scope='equipment'
-        AND (effectivedate IS NULL OR effectivedate<=NOW() AT TIME ZONE 'UTC')) AS ready`),
+      // A waiver-required booking checks the current facility and equipment policies and fails while
+      // either scope has none (AccessService.assertEquipmentWaivers); same current versions as EligibilityModel.waivers.
+      this.pool.query<{ ready: boolean }>(`WITH current_waivers AS (
+          SELECT DISTINCT ON (name) policy_scope FROM waiver WHERE isactive=true AND required=true
+            AND (effectivedate IS NULL OR effectivedate<=NOW() AT TIME ZONE 'UTC')
+          ORDER BY name,effectivedate DESC NULLS LAST,waiverid DESC)
+        SELECT COALESCE(bool_or(policy_scope='facility'),false) AND COALESCE(bool_or(policy_scope='equipment'),false) AS ready FROM current_waivers`),
     ]);
     return {
       canManage: user.roles.includes('admin'),
-      categories: groups.rows.map(group => group.name),
+      categories: groups.rows.flatMap(group => group.name ? [group.name] : []),
       certifications: certifications.rows,
       groups: groups.rows,
-      equipmentWaiver: waiver.rows[0]!.ready,
+      waiversPublished: waiver.rows[0]!.ready,
     };
   }
 

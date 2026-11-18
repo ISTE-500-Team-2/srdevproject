@@ -336,3 +336,30 @@ test('after the new machine is revealed once, choosing another machine sticks', 
   await row('Glowforge Pro');
   expect(screen.getByRole('complementary', { name: 'Kirk details' })).toBeTruthy();
 });
+
+test('the midnight refresh does not reveal the same new machine again', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const tomorrow = new Date(`${todayKey()}T12:00:00Z`); tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    const tomorrowKey = tomorrow.toISOString().slice(0, 10);
+    vi.setSystemTime(localHour(tomorrowKey, 0, ZONE) - 30000);
+    observedWidth = 1600;
+    canAdd();
+    mount();
+    const dialog = await startAdding('Glowforge Pro');
+    const category = within(dialog).getByRole('combobox', { name: 'Category' });
+    fireEvent.focus(category); fireEvent.change(category, { target: { value: 'Laser engraver' } }); fireEvent.blur(category);
+    fireEvent.change(within(dialog).getByLabelText('Hourly rate in dollars'), { target: { value: '20' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add equipment' }));
+    expect(await screen.findByRole('complementary', { name: 'Glowforge Pro details' })).toBeTruthy();
+    fireEvent.click(await row('Kirk'));
+    await screen.findByRole('complementary', { name: 'Kirk details' });
+    await act(() => vi.advanceTimersByTimeAsync(61000));
+    await waitFor(() => expect(api).toHaveBeenCalledWith(`/admin/reservations?date=${tomorrowKey}`, expect.anything()));
+    // The new day's board starts at the top of the list, not back on the machine added yesterday.
+    expect(await screen.findByRole('complementary', { name: 'Rachel details' })).toBeTruthy();
+    expect(screen.queryByRole('complementary', { name: 'Glowforge Pro details' })).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});

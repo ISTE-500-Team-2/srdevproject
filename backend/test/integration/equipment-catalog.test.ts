@@ -92,6 +92,11 @@ test('a category keeps one spelling, and leaves the list with its last machine',
   assert.ok(printers.machines.some((m: { id: number; image: string; type: string }) => m.id === joined.body.data.id && m.image === '/assets/3d-printer.webp' && m.type === '3D printer'));
   await retire(lone);
   assert.equal((await options()).categories.includes('Band saw'), false);
+  // A machine without a category still shows on a member card under its name; the picker doesn't offer it.
+  const uncategorized = (await pool.query("INSERT INTO equipment(name,location,hourlyrate,waiverrequired,status) VALUES('ShopBot CNC','Makerspace',20,false,'available') RETURNING equipmentid AS id")).rows[0].id;
+  const after = await options();
+  assert.ok(after.groups.some((g: { name: string | null; machines: { id: number; type: string }[] }) => g.name === null && g.machines.some(m => m.id === uncategorized && m.type === 'ShopBot CNC')));
+  assert.ok(after.categories.every((c: unknown) => typeof c === 'string' && c));
 });
 
 test('two machines in a category cannot share a name', async () => {
@@ -206,9 +211,12 @@ test('a reader cannot be set up on a machine whose removal is in progress', asyn
   }
 });
 
-test('the options say whether an equipment waiver is published', async () => {
-  assert.equal((await options()).equipmentWaiver, true, 'the demo publishes one');
-  await pool.query("UPDATE waiver SET isactive=false WHERE policy_scope='equipment'");
-  try { assert.equal((await options()).equipmentWaiver, false); }
-  finally { await pool.query("UPDATE waiver SET isactive=true WHERE policy_scope='equipment'"); }
+test('the options say whether the waivers a waiver-required booking checks are published', async () => {
+  assert.equal((await options()).waiversPublished, true, 'the demo publishes both');
+  // Booking checks the facility policies and the equipment waivers; either missing fails it.
+  for (const scope of ['equipment', 'facility']) {
+    await pool.query('UPDATE waiver SET isactive=false WHERE policy_scope=$1', [scope]);
+    try { assert.equal((await options()).waiversPublished, false, scope); }
+    finally { await pool.query('UPDATE waiver SET isactive=true WHERE policy_scope=$1', [scope]); }
+  }
 });

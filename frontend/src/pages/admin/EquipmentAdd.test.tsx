@@ -186,18 +186,18 @@ test('the confirmation says so when no member holds the required certification y
   await waitFor(() => expect(onAdded).toHaveBeenCalledWith({ id: 12, name: 'Fiber laser', note: 'Members need Laser safety to book it, and no one holds it yet.' }));
 });
 
-test('without a published equipment waiver, a machine that requires one is added with a warning', async () => {
-  options.equipmentWaiver = false;
+test('without published waivers, a machine that requires them is added with a warning', async () => {
+  options.waiversPublished = false;
   const dialog = await open();
   type(dialog, 'Name', 'Fiber laser'); category(dialog, 'Laser engraver'); type(dialog, 'Hourly rate in dollars', '30');
-  expect(check(dialog)).toContain('None is published yet. No one can book until one is');
-  expect(footer(dialog)).toBe('You can add it now. No one can book it until an equipment waiver is published.');
+  expect(check(dialog)).toContain('The required waivers aren’t all published yet. No one can book until they are');
+  expect(footer(dialog)).toBe('You can add it now. No one can book it until the required waivers are published.');
   // Not requiring the waiver clears it.
   fireEvent.click(within(dialog).getByRole('switch', { name: /equipment waiver/ }));
   expect(footer(dialog)).toBe('Members can book it as soon as you add it.');
   fireEvent.click(within(dialog).getByRole('switch', { name: /equipment waiver/ }));
   fireEvent.click(add(dialog));
-  await waitFor(() => expect(onAdded).toHaveBeenCalledWith({ id: 12, name: 'Fiber laser', note: 'No one can book it until an equipment waiver is published.' }));
+  await waitFor(() => expect(onAdded).toHaveBeenCalledWith({ id: 12, name: 'Fiber laser', note: 'No one can book it until the required waivers are published.' }));
 });
 
 test('the preview follows each machine’s own spelling, as the member page does', async () => {
@@ -213,4 +213,18 @@ test('the preview follows each machine’s own spelling, as the member page does
   expect(preview.textContent).toContain('Grinder A · Grinder B · Grinder C');
   expect(preview.textContent).not.toContain('Old grinder');
   expect(preview.querySelector('.eqa-tile img')!.getAttribute('src')).toBe('/a.webp');
+});
+
+test('a machine without a category still counts on the member card it appears on', async () => {
+  // The member page files it under its name, so "ShopBot CNC" sits on the CNC Machine card.
+  options.groups = [...options.groups!, { name: null, machines: [{ id: 1, name: 'ShopBot CNC', image: '/shopbot.webp', type: 'ShopBot CNC' }] }];
+  const dialog = await open();
+  const input = within(dialog).getByRole('combobox', { name: 'Category' });
+  fireEvent.focus(input);
+  expect(screen.getAllByRole('option').map(o => o.textContent)).not.toContain(expect.stringMatching(/ShopBot/));
+  type(dialog, 'Name', 'Shapeoko'); category(dialog, 'CNC router');
+  const preview = within(dialog).getByRole('complementary', { name: 'Preview and booking check' });
+  expect(preview.textContent).toContain('ShopBot CNC · Shapeoko');
+  expect(check(dialog)).toContain('On the CNC Machine card');
+  expect(preview.querySelector('.eqa-tile img')!.getAttribute('src')).toBe('/shopbot.webp');
 });
