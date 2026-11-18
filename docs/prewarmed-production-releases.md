@@ -112,8 +112,9 @@ remain a hard prerequisite.
    `pg_advisory_lock(hashtext('arbor-mvc-migrations'))`. In the schema transaction,
    set `SET LOCAL lock_timeout = '250ms';` before applying this batch. Migration
    048 takes the reader table lock with `NOWAIT`, as does 054 for the outbox.
-   Migration 053 only adds nullable columns and adjusts audit triggers in this
-   transaction. A busy lock can abort the schema batch with SQLSTATE `55P03`.
+   Migration 053 adds nullable columns, a checkout request flag with a constant
+   default, and adjusts audit triggers. These changes do not rewrite either
+   checkout table. A busy lock can abort the schema batch with SQLSTATE `55P03`.
    Roll back and retry during a quieter period. Release the session advisory
    lock when the guarded script finishes.
 3. After the schema transaction commits, run the reviewed online phase on each
@@ -128,11 +129,11 @@ remain a hard prerequisite.
    this command or execute the same reviewed sequence in its own owner session.
    Use autocommit for concurrent index commands. The online phase builds the
    replacement reader setup index before removing the old one. It builds the
-   lease expiry index, the unique refund index and both checkout reconciliation
-   indexes. It validates the check-in constraint, removes the refund write guard
+   lease expiry index, the unique refund index, both checkout refund due indexes
+   and the index for unchecked equipment payments. It validates the check-in constraint, removes the refund write guard
    once uniqueness is enforced, scrubs previously sent notification links and
    queues legacy checkout refund work in committed batches. It records the
-   refund backfill completion in the migration ledger.
+   completion checkpoint in the migration ledger after the online work finishes.
 
    Retry this phase after a lock conflict, interrupted build or incomplete
    cleanup. It reuses matching valid indexes and rebuilds matching invalid
@@ -150,8 +151,12 @@ remain a hard prerequisite.
    existing table grants.
 5. Run `node backend/dist/scripts/verify-migrations.js` from the candidate image
    against both databases. Keep the candidate application stopped and cutover
-   paused until both verifications pass and the grants are in place. Then use
-   the [resume procedure](AUTO-DEPLOYMENT.md#pause-recover-and-retry).
+   paused until both verifications pass and the grants are in place. Install the
+   matching `auto_release.py` on the release host before resuming. Before any
+   standby starts, it uses the existing database owner connections to require
+   the checksum-matched online completion record and confirm that the equipment
+   refund write guard is gone in both databases. The gate needs no new host
+   configuration. Then use the [resume procedure](AUTO-DEPLOYMENT.md#pause-recover-and-retry).
 
 Migration 054 takes a brief exclusive outbox lock to add a nullable column and
 install its queue trigger. It leaves the existing due index in place and does
@@ -169,12 +174,20 @@ If rollback outlasts the reset, the member can request a fresh one after the new
 release returns. During rollback they can also use email confirmation to
 activate the account and then request a reset through the previous release.
 
-After cutover, if a Stripe checkout webhook failed around the release and its
-checkout is still unresolved, resend the affected checkout event to the original
-webhook endpoint from Stripe. Check the booking or pass and its payment in the
-staff ledger after delivery. For a checkout already acknowledged by the previous
-release, check the Stripe payment and refund records before taking any manual
-action.
+After the previous release has stopped handling webhooks, review Stripe deliveries
+from the start of the online backfill through the end of that overlap. The new
+release's equipment worker continues checking paid checkouts that the previous
+release confirmed without queuing a refund lookup. It processes bounded batches
+and backs off failed lookups.
+
+Resend failed checkout events for unresolved payments to the original webhook
+endpoint. Also resend refund events for affected payments that the previous
+release acknowledged, including refunds arriving after a standby worker already
+checked the payment. If both events need replay, resend checkout first to bind the
+payment intent. Compare the Stripe payment and refund records with the staff
+ledger after delivery. Replay records the existing refund. Do not create another
+refund to repair the ledger. Repeat this review for any period when an application
+rollback handled webhook traffic.
 
 ## Verification
 

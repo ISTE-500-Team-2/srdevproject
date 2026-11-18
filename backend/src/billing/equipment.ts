@@ -213,11 +213,20 @@ export class EquipmentBilling {
           reservationId: id, stage: 'equipment_reconcile_refund', ...errorIdentifier(error),
         });
       }
-      await db.query('UPDATE app_equipment_checkout SET refund_reconcile_after=NULL WHERE reservation_id=$1', [id]);
+      await db.query('UPDATE app_equipment_checkout SET refund_reconcile_after=NULL,refund_checked_at=now() WHERE reservation_id=$1', [id]);
     });
   }
 
   private async reconcileRefunds() {
+    // Catch paid writes from older app processes even after the online backfill has
+    // finished. A checked row leaves this index, including when Stripe has no refund.
+    await this.pool.query(`WITH unchecked AS (
+      SELECT reservation_id FROM app_equipment_checkout WHERE status='paid'
+        AND payment_id IS NOT NULL AND payment_intent IS NOT NULL AND refund_id IS NULL
+        AND refund_reconcile_after IS NULL AND refund_checked_at IS NULL
+      ORDER BY reservation_id LIMIT 20 FOR UPDATE SKIP LOCKED
+    ) UPDATE app_equipment_checkout c SET refund_reconcile_after=now()
+    FROM unchecked WHERE c.reservation_id=unchecked.reservation_id`);
     // Claim a bounded batch across replicas; an unsuccessful attempt will be due again in a minute.
     const rows = (await this.pool.query<{ reservation_id: number }>(`WITH due AS (
       SELECT reservation_id FROM app_equipment_checkout WHERE refund_reconcile_after<=now()

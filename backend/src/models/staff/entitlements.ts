@@ -147,7 +147,10 @@ export class EntitlementRepository {
       (
         await this.db.query(
           `SELECT id FROM app_pass_checkout WHERE userid=$1 AND valid_date=$2::date AND status='pending'
-      AND checkout_id IS NOT NULL AND now()<${passCheckoutPayBy("$3")}`,
+      AND checkout_id IS NOT NULL AND (
+        payment_id IS NOT NULL OR now()<CASE WHEN checkout_has_expiry THEN ${passCheckoutPayBy("$3")}
+          ELSE created_at+INTERVAL '24 hours' END
+      )`,
           [userId, date, this.timeZone],
         )
       ).rows.length > 0

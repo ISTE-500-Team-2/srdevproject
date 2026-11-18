@@ -240,6 +240,41 @@ test('the reconciliation tick submits a missed automatic refund and backs off fa
   }
 });
 
+test('a paid checkout grants no pass while the initial refund lookup is unavailable', async () => {
+  const date = '2034-05-14';
+  const { id, session } = await openCheckout(date);
+  const intent = 'pi_' + randomUUID();
+  const refund: Refund = { id: 're_' + randomUUID(), status: 'succeeded', amount: 1500, currency: 'usd', payment_intent: intent };
+  refunds.unshift(refund);
+  await passes.webhook(stripeEvent('evt_' + randomUUID(), 'refund.created', refund));
+  Object.assign(session, { status: 'complete', payment_status: 'paid', payment_intent: intent });
+  const event = stripeEvent('evt_' + randomUUID(), 'checkout.session.completed', session);
+
+  stripe.refundList(async () => {
+    assert.equal(await passCount(date), 0, 'also inactive while contacting Stripe');
+    throw new Error('Stripe is unavailable');
+  });
+  try {
+    await assert.rejects(passes.webhook(event), /Stripe is unavailable/);
+  } finally {
+    stripe.refundList(listRefunds);
+  }
+  const captured = await checkoutRow(date);
+  assert.equal(await passCount(date), 0);
+  assert.ok(captured.payment_id);
+  assert.ok(captured.refund_reconcile_after);
+  assert.equal((await pool.query('SELECT paymentstatus FROM payment WHERE paymentid=$1', [captured.payment_id])).rows[0].paymentstatus, 'paid');
+  assert.equal(await notice('daypass-receipt:' + id), undefined);
+
+  await passes.reconcileRefunds();
+  const reconciled = await checkoutRow(date);
+  assert.equal(reconciled.payment_id, captured.payment_id);
+  assert.deepEqual([reconciled.status, reconciled.refund_id, reconciled.refund_reconcile_after], ['cancelled', refund.id, null]);
+  assert.equal((await pool.query('SELECT paymentstatus FROM payment WHERE paymentid=$1', [captured.payment_id])).rows[0].paymentstatus, 'refunded');
+  assert.equal(await passCount(date), 0);
+  assert.equal(refundKeys.length, 0);
+});
+
 test('an early partial Stripe refund leaves the day pass, captured payment and checkout event recorded', async () => {
   const date = '2034-05-13';
   const { id, session } = await openCheckout(date);
@@ -285,12 +320,40 @@ test('card checkout stops taking payment when the visit date ends', async () => 
 test('a checkout too close to its end to open a session is expired without calling Stripe', async () => {
   const date = '2034-07-10', body = await input(date), id = randomUUID();
   // Its first session request never reached Stripe, and nearly a day has passed.
-  await pool.query(`INSERT INTO app_pass_checkout(id,userid,tierid,valid_date,plan_snapshot,amount_cents,created_at)
-    SELECT $1,$2,tierid,$3,jsonb_build_object('name',tiername),$4,now()-interval '22 hours 45 minutes' FROM membership_tiers WHERE tierid=$5`, [id, member, date, body.amountCents, dayPlan]);
+  await pool.query(`INSERT INTO app_pass_checkout(id,userid,tierid,valid_date,plan_snapshot,amount_cents,created_at,checkout_has_expiry)
+    SELECT $1,$2,tierid,$3,jsonb_build_object('name',tiername),$4,now()-interval '22 hours 45 minutes',true FROM membership_tiers WHERE tierid=$5`, [id, member, date, body.amountCents, dayPlan]);
   await assert.rejects(passes.checkout(member, body), { code: 'CHECKOUT_EXPIRED' });
   assert.equal(sessionParams.length, 0);
   assert.equal((await pool.query('SELECT status FROM app_pass_checkout WHERE id=$1', [id])).rows[0].status, 'expired');
   // Trying again starts a fresh checkout with a full window.
   assert.ok((await passes.checkout(member, body) as { checkoutUrl?: string }).checkoutUrl);
   assert.equal(sessionParams.length, 1);
+});
+
+test('a legacy checkout whose Stripe response was lost retries with the original parameters and key', async () => {
+  const date = '2034-07-11', body = await input(date), id = randomUUID();
+  const row = (await pool.query(`INSERT INTO app_pass_checkout(id,userid,tierid,valid_date,plan_snapshot,amount_cents,created_at)
+    SELECT $1,$2,tierid,$3,jsonb_build_object('name',tiername),$4,now()-interval '22 hours' FROM membership_tiers WHERE tierid=$5
+    RETURNING (SELECT email FROM "user" WHERE userid=$2),plan_snapshot`, [id, member, date, body.amountCents, dayPlan])).rows[0];
+  const original = {
+    mode: 'payment', payment_method_types: ['card'], client_reference_id: id, customer_email: row.email,
+    metadata: { dayPassCheckoutId: id },
+    success_url: `http://localhost/checkout-return?member=${member}&pass=returned`,
+    cancel_url: `http://localhost/checkout-return?member=${member}&pass=cancelled`,
+    payment_intent_data: { metadata: { dayPassCheckoutId: id } },
+    line_items: [{ quantity: 1, price_data: { currency: 'usd', unit_amount: body.amountCents, product_data: { name: row.plan_snapshot.name } } }],
+  };
+  const accepted = { id: 'cs_legacy_' + id, livemode: false, status: 'open', url: 'https://checkout.stripe.com/legacy' } as const;
+  const create = provider.sdk.checkout.sessions.create;
+  stripe.checkoutSessionCreate(async (params, options) => {
+    assert.deepEqual(params, original, 'Stripe requires an identical retry for the existing key');
+    assert.equal(options?.idempotencyKey, 'daypass-checkout:' + id);
+    return accepted;
+  });
+  try {
+    assert.deepEqual(await passes.checkout(member, body), { checkoutUrl: accepted.url });
+    assert.equal((await checkoutRow(date)).checkout_id, accepted.id);
+  } finally {
+    provider.sdk.checkout.sessions.create = create;
+  }
 });

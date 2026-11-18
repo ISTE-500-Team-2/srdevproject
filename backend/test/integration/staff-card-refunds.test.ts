@@ -388,6 +388,43 @@ test('the equipment sweep recovers an early refund whose lookup failed after con
   assert.deepEqual(await held.state(), { refund_id: refund.id, refund_status: 'succeeded', payment: 'refunded' });
 });
 
+test('equipment paid by the old app after backfill is checked without another refund delivery', async () => {
+  const held = await booking(false);
+  assert.equal((await pool.query("SELECT 1 FROM app_migration WHERE name='online:053_checkout_refund_reconciliation.sql'")).rowCount, 1);
+  // The old webhook did not handle refund events. Stripe received a successful delivery response,
+  // then the old checkout webhook confirms the booking without queuing a lookup.
+  const refund: Refund = { id: 're_' + randomUUID(), object: 'refund', status: 'succeeded', amount: 700,
+    currency: 'usd', payment_intent: held.intent };
+  refunds.unshift(refund);
+  await pool.query(`UPDATE payment SET paymentstatus='paid',method='card'
+    WHERE paymentid=(SELECT payment_id FROM reservation WHERE reservationid=$1)`, [held.id]);
+  await pool.query("UPDATE reservation SET status='confirmed' WHERE reservationid=$1", [held.id]);
+  await pool.query(`UPDATE app_equipment_checkout SET status='paid',payment_intent=$2,
+    payment_id=(SELECT payment_id FROM reservation WHERE reservationid=$1) WHERE reservation_id=$1`, [held.id, held.intent]);
+
+  const schedule = async () => (await pool.query(
+    'SELECT refund_reconcile_after FROM app_equipment_checkout WHERE reservation_id=$1', [held.id])).rows[0].refund_reconcile_after;
+  assert.equal(await schedule(), null);
+  let attempts = 0;
+  const original = mock.method(console, 'error', () => {});
+  const creates = keys.length;
+  stripe.refundList(async () => { attempts++; throw new Error('Stripe is unavailable'); });
+  try {
+    await equipmentBilling.reconcile();
+    await equipmentBilling.reconcile();
+    assert.equal(attempts, 1, 'the catch-up lookup backs off once claimed');
+    assert.ok(await schedule());
+  } finally {
+    stripe.refundList(listRefunds);
+    original.mock.restore();
+  }
+  await pool.query("UPDATE app_equipment_checkout SET refund_reconcile_after=now()-interval '1 second' WHERE reservation_id=$1", [held.id]);
+  await equipmentBilling.reconcile();
+  assert.deepEqual(await held.state(), { refund_id: refund.id, refund_status: 'succeeded', payment: 'refunded' });
+  assert.equal(await schedule(), null);
+  assert.equal(keys.length, creates, 'the catch-up only records existing refunds');
+});
+
 test('a failed replacement refund email does not say that the replacement was confirmed', async () => {
   const { id, intent } = await cardPass(member);
   nextStatus = 'succeeded';

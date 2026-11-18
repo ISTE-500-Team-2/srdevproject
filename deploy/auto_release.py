@@ -29,6 +29,7 @@ MAIN_PUSH_WORKFLOWS = ('.github/workflows/mvc-verify.yml', '.github/workflows/de
 # GitHub allows 60 unauthenticated API reads an hour per address and each CI check uses two.
 # The timer ticks about once a minute, so recheck the same waiting revision at most this often.
 CI_POLL_SECONDS = 240
+REFUND_MIGRATION = '053_checkout_refund_reconciliation.sql'
 
 
 class ReleaseCheckError(RuntimeError):
@@ -214,6 +215,10 @@ def verify_migrations(source, rows):
             raise RuntimeError('Reviewed migration is required before rollout: ' + file.name)
         if existing[file.name] != hashlib.sha256(file.read_bytes()).hexdigest():
             raise RuntimeError('Migration checksum mismatch: ' + file.name)
+        # The online runner records this checkpoint only after its indexes,
+        # constraint work, cleanup and backfill have finished.
+        if file.name == REFUND_MIGRATION and existing.get('online:' + file.name) != existing[file.name]:
+            raise RuntimeError('Complete the reviewed online migration phase before rollout')
 
 
 def prepare_source_permissions(source):
@@ -300,6 +305,12 @@ def backup_databases(release, source):
         rows = json.loads(output('docker', 'exec', container, 'psql', '-U', user, '-d', database,
             '-Atc', 'SELECT coalesce(json_agg(t),\'[]\'::json) FROM (SELECT name,checksum FROM app_migration) t'))
         verify_migrations(source, rows)
+        if (source / 'database/migrations' / REFUND_MIGRATION).is_file():
+            guard_removed = output('docker', 'exec', container, 'psql', '-X', '-U', user, '-d', database,
+                '-Atc', "SELECT NOT EXISTS (SELECT 1 FROM pg_constraint "
+                        "WHERE conrelid='public.app_equipment_checkout'::regclass "
+                        "AND conname='app_equipment_checkout_refund_online_pending')")
+            require(guard_removed == 't', 'Complete the reviewed online migration phase before rollout: refund write guard remains')
     for container, user, database in DATABASES:
         backup = release / (database + '.dump')
         with backup.open('wb') as stream:

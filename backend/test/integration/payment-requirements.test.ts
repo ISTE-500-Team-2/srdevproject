@@ -100,6 +100,6 @@ test('refund before checkout delivery cannot grant usable access on a late paid 
  (provider.sdk.refunds.list as any)=async()=>({has_more:false,data:[{id:'re_early',payment_intent:'pi_early_refund',currency:'usd',amount:1000,status:'succeeded'}]});
  await service.webhook(event('evt_late_checkout'));
  const r=(await pool.query("SELECT * FROM app_pass_checkout WHERE payment_intent='pi_early_refund'")).rows[0];assert.equal(r.status,'cancelled');
- assert.equal((await pool.query('SELECT status FROM day_pass WHERE dayid=$1',[r.pass_id])).rows[0].status,'cancelled');
+ assert.equal(r.pass_id,null);
  assert.equal((await pool.query('SELECT paymentstatus FROM payment WHERE paymentid=$1',[r.payment_id])).rows[0].paymentstatus,'refunded');
 });

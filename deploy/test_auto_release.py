@@ -13,6 +13,7 @@ import auto_release as release
 
 SHA = 'a' * 40
 IMAGE = 'sha256:' + 'b' * 64
+REFUND_MIGRATION = '053_checkout_refund_reconciliation.sql'
 PATHS = ['.github/workflows/mvc-verify.yml', '.github/workflows/dev-setup.yml', '.github/workflows/sponsor-hosting.yml']
 
 
@@ -175,15 +176,25 @@ class GateTests(unittest.TestCase):
 
 
 class RolloutTests(unittest.TestCase):
-    def exercise(self, failure=None):
+    def exercise(self, failure=None, *, blue_green=False):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name); original = config()
         (root / 'auto-deploy').mkdir(); release.write_json(root / 'compose.json', original)
+        if blue_green:
+            (root / 'auto-deploy/blue-green.enabled').touch()
+            (root / 'routing').mkdir()
+            release.write_json(root / 'routing/active.json', {'version': 1, 'release': 'c' * 40, 'publicPort': 8082})
+        if failure in ('online', 'guard'):
+            migrations = root / 'auto-deploy/releases' / SHA / 'source/database/migrations'
+            migrations.mkdir(parents=True)
+            (migrations / REFUND_MIGRATION).write_text('SELECT 1;')
         calls = []
 
         def run(*args, **kwargs):
             calls.append(('run', args))
+            if blue_green and 'compose' in args and 'up' in args:
+                raise RuntimeError('Fixture reached standby startup')
             if 'pg_dump' in args:
                 if failure == 'backup':
                     raise RuntimeError('Backup failed')
@@ -201,6 +212,14 @@ class RolloutTests(unittest.TestCase):
                 raise RuntimeError('Live smoke failed')
 
         def output(*args):
+            if 'pg_constraint' in args[-1]:
+                return 'f' if failure == 'guard' else 't'
+            if 'app_migration' in args[-1] and failure in ('online', 'guard'):
+                checksum = hashlib.sha256(b'SELECT 1;').hexdigest()
+                rows = [{'name': REFUND_MIGRATION, 'checksum': checksum}]
+                if failure == 'guard':
+                    rows.append({'name': 'online:' + REFUND_MIGRATION, 'checksum': checksum})
+                return json.dumps(rows)
             if 'rev-parse' in args:return SHA
             if 'status' in args:return ''
             return json.dumps([{'Id': IMAGE,'Config':{'Labels':{'org.opencontainers.image.revision':SHA}}}])
@@ -208,6 +227,10 @@ class RolloutTests(unittest.TestCase):
         def migration_gate(_source, _rows):
             if failure == 'migration':
                 raise RuntimeError('Missing reviewed migration')
+            if failure in ('online', 'guard'):
+                original_gate(_source, _rows)
+
+        original_gate = release.verify_migrations
 
         with patch.object(release, 'run', run), patch.object(release, 'output', output), \
              patch.object(release, 'prepare_source_permissions'), \
@@ -217,7 +240,8 @@ class RolloutTests(unittest.TestCase):
              patch.object(release, 'ready', return_value=(failure != 'ci-changed')):
             try:
                 result = release.deploy(root, SHA)
-            except RuntimeError:
+            except RuntimeError as error:
+                calls.append(('error', str(error)))
                 result = None
         return root, original, calls, result
 
@@ -227,6 +251,16 @@ class RolloutTests(unittest.TestCase):
             self.assertIsNone(result)
             self.assertEqual(json.loads((root / 'compose.json').read_text()), original)
             self.assertFalse(any(c[0] == 'compose' and 'up' in c[1] for c in calls))
+
+    def test_blue_green_requires_online_completion_before_starting_standby(self):
+        for failure in ('online', 'guard'):
+            with self.subTest(failure=failure):
+                root, original, calls, result = self.exercise(failure, blue_green=True)
+                self.assertIsNone(result)
+                self.assertEqual(json.loads((root / 'compose.json').read_text()), original)
+                self.assertEqual(json.loads((root / 'routing/active.json').read_text())['publicPort'], 8082)
+                self.assertFalse(any('up' in c[1] or 'pg_dump' in c[1] for c in calls if c[0] in ('run', 'compose')))
+                self.assertTrue(any(c[0] == 'error' and 'online migration phase' in c[1] for c in calls))
 
     def test_health_or_live_smoke_failure_restores_prior_compose(self):
         for failure in ('health', 'smoke'):

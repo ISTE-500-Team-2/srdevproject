@@ -37,6 +37,11 @@ const checkoutRefundBackfills = [
     eligible: 'TRUE',
   },
 ];
+const uncheckedEquipmentRefunds = {
+  name: 'app_equipment_checkout_refund_unchecked',
+  table: 'app_equipment_checkout',
+  definition: "CREATE INDEX app_equipment_checkout_refund_unchecked ON app_equipment_checkout USING btree (reservation_id) WHERE ((status = 'paid'::text) AND (payment_id IS NOT NULL) AND (payment_intent IS NOT NULL) AND (refund_id IS NULL) AND (refund_reconcile_after IS NULL) AND (refund_checked_at IS NULL))",
+};
 const checkoutRefundMigration = '053_checkout_refund_reconciliation.sql';
 const checkoutRefundBackfill = `online:${checkoutRefundMigration}`;
 
@@ -151,7 +156,7 @@ export async function finishOnlineMigrations(db: Database) {
   await ensureIndex(db, refundIndex);
 
   // 053_checkout_refund_reconciliation.sql: build both due indexes without blocking writes.
-  for (const index of checkoutRefundBackfills) await ensureIndex(db, index);
+  for (const index of [...checkoutRefundBackfills, uncheckedEquipmentRefunds]) await ensureIndex(db, index);
 
   // 051_desk_check_in_origin.sql: new rows already obey the NOT VALID check.
   if (!(await constraintValidated(db, 'check_in', checkInOrigin)))
@@ -168,7 +173,7 @@ export async function finishOnlineMigrations(db: Database) {
 
 export async function verifyOnlineMigrations(db: Database) {
   const finish = 'Complete the reviewed online migration phase.';
-  for (const index of [setupIndex, leaseIndex, refundIndex, ...checkoutRefundBackfills]) {
+  for (const index of [setupIndex, leaseIndex, refundIndex, ...checkoutRefundBackfills, uncheckedEquipmentRefunds]) {
     if (!(await indexValid(db, index)))
       throw new Error(`Migration index is missing or invalid: ${index.name}. ${finish}`);
   }

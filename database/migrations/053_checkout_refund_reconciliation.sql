@@ -2,6 +2,10 @@
 -- Backfill and build the due indexes after commit in online-migrations.ts.
 ALTER TABLE app_pass_checkout ADD COLUMN refund_reconcile_after TIMESTAMPTZ;
 ALTER TABLE app_equipment_checkout ADD COLUMN refund_reconcile_after TIMESTAMPTZ;
+-- NULL identifies legacy payments that still need a canonical refund lookup.
+ALTER TABLE app_equipment_checkout ADD COLUMN refund_checked_at TIMESTAMPTZ;
+-- Older app processes keep inserting rows with the original Stripe request shape.
+ALTER TABLE app_pass_checkout ADD COLUMN checkout_has_expiry BOOLEAN NOT NULL DEFAULT false;
 
 -- A change to the next sweep time is bookkeeping, like the hold backoff in 052.
 DROP TRIGGER app_capture_change ON app_pass_checkout;
@@ -13,6 +17,6 @@ CREATE TRIGGER app_capture_row_change AFTER UPDATE ON app_pass_checkout FOR EACH
 
 DROP TRIGGER app_capture_row_change ON app_equipment_checkout;
 CREATE TRIGGER app_capture_row_change AFTER UPDATE ON app_equipment_checkout FOR EACH ROW
-  WHEN ((to_jsonb(OLD)-'reconcile_failures'-'reconcile_after'-'refund_reconcile_after') IS DISTINCT FROM
-        (to_jsonb(NEW)-'reconcile_failures'-'reconcile_after'-'refund_reconcile_after'))
+  WHEN ((to_jsonb(OLD)-'reconcile_failures'-'reconcile_after'-'refund_reconcile_after'-'refund_checked_at') IS DISTINCT FROM
+        (to_jsonb(NEW)-'reconcile_failures'-'reconcile_after'-'refund_reconcile_after'-'refund_checked_at'))
   EXECUTE FUNCTION app_capture_change('reservation_id');
