@@ -49,6 +49,10 @@ export interface Entitlement {
   reason: string;
   cancellationRequestedAt?: string | null;
   cardBilled?: boolean;
+  /** A card membership whose subscription will charge again; staff can stop it from the record. */
+  renewing?: boolean;
+  /** Once card renewal is stopped: when the last paid period ends. */
+  renewalEndsAt?: string | null;
 }
 export interface Payment {
   id: number;

@@ -13,6 +13,8 @@ import {AppError, positiveId, textField} from '../domain.js';
 import {requireActor} from '../accountPolicy.js';
 import {StudioStripe} from '../studios/stripe.js';
 import {StaffModel, type Plan} from '../models/StaffModel.js';
+import {RENEWS_BY_CARD} from '../models/staff/entitlements.js';
+import {assertManageable} from '../services/StaffService.js';
 interface BillingRecord {id:string;userid:number;tierid:number;plan_snapshot:Plan;amount_cents:number;checkout_id:string|null;subscription_id:string|null;customer_id:string|null;status:string;created_at:Date;cancellation_effective_at:Date|null;}
 /** An app_membership_invoice row joined with its billing record's member and amount. */
 interface InvoiceRecord {id:string;billing_id:string;membership_id:number;payment_id:number;period_start:Date;period_end:Date;
@@ -120,6 +122,28 @@ export class MembershipBilling {
       await this.pool.query("UPDATE app_membership_billing SET status='expired' WHERE id=$1 AND status='pending'",[row.id]);
     } else throw new AppError(409,'RECONCILE_REQUIRED','Resume checkout once before cancelling.');
   }
+  /**
+   * Staff stop a member's card renewal from the member's record, with the same notice date as the
+   * member's own Stop auto-renew. It works while the account is on hold or restricted (when staff
+   * can't open it), so staff can stop the charges before ending access.
+   */
+  async stopRenewal(actor:number,userid:number,membershipId:number,reason:unknown) {
+    const explanation=textField(reason,'Reason',255,3);
+    const billing=await transaction(this.pool,async db=>{
+      await assertManageable(db,await requireActor(db,actor,{staff:true}),userid);
+      return (await db.query<{id:string;renewing:boolean}>(`SELECT b.id,${RENEWS_BY_CARD} AS renewing FROM app_membership_invoice i
+        JOIN app_membership_billing b ON b.id=i.billing_id WHERE i.membership_id=$1 AND b.userid=$2`,[membershipId,userid])).rows[0];
+    });
+    if(!billing) throw new AppError(404,'NOT_FOUND','This membership isn’t billed by card.');
+    // Already stopped: nothing to send to Stripe, and nothing new for the change log.
+    if(billing.renewing) await this.cancel(userid,billing.id);
+    return transaction(this.pool,async db=>{
+      const after=(await db.query<{renewing:boolean;renewalEndsAt:Date|null}>(`SELECT ${RENEWS_BY_CARD} AS renewing,
+        b.cancellation_effective_at AS "renewalEndsAt" FROM app_membership_billing b WHERE b.id=$1`,[billing.id])).rows[0]!;
+      if(billing.renewing) await new StaffModel(db).audit(actor,userid,'billing.renewal_stopped','membership',membershipId,explanation,{renewing:true},after);
+      return after;
+    });
+  }
   async portal(userid:number,id:string) {
     const p=this.provider();
     const r=(await this.pool.query<{customer_id:string|null}>('SELECT customer_id FROM app_membership_billing WHERE id::text=$1 AND userid=$2',[id,userid])).rows[0];
@@ -178,12 +202,30 @@ export class MembershipBilling {
       JOIN user_membership m ON m.membershipid=i.membership_id WHERE i.billing_id=$1 ORDER BY i.period_start DESC LIMIT 1`,[row.id])).rows[0];
     const model=new StaffModel(db);
     const membership=await model.createMembership(row.userid,row.plan_snapshot,from.toISOString(),to,row.userid,'Stripe test invoice '+invoice.id);
-    if(held&&(held.status==='suspended'||held.status==='revoked'))
-      await db.query('UPDATE user_membership SET status=$2,statusdesc=$3 WHERE membershipid=$1',[membership,held.status,held.statusdesc]);
+    const carried=held&&(held.status==='suspended'||held.status==='revoked')?held:null;
+    let chargedAfterEnd=false;
+    if(carried) {
+      await db.query('UPDATE user_membership SET status=$2,statusdesc=$3 WHERE membershipid=$1',[membership,carried.status,carried.statusdesc]);
+      // Recorded as the system's change, with staff's own reason, so the change log shows why
+      // the new month started without access.
+      const after={status:carried.status,reason:carried.statusdesc,invoiceId:invoice.id};
+      await model.audit(null,row.userid,'entitlement.'+carried.status,'membership',membership,
+        `Card renewal kept the earlier month ${carried.status}. ${carried.statusdesc??''}`.trim(),null,after);
+      // Only a membership ended before staff had to stop renewal first (or one turned back on in
+      // Stripe) gets here still renewing: it is charged each month for months without access.
+      chargedAfterEnd=carried.status==='revoked'&&!!(await db.query(`SELECT 1 FROM app_membership_billing b WHERE b.id=$1 AND ${RENEWS_BY_CARD}`,[row.id])).rowCount;
+      if(chargedAfterEnd)
+        await model.audit(null,row.userid,'billing.charged_after_access_ended','membership',membership,
+          'Card renewal charged for a membership whose access was ended. Stop auto-renew on the member’s record and consider a refund.',null,after);
+    }
     const payment=await model.createPayment(row.userid,membership,(row.amount_cents/100).toFixed(2),'paid','card',invoice.id,'Stripe test recurring membership',row.userid);
     await db.query('INSERT INTO app_membership_invoice(id,billing_id,membership_id,payment_id,period_start,period_end) VALUES($1,$2,$3,$4,$5,$6)',[invoice.id,row.id,membership,payment,from,to]);
     await enqueueNotification(db,{userId:row.userid,kind:'payment_receipt',dedupeKey:'membership-receipt:'+invoice.id,
-      payload:{amount:(row.amount_cents/100).toFixed(2),currency:'USD',reference:invoice.id,paymentId:payment,method:'Card (test mode)',membershipName:row.plan_snapshot.name,startsAt:from.toISOString(),endsAt:to.toISOString()}});
+      payload:{amount:(row.amount_cents/100).toFixed(2),currency:'USD',reference:invoice.id,paymentId:payment,method:'Card (test mode)',membershipName:row.plan_snapshot.name,startsAt:from.toISOString(),endsAt:to.toISOString(),
+        // The receipt doesn't read as access granted when staff paused or ended it.
+        ...(carried?{instructions:carried.status==='suspended'
+          ?'Staff have paused your membership access, so this payment doesn’t restore it. Contact the front desk with any questions.'
+          :`Staff ended your membership access, so this payment doesn’t restore it. Contact the front desk about ${chargedAfterEnd?'stopping renewal or ':''}a refund.`}:{})}});
   }
   async invoices(actor:number) {
     await requireActor(this.pool,actor,{staff:true});

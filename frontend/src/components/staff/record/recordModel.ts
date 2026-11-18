@@ -55,7 +55,8 @@ export interface NeedItem {
     | { kind: "entitlement"; label: string; item: Entitlement }
     | { kind: "payment"; label: string; payment: Payment }
     | { kind: "sponsor"; label: string }
-    | { kind: "renew"; label: string; item: Entitlement };
+    | { kind: "renew"; label: string; item: Entitlement }
+    | { kind: "stopRenewal"; label: string; item: Entitlement };
 }
 
 const DAY = 86_400_000;
@@ -398,7 +399,19 @@ export function needs(input: {
         action: { kind: "renew", label: "Renew", item: live },
       });
   }
-  for (const pay of payments.filter((x) => x.status === "pending").slice(0, 2))
+  // Access ended (before staff had to stop renewal first), but the card still charges each month.
+  const charging = memberships.find((m) => m.renewing && m.status === "revoked");
+  if (charging && canManage)
+    items.push({
+      id: "charging",
+      alert: true,
+      icon: "receipt",
+      title: "Card still charged after access ended",
+      detail: `${name}’s membership access was ended, but their card still renews each month. Stop auto-renew, then refund any month they shouldn’t have paid for.`,
+      action: { kind: "stopRenewal", label: "Stop auto-renew", item: charging },
+    });
+  // A booking still in its online checkout is paid there, not at the desk.
+  for (const pay of payments.filter((x) => x.status === "pending" && !x.onlineCheckout).slice(0, 2))
     if (canManage)
       items.push({
         id: `pay-${pay.id}`,

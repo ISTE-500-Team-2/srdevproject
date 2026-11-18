@@ -286,19 +286,81 @@ test("ending card membership access that still renews shows why it was refused",
   state.detail.memberships = [{
     id: 1, userId: 14, planId: 3, status: "active", effectiveStatus: "active", revision: 2,
     startsAt: "2026-11-08T20:35:00Z", endsAt: "2099-12-09T20:35:00Z",
-    plan: { name: "Monthly" }, reason: "", cardBilled: true,
+    plan: { name: "Monthly" }, reason: "", cardBilled: true, renewing: true,
   }];
   mount();
   api.mockRejectedValueOnce(new ApiError(409, "CARD_RENEWAL_ACTIVE", "This membership still renews by card."));
   fireEvent.click(screen.getByRole("button", { name: "Change membership access" }));
   const dialog = screen.getByRole("dialog", { name: "Monthly #1" });
-  expect(within(dialog).getByText(/first stop auto-renew from Casey’s Membership page/)).toBeTruthy();
+  // The step is on this record, not in View as (which can't open an account on hold or restricted).
+  expect(within(dialog).getByText(/first choose Stop auto-renew on this membership/)).toBeTruthy();
+  expect(within(dialog).queryByText(/View as/)).toBeNull();
   fireEvent.click(within(dialog).getByRole("radio", { name: /^End access now/ }));
   fireEvent.change(within(dialog).getByLabelText("Reason"), { target: { value: "Banned" } });
   fireEvent.submit(within(dialog).getByRole("form"));
   expect(await within(dialog).findByRole("alert")).toHaveProperty("textContent", "This membership still renews by card.");
   // Not a conflict: nothing changed, so the save stays available.
   expect((within(dialog).getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
+});
+
+test("staff stop card renewal from the record while the member is on hold and restricted", async () => {
+  state.detail.user = user({ status: "suspended", accessStatus: "suspended" });
+  state.detail.memberships = [{
+    id: 1, userId: 14, planId: 3, status: "active", effectiveStatus: "active", revision: 2,
+    startsAt: "2026-11-08T20:35:00Z", endsAt: "2099-12-09T20:35:00Z",
+    plan: { name: "Monthly" }, reason: "", cardBilled: true, renewing: true,
+  }];
+  api.mockResolvedValueOnce({ renewing: false, renewalEndsAt: "2099-12-09T20:35:00Z" });
+  mount();
+  fireEvent.click(screen.getByRole("button", { name: "Stop auto-renew" }));
+  const dialog = screen.getByRole("dialog", { name: "Stop auto-renew for Monthly?" });
+  expect(within(dialog).getByText(/doesn’t change access/)).toBeTruthy();
+  fireEvent.change(within(dialog).getByLabelText("Reason"), { target: { value: "Banned" } });
+  fireEvent.submit(within(dialog).getByRole("form"));
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith("/admin/users/14/memberships/1/stop-renewal", { method: "POST", body: { reason: "Banned" } }),
+  );
+  expect(await screen.findByText(/^Auto-renew is off\. Casey’s card billing ends Dec/)).toBeTruthy();
+});
+
+test("a stopped card renewal says so and offers no second stop", () => {
+  state.detail.memberships = [{
+    id: 1, userId: 14, planId: 3, status: "active", effectiveStatus: "active", revision: 2,
+    startsAt: "2026-11-08T20:35:00Z", endsAt: "2099-12-09T20:35:00Z",
+    plan: { name: "Monthly" }, reason: "", cardBilled: true, renewing: false, renewalEndsAt: "2099-12-09T20:35:00Z",
+  }];
+  mount();
+  expect(screen.getByText(/^Auto-renew is off; card billing ends Dec/)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /Stop auto-renew/ })).toBeNull();
+});
+
+test("a card membership whose access ended but still charges is flagged with the way to stop it", () => {
+  state.detail.memberships = [{
+    id: 5, userId: 14, planId: 3, status: "revoked", effectiveStatus: "revoked", revision: 3,
+    startsAt: "2026-11-08T20:35:00Z", endsAt: "2099-12-09T20:35:00Z",
+    plan: { name: "Monthly" }, reason: "Banned", cardBilled: true, renewing: true,
+  }];
+  mount();
+  expect(screen.getByText("Card still charged after access ended")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Stop auto-renew for Monthly #5" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Stop auto-renew" }));
+  expect(screen.getByRole("dialog", { name: "Stop auto-renew for Monthly?" })).toBeTruthy();
+});
+
+test("a booking payment still in online checkout says why it has no desk action", () => {
+  state.detail.payments = {
+    items: [{
+      id: 31, userId: 14, memberName: "Casey Demo", membershipId: null, dayPassId: null, amount: "40.00", status: "pending",
+      method: "unspecified", reference: "", revision: 1, recordedAt: "2026-11-08T20:35:00Z", updatedAt: "2026-11-08T20:35:00Z",
+      planName: "Equipment: Laser", onlineCheckout: true,
+    }],
+    nextOffset: null,
+  };
+  mount();
+  expect(screen.getByText(/Paid by card online: the member pays through checkout, or cancel the reservation\./)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Update payment #31" })).toBeNull();
+  // Nothing for the desk to settle, so it isn't listed as needing staff either.
+  expect(screen.queryByText("$40.00 payment pending")).toBeNull();
 });
 
 test("a minor shows the sponsor and the tag; check-in waits for the adult", () => {

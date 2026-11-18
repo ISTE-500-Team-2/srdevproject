@@ -15,6 +15,7 @@ import { Modal } from "../../Modal";
 import { AssistedPurchase } from "../AssistedPurchase";
 import { CardRefund, PaymentEditor, paymentStatusName } from "../PaymentControls";
 import { ROLES, roleName } from "./recordModel";
+import { day } from "./recordParts";
 import { MemberPhoto } from "../../MemberPhoto";
 import { initials } from "../../admin/people";
 
@@ -27,6 +28,7 @@ export type DialogState =
   | { kind: "photo"; version: string }
   | { kind: "sell"; renewal?: Entitlement }
   | { kind: "entitlement"; item: Entitlement; entitlementKind: "membership" | "day_pass" }
+  | { kind: "stopRenewal"; item: Entitlement }
   | { kind: "payment"; payment: Payment }
   | { kind: "refund"; payment: Payment }
   | { kind: "assign"; replacement?: NfcCard }
@@ -330,7 +332,8 @@ export function RecordDialogHost({
         >
           <p className="mr-dialog__lead">
             This changes access only; it does not extend the end date or issue a refund.
-            {item.cardBilled ? ` It does not pause or cancel card billing. To end it, first stop auto-renew from ${first}’s Membership page (View as ${first}).` : ""}
+            {item.cardBilled ? " It does not pause or cancel card billing." : ""}
+            {item.renewing ? " To end access, first choose Stop auto-renew on this membership." : ""}
           </p>
           <fieldset className="mr-options">
             <legend className="sr-only">{noun} status</legend>
@@ -338,6 +341,32 @@ export function RecordDialogHost({
             <Choice name="status" value="suspended" title="Suspend access" help="Doesn’t grant access until you make it active again, within its original dates." checked={item.status === "suspended"} />
             <Choice name="status" value="revoked" title="End access now" help={`Can’t be undone. Issue a new ${noun} to give access again.`} checked={false} tone="bad" />
           </fieldset>
+          <Reason />
+        </RecordDialog>
+      );
+    }
+    case "stopRenewal": {
+      const item = dialog.item;
+      return (
+        <RecordDialog
+          {...common}
+          title={`Stop auto-renew for ${item.plan?.name ?? "this membership"}?`}
+          submitLabel="Stop auto-renew"
+          danger
+          onSubmit={async (f) => {
+            const after = await api<{ renewing: boolean; renewalEndsAt: string | null }>(`/admin/users/${id}/memberships/${item.id}/stop-renewal`, {
+              method: "POST",
+              body: { reason: f.get("reason") },
+            });
+            if (after.renewing) throw new DialogMessage("Stripe hasn’t confirmed the stop yet. Try again in a moment.");
+            return after.renewalEndsAt ? `Auto-renew is off. ${first}’s card billing ends ${day(after.renewalEndsAt)}.` : "Auto-renew is off.";
+          }}
+        >
+          <p className="mr-dialog__lead">
+            {first}’s card stops being charged, with the same 30-day notice as when members stop it themselves; months already paid
+            for stay as they are. This doesn’t change access: end or suspend it separately. It works while {first}’s account is on
+            hold or restricted.
+          </p>
           <Reason />
         </RecordDialog>
       );

@@ -2,6 +2,11 @@ import type { Database } from "../../db.js";
 import type { Plan } from "./plans.js";
 
 export type EntitlementKind = "membership" | "day_pass";
+/**
+ * SQL, for an app_membership_billing row aliased `b`: the card subscription will charge again.
+ * A requested stop counts only once Stripe confirmed it, so a failed request still shows as renewing.
+ */
+export const RENEWS_BY_CARD = `(b.status NOT IN ('canceled','incomplete_expired','expired') AND NOT b.cancel_at_period_end AND NOT b.cancellation_confirmed)`;
 /** Plan as recorded on an entitlement; legacy memberships fall back to the live tier's name/price/benefits. */
 export type PlanSnapshot = Pick<Plan, "name" | "price" | "benefits"> & Partial<Plan>;
 
@@ -15,6 +20,10 @@ export interface MembershipRecord {
   revision: number;
   cancellationRequestedAt: Date | null;
   cardBilled: boolean;
+  /** Its card subscription will charge again (see RENEWS_BY_CARD). */
+  renewing: boolean;
+  /** When a stopped card subscription makes its last charge's period end. */
+  renewalEndsAt: Date | null;
   startsAt: Date | null;
   endsAt: Date | null;
   plan: PlanSnapshot;
@@ -60,12 +69,15 @@ export class EntitlementRepository {
     return (
       await this.db.query<MembershipRecord>(
         `SELECT m.membershipid AS id,m.userid AS "userId",m.tierid AS "planId",m.status,m.statusdesc AS reason,m.revision,m.cancellation_requested_at AS "cancellationRequestedAt",
-      EXISTS(SELECT 1 FROM app_membership_invoice i WHERE i.membership_id=m.membershipid) AS "cardBilled",
+      b.id IS NOT NULL AS "cardBilled",COALESCE(${RENEWS_BY_CARD},false) AS renewing,b.cancellation_effective_at AS "renewalEndsAt",
       m.startdate AT TIME ZONE 'UTC' AS "startsAt",m.end_date AT TIME ZONE 'UTC' AS "endsAt",
       COALESCE(m.plan_snapshot,jsonb_build_object('name',t.tiername,'price',t.tierprice::text,'benefits',t.benefits)) AS plan,
       CASE WHEN m.status<>'active' THEN m.status WHEN m.end_date<=NOW() AT TIME ZONE 'UTC' THEN 'expired'
         WHEN m.startdate>NOW() AT TIME ZONE 'UTC' THEN 'scheduled' ELSE 'active' END AS "effectiveStatus"
-      FROM user_membership m LEFT JOIN membership_tiers t USING(tierid) WHERE m.userid=$1 ORDER BY m.startdate DESC,m.membershipid DESC LIMIT 100`,
+      FROM user_membership m LEFT JOIN membership_tiers t USING(tierid)
+      LEFT JOIN LATERAL (SELECT b.id,b.status,b.cancel_at_period_end,b.cancellation_confirmed,b.cancellation_effective_at FROM app_membership_invoice i JOIN app_membership_billing b ON b.id=i.billing_id
+        WHERE i.membership_id=m.membershipid LIMIT 1) b ON true
+      WHERE m.userid=$1 ORDER BY m.startdate DESC,m.membershipid DESC LIMIT 100`,
         [userId],
       )
     ).rows;

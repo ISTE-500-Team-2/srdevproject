@@ -9,6 +9,7 @@ import { AppError, type UserView } from "../domain.js";
 import { UserModel } from "../models/UserModel.js";
 import { ProfilePhotoModel } from "../models/ProfilePhotoModel.js";
 import { StaffModel } from "../models/StaffModel.js";
+import { RENEWS_BY_CARD } from "../models/staff/entitlements.js";
 import type { IssueInput, PlanInput } from "../staffDomain.js";
 import { PermissionModel } from "../models/PermissionModel.js";
 import { planInput } from "../staffDomain.js";
@@ -502,15 +503,15 @@ export class StaffService {
           `This ${kind === "membership" ? "membership" : "day pass"} is ${before.status || "closed"}. Issue a new one instead of changing it.`,
         );
       // Ending access doesn't stop card billing, and each paid renewal would charge for a period
-      // that stays ended. Renewal has to be turned off first.
+      // that stays ended. Renewal has to be turned off first, which staff do from the member's
+      // record (MembershipBilling.stopRenewal) even while the account is on hold or restricted.
       if (
         kind === "membership" &&
         status === "revoked" &&
         (
           await db.query(
             `SELECT 1 FROM app_membership_invoice i JOIN app_membership_billing b ON b.id=i.billing_id
-            WHERE i.membership_id=$1 AND b.status NOT IN ('canceled','incomplete_expired','expired')
-              AND NOT b.cancel_at_period_end AND b.cancellation_effective_at IS NULL LIMIT 1`,
+            WHERE i.membership_id=$1 AND ${RENEWS_BY_CARD} LIMIT 1`,
             [id],
           )
         ).rowCount
@@ -518,7 +519,7 @@ export class StaffService {
         throw new AppError(
           409,
           "CARD_RENEWAL_ACTIVE",
-          `This membership still renews by card. Choose View as ${member.firstName} and stop auto-renew on their Membership page first, so they aren't charged again, then end access.`,
+          `This membership still renews by card. Choose Stop auto-renew on ${member.firstName}’s membership first, so they aren’t charged again, then end access.`,
         );
       const after = await model.changeEntitlement(
         kind,

@@ -136,3 +136,13 @@ test("staff can't start a card scan for a staff or admin account", async () => {
   assert.equal(forColleague.status, 201, JSON.stringify(forColleague.body));
   assert.equal((await post(admin, `/admin/access/enrollments/${forColleague.body.data.id}/cancel`, {})).status, 200);
 });
+
+test("staff can't stop card renewal on a staff or admin account", async () => {
+  const stop = (as: Session, userId: number) => post(as, `/admin/users/${userId}/memberships/1/stop-renewal`, { reason: "Guard test" });
+  refused(await stop(staff, colleagueId));
+  refused(await stop(staff, admin.id));
+  // For a member the route is reached and answers for that membership.
+  const forMember = await stop(staff, memberId);
+  assert.equal(forMember.status, 404, JSON.stringify(forMember.body));
+  assert.equal(forMember.body.error.code, "NOT_FOUND");
+});

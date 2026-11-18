@@ -39,6 +39,16 @@ export function refundNote(payment: Payment) {
   return null;
 }
 
+/**
+ * Why a pending payment has no desk action: its equipment booking is still in online card
+ * checkout, which settles it. Null for every other payment.
+ */
+export function checkoutNote(payment: Payment) {
+  return payment.onlineCheckout && payment.status === "pending"
+    ? "Paid by card online: the member pays through checkout, or cancel the reservation."
+    : null;
+}
+
 // Status changes staff may record for each current status.
 const transitions: Record<string, string[]> = {
   pending: ["paid", "void", "waived"],

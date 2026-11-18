@@ -1,5 +1,5 @@
-// Staff-assisted purchase endpoints preserve the member being helped while using the staff
-// operator's authorization.
+// Staff billing endpoints for a member (assisted purchase, stopping card renewal) act for the
+// member being helped while using the staff operator's authorization.
 
 import { Router } from 'express';
 import type { Pool } from 'pg';
@@ -46,5 +46,11 @@ export function staffPurchaseRoutes(pool: Pool, config?: StudioStripeConfig, zon
         : await memberships.checkout(id, req.body);
     res.json({ data: result });
   });
+  // A workspace path: it works while the member's account is on hold or restricted, when staff
+  // can't open it to use the member's own Stop auto-renew.
+  routes.post('/admin/users/:id/memberships/:membershipId/stop-renewal', requireStaff, requirePermission(pool, 'payment', 'update', 'global'), requireCsrf,
+    async (req, res) => {
+      res.json({ data: await memberships.stopRenewal(authState(res).user.id, positiveId(req.params.id), positiveId(req.params.membershipId), req.body.reason) });
+    });
   return routes;
 }
