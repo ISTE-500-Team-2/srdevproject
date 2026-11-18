@@ -314,11 +314,11 @@ function CertRow({ item }: { item: CertItem }) {
 /** A signature this close to running out is flagged so members are not surprised at the door. */
 const EXPIRY_WARNING_DAYS = 30;
 /**
- * Signed, but running out within the warning window: the server takes a new agreement from then
- * on (the same 30 days as the expiry reminder email), so members can renew without a gap.
+ * Signed, but close to running out (the same 30 days as the expiry reminder email), so a new
+ * agreement renews it without a gap. The server decides, by its own clock, so the page never offers
+ * a signature the server would not record.
  */
-const renewable = (item: Waiver) =>
-  item.signed && !!item.expiresAt && new Date(item.expiresAt).getTime() - Date.now() <= EXPIRY_WARNING_DAYS * 86_400_000;
+const renewable = (item: Waiver) => item.signed && !!item.renewable;
 /** Waiting for the member's agreement: unsigned, out of date, expired, or about to expire. */
 const signable = (item: Waiver) => !item.signed || renewable(item);
 
@@ -568,7 +568,9 @@ export function CertificationsPage() {
                       </div>
                       {!item.signed && <p>{item.scope === 'equipment' ? 'Required before booking or using equipment that requires a waiver' : 'Required for facility access and day passes'}</p>}
                       {renewable(item) ? (
-                        <p>Sign it again now to keep booking equipment and studios without a gap.</p>
+                        <p>{item.scope === 'equipment'
+                          ? 'Sign it again now to keep booking equipment that needs this waiver past its expiry date.'
+                          : 'Sign it again now to keep facility access and day passes without a gap.'}</p>
                       ) : item.signed ? null : item.expiredSignature ? (
                         <p>Your signature has expired. Review and sign again. Last signed: {item.signedVersion}.</p>
                       ) : item.outdatedSignature ? (

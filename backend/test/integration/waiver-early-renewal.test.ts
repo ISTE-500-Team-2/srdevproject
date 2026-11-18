@@ -15,7 +15,7 @@ let app: ReturnType<typeof createApp>, member: any, created = false;
 const get = (path: string) => request(app).get('/api' + path).set('Authorization', 'Bearer ' + member.accessToken);
 const post = (path: string, body: object) => request(app).post('/api' + path)
   .set('Authorization', 'Bearer ' + member.accessToken).set('X-CSRF-Token', member.csrfToken).send(body);
-type Waiver = { id: number; scope: string; signed: boolean; expiresAt: string | null; description: string; signerName: string };
+type Waiver = { id: number; name: string; scope: string; signed: boolean; renewable: boolean; expiresAt: string | null; description: string; signerName: string };
 
 before(async () => {
   if (!process.env.PGHOST || process.env.DATABASE_URL) throw new Error('Explicit isolated PostgreSQL required.');
@@ -42,7 +42,15 @@ test('a member can sign an expiring waiver again early and then book past the ol
   // Ten days left: the expiry reminder has gone out, and a booking in two weeks can't be covered.
   await pool.query("UPDATE user_waiver SET expires_at=NOW()+INTERVAL '10 days' WHERE userwaiverid=$1", [first!.userwaiverid]);
   const access = new AccessService(pool, zone), through = new Date(Date.now() + 14 * DAY);
-  await assert.rejects(access.assertEquipmentWaivers(member.user.id, through), { code: 'WAIVER_REQUIRED' });
+  await assert.rejects(access.assertEquipmentWaivers(member.user.id, through), (error: Error & { code?: string }) => {
+    assert.equal(error.code, 'WAIVER_REQUIRED');
+    // It names the signature that lapses and tells the member to sign it again now.
+    assert.ok(error.message.startsWith(`Your ${equipment.name} signature runs out on `), error.message);
+    assert.ok(error.message.endsWith('Sign it again under Certifications & waivers, then book.'), error.message);
+    return true;
+  });
+  // The server decides whether the page offers signing again, not the browser's clock.
+  assert.equal(((await get('/me/waivers')).body.data as Waiver[]).find(w => w.id === equipment.id)!.renewable, true);
 
   const renewed = await post(`/me/waivers/${equipment.id}/sign`, waiverAcceptance(equipment));
   assert.equal(renewed.status, 200, renewed.text);
@@ -57,6 +65,7 @@ test('a member can sign an expiring waiver again early and then book past the ol
   await access.assertEquipmentWaivers(member.user.id, through);
   const listed = ((await get('/me/waivers')).body.data as Waiver[]).find(w => w.id === equipment.id)!;
   assert.equal(new Date(listed.expiresAt!).getTime(), after[1]!.expires_at.getTime());
+  assert.equal(listed.renewable, false);
 
   // Signing again straight away changes nothing: the new signature has most of a year left.
   assert.equal((await post(`/me/waivers/${equipment.id}/sign`, waiverAcceptance(equipment))).status, 200);
@@ -67,6 +76,17 @@ test('a signature with months left is not replaced by signing again', async () =
   const facility = ((await get('/me/waivers')).body.data as Waiver[]).find(w => w.scope === 'facility' && w.signed)!;
   const before = await signatures(facility.id);
   await pool.query("UPDATE user_waiver SET expires_at=NOW()+INTERVAL '60 days' WHERE userwaiverid=$1", [before.at(-1)!.userwaiverid]);
+  assert.equal(((await get('/me/waivers')).body.data as Waiver[]).find(w => w.id === facility.id)!.renewable, false);
+  // Booking past the expiry is refused, and the member is told when renewing opens instead of
+  // being sent to a page with nothing to sign.
+  const access = new AccessService(pool, zone);
+  await assert.rejects(access.assertEquipmentWaivers(member.user.id, new Date(Date.now() + 90 * DAY)),
+    (error: Error & { code?: string }) => {
+      assert.equal(error.code, 'WAIVER_REQUIRED');
+      assert.ok(error.message.startsWith(`Your ${facility.name} signature runs out on `), error.message);
+      assert.ok(error.message.includes('You can sign it again in its last 30 days'), error.message);
+      return true;
+    });
   assert.equal((await post(`/me/waivers/${facility.id}/sign`, waiverAcceptance(facility))).status, 200);
   const after = await signatures(facility.id);
   assert.equal(after.length, before.length);

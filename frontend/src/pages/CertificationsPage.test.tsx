@@ -93,12 +93,12 @@ test('signed waivers show when they run out and warn in the last 30 days; expire
 
 test('a waiver running out within 30 days can be signed again early; one with months left cannot',async()=>{
  mount({waivers:[
-  waiver({id:1,name:'Shop waiver',signed:true,signedAt:'2026-02-03T12:00:00Z',expiresAt:inDays(200),expiredSignature:false}),
-  waiver({id:3,name:'Laser waiver',signed:true,signedAt:'2026-02-03T12:00:00Z',expiresAt:inDays(10),expiredSignature:false}),
+  waiver({id:1,name:'Shop waiver',signed:true,signedAt:'2026-02-03T12:00:00Z',expiresAt:inDays(200),expiredSignature:false,renewable:false}),
+  waiver({id:3,name:'Laser waiver',scope:'equipment',signed:true,signedAt:'2026-02-03T12:00:00Z',expiresAt:inDays(10),expiredSignature:false,renewable:true}),
  ]});
  expect(within(row('Shop waiver')).queryByRole('button',{name:'Sign again'})).toBeNull();
  const expiring = row('Laser waiver');
- expect(within(expiring).getByText(/Sign it again now/)).toBeTruthy();
+ expect(within(expiring).getByText('Sign it again now to keep booking equipment that needs this waiver past its expiry date.')).toBeTruthy();
  fireEvent.click(within(expiring).getByRole('button',{name:'Sign again'}));
  expect(screen.queryByText('This version is already signed.')).toBeNull();
  fireEvent.click(screen.getByRole('checkbox',{name:'I have read and agree to this version of the policy.'}));
@@ -106,6 +106,22 @@ test('a waiver running out within 30 days can be signed again early; one with mo
  fireEvent.click(screen.getByRole('button',{name:'Record agreement'}));
  await waitFor(()=>expect(api).toHaveBeenCalledWith('/me/waivers/3/sign',{method:'POST',body:{accepted:true}}));
  expect(await screen.findByText('Your agreement has been recorded.')).toBeTruthy();
+});
+
+test('the server, not the browser clock, decides when a waiver can be signed again',()=>{
+ mount({waivers:[
+  // The browser thinks this is inside the 30 days; the server has not opened renewal yet.
+  waiver({id:1,name:'Shop waiver',signed:true,signedAt:'2026-02-03T12:00:00Z',expiresAt:inDays(29.9),expiredSignature:false,renewable:false}),
+  waiver({id:3,name:'Facility policy',signed:true,signedAt:'2026-02-03T12:00:00Z',expiresAt:inDays(20),expiredSignature:false,renewable:true}),
+ ]});
+ const early = row('Shop waiver');
+ expect(within(early).getByText(/^Expires /)).toBeTruthy();
+ expect(within(early).queryByRole('button',{name:'Sign again'})).toBeNull();
+ fireEvent.click(within(early).getByRole('button',{name:'View policy'}));
+ expect(screen.getByText('This version is already signed.')).toBeTruthy();
+ expect(screen.queryByRole('checkbox')).toBeNull();
+ // A facility policy's renewal is about keeping access, not equipment bookings.
+ expect(within(row('Facility policy')).getByText('Sign it again now to keep facility access and day passes without a gap.')).toBeTruthy();
 });
 
 test('all signed waivers say so and link to signed form copies',()=>{

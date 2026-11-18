@@ -4,6 +4,7 @@
 import type { Database } from "../db.js";
 import { waiverFormFields } from "../waiverForms.js";
 import type { PolicyScope } from "../staffDomain.js";
+import { EXPIRATION_LOOKAHEAD_DAYS } from "../notifications/scheduler.js";
 
 export class EligibilityModel {
   constructor(
@@ -58,6 +59,7 @@ export class EligibilityModel {
       outdatedSignature: boolean;
       expiredSignature: boolean;
       expiresAt: Date | null;
+      renewable: boolean;
     }>(
       `
       WITH current_waivers AS (
@@ -75,7 +77,10 @@ export class EligibilityModel {
                AND (previous_sig.expires_at <= NOW() OR previous_sig.expires_at < $3::timestamptz),false) AS "expiredSignature",
              -- The current signature's end, or when the last signature of this same version ran out.
              CASE WHEN current_sig.userwaiverid IS NOT NULL THEN current_sig.expires_at
-                  WHEN previous_sig.waiverid = w.waiverid THEN previous_sig.expires_at END AS "expiresAt"
+                  WHEN previous_sig.waiverid = w.waiverid THEN previous_sig.expires_at END AS "expiresAt",
+             -- Signed but running out within the expiry reminder's window: signing now renews it
+             -- (MemberModel.signWaiver supersedes it), so the page offers a new agreement.
+             COALESCE(current_sig.expires_at <= NOW()+make_interval(days=>$4::int),false) AS renewable
       FROM current_waivers w LEFT JOIN LATERAL (
         SELECT userwaiverid,signdate,expires_at FROM user_waiver WHERE userid=$1 AND waiverid=w.waiverid AND approval=true
           AND (expires_at IS NULL OR (expires_at>NOW() AND ($3::timestamptz IS NULL OR expires_at >= $3::timestamptz)))
@@ -86,7 +91,7 @@ export class EligibilityModel {
         ORDER BY uw.signdate DESC,uw.userwaiverid DESC LIMIT 1
       ) previous_sig ON true
       WHERE ($2::text IS NULL OR w.policy_scope=$2) ORDER BY w.name`,
-      [userId, scope ?? null, through ?? null],
+      [userId, scope ?? null, through ?? null, EXPIRATION_LOOKAHEAD_DAYS],
     );
     return rows.map(row => ({ ...row, formFields: waiverFormFields(row.description) }));
   }
