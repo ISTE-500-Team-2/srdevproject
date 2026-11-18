@@ -48,6 +48,43 @@ test("Escape closes a pinned note, which stays hidden while focused; a tap pins 
   expect(tip.hasAttribute("data-dismissed")).toBe(false);
 });
 
+test("after a click and Escape, the hover note returns once the pointer leaves and comes back", async () => {
+  const user = userEvent.setup();
+  const { button, tip } = mount();
+  await user.click(button);
+  expect(document.activeElement).toBe(button);
+  // Sent to the page, as browsers do not count Escape as keyboard use that makes a clicked button :focus-visible.
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(button.getAttribute("aria-expanded")).toBe("false");
+  expect(tip.hasAttribute("data-dismissed")).toBe(true);
+  fireEvent.pointerLeave(tip);
+  expect(tip.hasAttribute("data-dismissed")).toBe(false);
+  fireEvent.pointerEnter(tip);
+  expect(document.activeElement).toBe(button);
+  expect(tip.hasAttribute("data-dismissed")).toBe(false);
+});
+
+test("a note dismissed while keyboard-focused stays hidden after the pointer leaves", async () => {
+  const user = userEvent.setup();
+  const { button, tip } = mount();
+  await user.tab();
+  fireEvent.pointerEnter(tip);
+  await user.keyboard("{Escape}");
+  fireEvent.pointerLeave(tip);
+  expect(document.activeElement).toBe(button);
+  expect(tip.hasAttribute("data-dismissed")).toBe(true);
+});
+
+test("Escape on a pinned note the pointer has left does not hide the next hover", async () => {
+  const user = userEvent.setup();
+  const { button, tip } = mount();
+  await user.click(button);
+  fireEvent.pointerLeave(tip);
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(button.getAttribute("aria-expanded")).toBe("false");
+  expect(tip.hasAttribute("data-dismissed")).toBe(false);
+});
+
 test("Escape does nothing while the note is not showing", () => {
   const { tip } = mount();
   fireEvent.keyDown(document, { key: "Escape" });

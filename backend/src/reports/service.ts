@@ -107,11 +107,12 @@ export function loadReport(
     ).rows;
     const equipment = (
       await db.query<EquipmentUtilizationRow>(
-        // Machines retired before the window are no longer in the catalog; one retired during it keeps its history.
+        // A retired machine stays only while it has confirmed bookings in the window, so a removed
+        // machine leaves 'Machines used' at once and past periods keep its booked hours.
         `SELECT e.equipmentid AS id,e.name,COALESCE(SUM(EXTRACT(EPOCH FROM LEAST(v.endtime AT TIME ZONE 'UTC',$2::timestamptz)-GREATEST(v.starttime AT TIME ZONE 'UTC',$1::timestamptz))) FILTER (WHERE v.reservationid IS NOT NULL)/3600,0)::float AS "bookedHours",COUNT(v.reservationid)::int AS reservations,
  EXTRACT(EPOCH FROM $2::timestamptz-$1::timestamptz)/3600 AS "windowHours",COALESCE(100*SUM(EXTRACT(EPOCH FROM LEAST(v.endtime AT TIME ZONE 'UTC',$2::timestamptz)-GREATEST(v.starttime AT TIME ZONE 'UTC',$1::timestamptz))) FILTER (WHERE v.reservationid IS NOT NULL)/EXTRACT(EPOCH FROM $2::timestamptz-$1::timestamptz),0)::float AS "bookedUtilizationPercent"
  FROM equipment e LEFT JOIN reservation v ON v.equipmentid=e.equipmentid AND v.status='confirmed' AND v.endtime AT TIME ZONE 'UTC'>$1 AND v.starttime AT TIME ZONE 'UTC'<$2
- WHERE NOT EXISTS(SELECT 1 FROM app_equipment_retirement r WHERE r.equipment_id=e.equipmentid AND r.retired_at<=$1) GROUP BY e.equipmentid,e.name ORDER BY e.name`,
+ GROUP BY e.equipmentid,e.name HAVING COUNT(v.reservationid)>0 OR NOT EXISTS(SELECT 1 FROM app_equipment_retirement r WHERE r.equipment_id=e.equipmentid) ORDER BY e.name`,
         params.slice(0, 2),
       )
     ).rows;
