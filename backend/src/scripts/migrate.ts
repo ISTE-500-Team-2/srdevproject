@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import type { Pool } from 'pg';
 import { auditContext } from '../auditContext.js';
 import { createPool, type Database } from '../db.js';
-import { finishOnlineMigrations, prepareReaderSetupIndex, setupMigration } from './online-migrations.js';
+import { finishOnlineMigrations } from './online-migrations.js';
 
 export const repositoryRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -39,45 +39,55 @@ export async function prepareAuditMigration(db: Database, name: string) {
   }
 }
 
-/**
- * Apply pending SQL atomically and record content hashes. Even comment-only edits to an applied
- * migration will fail checksum verification.
- */
-export async function migrate(pool: Pool): Promise<void> {
+async function readMigrations() {
   const directory = path.join(repositoryRoot, 'database/migrations');
   const files = (await readdir(directory))
     .filter((n) => /^\d+.*\.sql$/.test(n))
     .sort();
-  const migrations = await Promise.all(files.map(async (name) => {
-    const sql = await readFile(path.join(directory, name), 'utf8');
-    return { name, sql, checksum: createHash('sha256').update(sql).digest('hex') };
+  return Promise.all(files.map(async (name) => {
+    const contents = await readFile(path.join(directory, name));
+    return { name, sql: contents.toString('utf8'), checksum: createHash('sha256').update(contents).digest('hex') };
   }));
+}
+
+async function pendingMigrations(db: Database, migrations: Awaited<ReturnType<typeof readMigrations>>) {
+  const { rows: [history] } = await db.query<{ present: boolean }>(
+    "SELECT to_regclass('public.app_migration') IS NOT NULL AS present",
+  );
+  const applied = history!.present
+    ? (await db.query<{ name: string; checksum: string }>('SELECT name,checksum FROM public.app_migration')).rows
+    : [];
+  const checksums = new Map(applied.map(({ name, checksum }) => [name, checksum]));
+  return migrations.filter(({ name, checksum }) => {
+    const previous = checksums.get(name);
+    if (previous === undefined) return true;
+    if (previous !== checksum)
+      throw new Error(`Migration checksum mismatch: ${name}. Previously applied migration changed.`);
+    return false;
+  });
+}
+
+function requireApplied(pending: Awaited<ReturnType<typeof readMigrations>>) {
+  if (pending.length)
+    throw new Error(`Reviewed migration is required before rollout: ${pending[0]!.name}`);
+}
+
+export async function verifyMigrationHistory(db: Database) {
+  requireApplied(await pendingMigrations(db, await readMigrations()));
+}
+
+/**
+ * Apply pending SQL atomically and record content hashes, then finish online work under the
+ * same advisory lock. An external owner process can apply the SQL and run just the online phase.
+ */
+export async function migrate(pool: Pool, { finishOnlineOnly = false } = {}): Promise<void> {
+  const migrations = await readMigrations();
   const db = await pool.connect();
   try {
     // Keep the same key as older runners and serialize even the concurrent DDL.
     await db.query("SELECT pg_advisory_lock(hashtext('arbor-mvc-migrations'))");
-    const { rows: [history] } = await db.query<{ present: boolean }>(
-      "SELECT to_regclass('public.app_migration') IS NOT NULL AS present",
-    );
-    const applied = history!.present
-      ? (await db.query<{ name: string; checksum: string }>('SELECT name,checksum FROM app_migration')).rows
-      : [];
-    const checksums = new Map(applied.map(({ name, checksum }) => [name, checksum]));
-    const pending = migrations.filter(({ name, checksum }) => {
-      const previous = checksums.get(name);
-      if (previous === undefined) return true;
-      if (previous !== checksum)
-        throw new Error(`Previously applied migration changed: ${name}`);
-      return false;
-    });
-
-    // Concurrent builds and validation can take longer than an application query.
-    const timeout = (await db.query<{ statement_timeout: string }>('SHOW statement_timeout')).rows[0]!.statement_timeout;
-    if (pending.some(({ name }) => name === setupMigration)) {
-      await db.query('SET statement_timeout = 0');
-      await prepareReaderSetupIndex(db);
-      await db.query("SELECT set_config('statement_timeout', $1, false)", [timeout]);
-    }
+    const pending = await pendingMigrations(db, migrations);
+    if (finishOnlineOnly) requireApplied(pending);
 
     if (pending.length) {
       await db.query('BEGIN');
@@ -89,7 +99,7 @@ export async function migrate(pool: Pool): Promise<void> {
         await db.query(
           'CREATE TABLE IF NOT EXISTS app_migration (name TEXT PRIMARY KEY, checksum CHAR(64) NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())',
         );
-        const firstBoundedMigration = pending.find(({ name }) => name >= setupMigration);
+        const firstBoundedMigration = pending.find(({ name }) => name >= '045');
         for (const migration of pending) {
           const { name, sql, checksum } = migration;
           // The setting persists through the rest of this transaction.
@@ -120,9 +130,12 @@ if (
   process.argv[1] &&
   pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url
 ) {
+  const args = process.argv.slice(2);
+  const finishOnlineOnly = args.length === 1 && args[0] === '--finish-online';
+  if (args.length && !finishOnlineOnly) throw new Error('Usage: migrate.js [--finish-online]');
   const pool = createPool();
   try {
-    await migrate(pool);
+    await migrate(pool, { finishOnlineOnly });
   } finally {
     await pool.end();
   }

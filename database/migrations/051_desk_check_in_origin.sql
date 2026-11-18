@@ -4,4 +4,4 @@
 -- previous release never writes 'desk', so a blue-green switch is unaffected.
 ALTER TABLE check_in DROP CONSTRAINT app_check_in_origin,
   ADD CONSTRAINT app_check_in_origin CHECK (origin IN ('nfc','portal','desk')) NOT VALID;
--- New rows are checked immediately. The runner validates existing rows after commit.
+-- New rows are checked immediately. Validate existing rows in backend/src/scripts/online-migrations.ts.

@@ -100,38 +100,53 @@ remain a hard prerequisite.
 
 ## Applying migrations 045 to 052
 
-1. Pause automatic cutover using the existing [pause procedure](AUTO-DEPLOYMENT.md#pause-recover-and-retry).
-   Leave the previous release serving and take fresh, readable public and demo
-   backups through the reviewed owner process. Use the exact candidate revision.
-2. Run the candidate's `node backend/dist/scripts/migrate.js` with the owner
-   connection for each database from the release image. This applies all eight
-   files, from `045_reader_setup_again.sql` through
-   `052_studio_hold_reconcile_backoff.sql`, including `051_desk_check_in_origin.sql`.
-   Use the runner so the replacement setup index is built before the swap and
-   the lease expiry and refund indexes are built after the schema commits. The
-   runner builds these indexes concurrently on live tables. It also validates
-   the check-in constraint while writes continue and clears previously sent
-   notification links in separate batches. A reader trigger swap fails
-   immediately if its lock is busy. Other schema lock waits in this batch are
-   capped at 250 ms per lock. On a lock conflict, retry in a quieter period.
-   After an interrupted build or cleanup, rerun the same command to finish it.
-3. On each database where the runtime role lacks either privilege, grant both
-   as owner for the new reader lease compaction job.
+1. Pause automatic cutover using the [pause procedure](AUTO-DEPLOYMENT.md#pause-recover-and-retry).
+   Leave the previous release serving. Take fresh public and demo backups and
+   check both archives with `pg_restore --list`. Review the numbered SQL and its
+   companion [online code](../backend/src/scripts/online-migrations.ts) at the
+   exact candidate revision.
+2. On each database, use the server's guarded reviewed-migration script as the
+   owner to apply and record the exact checksums for all eight numbered files
+   from `045_reader_setup_again.sql` through `052_studio_hold_reconcile_backoff.sql`.
+   Serialize migration work using the existing session advisory lock
+   `pg_advisory_lock(hashtext('arbor-mvc-migrations'))`. In the schema transaction,
+   set `SET LOCAL lock_timeout = '250ms';` before applying this batch. Migration
+   048 takes the reader table lock with `NOWAIT`. A busy lock can abort the
+   transaction with SQLSTATE `55P03`. Roll back and retry the pending schema
+   batch during a quieter period. Release the session advisory lock when the
+   guarded script finishes.
+3. After the schema transaction commits, run the reviewed online phase on each
+   database as owner. The candidate image provides a command for this phase:
+
+   ```sh
+   node backend/dist/scripts/migrate.js --finish-online
+   ```
+
+   This mode acquires the same advisory lock, checks the numbered migration
+   history, and runs only the post-commit steps. The guarded process can invoke
+   this command or execute the same reviewed sequence in its own owner session.
+   Use autocommit for concurrent index commands. Build the replacement reader setup index
+   before removing the old one, build the lease expiry and unique refund
+   indexes, validate the check-in constraint, remove the refund write guard
+   after uniqueness is enforced, and scrub previously sent notification links
+   in committed batches. Repeat the online phase after a lock conflict,
+   interrupted build or incomplete cleanup. It reuses matching valid indexes
+   and rebuilds matching invalid indexes. If an index definition differs from
+   the reviewed definition, investigate before retrying.
+4. On each database where the runtime role lacks either privilege, grant both
+   as owner for the reader lease compaction job.
 
    ```sql
    GRANT UPDATE, DELETE ON app_device_access_event TO <runtime role>;
    ```
 
    Substitute the database's actual runtime role. A table owner already has
-   both privileges. These migrations add no tables or sequences. The desk
-   check-in uses the runtime role's existing check-in insert privileges. The
-   payment and studio columns use existing table grants.
-
-4. Run `node backend/dist/scripts/verify-migrations.js` from the same image
-   against both databases using owner connections. Require it to pass before
-   resuming cutover. The automated deployer's checksum check can see the
-   numbered migrations as applied while the online work is still running.
-   After verification, resume using the existing release procedure.
+   both privileges. Desk check-in, payments and studio reconciliation use
+   existing table grants.
+5. Run `node backend/dist/scripts/verify-migrations.js` from the candidate image
+   against both databases. Keep the candidate application stopped and cutover
+   paused until both verifications pass and the grants are in place. Then use
+   the [resume procedure](AUTO-DEPLOYMENT.md#pause-recover-and-retry).
 
 ## Verification
 

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Pool } from 'pg';
-import type { Database } from '../../src/db.js';
+import { transaction, type Database } from '../../src/db.js';
 import { migrate, prepareAuditMigration, repositoryRoot } from '../../src/scripts/migrate.js';
 import { verifyMigrations } from '../../src/scripts/verify-migrations.js';
 
@@ -70,7 +70,6 @@ test('live upgrade aborts a busy reader trigger swap and builds the lease index 
     const writeRenewal = (db: Database) => db.query(`INSERT INTO app_device_access_event
       (reader_id,request_id,target_kind,allowed,reason,expires_at,is_tap)
       VALUES('migration-reader',$1,'equipment',true,'test',now()+interval '5 seconds',false)`, [randomUUID()]);
-    const setupIndex = () => pool.query(`SELECT 'app_reader_setup_one_in_progress_device'::regclass::oid AS oid`);
     const leaseIndexState = () => pool.query<{ valid: boolean }>(`SELECT indisvalid AS valid
       FROM pg_index WHERE indexrelid=to_regclass('public.app_device_event_live_leases')`);
     const oldReader = await pool.connect();
@@ -80,13 +79,51 @@ test('live upgrade aborts a busy reader trigger swap and builds the lease index 
       await assert.rejects(migrate(pool), { code: '55P03' });
       await writeRenewal(pool);
       assert.equal((await pool.query("SELECT 1 FROM app_migration WHERE name >= '045'")).rowCount, 0);
-      const { rows: stagedSetupIndex } = await setupIndex();
+      assert.equal((await pool.query("SELECT to_regclass('public.app_reader_setup_one_in_progress_device') AS name")).rows[0].name, null,
+        'a rejected schema transaction does not start the online index swap');
       assert.equal((await leaseIndexState()).rowCount, 0);
       await oldReader.query('ROLLBACK');
 
-      await migrate(pool);
+      const onlineOnly = { finishOnlineOnly: true };
+      await assert.rejects(migrate(pool, onlineOnly), /Reviewed migration is required.*045_reader_setup_again/);
+      assert.equal((await pool.query("SELECT 1 FROM app_migration WHERE name >= '045'")).rowCount, 0);
+
+      // Emulate the production owner script committing reviewed SQL and checksums.
+      await transaction(pool, async db => {
+        await db.query("SET LOCAL lock_timeout = '250ms'");
+        for (const name of (await readdir(directory)).filter(name => name.endsWith('.sql') && name >= '045').sort()) {
+          const sql = await readFile(path.join(directory, name), 'utf8');
+          await db.query(sql);
+          await db.query('INSERT INTO app_migration(name,checksum) VALUES($1,$2)', [
+            name, createHash('sha256').update(sql).digest('hex'),
+          ]);
+        }
+      });
+      await assert.rejects(verifyMigrations(pool), /index is missing or invalid: app_reader_setup_one_in_progress_device/);
+      const { rows: [member] } = await pool.query(`INSERT INTO "user"(firstname,lastname,email,password,phone,status)
+        VALUES('Migration','Fixture','migration@example.invalid','unused','0000000000','active') RETURNING userid`);
+      await pool.query("INSERT INTO equipment(equipmentid,name) VALUES(99001,'Migration fixture')");
+      await pool.query(`INSERT INTO reservation(reservationid,userid,equipmentid,location,starttime,endtime)
+        VALUES (99001,$1,99001,'Test','2026-01-01 10:00','2026-01-01 11:00'),
+               (99002,$1,99001,'Test','2026-01-02 10:00','2026-01-02 11:00')`, [member!.userid]);
+      await pool.query(`INSERT INTO app_equipment_checkout
+        (reservation_id,payer_id,request_key,equipment_name,hourly_cents,hours,amount_cents)
+        VALUES (99001,$1,$2,'Test',100,1,100), (99002,$1,$3,'Test',100,1,100)`,
+      [member!.userid, randomUUID(), randomUUID()]);
+      const recordRefund = (reservation: number) =>
+        pool.query("UPDATE app_equipment_checkout SET refund_id='re_migration' WHERE reservation_id=$1", [reservation]);
+      await assert.rejects(recordRefund(99001), { code: '23514', constraint: 'app_equipment_checkout_refund_online_pending' });
+
+      // A valid but nonunique same-named index must never authorize the swap.
+      await pool.query(`CREATE INDEX app_reader_setup_one_in_progress_device ON app_reader_setup_job(gateway_id,device_id)`);
+      await assert.rejects(migrate(pool, onlineOnly), /Unexpected migration index definition: app_reader_setup_one_in_progress_device/);
+      assert.equal((await pool.query("SELECT to_regclass('public.app_reader_setup_one_active_device') IS NOT NULL AS present")).rows[0].present, true);
+      await pool.query('DROP INDEX app_reader_setup_one_in_progress_device');
+
+      await migrate(pool, onlineOnly);
       await verifyMigrations(pool);
-      assert.deepEqual((await setupIndex()).rows, stagedSetupIndex, 'the swap uses the index prepared outside the rolled-back transaction');
+      await recordRefund(99001);
+      await assert.rejects(recordRefund(99002), { code: '23505', constraint: 'app_equipment_checkout_refund_id_key' });
       await pool.query('DROP INDEX app_device_event_live_leases');
       await assert.rejects(verifyMigrations(pool), /index is missing or invalid: app_device_event_live_leases/);
 

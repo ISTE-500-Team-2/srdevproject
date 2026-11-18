@@ -18,4 +18,4 @@ CREATE TRIGGER app_capture_change_update AFTER UPDATE ON app_device_access_event
   EXECUTE FUNCTION app_capture_change('id');
 CREATE TRIGGER app_capture_change_delete AFTER DELETE ON app_device_access_event
   FOR EACH ROW WHEN (OLD.is_tap OR NOT OLD.allowed) EXECUTE FUNCTION app_capture_change('id');
--- The runner builds the live-lease expiry index concurrently after this swap.
+-- Online phase in backend/src/scripts/online-migrations.ts: build the lease expiry index concurrently.
