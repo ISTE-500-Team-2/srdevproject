@@ -141,6 +141,20 @@ test("a card refund needs explicit confirmation and isn't offered while one is p
   await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("region", { name: "Payments" })));
 });
 
+test("a card refund Stripe didn't complete is an alert, not the green confirmation", async () => {
+  vi.mocked(api).mockResolvedValue({ status: "failed" } as never);
+  mount([card]);
+  fireEvent.click(screen.getByRole("button", { name: "Refund payment #209 for Chris Walker" }));
+  const form = screen.getByRole("form", { name: "Refund $45.00 to Chris Walker's card" });
+  fireEvent.change(within(form).getByLabelText("Reason for refund"), { target: { value: "Cancelled in first week" } });
+  fireEvent.click(within(form).getByRole("checkbox", { name: /Refund \$45.00 to Chris Walker/ }));
+  fireEvent.click(within(form).getByRole("button", { name: "Refund $45.00" }));
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toBe("Stripe didn't complete the refund to Chris Walker's card. Check it in Stripe.");
+  expect(alert.className).toBe("payments__notice payments__notice--problem");
+  expect(screen.queryByRole("status")).toBeNull();
+});
+
 test("a failed refund isn't offered again; staff are pointed to Stripe", () => {
   mount([{ ...card, refundStatus: "failed" } as Payment]);
   expect(screen.getByText("Refund failed")).toBeTruthy();

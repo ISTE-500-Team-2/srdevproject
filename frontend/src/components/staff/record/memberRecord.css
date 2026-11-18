@@ -71,7 +71,7 @@
 .mr-reqs li { display: flex; min-width: 0; }
 .mr-req { width: 100%; display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 2px 9px; align-items: center; padding: 10px 12px; border: 0; border-radius: 10px; background: var(--mr-well); box-shadow: inset 0 0 0 1px var(--mr-line); color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .mr-req:hover { background: var(--mr-line); }
-.mr-req:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+.mr-req:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .mr-req__mark { grid-row: span 2; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; }
 .mr-req__mark svg { width: 13px; height: 13px; stroke-width: 3; }
 .mr-req[data-state='ok'] .mr-req__mark { background: var(--mr-ok-wash); color: var(--mr-ok); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mr-ok) 40%, transparent); }

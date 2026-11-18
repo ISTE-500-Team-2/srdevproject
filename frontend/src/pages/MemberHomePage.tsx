@@ -12,7 +12,7 @@ import {
   LogOut,
   X,
 } from 'lucide-react';
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api, errorMessage } from '../lib/api';
@@ -34,11 +34,26 @@ import { useProfilePhoto } from '../lib/profilePhoto';
 const SplitText = lazy(() => import('../components/reactbits/SplitText'));
 import StatusMark from '../components/reactbits/StatusMark';
 
-/** The greeting animates once per browser session, then stays still. */
+/**
+ * The greeting animates once per browser session, then stays still. Browsers that
+ * block site data throw on any storage access; then it never animates.
+ */
 function useFirstVisit(key: string) {
-  const first = useRef(!sessionStorage.getItem(key));
-  useEffect(() => sessionStorage.setItem(key, '1'), [key]);
-  return first.current;
+  const [first] = useState(() => {
+    try {
+      return !sessionStorage.getItem(key);
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(key, '1');
+    } catch {
+      /* Storage is blocked; the greeting already stays still. */
+    }
+  }, [key]);
+  return first;
 }
 
 const SIGN = { to: '/certifications', label: 'Review and sign' };
@@ -213,7 +228,12 @@ export function MemberHomePage() {
                 <h2>Reservations</h2>
                 <strong>{summary.activeReservations || ''}</strong>
               </div>
-              {upcoming.length ? (
+              {bookings.error ? (
+                // Never "Nothing booked yet" when the bookings could not be read.
+                <p role="alert" className="form-error">
+                  Your reservations couldn’t load. <button type="button" onClick={bookings.reload}>Retry</button>
+                </p>
+              ) : upcoming.length ? (
                 <ul className="summary-card__list">
                   {upcoming.slice(0, 2).map((r) => (
                     <li key={r.id}>
@@ -225,11 +245,11 @@ export function MemberHomePage() {
                   ))}
                   {upcoming.length > 2 ? <li>+{upcoming.length - 2} more</li> : null}
                 </ul>
-              ) : (
+              ) : bookings.loading ? null : (
                 <p className="summary-card__note">Nothing booked yet.</p>
               )}
               <Link to="/equipment" className="summary-card__action">
-                <span>{upcoming.length ? 'Book or manage equipment' : 'Book equipment'}</span>
+                <span>{upcoming.length || bookings.error ? 'Book or manage equipment' : 'Book equipment'}</span>
                 <ChevronRight aria-hidden="true" />
               </Link>
             </article>
@@ -280,7 +300,9 @@ export function MemberHomePage() {
                   <b>
                     {dateTime(last.checkedInAt)} · {last.location}
                   </b>
-                  <small>{last.method === 'nfc' ? 'With your NFC tag' : 'From this site'}</small>
+                  {/* Members now check in only at the reader, so a newer non-NFC check-in was staff at the
+                      desk; older ones may be the member's own web check-in. Both share one origin. */}
+                  <small>{last.method === 'nfc' ? 'With your NFC tag' : 'Without your NFC tag'}</small>
                 </p>
               ) : summary.canCheckIn ? (
                 <p className="summary-card__note">No check-ins yet.</p>

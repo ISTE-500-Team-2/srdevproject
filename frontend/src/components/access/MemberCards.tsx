@@ -122,12 +122,12 @@ export function MemberCards({
                 : "Card ID unavailable for this older assignment"}
             </p>
             <p className="nfc-help">
-              Assigned {dateTime(card.assignedAt)}
+              Assigned {dateTime(card.assignedAt, setup.data?.timeZone)}
               {card.assignedBy ? ` by ${card.assignedBy}` : ""}
             </p>
             <p className="nfc-help">
               {card.lastUsedAt
-                ? `Last used ${dateTime(card.lastUsedAt)} at ${card.lastReader}`
+                ? `Last used ${dateTime(card.lastUsedAt, setup.data?.timeZone)} at ${card.lastReader}`
                 : "No recorded successful taps."}
             </p>
             <div className="management-actions">

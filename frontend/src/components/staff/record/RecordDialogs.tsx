@@ -13,8 +13,9 @@ import { AssignCard } from "../../access/MemberCards";
 import { MemberSelect } from "../../MemberSelect";
 import { Modal } from "../../Modal";
 import { AssistedPurchase } from "../AssistedPurchase";
-import { CardRefund, PaymentEditor, paymentStatusName } from "../PaymentControls";
+import { CardRefund, PaymentEditor, paymentStatusName, refundAccepted } from "../PaymentControls";
 import { ROLES, roleName } from "./recordModel";
+import { day } from "./recordParts";
 import { MemberPhoto } from "../../MemberPhoto";
 import { initials } from "../../admin/people";
 
@@ -27,6 +28,7 @@ export type DialogState =
   | { kind: "photo"; version: string }
   | { kind: "sell"; renewal?: Entitlement }
   | { kind: "entitlement"; item: Entitlement; entitlementKind: "membership" | "day_pass" }
+  | { kind: "stopRenewal"; item: Entitlement }
   | { kind: "payment"; payment: Payment }
   | { kind: "refund"; payment: Payment }
   | { kind: "assign"; replacement?: NfcCard }
@@ -161,8 +163,8 @@ export function RecordDialogHost({
   timeZone: string;
   supervision: SupervisionSummary | null;
   onClose: () => void;
-  /** A change was saved: show this sentence and refresh the record. */
-  onDone: (message: string) => void;
+  /** A change was saved: show this sentence and refresh the record. `problem`: it saved, but didn't work (a card refund Stripe didn't complete). */
+  onDone: (message: string, problem?: boolean) => void;
   /** A write returned the member's committed record, with its new revision. */
   onPerson: (person: Person) => void;
   /** Someone else saved first; refresh before the next try. */
@@ -361,6 +363,39 @@ export function RecordDialogHost({
         </RecordDialog>
       );
     }
+    case "stopRenewal":
+      return (
+        <RecordDialog
+          {...common}
+          title="Stop auto-renew"
+          submitLabel="Stop auto-renew"
+          danger
+          onSubmit={async (f) => {
+            const { endsAt, emailed } = await api<{ endsAt: string | null; emailed: boolean }>(
+              `/admin/users/${id}/memberships/${dialog.item.id}/stop-renewal`,
+              { method: "POST", body: { reason: f.get("reason") } },
+            );
+            const last = endsAt ? `; card billing ends ${day(endsAt)}` : "";
+            // No email reaches an account on hold or one that turned membership emails off.
+            return emailed
+              ? `${first}’s auto-renew is off${last}. ${first} gets an email with the last day.`
+              : `${first}’s auto-renew is off${last}. ${first} won’t get an email about it, so let them know the last day.`;
+          }}
+        >
+          {dialog.item.renewalStopPending && dialog.item.renewalEndsAt ? (
+            <p className="mr-dialog__lead">
+              The last day, {day(dialog.item.renewalEndsAt)}, is already set, but the payment provider hasn’t confirmed it. This asks
+              it again; the day doesn’t move.
+            </p>
+          ) : (
+            <p className="mr-dialog__lead">
+              For when {first} can’t do it from their own account. It works as if {first} had: billing ends on the first billing
+              date at least 30 days from today, so there may be one more charge, and the membership runs until then.
+            </p>
+          )}
+          <Reason />
+        </RecordDialog>
+      );
     case "sell":
       return (
         <DraftModal open width="regular" title={dialog.renewal ? `Renew ${dialog.renewal.plan?.name ?? "membership"}` : "Sell or record a payment"} onClose={onClose} className="mr-dialog">
@@ -389,9 +424,10 @@ export function RecordDialogHost({
               onDone(
                 status === "succeeded"
                   ? `Refunded ${dollars(dialog.payment.amount)}.`
-                  : status === "pending" || status === "requires_action"
+                  : refundAccepted(status)
                     ? `Refund of ${dollars(dialog.payment.amount)} is on its way.`
                     : `Stripe didn't complete the refund of ${dollars(dialog.payment.amount)}. Check it in Stripe.`,
+                !refundAccepted(status),
               )
             } />
         </DraftModal>

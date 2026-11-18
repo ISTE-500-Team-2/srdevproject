@@ -64,6 +64,18 @@ export class MinorSupervision {
       ON CONFLICT(${key}) DO UPDATE SET adult_id=EXCLUDED.adult_id`,[bookingId,sponsor.id]);
     else await this.db.query(`DELETE FROM ${table} WHERE ${key}=$1`,[bookingId]);
   }
+  /**
+   * Where a desk arrival with no building named belongs: the member's visit today, then a minor's
+   * present sponsor's building, then the default. Never moves a visit to another building.
+   */
+  async arrivalBuilding(id:number) {
+    const minor=await this.isMinor(id);
+    const visit=(await this.db.query<{building:number}>(`SELECT v.building_id AS building FROM app_facility_visit v
+      WHERE v.checked_out_at IS NULL AND (v.checked_in_at AT TIME ZONE $2)::date=(now() AT TIME ZONE $2)::date
+        AND (v.user_id=$1 OR ($3 AND v.user_id=(SELECT adult_id FROM app_minor_sponsor WHERE minor_id=$1)))
+      ORDER BY v.user_id=$1 DESC LIMIT 1`,[id,this.zone,minor])).rows[0];
+    return visit?.building ?? DEFAULT_BUILDING_ID;
+  }
   async startVisit(id:number,buildingId:number) {
     const sponsor = await this.requireSponsor(id,buildingId);
     // One open visit, with stale previous-day visits explicitly ended before starting anew.
@@ -307,7 +319,7 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
         const model=new EligibilityModel(db,zone),entitlement=await model.entitlement(id,new Date()),waivers=await model.waivers(id,'facility');
         if (!entitlement.membership && !entitlement.dayPass) throw new AppError(403,'MEMBERSHIP_REQUIRED','Each visitor needs a membership or day pass.');
         if (!waivers.length || waivers.some(w=>!w.signed)) throw new AppError(403,'WAIVER_REQUIRED','Sign current required policies first.');
-        const building=positiveId(req.body.buildingId ?? DEFAULT_BUILDING_ID);
+        const building=req.body.buildingId==null ? await service.arrivalBuilding(id) : positiveId(req.body.buildingId);
         if (!(await db.query("SELECT buildingid FROM building WHERE buildingid=$1 AND status='available' FOR SHARE",[building])).rowCount)
           throw new AppError(409,'RESOURCE_UNAVAILABLE','This building is unavailable.');
         await service.startVisit(id,building);

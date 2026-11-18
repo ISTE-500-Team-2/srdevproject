@@ -11,6 +11,7 @@ import { errorMessage } from "../lib/api";
 import { KeptResults, useResultsPaging } from "../components/KeptResults";
 import { LoadState, Pager } from "../components/Management";
 import { MemberRecord } from "../components/staff/record/MemberRecord";
+import { accessWords, accountWords } from "../components/staff/record/recordModel";
 import { statusLabel } from "../lib/display";
 import type { Page, Person, Plan } from "../lib/staffContracts";
 import { useApi } from "../lib/useApi";
@@ -139,14 +140,14 @@ export function StaffUsers() {
                       <td>{p.roles.map((r) => statusLabel(r)).join(", ")}</td>
                       <td>
                         <span className={`status-pill status-pill--${p.status === "active" ? "ok" : "neutral"}`}>
-                          {statusLabel(p.status)}
+                          {accountWords(p.status)}
                         </span>
                       </td>
                       <td>
                         {p.accessStatus === "active" ? (
                           <span className="staff-directory__muted">No restriction</span>
                         ) : (
-                          <span className="status-pill status-pill--warn">{statusLabel(p.accessStatus)}</span>
+                          <span className="status-pill status-pill--warn">{accessWords(p.accessStatus)}</span>
                         )}
                       </td>
                     </tr>
