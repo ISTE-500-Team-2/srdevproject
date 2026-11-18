@@ -9,7 +9,8 @@ import { StaffModel } from '../../src/models/StaffModel.js';
 import { waiverAcceptance } from '../helpers/waiver.js';
 
 // Moving bookings off a machine: what "Review move" promises, "Confirm move" keeps; online-paid
-// bookings get a message meant for staff; ids past the INTEGER columns are refused, not a 500.
+// bookings get a message meant for staff, worded by whose checkout it is; ids past the INTEGER
+// columns are refused, not a 500.
 const database = `arbor_move_checks_${randomBytes(6).toString('hex')}_mvc_test`;
 const owner = new Pool(), pool = new Pool({ database });
 type Session = { accessToken: string; csrfToken: string; user: { id: number } };
@@ -48,9 +49,9 @@ async function deskPayment(reservationId: number, status: 'paid' | 'pending', am
   const paymentId = await new StaffModel(pool).createPayment(member.user.id, null, amount, status, 'unspecified', '', 'Equipment booking', administrator.user.id);
   await pool.query('UPDATE reservation SET payment_id=$2 WHERE reservationid=$1', [reservationId, paymentId]);
 }
-async function checkout(reservationId: number, status: 'paid' | 'pending') {
+async function checkout(reservationId: number, status: 'paid' | 'pending', payerId = member.user.id) {
   await pool.query(`INSERT INTO app_equipment_checkout(reservation_id,payer_id,request_key,equipment_name,hourly_cents,hours,amount_cents,status)
-    VALUES($1,$2,$3,'Move check',1200,1,1200,$4)`, [reservationId, member.user.id, randomUUID(), status]);
+    VALUES($1,$2,$3,'Move check',1200,1,1200,$4)`, [reservationId, payerId, randomUUID(), status]);
 }
 const moveTo = (source: number, b: { id: number; revision: number }, target: number, confirm?: object) =>
   send('post', `/admin/equipment/${source}/bookings/${b.id}/${confirm ? 'move' : 'review-move'}`, { expectedRevision: b.revision, equipmentId: target, ...confirm });
@@ -111,6 +112,32 @@ test('online-paid bookings stay put with a message for staff, not "contact staff
   assert.equal(cancel.body.error.code, 'PAYMENT_WORKFLOW_REQUIRED');
   assert.match(cancel.body.error.message, /can’t be cancelled yet/);
   assert.doesNotMatch(cancel.body.error.message, /Stripe checkout|hold is released/);
+
+  // Staff who booked for the member opened the checkout themselves: they can cancel it now.
+  const own = await booking(source);
+  await checkout(own.id, 'pending', administrator.user.id);
+  const ownMove = await moveTo(source, own, target);
+  assert.equal(ownMove.body.error.code, 'PAYMENT_WORKFLOW_REQUIRED');
+  assert.match(ownMove.body.error.message, /You opened an online checkout.*Cancel checkout/);
+  for (const ownCancel of [
+    await send('post', `/admin/equipment/${source}/bookings/${own.id}/cancel`, { expectedRevision: own.revision }),
+    await send('post', `/admin/reservations/${own.id}/cancel`, {}),
+  ]) {
+    assert.equal(ownCancel.status, 409);
+    assert.equal(ownCancel.body.error.code, 'PAYMENT_WORKFLOW_REQUIRED');
+    assert.match(ownCancel.body.error.message, /You opened an online checkout.*Cancel checkout under My reservations/);
+    assert.doesNotMatch(ownCancel.body.error.message, /member’s|expires unpaid/);
+  }
+  // Another staff member's checkout is neither this staff member's nor the member's.
+  const colleague = (await pool.query(`INSERT INTO "user"(firstname,lastname,email,password,phone,status,primary_role)
+    VALUES('Other','Staff','move-check-staff@example.invalid','unused','0000000000','active','staff') RETURNING userid`)).rows[0].userid;
+  const theirs = await booking(source);
+  await checkout(theirs.id, 'pending', colleague);
+  const theirsCancel = await send('post', `/admin/reservations/${theirs.id}/cancel`, {});
+  assert.equal(theirsCancel.body.error.code, 'PAYMENT_WORKFLOW_REQUIRED');
+  assert.match(theirsCancel.body.error.message, /another staff member opened/);
+  assert.doesNotMatch(theirsCancel.body.error.message, /member’s|You opened/);
+  assert.equal((await pool.query('SELECT status FROM reservation WHERE reservationid=ANY($1)', [[own.id, theirs.id]])).rows.every(r => r.status === 'confirmed'), true);
 });
 
 test('ids past the database integer range are refused as bad input, not a server error', async () => {
