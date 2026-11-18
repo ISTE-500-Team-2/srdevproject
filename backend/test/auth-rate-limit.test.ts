@@ -2,15 +2,15 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import express, { type ErrorRequestHandler, type Request, type Response } from 'express';
 import request from 'supertest';
-import { authRateLimit, refreshToken } from '../src/middleware/auth.js';
+import { addressBudget, authRateLimit, refreshToken } from '../src/middleware/auth.js';
 import { AppError } from '../src/domain.js';
 
 // A tiny app behind one trusted proxy hop, like production: the limiter must count visitors, not the proxy.
-function app(limiter: ReturnType<typeof authRateLimit>) {
+function app(...limiters: ReturnType<typeof authRateLimit>[]) {
   const server = express();
   server.set('trust proxy', 1);
   server.use(express.json());
-  server.post('/attempt', limiter, (req, res) => {
+  server.post('/attempt', ...limiters, (req, res) => {
     if (req.body.ok) res.json({ data: 'ok' });
     else throw new AppError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect.');
   });
@@ -45,6 +45,35 @@ test('a key narrows the budget, so one account\'s failures leave the address\'s 
   assert.equal((await from(server, '203.0.113.9', { email: 'a@example.com' })).status, 429);
   assert.equal((await from(server, '203.0.113.9', { email: 'b@example.com' })).status, 401);
   assert.equal((await from(server, '198.51.100.7', { email: 'a@example.com' })).status, 401);
+});
+
+test('a request one budget refuses never spends the others on the route', async () => {
+  // The address budget runs first here, so it has already counted each refused retry.
+  const perAddress = authRateLimit({ limit: 5, failuresOnly: true });
+  const perAccount = authRateLimit({ limit: 2, failuresOnly: true, key: (req: Request) => String(req.body.email) });
+  const server = app(perAddress, perAccount);
+  for (let i = 0; i < 2; i++) assert.equal((await from(server, '203.0.113.9', { email: 'a' })).status, 401);
+  for (let i = 0; i < 10; i++) assert.equal((await from(server, '203.0.113.9', { email: 'a' })).status, 429);
+  for (let i = 0; i < 3; i++) assert.equal((await from(server, '203.0.113.9', { email: `b${i}` })).status, 401);
+  assert.equal((await from(server, '203.0.113.9', { email: 'c' })).status, 429);
+});
+
+test('with perAddress: false, a key shares one budget across every address', async () => {
+  const server = app(authRateLimit({ limit: 2, failuresOnly: true, perAddress: false, key: (req: Request) => String(req.body.email) }));
+  assert.equal((await from(server, '203.0.113.9', { email: 'a' })).status, 401);
+  assert.equal((await from(server, '198.51.100.7', { email: 'a' })).status, 401);
+  assert.equal((await from(server, '192.0.2.1', { email: 'a' })).status, 429);
+  assert.equal((await from(server, '192.0.2.1', { email: 'b' })).status, 401);
+});
+
+test('an IPv6 /64 counts as one address; IPv4, mapped and loopback addresses count alone', () => {
+  assert.equal(addressBudget('2001:db8:0:1::5'), '2001:db8:0:1::/64');
+  assert.equal(addressBudget('2001:0DB8:0000:0001:aaaa:bbbb:cccc:dddd'), '2001:db8:0:1::/64');
+  assert.equal(addressBudget('2001:db8::'), '2001:db8:0:0::/64');
+  assert.equal(addressBudget('fe80::1%eth0'), 'fe80:0:0:0::/64');
+  for (const alone of ['203.0.113.9', '::ffff:203.0.113.9', '::ffff:cb00:7109', '::1', 'unknown'])
+    assert.equal(addressBudget(alone), alone);
+  assert.equal(addressBudget(undefined), 'unknown');
 });
 
 test('a full table forgets its oldest entry instead of refusing every newcomer', () => {

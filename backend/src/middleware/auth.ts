@@ -2,6 +2,7 @@
 // sign-in throttling are separate layers.
 
 import { timingSafeEqual } from "node:crypto";
+import { isIP } from "node:net";
 import { auditContext } from "../auditContext.js";
 import type { Request, Response, NextFunction } from "express";
 import type { Pool } from "pg";
@@ -161,13 +162,34 @@ export function checkOrigin(config: AppConfig) {
 }
 
 /**
+ * The budget a client address falls in. An IPv6 visitor usually holds a whole /64 and can pick
+ * any address in it, so the /64 shares one budget. IPv4 (IPv4-mapped too) counts by address.
+ */
+export function addressBudget(ip: string | undefined): string {
+  if (!ip) return "unknown";
+  const address = ip.replace(/%.*$/, "").toLowerCase();
+  if (isIP(address) !== 6 || address.includes(".")) return address;
+  const [head = "", tail] = address.split("::");
+  const groups = head ? head.split(":") : [];
+  if (tail !== undefined) {
+    const rest = tail ? tail.split(":") : [];
+    groups.push(...Array<string>(8 - groups.length - rest.length).fill("0"), ...rest);
+  }
+  const prefix = groups.slice(0, 4).map((group) => parseInt(group, 16).toString(16));
+  // ::/64 holds loopback and the IPv4-mapped forms: single hosts, not one visitor's block.
+  return prefix.every((group) => group === "0") ? address : `${prefix.join(":")}::/64`;
+}
+
+/**
  * Create a bounded, process-local attempt budget. Give each route its own instance, so one
  * endpoint's traffic never spends another's allowance. Budgets are per client address (req.ip,
- * which is the visitor only when 'trust proxy' names the proxies in front of the app); `key`
- * narrows one further, for example to one account from one address. With `failuresOnly`, a
- * request that succeeds hands its attempt back, so ordinary sign-ins and session renewals never
- * use up anyone's allowance. Attempts still count while in flight, so parallel guesses can't
- * overrun the limit.
+ * which is the visitor only when 'trust proxy' names the proxies in front of the app; an IPv6
+ * /64 counts as one address); `key` narrows one further, for example to one account from one
+ * address, or with `perAddress: false` names the budget on its own, across every address. With
+ * `failuresOnly`, only requests that fail count: one that succeeds hands its attempt back, so
+ * ordinary sign-ins and session renewals never use up anyone's allowance, and so does a request
+ * a budget refused (429), so retrying while limited never spends another budget on the route.
+ * Attempts still count while in flight, so parallel guesses can't overrun the limit.
  */
 export function authRateLimit(
   options: {
@@ -175,6 +197,7 @@ export function authRateLimit(
     windowMs?: number;
     message?: string;
     key?: (req: Request, res: Response) => string;
+    perAddress?: boolean;
     failuresOnly?: boolean;
   } = {},
 ) {
@@ -185,8 +208,10 @@ export function authRateLimit(
     const now = Date.now();
     for (const [key, value] of attempts)
       if (value.until <= now) attempts.delete(key);
-    const address = req.ip ?? "unknown";
-    const key = options.key ? `${address}\n${options.key(req, res)}` : address;
+    const address = addressBudget(req.ip);
+    const narrowed = options.key?.(req, res);
+    const key = narrowed === undefined ? address
+      : options.perAddress === false ? narrowed : `${address}\n${narrowed}`;
     let record = attempts.get(key);
     if (!record) {
       // A full table forgets its oldest entry; refusing every newcomer would lock out the site.
@@ -198,7 +223,7 @@ export function authRateLimit(
     if (options.failuresOnly) {
       const counted = record;
       res.once("finish", () => {
-        if (res.statusCode >= 400) return;
+        if (res.statusCode >= 400 && res.statusCode !== 429) return;
         counted.count--;
         if (counted.count <= 0 && attempts.get(key) === counted) attempts.delete(key);
       });

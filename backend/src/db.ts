@@ -29,14 +29,20 @@ export function createPool(): Pool {
     statement_timeout: 10000,
     application_name: 'collaboratory-mvc',
   });
-  // An idle connection the server drops (restart, failover, terminated backend) is
-  // reported here. Without a listener Node treats it as uncaught and exits; with one,
-  // the pool discards that client and opens a new connection on the next query.
-  pool.on('error', (error: Error & { code?: unknown }) => {
-    console.error('Idle database connection lost', {
+  // A connection the server drops (restart, failover, terminated backend) emits 'error' on its
+  // client, often twice, whether it sits idle in the pool or is checked out by a transaction or
+  // background job. Node ends the process on an 'error' event nobody listens for, so every client
+  // keeps a listener for life and its first error is logged. The query in flight still fails (a
+  // transaction rolls back), and the pool discards the broken client and connects afresh.
+  const lost = (error: Error & { code?: unknown }) =>
+    console.error('Database connection lost', {
       code: typeof error.code === 'string' ? error.code : undefined,
     });
+  pool.on('connect', (client) => {
+    client.once('error', lost).on('error', () => {});
   });
+  // pg-pool repeats an idle client's error here; the client's own listener has logged it.
+  pool.on('error', () => {});
   return pool;
 }
 

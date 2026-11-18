@@ -17,7 +17,7 @@ import {studioRoutes} from './studios/routes.js';
 import { requirePermission } from './middleware/permissions.js';
 import { WaiverRecordsController } from './controllers/WaiverRecordsController.js';
 import { NotificationPreferencesController } from "./controllers/NotificationPreferencesController.js";
-import { Router } from "express";
+import { Router, type Request } from "express";
 import type { Pool } from "pg";
 import type { AppConfig } from "./config.js";
 import { AuthController } from "./controllers/AuthController.js";
@@ -47,11 +47,15 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   const permit = (resource: string, action: string, scope: "own" | "global" = "global") => requirePermission(pool,resource,action,scope);
   const protectedRoute = requireUser(pool, config);
   // Every route has its own budget, so one endpoint's traffic never spends another's allowance.
-  // Sign-in counts failures only: per address, and per account from that address, so a busy
-  // class signing in, or one person's typos, never locks out everyone else on that address.
+  // Sign-in counts failures only, so a busy class signing in spends nothing. Per address: 10 for
+  // one account and 30 in all, and a refused retry costs nothing, so one person's typos never
+  // lock out everyone else on that address. Across every address one account gets 100, which
+  // bounds guessing spread over many addresses; locking its owner out takes ten or more of them.
+  const loginEmail = (req: Request) =>
+    typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase().slice(0, 254) : "";
+  const loginAccountLimit = authRateLimit({ limit: 10, failuresOnly: true, key: loginEmail });
   const loginLimit = authRateLimit({ failuresOnly: true });
-  const loginAccountLimit = authRateLimit({ limit: 10, failuresOnly: true,
-    key: (req) => typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase().slice(0, 254) : "" });
+  const loginEmailLimit = authRateLimit({ limit: 100, failuresOnly: true, key: loginEmail, perAddress: false });
   const confirmLimit = authRateLimit({ failuresOnly: true });
   const resendLimit = authRateLimit();
   const demoLimit = authRateLimit();
@@ -81,7 +85,7 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
       data: { demoLogin: config.demoLogin, timeZone: config.timeZone },
     }),
   );
-  routes.post("/auth/login", loginLimit, loginAccountLimit, auth.login);
+  routes.post("/auth/login", loginAccountLimit, loginLimit, loginEmailLimit, auth.login);
   routes.post("/auth/register", signupLimit, auth.register);
   routes.post("/auth/confirm", confirmLimit, auth.confirm);
   routes.post("/auth/confirmation", resendLimit, auth.confirmation);

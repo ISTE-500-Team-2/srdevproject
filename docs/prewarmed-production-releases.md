@@ -41,7 +41,12 @@ The standby clones only the public service's existing configuration: same public
 database, JWT key, reader configuration, environment files, certificates and
 notification policy. It is a separate Compose project (`arbor-public-green` or
 `arbor-public-blue`) with a loopback-only slot port. No data migration, seeding,
-database replacement, permission widening or volume deletion occurs.
+database replacement, permission widening or volume deletion occurs. The one
+addition is `TRUST_PROXY=1`, so sign-in limits count each visitor named by the RLES
+edge (`deploy/rles-edge.mjs`) rather than the edge itself. Until that edge is
+installed, the running gateway strips `X-Forwarded-For`, so this changes nothing
+yet. To use another value, set `TRUST_PROXY` in the public service's
+`environment` in `compose.json`; Compose prefers that over an environment file.
 
 The app's existing outbox `FOR UPDATE SKIP LOCKED` leases and unique notification
 keys coordinate concurrent public processes; uncertain provider acceptance is not

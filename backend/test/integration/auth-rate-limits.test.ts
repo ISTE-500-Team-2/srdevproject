@@ -61,6 +61,34 @@ test('wrong passwords for one account are limited without blocking the address\'
   assert.equal((await post(app, '/auth/login', '198.51.100.8', member)).status, 200);
 });
 
+test('retrying after an account is limited never spends the address\'s budget', async () => {
+  const app = behindProxy();
+  // A too-short password is refused before any password check, so these are quick to send.
+  const typo = { email: member.email, password: 'x' };
+  for (let i = 0; i < 10; i++) assert.equal((await post(app, '/auth/login', '203.0.113.13', typo)).status, 400);
+  for (let i = 0; i < 25; i++) assert.equal((await post(app, '/auth/login', '203.0.113.13', typo)).status, 429);
+  // Everyone else behind that address (a front desk, a shared Wi-Fi) keeps the remaining 20.
+  for (let i = 0; i < 20; i++) assert.equal((await post(app, '/auth/login', '203.0.113.13', malformed())).status, 400);
+  assert.equal((await post(app, '/auth/login', '203.0.113.13', malformed())).status, 429);
+});
+
+test('an IPv6 visitor\'s whole /64 shares one budget', async () => {
+  const app = behindProxy();
+  for (let i = 0; i < 30; i++) assert.equal((await post(app, '/auth/login', `2001:db8:1:2::${(i + 1).toString(16)}`, malformed())).status, 400);
+  assert.equal((await post(app, '/auth/login', '2001:db8:1:2:ffff::7', malformed())).status, 429);
+  assert.equal((await post(app, '/auth/login', '2001:db8:1:3::1', malformed())).status, 400);
+});
+
+test('guesses at one account spread over many addresses share one larger budget', async () => {
+  const app = behindProxy();
+  const guess = { email: member.email, password: 'x' };
+  for (let i = 0; i < 100; i++)
+    assert.equal((await post(app, '/auth/login', `198.51.100.${i + 100}`, guess)).status, 400);
+  assert.equal((await post(app, '/auth/login', '203.0.113.14', member)).status, 429);
+  // Other accounts, from those same addresses, are unaffected.
+  assert.equal((await post(app, '/auth/login', '198.51.100.100', malformed())).status, 400);
+});
+
 test('failed session renewals from one address leave everyone else\'s renewals alone', async () => {
   const app = behindProxy();
   for (let i = 0; i < 120; i++) assert.equal((await post(app, '/auth/refresh', '203.0.113.12')).status, 401);

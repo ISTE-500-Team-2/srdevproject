@@ -55,6 +55,11 @@ def slot_config(original, image, port):
     service = startup_healthcheck(original['services']['arbor-email-app'])
     service.pop('depends_on', None)
     service.update(image=image, container_name=container, ports=[f'127.0.0.1:{port}:8080'])
+    # The RLES edge names the visitor in X-Forwarded-For, so sign-in limits count each visitor
+    # rather than the edge. Safe before that edge is installed: the older one strips the header,
+    # so the app still sees only its direct peer. A TRUST_PROXY in compose.json's environment wins
+    # (one in an env_file would not: Compose prefers environment).
+    service['environment'] = {'TRUST_PROXY': '1', **service.get('environment', {})}
     # Preserve real public DB, JWT keys, reader config and notification policy.
     # Outbox row leases/dedupe and policy advisory locks already coordinate
     # multiple public processes. Never create a second scheduler implementation.
