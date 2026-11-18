@@ -3,7 +3,7 @@
 
 import { MinorSupervision } from "../minorSupervision.js";
 import type { Database } from '../db.js';
-import { checkInOriginSql } from "./checkInOrigin.js";
+import { checkInOriginSql, type CheckInOrigin } from "./checkInOrigin.js";
 import { DEFAULT_BUILDING_ID } from '../facility.js';
 import { EXPIRATION_LOOKAHEAD_DAYS } from '../notifications/scheduler.js';
 
@@ -59,15 +59,16 @@ export class MemberModel {
       )
     ).rows;
   }
-  /** `statusDesc` says how the check-in was verified; the front desk passes its own. */
+  /** `origin` is 'portal' when members check themselves in and 'desk' when staff check them in. */
   async createCheckIn(userId: number, location: string, roomId: number | null = null,
     buildingId: number | null = null, equipmentId: number | null = null, reservationId: number | null = null,
-    statusDesc = 'Eligibility verified by member portal') {
+    origin: Exclude<CheckInOrigin, 'nfc'> = 'portal') {
+    const statusDesc = origin === 'desk' ? 'Checked in at the front desk' : 'Eligibility verified by member portal';
     const { rows } = await this.db.query(
       `INSERT INTO check_in (userid,roomid,location,buildingid,equipmentid,reservationid,checkintime,status,statusdesc,origin)
-      VALUES ($1,$2,$3,$4,$5,$6,NOW() AT TIME ZONE 'UTC','approved',$7,'portal')
+      VALUES ($1,$2,$3,$4,$5,$6,NOW() AT TIME ZONE 'UTC','approved',$7,$8)
       RETURNING checkinid AS id,location,checkintime AT TIME ZONE 'UTC' AS "checkedInAt"`,
-      [userId, roomId, location,buildingId,equipmentId,reservationId,statusDesc],
+      [userId, roomId, location,buildingId,equipmentId,reservationId,statusDesc,origin],
     );
     await new MinorSupervision(this.db,this.timeZone).startVisit(userId,buildingId ?? DEFAULT_BUILDING_ID);
     return rows[0]!;

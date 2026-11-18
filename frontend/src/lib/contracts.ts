@@ -169,7 +169,7 @@ export interface Overview {
   reasons: string[];
   /** reasonCodes[i] identifies reasons[i]. Older servers omit it. */
   reasonCodes?: string[];
-  recentCheckIns: { id: number; location: string; checkedInAt: string; method?: 'nfc' | 'portal' }[];
+  recentCheckIns: { id: number; location: string; checkedInAt: string; method?: 'nfc' | 'portal' | 'desk' }[];
 }
 /** An open facility visit. Staff reads may omit the building name. */
 export interface FacilityVisit {

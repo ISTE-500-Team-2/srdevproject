@@ -68,7 +68,7 @@ test('both visitors need their own access; adult presence gates minor bookings a
  assert.equal((await pool.query(`SELECT reason FROM app_staff_audit WHERE subject_id=$1 AND action='visit.check-in' ORDER BY id DESC LIMIT 1`,[adult.user.id])).rows[0].reason,'Checked in at the front desk');
  assert.equal((await post(admin,`${root()}/check-in`,{reason:'Arrived together'})).status,200);
  for (const who of [adult,minor])
-  assert.deepEqual(await deskCheckIns(who.user.id),[{location:buildingName,buildingid:1,origin:'portal',statusdesc:'Checked in at the front desk'}]);
+  assert.deepEqual(await deskCheckIns(who.user.id),[{location:buildingName,buildingid:1,origin:'desk',statusdesc:'Checked in at the front desk'}]);
  // The member record shows a desk check-in once: the database copy of the check_in row is
  // saved at the same moment as the staff action, which is how the activity feed spots it.
  const moments=(await pool.query(`SELECT action,created_at FROM app_staff_audit WHERE subject_id=$1
