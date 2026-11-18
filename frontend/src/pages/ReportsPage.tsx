@@ -413,7 +413,7 @@ function totals(r: Report) {
     refunds: cents(sum(r.revenue, (x) => Number(x.refunds))),
     receipts: sum(r.revenue, (x) => x.receipts),
     joined: sum(r.memberships ?? [], (x) => x.newMembers),
-    ended: sum(r.memberships ?? [], (x) => x.expiringMembers),
+    ended: sum(r.memberships ?? [], (x) => x.endedWithoutRenewingMembers),
     cancelled: sum(r.memberships ?? [], (x) => x.cancelledMembers),
     cohorts,
     due,
@@ -689,6 +689,8 @@ function Members({ report: d, t, unitWord }: { report: Report; t: ReturnType<typ
         <div><dt>Joined</dt><dd>{t.joined}</dd></div>
         <div><dt>Cancelled</dt><dd>{t.cancelled}</dd></div>
         <div><dt>Ended without renewing</dt><dd>{t.ended}</dd></div>
+        {/* Live, not tied to the dates above. */}
+        <div><dt>Ending in the next 30 days</dt><dd>{d.compliance.membersEndingWithin30Days}</dd></div>
       </dl>
       <TableScroll label="Members by period">
         <table className="data-table reports-table">
@@ -709,7 +711,7 @@ function Members({ report: d, t, unitWord }: { report: Report; t: ReturnType<typ
                 </td>
                 <td className="table-number">{row.newMembers || <span className="reports-muted">0</span>}</td>
                 <td className="table-number">{row.activeMembers}</td>
-                <td className="table-number">{row.expiringMembers || <span className="reports-muted">0</span>}</td>
+                <td className="table-number">{row.endedWithoutRenewingMembers || <span className="reports-muted">0</span>}</td>
                 <td className="table-number">{row.cancelledMembers || <span className="reports-muted">0</span>}</td>
               </tr>
             ))}
@@ -717,7 +719,10 @@ function Members({ report: d, t, unitWord }: { report: Report; t: ReturnType<typ
         </table>
       </TableScroll>
       {toggle}
-      <p className="reports-note">Renewals don't count as new members.</p>
+      <p className="reports-note">
+        Renewals don't count as new members. Ending in the next 30 days counts members, as of now, whose membership runs out with nothing to
+        continue it; card memberships set to renew aren't included.
+      </p>
     </Panel>
   );
 }

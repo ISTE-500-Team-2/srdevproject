@@ -56,6 +56,8 @@ export type Report = {
     restrictedAccounts: number;
     expiredTraining: number;
     activeMemberships: number;
+    /** Live, whatever the report dates: memberships ending in the next 30 days that nothing renews or continues. */
+    membersEndingWithin30Days: number;
     trainingWithoutExpiry: number;
     signaturesWithoutCopy: number;
     machinesWithoutTraining: string[];
@@ -70,7 +72,7 @@ export type Report = {
     period: string;
     newMembers: number;
     activeMembers: number;
-    expiringMembers: number;
+    endedWithoutRenewingMembers: number;
     cancelledMembers: number;
   }[];
   notifications: {
