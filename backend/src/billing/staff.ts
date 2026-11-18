@@ -28,6 +28,11 @@ export function staffPurchaseRoutes(pool: Pool, config?: StudioStripeConfig, zon
     if (!target) throw new AppError(404, 'NOT_FOUND', 'Member not found.');
     if (target.roles.some((role: string) => role === 'admin' || role === 'staff') && !authState(res).user.roles.includes('admin'))
       throw new AppError(403, 'ADMIN_REQUIRED', 'Only administrators can manage staff accounts.');
+    // Checkout refuses a restricted member's account; say it is the member's, not the staff user's.
+    if (target.status !== 'active')
+      throw new AppError(409, 'MEMBER_RESTRICTED', 'This member’s account isn’t active. Reactivate it before selling a plan or pass.');
+    if (target.accessStatus !== 'active')
+      throw new AppError(409, 'MEMBER_RESTRICTED', `This member’s access is ${target.accessStatus}. Restore it before selling a plan or pass.`);
     next();
   };
   routes.use(path, requireStaff, requirePermission(pool, 'entitlement', 'create', 'global'), member);

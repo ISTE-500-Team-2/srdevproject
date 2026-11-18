@@ -182,6 +182,79 @@ test("an unpaid hold says there's nothing to refund instead of $0.00", async () 
   expect(screen.queryByRole("dialog", { name: "Cancel Harkonnen?" })).toBeNull();
 });
 
+const cardHold = (over: Record<string, unknown> = {}) =>
+  rental({ payment_method: "stripe_test", checkout_id: "cs_test_hold", status: "pending", payment_status: "unpaid",
+    hold_until: "2030-01-10T15:30:00Z", ...over });
+
+test("a pending card hold doesn't promise there's nothing to refund", async () => {
+  withRentals([cardHold()]);
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Cancel rental" }));
+  const dialog = screen.getByRole("dialog", { name: "Cancel Harkonnen?" });
+  expect(within(dialog).getByText(/If your card payment didn't go through, there's nothing to refund\. If it did, we'll stop/)).toBeTruthy();
+  expect(within(dialog).queryByText("You haven't paid for this hold, so there's nothing to refund.")).toBeNull();
+});
+
+test("when cancelling finds the card payment went through, the dialog shows the paid terms", async () => {
+  globalThis.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+  let rentals = [cardHold({ cancellation_policy: "no_refunds" })];
+  api.mockImplementation((path: string) => {
+    if (path === "/studios") return Promise.resolve({ studios, cardTestEnabled: true, timeZone: "UTC" });
+    if (path === "/studio-rentals") return Promise.resolve(rentals);
+    if (path === "/studio-rentals/7/cancel") {
+      // The server confirms the payment it just found and stops short of cancelling.
+      rentals = [cardHold({ cancellation_policy: "no_refunds", status: "confirmed", payment_status: "paid" })];
+      return Promise.reject(new Error("Your card payment just went through, so this rental is now booked and paid."));
+    }
+    return Promise.resolve({});
+  });
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Cancel rental" }));
+  const dialog = screen.getByRole("dialog", { name: "Cancel Harkonnen?" });
+  fireEvent.keyDown(within(dialog).getByRole("button", { name: /Hold to cancel rental/ }), { key: " " });
+  await within(dialog).findByText(/Your card payment just went through/, undefined, { timeout: 2500 });
+  expect(
+    await within(dialog).findByText("This rental's terms don't include refunds, so the $350.00 you paid won't be returned."),
+  ).toBeTruthy();
+});
+
+test("cancelling names the state it showed, so a desk payment recorded meanwhile stops it", async () => {
+  globalThis.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+  const unpaid = rental({ status: "pending", payment_status: "unpaid", hold_until: "2030-01-10T15:30:00Z",
+    cancellation_policy: "no_refunds" });
+  let rentals = [unpaid];
+  const sent: unknown[] = [];
+  api.mockImplementation((path: string, init?: { body?: unknown }) => {
+    if (path === "/studios") return Promise.resolve({ studios, cardTestEnabled: false, timeZone: "UTC" });
+    if (path === "/studio-rentals") return Promise.resolve(rentals);
+    if (path === "/studio-rentals/7/cancel") {
+      sent.push(init?.body);
+      // Staff recorded the desk payment after the dialog was drawn; the server refuses.
+      rentals = [{ ...unpaid, status: "confirmed", payment_status: "paid" }];
+      return Promise.reject(new Error("A payment for this rental was just recorded, so the refund terms you saw no longer apply."));
+    }
+    return Promise.resolve({});
+  });
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Cancel rental" }));
+  const dialog = screen.getByRole("dialog", { name: "Cancel Harkonnen?" });
+  expect(within(dialog).getByText("You haven't paid for this hold, so there's nothing to refund.")).toBeTruthy();
+  fireEvent.keyDown(within(dialog).getByRole("button", { name: /Hold to cancel rental/ }), { key: " " });
+  await within(dialog).findByText(/A payment for this rental was just recorded/, undefined, { timeout: 2500 });
+  expect(sent).toEqual([{ expectedStatus: "pending", expectedPaymentStatus: "unpaid" }]);
+  expect(
+    await within(dialog).findByText("This rental's terms don't include refunds, so the $350.00 you paid won't be returned."),
+  ).toBeTruthy();
+});
+
 const returned = "/studios?payment=returned&rental=7&session_id=cs_test_matching";
 
 test("a checkout return cannot confirm an unrelated historical or manual payment", async () => {

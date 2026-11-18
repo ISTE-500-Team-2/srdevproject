@@ -214,6 +214,8 @@ export function StudiosPage() {
     .filter((r) => current(r, today))
     .sort((a, b) => a.starts_on.localeCompare(b.starts_on));
   const past = mine.filter((r) => !current(r, today));
+  // The dialog reads the live rental, so a payment recorded while it is open changes what it says.
+  const cancelRental = cancelling && (mine.find((r) => r.id === cancelling.id) ?? cancelling);
   const returning = params.get("payment") === "returned";
   // A return URL is not payment evidence. Match this checkout to a rental
   // returned by the authenticated API; never substitute a historical payment.
@@ -376,15 +378,15 @@ export function StudiosPage() {
         </details>
       )}
 
-      {cancelling && (
+      {cancelRental && (
         <CancelRentalDialog
-          rental={cancelling}
-          started={today >= dateOnly(cancelling.starts_on)}
+          rental={cancelRental}
+          started={today >= dateOnly(cancelRental.starts_on)}
           refundable={
-            cancelling.payment_status === "paid" &&
-            cancelling.cancellation_policy === "full_before_start" &&
-            today < dateOnly(cancelling.starts_on)
-              ? cancelling.amount_cents
+            cancelRental.payment_status === "paid" &&
+            cancelRental.cancellation_policy === "full_before_start" &&
+            today < dateOnly(cancelRental.starts_on)
+              ? cancelRental.amount_cents
               : 0
           }
           busy={busy}
@@ -394,9 +396,14 @@ export function StudiosPage() {
             setError("");
           }}
           onConfirm={() => {
-            const r = cancelling;
+            const r = cancelRental;
             void action(async () => {
-              await api(`/studio-rentals/${r.id}/cancel`, { method: "POST" });
+              // The refund terms shown follow from this state; if a payment was recorded since,
+              // the server refuses and the refresh redraws the dialog with the real terms.
+              await api(`/studio-rentals/${r.id}/cancel`, {
+                method: "POST",
+                body: { expectedStatus: r.status, expectedPaymentStatus: r.payment_status },
+              });
               setCancelling(null);
               setMessage(`${r.name} cancelled.`);
             });
