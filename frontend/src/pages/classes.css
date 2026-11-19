@@ -1398,3 +1398,14 @@
 }
 /* Auto margins on a grid child otherwise size the whole page to its active view's contents. */
 .classes-management { width: 100%; min-width: 0; }
+
+/* Keep adjacent scheduling controls aligned even when only one field has help text. */
+.class-form__pair,
+.class-form__times { align-items: start; }
+.class-form .class-field { align-content: start; min-width: 0; }
+.class-form .class-field > input,
+.class-form .class-field > select { height: 46px; box-sizing: border-box; }
+/* The instructor picker fills the same column as the other scheduling fields. */
+.class-form .class-field--picker .member-select { width: 100%; max-width: none; }
+.class-form .class-field--picker .member-select__field { height: 46px; box-sizing: border-box; }
+.class-form .class-field--picker .member-select__field input { min-height: 0; height: 100%; }
