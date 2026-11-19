@@ -116,7 +116,8 @@ export class PassBilling {
     cancellation_requested_at=NOW(),revision=revision+1 WHERE membershipid=$1 RETURNING end_date AT TIME ZONE 'UTC' AS ends`,[id])).rows[0]!.ends;
    await model.audit(userid,userid,'membership.cancelled','membership',id,'Member cancellation with 30 days notice',{endsAt:r.ends},{endsAt:ends});
    await enqueueNotification(db,{userId:userid,kind:'membership_cancellation_confirmed',dedupeKey:'membership-manual-cancel:'+id,
-    payload:{membershipId:id,membershipName:r.plan_name,endsAt:new Date(ends).toISOString(),instructions}});
+    payload:{membershipId:id,membershipName:r.plan_name,endsAt:new Date(ends).toISOString(),instructions,
+     ...(r.status==='suspended'?{onHold:true}:{})}});
    return {cancelled:true,endsAt:ends};
   });
  }

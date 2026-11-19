@@ -389,6 +389,7 @@ test('FR-057: a suspended desk membership can be cancelled with 30 days notice a
  assert.equal(new Date(cancelled.endsAt!).getTime(),new Date(row.ends).getTime());
  const mail=(await emails('membership_cancellation_confirmed',userId)).at(-1);
  assert.ok(mail);assert.equal(new Date(mail.payload.endsAt).getTime(),new Date(row.ends).getTime());
+ assert.equal(mail.payload.onHold,true);
  // A suspended membership whose dates have passed is over: nothing to cancel.
  const ended=await membership(userId,-60,-30);
  await pool.query(`UPDATE user_membership SET status='suspended' WHERE membershipid=$1`,[ended]);

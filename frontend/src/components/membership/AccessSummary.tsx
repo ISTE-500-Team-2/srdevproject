@@ -92,18 +92,17 @@ export function AccessSummary({ history, billing, passes, busy, act }: Props) {
   const [cancelling, setCancelling] = useState<BillingPass | null>(null);
   const [ending, setEnding] = useState<Entitlement | null>(null);
   // FR-057: a desk (or free) membership the member can cancel themselves: running now, on hold
-  // but not yet over, or scheduled to start. Card memberships stop through auto-renew instead.
+  // but not yet over, or scheduled to start. Card memberships stop through auto-renew instead, but
+  // a card membership still running out doesn't hide the cancel button on a desk one.
   const now = Date.now();
   const notStarted = (m: Entitlement) => !!m.startsAt && new Date(m.startsAt).getTime() > now;
-  const deskMemberships = recurring
-    ? []
-    : history.memberships.filter(
-        (m) =>
-          !m.cardBilled &&
-          (m.effectiveStatus === "active" ||
-            m.effectiveStatus === "scheduled" ||
-            (m.effectiveStatus === "suspended" && !!m.endsAt && new Date(m.endsAt).getTime() > now)),
-      );
+  const deskMemberships = history.memberships.filter(
+    (m) =>
+      !m.cardBilled &&
+      (m.effectiveStatus === "active" ||
+        m.effectiveStatus === "scheduled" ||
+        (m.effectiveStatus === "suspended" && !!m.endsAt && new Date(m.endsAt).getTime() > now)),
+  );
   const passRow = (p: BillingPass) => (
     <PassRow
       key={p.id}

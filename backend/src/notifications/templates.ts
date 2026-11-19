@@ -78,6 +78,8 @@ interface Bookkeeping {
   changeHash?: string; recipientEmail?: string;
   waiverId?: number; membershipId?: number; memberId?: number; formValues?: unknown; guardianConsent?: unknown;
   methodOfAcceptance?: string;
+  /** The membership was on hold when cancelled, so the email says it stays on hold, not active. */
+  onHold?: boolean;
 }
 type Payload = Details & Bookkeeping;
 /** What each kind's template needs. Only the fields a template refuses to render without are required. */
@@ -125,6 +127,8 @@ interface Facts { item: string; money: string; role: string; refund: string; cer
   adultName: string; minorName: string;
   /** The end date shown, if any (a membership cancelled before it started has none). */
   ends: string;
+  /** The membership was on hold when cancelled. */
+  onHold: boolean;
   /** The refund outcome told to staff rather than to the member. */
   staffRefund: string }
 interface Copy {
@@ -204,7 +208,7 @@ const copy: Record<NotificationKind, Copy> = {
   // Desk-paid and free memberships never had automatic payments, so say nothing about them.
   membership_cancellation_confirmed: { category: 'Membership', status: 'Ending', tone: 'info',
     // One cancelled before it started has no end date: it never begins.
-    intro: f => f.ends ? 'Your membership stays active until the end date below, then it ends.'
+    intro: f => f.ends ? `Your membership stays ${f.onHold ? 'on hold' : 'active'} until the end date below, then it ends.`
       : 'Your membership was cancelled before it started, so it won’t begin.', cta: membership },
   day_pass_confirmed: { category: 'Day pass', status: 'Confirmed', tone: 'success',
     intro: () => 'Here are the details.', cta: ['View membership', '/membership'] },
@@ -409,6 +413,7 @@ export function renderNotification(kind: NotificationKind, payload: Notification
   const facts: Facts = {
     item, money: amount, role: field('role'), certificationName: field('certificationName'), memberName: field('memberName'),
     adultName: field('adultName'), minorName: field('minorName'), ends: end,
+    onHold: payload.onHold === true,
     refund: !refundAmount ? ''
       : Number(refundAmount) <= 0
         ? paid === 'paid' ? 'Under this studio’s cancellation policy, this booking isn’t eligible for a refund.'

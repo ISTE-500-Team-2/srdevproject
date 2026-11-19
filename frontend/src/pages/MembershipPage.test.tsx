@@ -435,6 +435,20 @@ test("FR-057: ended, revoked, cancelled and card memberships offer no cancel but
   expect(screen.queryByRole("button", { name: /^Cancel (upcoming )?membership$/ })).toBeNull();
 });
 
+test("FR-057: a card membership running out doesn't hide cancelling an upcoming desk membership", () => {
+  mount({
+    memberships: [
+      deskMembership({ id: 1, cardBilled: true, endsAt: future(10) }),
+      deskMembership({ id: 9, effectiveStatus: "scheduled", startsAt: future(10), endsAt: future(40) }),
+    ],
+    records: [{ id: "r", plan: monthly, status: "active", amountCents: 5000, cancelAtPeriodEnd: true, currentPeriodEnd: "2030-02-01T00:00:00Z" }],
+  });
+  // The card one stops through auto-renew; only the desk one gets a cancel button.
+  expect(screen.queryByRole("button", { name: "Cancel membership" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel upcoming membership" }));
+  expect(screen.getByRole("dialog", { name: "Cancel upcoming membership?" })).toBeTruthy();
+});
+
 test("FR-057: a pending checkout does not hide cancelling the current desk membership", () => {
   mount({ memberships: [deskMembership()], records: [{ id: "b1", status: "pending", amountCents: 5000, plan: { name: "Monthly" }, planSnapshot: { name: "Monthly" } }] });
   expect(screen.getByRole("button", { name: "Cancel checkout" })).toBeTruthy();

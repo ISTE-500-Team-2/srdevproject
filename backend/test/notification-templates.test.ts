@@ -168,6 +168,11 @@ test('cancelling a desk-paid membership confirms the cancellation without mentio
   instructions:'If you paid at the front desk, ask staff about any refund.'},context);
  assert.match(early.textContent,/cancelled before it started, so it won’t begin/);
  assert.doesNotMatch(early.textContent,/stays active|Ends: /);
+ // One cancelled while on hold stays on hold, not active, until it ends.
+ const held=renderNotification('membership_cancellation_confirmed',{membershipName:'Monthly',endsAt:'2026-12-02T05:00:00Z',onHold:true,
+  instructions:'If you paid at the front desk, ask staff about any refund.'},context);
+ assert.match(held.textContent,/stays on hold until the end date below/);
+ assert.doesNotMatch(held.textContent,/stays active/);
 });
 test('sponsor requests name people by first name only and link to where the answer lives',()=>{
  // Even if a caller slipped an email into the payload, only the approved first-name fields render.
