@@ -17,6 +17,8 @@ export interface EquipmentRecord {
   trainingFeeCents: number | null;
   trainingMinutes: number | null;
   location: string;
+  /** Kept out of the member catalog; staff still see and manage it. */
+  hidden: boolean;
 }
 // Retired catalog entries keep their history but are never listed or bookable.
 const active = 'NOT EXISTS(SELECT 1 FROM app_equipment_retirement r WHERE r.equipment_id=e.equipmentid)';
@@ -24,7 +26,7 @@ const columns = `e.equipmentid AS id,e.name,COALESCE(e.category,e.name) AS type,
   COALESCE(e.imagepath,'/assets/3d-printer.webp') AS image,COALESCE(e.status,'unavailable') AS status,
   COALESCE(e.waiverrequired,false) AS "waiverRequired",e.certid AS "certId",c.name AS certification,
   c.training_fee_cents AS "trainingFeeCents",c.training_minutes AS "trainingMinutes",
-  e.location,e.availability_revision AS "availabilityRevision"`;
+  e.location,e.availability_revision AS "availabilityRevision",e.hidden`;
 
 export class EquipmentModel {
   constructor(private db: Database) {}

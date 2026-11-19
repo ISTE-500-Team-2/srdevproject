@@ -68,6 +68,8 @@ export interface LiveEquipment extends Omit<Equipment, 'rate'> {
   certId?: number | null;
   certification: string | null;
   location: string;
+  /** Hidden from members; only staff pages that ask with `?include=hidden` receive these. */
+  hidden?: boolean;
   canReserve: boolean;
   /** One code per reason in `availability`, in the same order. Older servers omit it. */
   reasonCodes?: string[];

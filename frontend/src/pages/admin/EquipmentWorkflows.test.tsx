@@ -10,7 +10,7 @@ const { api, ApiError } = vi.hoisted(() => ({
 }));
 vi.mock('../../lib/api', () => ({ api, ApiError, errorMessage: (e: Error) => e.message }));
 
-const machine: EquipmentDetail = { id: 1, name: 'Phoebe', type: '3D printer', location: 'Print lab', certification: null, certId: null, waiverRequired: false, rate: 12, image: '/machine.webp', imagePath: null, status: 'maintenance', availabilityRevision: 2, outage: null,
+const machine: EquipmentDetail = { id: 1, name: 'Phoebe', type: '3D printer', location: 'Print lab', certification: null, certId: null, waiverRequired: false, rate: 12, image: '/machine.webp', imagePath: null, status: 'maintenance', availabilityRevision: 2, outage: null, hidden: false,
   history: [], activeGrants: [], checkedAt: new Date().toISOString(), timeZone: 'America/New_York', canManage: true, canReadBookings: true, canManageBookings: true };
 const future = Date.now() + 3 * 86400000;
 const booking = (id: number, extra: Partial<EquipmentBooking> = {}): EquipmentBooking => ({ id, userId: 7, equipmentId: 1, equipmentName: 'Phoebe', memberName: `Member ${id}`, location: 'Print lab',

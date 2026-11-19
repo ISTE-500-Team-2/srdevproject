@@ -162,6 +162,25 @@ export class EquipmentCatalogService {
     });
   }
 
+  /**
+   * Hides the machine from members, or shows it again. Nothing else changes: it stays in the staff
+   * workspace, its bookings stand and staff can still book it.
+   */
+  async setHidden(actorId: number, id: number, input: Record<string, unknown>) {
+    if (typeof input.hidden !== 'boolean') throw new AppError(400, 'INVALID_INPUT', 'Choose whether to hide this equipment.');
+    const hidden = input.hidden;
+    return transaction(this.pool, async db => {
+      const before = await this.authorize(db, actorId, 'update', id, input);
+      if (before!.hidden === hidden)
+        throw new AppError(409, 'INVALID_STATUS', hidden ? 'Equipment is already hidden from members.' : 'Equipment is already shown to members.');
+      const after = (await db.query<{ hidden: boolean; availabilityRevision: number }>(`UPDATE equipment SET hidden=$2,availability_revision=availability_revision+1
+        WHERE equipmentid=$1 RETURNING hidden,availability_revision AS "availabilityRevision"`, [id, hidden])).rows[0]!;
+      await new StaffModel(db).audit(actorId, null, hidden ? 'equipment.hidden' : 'equipment.shown', 'equipment', id,
+        hidden ? 'Hidden from members' : 'Shown to members', before, after);
+      return after;
+    });
+  }
+
   /** Retires the machine: it leaves the catalog, its bookings, payments and service history stay. */
   /**
    * Check linked-record blockers inside the deletion transaction so removing equipment cannot

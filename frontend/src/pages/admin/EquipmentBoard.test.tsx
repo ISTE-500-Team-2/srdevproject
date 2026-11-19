@@ -13,7 +13,7 @@ vi.mock('../../lib/api', () => ({ api, ApiError: class extends Error {}, errorMe
 const HOUR = 3600000;
 const MIDDAY = new Date('2026-11-17T17:00:00Z');
 const machine = (id: number, name: string, extra: Partial<ManagedEquipment> = {}): ManagedEquipment => ({
-  id, name, type: 'Laser engraver', location: 'Makerspace', certification: null, rate: 15, image: '/m.webp', status: 'available', availabilityRevision: 1, outage: null, activeReaderLeases: 0, ...extra,
+  id, name, type: 'Laser engraver', location: 'Makerspace', certification: null, rate: 15, image: '/m.webp', status: 'available', availabilityRevision: 1, outage: null, activeReaderLeases: 0, hidden: false, ...extra,
 });
 const booking = (id: number, equipmentId: number, fromNow: number, hours: number, memberName: string): Reservation => ({
   id, userId: id, equipmentId, equipmentName: '', resourceType: 'equipment', location: 'Makerspace', status: 'confirmed', revision: 1, memberName,

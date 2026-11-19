@@ -3,12 +3,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ArrowUpRight, Check, Wrench } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, Check, EyeOff, Wrench } from 'lucide-react';
 import { useApi } from '../../lib/useApi';
 import { LoadState } from '../../components/Management';
 import { shortDate, zonedDay } from '../../lib/display';
 import { equipmentRate, equipmentTime, maintenanceReasons, type EquipmentDetail } from '../../lib/equipmentMaintenance';
-import { AvailabilityForm, EquipmentBookings } from './EquipmentWorkflows';
+import { AvailabilityForm, EquipmentBookings, VisibilityButton } from './EquipmentWorkflows';
 import { EquipmentBoard } from './EquipmentBoard';
 import { EquipmentEditor } from './EquipmentEditor';
 import './equipment.css';
@@ -41,8 +41,8 @@ function EquipmentDetailPage({ id }: { id: string }) {
     {message && <p ref={messageRef} tabIndex={-1} className="eq-success" role="status"><Check aria-hidden="true" />{message}</p>}
     {machine && <>
       {editingDetails && machine.canManage && <EquipmentEditor initial={machine} onClose={() => setEditingDetails(false)} onSaved={(_id, removed) => { setEditingDetails(false); if (removed) navigate('/admin/equipment', { replace: true }); else { confirm('Equipment details updated.'); changed(); } }} />}
-      <header className="eq-detail-head"><img src={machine.image} alt="" /><div><p className="eq-eyebrow">{machine.type} · {machine.location}</p><h1 className="admin-title">{machine.name}</h1><p>{equipmentRate(machine.rate)}{machine.certification ? ` · ${machine.certification} certification` : ''}</p></div></header>
-      {machine.canManage && <div className="eq-actions"><button className="button button--quiet" onClick={() => setEditingDetails(true)}>Edit equipment</button></div>}
+      <header className="eq-detail-head"><img src={machine.image} alt="" /><div><p className="eq-eyebrow">{machine.type} · {machine.location}</p><h1 className="admin-title">{machine.name}</h1><p>{equipmentRate(machine.rate)}{machine.certification ? ` · ${machine.certification} certification` : ''}</p>{machine.hidden && <span className="eq-pill eq-pill--hidden"><EyeOff aria-hidden="true" />Hidden from members</span>}</div></header>
+      {machine.canManage && <div className="eq-actions"><button className="button button--quiet" onClick={() => setEditingDetails(true)}>Edit equipment</button><VisibilityButton machine={machine} onSaved={text => { confirm(text); changed(); }} /></div>}
       <div className="eq-detail-grid"><div className="eq-detail-main">
         <section className={`eq-panel eq-availability${machine.status !== 'available' ? ' eq-availability--down' : ''}`} aria-label="Availability">
           <div className="eq-section-head"><div><p className="eq-eyebrow">Availability</p><h2>{machine.status !== 'available' ? 'Out of service' : machine.activeGrants.length ? 'In use' : 'Ready to book'}</h2></div><Wrench aria-hidden="true" /></div>
@@ -50,7 +50,7 @@ function EquipmentDetailPage({ id }: { id: string }) {
             <p>{machine.outage.expectedBack ? `Estimated back ${shortDate(machine.outage.expectedBack, true)}. ` : 'No return date set. '}An administrator must return this machine to service.</p>
             {machine.outage.expectedBack && machine.outage.expectedBack < zonedDay(machine.timeZone) && <p className="eq-warning">The estimated return date has passed. This machine is still out of service.</p>}
             {machine.outage.staffNote && <div className="eq-private-note"><span className="eq-eyebrow">Staff note</span><p>{machine.outage.staffNote}</p></div>}
-          </> : <p>{machine.status !== 'available' ? 'This machine is unavailable. Return it to service when it is ready.' : machine.activeGrants.length ? 'A reader session is active. Availability can change once it ends.' : 'Members can reserve this machine and use it during their booking.'}</p>}
+          </> : <p>{machine.status !== 'available' ? 'This machine is unavailable. Return it to service when it is ready.' : machine.activeGrants.length ? 'A reader session is active. Availability can change once it ends.' : machine.hidden ? 'Hidden from members. Staff can still book it.' : 'Members can reserve this machine and use it during their booking.'}</p>}
           {!machine.canManage && <p className="eq-muted">An administrator can change equipment availability.</p>}
           {machine.canManage && !editing && <button className={`button ${machine.status === 'available' ? 'button--quiet' : 'button--primary'}`} onClick={() => { setEditing(true); setMessage(''); }}>{machine.status === 'available' ? 'Take out of service' : 'Return to service'}</button>}
           {editing && machine.canManage && <AvailabilityForm initial={machine} onClose={() => setEditing(false)} onSaved={text => { setEditing(false); confirm(text); changed(); }} />}

@@ -6,14 +6,27 @@ import type { Pool } from "pg";
 import { EquipmentModel } from "../models/EquipmentModel.js";
 import { EligibilityModel } from "../models/EligibilityModel.js";
 import { authState } from "../middleware/auth.js";
-import { integerId } from '../domain.js';
+import { AppError, integerId } from '../domain.js';
 import { equipmentPrice } from '../equipmentPricing.js';
 import { equipmentEligibility, equipmentReasonText } from '../eligibility.js';
+import { isWorkspaceRole } from '../accountMode.js';
+
+/**
+ * Hidden machines are left out of the member catalog. Staff pages ask for them with
+ * `?include=hidden`; member pages don't, so staff see the catalog there as members do.
+ */
+const showHidden = (req: Request, res: Response) =>
+  req.query.include === 'hidden' && authState(res).user.roles.some(isWorkspaceRole);
 
 export class EquipmentController {
   quote = async (req: Request, res: Response) => {
     const hours = typeof req.query.hours === 'string' && /^\d+$/.test(req.query.hours) ? Number(req.query.hours) : NaN;
-    res.json({ data: await equipmentPrice(this.pool, integerId(req.params.id, 'Equipment'), hours) });
+    const id = integerId(req.params.id, 'Equipment');
+    // Staff book hidden machines for members, so they can price them; members can't see them.
+    if (!authState(res).user.roles.some(isWorkspaceRole) &&
+      (await this.pool.query('SELECT 1 FROM equipment WHERE equipmentid=$1 AND hidden', [id])).rows.length)
+      throw new AppError(404, 'NOT_FOUND', 'Equipment not found.');
+    res.json({ data: await equipmentPrice(this.pool, id, hours) });
   };
   constructor(
     private pool: Pool,
@@ -21,12 +34,12 @@ export class EquipmentController {
     /** Card checkout is configured; without it, priced bookings are paid at the front desk. */
     private cardCheckout = false,
   ) {}
-  list = async (_req: Request, res: Response) => {
+  list = async (req: Request, res: Response) => {
     const userId = authState(res).user.id;
     const eligibility = new EligibilityModel(this.pool, this.timeZone);
     const now = new Date();
     const [items, entitlement, certified, facilityPolicies, equipmentWaivers] = await Promise.all([
-      new EquipmentModel(this.pool).list(),
+      new EquipmentModel(this.pool).list().then(all => showHidden(req, res) ? all : all.filter(item => !item.hidden)),
       // A pass or membership still to come lets members book ahead; the reservation itself checks
       // that it covers the chosen time.
       eligibility.upcomingEntitlement(userId, now),
@@ -72,6 +85,7 @@ export class EquipmentController {
         waiverRequired: item.waiverRequired,
         certification: item.certification,
         location: item.location,
+        hidden: item.hidden,
         canReserve: reasons.length === 0,
         availability: reasons.length
           ? reasons.join(" · ")

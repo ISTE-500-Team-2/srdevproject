@@ -14,7 +14,7 @@ beforeEach(() => {
     if (path === fail) return Promise.reject(new Error("Equipment request failed"));
     if (path === "/config") return Promise.resolve({ timeZone: "Asia/Kolkata" });
     if (path.startsWith("/admin/reports?")) return Promise.resolve({ checkedInTodayCount: 7, checkedInToday: people, live: [{ kind: "equipment", resourceId: 1, activeReaderLeases: 2 }, { kind: "room", resourceId: 2, activeReaderLeases: 1 }], classes: [{ id: 1, title: "Woodworking", startsAt: "2026-10-28T10:30:00Z", capacity: 8, enrolled: 6 }] });
-    if (path === "/equipment") return Promise.resolve([{ id: 1, name: "Lathe", type: "Wood", status: "available", image: "" }]);
+    if (path === "/equipment?include=hidden") return Promise.resolve([{ id: 1, name: "Lathe", type: "Wood", status: "available", image: "" }]);
     if (path.startsWith("/admin/reservations?")) return Promise.resolve({ items: [], nextOffset: null });
     if (path === "/studios") return Promise.resolve({ studios: [{ id: 1, name: "Studio A", size: "Small", availability: [{ starts_on: "2026-10-01", ends_on: "2026-11-01", status: "confirmed", hold_until: "" }] }, { id: 2, name: "Studio B", size: "Large", monthly_cents: 50000, policy_confirmed: true, availability: [] }, { id: 3, name: "Studio C", size: "Medium", monthly_cents: null, policy_confirmed: false, availability: [] }] });
     if (path === "/studio-management/rentals") return Promise.resolve([{ id: 1, name: "Studio A", email: "artist@example.test", status: "confirmed", starts_on: "2026-10-01", ends_on: "2026-11-01" }]);
@@ -26,7 +26,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.resetAllMocks(); });
 const mount = () => render(<MemoryRouter><TodayPage /></MemoryRouter>);
 test("machine details and actual outage intervals remain available after restoration", async () => {
   const original = api.getMockImplementation()!;
-  api.mockImplementation((path: string) => path === "/equipment" ? Promise.resolve([
+  api.mockImplementation((path: string) => path === "/equipment?include=hidden" ? Promise.resolve([
     { id: 9, name: "Restored machine", type: "Wood", status: "available", image: "", outages: [
       { startedAt: "2026-10-28T04:30:00Z", endedAt: "2026-10-28T07:30:00Z", reason: "repair", expectedBack: null },
     ] },
@@ -55,7 +55,7 @@ test("renders header counts from reports and times in the configured zone", asyn
   expect(screen.queryByText("artist@example.test")).toBeNull();
 });
 test("one endpoint failure leaves other panels and the header intact", async () => {
-  fail = "/equipment"; mount();
+  fail = "/equipment?include=hidden"; mount();
   expect((await screen.findAllByText(/Equipment request failed/)).length).toBeGreaterThan(0);
   expect(await screen.findByText("Studio A")).toBeTruthy();
   expect(screen.getByText("Woodworking")).toBeTruthy();
@@ -124,7 +124,7 @@ test("requests each endpoint once, and only after /config gives the day", async 
   expect(await screen.findByText("7 people checked in today, 1 machine running.")).toBeTruthy();
   expect(await screen.findByText("Nothing needs you right now.")).toBeTruthy();
   expect(api.mock.calls.map(([p]) => p).sort()).toEqual([
-    "/config", "/equipment", "/studios", "/studio-management/rentals", "/admin/compliance?userStatus=active&attention=true",
+    "/config", "/equipment?include=hidden", "/studios", "/studio-management/rentals", "/admin/compliance?userStatus=active&attention=true",
     "/admin/reports?period=daily&from=2026-10-28&to=2026-10-28",
     "/admin/reservations?date=2026-10-28",
   ].sort());
@@ -149,8 +149,8 @@ test("a failed background refresh keeps every panel's data and offers one reload
   expect(await screen.findByRole("link", { name: "Lathe" })).toBeTruthy();
   expect(await screen.findByText("Nothing needs you right now.")).toBeTruthy();
   expect(screen.queryByText(/could not be refreshed/)).toBeNull();
-  fail = "/equipment";
-  const before = api.mock.calls.filter(([p]) => p === "/equipment").length;
+  fail = "/equipment?include=hidden";
+  const before = api.mock.calls.filter(([p]) => p === "/equipment?include=hidden").length;
   await act(async () => { fireEvent.focus(window); });
   const stale = await screen.findByText(/Some of today’s information could not be refreshed/);
   expect(stale.textContent).toContain("Equipment request failed");
@@ -164,20 +164,20 @@ test("a failed background refresh keeps every panel's data and offers one reload
   fireEvent.click(within(stale).getByRole("button", { name: "Reload" }));
   await waitFor(() => expect(screen.queryByText(/could not be refreshed/)).toBeNull());
   // Only the failed source is read again.
-  expect(api.mock.calls.slice(reloads).map(([p]) => p)).toEqual(["/equipment"]);
-  expect(api.mock.calls.filter(([p]) => p === "/equipment").length).toBeGreaterThan(before + 1);
+  expect(api.mock.calls.slice(reloads).map(([p]) => p)).toEqual(["/equipment?include=hidden"]);
+  expect(api.mock.calls.filter(([p]) => p === "/equipment?include=hidden").length).toBeGreaterThan(before + 1);
   expect(screen.getByRole("link", { name: "Lathe" })).toBeTruthy();
 });
 test("the stale notice stays up while a retry is still running", async () => {
   mount();
   expect(await screen.findByRole("link", { name: "Lathe" })).toBeTruthy();
-  fail = "/equipment";
+  fail = "/equipment?include=hidden";
   await act(async () => { fireEvent.focus(window); });
   const stale = await screen.findByText(/Some of today’s information could not be refreshed/);
   // The retry never settles; useApi clears its error while it runs.
   fail = "";
   const original = api.getMockImplementation()!;
-  api.mockImplementation((path: string) => path === "/equipment" ? new Promise(() => {}) : original(path));
+  api.mockImplementation((path: string) => path === "/equipment?include=hidden" ? new Promise(() => {}) : original(path));
   await act(async () => { fireEvent.click(within(stale).getByRole("button", { name: "Reload" })); });
   expect(screen.getByText(/Some of today’s information could not be refreshed/).textContent).toContain("Equipment request failed");
   expect(screen.getByRole("link", { name: "Lathe" })).toBeTruthy();
@@ -208,7 +208,7 @@ test("a failed bookings refresh is reported while the bookings stay on the floor
   expect(screen.getByRole("listitem", booking)).toBeTruthy();
 });
 test("a first-load failure stays in its panel and adds no stale notice", async () => {
-  fail = "/equipment"; mount();
+  fail = "/equipment?include=hidden"; mount();
   expect((await screen.findAllByText(/Equipment request failed/)).length).toBeGreaterThan(0);
   expect(screen.queryByText(/could not be refreshed/)).toBeNull();
 });

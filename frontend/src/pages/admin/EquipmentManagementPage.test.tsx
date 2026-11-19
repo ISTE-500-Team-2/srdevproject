@@ -8,7 +8,7 @@ const { api } = vi.hoisted(() => ({ api: vi.fn() }));
 vi.mock('../../lib/api', () => ({ api, ApiError: class extends Error {}, errorMessage: (e: Error) => e.message }));
 let machine: EquipmentDetail;
 beforeEach(() => {
-  machine = { id: 1, name: 'Phoebe', type: '3D printer', location: 'Print lab', certification: null, certId: null, waiverRequired: false, rate: 12, image: '/machine.webp', imagePath: null, status: 'available', availabilityRevision: 1, outage: null,
+  machine = { id: 1, name: 'Phoebe', type: '3D printer', location: 'Print lab', certification: null, certId: null, waiverRequired: false, rate: 12, image: '/machine.webp', imagePath: null, status: 'available', availabilityRevision: 1, outage: null, hidden: false,
     history: [], activeGrants: [], checkedAt: new Date().toISOString(), timeZone: 'America/New_York', canManage: true, canReadBookings: true, canManageBookings: true };
   api.mockImplementation((path: string) => {
     if (path === '/admin/equipment/catalog-options') return Promise.resolve({ canManage: machine.canManage, categories: ['Laser', '3D printer'], certifications: [{ id: 3, name: 'Laser safety', state: 'now', holders: 4 }],
@@ -128,4 +128,44 @@ test('a past estimate remains out of service and offers a deliberate return', as
   expect(screen.getByRole('heading', { name: 'Out of service' })).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Return to service' })).toBeTruthy();
   expect(api.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false);
+});
+test('admins hide a machine from members and show it again; staff see no visibility action', async () => {
+  const base = api.getMockImplementation()!;
+  api.mockImplementation((path: string, options?: { method?: string; body?: { hidden: boolean } }) => {
+    if (path === '/admin/equipment/1/visibility') {
+      machine.hidden = options!.body!.hidden; machine.availabilityRevision += 1;
+      return Promise.resolve({ hidden: machine.hidden, availabilityRevision: machine.availabilityRevision });
+    }
+    return base(path, options);
+  });
+  mount();
+  fireEvent.click(await screen.findByRole('button', { name: 'Hide from members' }));
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/admin/equipment/1/visibility', { method: 'POST', body: { hidden: true, expectedRevision: 1 } }));
+  expect(await screen.findByText('Phoebe is hidden from members. Existing bookings stay in place.')).toBeTruthy();
+  expect(await screen.findByText('Hidden from members')).toBeTruthy();
+  expect(screen.getByText('Hidden from members. Staff can still book it.')).toBeTruthy();
+  fireEvent.click(await screen.findByRole('button', { name: 'Show to members' }));
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/admin/equipment/1/visibility', { method: 'POST', body: { hidden: false, expectedRevision: 2 } }));
+  expect(await screen.findByText('Phoebe is shown to members.')).toBeTruthy();
+  await waitFor(() => expect(screen.queryByText('Hidden from members')).toBeNull());
+  cleanup(); machine.canManage = false; mount();
+  await screen.findByRole('heading', { name: 'Phoebe' });
+  expect(screen.queryByRole('button', { name: /members$/ })).toBeNull();
+});
+test('a refused visibility change says why and leaves the machine as it was', async () => {
+  const base = api.getMockImplementation()!;
+  api.mockImplementation((path: string, options?: unknown) => path === '/admin/equipment/1/visibility'
+    ? Promise.reject(new Error('Equipment changed. Close this window and reload before trying again.')) : base(path, options));
+  mount();
+  fireEvent.click(await screen.findByRole('button', { name: 'Hide from members' }));
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Equipment changed. Close this window and reload before trying again.');
+  expect(screen.getByRole('button', { name: 'Hide from members' })).toBeTruthy();
+});
+test('the board marks hidden machines and finds them by searching "hidden"', async () => {
+  machine.hidden = true;
+  mount('/admin/equipment');
+  const row = await screen.findByRole('link', { name: /Phoebe/ });
+  expect(within(row).getByText('Hidden')).toBeTruthy();
+  fireEvent.change(screen.getByPlaceholderText('Find a machine…'), { target: { value: 'hidden' } });
+  expect(screen.getByRole('link', { name: /Phoebe/ })).toBeTruthy();
 });

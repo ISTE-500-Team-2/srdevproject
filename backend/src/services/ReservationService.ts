@@ -51,12 +51,14 @@ async function lockBookableResource(
   resource: ReservationResource,
   memberId: number,
   end: Date,
+  /** Staff may book a machine hidden from members; to a member it doesn't exist. */
+  staff: boolean,
 ): Promise<BookableResource> {
   if (resource.equipmentId !== undefined) {
     const equipment = await new EquipmentModel(db).findForUpdate(
       resource.equipmentId,
     );
-    if (!equipment)
+    if (!equipment || (equipment.hidden && !staff))
       throw new AppError(404, "NOT_FOUND", "Equipment not found.");
     if (equipment.status !== "available")
       throw new AppError(
@@ -291,7 +293,8 @@ export class ReservationService {
       const model = new ReservationModel(db);
       let stripeCheckout = false;
 
-      const resource = await lockBookableResource(db, access, resourceRef, targetId, end);
+      const resource = await lockBookableResource(db, access, resourceRef, targetId, end,
+        actor.roles.some((role) => ["staff", "admin"].includes(role)));
       if (resource.kind === "equipment")
         assertOnlinePayable(resource.rate, hours, input.amountCents);
       await assertResourceFree(model, resource, targetId, start, end, null);
@@ -494,7 +497,8 @@ export class ReservationService {
       const keepSponsorLink = targetId !== actorId && targetId === before.userId;
       if (!keepSponsorLink) await new MinorSupervision(db,this.timeZone).requireSponsor(targetId,familyBuilding?.buildingid);
 
-      const resource = await lockBookableResource(db, access, resourceRef, targetId, end);
+      // Only staff reach here (checked above), so a hidden machine stays bookable.
+      const resource = await lockBookableResource(db, access, resourceRef, targetId, end, true);
       await assertResourceFree(model, resource, targetId, start, end, reservationId);
 
       // Unlike create, an update keeps an unpriced legacy booking (null price).
