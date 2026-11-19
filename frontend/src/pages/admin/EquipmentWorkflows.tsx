@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, RefreshCw } from 'lucide-react';
+import { Check, Eye, EyeOff, RefreshCw } from 'lucide-react';
 import { api, ApiError, errorMessage } from '../../lib/api';
 import { editingFormRef } from '../../lib/editingForms';
 import { useApi } from '../../lib/useApi';
@@ -60,6 +60,32 @@ export function AvailabilityForm({ initial, onClose, onSaved }: { initial: Equip
       <button type="submit" className="button button--primary" disabled={busy || !checked || !checked.canManage || !!wrongStatus || (!restore && (!reason || !stopped || inUse))}>{restore ? 'Return to service' : 'Confirm out of service'}</button>
       <button type="button" className="button button--quiet" disabled={busy} onClick={onClose}>Keep current status</button></div>
   </form>;
+}
+
+/** Hides the machine from members or shows it again. Bookings, outages and staff access don't change. */
+export function VisibilityButton({ machine, onSaved }: { machine: EquipmentDetail; onSaved: (text: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const inFlight = useRef(false);
+  const [error, setError] = useState('');
+  // The revision a change was saved against: the button waits until the reloaded machine replaces it.
+  const [saved, setSaved] = useState<number | null>(null);
+  const waiting = saved === machine.availabilityRevision;
+  const toggle = async () => {
+    if (inFlight.current || waiting) return;
+    inFlight.current = true; setBusy(true); setError('');
+    try {
+      await api(`/admin/equipment/${machine.id}/visibility`, { method: 'POST', body: { hidden: !machine.hidden, expectedRevision: machine.availabilityRevision } });
+      setSaved(machine.availabilityRevision);
+      onSaved(machine.hidden ? `${machine.name} is shown to members.` : `${machine.name} is hidden from members. Existing bookings stay in place.`);
+    } catch (err) { setError(errorMessage(err)); }
+    finally { inFlight.current = false; setBusy(false); }
+  };
+  return <>
+    <button type="button" className="button button--quiet" disabled={busy || waiting} onClick={() => void toggle()}>
+      {machine.hidden ? <Eye aria-hidden="true" /> : <EyeOff aria-hidden="true" />}{machine.hidden ? 'Show to members' : 'Hide from members'}
+    </button>
+    {error && <p className="form-error eq-actions__error" role="alert">{error}</p>}
+  </>;
 }
 
 export function EquipmentBookings({ machine, onChanged }: { machine: EquipmentDetail; onChanged: (text: string) => void }) {

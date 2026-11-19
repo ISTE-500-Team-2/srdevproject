@@ -3,7 +3,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type MutableRefObject } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowUpRight, CheckCircle2, ChevronRight, Search, Wrench, X } from 'lucide-react';
+import { ArrowUpRight, CheckCircle2, ChevronRight, EyeOff, Search, Wrench, X } from 'lucide-react';
 import { useApi } from '../../lib/useApi';
 import { LoadState } from '../../components/Management';
 import { Skeleton, SkeletonGroup } from '../../components/Skeleton';
@@ -15,6 +15,7 @@ import { equipmentRate, equipmentTime, maintenanceReasons, type EquipmentDetail,
 import { useDayBookings } from '../../lib/useDayBookings';
 import type { CatalogOptions } from './EquipmentEditor';
 import { EquipmentAdd, type Added } from './EquipmentAdd';
+import { VisibilityButton } from './EquipmentWorkflows';
 
 const refresh = { retainOnReload: true, refreshInterval: 15000 };
 const bookingRefresh = { retainOnReload: true, refreshInterval: 60000 };
@@ -89,7 +90,7 @@ function BoardContent({ day, zone, now, machines, onAdd, added, revealed }: { da
   const counts: Record<Filter, number> = { all: rows.length, use: rows.filter(r => r.live).length, booked: rows.filter(r => r.bookedToday).length, down: rows.filter(r => r.down).length };
   const query = search.toLowerCase().trim();
   const visible = rows.filter(r => (filter === 'all' || (filter === 'use' && r.live) || (filter === 'booked' && r.bookedToday) || (filter === 'down' && r.down))
-    && `${r.machine.name} ${r.machine.type} ${r.machine.location}`.toLowerCase().includes(query));
+    && `${r.machine.name} ${r.machine.type} ${r.machine.location}${r.machine.hidden ? ' hidden' : ''}`.toLowerCase().includes(query));
   // Once it is listed, it opens beside the list (on a wide screen) and scrolls into view, once per addition.
   const addedShown = !!added && visible.some(r => r.machine.id === added.id);
   useEffect(() => {
@@ -126,7 +127,7 @@ function BoardContent({ day, zone, now, machines, onAdd, added, revealed }: { da
       <div className="eq-board" ref={board}>
         <BoardHead win={win} />
         {visible.map(row => <Link key={row.machine.id} to={`/admin/equipment/${row.machine.id}`} className={`eq-row${added?.id === row.machine.id ? ' eq-row--new' : ''}`} onClick={choose(row.machine.id)} aria-current={active?.machine.id === row.machine.id ? 'true' : undefined}>
-          <span className="eq-row__name"><img src={row.machine.image} alt="" /><span><strong>{row.machine.name}{added?.id === row.machine.id && <span className="eqa-new">New</span>}</strong><small>{row.machine.type} · {row.machine.location}</small></span></span>
+          <span className="eq-row__name"><img src={row.machine.image} alt="" /><span><strong>{row.machine.name}{added?.id === row.machine.id && <span className="eqa-new">New</span>}{row.machine.hidden && <span className="eq-tag-hidden"><EyeOff aria-hidden="true" />Hidden</span>}</strong><small>{row.machine.type} · {row.machine.location}</small></span></span>
           <span className="eq-row__status">{row.pending
             ? <><Skeleton round width={104} height={27} /><Skeleton className="eq-row__detail" width={120} height={12} /></>
             : <><span className={`eq-pill eq-pill--${row.tone}`}>{row.label}</span><small>{row.detail}</small></>}</span>
@@ -137,7 +138,7 @@ function BoardContent({ day, zone, now, machines, onAdd, added, revealed }: { da
         </Link>)}
         {!visible.length && <p className="eq-empty">No equipment matches this view.</p>}
       </div>
-      {active && <MachinePanel key={active.machine.id} row={active} win={win} now={now} zone={zone} />}
+      {active && <MachinePanel key={active.machine.id} row={active} win={win} now={now} zone={zone} onChanged={machines.reload} />}
     </div>}
   </div>;
 }
@@ -203,12 +204,13 @@ function Ticks({ win }: { win: Window }) {
   return <span className="eq-ticks" aria-hidden="true">{win.ticks.map(t => <span key={t.fraction} style={{ left: `${t.fraction * 100}%` }}>{t.label}</span>)}</span>;
 }
 
-function MachinePanel({ row, win, now, zone }: { row: Row; win: Window; now: number; zone: string }) {
+function MachinePanel({ row, win, now, zone, onChanged }: { row: Row; win: Window; now: number; zone: string; onChanged: () => void }) {
   const detail = useApi<EquipmentDetail>(`/admin/equipment/${row.machine.id}`, refresh);
+  const [message, setMessage] = useState('');
   const { machine } = row;
   const last = detail.data?.history[0];
   return <aside className="eq-panel eq-machine-panel" aria-label={`${machine.name} details`}><div className="eq-mp-body">
-    <div className="eq-mp-head"><img src={machine.image} alt="" /><div><p className="eq-eyebrow">{machine.type} · {machine.location}</p><h2>{machine.name}</h2>{row.pending ? <Skeleton round width={96} height={27} /> : <span className={`eq-pill eq-pill--${row.tone}`}>{row.label}</span>}</div></div>
+    <div className="eq-mp-head"><img src={machine.image} alt="" /><div><p className="eq-eyebrow">{machine.type} · {machine.location}</p><h2>{machine.name}</h2><div className="eq-mp-pills">{row.pending ? <Skeleton round width={96} height={27} /> : <span className={`eq-pill eq-pill--${row.tone}`}>{row.label}</span>}{machine.hidden && <span className="eq-pill eq-pill--hidden"><EyeOff aria-hidden="true" />Hidden from members</span>}</div></div></div>
     <dl className="eq-facts">
       <div><dt>Rate</dt><dd>{machine.rate === null ? equipmentRate(null) : shortRate(machine.rate)}</dd></div>
       <div><dt>Requires</dt><dd>{machine.certification ?? 'None'}</dd></div>
@@ -237,7 +239,9 @@ function MachinePanel({ row, win, now, zone }: { row: Row; win: Window; now: num
       <Link className="button button--primary" to={`/admin/equipment/${machine.id}`}>Open machine <ArrowUpRight aria-hidden="true" /></Link>
       {detail.data?.canManage && <Link className="button button--quiet" to={`/admin/equipment/${machine.id}`} state={{ editDetails: true }}>Edit equipment</Link>}
       {detail.data?.canManage && <Link className="button button--quiet" to={`/admin/equipment/${machine.id}`} state={{ editAvailability: true }}><Wrench aria-hidden="true" />{row.down ? 'Return to service' : 'Take out of service'}</Link>}
+      {detail.data?.canManage && <VisibilityButton machine={detail.data} onSaved={text => { setMessage(text); detail.reload(); onChanged(); }} />}
     </div>
+    {message && <p className="eq-success" role="status"><CheckCircle2 aria-hidden="true" />{message}</p>}
   </div></aside>;
 }
 

@@ -39,7 +39,7 @@ export async function memberRequirements(db: Database, timeZone: string, userId:
     // The facility policies desk check-in checks; a green verdict must mean check-in works.
     // Equipment waivers gate machines, not the door, so they don't count here.
     eligibility.waivers(userId, "facility"),
-    // Same test as EligibilityModel.certification, for every machine in the catalog that needs training.
+    // Same test as EligibilityModel.certification, for every machine members can book that needs training.
     db.query<{ name: string; held: boolean }>(
       `SELECT e.name,EXISTS(SELECT 1 FROM user_certifications uc WHERE uc.userid=$1 AND uc.certid=e.certid
           AND uc.status='active' AND (uc.renewaldate IS NULL OR uc.renewaldate>=NOW() AT TIME ZONE 'UTC')) AS held
@@ -47,6 +47,7 @@ export async function memberRequirements(db: Database, timeZone: string, userId:
        WHERE (c.effectivedate IS NULL OR c.effectivedate<=NOW() AT TIME ZONE 'UTC')
          AND (c.enddate IS NULL OR c.enddate>=NOW() AT TIME ZONE 'UTC')
          AND NOT EXISTS(SELECT 1 FROM app_equipment_retirement r WHERE r.equipment_id=e.equipmentid)
+         AND NOT e.hidden
        ORDER BY e.name,e.equipmentid`,
       [userId],
     ),

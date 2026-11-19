@@ -73,7 +73,7 @@ export function TodayPage() {
 function TodayContent({ config, now, day }: { config: Result<{ timeZone: string }>; now: number; day: string }) {
   const zone = config.data?.timeZone;
   const report = useApi<Report>(`/admin/reports?period=daily&from=${day}&to=${day}`, refresh);
-  const equipment = useApi<LiveEquipment[]>("/equipment", refresh);
+  const equipment = useApi<LiveEquipment[]>("/equipment?include=hidden", refresh);
   const studios = useApi<{ studios: Studio[] }>("/studios", refresh);
   const rentals = useApi<Rental[]>("/studio-management/rentals", refresh);
   const compliance = useApi<ComplianceReport>("/admin/compliance?userStatus=active&attention=true", refresh);

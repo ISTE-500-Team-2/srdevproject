@@ -41,7 +41,7 @@ beforeEach(() => {
   HTMLElement.prototype.scrollIntoView = vi.fn();
   api.mockImplementation((path: string, options?: { method?: string; body?: Record<string, unknown> }) => {
     if (path === "/config") return Promise.resolve({ timeZone: "America/New_York" });
-    if (path === "/equipment") return Promise.resolve([{ id: 3, name: "Laser cutter", type: "Laser", status: "available", image: "", certification: "Laser safety" }]);
+    if (path === "/equipment?include=hidden") return Promise.resolve([{ id: 3, name: "Laser cutter", type: "Laser", status: "available", image: "", certification: "Laser safety" }]);
     if (path.startsWith("/admin/reports?")) return Promise.resolve({ live: [] });
     if (path === "/admin/reservations?date=2026-11-03") return Promise.resolve({ items: [booking], nextOffset: null });
     if (path.startsWith("/admin/reservations?date=")) return Promise.resolve({ items: [], nextOffset: null });
@@ -300,7 +300,7 @@ test("a booking form opened before equipment loads books the machine it shows", 
   let loadEquipment: () => void = () => {};
   const equipment = new Promise<void>((resolve) => { loadEquipment = resolve; });
   api.mockImplementation((path: string, options?: unknown) =>
-    path === "/equipment" ? equipment.then(() => original(path, options)) : original(path, options),
+    path === "/equipment?include=hidden" ? equipment.then(() => original(path, options)) : original(path, options),
   );
   mount();
   fireEvent.click(await screen.findByRole("button", { name: "New reservation" }));
@@ -408,7 +408,7 @@ test.each([
 test("when someone else moves the open reservation, the panel follows its new machine", async () => {
   const original = api.getMockImplementation()!;
   api.mockImplementation((path: string, options?: unknown) =>
-    path === "/equipment"
+    path === "/equipment?include=hidden"
       ? Promise.resolve([
           { id: 3, name: "Laser cutter", type: "Laser", status: "available", image: "", certification: "Laser safety" },
           { id: 4, name: "Kiln", type: "Ceramics", status: "unavailable", image: "", certification: null },
