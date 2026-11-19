@@ -12,15 +12,15 @@ export const stockEquipmentImages = [
   { path: '/assets/wood-lathe.webp', label: 'Lathe' },
 ];
 
-export function equipmentImage(pool: Pool) {
+export function equipmentImage(pool: Pool, kind: 'equipment' | 'class' = 'equipment') {
   return async (req: Request, res: Response) => {
     const version = req.params.version;
     if (typeof version !== 'string' || !/^[A-Za-z0-9_-]{22}$/.test(version))
-      throw new AppError(404, 'NOT_FOUND', 'Equipment image not found.');
+      throw new AppError(404, 'NOT_FOUND', 'Catalog image not found.');
     const photo = (await pool.query<{ contentType: ProfilePhotoType; image: Buffer }>(
-      'SELECT content_type AS "contentType", image FROM app_equipment_image WHERE version=$1', [version],
+      `SELECT content_type AS "contentType", image FROM app_${kind}_image WHERE version=$1`, [version],
     )).rows[0];
-    if (!photo) throw new AppError(404, 'NOT_FOUND', 'Equipment image not found.');
+    if (!photo) throw new AppError(404, 'NOT_FOUND', 'Catalog image not found.');
     res.set('Cache-Control', 'public, max-age=31536000, immutable');
     res.type(photo.contentType).send(photo.image);
   };

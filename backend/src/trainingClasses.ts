@@ -12,9 +12,11 @@ import { StaffModel } from "./models/StaffModel.js";
 import { EligibilityModel, entitlementSql } from "./models/EligibilityModel.js";
 import { ReservationModel } from "./models/ReservationModel.js";
 import { cancelTrainingPayments, enrollTrainingPayment, trainingFeeCoveredSql } from './trainingPricing.js';
+import { classManagement } from './classManagement.js';
 export function trainingClassRoutes(pool: Pool, tz: string) {
   const r = Router();
-  r.get('/classes/catalog',async(_req,res)=>res.json({data:(await pool.query('SELECT id,title,description,capacity FROM app_class_catalog ORDER BY id')).rows}));
+  r.use(classManagement(pool, tz));
+  r.get('/classes/catalog',async(_req,res)=>res.json({data:(await pool.query('SELECT id,title,description,capacity,imagepath AS image,revision FROM app_class_catalog WHERE removed_at IS NULL ORDER BY id')).rows}));
   r.get("/classes", async (_req, res) => {
     const user = authState(res).user;
     // Registration checks the member's membership or day pass over the class's own time.
@@ -22,7 +24,7 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
     res.json({
       data: (
         await pool.query(
-          `SELECT c.id,c.title,c.certification_id AS "certificationId",COALESCE(cert.name,'Creative workshop') AS "certificationName",c.instructor_id AS "instructorId",u.firstname||' '||u.lastname AS instructor,LEAST(c.capacity,15) AS capacity,c.description,c.catalog_id AS "catalogId",CASE WHEN v.status='confirmed' THEN c.status ELSE 'cancelled' END AS status,c.revision,
+          `SELECT c.id,c.title,c.certification_id AS "certificationId",COALESCE(cert.name,'Creative workshop') AS "certificationName",c.instructor_id AS "instructorId",u.firstname||' '||u.lastname AS instructor,LEAST(c.capacity,15) AS capacity,c.description,c.catalog_id AS "catalogId",CASE WHEN v.status='confirmed' THEN c.status ELSE 'cancelled' END AS status,c.revision,c.imagepath AS image,
  cert.training_minutes AS "trainingMinutes",cert.training_fee_cents AS "trainingFeeCents",
  ${trainingFeeCoveredSql('$1', 'cert.certid')} AS "trainingFeeCovered",
  v.roomid AS "roomId",room.name AS "roomName",v.starttime AT TIME ZONE 'UTC' AS "startsAt",v.endtime AT TIME ZONE 'UTC' AS "endsAt",(SELECT COUNT(*)::int FROM app_training_enrollment e WHERE e.class_id=c.id AND e.status IN ('enrolled','attended')) AS enrolled,
@@ -56,7 +58,7 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
           reason = textField(req.body.reason, "Reason", 500);
         if (capacity>15) throw new AppError(400,'CAPACITY_LIMIT','Classes are limited to 15 participants.');
         const catalogId=req.body.catalogId == null ? null : positiveId(req.body.catalogId);
-        const catalog=catalogId ? (await db.query('SELECT * FROM app_class_catalog WHERE id=$1 FOR SHARE',[catalogId])).rows[0] : null;
+        const catalog=catalogId ? (await db.query('SELECT * FROM app_class_catalog WHERE id=$1 AND removed_at IS NULL FOR SHARE',[catalogId])).rows[0] : null;
         if (catalogId && !catalog) throw new AppError(400,'INVALID_CLASS','Choose an existing class template.');
         if (!certId && !catalog) throw new AppError(400,'CLASS_TYPE_REQUIRED','Choose a workshop template or training certification.');
         const description=textField(req.body.description ?? catalog?.description ?? '', 'Description',4000,0);
@@ -138,7 +140,7 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
         ).rows[0];
         const after = (
           await db.query(
-            "INSERT INTO app_training_class(title,certification_id,instructor_id,reservation_id,capacity,created_by,catalog_id,description) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *",
+            "INSERT INTO app_training_class(title,certification_id,instructor_id,reservation_id,capacity,created_by,catalog_id,description,imagepath) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *",
             [
               title,
               certId,
@@ -146,7 +148,7 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
               slot.reservationid,
               capacity,
               user.id,
-              catalogId, description,
+              catalogId, description, catalog?.imagepath ?? null,
             ],
           )
         ).rows[0];

@@ -108,6 +108,7 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   routes.post("/auth/refresh", refreshLimit, auth.refresh);
   routes.get("/auth/session", protectedRoute, auth.current);
   routes.get('/equipment-images/:version', equipmentImage(pool));
+  routes.get('/class-images/:version', equipmentImage(pool, 'class'));
   routes.post("/auth/logout", protectedRoute, requireCsrf, auth.logout);
   routes.use(protectedRoute);
   routes.use(trainingClassRoutes(pool,config.timeZone));

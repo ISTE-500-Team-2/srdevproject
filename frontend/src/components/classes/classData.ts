@@ -13,6 +13,7 @@ export type ClassRecord = {
   trainingFeeCovered?: boolean;
   myTrainingFeeCents?: number | null;
   myPaymentStatus?: string | null;
+  image?: string | null;
   description?: string;
   catalogId?: number | null;
   instructorId: number;
@@ -42,7 +43,7 @@ export type Course = { id: number; name: string; validityDays: number | null; tr
 /** Attendance choices a manager has made but not saved yet, per class. */
 export type AttendanceDraft = { statuses: Record<number, "attended" | "no_show">; note: string };
 /** A creative workshop the shop runs; staff schedule sessions from it. */
-export type WorkshopTemplate = { id: number; title: string; description: string; capacity: number };
+export type WorkshopTemplate = { id: number; title: string; description: string; capacity: number; image?: string | null; revision?: number };
 /** Values used to open the schedule form, e.g. when scheduling a class again. */
 export type ScheduleSeed = Partial<{
   title: string;
@@ -127,9 +128,10 @@ export function workshopImage(title: string): ClassPhoto {
  * training by certification, else a shop photo.
  */
 export function classPhoto(
-  c: Pick<ClassRecord, "title" | "certificationId" | "certificationName" | "catalogId">,
+  c: Pick<ClassRecord, "title" | "certificationId" | "certificationName" | "catalogId" | "image">,
   workshops: WorkshopTemplate[] = [],
 ): ClassPhoto {
+  if (c.image) return { src: c.image, cutout: false };
   if (isWorkshop(c)) return workshopImage(workshops.find((w) => w.id === c.catalogId)?.title ?? c.title);
   return classImage(c.certificationName) ?? { src: "/assets/printing-class.webp", cutout: false };
 }

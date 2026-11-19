@@ -1372,3 +1372,29 @@
   width: 280px;
   flex: none;
 }
+
+/* Staff class catalog shares the class imagery and editor with the member catalog. */
+.class-tab[aria-pressed="true"] { border-bottom-color: var(--ink); color: var(--ink); }
+.classes-management .workshop-card footer { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.class-form .eq-image { display: block; }
+.class-form .eq-image__link input { display: block; width: 100%; margin-top: 8px; }
+
+/* Keep both workspace views mounted so switching tabs preserves search and schedule filters. */
+.classes-management__panel { padding-top: 28px; }
+.classes-management__panel[hidden] { display: none; }
+.classes-management .classes-head { flex-wrap: wrap; align-items: center; gap: 20px; }
+.classes-management .classes-head > div:first-child { flex: 1 1 260px; min-width: 0; }
+.classes-management .classes-head h2 { margin: 0; font-size: var(--text-xl); line-height: 1.25; }
+.classes-management .classes-head p { margin: 8px 0 0; max-width: 65ch; color: var(--ink-soft); }
+.classes-management .classes-head__tools { flex: 1 1 380px; min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
+.classes-management .classes-head__tools .class-search { flex: 1 1 180px; width: auto; min-width: 0; max-width: 320px; }
+.class-editor-removal { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--border); }
+.class-editor-removal h3 { margin: 0; }
+.class-editor-removal p { color: var(--ink-soft); }
+@media (max-width: 760px) {
+  .classes-management .classes-head > div:first-child,
+  .classes-management .classes-head__tools,
+  .classes-management .classes-head__tools .class-search { flex-basis: auto; max-width: none; width: 100%; }
+}
+/* Auto margins on a grid child otherwise size the whole page to its active view's contents. */
+.classes-management { width: 100%; min-width: 0; }
