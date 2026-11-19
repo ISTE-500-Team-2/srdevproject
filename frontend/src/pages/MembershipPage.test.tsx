@@ -402,6 +402,53 @@ test("FR-057: card memberships keep using Stop auto-renew, even after billing cl
   expect(screen.queryByRole("button", { name: "Cancel membership" })).toBeNull();
 });
 
+test("FR-057: a scheduled desk membership can be cancelled outright before it starts", async () => {
+  mount({ memberships: [deskMembership({ effectiveStatus: "scheduled", startsAt: future(10), endsAt: future(40) })] });
+  api.mockResolvedValue({ cancelled: true, endsAt: null });
+  expect(screen.queryByRole("button", { name: "Cancel membership" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel upcoming membership" }));
+  const dialog = screen.getByRole("dialog", { name: "Cancel upcoming membership?" });
+  expect(dialog.textContent).toMatch(/cancelled now, so it won't start/);
+  expect(dialog.textContent).not.toMatch(/30 days/);
+  fireEvent.click(within(dialog).getByRole("button", { name: "Cancel membership" }));
+  await waitFor(() => expect(api).toHaveBeenCalledWith("/me/billing/memberships/9/cancel", { method: "POST", body: {} }));
+  expect(await screen.findByText("Upcoming membership cancelled. It won't start.")).toBeTruthy();
+});
+
+test("FR-057: a suspended desk membership can be cancelled with notice and says it stays on hold", async () => {
+  mount({ memberships: [deskMembership({ status: "suspended", effectiveStatus: "suspended" })] });
+  expect(screen.getByText("Monthly is on hold.")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel membership" }));
+  const dialog = screen.getByRole("dialog", { name: "Cancel membership?" });
+  expect(dialog.textContent).toMatch(/30 days/);
+  expect(dialog.textContent).toMatch(/stays on hold until then/);
+  expect(dialog.textContent).not.toMatch(/keep studio access/);
+});
+
+test("FR-057: ended, revoked, cancelled and card memberships offer no cancel button", () => {
+  mount({ memberships: [
+    deskMembership({ id: 1, status: "suspended", effectiveStatus: "suspended", startsAt: future(-60), endsAt: future(-30) }),
+    deskMembership({ id: 2, status: "revoked", effectiveStatus: "revoked" }),
+    deskMembership({ id: 3, status: "cancelled", effectiveStatus: "cancelled", startsAt: future(5), endsAt: future(35) }),
+    deskMembership({ id: 4, effectiveStatus: "scheduled", startsAt: future(100), endsAt: future(130), cardBilled: true }),
+  ] });
+  expect(screen.queryByRole("button", { name: /^Cancel (upcoming )?membership$/ })).toBeNull();
+});
+
+test("FR-057: a card membership running out doesn't hide cancelling an upcoming desk membership", () => {
+  mount({
+    memberships: [
+      deskMembership({ id: 1, cardBilled: true, endsAt: future(10) }),
+      deskMembership({ id: 9, effectiveStatus: "scheduled", startsAt: future(10), endsAt: future(40) }),
+    ],
+    records: [{ id: "r", plan: monthly, status: "active", amountCents: 5000, cancelAtPeriodEnd: true, currentPeriodEnd: "2030-02-01T00:00:00Z" }],
+  });
+  // The card one stops through auto-renew; only the desk one gets a cancel button.
+  expect(screen.queryByRole("button", { name: "Cancel membership" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel upcoming membership" }));
+  expect(screen.getByRole("dialog", { name: "Cancel upcoming membership?" })).toBeTruthy();
+});
+
 test("FR-057: a pending checkout does not hide cancelling the current desk membership", () => {
   mount({ memberships: [deskMembership()], records: [{ id: "b1", status: "pending", amountCents: 5000, plan: { name: "Monthly" }, planSnapshot: { name: "Monthly" } }] });
   expect(screen.getByRole("button", { name: "Cancel checkout" })).toBeTruthy();

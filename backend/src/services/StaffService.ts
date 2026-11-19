@@ -11,11 +11,13 @@ import { ProfilePhotoModel } from "../models/ProfilePhotoModel.js";
 import { StaffModel } from "../models/StaffModel.js";
 import { billingRenewsSql } from "../models/staff/entitlements.js";
 import type { IssueInput, PlanInput } from "../staffDomain.js";
+import type { Plan } from "../models/StaffModel.js";
 import { PermissionModel } from "../models/PermissionModel.js";
 import { planInput } from "../staffDomain.js";
 import { retireSupersededPolicies } from "../policyLifecycle.js";
 import { AccessService } from "./AccessService.js";
 import { assertNoCardBillingFrom } from "../billing/openBilling.js";
+import { quote } from "../billing/pricing.js";
 import type { PolicyScope } from "../staffDomain.js";
 
 const missing = () =>
@@ -389,7 +391,7 @@ export class StaffService {
         throw new AppError(409, "PLAN_UNAVAILABLE", "Choose an active plan.");
       // Legacy catalog rows were not created through this API's validation.
       planInput({ ...plan });
-      let id: number;
+      let id: number, offer: Awaited<ReturnType<StaffService["deskPrice"]>>;
       if (plan.kind === "membership") {
         if (!input.startsAt || input.validDate || !plan.months)
           throw new AppError(
@@ -416,9 +418,10 @@ export class StaffService {
           );
         // A card subscription or checkout would charge again for these dates.
         await assertNoCardBillingFrom(db, userId, input.startsAt, this.timeZone);
+        offer = await this.deskPrice(db, userId, plan, input, window.endsAt);
         id = await model.createMembership(
           userId,
-          plan,
+          offer.plan,
           input.startsAt,
           window.endsAt,
           actorId,
@@ -467,19 +470,23 @@ export class StaffService {
             "This member has an unfinished card checkout for that date. To take payment here instead, open their account with View as, choose Cancel checkout under Membership & passes, then try again.",
           );
         await new AccessService(db, this.timeZone).assertWaivers(userId);
+        offer = await this.deskPrice(db, userId, plan, input, input.validDate);
         id = await model.createPass(
           userId,
-          plan,
+          offer.plan,
           input.validDate,
           actorId,
           input.reason,
         );
       }
+      // Approved school-partner access is free, so there is nothing to collect.
+      const paymentStatus = offer.basis === "school_partner" ? "waived" : input.paymentStatus;
+      const amount = paymentStatus === "waived" ? "0.00" : offer.plan.price;
       const paymentId = await model.createPayment(
         userId,
         plan.kind === "membership" ? id : null,
-        input.paymentStatus === "waived" ? "0.00" : plan.price,
-        input.paymentStatus,
+        amount,
+        paymentStatus,
         input.method,
         input.reference,
         input.reason,
@@ -491,7 +498,7 @@ export class StaffService {
         id,
         userId,
         paymentId,
-        plan,
+        plan: offer.plan,
         replayed: false,
       };
       await model.audit(
@@ -516,8 +523,54 @@ export class StaffService {
       );
       await model.saveRequest(input.requestId, actorId, fingerprint, result);
       await enqueueNotification(db,{userId,kind:plan.kind === 'membership' ? 'membership_issued' : 'day_pass_issued',dedupeKey:`entitlement-issued:${plan.kind}:${id}`,payload:{membershipName:plan.name,startsAt:input.startsAt ?? input.validDate}});
-      await enqueueNotification(db,{userId,kind:input.paymentStatus === 'paid' ? 'payment_recorded' : 'payment_status_changed',dedupeKey:`payment-recorded:${paymentId}`,payload:{paymentId,amount:input.paymentStatus === 'waived' ? '0.00' : plan.price,currency:'USD',method:input.method,reference:input.reference,paymentStatus:input.paymentStatus} });
+      await enqueueNotification(db,{userId,kind:paymentStatus === 'paid' ? 'payment_recorded' : 'payment_status_changed',dedupeKey:`payment-recorded:${paymentId}`,payload:{paymentId,amount,currency:'USD',method:input.method,reference:input.reference,paymentStatus} });
       return result;
+    });
+  }
+  /**
+   * B-003: a desk sale is priced exactly like online checkout (student rate, school-partner free
+   * access), using eligibility through the access's last day. The issued plan records the price
+   * and why, as online purchases do; a waiver still records zero paid.
+   */
+  private async deskPrice(db: Database, userId: number, plan: Plan, input: Pick<IssueInput, "expectedAmountCents" | "paymentStatus"> | null, through: Date | string) {
+    const day = typeof through === "string" ? through : through.toISOString().slice(0, 10);
+    const offer = await quote(db, userId, plan, day);
+    // Staff took payment for the price on screen; never record a different one.
+    if (input?.expectedAmountCents != null && input.expectedAmountCents !== offer.amountCents)
+      throw new AppError(409, "PRICE_CHANGED", "This member's price changed. Review the new price before issuing access.");
+    // A page that didn't show the member's price (still loading, failed, or an older app version
+    // during a release) only showed the standard price. Recording anything else, or turning a
+    // recorded payment into a waiver, would misrecord what staff collected.
+    if (
+      input && input.expectedAmountCents == null &&
+      (offer.amountCents !== Math.round(Number(plan.price) * 100) ||
+        (offer.basis === "school_partner" && input.paymentStatus !== "waived"))
+    )
+      throw new AppError(409, "PRICE_CHANGED", "This member has a different price from the standard one. Reload the page, review their price, then issue access.");
+    return {
+      ...offer,
+      plan: { ...plan, price: (offer.amountCents / 100).toFixed(2), priceBasis: offer.basis },
+    };
+  }
+  /** What a desk sale of this plan would charge this member, and why. A read: no staff write lock. */
+  deskQuote(actor: UserView, userId: number, planId: number, startsAt: string | null, validDate: string | null) {
+    return transaction(this.pool, async (db) => {
+      const model = new StaffModel(db, this.timeZone);
+      if (!(await model.person(userId))) throw missing();
+      await assertManageable(db, actor, userId);
+      const plan = await model.plan(planId);
+      if (!plan || !plan.active) throw new AppError(409, "PLAN_UNAVAILABLE", "Choose an active plan.");
+      let through: Date | string;
+      if (plan.kind === "membership") {
+        if (!startsAt || !plan.months)
+          throw new AppError(400, "INVALID_INPUT", "Choose when the membership starts.");
+        through = (await model.membershipWindow(userId, startsAt, plan.months)).endsAt;
+      } else {
+        if (!validDate) throw new AppError(400, "INVALID_INPUT", "Choose the pass date.");
+        through = validDate;
+      }
+      const { amountCents, basis } = await this.deskPrice(db, userId, plan, null, through);
+      return { planId: plan.id, standardCents: Math.round(Number(plan.price) * 100), amountCents, basis };
     });
   }
   entitlementStatus(

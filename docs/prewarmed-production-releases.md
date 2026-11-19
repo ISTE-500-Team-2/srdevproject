@@ -170,6 +170,10 @@ migration transaction rolls back. Retry through the owner migration process
 during a quieter interval. Rehearse the complete migration batch against a
 restored backup, including the online phase.
 
+Before rolling back past the release that added studio readers, turn every
+studio reader off first; see the studio reader step in
+[AUTO-DEPLOYMENT.md](AUTO-DEPLOYMENT.md#pause-recover-and-retry).
+
 On an application rollback, keep all applied migrations in place. The previous
 worker continues to send compatible mail and can still obsolete queued resets,
 apply opt-outs and count protected jobs as pending. Jobs that require the new

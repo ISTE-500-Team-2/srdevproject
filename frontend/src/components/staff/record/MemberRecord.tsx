@@ -249,7 +249,7 @@ export function MemberRecord({
               ) : null}
               <RecordCards person={u} cards={cards.data} error={cards.error} canManage={canManage} open={setDialog} />
               <RecordSupervision person={u} overrides={overrides.data} canManage={canManage} open={setDialog} />
-              <RecordAccount person={u} photoVersion={d?.user.photoVersion} locked={locked} self={self} isAdmin={isAdmin} open={setDialog} />
+              <RecordAccount person={u} photoVersion={d?.user.photoVersion} locked={locked} self={self} isAdmin={isAdmin} timeZone={timeZone} open={setDialog} />
             </div>
           </div>
         </div>

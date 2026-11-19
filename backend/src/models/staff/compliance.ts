@@ -8,6 +8,8 @@ export interface ComplianceFilters {
   offset: number;
   /** Only members with something missing, expired or expiring soon. */
   attention?: boolean;
+  /** Name or email contains this text, any case. Narrows the member list, not the totals. */
+  search?: string;
 }
 export const COMPLIANCE_EXPORT_LIMIT = 10000;
 
@@ -110,6 +112,8 @@ export class ComplianceReports {
       filters.offset,
       limit,
       filters.attention ?? false,
+      // Escaped so "%" and "_" (common in emails) match themselves, as in the member directory.
+      filters.search ? "%" + filters.search.replace(/[\\%_]/g, (c) => "\\" + c) + "%" : null,
     ];
     const query = `
       WITH report_users AS (
@@ -236,11 +240,12 @@ export class ComplianceReports {
         SELECT * FROM user_rollup
         WHERE $3::int IS NULL OR array_length("expiringWaivers",1) IS NOT NULL OR array_length("expiringCertifications",1) IS NOT NULL
       ),
-      -- "Needs attention" narrows only the member list; the summary and
-      -- per-requirement breakdowns still describe everyone in the window.
+      -- "Needs attention" and the search narrow only the member list (and its export); the
+      -- summary and per-requirement breakdowns still describe everyone in the window.
       filtered_users AS (
         SELECT * FROM window_users
-        WHERE NOT $7::boolean OR NOT ("waiverCompliant" AND "certificationCompliant") OR jsonb_array_length(issues)>0
+        WHERE (NOT $7::boolean OR NOT ("waiverCompliant" AND "certificationCompliant") OR jsonb_array_length(issues)>0)
+          AND ($8::text IS NULL OR ("firstName" || ' ' || "lastName" || ' ' || email) ILIKE $8 ESCAPE '\\')
       ),
       summary AS (
         SELECT COUNT(*)::int AS "userCount",

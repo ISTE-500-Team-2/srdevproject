@@ -7,7 +7,7 @@ import type Stripe from "stripe";
 import { transaction, type Database } from "../db.js";
 import { AppError, integerId, textField } from "../domain.js";
 import { PermissionModel } from "../models/PermissionModel.js";
-import { enqueueNotification } from "../notifications/store.js";
+import { enqueueNotification, STUDIO_ALERT_ROLES } from "../notifications/store.js";
 import { monthlyWindow, refundDue, integer, lastRentalDay } from "./domain.js";
 import { StudioStripe } from "./stripe.js";
 import { DEFAULT_BUILDING_ID } from "../facility.js";
@@ -84,10 +84,14 @@ export class StudioService {
       payload,
     });
     // Staff notification recipients are real studio accounts and retain their opt-out preferences.
-    // Their copy says whose rental it is instead of reading as their own booking or refund.
+    // Their copy says whose rental it is instead of reading as their own booking or refund. Staff who
+    // turned off studio booking alerts get none, while their own receipts keep coming (NFR-003).
     const staff = (
       await db.query<{ userid: number }>(
-        "SELECT DISTINCT ur.userid FROM user_role ur JOIN role r USING(roleid) JOIN \"user\" u USING(userid) WHERE r.role IN ('admin','staff','super-admin') AND u.status='active'",
+        `SELECT DISTINCT ur.userid FROM user_role ur JOIN role r USING(roleid) JOIN "user" u USING(userid)
+         LEFT JOIN app_notification_preferences p USING(userid)
+         WHERE r.role=ANY($1::text[]) AND u.status='active' AND COALESCE(p.studio_booking_alerts,true)`,
+        [STUDIO_ALERT_ROLES],
       )
     ).rows.filter((row) => row.userid !== r.userid);
     if (!staff.length) return;

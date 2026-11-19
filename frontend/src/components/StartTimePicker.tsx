@@ -29,7 +29,8 @@ const timeLabel = (minutes: number) =>
 
 /** Quick day buttons with future start times on half-hour boundaries. */
 export function StartTimePicker({ name, hours, onPick, children, now: nowProp, calendar = false, occupied = [], unavailable = false, minLeadMinutes = 0 }: {
-  occupied?: {startTime: string; endTime: string}[];
+  /** Booked times; each keeps `gapMinutes` (default 15, the equipment gap) free on either side. */
+  occupied?: {startTime: string; endTime: string; gapMinutes?: number}[];
   unavailable?: boolean;
   calendar?: boolean;
   minLeadMinutes?: number;
@@ -79,8 +80,8 @@ export function StartTimePicker({ name, hours, onPick, children, now: nowProp, c
   // A calendar checks every half-hour on every visible day. Parse each booking
   // once per availability refresh, not again for every candidate start time.
   const occupiedIntervals = useMemo(() => occupied.map(slot => ({
-    start: new Date(slot.startTime).getTime() - 15 * 60000,
-    end: new Date(slot.endTime).getTime() + 15 * 60000,
+    start: new Date(slot.startTime).getTime() - (slot.gapMinutes ?? 15) * 60000,
+    end: new Date(slot.endTime).getTime() + (slot.gapMinutes ?? 15) * 60000,
   })), [occupied]);
   const availableTimes = (date: string) => Array.from({ length: 48 }, (_, i) => `${pad(Math.floor(i / 2))}:${i % 2 ? "30" : "00"}`)
     .filter(value => {

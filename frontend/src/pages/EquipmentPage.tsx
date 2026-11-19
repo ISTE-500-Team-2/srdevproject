@@ -1,5 +1,5 @@
-// Member equipment catalog and reservations; booking forms submit server-reviewed prices and
-// eligibility remains server-enforced.
+// Member equipment catalog, room booking and reservations; booking forms submit server-reviewed
+// prices and eligibility remains server-enforced.
 
 import { useAuth } from '../context/AuthContext';
 import { CalendarDays, ChevronDown, Filter, ShieldAlert } from 'lucide-react';
@@ -14,6 +14,7 @@ import { Toast } from '../components/Toast';
 import { api, ApiError, errorMessage } from '../lib/api';
 import type { EquipmentPrice, LiveEquipment, Reservation } from '../lib/contracts';
 import { EquipmentPriceBreakdown } from '../components/EquipmentPriceBreakdown';
+import { RoomBooking } from '../components/RoomBooking';
 import { useApi } from '../lib/useApi';
 import { reservationInput } from '../lib/reservationInput';
 import { equipmentGroup } from '../lib/equipmentGroups';
@@ -241,6 +242,8 @@ export function EquipmentPage() {
         ) : null}
       </section>
       <div className="dashboard-divider" />
+      <RoomBooking onBooked={message => { setToast(message); bookings.reload(); }} />
+      <div className="dashboard-divider" />
       <section
         className="reservation-section"
         aria-labelledby="my-reservations"
@@ -277,7 +280,7 @@ export function EquipmentPage() {
         ) : null}
         {!bookings.loading && !bookings.error && !bookings.data?.length ? (
           <p className="empty-state">
-            No reservations yet. Choose equipment above to get started.
+            No reservations yet. Choose equipment or a room above to get started.
           </p>
         ) : null}
         {sortedBookings.upcoming.length || sortedBookings.past.length || sortedBookings.cancelled.length ? <>
@@ -301,7 +304,7 @@ export function EquipmentPage() {
               })}
             </div>
           ) : (
-            <p className="empty-state booking-empty">No upcoming reservations. Choose equipment above to book one.</p>
+            <p className="empty-state booking-empty">No upcoming reservations. Choose equipment or a room above to book one.</p>
           )}
           {sortedBookings.past.length || sortedBookings.cancelled.length ? <>
             <div className="booking-group">
@@ -574,7 +577,7 @@ function BookingsLoading() {
 function BookingRow({ item, view, machine, userId, now, card = false, children }: {
   item: Reservation; view: BookingView; machine: LiveEquipment | undefined; userId: number | undefined; now: number; card?: boolean; children?: ReactNode;
 }) {
-  const type = machine ? equipmentGroup(machine.type) : item.resourceType === 'room' ? 'Studio' : '';
+  const type = machine ? equipmentGroup(machine.type) : item.resourceType === 'room' ? 'Room' : '';
   // Walk-up sessions store the machine's name as their location; don't repeat it.
   const place = item.location && item.location !== item.equipmentName ? item.location : '';
   const total = item.priceSnapshot?.totalCents ?? item.amountCents ?? null;

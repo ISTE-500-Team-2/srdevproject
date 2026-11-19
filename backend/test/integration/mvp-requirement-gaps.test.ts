@@ -312,7 +312,7 @@ test('FR-057: the cancellation notice matches the existing elapsed-day policy ac
  try{
   await pool.query(`UPDATE user_membership SET startdate=TIMESTAMP '2026-10-01 12:00:00',end_date=TIMESTAMP '2027-02-01 12:00:00' WHERE membershipid=$1`,[id]);
   const cancelled=await new PassBilling(fixedClock).cancelMembership(userId,id);
-  assert.equal(new Date(cancelled.endsAt).getTime(),now.getTime()+30*DAY);
+  assert.equal(new Date(cancelled.endsAt!).getTime(),now.getTime()+30*DAY);
  }finally{await single.end();}
 });
 test('FR-057: other members, card subscriptions and ended memberships cannot be cancelled here',async()=>{
@@ -351,9 +351,49 @@ test('FR-057: cancellation and a staff status change use the same user-before-me
  const cancelled=new PassBilling(instrument(false)).cancelMembership(userId,id);
  const [staffResult,cancelResult]=await Promise.allSettled([status,cancelled]);
  assert.equal(staffResult.status,'fulfilled',staffResult.status==='rejected'?String(staffResult.reason):undefined);
- assert.equal(cancelResult.status,'rejected');
- if(cancelResult.status==='rejected')assert.equal(cancelResult.reason.code,'INVALID_STATUS');
- assert.equal((await pool.query('SELECT status,cancellation_requested_at FROM user_membership WHERE membershipid=$1',[id])).rows[0].cancellation_requested_at,null);
+ // The canceller waited for the suspension, then cancelled the suspended membership on top of it.
+ assert.equal(cancelResult.status,'fulfilled',cancelResult.status==='rejected'?String(cancelResult.reason):undefined);
+ const row=(await pool.query('SELECT status,cancellation_requested_at,revision FROM user_membership WHERE membershipid=$1',[id])).rows[0];
+ assert.equal(row.status,'suspended');assert.ok(row.cancellation_requested_at);assert.equal(row.revision,3);
+});
+test('FR-057: a member can cancel a scheduled desk membership outright, before it grants any access',async()=>{
+ const userId=await memberActor(),id=await membership(userId,10,40);
+ const from=new Date(Date.now()-DAY),to=new Date(Date.now()+60*DAY);
+ const newMembers=async()=>(await membershipTrends(pool,from,to,'America/New_York','month')).reduce((n:number,p:any)=>n+p.newMembers,0);
+ const joinedBefore=await newMembers();
+ const cancelled=await new PassBilling(pool).cancelMembership(userId,id);
+ assert.deepEqual(cancelled,{cancelled:true,endsAt:null});
+ const row=(await pool.query(`SELECT status,cancellation_requested_at,startdate,end_date FROM user_membership WHERE membershipid=$1`,[id])).rows[0];
+ assert.equal(row.status,'cancelled');assert.ok(row.cancellation_requested_at);
+ const listed=(await new StaffModel(pool).memberships(userId)).find(m=>m.id===id)!;
+ assert.equal(listed.effectiveStatus,'cancelled');
+ // Never started, so never a new member; still counted as a cancellation.
+ assert.equal(await newMembers(),joinedBefore-1);
+ const trends=await membershipTrends(pool,new Date(Date.now()-DAY),new Date(Date.now()+DAY),'America/New_York','month');
+ assert.ok(trends.some((p:any)=>p.cancelledMembers>=1));
+ assert.equal((await pool.query(`SELECT 1 FROM app_staff_audit WHERE action='membership.cancelled' AND entity_id=$1 AND subject_id=$2`,[id,userId])).rowCount,1);
+ const mail=await emails('membership_cancellation_confirmed',userId);
+ assert.equal(mail.length,1);assert.equal(mail[0].payload.endsAt,undefined);assert.equal(mail[0].payload.membershipId,id);
+ // Repeating it is harmless, and staff can't switch it back on.
+ assert.deepEqual(await new PassBilling(pool).cancelMembership(userId,id),{cancelled:true,endsAt:null});
+ assert.equal((await emails('membership_cancellation_confirmed',userId)).length,1);
+ await assert.rejects(new StaffService(pool,'America/New_York').entitlementStatus(administrator.id,userId,'membership',id,'active',2,'Reopen it'),{code:'ENTITLEMENT_CLOSED'});
+});
+test('FR-057: a suspended desk membership can be cancelled with 30 days notice and stays on hold',async()=>{
+ const userId=await memberActor(),id=await membership(userId,-5,200);
+ await new StaffService(pool,'America/New_York').entitlementStatus(administrator.id,userId,'membership',id,'suspended',1,'Hold for review');
+ const cancelled=await new PassBilling(pool).cancelMembership(userId,id);
+ const row=(await pool.query(`SELECT status,cancellation_requested_at,end_date AT TIME ZONE 'UTC' AS ends FROM user_membership WHERE membershipid=$1`,[id])).rows[0];
+ assert.equal(row.status,'suspended');assert.ok(row.cancellation_requested_at);
+ assert.ok(Math.abs(new Date(row.ends).getTime()-(Date.now()+30*DAY))<60_000);
+ assert.equal(new Date(cancelled.endsAt!).getTime(),new Date(row.ends).getTime());
+ const mail=(await emails('membership_cancellation_confirmed',userId)).at(-1);
+ assert.ok(mail);assert.equal(new Date(mail.payload.endsAt).getTime(),new Date(row.ends).getTime());
+ assert.equal(mail.payload.onHold,true);
+ // A suspended membership whose dates have passed is over: nothing to cancel.
+ const ended=await membership(userId,-60,-30);
+ await pool.query(`UPDATE user_membership SET status='suspended' WHERE membershipid=$1`,[ended]);
+ await assert.rejects(new PassBilling(pool).cancelMembership(userId,ended),{code:'INVALID_STATUS'});
 });
 
 test('FR-032: an enabled reader going silent alerts staff once and recovery tells them',async()=>{

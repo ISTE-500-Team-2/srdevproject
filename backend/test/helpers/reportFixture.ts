@@ -40,7 +40,7 @@ export function reportFixture(): ReportData {
     active: { activeUsers: 3, approvedCheckIns: 4 },
     compliance: {
       activeAccounts: 10, restrictedAccounts: 1, expiredTraining: 0, trainingWithoutExpiry: 2,
-      activeMemberships: 5, signaturesWithoutCopy: 0, machinesWithoutTraining: ['Drill', 'Saw'],
+      activeMemberships: 5, membersEndingWithin30Days: 2, signaturesWithoutCopy: 0, machinesWithoutTraining: ['Drill', 'Saw'],
     },
     live: [{ kind: 'equipment', resourceId: null, activeReaderLeases: 1 }],
     usage: [{ equipmentId: 1, authorizedHours: '0.00138888888888888889' }],
@@ -48,8 +48,8 @@ export function reportFixture(): ReportData {
     checkedInToday: [{ userId: 4, name: 'Not exported', location: 'Room A', at: new Date(Date.UTC(2030, 0, 31)), method: 'portal', photoVersion: null }],
     checkedInTodayCount: 1,
     memberships: [
-      { period: '2029-12-30', newMembers: 1, activeMembers: 4, expiringMembers: 0, cancelledMembers: 0 },
-      { period: '2030-01-06', newMembers: 0, activeMembers: 4, expiringMembers: 1, cancelledMembers: 1, extra: 'only on this row' },
+      { period: '2029-12-30', newMembers: 1, activeMembers: 4, endedWithoutRenewingMembers: 0, cancelledMembers: 0 },
+      { period: '2030-01-06', newMembers: 0, activeMembers: 4, endedWithoutRenewingMembers: 1, cancelledMembers: 1, extra: 'only on this row' },
     ],
     notifications: {
       ...cohort(3, 2),

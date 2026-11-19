@@ -113,6 +113,21 @@ from reader checks and admin notices. Automatic system-issue detection covers si
 readers only; notices target active accounts and respect opt-out. Preferences have
 authenticated GET/PATCH endpoints at `/api/me/notifications`; PATCH retains normal CSRF protection.
 
+Training notices (FR-048): a member whose own equipment booking, or resumed online
+payment, is refused for missing or expired training gets a `certification_required`
+email naming the equipment and certification, with a link to Classes. It is queued in
+its own transaction after the refusal rolls back, at most once per member,
+certification and studio day; a notice that fails to queue is logged and the refusal
+is unchanged. Staff booking for someone else see the refusal and mail no one. Staff
+revoking a certification queues `certification_revoked` in the same transaction; the
+staff reason stays private, so the email says to contact the studio.
+
+Studio booking alerts (NFR-003): staff and administrators get a staff copy of every
+studio booking and cancellation. Profile → Notifications shows them a separate
+"Studio booking alerts" switch (`studioBookingAlerts`, returned only for staff
+accounts; migration `060_staff_studio_booking_alerts.sql`, default on). Turning it off
+stops those copies, including pending ones, and leaves all their other email alone.
+
 Scheduler supports certification renewal/end dates, explicit waiver expiration,
 and membership expiration. Membership expiry is not an auto-renewal charge;
 recurring-billing notices come from the separate billing flow, and a card
@@ -120,7 +135,7 @@ subscription period that Stripe will renew gets no expiry reminder. Once a membe
 turns off auto-renew, the period ending on its cancellation date gets one.
 
 Templates also cover sources not yet wired: account-creation failure, account
-closure, certification changes and role changes. A template alone does not
+closure, the staff copy of a certification revocation and role changes. A template alone does not
 mean that event is wired. Account-creation failures may have no persisted user to
 target; no unsolicited notice is sent to arbitrary failed-registration addresses.
 

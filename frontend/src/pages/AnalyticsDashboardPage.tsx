@@ -499,7 +499,7 @@ function AnalyticsDashboard({ zone }: { zone: string }) {
   const visitsByDayBefore = byDay(before?.visitsByDay ?? [], (row) => row.day, (row) => row.visits);
   const visitsEarlier = earlier(visitsByDayBefore);
   const cancelled = members.reduce((n, row) => n + row.cancelledMembers, 0);
-  const ended = members.reduce((n, row) => n + row.expiringMembers, 0);
+  const ended = members.reduce((n, row) => n + row.endedWithoutRenewingMembers, 0);
   const classes = data ? classStats(data.classes) : null;
   const classesBefore = before ? classStats(before.classes) : null;
   const visits = data?.visitsByDay ?? [];
@@ -565,6 +565,12 @@ function AnalyticsDashboard({ zone }: { zone: string }) {
             <span>
               <b>{checkedInCount}</b> checked in today
             </span>
+            {data.compliance.membersEndingWithin30Days ? (
+              <span title="Memberships running out with nothing to continue them; card memberships set to renew aren't included.">
+                <b>{data.compliance.membersEndingWithin30Days}</b>{" "}
+                {data.compliance.membersEndingWithin30Days === 1 ? "membership ends" : "memberships end"} in the next 30 days without renewal
+              </span>
+            ) : null}
           </p>
 
           <div className="kpis" aria-label="Headline numbers">
@@ -699,7 +705,7 @@ function AnalyticsDashboard({ zone }: { zone: string }) {
                           <span className="period-readout__name">{name}</span>
                           <span><i className="is-joined" />{row.newMembers} joined</span>
                           <span><i className="is-cancelled" />{row.cancelledMembers} cancelled</span>
-                          {row.expiringMembers ? <span>{row.expiringMembers} ended without renewing</span> : null}
+                          {row.endedWithoutRenewingMembers ? <span>{row.endedWithoutRenewingMembers} ended without renewing</span> : null}
                         </span>
                       ),
                     };

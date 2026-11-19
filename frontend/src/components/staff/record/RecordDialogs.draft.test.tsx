@@ -65,6 +65,7 @@ test.each([
 test("a card captured with the default reader asks before a stray click throws the scan away", async () => {
   const setup: ReaderSetup = {
     configured: true,
+    canConfigure: true,
     timeZone: "America/New_York",
     readers: [{ id: "front", name: "Front door", kind: "building", resourceId: 1, resourceName: "Building", enabled: true, online: true, lastSeenAt: null, revision: 1 }],
   };

@@ -29,6 +29,8 @@ export interface Person {
   address: Record<string, string | boolean>;
   contactPreferences: Record<string, string | boolean>;
   roles: string[];
+  /** Subscriber / day-pass customer, worked out from current purchases; never set by hand. */
+  automaticRoles?: string[];
   primaryRole?: string;
   isStudent?: boolean;
   revision: number;
@@ -36,6 +38,10 @@ export interface Person {
   photoVersion?: string | null;
   /** Whether a date of birth is recorded. Staff can add a missing one, once. */
   dobOnFile?: boolean;
+  /** When the account was made; some legacy accounts have no date. */
+  createdAt?: string | null;
+  /** When the account record (profile, status, access, conduct or roles) last changed, if known. */
+  updatedAt?: string | null;
 }
 export interface Entitlement {
   id: number;
@@ -47,7 +53,8 @@ export interface Entitlement {
   startsAt?: string;
   endsAt?: string;
   validDate?: string;
-  plan: Partial<Plan> | null;
+  /** The plan as sold; priceBasis says why its price differs (student, school_partner), when it does. */
+  plan: (Partial<Plan> & { priceBasis?: string }) | null;
   reason: string;
   cancellationRequestedAt?: string | null;
   cardBilled?: boolean;

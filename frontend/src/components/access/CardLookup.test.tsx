@@ -19,6 +19,7 @@ afterEach(() => {
 
 const setup: ReaderSetup = {
   configured: true,
+  canConfigure: true,
   timeZone: "Asia/Tokyo",
   readers: [
     {

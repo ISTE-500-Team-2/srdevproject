@@ -182,6 +182,7 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   routes.get("/admin/users/:id/requirements", permit("user","read","global"), staff.requirements);
   routes.post("/admin/users/:id/role", permit("user_role","update","global"), requireCsrf, staff.role);
   routes.post("/admin/users/:id/entitlements", permit("entitlement","create","global"), requireCsrf, staff.issue);
+  routes.get("/admin/users/:id/entitlements/quote", permit("entitlement","create","global"), staff.quote);
   routes.post(
     "/admin/users/:id/entitlements/:kind/:entitlementId/status",
     permit("entitlement","update"),

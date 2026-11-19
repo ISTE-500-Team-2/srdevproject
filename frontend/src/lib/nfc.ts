@@ -15,7 +15,7 @@ export type NfcCard = {
 export type AccessReader = {
   id: string;
   name: string;
-  kind: "building" | "room" | "equipment";
+  kind: "building" | "room" | "equipment" | "studio";
   resourceId: number;
   resourceName: string;
   enabled: boolean;
@@ -25,6 +25,8 @@ export type AccessReader = {
 };
 export type ReaderSetup = {
   configured: boolean;
+  /** Whether this account may add, change or turn on readers (admins only); anyone here may turn one off. */
+  canConfigure: boolean;
   timeZone: string;
   readers: AccessReader[];
 };
@@ -88,7 +90,7 @@ export type ReaderHealthDetail = ReaderHealthSummary & {
 };
 export type AccessResource = {
   id: number;
-  kind: "building" | "room" | "equipment";
+  kind: "building" | "room" | "equipment" | "studio";
   name: string;
 };
 export type CardAssignment = {

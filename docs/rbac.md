@@ -14,6 +14,17 @@ booking exemption. Existing student assignments are retained during migration an
 backfilled into the modifier. Pricing/school-billing behavior belongs to payment
 policy work, not authorization.
 
+## Purchase roles (FR-006/FR-008)
+
+`subscriber` and `day_pass` are not assigned. Staff screens show them as
+`automaticRoles`, worked out on every read from what the member holds: subscriber
+while an active membership hasn't ended (running or scheduled), day-pass customer
+while an active pass for today or later exists. A suspended entitlement gives no
+label while on hold. They carry no permissions (every account keeps a stored
+primary role, community member at least) and the role API refuses them. Migration
+062 removed the hand-set copies, moved any such primary role to `member`, and
+logged each change with the system as actor.
+
 ## Editing roles
 
 Only administrators can edit other accounts. The staff account screen selects
@@ -39,6 +50,14 @@ Global grants never come from request-body ownership or role fields. Explicit ap
 except the existing super-administrator bypass. Staff writes keep their existing
 transaction-time permission and target-account checks. Equipment booking also
 rechecks assignments/permissions under the locked user row.
+
+Card readers are hardware, and hardware changes need administrative approval (CON-001).
+Adding a reader, renaming or moving it, turning it on, and starting or cancelling guided
+reader setup check `reader:update`, which migration 059 grants only to administrators. Staff
+keep `user_access:update` for day-to-day card work (card scans, assigning, revoking and
+reactivating cards, supervised access) and may still turn a reader off, as a safety action
+that changes nothing else; turning it back on needs an administrator. To delegate reader
+configuration, grant `reader:update` to that role.
 
 Customer-role labels do not create paid entitlement. Existing membership/day-pass,
 waiver, training, suspension, conflict, and ownership checks remain in place.

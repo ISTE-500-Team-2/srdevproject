@@ -121,6 +121,19 @@ test("the name is said once and the verdict leads with the desk action", async (
   expect(await screen.findByText("Casey checked in.")).toBeTruthy();
 });
 
+test("the account panel says when the member joined and when the account last changed", () => {
+  // Late evening UTC: still the 2nd in New York, the facility's time zone.
+  state.detail = { ...state.detail, user: user({ createdAt: "2025-03-03T02:30:00Z", updatedAt: "2026-11-02T15:00:00Z" }) };
+  mount();
+  expect(screen.getByText("Joined Mar 2, 2025 · Last updated Nov 2, 2026")).toBeTruthy();
+  cleanup();
+  // A legacy account with no sign-up date shows only what is known.
+  state.detail = { ...state.detail, user: user({ createdAt: null, updatedAt: "2026-11-02T15:00:00Z" }) };
+  mount();
+  expect(screen.getByText("Last updated Nov 2, 2026")).toBeTruthy();
+  expect(screen.queryByText(/Joined/)).toBeNull();
+});
+
 test("the cleared verdict sets the training gap apart from where the member is", () => {
   state.req = { ...state.req, training: { required: 3, held: 1, missing: ["CNC Machine", "Laser"] } };
   mount();
@@ -259,6 +272,20 @@ test("roles: primary is chosen among the checked roles, student is separate", as
       body: { primaryRole: "instructor", roles: ["member", "instructor"], isStudent: false, reason: "Teaching lathe classes", revision: 7 },
     }),
   );
+});
+
+test("FR-006/FR-008: subscriber and day-pass customer show as automatic and can't be ticked", () => {
+  state.detail = { ...state.detail, user: user({ roles: ["member"], primaryRole: "member", automaticRoles: ["subscriber"] }) };
+  mount();
+  expect(screen.getByText(/Subscriber \(automatic\)/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Change roles" }));
+  const dialog = screen.getByRole("dialog", { name: "Roles" });
+  expect(within(dialog).queryByRole("checkbox", { name: "Subscriber" })).toBeNull();
+  expect(within(dialog).queryByRole("checkbox", { name: "Day-pass customer" })).toBeNull();
+  const automatic = within(dialog).getByRole("group", { name: "Automatic roles" });
+  expect(automatic.textContent).toMatch(/SubscriberYes/);
+  expect(automatic.textContent).toMatch(/Day-pass customerNo/);
+  expect(dialog.textContent).toMatch(/follow purchases and can’t be set here/);
 });
 
 test("your own record locks what another administrator must change, and says why", () => {

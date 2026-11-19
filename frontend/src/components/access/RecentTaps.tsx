@@ -23,6 +23,7 @@ const SHORT_DENIAL: Record<string, string> = {
   CARD_NOT_ASSIGNED: "no card",
   ELIGIBILITY_EXPIRED: "check expired",
   RESERVATION_REQUIRED: "reservation needed",
+  STUDIO_RENTAL_REQUIRED: "studio rental needed",
   CERTIFICATION_REQUIRED: "training needed",
   RESOURCE_UNAVAILABLE: "unavailable",
   VERIFICATION_TIMEOUT: "timed out",

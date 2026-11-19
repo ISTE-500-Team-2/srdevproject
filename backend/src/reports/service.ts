@@ -3,6 +3,7 @@ import { transaction } from "../db.js";
 import { AppError } from "../domain.js";
 import { checkInOriginSql } from "../models/checkInOrigin.js";
 import {
+  membersEndingSoon,
   membershipTrends,
   membershipReportNotes,
 } from "../membershipReports.js";
@@ -183,7 +184,7 @@ export function loadReport(
     const checkedInTodayCount = recentCheckIns[0]?.total ?? 0;
     const checkedInToday = recentCheckIns.map(({ total, ...person }) => person);
     const compliance = (
-      await db.query<ComplianceSummary>(
+      await db.query<Omit<ComplianceSummary, "membersEndingWithin30Days">>(
         `SELECT COUNT(*) FILTER(WHERE status='active')::int AS "activeAccounts",COUNT(*) FILTER(WHERE accessstatus<>'active')::int AS "restrictedAccounts",(SELECT COUNT(*)::int FROM user_certifications WHERE status='active' AND renewaldate<NOW() AT TIME ZONE 'UTC') AS "expiredTraining",
         (SELECT COUNT(*)::int FROM user_certifications WHERE status='active' AND renewaldate IS NULL) AS "trainingWithoutExpiry",
         (SELECT COUNT(*)::int FROM user_membership um JOIN "user" mu USING(userid) WHERE um.status='active' AND mu.status='active'
@@ -198,6 +199,7 @@ export function loadReport(
         FROM "user"`,
       )
     ).rows[0]!;
+    const membersEndingWithin30Days = await membersEndingSoon(db);
     const live = (
       await db.query<LiveLeaseRow>(
         `SELECT target_kind AS kind,target_id AS "resourceId",COUNT(DISTINCT user_id)::int AS "activeReaderLeases" FROM app_device_access_event WHERE allowed=true AND expires_at>NOW() GROUP BY target_kind,target_id ORDER BY target_kind,target_id`,
@@ -222,7 +224,7 @@ export function loadReport(
       classes,
       rooms,
       active,
-      compliance,
+      compliance: { ...compliance, membersEndingWithin30Days },
       live,
       usage,
       visitsByDay,

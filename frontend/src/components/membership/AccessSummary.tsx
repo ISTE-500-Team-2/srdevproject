@@ -91,7 +91,18 @@ export function AccessSummary({ history, billing, passes, busy, act }: Props) {
   const [stopping, setStopping] = useState<Billing | null>(null);
   const [cancelling, setCancelling] = useState<BillingPass | null>(null);
   const [ending, setEnding] = useState<Entitlement | null>(null);
-  const deskMembership = current && !current.cardBilled && !recurring ? current : null;
+  // FR-057: a desk (or free) membership the member can cancel themselves: running now, on hold
+  // but not yet over, or scheduled to start. Card memberships stop through auto-renew instead, but
+  // a card membership still running out doesn't hide the cancel button on a desk one.
+  const now = Date.now();
+  const notStarted = (m: Entitlement) => !!m.startsAt && new Date(m.startsAt).getTime() > now;
+  const deskMemberships = history.memberships.filter(
+    (m) =>
+      !m.cardBilled &&
+      (m.effectiveStatus === "active" ||
+        m.effectiveStatus === "scheduled" ||
+        (m.effectiveStatus === "suspended" && !!m.endsAt && new Date(m.endsAt).getTime() > now)),
+  );
   const passRow = (p: BillingPass) => (
     <PassRow
       key={p.id}
@@ -125,21 +136,31 @@ export function AccessSummary({ history, billing, passes, busy, act }: Props) {
           onCancelCheckout={(r) => act(`/me/billing/${r.id}/cancel`)}
         />
       ) : null}
-      {deskMembership ? (
-        <div className="membership-billing">
-          {deskMembership.cancellationRequestedAt ? (
+      {deskMemberships.map((m) => (
+        <div className="membership-billing" key={m.id}>
+          {m.cancellationRequestedAt ? (
             <p className="membership-muted">
-              You cancelled this membership. Your last day is {shortDate(deskMembership.endsAt!, true)}.
+              You cancelled this membership. Your last day is {shortDate(m.endsAt!, true)}.
             </p>
           ) : (
-            <div className="membership-actions">
-              <button className="button button--quiet" disabled={busy} onClick={() => setEnding(deskMembership)}>
-                Cancel membership
-              </button>
-            </div>
+            <>
+              {notStarted(m) ? (
+                <p className="membership-muted">
+                  {m.plan?.name ?? "Membership"} starts {shortDate(m.startsAt!, true)}
+                  {m.effectiveStatus === "suspended" ? " and is on hold" : ""}.
+                </p>
+              ) : m.effectiveStatus === "suspended" ? (
+                <p className="membership-muted">{m.plan?.name ?? "Your membership"} is on hold.</p>
+              ) : null}
+              <div className="membership-actions">
+                <button className="button button--quiet" disabled={busy} onClick={() => setEnding(m)}>
+                  {notStarted(m) ? "Cancel upcoming membership" : "Cancel membership"}
+                </button>
+              </div>
+            </>
           )}
         </div>
-      ) : null}
+      ))}
       {upcoming.length ? (
         <div className="membership-passes">
           <div className="membership-passes__heading">
@@ -192,16 +213,25 @@ export function AccessSummary({ history, billing, passes, busy, act }: Props) {
 
       <Modal
         open={!!ending}
-        title="Cancel membership?"
+        title={ending && notStarted(ending) ? "Cancel upcoming membership?" : "Cancel membership?"}
         width="compact"
         onClose={() => setEnding(null)}
       >
-        <p>
-          Cancelling takes 30 days of notice. You keep studio access until
-          then, or until your current end date if that comes first, and your
-          membership won't renew. If you paid at the front desk, ask staff
-          about any refund.
-        </p>
+        {ending && notStarted(ending) ? (
+          <p>
+            Your membership starting {shortDate(ending.startsAt!, true)} will be
+            cancelled now, so it won't start. If you paid at the front desk,
+            ask staff about any refund.
+          </p>
+        ) : (
+          <p>
+            Cancelling takes 30 days of notice.{" "}
+            {ending?.effectiveStatus === "suspended"
+              ? "Your membership stays on hold until then, or until its current end date if that comes first, and it won't renew."
+              : "You keep studio access until then, or until your current end date if that comes first, and your membership won't renew."}{" "}
+            If you paid at the front desk, ask staff about any refund.
+          </p>
+        )}
         <div className="membership-dialog__actions">
           <button className="button button--quiet" onClick={() => setEnding(null)}>
             Keep membership

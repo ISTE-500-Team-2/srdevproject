@@ -18,6 +18,8 @@ type View = "attention" | "expiring" | "everyone";
 interface ComplianceFilters {
   view: View;
   userStatus: string;
+  /** Name or email; the server searches every page, not just the one loaded. */
+  search: string;
   offset: number;
 }
 
@@ -26,6 +28,7 @@ function reportPath(filters: ComplianceFilters, format?: "csv") {
     userStatus: filters.userStatus,
     offset: String(filters.offset),
   });
+  if (filters.search) params.set("search", filters.search);
   if (filters.view === "attention") params.set("attention", "true");
   if (filters.view === "expiring") params.set("expiresWithinDays", "30");
   if (format) params.set("format", format);
@@ -74,9 +77,8 @@ function RequirementCard({ item, kind }: { item: ComplianceBreakdown; kind: stri
 }
 
 export function StaffCompliance() {
-  const [filters, setFilters] = useState<ComplianceFilters>({ view: "attention", userStatus: "active", offset: 0 });
+  const [filters, setFilters] = useState<ComplianceFilters>({ view: "attention", userStatus: "active", search: "", offset: 0 });
   const [input, setInput] = useState("");
-  const [search, setSearch] = useState("");
   const [open, setOpen] = useState<{ id: number; name: string } | null>(null);
   const [exportError, setExportError] = useState("");
   const report = useApi<ComplianceReport>(reportPath(filters), { retainOnReload: true, retainOnChange: true });
@@ -85,7 +87,12 @@ export function StaffCompliance() {
   const plans = useApi<Plan[]>("/admin/plans");
   const config = useApi<{ timeZone: string }>("/config", { reuse: true });
   useEffect(() => {
-    const timer = window.setTimeout(() => setSearch(input.trim().toLowerCase()), 200);
+    const search = input.trim();
+    // A new search starts from the first page; an unchanged one (e.g. a trailing space) keeps the page.
+    const timer = window.setTimeout(
+      () => setFilters((f) => (f.search === search ? f : { ...f, search, offset: 0 })),
+      200,
+    );
     return () => window.clearTimeout(timer);
   }, [input]);
   const set = (change: Partial<ComplianceFilters>) => setFilters((f) => ({ ...f, ...change, offset: 0 }));
@@ -107,11 +114,9 @@ export function StaffCompliance() {
     }
   };
   const data = report.data;
-  // Search narrows the page already loaded; the server pages the full list.
-  const rows = (data?.users.items ?? []).filter(
-    (u) => !search || `${u.firstName} ${u.lastName} ${u.email}`.toLowerCase().includes(search),
-  );
-  const allSet = data && filters.view === "attention" ? data.summary.userCount - data.summary.attentionUsers : 0;
+  const rows = data?.users.items ?? [];
+  // Not offered beside a search: "show everyone" would still only show the matches.
+  const allSet = data && filters.view === "attention" && !filters.search ? data.summary.userCount - data.summary.attentionUsers : 0;
 
   return (
     <section className="cw-section">
@@ -183,6 +188,7 @@ export function StaffCompliance() {
                 type="search"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
+                maxLength={100}
                 placeholder="Search members"
                 aria-label="Search members"
               />
@@ -225,8 +231,8 @@ export function StaffCompliance() {
               ))}
               {!rows.length ? (
                 <p className="cw-list__empty">
-                  {search
-                    ? `No members on this page match “${input}”.`
+                  {filters.search
+                    ? `No members match “${filters.search}”${filters.view === "everyone" ? "" : " in this view"}.`
                     : filters.view === "attention"
                       ? "Everyone is current. Nothing needs attention."
                       : "No members match these filters."}

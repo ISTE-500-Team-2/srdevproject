@@ -16,7 +16,7 @@ import {
   tapResult,
 } from "./readerHealthText";
 
-const kindLabel = { building: "Building", room: "Room", equipment: "Equipment" };
+const kindLabel = { building: "Building", room: "Room", equipment: "Equipment", studio: "Studio" };
 
 export function readerLink(id: string) {
   return `?${new URLSearchParams({ view: "readers", reader: id })}`;

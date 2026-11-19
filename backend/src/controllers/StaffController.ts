@@ -12,6 +12,7 @@ import { ProfilePhotoModel } from "../models/ProfilePhotoModel.js";
 import { photoDataUrl } from "../profilePhoto.js";
 import { memberRequirements } from "../memberRequirements.js";
 import {
+  calendarDate,
   instant,
   issueInput,
   oneOf,
@@ -223,12 +224,20 @@ export class StaffController {
     });
   };
   role = async (req: Request, res: Response) => {
+    // Subscriber and day-pass customer follow what the member bought (automaticRolesSql), so
+    // nobody sets them by hand.
+    const automatic = ["subscriber", "day_pass"];
+    const requested = [req.body.primaryRole ?? req.body.role, ...(Array.isArray(req.body.roles) ? req.body.roles : [])];
+    if (requested.some((r) => automatic.includes(r)))
+      throw new AppError(
+        400,
+        "AUTOMATIC_ROLE",
+        "Subscriber and day-pass customer follow the member's memberships and passes. They can't be set by hand.",
+      );
     const allowed = [
       "member",
       "staff",
       "admin",
-      "subscriber",
-      "day_pass",
       "instructor",
     ] as const;
     const primary = oneOf(
@@ -283,6 +292,19 @@ export class StaffController {
       issueInput(req.body),
     );
     res.status(result.replayed ? 200 : 201).json({ data: result });
+  };
+  /** B-003: the price a desk sale would record for this member, so staff can collect it. */
+  quote = async (req: Request, res: Response) => {
+    res.set("Cache-Control", "private, no-store");
+    res.json({
+      data: await this.service.deskQuote(
+        authState(res).user,
+        positiveId(req.params.id),
+        positiveId(req.query.planId, "Plan"),
+        req.query.startsAt == null || req.query.startsAt === "" ? null : instant(req.query.startsAt),
+        req.query.validDate == null || req.query.validDate === "" ? null : calendarDate(req.query.validDate),
+      ),
+    });
   };
   entitlement = async (req: Request, res: Response) => {
     res.json({
@@ -422,6 +444,7 @@ export class StaffController {
       ),
       offset: pageOffset(req.query.offset),
       attention: req.query.attention === "true",
+      search: textField(req.query.search ?? "", "Search", 100, 0),
     };
     if (req.query.format === "csv") {
       const report = await this.model.compliance({ ...filters, offset: 0 }, true);

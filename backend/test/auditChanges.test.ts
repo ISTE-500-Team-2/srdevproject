@@ -22,8 +22,8 @@ test('a created record has changes but nothing unchanged; no states at all is nu
 
 test('never returns credentials or revision bookkeeping', () => {
   const result = auditChanges(
-    { uid_hash: 'a', password: 'x', apiToken: 't', revision: 1, availability_revision: 3, label: 'Old' },
-    { uid_hash: 'b', password: 'y', apiToken: 'u', revision: 2, availability_revision: 4, label: 'New' },
+    { uid_hash: 'a', password: 'x', apiToken: 't', revision: 1, availability_revision: 3, updatedAt: '2026-01-01', label: 'Old' },
+    { uid_hash: 'b', password: 'y', apiToken: 'u', revision: 2, availability_revision: 4, updatedAt: '2026-02-01', label: 'New' },
   );
   assert.deepEqual(result, { changed: [{ field: 'label', before: 'Old', after: 'New' }], unchanged: [] });
 });

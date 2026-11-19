@@ -54,7 +54,7 @@ export class StaffModel {
   private readonly complianceReports: ComplianceReports;
   constructor(db: Database, timeZone = "America/New_York") {
     this.planRecords = new PlanRepository(db);
-    this.people = new PeopleRepository(db);
+    this.people = new PeopleRepository(db, timeZone);
     this.entitlements = new EntitlementRepository(db, timeZone);
     this.paymentRecords = new PaymentRepository(db);
     this.auditTrail = new AuditRepository(db);

@@ -78,6 +78,8 @@ interface Bookkeeping {
   changeHash?: string; recipientEmail?: string;
   waiverId?: number; membershipId?: number; memberId?: number; formValues?: unknown; guardianConsent?: unknown;
   methodOfAcceptance?: string;
+  /** The membership was on hold when cancelled, so the email says it stays on hold, not active. */
+  onHold?: boolean;
 }
 type Payload = Details & Bookkeeping;
 /** What each kind's template needs. Only the fields a template refuses to render without are required. */
@@ -123,6 +125,10 @@ function text(value: unknown): string {
 type Tone = 'success' | 'info' | 'warning' | 'danger';
 interface Facts { item: string; money: string; role: string; refund: string; certificationName: string; memberName: string;
   adultName: string; minorName: string;
+  /** The end date shown, if any (a membership cancelled before it started has none). */
+  ends: string;
+  /** The membership was on hold when cancelled. */
+  onHold: boolean;
   /** The refund outcome told to staff rather than to the member. */
   staffRefund: string }
 interface Copy {
@@ -183,8 +189,9 @@ const copy: Record<NotificationKind, Copy> = {
     intro: () => 'You can now book this equipment.', cta: ['Book equipment', '/equipment'] },
   certification_revoked: { category: 'Certifications', status: 'Revoked', tone: 'danger',
     intro: () => 'You can no longer book this equipment. If you think this is a mistake, contact the studio.', cta: certifications },
+  // Members register for classes; /training is the staff training desk.
   certification_required: { category: 'Training', status: 'Training needed', tone: 'warning',
-    intro: f => `You need to finish training before you can book ${f.item || 'this equipment'}.`, cta: ['See training', '/training'] },
+    intro: f => `You need to finish training before you can book ${f.item || 'this equipment'}.`, cta: ['Find a class', '/classes'] },
   membership_renewal: { category: 'Membership', status: 'Renewal coming up', tone: 'warning',
     intro: () => 'Check the details below so there are no surprises.', cta: membership },
   // Card subscriptions that renew themselves get no reminder. Online checkout opens once this one
@@ -200,7 +207,9 @@ const copy: Record<NotificationKind, Copy> = {
     intro: () => 'You turned off automatic payments. Your membership ends on the date below and won’t renew after that.', cta: membership },
   // Desk-paid and free memberships never had automatic payments, so say nothing about them.
   membership_cancellation_confirmed: { category: 'Membership', status: 'Ending', tone: 'info',
-    intro: () => 'Your membership stays active until the end date below, then it ends.', cta: membership },
+    // One cancelled before it started has no end date: it never begins.
+    intro: f => f.ends ? `Your membership stays ${f.onHold ? 'on hold' : 'active'} until the end date below, then it ends.`
+      : 'Your membership was cancelled before it started, so it won’t begin.', cta: membership },
   day_pass_confirmed: { category: 'Day pass', status: 'Confirmed', tone: 'success',
     intro: () => 'Here are the details.', cta: ['View membership', '/membership'] },
   day_pass_issued: { category: 'Day pass', status: 'Confirmed', tone: 'success',
@@ -403,7 +412,8 @@ export function renderNotification(kind: NotificationKind, payload: Notification
   const paid = field('paymentStatus');
   const facts: Facts = {
     item, money: amount, role: field('role'), certificationName: field('certificationName'), memberName: field('memberName'),
-    adultName: field('adultName'), minorName: field('minorName'),
+    adultName: field('adultName'), minorName: field('minorName'), ends: end,
+    onHold: payload.onHold === true,
     refund: !refundAmount ? ''
       : Number(refundAmount) <= 0
         ? paid === 'paid' ? 'Under this studio’s cancellation policy, this booking isn’t eligible for a refund.'
