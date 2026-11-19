@@ -349,7 +349,9 @@ const font = "'Barlow','Helvetica Neue',Helvetica,Arial,sans-serif";
 // Dark mode: the inline light palette is tagged with classes at render time so the
 // <style> block can recolor it in clients that honor prefers-color-scheme (Apple Mail,
 // Outlook apps via [data-ogsc]). Gmail's forced inversion ignores CSS, so the logo ships
-// on its own light plate and stays legible either way.
+// on its own light plate and stays legible either way. The button is one solid color,
+// never a gradient: Gmail flips the text but not a background-image, which left dark
+// text on a dark button.
 const darkTags: Array<[RegExp, string]> = [
   [/background-color:#f7f4f0/, 'em-bg'], [/background-color:#ffffff/, 'em-card'], [/background-color:#faf7f3/, 'em-panel'],
   [/background-color:#2b1306/, 'em-btn'], [/border:1px solid #4d250b/, 'em-btn-a'],
@@ -372,7 +374,7 @@ const darkCss = (scope: string) => [
   `${scope}.em-body{color:#e6dacf!important}`,
   `${scope}.em-muted{color:#c4b3a4!important}`,
   `${scope}.em-link{color:#ffbf70!important}`,
-  `${scope}.em-btn{background-color:#f7961d!important;background-image:none!important}`,
+  `${scope}.em-btn{background-color:#f7961d!important}`,
   `${scope}.em-btn-a{color:#24150e!important;border-color:#f7961d!important}`,
 ].join('');
 const p = (style: string, html: string) => `<p style="margin:0;${style}">${html}</p>`;
@@ -581,7 +583,7 @@ ${p('font-size:15px;line-height:1.55;color:#3d2f27;white-space:pre-wrap;overflow
 </td></tr>`)).join('\n')}
 ${documentText ? `<h2 style="margin:0 0 12px;font-family:${font};font-size:18px;line-height:1.3;color:#24150e">Signed waiver document</h2>
 <div style="margin:0 0 28px;padding:20px;border:1px solid #e5dbd0;border-radius:12px;font-size:14px;line-height:1.7;color:#3d2f27;white-space:pre-wrap;overflow-wrap:anywhere">${e(documentText)}</div>` : ''}
-${action ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="#2b1306" style="border-radius:10px;background-color:#2b1306;background-image:linear-gradient(135deg,#2b1306,#59300f)"><a href="${e(action.url)}" style="display:inline-block;padding:14px 26px;border:1px solid #4d250b;border-radius:10px;font-family:${font};font-size:16px;line-height:1.2;font-weight:700;color:#ffffff;text-decoration:none">${e(action.label)}</a></td></tr></table>` : ''}
+${action ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="#2b1306" style="border-radius:10px;background-color:#2b1306"><a href="${e(action.url)}" style="display:inline-block;padding:14px 26px;border:1px solid #4d250b;border-radius:10px;font-family:${font};font-size:16px;line-height:1.2;font-weight:700;color:#ffffff;text-decoration:none">${e(action.label)}</a></td></tr></table>` : ''}
 ${notes.map((note, i) => p(`margin-top:${i ? 6 : 20}px;font-size:14px;line-height:1.6;color:#685d57`, e(note))).join('\n')}
 ${(kind === 'account_confirmation' || kind === 'password_reset') && action ? `<div style="margin-top:24px;padding-top:20px;border-top:1px solid #ebe2d8">${p('margin-bottom:6px;font-size:13px;line-height:1.6;color:#685d57', 'Button not working? Copy this link into your browser:')}${p('font-size:12px;line-height:1.6;word-break:break-all;overflow-wrap:anywhere', `<a href="${e(action.url)}" style="color:#8a4f06">${e(action.url)}</a>`)}</div>` : ''}
 </td></tr>
