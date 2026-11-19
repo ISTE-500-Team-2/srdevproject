@@ -15,7 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { Link } from "react-router-dom";
-import type { AccessReader, ReaderActivity, ReaderHealthDetail } from "../../lib/nfc";
+import type { AccessReader, ReaderActivity, ReaderDoor, ReaderHealthDetail } from "../../lib/nfc";
 import { useApi } from "../../lib/useApi";
 import { LoadState } from "../Management";
 import { ConnectionPathWide, daySummary, DoorLights, HealthStrip, SignalTrend } from "./ReaderHealthParts";
@@ -171,6 +171,11 @@ export function ReaderDetail({
     refreshInterval: 5000,
     retainOnReload: true,
   });
+  // A tap lights the reader for about 2 s, so the door card polls its own one-row read every second.
+  const door = useApi<ReaderDoor>(`/admin/access/reader-health/${encodeURIComponent(id)}/door`, {
+    refreshInterval: 1000,
+    retainOnReload: true,
+  });
   const detail = result.data;
   const back = (
     <Link className="reader-detail__back" to="?view=readers">
@@ -282,7 +287,12 @@ export function ReaderDetail({
         <div className="reader-detail__side">
           <section className="reader-card" aria-labelledby="reader-door-title">
             <h3 id="reader-door-title">At the door</h3>
-            <DoorLights state={reachable ? (health?.doorState ?? null) : null} />
+            <DoorLights
+              state={
+                // The fast read when it answers; otherwise (e.g. an older server) the detail's report.
+                door.data && !door.error ? door.data.doorState : reachable ? (health?.doorState ?? null) : null
+              }
+            />
           </section>
 
           <section className="reader-card" aria-labelledby="reader-device-title">

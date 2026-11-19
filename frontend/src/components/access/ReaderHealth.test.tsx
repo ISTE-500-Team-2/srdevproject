@@ -166,3 +166,36 @@ test("a reader still in setup says so on its page", async () => {
   expect(await screen.findByText("This reader is still being set up.")).toBeTruthy();
   expect(screen.getByRole("link", { name: "Readers" })).toBeTruthy();
 });
+
+test("the door card follows the fast light read", async () => {
+  const frontDetail: ReaderHealthDetail = { ...front, signal: [], activity: [], lastKnown: null };
+  let light: string = "locked";
+  api.mockImplementation((path: string) => {
+    if (path === "/admin/access/resources") return Promise.resolve([]);
+    if (path === "/admin/access/reader-setup") return Promise.resolve({ devices: [], jobs: [], gateways: [] });
+    if (path === "/admin/access/reader-health") return Promise.resolve(board);
+    if (path === "/admin/access/reader-health/front") return Promise.resolve(frontDetail);
+    if (path === "/admin/access/reader-health/front/door") return Promise.resolve({ doorState: light, reportedAt: minutesAgo(0) });
+    return Promise.reject(new Error(`Unexpected endpoint: ${path}`));
+  });
+  mount("?view=readers&reader=front");
+  const card = await screen.findByRole("region", { name: "At the door" });
+  await waitFor(() => expect(within(card).getByText("Locked")).toBeTruthy());
+  light = "approved";
+  fireEvent(window, new Event("focus"));
+  await waitFor(() => expect(within(card).getByText("Approved")).toBeTruthy());
+});
+
+test("without the fast light read the door card uses the reader's report", async () => {
+  const frontDetail: ReaderHealthDetail = { ...front, health: healthy({ doorState: "checking" }), signal: [], activity: [], lastKnown: null };
+  api.mockImplementation((path: string) => {
+    if (path === "/admin/access/resources") return Promise.resolve([]);
+    if (path === "/admin/access/reader-setup") return Promise.resolve({ devices: [], jobs: [], gateways: [] });
+    if (path === "/admin/access/reader-health") return Promise.resolve(board);
+    if (path === "/admin/access/reader-health/front") return Promise.resolve(frontDetail);
+    return Promise.reject(new ApiError(404, "NOT_FOUND", "Not found"));
+  });
+  mount("?view=readers&reader=front");
+  const card = await screen.findByRole("region", { name: "At the door" });
+  await waitFor(() => expect(within(card).getByText("Checking a tap")).toBeTruthy());
+});

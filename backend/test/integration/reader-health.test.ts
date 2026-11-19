@@ -159,6 +159,25 @@ test("taps appear in the activity and as the last tap", async () => {
   assert.equal(tap.detail.last4, "0289");
 });
 
+test("the door read follows each report and never shows an old or unreachable light", async () => {
+  const door = async (id: string) =>
+    (await request(app).get(`/api/admin/access/reader-health/${id}/door`).set("Authorization", `Bearer ${token}`).expect(200)).body.data;
+  await heartbeat("front", reachable({ doorState: "checking" })).expect(200);
+  assert.equal((await door("front")).doorState, "checking");
+  await heartbeat("front", reachable({ doorState: "approved" })).expect(200);
+  const approved = await door("front");
+  assert.equal(approved.doorState, "approved");
+  assert.ok(approved.reportedAt);
+  await heartbeat("front", { reader: { reachable: false, lastContactMs: 9_000 } }).expect(200);
+  assert.equal((await door("front")).doorState, null);
+  await heartbeat("front", reachable()).expect(200);
+  await pool.query("UPDATE app_access_reader SET health_reported_at=NOW()-INTERVAL '5 minutes' WHERE id='front'");
+  assert.equal((await door("front")).doorState, null);
+  await request(app).get("/api/admin/access/reader-health/front/door").set("Authorization", `Bearer ${memberToken}`).expect(403);
+  await request(app).get("/api/admin/access/reader-health/nope/door").set("Authorization", `Bearer ${token}`).expect(404);
+  await request(app).get("/api/admin/access/reader-health/front/door").expect(401);
+});
+
 test("reader health is staff-only", async () => {
   await request(app).get("/api/admin/access/reader-health").set("Authorization", `Bearer ${memberToken}`).expect(403);
   await request(app).get("/api/admin/access/reader-health/nope").set("Authorization", `Bearer ${token}`).expect(404);

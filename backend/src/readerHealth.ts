@@ -394,6 +394,27 @@ export function readerHealthRoutes(pool: Pool) {
       },
     });
   });
+  // Only the reader's light, from its latest report: a tap shows for a couple of seconds, so
+  // the door card polls this one-row read much faster than the full detail below.
+  routes.get("/admin/access/reader-health/:id/door", read, async (req, res) => {
+    const id = String(req.params.id);
+    if (!/^[a-zA-Z0-9_-]{1,64}$/.test(id)) throw new AppError(404, "NOT_FOUND", "Reader not found.");
+    const row = (
+      await pool.query<{ health: HealthReport | null; healthReportedAt: Date | null }>(
+        `SELECT health,health_reported_at AS "healthReportedAt" FROM app_access_reader WHERE id=$1`,
+        [id],
+      )
+    ).rows[0];
+    if (!row) throw new AppError(404, "NOT_FOUND", "Reader not found.");
+    // Same rule as the detail: an old report, or one from an unreachable reader, is no light.
+    const report = isFresh(row.healthReportedAt, new Date()) ? row.health : null;
+    res.json({
+      data: {
+        doorState: report?.reachable === true ? (report.doorState ?? null) : null,
+        reportedAt: row.healthReportedAt,
+      },
+    });
+  });
   routes.get("/admin/access/reader-health/:id", read, async (req, res) => {
     const id = String(req.params.id);
     if (!/^[a-zA-Z0-9_-]{1,64}$/.test(id)) throw new AppError(404, "NOT_FOUND", "Reader not found.");

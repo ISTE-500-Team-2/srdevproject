@@ -88,6 +88,8 @@ export type ReaderHealthDetail = ReaderHealthSummary & {
   /** The reader's own last report while reachable. */
   lastKnown: { at: string; ready: boolean | null; rssi: number | null; address: string | null; firmware: string | null } | null;
 };
+/** A reader's light from its latest current report; null when unknown or unreachable. */
+export type ReaderDoor = { doorState: DoorState | null; reportedAt: string | null };
 export type AccessResource = {
   id: number;
   kind: "building" | "room" | "equipment" | "studio";
