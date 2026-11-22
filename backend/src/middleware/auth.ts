@@ -11,6 +11,7 @@ import { AppError, type UserView } from "../domain.js";
 import { SessionModel } from "../models/SessionModel.js";
 import { UserModel } from "../models/UserModel.js";
 import { accountModeRefusal, assertAllowedWhileActing, isWorkspacePath, isWorkspaceRole } from "../accountMode.js";
+import { accessGuard } from "./accessGuards.js";
 
 export const cookieName = "arbor_refresh";
 /**
@@ -41,7 +42,8 @@ export interface AuthState {
 export const authState = (res: Response): AuthState =>
   res.locals.auth as AuthState;
 
-export function requireStaff(_req: Request, res: Response, next: NextFunction) {
+/** Any staff or admin role. Also mounted on the whole /admin prefix, as a second line of defense. */
+export const requireStaff = accessGuard("staff", function requireStaff(_req: Request, res: Response, next: NextFunction) {
   const user = authState(res).user;
   const hasStaffOrAdminRole =
     Array.isArray(user.roles) &&
@@ -50,7 +52,7 @@ export function requireStaff(_req: Request, res: Response, next: NextFunction) {
   if (!hasStaffOrAdminRole)
     throw new AppError(403, "STAFF_REQUIRED", "Staff permission is required.");
   next();
-}
+});
 
 /** A request that writes to whichever account it runs as. Signing out ends the sign-in itself. */
 const changesAccount = (req: Request) =>
@@ -68,7 +70,7 @@ export function requireUser(pool: Pool, config: AppConfig) {
     config.accessTokenSeconds,
     config.refreshTokenSeconds,
   );
-  return async (req: Request, res: Response, next: NextFunction) => {
+  return accessGuard("signed in", async (req: Request, res: Response, next: NextFunction) => {
     const token = sessionToken(req);
     const session = await sessions.find(token);
     const user = session
@@ -120,7 +122,7 @@ export function requireUser(pool: Pool, config: AppConfig) {
       if (subject !== user) context.actingForId = subject.id;
     }
     next();
-  };
+  });
 }
 
 /**
