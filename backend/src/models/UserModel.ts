@@ -67,6 +67,36 @@ ${identityProjection}
     return rows[0] ?? null;
   }
 
+  /** The hash a sign-up still waiting for inbox confirmation was made with; undefined when none is pending. */
+  async pendingCredentials(email: string) {
+    return (await this.db.query<{ password_hash: string }>('SELECT password_hash FROM app_pending_registration WHERE email=$1 AND expires_at>NOW()', [email])).rows[0];
+  }
+
+  /** Swaps a legacy hash for its upgrade unless the password changed meanwhile; rowCount says which. */
+  async upgradePassword(id: number, upgraded: string, current: string) {
+    return this.db.query('UPDATE "user" SET password=$1 WHERE userid=$2 AND password=$3',[upgraded,id,current]);
+  }
+
+  async emailConfirmation(id: number) {
+    return (await this.db.query<{ email_confirmed: boolean }>('SELECT email_confirmed FROM "user" WHERE userid=$1',[id])).rows[0];
+  }
+
+  async status(id: number) {
+    return (await this.db.query('SELECT status FROM "user" WHERE userid=$1',[id])).rows[0];
+  }
+
+  /** The stored hash, share-locked until the caller's transaction ends so a reset can't slip in. */
+  async lockedPassword(id: number) {
+    return (await this.db.query<{ password: string }>('SELECT password FROM "user" WHERE userid=$1 FOR SHARE', [id])).rows[0];
+  }
+
+  /** Locks the account row until the caller's transaction ends. */
+  async lockForUpdate(id: number) {
+    await this.db.query('SELECT userid FROM "user" WHERE userid=$1 FOR UPDATE', [
+      id,
+    ]);
+  }
+
   async create(input: {
     firstName: string;
     lastName: string;

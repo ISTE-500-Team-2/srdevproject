@@ -9,6 +9,7 @@ import { AUDIT_VIEWS_LIST, COMPLIANCE_EXPORT_LIMIT, StaffModel } from "../models
 import { auditChanges } from "../auditChanges.js";
 import { StaffService } from "../services/StaffService.js";
 import { ProfilePhotoModel } from "../models/ProfilePhotoModel.js";
+import { MemberModel } from "../models/MemberModel.js";
 import { photoDataUrl } from "../profilePhoto.js";
 import { memberRequirements } from "../memberRequirements.js";
 import {
@@ -126,10 +127,7 @@ export class StaffController {
       this.model.passes(id),
       this.model.payments(id, 0, {}, "staff", authState(res).user.id),
       this.model.audits({ subjectId: id, recordActivity: true }),
-      this.pool.query(
-        `SELECT checkinid AS id,location,status,checkintime AT TIME ZONE 'UTC' AS "checkedInAt" FROM check_in WHERE userid=$1 ORDER BY checkintime DESC LIMIT 50`,
-        [id],
-      ),
+      new MemberModel(this.pool).checkInHistory(id),
       new ProfilePhotoModel(this.pool).version(id),
     ]);
     res.json({
@@ -139,7 +137,7 @@ export class StaffController {
         passes,
         payments: page(payments, 0),
         audit: page(audit, 0),
-        checkIns: checkIns.rows,
+        checkIns,
       },
     });
   };
