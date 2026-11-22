@@ -96,8 +96,35 @@ test('failed session renewals from one address leave everyone else\'s renewals a
   assert.equal((await post(app, '/auth/refresh', '198.51.100.9')).status, 401);
 });
 
-test('without TRUST_PROXY a visitor cannot choose their own address', async () => {
+test('by default the app trusts one proxy hop, like TRUST_PROXY=1', async () => {
   const app = createApp(pool, config);
-  for (let i = 0; i < 30; i++) await post(app, '/auth/login', `203.0.113.${i}`, malformed());
-  assert.equal((await post(app, '/auth/login', '198.51.100.10', malformed())).status, 429);
+  for (let i = 0; i < 30; i++) assert.equal((await post(app, '/auth/login', '203.0.113.20', malformed())).status, 400);
+  assert.equal((await post(app, '/auth/login', '203.0.113.20', malformed())).status, 429);
+  assert.equal((await post(app, '/auth/login', '198.51.100.10', member)).status, 200);
 });
+
+// The RLES edge sends no address when the front proxy names none, so the app sees its Docker peer;
+// with TRUST_PROXY=0 it sees the connection's own address. Either way, a private or loopback one.
+for (const [label, app, address] of [
+  ['a proxy that hides visitors', () => behindProxy(), '172.16.1.254'],
+  ['TRUST_PROXY=0 (a visitor cannot choose their address)', () => createApp(pool, { ...config, trustProxy: 0 }), '203.0.113.21'],
+] as const) {
+  test(`behind ${label}, failures never lock out the whole site`, async () => {
+    const site = app();
+    for (let i = 0; i < 60; i++) assert.equal((await post(site, '/auth/login', address, malformed())).status, 400);
+    for (let i = 0; i < 40; i++) assert.equal((await post(site, '/auth/password-reset', address, { email: `nobody${i}@example.invalid` })).status, 202);
+    for (let i = 0; i < 40; i++) assert.equal((await post(site, '/auth/register', address, { email: `x${i}@example.invalid` })).status, 400);
+    assert.equal((await post(site, '/auth/login', address, member)).status, 200);
+    // Per account it still counts: 10 wrong passwords lock that one account.
+    const wrong = { email: member.email, password: 'WrongPassword!' };
+    for (let i = 0; i < 10; i++) assert.equal((await post(site, '/auth/login', address, wrong)).status, 401);
+    const blocked = await post(site, '/auth/login', address, member);
+    assert.equal(blocked.status, 429); assert.equal(blocked.body.error.code, 'RATE_LIMITED');
+    assert.ok(Number(blocked.headers['retry-after']) > 0);
+    // And one address's reset requests are bounded wherever they come from.
+    for (let i = 0; i < 30; i++) await post(site, '/auth/password-reset', address, { email: 'target@example.invalid' });
+    const reset = await post(site, '/auth/password-reset', address, { email: ' Target@Example.invalid ' });
+    assert.equal(reset.status, 429);
+    assert.equal(reset.body.error.message, 'Too many password reset attempts. Please wait a few minutes and try again.');
+  });
+}

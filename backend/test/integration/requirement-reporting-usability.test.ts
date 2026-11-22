@@ -67,30 +67,32 @@ test("legitimate rotations do not consume sign-in budget; refresh remains bounde
     ).status,
     401,
   );
-  // Failed sign-ins have their own 30/15min budget per address; demo sign-ins and session
-  // renewals never spend it. Each attempt names another account, so the smaller per-account
-  // budget never comes into play.
+  // Failed sign-ins have their own 30/15min budget per (public) address; demo sign-ins and
+  // session renewals never spend it. Each attempt names another account, so the smaller
+  // per-account budget never comes into play.
   for (let n = 0; n < 30; n++)
     assert.equal(
       (
         await browser
           .post("/api/auth/login")
+          .set("X-Forwarded-For", "203.0.113.50")
           .send({ email: `missing${n}@example.invalid`, password: "BadPassword!1" })
       ).status,
       401,
     );
   const blocked = await browser
     .post("/api/auth/login")
+    .set("X-Forwarded-For", "203.0.113.50")
     .send({ email: "missing@example.invalid", password: "BadPassword!1" });
   assert.equal(blocked.status, 429);
   assert(Number(blocked.headers["retry-after"]) > 0);
   const separate = createApp(pool, config);
   for (let n = 0; n < 120; n++)
     assert.equal(
-      (await request(separate).post("/api/auth/refresh").send({})).status,
+      (await request(separate).post("/api/auth/refresh").set("X-Forwarded-For", "203.0.113.51").send({})).status,
       401,
     );
-  const throttled = await request(separate).post("/api/auth/refresh").send({});
+  const throttled = await request(separate).post("/api/auth/refresh").set("X-Forwarded-For", "203.0.113.51").send({});
   assert.equal(throttled.status, 429);
   assert(Number(throttled.headers["retry-after"]) <= 60);
   assert.equal(

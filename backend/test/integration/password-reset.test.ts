@@ -39,9 +39,11 @@ async function person(name: string) {
   const id = (await pool.query('SELECT userid FROM "user" WHERE email=$1', [input.email])).rows[0].userid;
   return { ...input, id };
 }
-const ask = (email: string) => request(app).post('/api/auth/password-reset').send({ email });
-const check = (token: string) => request(app).post('/api/auth/password-reset/check').send({ token });
-const confirm = (token: string, password = 'NewPassword!') => request(app).post('/api/auth/password-reset/confirm').send({ token, password });
+// One public visitor (through the app's one trusted proxy hop), so per-address budgets apply.
+const visitor = (path: string) => request(app).post(path).set('X-Forwarded-For', '203.0.113.30');
+const ask = (email: string) => visitor('/api/auth/password-reset').send({ email });
+const check = (token: string) => visitor('/api/auth/password-reset/check').send({ token });
+const confirm = (token: string, password = 'NewPassword!') => visitor('/api/auth/password-reset/confirm').send({ token, password });
 async function link(id: number) {
   const row = (await pool.query("SELECT payload FROM app_notification_outbox WHERE userid=$1 AND kind='password_reset' ORDER BY id DESC LIMIT 1", [id])).rows[0];
   assert.ok(row, 'reset email queued');
@@ -212,7 +214,7 @@ test('each public reset route is throttled on its own budget', async () => {
   for (let i = 0; i < 30; i++) assert.equal((await check('bad')).status, 400);
   const response = await check('bad');
   assert.equal(response.status, 429); assert.equal(response.body.error.code, 'RATE_LIMITED'); assert.ok(response.headers['retry-after']);
-  for (let i = 0; i < 31; i++) await request(app).post('/api/auth/login').send({ email: 'unknown@example.invalid', password: 'WrongPassword!' });
+  for (let i = 0; i < 31; i++) await visitor('/api/auth/login').send({ email: 'unknown@example.invalid', password: 'WrongPassword!' });
   assert.equal((await ask('unknown@example.invalid')).status, 202);
   assert.equal((await confirm('bad')).status, 400);
 });
