@@ -3218,6 +3218,7 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 .nfc-scan__note, .nfc-scan__offline { display: flex; gap: 8px; align-items: flex-start; margin: 0; color: var(--ink-soft); font-size: var(--text-sm); line-height: 1.45; }
 .nfc-scan__note svg, .nfc-scan__offline svg { flex: none; width: 16px; height: 16px; margin-top: 1px; }
 .nfc-scan__offline { padding: 10px 12px; border-radius: var(--radius-small); background: var(--surface-sunken); color: var(--ink); }
+.nfc-scan__offline svg { color: var(--bronze); }
 .nfc-manual-link { justify-self: center; min-height: 36px; padding: 0 4px; border: 0; background: none; color: var(--ink-soft); font: inherit; font-size: var(--text-base-sm); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .nfc-manual-link:hover:not(:disabled) { color: var(--ink); }
 @media (max-width: 520px) {

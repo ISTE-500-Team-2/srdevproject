@@ -3,7 +3,7 @@
 
 import { useEffect, useId, useState } from "react";
 import { Link } from "react-router-dom";
-import { Info, WifiOff } from "lucide-react";
+import { CircleAlert, Info } from "lucide-react";
 import type { AccessReader, ReaderSetup } from "../../lib/nfc";
 import type { useCardScan } from "../../lib/useCardScan";
 
@@ -98,7 +98,7 @@ export function ScanControls({
             </p>
           ) : (
             <p className="nfc-scan__offline" role="status">
-              <WifiOff aria-hidden="true" />
+              <CircleAlert aria-hidden="true" />
               <span>
                 {selected
                   ? `${selected.name} just went offline. ${firstOnline ? "Pick another reader" : "Plug it back in"}, or enter the card ID by hand.`
