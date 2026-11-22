@@ -17,5 +17,7 @@ declare module '*/deploy/rles-edge.mjs' {
     stateFile: string;
     applicationPort?: number;
     routeFile?: string;
+    /** GATEWAY_TRUST_FORWARDED_FOR: name the front proxy's last X-Forwarded-For entry. */
+    trustForwardedFor?: boolean;
   }): Server;
 }

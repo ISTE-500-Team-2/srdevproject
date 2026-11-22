@@ -157,7 +157,7 @@ test('filling the table with new keys never frees the oldest, used-up budget', (
   assert.equal(attempt('203.0.113.9'), false);
 });
 
-test('behind one trusted hop, the RLES edge\'s single X-Forwarded-For entry becomes req.ip', async () => {
+test('behind one trusted hop, the RLES edge\'s single X-Forwarded-For entry becomes req.ip (opt-in) or is unknown (default)', async () => {
   const seen: (string | undefined)[] = [];
   const server = express();
   server.set('trust proxy', 1);
@@ -167,8 +167,12 @@ test('behind one trusted hop, the RLES edge\'s single X-Forwarded-For entry beco
   const application = server.listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => application.once('listening', resolve));
   const edge = createEdge({ digest: createHash('sha256').update('fixture').digest('hex'), allowedPeers: ['127.0.0.1'],
-    stateFile: 'unused', applicationPort: (application.address() as AddressInfo).port });
+    stateFile: 'unused', applicationPort: (application.address() as AddressInfo).port, trustForwardedFor: true });
   const base = `http://127.0.0.1:${await listen(edge)}`;
+  // Until GATEWAY_TRUST_FORWARDED_FOR is checked and set, the edge names its peer: never a shared budget.
+  const cautious = createEdge({ digest: createHash('sha256').update('fixture').digest('hex'), allowedPeers: ['127.0.0.1'],
+    stateFile: 'unused', applicationPort: (application.address() as AddressInfo).port });
+  const cautiousBase = `http://127.0.0.1:${await listen(cautious)}`;
   try {
     for (const [forwarded, expected] of [['203.0.113.9', '203.0.113.9'], ['198.51.100.7, 10.0.0.1, 203.0.113.9', '203.0.113.9'],
       ['2001:db8::7', '2001:db8::7']]) {
@@ -182,11 +186,14 @@ test('behind one trusted hop, the RLES edge\'s single X-Forwarded-For entry beco
       assert.match(seen.at(-1)!, /127\.0\.0\.1$/);
       assert.equal(addressBudget(seen.at(-1)), undefined);
     }
+    await fetch(cautiousBase + '/ip', { headers: { 'X-Forwarded-For': '203.0.113.9' } });
+    assert.match(seen.at(-1)!, /127\.0\.0\.1$/);
+    assert.equal(addressBudget(seen.at(-1)), undefined);
     // Directly, too: one trusted hop takes the last entry and ignores the rest.
     await request(server).get('/ip').set('X-Forwarded-For', '192.0.2.1, 203.0.113.10');
     assert.equal(seen.at(-1), '203.0.113.10');
   } finally {
-    for (const s of [edge, application]) await new Promise<void>((resolve) => { s.close(() => resolve()); s.closeAllConnections(); });
+    for (const s of [edge, cautious, application]) await new Promise<void>((resolve) => { s.close(() => resolve()); s.closeAllConnections(); });
   }
 });
 
