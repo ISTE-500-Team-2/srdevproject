@@ -70,23 +70,24 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   // The link proves the inbox and the password who signed up: 10 wrong passwords per link.
   const confirmLinkLimit = authRateLimit({ limit: 10, failuresOnly: true, perAddress: false,
     key: (req) => typeof req.body?.token === "string" ? req.body.token.slice(0, 256) : "" });
-  // A resend checks the sign-up password, so one email address gets sign-in's 10 per account.
+  // A resend checks the sign-up password, so one email address gets sign-in's 10 wrong passwords.
+  // Only failures count, so nobody can use up someone else's resends by asking for them.
   const resendLimit = authRateLimit();
-  const resendEmailLimit = authRateLimit({ limit: 10, perAddress: false, key: emailKey });
+  const resendEmailLimit = authRateLimit({ limit: 10, failuresOnly: true, perAddress: false, key: emailKey });
   const demoLimit = authRateLimit();
   // Sign-up has its own address budget, so garbage registrations do not exhaust login attempts.
   // Every sign-up counts (each sends an email), but a class signing up together on the studio's
-  // Wi-Fi fits; one email address gets the same 30 wherever it is tried from, and repeat
-  // sign-ups for it are also capped in the database (stageRegistration).
+  // Wi-Fi fits. There is no per-email budget: anyone could spend it to block a chosen person's
+  // sign-up, and repeat sign-ups for one address are already capped in the database
+  // (stageRegistration).
   const signupMessage = "Too many sign-up attempts. Please wait 15 minutes before trying again.";
   const signupLimit = authRateLimit({ limit: 30, message: signupMessage });
-  const signupEmailLimit = authRateLimit({ limit: 30, perAddress: false, key: emailKey, message: signupMessage });
   // Failed sign-ins, other members on a shared network and public reset traffic must not lock
-  // people out of recovery, or administrators out of sending a reset. One email address gets 30
-  // requests wherever they come from (the database also sends at most one a minute).
+  // people out of recovery, or administrators out of sending a reset. There is no per-email
+  // budget for the same reason (anyone could spend it to block a chosen person's reset); the
+  // database sends at most one reset email a minute per account.
   const resetMessage = "Too many password reset attempts. Please wait a few minutes and try again.";
   const resetRequestLimit = authRateLimit({ message: resetMessage });
-  const resetEmailLimit = authRateLimit({ perAddress: false, key: emailKey, message: resetMessage });
   const resetCheckLimit = authRateLimit({ message: resetMessage });
   const resetConfirmLimit = authRateLimit({ message: resetMessage });
   const emailChangeConfirmLimit = authRateLimit({ message: resetMessage });
@@ -114,10 +115,10 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
     }),
   );
   routes.post("/auth/login", loginAccountLimit, loginLimit, loginEmailLimit, auth.login);
-  routes.post("/auth/register", signupLimit, signupEmailLimit, auth.register);
+  routes.post("/auth/register", signupLimit, auth.register);
   routes.post("/auth/confirm", confirmLimit, confirmLinkLimit, auth.confirm);
   routes.post("/auth/confirmation", resendLimit, resendEmailLimit, auth.confirmation);
-  routes.post("/auth/password-reset", resetRequestLimit, resetEmailLimit, auth.passwordReset);
+  routes.post("/auth/password-reset", resetRequestLimit, auth.passwordReset);
   routes.post("/auth/password-reset/check", resetCheckLimit, auth.checkPasswordReset);
   routes.post("/auth/password-reset/confirm", resetConfirmLimit, auth.confirmPasswordReset);
   routes.post("/auth/email-change/confirm", emailChangeConfirmLimit, auth.confirmEmailChange);

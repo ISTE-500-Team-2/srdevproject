@@ -275,11 +275,10 @@ test('public signup has an independent thirty-attempt IP limit',async()=>{
   for(let i=0;i<30;i++)assert.equal((await from('203.0.113.40').send({})).status,400);
   const response=await from('203.0.113.40').send(person('limited@example.invalid'));
   assert.equal(response.status,429);assert.ok(response.headers['retry-after']);
-  // An address the app cannot see (a hiding proxy) gets no shared budget; one email gets 30.
-  for(let i=0;i<30;i++)assert.equal((await from('172.16.1.254').send({email:'again@example.invalid'})).status,400);
-  const again=await from('198.51.100.40').send(person('again@example.invalid'));
-  assert.equal(again.status,429);
-  assert.equal(again.body.error.message,'Too many sign-up attempts. Please wait 15 minutes before trying again.');
+  // An address the app cannot see (a hiding proxy) gets no shared budget, and no per-email one
+  // either: nobody can block a chosen person's sign-up by trying their address over and over.
+  for(let i=0;i<40;i++)assert.equal((await from('172.16.1.254').send({email:'again@example.invalid'})).status,400);
+  assert.equal((await from('198.51.100.40').send(person('again@example.invalid'))).status,202);
   assert.equal((await from('172.16.1.254').send({})).status,400);
 });
 

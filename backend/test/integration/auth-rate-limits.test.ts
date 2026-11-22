@@ -121,10 +121,8 @@ for (const [label, app, address] of [
     const blocked = await post(site, '/auth/login', address, member);
     assert.equal(blocked.status, 429); assert.equal(blocked.body.error.code, 'RATE_LIMITED');
     assert.ok(Number(blocked.headers['retry-after']) > 0);
-    // And one address's reset requests are bounded wherever they come from.
-    for (let i = 0; i < 30; i++) await post(site, '/auth/password-reset', address, { email: 'target@example.invalid' });
-    const reset = await post(site, '/auth/password-reset', address, { email: ' Target@Example.invalid ' });
-    assert.equal(reset.status, 429);
-    assert.equal(reset.body.error.message, 'Too many password reset attempts. Please wait a few minutes and try again.');
+    // Nobody can block a chosen person's password reset by requesting it for them over and over.
+    for (let i = 0; i < 40; i++) await post(site, '/auth/password-reset', address, { email: 'target@example.invalid' });
+    assert.equal((await post(site, '/auth/password-reset', address, { email: ' Target@Example.invalid ' })).status, 202);
   });
 }
