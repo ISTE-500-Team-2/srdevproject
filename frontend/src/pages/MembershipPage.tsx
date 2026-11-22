@@ -2,6 +2,7 @@
 // server reconciliation.
 
 import { useCallback, useEffect, useState } from "react";
+import type { StripeMode } from "../lib/stripeMode";
 import { useSearchParams } from "react-router-dom";
 import StatusMark from "../components/reactbits/StatusMark";
 import { useApi } from "../lib/useApi";
@@ -58,7 +59,7 @@ export function MembershipPage() {
   const [confirming, setConfirming] = useState(returned === "returned");
   const poll = { retainOnReload: true, refreshInterval: confirming ? 3000 : 60_000 };
   const history = useApi<MembershipHistory>("/me/memberships", poll);
-  const billing = useApi<{ enabled: boolean; records: Billing[] }>("/me/billing", poll);
+  const billing = useApi<{ enabled: boolean; mode?: StripeMode; records: Billing[] }>("/me/billing", poll);
   const passes = useApi<BillingPass[]>("/me/billing/passes", poll);
   const plans = useApi<Plan[]>("/plans");
   const [busy, setBusy] = useState(false);
@@ -216,6 +217,7 @@ export function MembershipPage() {
         <PlanCards
           plans={plans.data}
           billingEnabled={billing.data!.enabled}
+          billingMode={billing.data!.mode}
           billing={openBilling(billing.data!.records)}
           memberships={history.data!.memberships}
           accessStatus={history.data!.accessStatus}

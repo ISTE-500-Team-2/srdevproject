@@ -4,17 +4,17 @@ import userEvent from '@testing-library/user-event';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ApiError } from '../../lib/api';
 import { AssistedPurchase } from './AssistedPurchase';
-const { api, state, useApi } = vi.hoisted(() => ({ api: vi.fn(), state: { enabled: true, refreshing: false }, useApi: vi.fn() }));
+const { api, state, useApi } = vi.hoisted(() => ({ api: vi.fn(), state: { enabled: true, mode: 'test', refreshing: false }, useApi: vi.fn() }));
 vi.mock('../../lib/api', async importOriginal => ({ ...await importOriginal<typeof import('../../lib/api')>(), api }));
 vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ user: { id: 1 }, actor: null }) }));
 vi.mock('../../lib/useApi', () => ({ useApi }));
 // The quote on screen stays put while a new date is re-priced (refreshing), as useApi's retainOnChange keeps it.
-useApi.mockImplementation(() => ({ data: { enabled: state.enabled, offers: [
+useApi.mockImplementation(() => ({ data: { enabled: state.enabled, mode: state.mode, offers: [
  { id: 7, name: 'Monthly', kind: 'membership', months: 1, revision: 4, pricingRevision: 2, amountCents: 4000, price: '50.00', active: true },
  { id: 8, name: 'Day pass', kind: 'day_pass', revision: 3, pricingRevision: 1, amountCents: 1500, price: '15.00', active: true },
  { id: 9, name: 'Approved free monthly', kind: 'membership', months: 1, revision: 1, pricingRevision: 6, amountCents: 0, price: '50.00', active: true },
  ] }, loading: false, refreshing: state.refreshing, error: '', reload: vi.fn() }));
-afterEach(() => { cleanup(); vi.clearAllMocks(); state.enabled = true; state.refreshing = false; });
+afterEach(() => { cleanup(); vi.clearAllMocks(); state.enabled = true; state.mode = 'test'; state.refreshing = false; });
 const props = { id: 42, plans: [], timeZone: 'America/New_York', renewal: null, disabled: false, onSaved: vi.fn() };
 test('card purchase sends member-specific quote and explicit renewal consent, and surfaces checkout errors', async () => {
  api.mockRejectedValueOnce(new ApiError(503, 'PAYMENTS_UNAVAILABLE', 'Stripe temporarily unavailable'));
@@ -28,6 +28,14 @@ test('card purchase sends member-specific quote and explicit renewal consent, an
   planId: 7, expectedRevision: 4, pricingRevision: 2, amountCents: 4000, validDate: undefined, autoRenewConsent: true, freeMembership: false,
  } });
  expect(props.onSaved).not.toHaveBeenCalled();
+});
+test('staff see the test-card notice only when Stripe is in test mode', () => {
+ render(<AssistedPurchase {...props} />);
+ expect(screen.getByText(/Stripe is currently in test mode/)).toBeTruthy();
+ cleanup(); state.mode = 'live';
+ render(<AssistedPurchase {...props} />);
+ expect(screen.getByText(/Access is issued only after Stripe confirms payment/)).toBeTruthy();
+ expect(screen.queryByText(/test mode|test card/)).toBeNull();
 });
 test('a monthly card plan tells staff its rate is fixed for the life of the subscription', () => {
  render(<AssistedPurchase {...props} />);

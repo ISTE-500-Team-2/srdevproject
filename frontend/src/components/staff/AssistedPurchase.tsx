@@ -2,6 +2,7 @@
 // purchase workflow.
 
 import { useEffect, useState, type ComponentProps } from 'react';
+import type { StripeMode } from '../../lib/stripeMode';
 import { useAuth } from '../../context/AuthContext';
 import { rememberAssistedReturn } from '../../lib/checkoutReturn';
 import { api, ApiError } from '../../lib/api';
@@ -27,7 +28,7 @@ export function AssistedPurchase({ heading = true, ...props }: ComponentProps<ty
   // The last complete date, which the prices on screen are for.
   const [quoteDate, setQuoteDate] = useState(date);
   const [planId, setPlanId] = useState('');
-  const purchase = useApi<{ enabled: boolean; offers: Offer[] }>(
+  const purchase = useApi<{ enabled: boolean; mode?: StripeMode; offers: Offer[] }>(
     method === 'stripe' ? `/admin/users/${props.id}/purchase?date=${encodeURIComponent(quoteDate)}` : null,
     // A new date keeps the plans on screen while they are re-priced, so the date field stays put.
     { retainOnChange: true },
@@ -90,7 +91,7 @@ export function AssistedPurchase({ heading = true, ...props }: ComponentProps<ty
           <label><input type="checkbox" name="autoRenewConsent" required /> The member has agreed to monthly automatic renewal.</label>
         </> : null}
         <p>Access is issued only after Stripe confirms payment, or after approved free access is verified. Cancelling checkout does not issue access.</p>
-        {purchase.data?.enabled ? <p className="activity-byline">Stripe is currently in test mode. Use a test card; no real payment is collected.</p> : null}
+        {purchase.data?.enabled && purchase.data.mode === 'test' ? <p className="activity-byline">Stripe is currently in test mode. Use a test card; no real payment is collected.</p> : null}
       </ActionForm>
     </>}
   </div>;

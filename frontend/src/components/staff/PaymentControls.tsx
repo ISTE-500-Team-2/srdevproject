@@ -4,6 +4,7 @@
 import { api } from "../../lib/api";
 import { dollars, type StatusTone } from "../../lib/display";
 import type { Payment } from "../../lib/staffContracts";
+import { useStripeMode } from "../../lib/stripeMode";
 import { ActionForm, Field, ReasonField } from "../Management";
 
 const statusNames: Record<string, string> = {
@@ -222,6 +223,7 @@ export function CardRefund({
   payment: Payment;
   onRefunded: (status: string) => void;
 }) {
+  const testMode = useStripeMode() === "test";
   const amount = dollars(payment.amount);
   return (
     <ActionForm
@@ -237,8 +239,8 @@ export function CardRefund({
       }}
     >
       <p>
-        The full payment goes back to the card it was paid with. {refundEffect(payment)} Stripe is in test mode, so no
-        real money moves.
+        The full payment goes back to the card it was paid with. {refundEffect(payment)}
+        {testMode ? " Stripe is in test mode, so no real money moves." : null}
       </p>
       <div className="payment-editor__fields">
         <ReasonField label="Reason for refund" />
