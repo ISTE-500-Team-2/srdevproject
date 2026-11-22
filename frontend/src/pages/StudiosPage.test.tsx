@@ -324,6 +324,23 @@ test("unconfigured card checkout is visible with a reason and cannot be selected
  expect(dialog.getByText('Not available right now. Pay at the front desk instead.')).toBeTruthy();
 });
 
+for (const [mode, shown] of [["test", true], ["live", false]] as const)
+test(`card checkout ${shown ? "says" : "never says"} there is no real charge when Stripe is in ${mode} mode`, async () => {
+ api.mockImplementation((path: string) => {
+  if(path === '/studios') return Promise.resolve({studios,cardTestEnabled:true,timeZone:'UTC'});
+  if(path === '/config') return Promise.resolve({stripeMode:mode});
+  return Promise.resolve([]);
+ });
+ mount();
+ const dialog = within(await openSmall());
+ await waitFor(() => expect(api.mock.calls.some(([path]) => path === '/config')).toBe(true));
+ if (shown) expect(await dialog.findByText('Test mode — no real charge.')).toBeTruthy();
+ else {
+  await act(async () => { await Promise.resolve(); });
+  expect(dialog.queryByText(/no real charge/)).toBeNull();
+ }
+});
+
 test("configured card checkout submits the selected studio and Stripe payment method", async () => {
  api.mockImplementation((path: string, init?: {body?: unknown}) => {
   if(path === '/studios') return Promise.resolve({studios,cardTestEnabled:true,timeZone:'UTC'});
