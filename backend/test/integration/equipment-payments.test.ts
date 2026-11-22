@@ -122,11 +122,20 @@ test('only canonical paid state confirms; duplicate and stale events issue one p
   await assert.rejects(service.update(member, result.id, {expectedRevision: 1}), {code: 'STAFF_REQUIRED'});
 });
 
-test('price, identity, currency and live mode mismatches cannot confirm a reservation', async () => {
+test('price, identity, currency and Stripe mode mismatches cannot confirm a reservation', async () => {
   const result = await service.create(member, booking());
   const session = paid(await sessionFor(result.id));
   for (const change of [{amount_total: 1}, {currency: 'eur'}, {client_reference_id: '0'}, {livemode: true}, {id: 'cs_other'}])
     await assert.rejects(billing.apply({...session, ...change}), {code: 'PAYMENT_MISMATCH'});
+  assert.equal((await state(result.id)).status, 'pending');
+  // Live mode mirrors the rule: a paid test-mode session or event cannot confirm the booking.
+  const live = new EquipmentBilling(pool, new StudioStripe({key: 'sk_live_equipment_fake', webhookSecret: 'whsec_equipment_fake',
+    origin: 'http://localhost:8080', mode: 'live'}));
+  await assert.rejects(live.apply(session), {code: 'PAYMENT_MISMATCH'});
+  await assert.rejects(live.webhook({id: 'evt_test_in_live', type: 'checkout.session.completed', livemode: false, data: {object: session}} as any),
+    {code: 'TEST_PAYMENT_FORBIDDEN'});
+  await assert.rejects(billing.webhook({id: 'evt_live_in_test', type: 'checkout.session.completed', livemode: true, data: {object: session}} as any),
+    {code: 'LIVE_PAYMENT_FORBIDDEN'});
   assert.equal((await state(result.id)).status, 'pending');
   // Restore unpaid state for the next reconciliation.
   Object.assign(session, {status: 'open', payment_status: 'unpaid'});

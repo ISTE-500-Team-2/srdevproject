@@ -50,8 +50,13 @@ test("dashboard refund recovery trusts successful original-intent full refund, n
  assert.equal(found.id,'re_dashboard');assert.equal(found.metadata!.studioRentalId,'1');
 });
 
-test('restricted test keys are accepted; live keys are rejected',async()=>{
+test('test mode (the default) accepts only test keys; live mode accepts only live keys',async()=>{
  const {StudioStripe}=await import('../src/studios/stripe.js');
- assert.doesNotThrow(()=>new StudioStripe({key:'rk_test_fixture',webhookSecret:'whsec_fixture',origin:'http://localhost'}));
- for(const key of ['rk_live_fixture','sk_live_fixture']) assert.throws(()=>new StudioStripe({key,webhookSecret:'whsec_fixture',origin:'http://localhost'}),/Test keys only/);
+ const base={webhookSecret:'whsec_fixture',origin:'http://localhost'};
+ for(const mode of [undefined,'test'] as const){
+  for(const key of ['rk_test_fixture','sk_test_fixture']) assert.doesNotThrow(()=>new StudioStripe({key,...base,mode}));
+  for(const key of ['rk_live_fixture','sk_live_fixture']) assert.throws(()=>new StudioStripe({key,...base,mode}),/Test keys only/);
+ }
+ for(const key of ['rk_live_fixture','sk_live_fixture']) assert.doesNotThrow(()=>new StudioStripe({key,...base,mode:'live'}));
+ for(const key of ['rk_test_fixture','sk_test_fixture']) assert.throws(()=>new StudioStripe({key,...base,mode:'live'}),/Live keys only/);
 });
