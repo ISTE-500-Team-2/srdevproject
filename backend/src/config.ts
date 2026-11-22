@@ -22,7 +22,7 @@ export interface AppConfig {
   refreshTokenSeconds?: number;
   notifications?: NotificationConfig;
   brevoWebhookToken?: string;
-  /** Express 'trust proxy': how many proxy hops, or which proxy addresses, may name the client. */
+  /** Express 'trust proxy': how many proxy hops, or which proxy addresses, may name the client. Default 1. */
   trustProxy?: number | string[];
 }
 
@@ -33,20 +33,23 @@ function lifetime(name: string, fallback: number, max: number) {
 }
 /**
  * The proxies in front of the app, so sign-in limits count each visitor rather than the proxy.
- * A hop count, or addresses/subnets (Express's loopback, linklocal and uniquelocal names too).
- * Unset trusts no proxy. Trusting every hop ('true') would let any client pick its own address.
+ * A hop count (0 to 10), or addresses/subnets (Express's loopback, linklocal and uniquelocal
+ * names too). Unset or blank means 1: production always runs behind one proxy (the RLES edge, or
+ * Caddy for a sponsor install). Use 0 only when browsers reach the app directly. Trusting every
+ * hop ('true') would let any client pick its own address.
  */
-function trustProxy(): number | string[] | undefined {
+function trustProxy(): number | string[] {
   const value = process.env.TRUST_PROXY?.trim();
-  if (!value) return undefined;
+  if (!value) return 1;
+  const invalid = () => new Error('Invalid TRUST_PROXY: use a hop count from 0 to 10, or proxy addresses');
   if (/^\d+$/.test(value)) {
     const hops = Number(value);
-    if (hops < 1 || hops > 10) throw new Error('Invalid TRUST_PROXY');
+    if (hops > 10) throw invalid();
     return hops;
   }
   const entries = value.split(',').map((entry) => entry.trim());
   if (entries.some((entry) => !['loopback', 'linklocal', 'uniquelocal'].includes(entry) && !isIP(entry.replace(/\/\d{1,3}$/, ''))))
-    throw new Error('Invalid TRUST_PROXY');
+    throw invalid();
   return entries;
 }
 /**

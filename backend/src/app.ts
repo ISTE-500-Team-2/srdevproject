@@ -68,7 +68,8 @@ export function createApp(
   app.use((_req, _res, next) => auditContext.run({}, next));
   app.disable('x-powered-by');
   // Behind the configured proxies req.ip is the visitor, not the proxy (sign-in limits use it).
-  if (config.trustProxy !== undefined) app.set('trust proxy', config.trustProxy);
+  // Always set: one hop unless configured, matching TRUST_PROXY's default (see readConfig).
+  app.set('trust proxy', config.trustProxy ?? 1);
   app.use(compression({ filter: shouldCompress }));
   app.use((_req, res, next) => {
     res.set('X-Content-Type-Options', 'nosniff');
