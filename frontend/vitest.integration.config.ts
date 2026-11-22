@@ -11,5 +11,7 @@ export default defineConfig({
     setupFiles: ['./test/integration/setup.ts'],
     testTimeout: 120000,
     hookTimeout: 120000,
+    // The in-process backend hashes test passwords at cost 4 (~1 ms) instead of 12 (~225 ms).
+    env: { ARBOR_PASSWORD_COST: process.env.ARBOR_PASSWORD_COST ?? '4' },
   },
 });

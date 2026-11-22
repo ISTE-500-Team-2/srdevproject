@@ -15,7 +15,7 @@ import {
   reservationWindow,
   textField,
 } from '../src/domain.js';
-import { hashPassword, verifyPassword } from '../src/passwords.js';
+import { hashPassword, passwordCost, verifyPassword } from '../src/passwords.js';
 import { readConfig } from '../src/config.js';
 
 // Shared email rules preserve meaningful mailbox punctuation and reject malformed input without repairing it.
@@ -160,13 +160,51 @@ test('password hashes are salted and legacy plaintext is not accepted', async ()
   const input = randomBytes(24).toString('hex');
   const a = await hashPassword(input),
     b = await hashPassword(input);
-  assert.match(a,/^\$2b\$12\$/);
+  assert.ok(a.startsWith(`$2b$${String(passwordCost()).padStart(2, '0')}$`));
   await assert.rejects(hashPassword('é'.repeat(37)), /72 UTF-8 bytes/);
   assert.ok(a !== b);
   assert.ok(!a.includes(input));
   assert.ok(await verifyPassword(input, a));
   assert.ok(!(await verifyPassword(randomBytes(24).toString('hex'), a)));
   assert.ok(!(await verifyPassword(input, input)));
+});
+async function withEnv<T>(values: Record<string, string | undefined>, work: () => T | Promise<T>) {
+  const saved = Object.fromEntries(Object.keys(values).map(key => [key, process.env[key]]));
+  const apply = (next: Record<string, string | undefined>) => {
+    for (const [key, value] of Object.entries(next))
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+  };
+  apply(values);
+  try { return await work(); } finally { apply(saved); }
+}
+test('real accounts keep cost-12 bcrypt; only a non-production cost can be lowered', async () => {
+  const password = randomBytes(12).toString('hex');
+  const weak = await withEnv({ ARBOR_PASSWORD_COST: '4' }, () => hashPassword(password));
+  const strong = await withEnv({ ARBOR_PASSWORD_COST: undefined }, async () => {
+    assert.equal(passwordCost(), 12);
+    const hash = await hashPassword(password);
+    assert.match(hash, /^\$2b\$12\$/);
+    assert.ok(await verifyPassword(password, hash));
+    // Without the test setting, a low-cost hash is never accepted, even with the right password.
+    assert.ok(!(await verifyPassword(password, weak)));
+    return hash;
+  });
+  await withEnv({ ARBOR_PASSWORD_COST: '4' }, async () => {
+    assert.match(weak, /^\$2b\$04\$/);
+    assert.ok(await verifyPassword(password, weak));
+    // Fast test runs still sign in to cost-12 sample accounts.
+    assert.ok(await verifyPassword(password, strong));
+  });
+  for (const value of ['3', '13', '31', 'abc', '4.5', ' 4'])
+    await withEnv({ ARBOR_PASSWORD_COST: value }, () =>
+      assert.throws(passwordCost, /from 4 to 12/, value));
+  await withEnv({ NODE_ENV: 'production', ARBOR_PASSWORD_COST: '4', APP_ORIGIN: 'https://arbor.example' }, async () => {
+    assert.throws(passwordCost, /cannot be lowered in production/);
+    assert.throws(readConfig, /cannot be lowered in production/);
+    await assert.rejects(hashPassword(password), /cannot be lowered in production/);
+  });
+  await withEnv({ NODE_ENV: 'production', ARBOR_PASSWORD_COST: '12' }, () => assert.equal(passwordCost(), 12));
 });
 test('development shortcut cannot be enabled in production', () => {
   const nodeEnv = process.env.NODE_ENV,

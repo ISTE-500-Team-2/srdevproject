@@ -4,6 +4,7 @@
 import {readDeviceConfig,type DeviceConfig} from './deviceAccess.js';
 import {readStudioStripeConfig,type StudioStripeConfig} from './studios/stripe.js';
 import { readJwtKey } from './jwtKey.js';
+import { passwordCost } from './passwords.js';
 import { readNotificationConfig, type NotificationConfig } from './notifications/config.js';
 import { validTimeZone } from './notifications/reminderTiming.js';
 import { isIP } from 'node:net';
@@ -66,6 +67,8 @@ export function readConfig(): AppConfig {
     throw new Error('Demo login is forbidden in production');
   if (production && !process.env.APP_ORIGIN)
     throw new Error('APP_ORIGIN is required in production');
+  // Refuse to start, rather than fail at the first sign-in, on a bad or lowered cost.
+  passwordCost();
   // A blank or mistyped zone would start a healthy-looking server whose date pages all fail.
   const timeZone = process.env.APP_TIME_ZONE?.trim() || 'America/New_York';
   if (!validTimeZone(timeZone))
