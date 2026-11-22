@@ -12,6 +12,10 @@ import { authState, requireCsrf } from "./middleware/auth.js";
 import { requireStaffPermission } from "./middleware/permissions.js";
 import { PermissionModel } from "./models/PermissionModel.js";
 import { StaffModel } from "./models/StaffModel.js";
+import { AccessCardRepository } from "./models/access/cards.js";
+import { CardEnrollmentRepository } from "./models/access/enrollments.js";
+import { AccessEventRepository, type TapResult } from "./models/access/events.js";
+import { AccessReaderRepository } from "./models/access/readers.js";
 import { assertManageable } from "./services/StaffService.js";
 import {
   accessResources,
@@ -20,10 +24,6 @@ import {
   ReaderRegistry,
   requireDeviceConfig,
 } from "./readerRegistry.js";
-
-// Time left on a scan by the server's clock, so a browser whose clock is off still counts
-// down correctly rather than comparing its own time with expiresAt.
-const expiresInMs = `GREATEST(0,EXTRACT(EPOCH FROM expires_at-NOW())*1000)::int AS "expiresInMs"`;
 
 export function readerManagement(
   pool: Pool,
@@ -73,13 +73,13 @@ export function readerManagement(
       const reason = textField(req.body.reason, "Reason", 500);
       const data = await transaction(pool, async (db) => {
         await assertReaderTarget(db, kind, resourceId);
-        const after = (
-          await db.query(
-            `INSERT INTO app_access_reader(id,name,kind,resource_id,secret_encrypted)
-          VALUES($1,$2,$3,$4,$5) RETURNING id,name,kind,resource_id AS "resourceId",enabled,revision`,
-            [id, name, kind, resourceId, registry.encrypt(secret)],
-          )
-        ).rows[0];
+        const after = await new AccessReaderRepository(db).createReader(
+          id,
+          name,
+          kind,
+          resourceId,
+          registry.encrypt(secret),
+        );
         await new StaffModel(db, tz).audit(
           authState(res).user.id,
           null,
@@ -116,12 +116,8 @@ export function readerManagement(
         kind = move ? req.body.kind : null,
         resourceId = move ? positiveId(req.body.resourceId) : null;
       const data = await transaction(pool, async (db) => {
-        const before = (
-          await db.query(
-            `SELECT id,name,kind,resource_id AS "resourceId",enabled,revision FROM app_access_reader WHERE id=$1 FOR UPDATE`,
-            [req.params.id],
-          )
-        ).rows[0];
+        const readers = new AccessReaderRepository(db);
+        const before = await readers.lockReader(req.params.id);
         if (!before) throw new AppError(404, "NOT_FOUND", "Reader not found.");
         if (before.revision !== positiveId(req.body.expectedRevision))
           throw new AppError(
@@ -146,12 +142,7 @@ export function readerManagement(
         if (
           req.body.enabled &&
           registry.config?.setupGateways?.length &&
-          (
-            await db.query(
-              "SELECT 1 FROM app_reader_setup_job WHERE reader_id=$1 AND status<>'complete'",
-              [before.id],
-            )
-          ).rowCount
+          (await readers.unfinishedSetups(before.id))
         )
           throw new AppError(
             409,
@@ -159,18 +150,15 @@ export function readerManagement(
             "Finish guided setup before enabling this reader.",
           );
         if (move) await assertReaderTarget(db, kind, resourceId!);
-        const after = (
-          await db.query(
-            `UPDATE app_access_reader SET name=$2,enabled=$3,kind=COALESCE($4,kind),resource_id=COALESCE($5,resource_id),
-            revision=revision+1 WHERE id=$1 RETURNING id,name,kind,resource_id AS "resourceId",enabled,revision`,
-            [before.id, name, req.body.enabled, kind, resourceId],
-          )
-        ).rows[0];
+        const after = await readers.updateReader(
+          before.id,
+          name,
+          req.body.enabled,
+          kind,
+          resourceId,
+        );
         if (!after.enabled)
-          await db.query(
-            "UPDATE app_card_enrollment SET cancelled_at=NOW() WHERE reader_id=$1 AND completed_at IS NULL AND cancelled_at IS NULL",
-            [before.id],
-          );
+          await new CardEnrollmentRepository(db).cancelOnReader(before.id);
         await new StaffModel(db, tz).audit(
           authState(res).user.id,
           null,
@@ -203,12 +191,9 @@ export function readerManagement(
         );
       const userId = purpose === "assign" ? positiveId(req.body.userId) : null;
       const data = await transaction(pool, async (db) => {
-        const reader = (
-          await db.query(
-            "SELECT id,enabled FROM app_access_reader WHERE id=$1 FOR UPDATE",
-            [readerId],
-          )
-        ).rows[0];
+        const readers = new AccessReaderRepository(db),
+          enrollments = new CardEnrollmentRepository(db);
+        const reader = await readers.lockForScan(readerId);
         if (!reader?.enabled)
           throw new AppError(
             409,
@@ -219,84 +204,44 @@ export function readerManagement(
         // one mid-session would cut power to a running machine or relock an open door.
         // Readers renew once a second with leases of at most 5 seconds, so a grant decided
         // in the last 10 seconds that has not expired means someone is using it now.
-        if (
-          (
-            await db.query(
-              `SELECT 1 FROM app_device_access_event WHERE reader_id=$1 AND allowed
-              AND created_at>NOW()-INTERVAL '10 seconds' AND expires_at>NOW() LIMIT 1`,
-              [readerId],
-            )
-          ).rowCount
-        )
+        if (await readers.recentGrants(readerId))
           throw new AppError(
             409,
             "READER_IN_USE",
             "Someone is using this reader right now. Start the scan when they finish, or choose another reader.",
           );
-        if (
-          userId &&
-          !(
-            await db.query('SELECT 1 FROM "user" WHERE userid=$1 FOR SHARE', [
-              userId,
-            ])
-          ).rowCount
-        )
+        if (userId && !(await enrollments.lockMember(userId)))
           throw new AppError(404, "NOT_FOUND", "Member not found.");
         // Refuse before the scan, not after it: the assignment itself is refused for these accounts.
         if (userId) await assertManageable(db, authState(res).user, userId);
-        await db.query(
-          `UPDATE app_card_enrollment SET cancelled_at=NOW() WHERE reader_id=$1 AND expires_at<=NOW()
-        AND completed_at IS NULL AND cancelled_at IS NULL`,
-          [readerId],
-        );
-        if (
-          (
-            await db.query(
-              "SELECT id FROM app_card_enrollment WHERE reader_id=$1 AND completed_at IS NULL AND cancelled_at IS NULL",
-              [readerId],
-            )
-          ).rowCount
-        )
+        await enrollments.expireStale(readerId);
+        if (await enrollments.openOnReader(readerId))
           throw new AppError(
             409,
             "READER_BUSY",
             "This reader is already waiting for a card confirmation. Finish or cancel that scan, or wait two minutes.",
           );
-        return (
-          await db.query(
-            `INSERT INTO app_card_enrollment(id,reader_id,user_id,actor_id,purpose)
-        VALUES($1,$2,$3,$4,$5) RETURNING id,reader_id AS "readerId",user_id AS "userId",purpose,expires_at AS "expiresAt",
-        ${expiresInMs},'waiting' AS status`,
-            [randomUUID(), readerId, userId, authState(res).user.id, purpose],
-          )
-        ).rows[0];
+        return await enrollments.create(
+          randomUUID(),
+          readerId,
+          userId,
+          authState(res).user.id,
+          purpose,
+        );
       });
       res.status(201).json({ data });
     },
   );
   routes.get("/admin/access/enrollments/:id", write, async (req, res) => {
-    const session = (
-      await pool.query(
-        `SELECT id,reader_id AS "readerId",user_id AS "userId",purpose,uid_last4 AS "last4",uid_hash,
-      expires_at AS "expiresAt",${expiresInMs},CASE WHEN cancelled_at IS NOT NULL THEN 'cancelled'
-      WHEN completed_at IS NOT NULL AND purpose='assign' THEN 'completed'
-      WHEN expires_at<=NOW() THEN 'expired' WHEN captured_at IS NOT NULL THEN 'captured' ELSE 'waiting' END AS status
-      FROM app_card_enrollment WHERE id=$1 AND actor_id=$2`,
-        [enrollmentId(req.params.id), authState(res).user.id],
-      )
-    ).rows[0];
+    const session = await new CardEnrollmentRepository(pool).session(
+      enrollmentId(req.params.id),
+      authState(res).user.id,
+    );
     if (!session) throw new AppError(404, "NOT_FOUND", "Card scan not found.");
     const { uid_hash, ...data } = session;
     const assignments =
       session.status === "captured"
-        ? (
-            await pool.query(
-              `SELECT c.id,c.user_id AS "userId",u.firstname || ' ' || u.lastname AS "memberName",
-      c.label,c.active,c.assigned_at AS "assignedAt" FROM app_access_card c JOIN "user" u ON u.userid=c.user_id
-      WHERE c.uid_hash=$1 ORDER BY c.active DESC,c.id DESC LIMIT 20`,
-              [uid_hash],
-            )
-          ).rows
+        ? await new AccessCardRepository(pool).scanAssignments(uid_hash)
         : [];
     res.json({ data: { ...data, assignments } });
   });
@@ -305,50 +250,38 @@ export function readerManagement(
     write,
     requireCsrf,
     async (req, res) => {
-      const result = await pool.query(
-        `UPDATE app_card_enrollment SET cancelled_at=COALESCE(cancelled_at,NOW())
-      WHERE id=$1 AND actor_id=$2 AND completed_at IS NULL RETURNING id`,
-        [enrollmentId(req.params.id), authState(res).user.id],
+      const cancelled = await new CardEnrollmentRepository(pool).cancel(
+        enrollmentId(req.params.id),
+        authState(res).user.id,
       );
-      res.json({ data: { cancelled: !!result.rowCount } });
+      res.json({ data: { cancelled: !!cancelled } });
     },
   );
   routes.get("/admin/access/events", read, async (req, res) => {
-    const values: unknown[] = [],
-      filters = ["e.is_tap"];
-    if (req.query.readerId) {
-      values.push(textField(req.query.readerId, "Reader", 64));
-      filters.push(`e.reader_id=$${values.length}`);
-    }
-    if (req.query.userId) {
-      values.push(positiveId(req.query.userId));
-      filters.push(`e.user_id=$${values.length}`);
-    }
-    if (req.query.before) {
-      values.push(positiveId(req.query.before));
-      filters.push(`e.id<$${values.length}`);
-    }
+    const readerId = req.query.readerId
+        ? textField(req.query.readerId, "Reader", 64)
+        : undefined,
+      userId = req.query.userId ? positiveId(req.query.userId) : undefined,
+      before = req.query.before ? positiveId(req.query.before) : undefined;
     const result = req.query.result;
-    if (result === "allowed") filters.push("e.allowed");
-    else if (result === "denied") filters.push("NOT e.allowed");
-    else if (result === "unknown")
-      filters.push("e.card_id IS NULL AND e.uid_hash IS NOT NULL");
-    else if (result !== undefined && result !== "all")
+    if (
+      result !== undefined &&
+      result !== "allowed" &&
+      result !== "denied" &&
+      result !== "unknown" &&
+      result !== "all"
+    )
       throw new AppError(400, "INVALID_INPUT", "Choose a tap result.");
-    const rows = (
-      await pool.query(
-        `SELECT e.id,e.reader_id AS "readerId",COALESCE(r.name,e.reader_id) AS "readerName",
-      e.user_id AS "userId",u.firstname || ' ' || u.lastname AS "memberName",e.uid_last4 AS "last4",e.allowed,e.reason,
-      (SELECT p.version FROM app_user_photo p WHERE p.user_id=e.user_id) AS "photoVersion",
-      e.created_at AS "createdAt" FROM app_device_access_event e LEFT JOIN app_access_reader r ON r.id=e.reader_id
-      LEFT JOIN "user" u ON u.userid=e.user_id WHERE ${filters.join(" AND ")} ORDER BY e.id DESC LIMIT 51`,
-        values,
-      )
-    ).rows;
+    const rows = await new AccessEventRepository(pool).taps({
+      readerId,
+      userId,
+      before,
+      result: result as TapResult | undefined,
+    });
     res.json({
       data: {
         items: rows.slice(0, 50),
-        nextBefore: rows.length > 50 ? rows[49].id : null,
+        nextBefore: rows.length > 50 ? rows[49]!.id : null,
       },
     });
   });

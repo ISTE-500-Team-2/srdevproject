@@ -6,7 +6,7 @@ import type { Pool } from "pg";
 import type { Database } from "./db.js";
 import { AppError } from "./domain.js";
 import { requireStaffPermission } from "./middleware/permissions.js";
-import { readerLastSeen, readerPresenceJoin } from "./readerRegistry.js";
+import { ReaderHealthRepository } from "./models/access/readerHealth.js";
 
 /** Below this signal strength readers start dropping out. */
 export const WEAK_SIGNAL_DBM = -80;
@@ -129,43 +129,20 @@ export function healthEvents(
   return events;
 }
 
-const sampleColumns = `sampled_at AS "sampledAt",reachable,ready,rssi,address,firmware,
-  uptime_ms::float8 AS "uptimeMs"`;
-
 /** Record one report, inside the heartbeat transaction that holds the reader row lock. */
 export async function recordHealth(db: Database, readerId: string, report: HealthReport) {
-  const previous = (
-    await db.query<HealthSample & { ageMs: number }>(
-      `SELECT ${sampleColumns},EXTRACT(EPOCH FROM NOW()-sampled_at)*1000 AS "ageMs"
-       FROM app_reader_health_sample WHERE reader_id=$1 ORDER BY sampled_at DESC LIMIT 1`,
-      [readerId],
-    )
-  ).rows[0] ?? null;
+  const health = new ReaderHealthRepository(db);
+  const previous = await health.latestSample(readerId);
   const known = previous?.reachable
     ? previous
-    : (
-        await db.query<HealthSample>(
-          `SELECT ${sampleColumns} FROM app_reader_health_sample
-           WHERE reader_id=$1 AND reachable ORDER BY sampled_at DESC LIMIT 1`,
-          [readerId],
-        )
-      ).rows[0] ?? null;
+    : await health.latestReachableSample(readerId);
   const events = healthEvents(previous, known, report);
   for (const event of events) {
     if (event.kind === "reachable") {
-      const lost = (
-        await db.query<{ seconds: number }>(
-          `SELECT EXTRACT(EPOCH FROM NOW()-occurred_at)::int AS seconds FROM app_reader_health_event
-           WHERE reader_id=$1 AND kind='unreachable' ORDER BY occurred_at DESC LIMIT 1`,
-          [readerId],
-        )
-      ).rows[0];
+      const lost = await health.lastOutage(readerId);
       if (lost) event.detail.outageSeconds = lost.seconds;
     }
-    await db.query(
-      "INSERT INTO app_reader_health_event(reader_id,kind,detail) VALUES($1,$2,$3)",
-      [readerId, event.kind, event.detail],
-    );
+    await health.addEvent(readerId, event.kind, event.detail);
   }
   const due =
     !previous ||
@@ -175,25 +152,11 @@ export async function recordHealth(db: Database, readerId: string, report: Healt
     weak(previous.rssi) !== weak(report.rssi) ||
     Number(previous.ageMs) >= SAMPLE_INTERVAL_MS;
   if (due) {
-    await db.query(
-      `INSERT INTO app_reader_health_sample(reader_id,reachable,ready,door_state,rssi,address,firmware,uptime_ms,last_contact_ms)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-      [readerId, report.reachable, report.ready, report.doorState, report.rssi, report.address,
-        report.firmware, report.uptimeMs, report.lastContactMs],
-    );
-    await db.query(
-      "DELETE FROM app_reader_health_sample WHERE reader_id=$1 AND sampled_at<NOW()-INTERVAL '8 days'",
-      [readerId],
-    );
-    await db.query(
-      "DELETE FROM app_reader_health_event WHERE reader_id=$1 AND occurred_at<NOW()-INTERVAL '90 days'",
-      [readerId],
-    );
+    await health.addSample(readerId, report);
+    await health.pruneSamples(readerId);
+    await health.pruneEvents(readerId);
   }
-  await db.query("UPDATE app_access_reader SET health=$2,health_reported_at=NOW() WHERE id=$1", [
-    readerId,
-    report,
-  ]);
+  await health.saveReport(readerId, report);
 }
 
 /** What staff should see for a reader right now. */
@@ -285,62 +248,15 @@ export function signalSeries(samples: HealthSample[], now: Date, windowMs = DAY_
   }));
 }
 
-type ReaderRow = {
-  id: string;
-  name: string;
-  enabled: boolean;
-  lastSeenAt: Date | null;
-  health: HealthReport | null;
-  healthReportedAt: Date | null;
-};
-
 async function summaries(db: Database, readerId: string | null) {
-  const readers = (
-    await db.query<ReaderRow>(
-      `SELECT r.id,r.name,r.enabled,${readerLastSeen} AS "lastSeenAt",r.health,
-         r.health_reported_at AS "healthReportedAt"
-       FROM app_access_reader r ${readerPresenceJoin}
-       -- The board matches the reader list, which hides readers mid-setup; a
-       -- reader's own page still loads while its setup finishes.
-       WHERE ($1::text IS NULL AND NOT EXISTS (
-           SELECT 1 FROM app_reader_setup_job j WHERE j.reader_id=r.id AND j.status<>'complete'))
-         OR r.id=$1
-       ORDER BY r.name,r.id`,
-      [readerId],
-    )
-  ).rows;
+  const health = new ReaderHealthRepository(db);
+  const readers = await health.readers(readerId);
   if (readerId && !readers.length) throw new AppError(404, "NOT_FOUND", "Reader not found.");
   const ids = readers.map((reader) => reader.id);
-  const samples = (
-    await db.query<HealthSample & { readerId: string }>(
-      `SELECT reader_id AS "readerId",${sampleColumns} FROM (
-         SELECT DISTINCT ON (reader_id) * FROM app_reader_health_sample
-         WHERE reader_id=ANY($1) AND sampled_at<=NOW()-INTERVAL '24 hours'
-         ORDER BY reader_id,sampled_at DESC) earlier
-       UNION ALL
-       SELECT reader_id AS "readerId",${sampleColumns} FROM app_reader_health_sample
-       WHERE reader_id=ANY($1) AND sampled_at>NOW()-INTERVAL '24 hours'
-       ORDER BY "readerId","sampledAt"`,
-      [ids],
-    )
-  ).rows;
-  const since = (
-    await db.query<{ readerId: string; occurredAt: Date }>(
-      `SELECT DISTINCT ON (reader_id) reader_id AS "readerId",occurred_at AS "occurredAt"
-       FROM app_reader_health_event WHERE reader_id=ANY($1) AND kind='unreachable'
-       ORDER BY reader_id,occurred_at DESC`,
-      [ids],
-    )
-  ).rows;
-  const taps = (
-    await db.query<{ readerId: string; at: Date; allowed: boolean; reason: string }>(
-      `SELECT DISTINCT ON (reader_id) reader_id AS "readerId",created_at AS at,allowed,reason
-       FROM app_device_access_event WHERE reader_id=ANY($1) AND is_tap
-       ORDER BY reader_id,created_at DESC`,
-      [ids],
-    )
-  ).rows;
-  const clock = (await db.query<{ now: Date }>("SELECT NOW() AS now")).rows[0];
+  const samples = await health.daySamples(ids);
+  const since = await health.lastOutages(ids);
+  const taps = await health.lastTaps(ids);
+  const clock = await health.clock();
   if (!clock) throw new AppError(500, "CLOCK_UNAVAILABLE", "Reader health is unavailable.");
   const now = clock.now;
   return {
@@ -399,12 +315,7 @@ export function readerHealthRoutes(pool: Pool) {
   routes.get("/admin/access/reader-health/:id/door", read, async (req, res) => {
     const id = String(req.params.id);
     if (!/^[a-zA-Z0-9_-]{1,64}$/.test(id)) throw new AppError(404, "NOT_FOUND", "Reader not found.");
-    const row = (
-      await pool.query<{ health: HealthReport | null; healthReportedAt: Date | null }>(
-        `SELECT health,health_reported_at AS "healthReportedAt" FROM app_access_reader WHERE id=$1`,
-        [id],
-      )
-    ).rows[0];
+    const row = await new ReaderHealthRepository(pool).doorLight(id);
     if (!row) throw new AppError(404, "NOT_FOUND", "Reader not found.");
     // Same rule as the detail: an old report, or one from an unreachable reader, is no light.
     const report = isFresh(row.healthReportedAt, new Date()) ? row.health : null;
@@ -419,20 +330,9 @@ export function readerHealthRoutes(pool: Pool) {
     const id = String(req.params.id);
     if (!/^[a-zA-Z0-9_-]{1,64}$/.test(id)) throw new AppError(404, "NOT_FOUND", "Reader not found.");
     const { now, readers, samples } = await summaries(pool, id);
-    const events = (
-      await pool.query<{ at: Date; kind: HealthEventKind; detail: Record<string, unknown> }>(
-        `SELECT occurred_at AS at,kind,detail FROM app_reader_health_event
-         WHERE reader_id=$1 ORDER BY occurred_at DESC LIMIT 30`,
-        [id],
-      )
-    ).rows;
-    const taps = (
-      await pool.query<{ at: Date; allowed: boolean; reason: string; last4: string | null }>(
-        `SELECT created_at AS at,allowed,reason,uid_last4 AS last4 FROM app_device_access_event
-         WHERE reader_id=$1 AND is_tap ORDER BY created_at DESC LIMIT 30`,
-        [id],
-      )
-    ).rows;
+    const health = new ReaderHealthRepository(pool);
+    const events = await health.recentEvents(id);
+    const taps = await health.recentTaps(id);
     const activity = [
       ...events.map((event) => ({ type: event.kind, at: event.at, detail: event.detail })),
       ...taps.map((tap) => ({
@@ -444,13 +344,7 @@ export function readerHealthRoutes(pool: Pool) {
       .sort((a, b) => b.at.getTime() - a.at.getTime())
       .slice(0, 30);
     // What the reader last reported about itself, for when it is unreachable now.
-    const lastKnown = (
-      await pool.query<{ at: Date; ready: boolean | null; rssi: number | null; address: string | null; firmware: string | null }>(
-        `SELECT sampled_at AS at,ready,rssi,address,firmware FROM app_reader_health_sample
-         WHERE reader_id=$1 AND reachable ORDER BY sampled_at DESC LIMIT 1`,
-        [id],
-      )
-    ).rows[0] ?? null;
+    const lastKnown = await health.lastKnown(id);
     res.json({ data: { ...readers[0], signal: signalSeries(samples, now), activity, lastKnown } });
   });
   return routes;
