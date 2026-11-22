@@ -141,9 +141,11 @@ database is not published directly on the internet.</p>
 <li>Registration needs working confirmation email before a new user can
 sign in.</li>
 <li>Payment records can describe money received externally. They are not
-proof the application charged a card. Stripe integration accepts
-<strong>test keys only</strong> in this release; live keys are rejected.
-Keep Stripe fields blank for this setup.</li>
+proof the application charged a card. Stripe runs in <strong>test
+mode</strong> by default and rejects live keys. Keep Stripe fields blank
+for this setup. <code>STRIPE_MODE=live</code> exists but must not be set
+without the sponsor's approval, approved live prices and a live webhook
+endpoint.</li>
 <li>Physical NFC/door equipment needs its own keys, reader
 configuration, network route and supervised hardware test. A healthy
 website does not prove a door works.</li>

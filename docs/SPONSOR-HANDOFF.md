@@ -63,8 +63,10 @@ is not published directly on the internet.
 
 - Registration needs working confirmation email before a new user can sign in.
 - Payment records can describe money received externally. They are not proof the
-  application charged a card. Stripe integration accepts **test keys only** in
-  this release; live keys are rejected. Keep Stripe fields blank for this setup.
+  application charged a card. Stripe runs in **test mode** by default and rejects
+  live keys. Keep Stripe fields blank for this setup. `STRIPE_MODE=live` exists
+  but must not be set without the sponsor's approval, approved live prices and a
+  live webhook endpoint (see [Stripe test and live mode](stripe-requirements.md#test-and-live-mode)).
 - Physical NFC/door equipment needs its own keys, reader configuration, network
   route and supervised hardware test. A healthy website does not prove a door works.
 - The forgotten-password screen is not a completed reset service. Agree a support

@@ -25,8 +25,9 @@ booking. Existing reservations retain their status and history.
 
 ## Setup
 
-This uses the application's existing **Stripe test mode** configuration. It does
-not enable live keys or live charges.
+This uses the application's shared Stripe configuration, which runs in **test
+mode** by default. Live charges need an explicit `STRIPE_MODE=live` and the
+approvals listed in [Stripe test and live mode](stripe-requirements.md#test-and-live-mode).
 
 1. Apply additive migration `035_equipment_checkout.sql` with
    `npm run migrate --prefix backend` against the intended database before
