@@ -1,5 +1,6 @@
-// Enforces adult sponsorship and same-building visits for minors; booking and reader flows call
-// these rules rather than duplicating them.
+// Member and staff routes for minor sponsorship and supervised visits. The rules live in
+// models/MinorSupervisionModel.ts (re-exported here for booking and reader flows) and the
+// sponsor-request queries in models/SponsorRequestModel.ts.
 
 import { createHash } from 'node:crypto';
 import { Router } from 'express';
@@ -11,143 +12,11 @@ import { anySignedIn, requireStaffPermission } from './middleware/permissions.js
 import { StaffModel } from './models/StaffModel.js';
 import { EligibilityModel } from './models/EligibilityModel.js';
 import { MemberModel } from './models/MemberModel.js';
+import { MinorSupervision, MinorSupervisionModel } from './models/MinorSupervisionModel.js';
+import { SponsorRequestModel } from './models/SponsorRequestModel.js';
 import { enqueueNotification } from './notifications/store.js';
-import { DEFAULT_BUILDING_ID } from './facility.js';
 
-/** Active account aged 18+; `$${zone}` is the time-zone parameter. */
-const adultSql=(zone:number)=>`dob IS NOT NULL AND dob::date<=((now() AT TIME ZONE $${zone})::date-INTERVAL '18 years')::date
-  AND status='active' AND accessstatus='active'`;
-
-export class MinorSupervision {
-  constructor(readonly db: Database, readonly zone = 'America/New_York') {}
-  async isMinor(id: number) {
-    return (await this.db.query(`SELECT dob IS NOT NULL AND dob::date>((now() AT TIME ZONE $2)::date-INTERVAL '18 years')::date AS minor
-      FROM "user" WHERE userid=$1`, [id,this.zone])).rows[0]?.minor === true;
-  }
-  /** The linked sponsor when they are an active adult, which is all advance class enrollment needs. */
-  async linkedSponsor(id: number, lock = false) {
-    return (await this.db.query<{ id: number }>(`SELECT s.adult_id AS id FROM app_minor_sponsor s
-      JOIN "user" u ON u.userid=s.adult_id WHERE s.minor_id=$1 AND ${adultSql(2)}
-      ${lock ? 'FOR SHARE OF s,u' : ''}`,[id,this.zone])).rows[0] ?? null;
-  }
-  /** Advance class enrollment needs a valid link; arrival still checks adult presence. */
-  async requireLinkedSponsor(id: number) {
-    if (!await this.isMinor(id)) return null;
-    const sponsor = await this.linkedSponsor(id, true);
-    if (!sponsor) throw new AppError(403,'SPONSOR_REQUIRED','Link an active sponsoring adult before enrolling.');
-    return sponsor;
-  }
-  /** Shared lock serializes booking/access with adult checkout and sponsor reassignment. */
-  async requireSponsor(id: number, buildingId?: number) {
-    if (!await this.isMinor(id)) return null;
-    const sponsor = (await this.db.query(`SELECT s.adult_id AS id,u.firstname||' '||u.lastname AS name,v.id AS visit,
-      v.building_id AS building FROM app_minor_sponsor s JOIN "user" u ON u.userid=s.adult_id
-      JOIN app_facility_visit v ON v.user_id=s.adult_id AND v.checked_out_at IS NULL
-      WHERE s.minor_id=$1 AND u.dob IS NOT NULL
-        AND u.dob::date<=((now() AT TIME ZONE $2)::date-INTERVAL '18 years')::date
-        AND u.status='active' AND u.accessstatus='active'
-        AND (v.checked_in_at AT TIME ZONE $2)::date=(now() AT TIME ZONE $2)::date
-        AND ($3::int IS NULL OR v.building_id=$3)
-      FOR SHARE OF s,u,v`,[id,this.zone,buildingId ?? null])).rows[0];
-    if (!sponsor) throw new AppError(403,'SPONSOR_REQUIRED','Your sponsoring adult must be linked, checked in and remain in this building. Ask staff to check you in together.');
-    const eligibility = new EligibilityModel(this.db,this.zone);
-    const entitled = await eligibility.entitlement(sponsor.id,new Date());
-    const waivers = await eligibility.waivers(sponsor.id, 'facility');
-    if ((!entitled.membership && !entitled.dayPass) || !waivers.length || waivers.some(w=>!w.signed))
-      throw new AppError(403,'SPONSOR_INELIGIBLE','Your sponsoring adult needs current access and signed policies.');
-    return sponsor;
-  }
-  async recordBooking(id:number, bookingId:number, studio=false) {
-    const sponsor = await this.requireSponsor(id);
-    const table = studio ? 'app_minor_studio_booking' : 'app_minor_booking';
-    const key = studio ? 'rental_id' : 'reservation_id';
-    if (sponsor) await this.db.query(`INSERT INTO ${table}(${key},adult_id) VALUES($1,$2)
-      ON CONFLICT(${key}) DO UPDATE SET adult_id=EXCLUDED.adult_id`,[bookingId,sponsor.id]);
-    else await this.db.query(`DELETE FROM ${table} WHERE ${key}=$1`,[bookingId]);
-  }
-  /**
-   * Where a desk arrival with no building named belongs: the member's visit today, then a minor's
-   * present sponsor's building, then the default. Never moves a visit to another building.
-   */
-  async arrivalBuilding(id:number) {
-    const minor=await this.isMinor(id);
-    const visit=(await this.db.query<{building:number}>(`SELECT v.building_id AS building FROM app_facility_visit v
-      WHERE v.checked_out_at IS NULL AND (v.checked_in_at AT TIME ZONE $2)::date=(now() AT TIME ZONE $2)::date
-        AND (v.user_id=$1 OR ($3 AND v.user_id=(SELECT adult_id FROM app_minor_sponsor WHERE minor_id=$1)))
-      ORDER BY v.user_id=$1 DESC LIMIT 1`,[id,this.zone,minor])).rows[0];
-    return visit?.building ?? DEFAULT_BUILDING_ID;
-  }
-  async startVisit(id:number,buildingId:number) {
-    const sponsor = await this.requireSponsor(id,buildingId);
-    // One open visit, with stale previous-day visits explicitly ended before starting anew.
-    await this.db.query('SELECT pg_advisory_xact_lock(hashtext(\'arbor-visit\'),$1)',[id]);
-    await this.closeStale(id);
-    const existing=(await this.db.query('SELECT id,building_id,sponsor_id FROM app_facility_visit WHERE user_id=$1 AND checked_out_at IS NULL FOR UPDATE',[id])).rows[0];
-    if (existing) {
-      if (!sponsor && existing.building_id!==buildingId) {
-        // An adult's authenticated arrival elsewhere ends their previous visit
-        // and checks out supervised minors left in that building.
-        await this.checkout(id);
-      } else if (existing.building_id!==buildingId || existing.sponsor_id!==(sponsor?.id ?? null))
-        throw new AppError(409,'VISIT_EXISTS','Check out the current visit before changing building or sponsor.');
-      else return existing;
-    }
-    return (await this.db.query(`INSERT INTO app_facility_visit(user_id,building_id,sponsor_id) VALUES($1,$2,$3) RETURNING id`,[id,buildingId,sponsor?.id ?? null])).rows[0];
-  }
-  /** Ends open visits from previous days; summary and sponsor checks only see today's. */
-  async closeStale(id:number) {
-    // now() is transaction start; a visit inserted after it commits must not end before it began.
-    await this.db.query(`UPDATE app_facility_visit SET checked_out_at=GREATEST(clock_timestamp(),checked_in_at) WHERE user_id=$1 AND checked_out_at IS NULL
-      AND (checked_in_at AT TIME ZONE $2)::date<>(now() AT TIME ZONE $2)::date`,[id,this.zone]);
-  }
-  async checkout(id:number) {
-    await this.db.query("SELECT pg_advisory_xact_lock(hashtext('arbor-visit'),$1)",[id]);
-    // Lock the adult visit first: concurrent minor access/booking holds the same row shared.
-    const parent = await this.db.query('SELECT id FROM app_facility_visit WHERE user_id=$1 AND checked_out_at IS NULL FOR UPDATE',[id]);
-    // Minor visits may have been inserted after this transaction began (see closeStale).
-    const result=await this.db.query(`UPDATE app_facility_visit SET checked_out_at=GREATEST(clock_timestamp(),checked_in_at)
-      WHERE checked_out_at IS NULL AND (user_id=$1 OR sponsor_id=$1) RETURNING user_id AS "userId"`,[id]);
-    return { checkedOut: result.rows, hadVisit: !!parent.rowCount };
-  }
-  async summary(id:number) {
-    const minor=await this.isMinor(id);
-    const sponsor=(await this.db.query(`SELECT s.adult_id AS id,u.firstname||' '||u.lastname AS name,s.revision
-      FROM app_minor_sponsor s JOIN "user" u ON u.userid=s.adult_id WHERE s.minor_id=$1`,[id])).rows[0] ?? null;
-    const visit=(await this.db.query(`SELECT v.id,v.building_id AS "buildingId",b.name AS "buildingName",v.checked_in_at AS "checkedInAt",
-      v.sponsor_id AS "sponsorId" FROM app_facility_visit v JOIN building b ON b.buildingid=v.building_id
-      WHERE v.user_id=$1 AND v.checked_out_at IS NULL
-      AND (v.checked_in_at AT TIME ZONE $2)::date=(now() AT TIME ZONE $2)::date`,[id,this.zone])).rows[0] ?? null;
-    const pendingRequests=(await this.db.query(`SELECT r.id::int AS id,u.firstname||' '||u.lastname AS "adultName",r.created_at AS "createdAt"
-      FROM app_minor_sponsor_request r JOIN "user" u ON u.userid=r.adult_id
-      WHERE r.minor_id=$1 AND r.status='pending' ORDER BY r.created_at,r.id`,[id])).rows;
-    // Lets the member see before registering that a class signup would be refused.
-    const sponsorEligible=minor && sponsor ? !!await this.linkedSponsor(id) : false;
-    return {isMinor:minor,marker:minor?'Under 18':null,sponsor,sponsorEligible,visit,pendingRequests};
-  }
-  async isAdult(id:number) {
-    return !!(await this.db.query(`SELECT 1 FROM "user" WHERE userid=$1 AND ${adultSql(2)}`,[id,this.zone])).rowCount;
-  }
-  /**
-   * Minors an adult sponsors (with today's open visit), the adult's pending outgoing requests,
-   * and whether they may send a new one: older accounts have no date of birth on file.
-   */
-  async minors(adultId:number) {
-    const minors=(await this.db.query(`SELECT s.minor_id AS id,u.firstname||' '||u.lastname AS name,
-      b.name AS "buildingName",v.checked_in_at AS "checkedInAt"
-      FROM app_minor_sponsor s JOIN "user" u ON u.userid=s.minor_id
-      LEFT JOIN app_facility_visit v ON v.user_id=s.minor_id AND v.checked_out_at IS NULL
-        AND (v.checked_in_at AT TIME ZONE $2)::date=(now() AT TIME ZONE $2)::date
-      LEFT JOIN building b ON b.buildingid=v.building_id
-      WHERE s.adult_id=$1 ORDER BY u.firstname,u.lastname,s.minor_id`,[adultId,this.zone])).rows
-      .map(({buildingName,checkedInAt,...m})=>({...m,visit:checkedInAt?{buildingName,checkedInAt}:null}));
-    const requests=(await this.db.query(`SELECT r.id::int AS id,u.firstname AS "minorName",r.created_at AS "createdAt"
-      FROM app_minor_sponsor_request r JOIN "user" u ON u.userid=r.minor_id
-      WHERE r.adult_id=$1 AND r.status='pending' ORDER BY r.created_at,r.id`,[adultId])).rows;
-    const self=(await this.db.query(`SELECT dob IS NOT NULL AS "dobOnFile",(${adultSql(2)}) AS "canSponsor"
-      FROM "user" WHERE userid=$1`,[adultId,this.zone])).rows[0];
-    return {minors,requests,canSponsor:self?.canSponsor===true,dobOnFile:self?.dobOnFile===true};
-  }
-}
+export { MinorSupervision };
 
 export function minorSupervisionRoutes(pool:Pool,zone:string) {
   const r=Router();
@@ -155,36 +24,22 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
   r.post('/me/visit/check-out',anySignedIn,requireCsrf,async(_req,res)=>res.json({data:await transaction(pool,db=>new MinorSupervision(db,zone).checkout(authState(res).user.id))}));
   // Adult-initiated, minor-confirmed links. Lock order matches the staff route:
   // minor user row, adult user row, sponsor row, then the minor's open visit.
-  const lockUser=(db:Database,id:number)=>db.query('SELECT userid FROM "user" WHERE userid=$1 FOR UPDATE',[id]);
-  // Stale previous-day visits are ended first, as startVisit does, so they cannot block changes the summary hides.
-  const openVisit=async(db:Database,id:number)=>{
-    await new MinorSupervision(db,zone).closeStale(id);
-    return !!(await db.query('SELECT id FROM app_facility_visit WHERE user_id=$1 AND checked_out_at IS NULL FOR UPDATE',[id])).rowCount;
-  };
   // Payloads carry first names only, never either account's email.
   const notify=(db:Database,userId:number,id:number,kind:'received'|'accepted'|'declined',payload:Record<string,string>)=>
     enqueueNotification(db,{userId,kind:`sponsor_request_${kind}` as const,dedupeKey:`sponsor-request:${id}:${kind}`,payload});
-  // A request resolved before its email went out no longer needs one.
-  const withdrawNotices=(db:Database,ids:number[])=>db.query(`UPDATE app_notification_outbox SET status='obsolete',counts_for_sla=false,updated_at=now()
-    WHERE dedupe_key=ANY($1::text[]) AND status='pending'`,[ids.map(id=>`sponsor-request:${id}:received`)]);
   // Bounds date-of-birth guessing against a known email. The per-address limiter matches sign-in;
   // the per-adult and per-email budgets live in the database so they survive restarts and races.
   const limitMessage='Too many sponsor requests. Please try again tomorrow or ask staff to link the account.';
   const requestLimit=authRateLimit({limit:20,message:'Too many sponsor requests. Please wait 15 minutes and try again.'});
   const reserveAttempt=(adultId:number,emailHash:string)=>transaction(pool,async db=>{
-    // Serialize per adult and per target so concurrent requests cannot both pass the check.
-    await db.query("SELECT pg_advisory_xact_lock(hashtext('arbor-sponsor-attempt-adult'),$1)",[adultId]);
-    await db.query("SELECT pg_advisory_xact_lock(hashtext('arbor-sponsor-attempt-email'),hashtext($1))",[emailHash]);
-    const counts=(await db.query(`SELECT
-        count(*) FILTER (WHERE adult_id=$1 AND created_at>now()-interval '1 day')::int AS adult,
-        count(*) FILTER (WHERE adult_id=$1 AND email_hash=$2 AND NOT matched AND created_at>now()-interval '1 day')::int AS pair,
-        count(*) FILTER (WHERE email_hash=$2 AND NOT matched)::int AS email
-      FROM app_minor_sponsor_attempt WHERE created_at>now()-interval '30 days' AND (adult_id=$1 OR email_hash=$2)`,[adultId,emailHash])).rows[0];
+    const requests=new SponsorRequestModel(db,zone);
+    await requests.lockAttempts(adultId,emailHash);
+    const counts=await requests.attemptCounts(adultId,emailHash);
     // Per day: 10 attempts per adult, 5 misses per adult+email. Per target email: 15 misses in
     // 30 days across all adults, so the guess budget does not grow with extra accounts or time;
     // a locked-out parent can still be linked by staff at the front desk.
     if (counts.adult>=10 || counts.pair>=5 || counts.email>=15) throw new AppError(429,'RATE_LIMITED',limitMessage);
-    return (await db.query('INSERT INTO app_minor_sponsor_attempt(adult_id,email_hash) VALUES($1,$2) RETURNING id',[adultId,emailHash])).rows[0].id as string;
+    return requests.recordAttempt(adultId,emailHash);
   });
   r.get('/me/minors',anySignedIn,async(_req,res)=>res.json({data:await new MinorSupervision(pool,zone).minors(authState(res).user.id)}));
   r.post('/me/minors/requests',anySignedIn,requireCsrf,requestLimit,async(req,res)=>{
@@ -196,49 +51,48 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
     let matched=false;
     const data=await transaction(pool,async db=>{
       const service=new MinorSupervision(db,zone),adultRequired=()=>new AppError(403,'ADULT_REQUIRED','Only active accounts aged 18 or older can sponsor a minor.');
+      const records=new MinorSupervisionModel(db,zone),requests=new SponsorRequestModel(db,zone);
       if (!await service.isAdult(me)) throw adultRequired();
       // One answer for every mismatch so the form cannot reveal which accounts exist.
-      const minor=(await db.query(`SELECT userid AS id,firstname AS name FROM "user"
-        WHERE lower(email)=$1 AND dob IS NOT NULL AND dob::date=$2::date AND status='active' AND accessstatus='active'
-        AND dob::date>((now() AT TIME ZONE $3)::date-INTERVAL '18 years')::date FOR UPDATE`,[email,dob,zone])).rows[0];
+      const minor=await requests.lockMatchingMinor(email,dob);
       if (!minor) throw new AppError(404,'NOT_FOUND','No under-18 account matches that email and date of birth.');
       matched=true;
-      const adult=(await db.query(`SELECT firstname FROM "user" WHERE userid=$1 AND ${adultSql(2)} FOR SHARE`,[me,zone])).rows[0];
+      const adult=await requests.lockRequestingAdult(me);
       if (!adult) throw adultRequired();
-      if ((await db.query('SELECT 1 FROM app_minor_sponsor WHERE minor_id=$1 AND adult_id=$2',[minor.id,me])).rowCount)
+      if (await records.isSponsoredBy(minor.id,me))
         throw new AppError(409,'ALREADY_LINKED','You already sponsor this account.');
       // Self-service only fills an empty sponsor slot; replacing a sponsor stays a staff decision.
-      if ((await db.query('SELECT 1 FROM app_minor_sponsor WHERE minor_id=$1',[minor.id])).rowCount)
+      if (await records.hasSponsor(minor.id))
         throw new AppError(409,'SPONSOR_EXISTS','This account already has a sponsoring adult. Staff at the front desk can change it.');
-      if ((await db.query("SELECT 1 FROM app_minor_sponsor_request WHERE minor_id=$1 AND adult_id=$2 AND status='pending'",[minor.id,me])).rowCount)
+      if (await requests.hasPending(minor.id,me))
         throw new AppError(409,'REQUEST_PENDING','You already have a pending request for this account.');
-      const row=(await db.query(`INSERT INTO app_minor_sponsor_request(minor_id,adult_id) VALUES($1,$2)
-        RETURNING id::int AS id,created_at AS "createdAt"`,[minor.id,me])).rows[0];
+      const row=await requests.create(minor.id,me);
       await notify(db,minor.id,row.id,'received',{adultName:adult.firstname});
       return {id:row.id,minorName:minor.name,createdAt:row.createdAt};
     }).finally(async()=>{
-      if (matched) await pool.query('UPDATE app_minor_sponsor_attempt SET matched=true WHERE id=$1',[attempt]);
+      if (matched) await new SponsorRequestModel(pool,zone).markAttemptMatched(attempt);
     });res.status(201).json({data});
   });
   r.post('/me/minors/requests/:id/cancel',anySignedIn,requireCsrf,async(req,res)=>{
     const me=authState(res).user.id,id=positiveId(req.params.id);
     const data=await transaction(pool,async db=>{
-      const found=(await db.query("SELECT minor_id FROM app_minor_sponsor_request WHERE id=$1 AND adult_id=$2 AND status='pending'",[id,me])).rows[0];
-      if (found) await lockUser(db,found.minor_id);
-      if (!found || !(await db.query(`UPDATE app_minor_sponsor_request SET status='cancelled',resolved_at=now()
-        WHERE id=$1 AND status='pending'`,[id])).rowCount) throw new AppError(404,'NOT_FOUND','No pending request found.');
-      await withdrawNotices(db,[id]);
+      const records=new MinorSupervisionModel(db,zone),requests=new SponsorRequestModel(db,zone);
+      const found=await requests.pendingSentBy(id,me);
+      if (found) await records.lockUser(found.minor_id);
+      if (!found || !await requests.cancel(id)) throw new AppError(404,'NOT_FOUND','No pending request found.');
+      await requests.withdrawNotices([id]);
       return new MinorSupervision(db,zone).minors(me);
     });res.json({data});
   });
   r.post('/me/minors/:minorId/unlink',anySignedIn,requireCsrf,async(req,res)=>{
     const me=authState(res).user.id,minor=integerId(req.params.minorId,'Minor');
     const data=await transaction(pool,async db=>{
-      await lockUser(db,minor);
-      const existing=(await db.query('SELECT * FROM app_minor_sponsor WHERE minor_id=$1 AND adult_id=$2 FOR UPDATE',[minor,me])).rows[0];
+      const records=new MinorSupervisionModel(db,zone);
+      await records.lockUser(minor);
+      const existing=await records.sponsorshipBy(minor,me);
       if (!existing) throw new AppError(404,'NOT_FOUND','You do not sponsor this account.');
-      if (await openVisit(db,minor)) throw new AppError(409,'CHECK_OUT_FIRST','Check out the minor before removing your sponsorship.');
-      await db.query('DELETE FROM app_minor_sponsor WHERE minor_id=$1',[minor]);
+      if (await records.hasOpenVisit(minor)) throw new AppError(409,'CHECK_OUT_FIRST','Check out the minor before removing your sponsorship.');
+      await records.unlinkSponsor(minor);
       await new StaffModel(db,zone).audit(me,minor,'minor.sponsor_unlinked','user',minor,'Sponsoring adult removed their link',existing,null);
       return new MinorSupervision(db,zone).minors(me);
     });res.json({data});
@@ -247,30 +101,28 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
     const me=authState(res).user.id,id=positiveId(req.params.id);
     const data=await transaction(pool,async db=>{
       const service=new MinorSupervision(db,zone);
-      await lockUser(db,me);
-      const request=(await db.query(`SELECT adult_id,(SELECT firstname FROM "user" WHERE userid=minor_id) AS "minorName"
-        FROM app_minor_sponsor_request WHERE id=$1 AND minor_id=$2 AND status='pending' FOR UPDATE`,[id,me])).rows[0];
+      const records=new MinorSupervisionModel(db,zone),requests=new SponsorRequestModel(db,zone);
+      await records.lockUser(me);
+      const request=await requests.lockPendingFor(id,me);
       if (!request) throw new AppError(404,'NOT_FOUND','No pending sponsor request found.');
       if (action==='decline') {
-        await db.query("UPDATE app_minor_sponsor_request SET status='declined',resolved_at=now() WHERE id=$1",[id]);
-        await withdrawNotices(db,[id]);
+        await requests.decline(id);
+        await requests.withdrawNotices([id]);
         await notify(db,request.adult_id,id,'declined',{minorName:request.minorName});
         return service.summary(me);
       }
       // Re-validate everything the staff link route checks; the request may be stale.
       if (!await service.isMinor(me)) throw new AppError(409,'MINOR_REQUIRED','Only accounts under 18 need a sponsoring adult.');
-      if (!(await db.query(`SELECT userid FROM "user" WHERE userid=$1 AND userid<>$3 AND ${adultSql(2)} FOR SHARE`,[request.adult_id,zone,me])).rowCount)
+      if (!await requests.lockSponsorCandidate(request.adult_id,me))
         throw new AppError(409,'ADULT_REQUIRED','This adult can no longer sponsor you. Ask them to check their account.');
-      const existing=(await db.query('SELECT * FROM app_minor_sponsor WHERE minor_id=$1 FOR UPDATE',[me])).rows[0];
+      const existing=await records.sponsorship(me);
       if (existing && existing.adult_id!==request.adult_id)
         throw new AppError(409,'SPONSOR_EXISTS','You already have a sponsoring adult. Ask staff at the front desk to change it.');
-      if (await openVisit(db,me)) throw new AppError(409,'CHECK_OUT_FIRST','Check out before changing your sponsoring adult.');
-      await db.query(`INSERT INTO app_minor_sponsor(minor_id,adult_id) VALUES($1,$2) ON CONFLICT(minor_id)
-        DO UPDATE SET adult_id=EXCLUDED.adult_id,revision=app_minor_sponsor.revision+1,updated_at=now()`,[me,request.adult_id]);
+      if (await records.hasOpenVisit(me)) throw new AppError(409,'CHECK_OUT_FIRST','Check out before changing your sponsoring adult.');
+      await records.linkSponsor(me,request.adult_id);
       // The accepted request resolves; every other pending request for this minor is withdrawn.
-      const resolved=(await db.query(`UPDATE app_minor_sponsor_request SET status=CASE WHEN id=$2 THEN 'accepted' ELSE 'cancelled' END,resolved_at=now()
-        WHERE minor_id=$1 AND status='pending' RETURNING id::int`,[me,id])).rows.map(r=>r.id as number);
-      await withdrawNotices(db,resolved);
+      const resolved=await requests.resolveAccepted(me,id);
+      await requests.withdrawNotices(resolved);
       await notify(db,request.adult_id,id,'accepted',{minorName:request.minorName});
       await new StaffModel(db,zone).audit(me,me,'minor.sponsor_linked','user',me,'Minor accepted sponsor request',existing ?? null,{adultId:request.adult_id,requestId:id});
       return service.summary(me);
@@ -283,7 +135,7 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
   r.get(base,supervise,async(req,res)=>res.json({data:await new MinorSupervision(pool,zone).summary(positiveId(req.params.id))}));
   const guardTarget = async (db:Database,actorId:number,id:number) => {
     // Match existing staff account-management policy and lock order.
-    await db.query("SELECT pg_advisory_xact_lock(hashtext('arbor-staff-writes'))");
+    await new MinorSupervisionModel(db,zone).lockStaffWrites();
     const model=new StaffModel(db,zone),target=await model.person(id,true),actor=await model.person(actorId);
     if (!target) throw new AppError(404,'NOT_FOUND','User not found.');
     if (target.roles.some((role:string)=>role==='staff'||role==='admin') && !actor?.roles.includes('admin'))
@@ -295,18 +147,16 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
     if(req.body.consent!==true) throw new AppError(400,'CONSENT_REQUIRED','Verify that the adult agrees to sponsor this minor.');
     const data=await transaction(pool,async db=>{
       await guardTarget(db,authState(res).user.id,id);
-      const service=new MinorSupervision(db,zone);
-      await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR UPDATE',[id]);
+      const service=new MinorSupervision(db,zone),records=new MinorSupervisionModel(db,zone);
+      await records.lockUser(id);
       if (!await service.isMinor(id)) throw new AppError(400,'MINOR_REQUIRED','Choose an account under 18.');
-      const eligible=(await db.query(`SELECT userid FROM "user" WHERE userid=$1 AND userid<>$2 AND dob IS NOT NULL
-        AND dob::date<=((now() AT TIME ZONE $3)::date-INTERVAL '18 years')::date AND status='active' AND accessstatus='active' FOR SHARE`,[adult,id,zone])).rowCount;
+      const eligible=await records.lockEligibleAdult(adult,id);
       if (!eligible) throw new AppError(400,'ADULT_REQUIRED','Choose an active adult account aged 18 or older.');
-      const existing=(await db.query('SELECT * FROM app_minor_sponsor WHERE minor_id=$1 FOR UPDATE',[id])).rows[0];
+      const existing=await records.sponsorship(id);
       if ((existing?.revision ?? 0)!==revision) throw new AppError(409,'STALE_RECORD','Refresh the sponsor record before saving.');
-      if (await openVisit(db,id))
+      if (await records.hasOpenVisit(id))
         throw new AppError(409,'CHECK_OUT_FIRST','Check out the minor before changing their sponsoring adult.');
-      await db.query(`INSERT INTO app_minor_sponsor(minor_id,adult_id) VALUES($1,$2) ON CONFLICT(minor_id)
-        DO UPDATE SET adult_id=EXCLUDED.adult_id,revision=app_minor_sponsor.revision+1,updated_at=now()`,[id,adult]);
+      await records.linkSponsor(id,adult);
       await new StaffModel(db,zone).audit(authState(res).user.id,id,'minor.sponsor_linked','user',id,reason,existing ?? null,{adultId:adult});
       return service.summary(id);
     });res.json({data});
@@ -320,15 +170,15 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
     const id=positiveId(req.params.id);
     const data=await transaction(pool,async db=>{
       await guardTarget(db,authState(res).user.id,id);
-      const service=new MinorSupervision(db,zone);
-      if (action==='check-in' && !(await db.query('SELECT userid FROM "user" WHERE userid=$1 AND status=\'active\' AND accessstatus=\'active\' FOR SHARE',[id])).rowCount)
+      const service=new MinorSupervision(db,zone),records=new MinorSupervisionModel(db,zone);
+      if (action==='check-in' && !await records.lockActiveAccount(id))
         throw new AppError(403,'ACCESS_BLOCKED','This account does not have access.');
       if (action==='check-in') {
         const model=new EligibilityModel(db,zone),entitlement=await model.entitlement(id,new Date()),waivers=await model.waivers(id,'facility');
         if (!entitlement.membership && !entitlement.dayPass) throw new AppError(403,'MEMBERSHIP_REQUIRED','Each visitor needs a membership or day pass.');
         if (!waivers.length || waivers.some(w=>!w.signed)) throw new AppError(403,'WAIVER_REQUIRED','Sign current required policies first.');
         const building=req.body.buildingId==null ? await service.arrivalBuilding(id) : positiveId(req.body.buildingId);
-        const place=(await db.query<{name:string}>("SELECT name FROM building WHERE buildingid=$1 AND status='available' FOR SHARE",[building])).rows[0];
+        const place=await records.availableBuilding(building);
         if (!place) throw new AppError(409,'RESOURCE_UNAVAILABLE','This building is unavailable.');
         // Record the arrival as reader and portal check-ins do, so it counts in "Checked in
         // today", attendance reports and recent check-ins. This also starts the visit.
