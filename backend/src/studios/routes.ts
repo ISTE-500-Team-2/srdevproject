@@ -9,6 +9,7 @@ import type { Pool } from "pg";
 import { AppError, integerId } from "../domain.js";
 import { authState, requireCsrf } from "../middleware/auth.js";
 import { StudioService } from "./service.js";
+import { PaymentSecurityEventModel } from "../models/PaymentSecurityEventModel.js";
 import { StudioStripe, type StudioStripeConfig } from "./stripe.js";
 export function studioRoutes(
   pool: Pool,
@@ -137,7 +138,7 @@ export function studioWebhook(
       const now = Date.now();
       if (now - invalidSignatureRecordedAt >= INVALID_SIGNATURE_WINDOW_MS) {
         invalidSignatureRecordedAt = now;
-        await pool.query("INSERT INTO app_payment_security_event(kind) VALUES('stripe.invalid_signature')");
+        await new PaymentSecurityEventModel(pool).recordInvalidStripeSignature();
       }
       throw new AppError(
         400,

@@ -21,6 +21,7 @@ import { Router, type Request, type Response } from "express";
 import type { Pool } from "pg";
 import type { AppConfig } from "./config.js";
 import { AuthController } from "./controllers/AuthController.js";
+import { HealthModel } from "./models/HealthModel.js";
 import { EquipmentController } from "./controllers/EquipmentController.js";
 import { equipmentImage } from './equipmentImages.js';
 import { ReservationController } from "./controllers/ReservationController.js";
@@ -89,7 +90,7 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   const refreshLimit = authRateLimit({ limit: 120, windowMs: 60000, failuresOnly: true,
     message: "Too many session refreshes. Please retry shortly." });
   routes.get("/health", async (_req, res) => {
-    await pool.query("SELECT 1");
+    await new HealthModel(pool).ping();
     res.json({ data: { status: "ok", database: "connected" } });
   });
   routes.get("/config", (_req, res) =>

@@ -7,6 +7,7 @@ import type { AppConfig } from "./config.js";
 import { AppError, publicUser, type UserView } from "./domain.js";
 import { transaction } from "./db.js";
 import { authState, requireCsrf, requireStaff } from "./middleware/auth.js";
+import { AccountModeAuditModel } from "./models/AccountModeAuditModel.js";
 import { SessionModel } from "./models/SessionModel.js";
 import { UserModel } from "./models/UserModel.js";
 
@@ -122,10 +123,7 @@ export function accountModeRoutes(pool: Pool, config: AppConfig) {
     await transaction(pool, async (db) => {
       await new SessionModel(db, config.jwtKey, config.accessTokenSeconds, config.refreshTokenSeconds, config.timeZone)
         .setActingAs(token, subject!.id);
-      await db.query(
-        `INSERT INTO app_staff_audit(actor_id,subject_id,action,entity_type,entity_id,reason) VALUES($1,$2,'account_mode.opened','user',$2,'Opened from the staff workspace')`,
-        [actor.id, subject!.id],
-      );
+      await new AccountModeAuditModel(db).opened(actor.id, subject!.id);
     });
     res.set("Cache-Control", "no-store");
     res.json({ data: { ...accountModeView(subject!, actor), csrfToken } });
@@ -137,10 +135,7 @@ export function accountModeRoutes(pool: Pool, config: AppConfig) {
       const open = await sessions.find(token);
       await sessions.setActingAs(token, null);
       if (open?.actingAsUserId)
-        await db.query(
-          `INSERT INTO app_staff_audit(actor_id,subject_id,action,entity_type,entity_id,reason) VALUES($1,$2,'account_mode.closed','user',$2,'Returned to the staff workspace')`,
-          [actor.id, open.actingAsUserId],
-        );
+        await new AccountModeAuditModel(db).closed(actor.id, open.actingAsUserId);
     });
     res.set("Cache-Control", "no-store");
     res.json({ data: { ...accountModeView(actor), csrfToken } });

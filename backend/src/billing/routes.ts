@@ -11,6 +11,7 @@ import {StudioStripe,type StudioStripeConfig} from '../studios/stripe.js';
 import {authState,requireCsrf} from '../middleware/auth.js';
 import {paymentDetailsAreMemberOnly} from '../accountMode.js';
 import {requirePermission} from '../middleware/permissions.js';
+import {BillingPriceModel} from '../models/BillingPriceModel.js';
 export function billingRoutes(pool:Pool,config?:StudioStripeConfig,zone='America/New_York') {
  const pricing=new BillingPricing(pool),passes=new PassBilling(pool,config?new StudioStripe(config):undefined,zone);
  const r=Router(),service=new MembershipBilling(pool,config?new StudioStripe(config):undefined);
@@ -34,7 +35,7 @@ export function billingRoutes(pool:Pool,config?:StudioStripeConfig,zone='America
  r.post('/me/billing/passes/checkout',ownBilling,requireCsrf,async(req,res)=>res.json({data:await passes.checkout(authState(res).user.id,req.body)}));
  r.post('/me/billing/free-membership',ownBilling,requireCsrf,async(req,res)=>res.json({data:await passes.freeMembership(authState(res).user.id,req.body)}));
  r.post('/me/billing/passes/:id/cancel',ownBilling,requireCsrf,async(req,res)=>res.json({data:await passes.cancel(authState(res).user.id,String(req.params.id))}));
- r.get('/billing-management/pricing',requirePermission(pool,'role','update','global'),async(_req,res)=>res.json({data:(await pool.query('SELECT * FROM app_billing_price ORDER BY tierid')).rows}));
+ r.get('/billing-management/pricing',requirePermission(pool,'role','update','global'),async(_req,res)=>res.json({data:await new BillingPriceModel(pool).list()}));
  r.patch('/billing-management/pricing/:id',requirePermission(pool,'role','update','global'),requireCsrf,async(req,res)=>res.json({data:await pricing.configure(authState(res).user.id,positiveId(req.params.id),req.body)}));
  r.post('/billing-management/partner/:id',requirePermission(pool,'payment','update','global'),requireCsrf,async(req,res)=>res.json({data:await pricing.verifyPartner(authState(res).user.id,positiveId(req.params.id),req.body)}));
  return r;
