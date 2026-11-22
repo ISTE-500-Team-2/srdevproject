@@ -1,11 +1,14 @@
 // Shared reader/manual-input controls for card lookup and assignment; useCardScan owns the
 // enrollment lifecycle.
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Link } from "react-router-dom";
 import { Info, WifiOff } from "lucide-react";
 import type { AccessReader, ReaderSetup } from "../../lib/nfc";
 import type { useCardScan } from "../../lib/useCardScan";
+
+/** How often a screen with the reader picker re-reads readers, so one plugged in shows up as online. */
+export const READER_POLL_MS = 5000;
 
 export function ScanControls({
   setup,
@@ -26,9 +29,14 @@ export function ScanControls({
   );
   const [reader, setReader] = useState("");
   const group = useId();
-  const selected =
-    readers.find((r) => r.id === reader && r.online) ??
-    readers.find((r) => r.online);
+  const firstOnline = readers.find((r) => r.online);
+  // A reader that goes offline stays chosen (and says so) rather than the scan silently
+  // moving to another door or machine; only a missing choice falls back to an online one.
+  const selected = readers.find((r) => r.id === reader) ?? firstOnline;
+  const chosen = selected?.id ?? "";
+  useEffect(() => {
+    if (chosen && chosen !== reader) setReader(chosen);
+  }, [chosen, reader]);
   if (!setup.configured)
     return (
       <p className="form-error" role="alert">
@@ -77,7 +85,7 @@ export function ScanControls({
               </label>
             ))}
           </fieldset>
-          {selected ? (
+          {selected?.online ? (
             <p className="nfc-scan__note">
               <Info aria-hidden="true" />
               <span>
@@ -92,12 +100,13 @@ export function ScanControls({
             <p className="nfc-scan__offline" role="status">
               <WifiOff aria-hidden="true" />
               <span>
-                No reader is online right now. Plug one in, or enter the card ID
-                by hand.
+                {selected
+                  ? `${selected.name} just went offline. ${firstOnline ? "Pick another reader" : "Plug it back in"}, or enter the card ID by hand.`
+                  : "No reader is online right now. Plug one in, or enter the card ID by hand."}
               </span>
             </p>
           )}
-          {selected ? (
+          {selected?.online ? (
             <button
               type="button"
               className="button button--primary"

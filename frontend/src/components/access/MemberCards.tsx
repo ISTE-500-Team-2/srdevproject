@@ -10,7 +10,7 @@ import { useCardScan } from "../../lib/useCardScan";
 import { uidHelp, type NfcCard, type ReaderSetup } from "../../lib/nfc";
 import { LoadState } from "../Management";
 import { Modal } from "../Modal";
-import { ScanControls } from "./ScanControls";
+import { READER_POLL_MS, ScanControls } from "./ScanControls";
 
 export function MemberCards({
   userId,
@@ -28,6 +28,7 @@ export function MemberCards({
   // Kept on screen while it refreshes: unmounting AssignCard would cancel a scan in progress.
   const setup = useApi<ReaderSetup>("/admin/access/readers", {
     retainOnReload: true,
+    refreshInterval: READER_POLL_MS,
   });
   const [action, setAction] = useState<{
     card: NfcCard;

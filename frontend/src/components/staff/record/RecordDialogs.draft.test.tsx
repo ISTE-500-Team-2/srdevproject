@@ -94,3 +94,21 @@ test("a card captured with the default reader asks before a stray click throws t
   fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
   expect(screen.getByText("Card captured · ending 1A2B")).toBeTruthy();
 });
+
+test("the assign dialog keeps re-reading readers, and a failed re-read leaves the picker up", () => {
+  const setup: ReaderSetup = {
+    configured: true,
+    canConfigure: true,
+    timeZone: "America/New_York",
+    readers: [{ id: "front", name: "Front door", kind: "building", resourceId: 1, resourceName: "Building", enabled: true, online: true, lastSeenAt: null, revision: 1 }],
+  };
+  useApi.mockReturnValue({ data: setup, loading: false, refreshing: false, error: "Network down", reload: vi.fn() });
+  host({ kind: "assign" });
+  expect(useApi).toHaveBeenCalledWith(
+    "/admin/access/readers",
+    expect.objectContaining({ retainOnReload: true, refreshInterval: expect.any(Number) }),
+  );
+  expect(useApi.mock.calls.find(([p]) => p === "/admin/access/readers")![1].refreshInterval).toBeGreaterThan(0);
+  expect(screen.getByRole("button", { name: "Start card scan" })).toBeTruthy();
+  expect(screen.queryByText(/Network down/)).toBeNull();
+});
