@@ -8,6 +8,7 @@ import {Router} from 'express';
 import type {Pool} from 'pg';
 import {MembershipBilling} from './service.js';
 import {StudioStripe,type StudioStripeConfig} from '../studios/stripe.js';
+import {modeOf} from '../stripeMode.js';
 import {authState,requireCsrf} from '../middleware/auth.js';
 import {paymentDetailsAreMemberOnly} from '../accountMode.js';
 import {requirePermission} from '../middleware/permissions.js';
@@ -20,7 +21,7 @@ export function billingRoutes(pool:Pool,config?:StudioStripeConfig,zone='America
  // it again (confirmed once per request).
  const ownBilling=requirePermission(pool,'entitlement','read','own');
  r.use('/me/billing',ownBilling);
- r.get('/me/billing',ownBilling,async(_req,res)=>res.json({data:{enabled:!!config,records:await service.mine(authState(res).user.id)}}));
+ r.get('/me/billing',ownBilling,async(_req,res)=>res.json({data:{enabled:!!config,mode:modeOf(config),records:await service.mine(authState(res).user.id)}}));
  r.post('/me/billing/checkout',ownBilling,requireCsrf,async(req,res)=>res.json({data:await service.checkout(authState(res).user.id,req.body)}));
  r.post('/me/billing/:id/cancel',ownBilling,requireCsrf,async(req,res)=>{await service.cancel(authState(res).user.id,String(req.params.id));res.json({data:{cancelled:true}});});
  r.post('/me/billing/memberships/:id/cancel',ownBilling,requireCsrf,async(req,res)=>res.json({data:await passes.cancelMembership(authState(res).user.id,positiveId(req.params.id))}));

@@ -17,8 +17,8 @@ const keyPatterns: Record<StripeMode, RegExp> = { test: /^(sk|rk)_test_/, live: 
 /** A secret (sk_) or restricted (rk_) key for this mode. */
 export const keyMatchesMode = (key: string, mode: StripeMode) => keyPatterns[mode].test(key);
 
-/** The mode of a configured provider. No provider means the default test mode. */
-export const modeOf = (provider?: { readonly mode: StripeMode }): StripeMode => provider?.mode ?? 'test';
+/** The mode of a configured provider or its config. None, or no mode, means the default test mode. */
+export const modeOf = (provider?: { readonly mode?: StripeMode }): StripeMode => provider?.mode ?? 'test';
 
 /** Whether a Stripe object belongs to this mode. A missing livemode flag counts as test. */
 export const inStripeMode = (mode: StripeMode, livemode: boolean | null | undefined) => !!livemode === (mode === 'live');
@@ -33,3 +33,28 @@ export function assertStripeMode(mode: StripeMode, livemode: boolean | null | un
   if (mode === 'test') throw new AppError(status, 'LIVE_PAYMENT_FORBIDDEN', testMessage);
   throw new AppError(status, 'TEST_PAYMENT_FORBIDDEN', `Live ${what} only.`);
 }
+
+const labels = {
+  test: {
+    card: 'Card (test mode)',
+    originalCard: 'Original card (test mode)',
+    equipmentNote: 'Online equipment reservation (Stripe test mode)',
+    membershipNote: 'Stripe test recurring membership',
+    invoiceNote: 'Stripe test invoice',
+    unavailable: 'Stripe test payments are not configured.',
+  },
+  live: {
+    card: 'Card',
+    originalCard: 'Original card',
+    equipmentNote: 'Online equipment reservation (Stripe)',
+    membershipNote: 'Stripe recurring membership',
+    invoiceNote: 'Stripe invoice',
+    unavailable: 'Stripe payments are not configured.',
+  },
+} as const satisfies Record<StripeMode, Record<string, string>>;
+
+/**
+ * Receipt, refund and payment-note wording members and staff see. Only test mode says "test", so a
+ * live receipt never tells anyone their real charge was a test.
+ */
+export const paymentLabels = (mode: StripeMode) => labels[mode];

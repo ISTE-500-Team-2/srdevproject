@@ -1,4 +1,5 @@
 import type { Database } from "../../db.js";
+import { paymentLabels, type StripeMode } from "../../stripeMode.js";
 
 export type PaymentFilters = { status?: string | null; from?: string | null; to?: string | null };
 export type PaymentSummary = { count: number; collected: string; pendingCount: number; pending: string; refunded: string };
@@ -49,17 +50,21 @@ export interface PaymentListItem {
  * The note on a card membership payment that Stripe took for dates another membership already
  * covered (for example one sold at the desk). The payment list flags it while both charges stand.
  */
-export const OVERLAPPING_CARD_PAYMENT_NOTE = "Stripe test recurring membership; overlaps another membership";
+export const overlappingCardPaymentNote = (mode: StripeMode) =>
+  `${paymentLabels(mode).membershipNote}; overlaps another membership`;
+export const OVERLAPPING_CARD_PAYMENT_NOTE = overlappingCardPaymentNote("test");
+/** Either mode's note, so switching modes keeps flagging charges recorded before the switch. */
+const OVERLAPPING_CARD_PAYMENT_NOTES = (["test", "live"] as const).map(overlappingCardPaymentNote);
 /** How the payment list labels a possible double charge, by who is reading it. */
 const OVERLAP_LABEL = {
   staff: " (dates overlap another membership; check for a double charge)",
   member: " (may overlap another membership; ask staff)",
 } as const;
 export type PaymentViewer = keyof typeof OVERLAP_LABEL;
-// The flagged card charge ($6 note) still stands, and so does a charge for another membership
+// The flagged card charge ($6 notes) still stands, and so does a charge for another membership
 // covering some of its dates: one with no payment recorded, or one not yet refunded or voided.
 // Refunding or voiding either side clears the flag.
-const STILL_OVERLAPS = `p.note=$6 AND p.paymentstatus='paid' AND EXISTS(SELECT 1 FROM user_membership other
+const STILL_OVERLAPS = `p.note=ANY($6::text[]) AND p.paymentstatus='paid' AND EXISTS(SELECT 1 FROM user_membership other
         WHERE other.userid=m.userid AND other.membershipid<>m.membershipid AND other.startdate<m.end_date AND other.end_date>m.startdate
         AND (SELECT COALESCE(bool_or(charge.paymentstatus NOT IN ('refunded','void')),true) FROM payment charge
           WHERE charge.userid=other.userid AND charge.membershipid=other.membershipid))`;
@@ -165,7 +170,7 @@ export class PaymentRepository {
       LEFT JOIN app_pass_checkout pass_checkout ON pass_checkout.payment_id=p.paymentid AND pass_checkout.amount_cents>0
       LEFT JOIN app_equipment_checkout equipment_checkout ON equipment_checkout.payment_id=p.paymentid
       WHERE ${PAYMENT_FILTER} ORDER BY p.paymentid DESC LIMIT 51 OFFSET $5`,
-        [userId, filters.status ?? null, filters.from ?? null, filters.to ?? null, offset, OVERLAPPING_CARD_PAYMENT_NOTE, OVERLAP_LABEL[viewer], viewerId],
+        [userId, filters.status ?? null, filters.from ?? null, filters.to ?? null, offset, OVERLAPPING_CARD_PAYMENT_NOTES, OVERLAP_LABEL[viewer], viewerId],
       )
     ).rows;
   }

@@ -19,7 +19,7 @@ import { WaiverRecordsController } from './controllers/WaiverRecordsController.j
 import { NotificationPreferencesController } from "./controllers/NotificationPreferencesController.js";
 import { Router, type Request, type Response } from "express";
 import type { Pool } from "pg";
-import type { AppConfig } from "./config.js";
+import { stripeModeOf, type AppConfig } from "./config.js";
 import { AuthController } from "./controllers/AuthController.js";
 import { HealthModel } from "./models/HealthModel.js";
 import { EquipmentController } from "./controllers/EquipmentController.js";
@@ -110,7 +110,7 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   });
   routes.get("/config", (_req, res) =>
     res.json({
-      data: { demoLogin: config.demoLogin, timeZone: config.timeZone },
+      data: { demoLogin: config.demoLogin, timeZone: config.timeZone, stripeMode: stripeModeOf(config) },
     }),
   );
   routes.post("/auth/login", loginAccountLimit, loginLimit, loginEmailLimit, auth.login);

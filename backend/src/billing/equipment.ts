@@ -1,4 +1,4 @@
-// Links a reservation's pending payment to Stripe test checkout; provider reconciliation decides
+// Links a reservation's pending payment to Stripe checkout; provider reconciliation decides
 // when the booking becomes paid.
 
 import type { Pool } from 'pg';
@@ -12,7 +12,7 @@ import { StaffModel } from '../models/StaffModel.js';
 import { enqueueNotification } from '../notifications/store.js';
 import { noticeCertificationRefusal } from '../notifications/certificationNotices.js';
 import { StudioStripe } from '../studios/stripe.js';
-import { assertStripeMode, inStripeMode, modeOf } from '../stripeMode.js';
+import { assertStripeMode, inStripeMode, modeOf, paymentLabels } from '../stripeMode.js';
 import { EquipmentModel } from '../models/EquipmentModel.js';
 import { AccessService } from '../services/AccessService.js';
 import type { Database } from '../db.js';
@@ -175,13 +175,13 @@ export class EquipmentBilling {
       // Payment alone cannot confirm a booking whose current waivers/training
       // are invalid. The same paid session can reconcile after eligibility is restored.
       await this.requirements(db, reservation);
-      const model = new StaffModel(db);
+      const model = new StaffModel(db), labels = paymentLabels(modeOf(this.stripe));
       const existingPayment = (await db.query(`UPDATE payment SET paymentstatus='paid',method='card',reference=$2,
-        note='Online equipment reservation (Stripe test mode)',revision=revision+1,updated_at=now()
+        note=$4,revision=revision+1,updated_at=now()
         WHERE paymentid=(SELECT payment_id FROM reservation WHERE reservationid=$1)
-          AND userid=$3 AND paymentstatus='pending' RETURNING paymentid AS id`, [id, session.id, reservation.userid])).rows[0];
+          AND userid=$3 AND paymentstatus='pending' RETURNING paymentid AS id`, [id, session.id, reservation.userid, labels.equipmentNote])).rows[0];
       const payment = existingPayment?.id ?? await model.createPayment(reservation.userid, null, (row.amount_cents / 100).toFixed(2),
-        'paid', 'card', session.id, 'Online equipment reservation (Stripe test mode)', row.payer_id);
+        'paid', 'card', session.id, labels.equipmentNote, row.payer_id);
       await db.query("UPDATE app_equipment_checkout SET status='paid',checkout_id=$2,payment_intent=$3,payment_id=$4,refund_reconcile_after=now() WHERE reservation_id=$1", [id, session.id, intent, payment]);
       await db.query("UPDATE reservation SET status='confirmed',statusdesc='Stripe payment verified',payment_id=$2,revision=revision+1 WHERE reservationid=$1", [id, payment]);
       const confirmed = await new ReservationModel(db).find(Number(id));
@@ -193,7 +193,7 @@ export class EquipmentBilling {
           startsAt: new Date(confirmed.startTime).toISOString(), endsAt: new Date(confirmed.endTime).toISOString() } });
       await enqueueNotification(db, { userId: row.payer_id, kind: 'payment_receipt', dedupeKey: `equipment-receipt:${id}`,
         payload: { paymentId: payment, reservationId: Number(id), amount: (row.amount_cents / 100).toFixed(2),
-          currency: 'USD', method: 'Card (test mode)', reference: session.id } });
+          currency: 'USD', method: labels.card, reference: session.id } });
       return true;
     });
     if (refundLookup) await this.reconcileRefund(Number(id));
@@ -345,7 +345,7 @@ export class EquipmentBilling {
       await db.query("UPDATE payment SET paymentstatus='refunded',updated_at=now(),revision=revision+1 WHERE paymentid=$1", [row.payment_id]);
       // The money goes back to the payer's card, so they get the notice, as they got the receipt.
       await enqueueNotification(db, { userId: row.payer_id, kind: 'payment_refunded', dedupeKey: `${notice}:${refund.id}`,
-        payload: { reference: refund.id, amount: (refund.amount / 100).toFixed(2), currency: 'USD', method: 'Original card (test mode)',
+        payload: { reference: refund.id, amount: (refund.amount / 100).toFixed(2), currency: 'USD', method: paymentLabels(modeOf(this.stripe)).originalCard,
           reservationId: row.reservation_id } });
     }
     if (failedRefund(refund)) {

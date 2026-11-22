@@ -13,7 +13,7 @@ import {requireActor} from '../accountPolicy.js';
 import {assertManageable} from '../services/StaffService.js';
 import {businessToday} from '../businessDate.js';
 import {StudioStripe} from '../studios/stripe.js';
-import {assertStripeMode,inStripeMode,modeOf} from '../stripeMode.js';
+import {assertStripeMode,inStripeMode,modeOf,paymentLabels} from '../stripeMode.js';
 import {enqueueNotification} from '../notifications/store.js';
 import {errorIdentifier} from '../logSafety.js';
 import {quote} from './pricing.js';
@@ -262,7 +262,7 @@ export class PassBilling {
   await model.linkPassPayment(pass,payment);
   await db.query("UPDATE app_pass_checkout SET pass_id=$2,payment_id=$3,status='paid' WHERE id=$1",[r.id,pass,payment]);
   await model.audit(r.userid,r.userid,'daypass.issued','day_pass',pass,'Online day pass',null,{payment,reference});
-  await enqueueNotification(db,{userId:r.userid,kind:'payment_receipt',dedupeKey:'daypass-receipt:'+r.id,payload:{amount:(r.amount_cents/100).toFixed(2),currency:'USD',reference,method:r.amount_cents?'Card (test mode)':'Approved free access',paymentId:payment,membershipName:r.plan_snapshot.name,validDate:date}});
+  await enqueueNotification(db,{userId:r.userid,kind:'payment_receipt',dedupeKey:'daypass-receipt:'+r.id,payload:{amount:(r.amount_cents/100).toFixed(2),currency:'USD',reference,method:r.amount_cents?paymentLabels(modeOf(this.stripe)).card:'Approved free access',paymentId:payment,membershipName:r.plan_snapshot.name,validDate:date}});
  }
  private visitEnded(r:PassCheckoutRow){
   return new Date(r.valid_date).toISOString().slice(0,10)<businessToday(this.zone);
@@ -283,7 +283,7 @@ export class PassBilling {
    [r.id,payment,duplicateCheckout?'cancelled':'paid']);
   await model.audit(r.userid,r.userid,'daypass.not_issued','payment',payment,reason,null,{checkoutId:r.id,reference});
   await enqueueNotification(db,{userId:r.userid,kind:'payment_status_changed',dedupeKey:'daypass-not-issued:'+r.id,payload:{paymentId:payment,amount,currency:'USD',
-   method:'Card (test mode)',reference,planName:r.plan_snapshot.name,validDate:new Date(r.valid_date).toISOString().slice(0,10),instructions:reason+' We are refunding it to your original card.'}});
+   method:paymentLabels(modeOf(this.stripe)).card,reference,planName:r.plan_snapshot.name,validDate:new Date(r.valid_date).toISOString().slice(0,10),instructions:reason+' We are refunding it to your original card.'}});
  }
  /** Recover captures, retired sessions and refunds even when Stripe's event reaches the previous release. */
  async reconcileRefunds(){
@@ -764,7 +764,7 @@ export class PassBilling {
   const refund=refundIds.length===1?{refundId:refundIds[0]}:{refundIds};
   await new StaffModel(db).audit(r.userid,r.userid,'daypass.refunded','payment',r.payment_id!,'Original-card refund confirmed',null,{...refund,amount:r.amount_cents});
   await enqueueNotification(db,{userId:r.userid,kind:'payment_refunded',dedupeKey:'daypass-refund:'+r.id+':'+dedupeSuffix,
-   payload:{reference,amount:(r.amount_cents/100).toFixed(2),currency:'USD',method:'Original card (test mode)'}});
+   payload:{reference,amount:(r.amount_cents/100).toFixed(2),currency:'USD',method:paymentLabels(modeOf(this.stripe)).originalCard}});
  }
  private async settleRefundLedger(db:Database,r:PassCheckoutRow){
   await db.query("UPDATE payment SET paymentstatus='refunded',updated_at=now(),revision=revision+1 WHERE paymentid=$1 AND paymentstatus IS DISTINCT FROM 'refunded'",[r.payment_id]);

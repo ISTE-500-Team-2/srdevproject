@@ -12,6 +12,7 @@ import { BillingPricing } from './pricing.js';
 import { MembershipBilling } from './service.js';
 import { PassBilling } from './passes.js';
 import { StudioStripe, type StudioStripeConfig } from '../studios/stripe.js';
+import { modeOf } from '../stripeMode.js';
 
 /** Staff checkout uses the member's prices, payment lifecycle and webhook verification. */
 export function staffPurchaseRoutes(pool: Pool, config?: StudioStripeConfig, zone = 'America/New_York') {
@@ -39,7 +40,7 @@ export function staffPurchaseRoutes(pool: Pool, config?: StudioStripeConfig, zon
   routes.use(path, sell, member);
   routes.get(path, sell, async (req, res) => {
     const id = positiveId(req.params.id);
-    res.json({ data: { enabled: !!config, offers: await pricing.offers(id, typeof req.query.date === 'string' ? req.query.date : undefined) } });
+    res.json({ data: { enabled: !!config, mode: modeOf(config), offers: await pricing.offers(id, typeof req.query.date === 'string' ? req.query.date : undefined) } });
   });
   routes.post(path, sell, requireCsrf, async (req, res) => {
     const id = positiveId(req.params.id), actor = authState(res).user;

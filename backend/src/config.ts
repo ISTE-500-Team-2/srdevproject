@@ -3,6 +3,7 @@
 
 import {readDeviceConfig,type DeviceConfig} from './deviceAccess.js';
 import {readStudioStripeConfig,type StudioStripeConfig} from './studios/stripe.js';
+import {readStripeMode,type StripeMode} from './stripeMode.js';
 import { readJwtKey } from './jwtKey.js';
 import { readNotificationConfig, type NotificationConfig } from './notifications/config.js';
 import { validTimeZone } from './notifications/reminderTiming.js';
@@ -11,6 +12,8 @@ import { isIP } from 'node:net';
 export interface AppConfig {
   devices?: DeviceConfig;
   studioStripe?: StudioStripeConfig;
+  /** STRIPE_MODE, known even when Stripe is not configured. Omitted means test. */
+  stripeMode?: StripeMode;
   port: number;
   host: string;
   secureCookies: boolean;
@@ -76,6 +79,7 @@ export function readConfig(): AppConfig {
   return {
     devices: readDeviceConfig(),
     studioStripe: readStudioStripeConfig(),
+    stripeMode: readStripeMode(),
     notifications: readNotificationConfig(),
     brevoWebhookToken,
     jwtKey: readJwtKey(),
@@ -97,3 +101,7 @@ export function readConfig(): AppConfig {
         ],
   };
 }
+
+/** The payment mode the app runs in: the configured adapter's, else STRIPE_MODE, else test. */
+export const stripeModeOf = (config: Pick<AppConfig, 'studioStripe' | 'stripeMode'>): StripeMode =>
+  config.studioStripe?.mode ?? config.stripeMode ?? 'test';

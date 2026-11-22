@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Pool } from 'pg';
 import type Stripe from 'stripe';
-import { assertStripeMode, inStripeMode, keyMatchesMode, modeOf, readStripeMode } from '../src/stripeMode.js';
+import { assertStripeMode, inStripeMode, keyMatchesMode, modeOf, paymentLabels, readStripeMode } from '../src/stripeMode.js';
+import { overlappingCardPaymentNote, OVERLAPPING_CARD_PAYMENT_NOTE } from '../src/models/staff/payments.js';
+import { studioWebhook } from '../src/studios/routes.js';
+import { stripeModeOf } from '../src/config.js';
 import { readStudioStripeConfig, StudioStripe } from '../src/studios/stripe.js';
 import { MembershipBilling } from '../src/billing/service.js';
 import { PassBilling } from '../src/billing/passes.js';
@@ -113,5 +116,40 @@ test('studio checkout refuses a session from the other mode, in both directions'
     await assert.rejects(provider.checkout(rental as never), { status: 503, code });
     (provider.sdk.checkout.sessions.create as unknown) = async () => ({ id: 'cs_mode', livemode: !livemode });
     assert.equal((await provider.checkout(rental as never)).id, 'cs_mode');
+  }
+});
+
+test('payment wording mentions test mode only in test mode', () => {
+  assert.deepEqual(paymentLabels('test'), {
+    card: 'Card (test mode)', originalCard: 'Original card (test mode)',
+    equipmentNote: 'Online equipment reservation (Stripe test mode)', membershipNote: 'Stripe test recurring membership',
+    invoiceNote: 'Stripe test invoice', unavailable: 'Stripe test payments are not configured.',
+  });
+  assert.equal(paymentLabels('live').card, 'Card');
+  assert.equal(paymentLabels('live').originalCard, 'Original card');
+  for (const text of Object.values(paymentLabels('live'))) assert.doesNotMatch(text, /test/i);
+  assert.equal(OVERLAPPING_CARD_PAYMENT_NOTE, 'Stripe test recurring membership; overlaps another membership');
+  assert.equal(overlappingCardPaymentNote('live'), 'Stripe recurring membership; overlaps another membership');
+});
+
+test('the webhook says which mode is not configured', async () => {
+  await assert.rejects(studioWebhook(noPool, 'America/New_York')({} as never, {} as never),
+    { status: 503, code: 'PAYMENTS_UNAVAILABLE', message: 'Stripe test payments are not configured.' });
+  await assert.rejects(studioWebhook(noPool, 'America/New_York', undefined, 'live')({} as never, {} as never),
+    { status: 503, code: 'PAYMENTS_UNAVAILABLE', message: 'Stripe payments are not configured.' });
+});
+
+test('startup config records STRIPE_MODE even when Stripe is off', () => {
+  const previous = process.env.STRIPE_MODE;
+  try {
+    delete process.env.STRIPE_MODE;
+    assert.equal(stripeModeOf({ stripeMode: readStripeMode() }), 'test');
+    process.env.STRIPE_MODE = 'live';
+    assert.equal(stripeModeOf({ stripeMode: readStripeMode() }), 'live');
+    assert.equal(stripeModeOf({}), 'test');
+    assert.equal(stripeModeOf({ studioStripe: { key: 'sk_live_x', ...settings, mode: 'live' } }), 'live');
+  } finally {
+    if (previous === undefined) delete process.env.STRIPE_MODE;
+    else process.env.STRIPE_MODE = previous;
   }
 });

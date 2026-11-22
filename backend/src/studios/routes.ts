@@ -11,6 +11,7 @@ import { authState, requireCsrf } from "../middleware/auth.js";
 import { StudioService } from "./service.js";
 import { PaymentSecurityEventModel } from "../models/PaymentSecurityEventModel.js";
 import { StudioStripe, type StudioStripeConfig } from "./stripe.js";
+import { modeOf, paymentLabels, type StripeMode } from "../stripeMode.js";
 export function studioRoutes(
   pool: Pool,
   zone: string,
@@ -116,6 +117,7 @@ export function studioWebhook(
   pool: Pool,
   zone: string,
   config?: StudioStripeConfig,
+  mode: StripeMode = modeOf(config),
 ) {
   let invalidSignatureRecordedAt = -Infinity;
   return async (req: Request, res: Response) => {
@@ -123,7 +125,7 @@ export function studioWebhook(
       throw new AppError(
         503,
         "PAYMENTS_UNAVAILABLE",
-        "Stripe test payments are not configured.",
+        paymentLabels(mode).unavailable,
       );
     const provider = new StudioStripe(config);
     let event;

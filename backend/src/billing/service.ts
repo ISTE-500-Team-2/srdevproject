@@ -14,10 +14,10 @@ import {transaction, type Database} from '../db.js';
 import {AppError, positiveId, textField} from '../domain.js';
 import {requireActor} from '../accountPolicy.js';
 import {StudioStripe} from '../studios/stripe.js';
-import {assertStripeMode,inStripeMode,modeOf} from '../stripeMode.js';
+import {assertStripeMode,inStripeMode,modeOf,paymentLabels} from '../stripeMode.js';
 import {StaffModel, type Plan} from '../models/StaffModel.js';
 import {billingRenewsSql} from '../models/staff/entitlements.js';
-import {OVERLAPPING_CARD_PAYMENT_NOTE} from '../models/staff/payments.js';
+import {overlappingCardPaymentNote} from '../models/staff/payments.js';
 import {reasonField} from '../staffDomain.js';
 import {assertManageable} from '../services/StaffService.js';
 interface BillingRecord {id:string;userid:number;tierid:number;plan_snapshot:Plan;amount_cents:number;checkout_id:string|null;subscription_id:string|null;customer_id:string|null;status:string;created_at:Date;cancellation_effective_at:Date|null;}
@@ -223,7 +223,7 @@ export class MembershipBilling {
     const held=(await db.query<{status:string;statusdesc:string|null}>(`SELECT m.status,m.statusdesc FROM app_membership_invoice i
       JOIN user_membership m ON m.membershipid=i.membership_id WHERE i.billing_id=$1 ORDER BY i.period_start DESC LIMIT 1`,[row.id])).rows[0];
     const model=new StaffModel(db);
-    const membership=await model.createMembership(row.userid,row.plan_snapshot,from.toISOString(),to,row.userid,'Stripe test invoice '+invoice.id);
+    const membership=await model.createMembership(row.userid,row.plan_snapshot,from.toISOString(),to,row.userid,paymentLabels(modeOf(this.stripe)).invoiceNote+' '+invoice.id);
     const carried=held&&(held.status==='suspended'||held.status==='revoked')?held:null;
     let chargedAfterEnd=false;
     if(carried) {
@@ -241,12 +241,12 @@ export class MembershipBilling {
           'Card renewal charged for a membership whose access was ended. Stop auto-renew on the member’s record and consider a refund.',null,after);
     }
     const payment=await model.createPayment(row.userid,membership,(row.amount_cents/100).toFixed(2),'paid','card',invoice.id,
-      overlap.length?OVERLAPPING_CARD_PAYMENT_NOTE:'Stripe test recurring membership',row.userid);
+      overlap.length?overlappingCardPaymentNote(modeOf(this.stripe)):paymentLabels(modeOf(this.stripe)).membershipNote,row.userid);
     await db.query('INSERT INTO app_membership_invoice(id,billing_id,membership_id,payment_id,period_start,period_end) VALUES($1,$2,$3,$4,$5,$6)',[invoice.id,row.id,membership,payment,from,to]);
     if(overlap.length) await model.audit(row.userid,row.userid,'billing.membership_overlap_flagged','payment',payment,
       'Card membership charge covers dates another membership already covers',null,{invoiceId:invoice.id,membershipId:membership,overlaps:overlap});
     await enqueueNotification(db,{userId:row.userid,kind:'payment_receipt',dedupeKey:'membership-receipt:'+invoice.id,
-      payload:{amount:(row.amount_cents/100).toFixed(2),currency:'USD',reference:invoice.id,paymentId:payment,method:'Card (test mode)',membershipName:row.plan_snapshot.name,startsAt:from.toISOString(),endsAt:to.toISOString(),
+      payload:{amount:(row.amount_cents/100).toFixed(2),currency:'USD',reference:invoice.id,paymentId:payment,method:paymentLabels(modeOf(this.stripe)).card,membershipName:row.plan_snapshot.name,startsAt:from.toISOString(),endsAt:to.toISOString(),
         // The receipt doesn't read as access granted when staff paused or ended it, and says when
         // another membership already covered some of these dates.
         ...(carried||overlap.length?{instructions:[
@@ -306,7 +306,7 @@ export class MembershipBilling {
     if(f.status==='succeeded') {
       await db.query("UPDATE payment SET paymentstatus='refunded',updated_at=now(),revision=revision+1 WHERE paymentid=$1",[r.payment_id]);
       await enqueueNotification(db,{userId:r.userid,kind:'payment_refunded',dedupeKey:'membership-refund:'+r.id+':'+f.id,
-        payload:{reference:f.id,amount:(f.amount/100).toFixed(2),currency:'USD',method:'Original card (test mode)'}});
+        payload:{reference:f.id,amount:(f.amount/100).toFixed(2),currency:'USD',method:paymentLabels(modeOf(this.stripe)).originalCard}});
     }
     if(failed) {
       // The charge remains paid, but the attempted refund did not return money.

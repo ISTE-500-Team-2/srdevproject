@@ -10,7 +10,7 @@ import { PermissionModel } from "../models/PermissionModel.js";
 import { enqueueNotification, STUDIO_ALERT_ROLES } from "../notifications/store.js";
 import { monthlyWindow, refundDue, integer, lastRentalDay } from "./domain.js";
 import { StudioStripe } from "./stripe.js";
-import { assertStripeMode, inStripeMode, modeOf } from "../stripeMode.js";
+import { assertStripeMode, inStripeMode, modeOf, paymentLabels } from "../stripeMode.js";
 import { DEFAULT_BUILDING_ID } from "../facility.js";
 import { requireActor } from "../accountPolicy.js";
 import { businessToday } from "../businessDate.js";
@@ -71,7 +71,8 @@ export class StudioService {
       endsAt: lastRentalDay(r.ends_on),
       amount: (r.amount_cents / 100).toFixed(2),
       currency: "USD",
-      method: r.payment_method,
+      // The notice template labels the stored method "Card (test mode)"; a live card payment says "Card".
+      method: r.payment_method === "stripe_test" && modeOf(this.stripe) === "live" ? paymentLabels("live").card : r.payment_method,
       reference: r.payment_reference ?? r.payment_intent ?? "",
       paymentStatus: r.payment_status,
       ...(kind === "studio_reservation_cancelled" && {
@@ -800,7 +801,7 @@ export class StudioService {
     await enqueueNotification(db, {
       userId: r.userid, kind: "payment_receipt", dedupeKey: `studio-payment:${r.id}`,
       payload: {amount: (r.amount_cents / 100).toFixed(2), currency: "USD",
-        reference, reservationId: r.id, method: r.payment_method === "stripe_test" ? "Card (test mode)" : "Staff-recorded payment",
+        reference, reservationId: r.id, method: r.payment_method === "stripe_test" ? paymentLabels(modeOf(this.stripe)).card : "Staff-recorded payment",
         startsAt: this.dates(r).starts_on, endsAt: lastRentalDay(this.dates(r).ends_on)},
     });
   }
@@ -852,7 +853,7 @@ export class StudioService {
             amount: (r.refund_cents / 100).toFixed(2),
             currency: "USD",
             reference: f.id,
-            method: "Original card (test mode)",
+            method: paymentLabels(modeOf(this.stripe)).originalCard,
           },
         });
     }
