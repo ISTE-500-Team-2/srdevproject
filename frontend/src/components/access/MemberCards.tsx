@@ -307,6 +307,13 @@ export function AssignCard({
     [reason, setReason] = useState("");
   const enabled = setup.configured && setup.readers.some((r) => r.enabled);
   const owner = scan.scan?.assignments?.find((a) => a.active);
+  const anyOnline = setup.readers.some((r) => r.enabled && r.online);
+  const steps = [
+    "Choose a reader",
+    "Tap a card",
+    `Save to ${memberName.split(" ")[0]}`,
+  ];
+  const step = captured ? 2 : scan.scan?.status === "waiting" ? 1 : 0;
   async function assign(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!manual && !captured) return;
@@ -376,9 +383,16 @@ export function AssignCard({
       {!manual ? (
         <>
           <ol className="nfc-steps">
-            <li>Choose a reader</li>
-            <li>Tap one card</li>
-            <li>Confirm for {memberName}</li>
+            {steps.map((label, i) => (
+              <li
+                key={label}
+                aria-current={i === step ? "step" : undefined}
+                data-done={i < step ? "" : undefined}
+              >
+                <span aria-hidden="true">{i + 1}</span>
+                {label}
+              </li>
+            ))}
           </ol>
           <ScanControls setup={setup} scan={scan} memberName={memberName} />
         </>
@@ -386,7 +400,9 @@ export function AssignCard({
       {enabled && !scan.scan ? (
         <button
           type="button"
-          className="button button--quiet"
+          className={
+            manual || anyOnline ? "nfc-manual-link" : "button button--primary"
+          }
           disabled={busy || scan.busy}
           onClick={() => {
             setManual((v) => !v);
@@ -394,7 +410,11 @@ export function AssignCard({
             setFormKey((n) => n + 1);
           }}
         >
-          {manual ? "Use a reader instead" : "Enter a card ID manually"}
+          {manual
+            ? "Use a reader instead"
+            : anyOnline
+              ? "No reader nearby? Type the card ID instead"
+              : "Type the card ID instead"}
         </button>
       ) : null}
       {enabled && (manual || scan.scan) ? (

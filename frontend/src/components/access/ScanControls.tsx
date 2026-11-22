@@ -1,9 +1,10 @@
 // Shared reader/manual-input controls for card lookup and assignment; useCardScan owns the
 // enrollment lifecycle.
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Link } from "react-router-dom";
-import type { ReaderSetup } from "../../lib/nfc";
+import { Info, WifiOff } from "lucide-react";
+import type { AccessReader, ReaderSetup } from "../../lib/nfc";
 import type { useCardScan } from "../../lib/useCardScan";
 
 export function ScanControls({
@@ -16,8 +17,18 @@ export function ScanControls({
   memberName?: string;
 }) {
   const available = setup.readers.filter((r) => r.enabled);
+  // Online readers first; an offline one can't capture a tap, so it can't be picked.
+  const readers = [...available].sort(
+    (a, b) =>
+      Number(b.online) - Number(a.online) ||
+      // Online readers keep name order; offline ones list the most recently seen first.
+      (a.online ? 0 : (b.lastSeenAt ?? "").localeCompare(a.lastSeenAt ?? "")),
+  );
   const [reader, setReader] = useState("");
-  const selected = available.find((r) => r.id === reader) ?? available[0];
+  const group = useId();
+  const selected =
+    readers.find((r) => r.id === reader && r.online) ??
+    readers.find((r) => r.online);
   if (!setup.configured)
     return (
       <p className="form-error" role="alert">
@@ -37,45 +48,65 @@ export function ScanControls({
     <div className="nfc-scan">
       {!scan.scan ? (
         <>
-          <label className="form-field">
-            Reader for this scan
-            <select
-              value={selected?.id ?? ""}
-              onChange={(e) => setReader(e.target.value)}
-              disabled={scan.busy}
-            >
-              {available.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name} · {r.online ? "Online" : "Offline"}
-                </option>
-              ))}
-            </select>
-          </label>
-          {selected && !selected.online ? (
-            <p className="nfc-help">
-              This reader has not checked in recently. Connect it before tapping
-              a card; refresh Readers to check its connection.
-            </p>
-          ) : null}
+          <fieldset className="nfc-readers" disabled={scan.busy}>
+            <legend>Reader</legend>
+            {readers.map((r) => (
+              <label
+                key={r.id}
+                className="nfc-reader"
+                data-offline={r.online ? undefined : ""}
+              >
+                <input
+                  type="radio"
+                  name={group}
+                  value={r.id}
+                  checked={selected?.id === r.id}
+                  disabled={!r.online}
+                  onChange={() => setReader(r.id)}
+                />
+                <span className="nfc-reader__text">
+                  <strong>{r.name}</strong>
+                  <small>
+                    {KIND[r.kind]} · {r.resourceName}
+                  </small>
+                </span>
+                <span className="nfc-reader__status">
+                  <i aria-hidden="true" />
+                  {r.online ? "Online" : lastSeen(r.lastSeenAt)}
+                </span>
+              </label>
+            ))}
+          </fieldset>
           {selected ? (
-            <p className="nfc-help">
-              {/* Every reader controls a door or machine, and a scan takes it over. */}
-              Scanning here pauses {selected.resourceName} for up to two
-              minutes. The next card tapped is captured, and{" "}
-              {selected.kind === "equipment"
-                ? "the machine won’t turn on"
-                : "the door won’t open"}{" "}
-              for anyone until the scan ends.
+            <p className="nfc-scan__note">
+              <Info aria-hidden="true" />
+              <span>
+                While scanning,{" "}
+                {selected.kind === "equipment"
+                  ? `${selected.resourceName} won’t turn on`
+                  : `the ${selected.resourceName} door won’t open`}{" "}
+                for anyone (up to 2 minutes).
+              </span>
             </p>
+          ) : (
+            <p className="nfc-scan__offline" role="status">
+              <WifiOff aria-hidden="true" />
+              <span>
+                No reader is online right now. Plug one in, or enter the card ID
+                by hand.
+              </span>
+            </p>
+          )}
+          {selected ? (
+            <button
+              type="button"
+              className="button button--primary"
+              disabled={scan.busy}
+              onClick={() => void scan.start(selected.id)}
+            >
+              {scan.busy ? "Starting scan…" : "Start card scan"}
+            </button>
           ) : null}
-          <button
-            type="button"
-            className="button button--primary"
-            disabled={scan.busy || !selected}
-            onClick={() => selected && void scan.start(selected.id)}
-          >
-            {scan.busy ? "Starting scan…" : "Start card scan"}
-          </button>
         </>
       ) : (
         <>
@@ -119,4 +150,24 @@ export function ScanControls({
       ) : null}
     </div>
   );
+}
+
+const KIND: Record<AccessReader["kind"], string> = {
+  building: "Building door",
+  room: "Room door",
+  equipment: "Machine",
+  studio: "Studio door",
+};
+const ago = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+function lastSeen(at: string | null) {
+  if (!at) return "Never connected";
+  const minutes = Math.max(
+    0,
+    Math.round((Date.now() - Date.parse(at)) / 60000),
+  );
+  if (minutes < 1) return "Offline · just now";
+  if (minutes < 60) return `Offline · ${ago.format(-minutes, "minute")}`;
+  if (minutes < 48 * 60)
+    return `Offline · ${ago.format(-Math.round(minutes / 60), "hour")}`;
+  return `Offline · ${ago.format(-Math.round(minutes / 1440), "day")}`;
 }
