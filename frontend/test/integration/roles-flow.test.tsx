@@ -1,18 +1,13 @@
-import { confirmationToken } from '../../../backend/test/helpers/confirmation';
 // @vitest-environment jsdom
-import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import {
   cleanup,
-  fireEvent,
   render,
   screen,
-  waitFor,
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { setAccessToken, setCsrfToken } from "../../src/lib/api";
 import App from "../../src/App";
 import { loadStaffArea } from "../../src/areas/load";
 import { createBrowserBridge } from "../../../backend/test/helpers/browserBridge";

@@ -84,8 +84,8 @@ function pdfReport(lines: string[]): Buffer {
   }
   objects[0] = "<< /Type /Catalog /Pages 2 0 R >>";
   objects[1] = `<< /Type /Pages /Kids [${ids.map((id) => id + " 0 R").join(" ")}] /Count ${ids.length} >>`;
-  let out = "%PDF-1.4\n",
-    offsets = [0];
+  let out = "%PDF-1.4\n";
+  const offsets = [0];
   objects.forEach((obj, i) => {
     offsets.push(Buffer.byteLength(out));
     out += `${i + 1} 0 obj\n${obj}\nendobj\n`;

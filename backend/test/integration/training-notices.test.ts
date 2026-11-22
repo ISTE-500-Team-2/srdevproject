@@ -32,7 +32,7 @@ const as = (who: Session) => ({
   patch: (path: string, body: object = {}) => signed(who, request(app).patch('/api' + path)).send(body),
 });
 let created = false, member: Session, admin: Session, equipment: number, cert: number, counter = 0;
-const booking = (extra = {}) => {
+const booking = (_extra = {}) => {
   const start = new Date();
   start.setUTCDate(start.getUTCDate() + 2 + counter++);
   start.setUTCHours(15, 0, 0, 0);

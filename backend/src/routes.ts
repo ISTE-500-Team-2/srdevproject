@@ -8,7 +8,7 @@ import { ReaderRegistry } from './readerRegistry.js';
 import {readerSetupRoutes} from './readerSetup.js';
 import {reportRoutes} from './reports.js';
 import {serviceNoticeRoutes} from './serviceNotices.js';
-import {accountModeRoutes,paymentDetailsAreMemberOnly,settingsAreMemberOnly,signatureIsMemberOnly,waiverCopiesAreAdminOnly} from './accountMode.js';
+import {accountModeRoutes,settingsAreMemberOnly,signatureIsMemberOnly,waiverCopiesAreAdminOnly} from './accountMode.js';
 import {trainingClassRoutes} from './trainingClasses.js';
 import {cardManagement} from './deviceAccess.js';
 import { certificationRoutes } from './certifications.js';

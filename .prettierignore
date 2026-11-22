@@ -1,0 +1,10 @@
+# Generated, vendored or data files Prettier should never rewrite.
+**/node_modules/
+**/dist/
+**/.tsbuild-cache/
+**/package-lock.json
+frontend/src/components/reactbits/
+frontend/public/
+database/
+ddl/
+docs/
