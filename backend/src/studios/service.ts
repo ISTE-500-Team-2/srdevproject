@@ -10,6 +10,7 @@ import { PermissionModel } from "../models/PermissionModel.js";
 import { enqueueNotification, STUDIO_ALERT_ROLES } from "../notifications/store.js";
 import { monthlyWindow, refundDue, integer, lastRentalDay } from "./domain.js";
 import { StudioStripe } from "./stripe.js";
+import { assertStripeMode, inStripeMode, modeOf } from "../stripeMode.js";
 import { DEFAULT_BUILDING_ID } from "../facility.js";
 import { requireActor } from "../accountPolicy.js";
 import { businessToday } from "../businessDate.js";
@@ -637,7 +638,7 @@ export class StudioService {
       if(session.status==='complete' && session.payment_status==='unpaid' && session.payment_intent) {
         const pi=typeof session.payment_intent==='string'?session.payment_intent:session.payment_intent.id;
         const intent=await stripe.sdk.paymentIntents.retrieve(pi);
-        if(intent.id!==pi||intent.livemode||intent.amount!==r.amount_cents||intent.currency!=='usd')
+        if(intent.id!==pi||!inStripeMode(modeOf(this.stripe),intent.livemode)||intent.amount!==r.amount_cents||intent.currency!=='usd')
           throw new AppError(400,'PAYMENT_MISMATCH','Payment intent does not match rental.');
         if(intent.status==='canceled'||intent.status==='requires_payment_method'&&intent.last_payment_error)
           await this.failedCheckout(session);
@@ -736,7 +737,7 @@ export class StudioService {
   }
   async complete(session: Stripe.Checkout.Session, db?: Database) {
     const work = async (db: Database) => {
-      if (session.livemode || session.payment_status !== "paid") return;
+      if (!inStripeMode(modeOf(this.stripe), session.livemode) || session.payment_status !== "paid") return;
       let r = (
         await db.query<StudioRentalRow>(
           "SELECT * FROM app_studio_rental WHERE id=$1 FOR UPDATE",
@@ -785,7 +786,7 @@ export class StudioService {
     const work=async(db:Database)=>{
       const r=(await db.query<StudioRentalRow>("SELECT * FROM app_studio_rental WHERE checkout_id=$1 OR id::text=$2 FOR UPDATE",[session.id,session.metadata?.studioRentalId??''])).rows[0];
       if(!r)return;
-      if(session.livemode||session.mode!=='payment'||session.amount_total!==r.amount_cents||session.currency!=='usd'||session.client_reference_id!==String(r.id)||r.checkout_id&&session.id!==r.checkout_id)
+      if(!inStripeMode(modeOf(this.stripe),session.livemode)||session.mode!=='payment'||session.amount_total!==r.amount_cents||session.currency!=='usd'||session.client_reference_id!==String(r.id)||r.checkout_id&&session.id!==r.checkout_id)
         throw new AppError(400,'PAYMENT_MISMATCH','Failed checkout does not match rental.');
       if(session.payment_status==='paid'){await this.complete(session,db);return;}
       if(session.status!=='complete'||session.payment_status!=='unpaid'||r.status!=='pending'||r.payment_status!=='unpaid')return;
@@ -857,12 +858,7 @@ export class StudioService {
     }
   }
   async webhook(event: Stripe.Event) {
-    if (event.livemode)
-      throw new AppError(
-        400,
-        "LIVE_PAYMENT_FORBIDDEN",
-        "Only test events accepted.",
-      );
+    assertStripeMode(modeOf(this.stripe), event.livemode, "events", { testMessage: "Only test events accepted." });
     return transaction(this.pool, async (db) => {
       if (
         !(

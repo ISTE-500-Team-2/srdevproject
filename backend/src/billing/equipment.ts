@@ -12,6 +12,7 @@ import { StaffModel } from '../models/StaffModel.js';
 import { enqueueNotification } from '../notifications/store.js';
 import { noticeCertificationRefusal } from '../notifications/certificationNotices.js';
 import { StudioStripe } from '../studios/stripe.js';
+import { assertStripeMode, inStripeMode, modeOf } from '../stripeMode.js';
 import { EquipmentModel } from '../models/EquipmentModel.js';
 import { AccessService } from '../services/AccessService.js';
 import type { Database } from '../db.js';
@@ -156,7 +157,7 @@ export class EquipmentBilling {
       const reservation = (await db.query(`SELECT *,endtime AT TIME ZONE 'UTC' AS "endsAt" FROM reservation WHERE reservationid::text=$1 FOR UPDATE`, [id])).rows[0];
       const row = (await db.query('SELECT * FROM app_equipment_checkout WHERE reservation_id::text=$1 FOR UPDATE', [id])).rows[0];
       if (!row || !reservation) return;
-      if (session.livemode || session.mode !== 'payment' || session.client_reference_id !== id ||
+      if (!inStripeMode(modeOf(this.stripe), session.livemode) || session.mode !== 'payment' || session.client_reference_id !== id ||
         row.checkout_id && session.id !== row.checkout_id || session.amount_total !== row.amount_cents || session.currency !== 'usd')
         throw new AppError(400, 'PAYMENT_MISMATCH', 'Equipment payment does not match this reservation.');
       if (row.status === 'pending' && session.status === 'expired' && session.payment_status === 'unpaid') {
@@ -364,7 +365,7 @@ export class EquipmentBilling {
     if (!intent) return;
     const known = (await this.pool.query('SELECT reservation_id FROM app_equipment_checkout WHERE payment_intent=$1', [intent])).rows[0];
     if (!known) return;
-    if (event.livemode) throw new AppError(400, 'LIVE_PAYMENT_FORBIDDEN', 'Test payments only.');
+    assertStripeMode(modeOf(this.stripe), event.livemode);
     const sdk = this.provider().sdk;
     await providerTransaction(this.pool, async db => {
       // Retrieve while the checkout is locked, so a stale delivery can't apply an older state after a newer one.
@@ -387,7 +388,7 @@ export class EquipmentBilling {
     const known = (await this.pool.query(`SELECT reservation_id FROM app_equipment_checkout
       WHERE checkout_id=$1 OR reservation_id::text=$2`, [object.id, object.metadata?.equipmentReservationId ?? ''])).rows[0];
     if (!known) return;
-    if (event.livemode) throw new AppError(400, 'LIVE_PAYMENT_FORBIDDEN', 'Test payments only.');
+    assertStripeMode(modeOf(this.stripe), event.livemode);
     const session = await this.provider().sdk.checkout.sessions.retrieve(object.id);
     if (session.id !== object.id || session.metadata?.equipmentReservationId !== String(known.reservation_id))
       throw new AppError(400, 'PAYMENT_MISMATCH', 'Equipment checkout identity mismatch.');

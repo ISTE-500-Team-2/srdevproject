@@ -13,6 +13,7 @@ import {requireActor} from '../accountPolicy.js';
 import {assertManageable} from '../services/StaffService.js';
 import {businessToday} from '../businessDate.js';
 import {StudioStripe} from '../studios/stripe.js';
+import {assertStripeMode,inStripeMode,modeOf} from '../stripeMode.js';
 import {enqueueNotification} from '../notifications/store.js';
 import {errorIdentifier} from '../logSafety.js';
 import {quote} from './pricing.js';
@@ -198,7 +199,7 @@ export class PassBilling {
     }
    }
   }
-  if(s.livemode)throw new AppError(400,'LIVE_PAYMENT_FORBIDDEN','Test payments only.');
+  assertStripeMode(modeOf(this.stripe),s.livemode);
   // A legacy create started on the previous day can finish after its row
   // was cleared. Only send a session URL for a checkout that still owns it.
   const bound=await this.pool.query("UPDATE app_pass_checkout SET checkout_id=$2 WHERE id=$1 AND status='pending' AND (checkout_id IS NULL OR checkout_id=$2)",[row.id,s.id]);
@@ -237,7 +238,7 @@ export class PassBilling {
    const page=await sdk.checkout.sessions.list(params,{maxNetworkRetries:0});
    const s=page.data.find(session=>session.client_reference_id===row.id&&session.metadata?.dayPassCheckoutId===row.id);
    if(s){
-    if(s.livemode||s.mode!=='payment'||s.amount_total!==row.amount_cents||s.currency!=='usd')
+    if(!inStripeMode(modeOf(this.stripe),s.livemode)||s.mode!=='payment'||s.amount_total!==row.amount_cents||s.currency!=='usd')
      throw new AppError(400,'PAYMENT_MISMATCH','Day-pass payment does not match checkout.');
     return s;
    }
@@ -492,7 +493,7 @@ export class PassBilling {
   return retired?{retired}:undefined;
  }
  private assertCheckoutSession(r:PassCheckoutRow,s:Stripe.Checkout.Session){
-  if(s.livemode||s.mode!=='payment'||s.metadata?.dayPassCheckoutId!==r.id||s.client_reference_id!==r.id||
+  if(!inStripeMode(modeOf(this.stripe),s.livemode)||s.mode!=='payment'||s.metadata?.dayPassCheckoutId!==r.id||s.client_reference_id!==r.id||
      r.checkout_id&&s.id!==r.checkout_id||s.amount_total!==r.amount_cents||s.currency!=='usd')
    throw new AppError(400,'PAYMENT_MISMATCH','Day-pass payment does not match checkout.');
  }
@@ -633,8 +634,9 @@ export class PassBilling {
     // Read the charge first, then the latest refund list before making any access decision.
     const intent=honorVisit?await sdk.paymentIntents.retrieve(r.payment_intent,{expand:['latest_charge']}):undefined;
     const charge=intent?.latest_charge;
-    const verifiedCharge=intent?.id===r.payment_intent&&!intent.livemode&&intent.status==='succeeded'&&charge&&typeof charge!=='string'&&
-     !charge.livemode&&objectId(charge.payment_intent)===r.payment_intent&&charge.paid&&charge.status==='succeeded'&&charge.captured&&
+    const mode=modeOf(this.stripe);
+    const verifiedCharge=intent?.id===r.payment_intent&&inStripeMode(mode,intent.livemode)&&intent.status==='succeeded'&&charge&&typeof charge!=='string'&&
+     inStripeMode(mode,charge.livemode)&&objectId(charge.payment_intent)===r.payment_intent&&charge.paid&&charge.status==='succeeded'&&charge.captured&&
      charge.currency==='usd'&&charge.amount_captured===r.amount_cents?charge.id:undefined;
     const list=await this.refundSnapshot(r);
     const usablePass=!!r.pass_id&&(await db.query(`SELECT 1 FROM day_pass WHERE dayid=$1 AND status IN ('active','suspended')`,[r.pass_id])).rowCount;
@@ -908,7 +910,7 @@ export class PassBilling {
   else if(!outcome&&canRetryUnissuedRefund(row))await this.flagRefundReview(db,row);
  }
  async webhook(event:Stripe.Event){
-  if(event.livemode)throw new AppError(400,'LIVE_PAYMENT_FORBIDDEN','Test events only.');
+  assertStripeMode(modeOf(this.stripe),event.livemode,'events');
   const sdk=this.provider().sdk;
   const refundCheckout=await providerTransaction(this.pool,async db=>{
    if(!(await db.query('INSERT INTO app_pass_stripe_event(id) VALUES($1) ON CONFLICT DO NOTHING RETURNING id',[event.id])).rowCount){
