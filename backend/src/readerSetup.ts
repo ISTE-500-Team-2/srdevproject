@@ -12,7 +12,7 @@ import type { Pool } from "pg";
 import { transaction } from "./db.js";
 import { AppError, positiveId, textField } from "./domain.js";
 import { authState, requireCsrf } from "./middleware/auth.js";
-import { requirePermission } from "./middleware/permissions.js";
+import { requireStaffPermission } from "./middleware/permissions.js";
 import { StaffModel } from "./models/StaffModel.js";
 import {
   assertReaderTarget,
@@ -280,10 +280,10 @@ export function readerSetupRoutes(
   registry: ReaderRegistry,
 ) {
   const routes = Router(),
-    read = requirePermission(pool, "user", "read"),
+    read = requireStaffPermission(pool, "user", "read"),
     // Guided setup ends with the gateway turning the new reader on, so starting or cancelling
     // it is hardware configuration (CON-001): administrators only, like adding a reader.
-    configure = requirePermission(pool, "reader", "update");
+    configure = requireStaffPermission(pool, "reader", "update");
   routes.get("/admin/access/reader-setup", read, async (_req, res) => {
     const gateways = registry.config?.setupGateways ?? [];
     // With no installed gateway, do not pretend to scan the browser's LAN.

@@ -14,7 +14,7 @@ import {cardManagement} from './deviceAccess.js';
 import { certificationRoutes } from './certifications.js';
 import {billingRoutes} from './billing/routes.js';
 import {studioRoutes} from './studios/routes.js';
-import { requirePermission } from './middleware/permissions.js';
+import { anySignedIn, requireAdmin, requirePermission, requireStaffPermission } from './middleware/permissions.js';
 import { WaiverRecordsController } from './controllers/WaiverRecordsController.js';
 import { NotificationPreferencesController } from "./controllers/NotificationPreferencesController.js";
 import { Router, type Request, type Response } from "express";
@@ -46,6 +46,8 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   const reservations = new ReservationController(pool, config.timeZone, config.studioStripe);
   const staff = new StaffController(pool, config.timeZone);
   const permit = (resource: string, action: string, scope: "own" | "global" = "global") => requirePermission(pool,resource,action,scope);
+  // Workspace routes name staff status as well as the grant; the /admin prefix gate checks it again.
+  const staffPermit = (resource: string, action: string) => requireStaffPermission(pool, resource, action);
   const protectedRoute = requireUser(pool, config);
   // Every route has its own budget, so one endpoint's traffic never spends another's allowance.
   // Sign-in counts failures only, so a busy class signing in spends nothing. Per address (an IPv6
@@ -128,7 +130,7 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
 
   routes.get("/me/overview", permit("user", "read", "own"), member.overview);
   routes.get("/me/profile", permit("user", "read", "own"), member.me);
-  routes.get("/studio/contact", member.studioContact);
+  routes.get("/studio/contact", anySignedIn, member.studioContact);
 
   routes.get("/me/notifications", permit("notification", "read", "own"), notifications.get);
   routes.patch("/me/notifications", permit("notification", "update", "own"), settingsAreMemberOnly, requireCsrf, notifications.update);
@@ -164,45 +166,46 @@ export function apiRoutes(pool: Pool, config: AppConfig, readers = new ReaderReg
   routes.use(serviceNoticeRoutes(pool));
   routes.use(cardManagement(pool,config.timeZone,config.devices,readers));
   routes.use(readerSetupRoutes(pool,config.timeZone,readers));
-  routes.get("/admin/plans", permit("plan","read","global"), staff.plans);
-  routes.post("/admin/plans", permit("plan","create","global"), requireCsrf, staff.createPlan);
-  routes.patch("/admin/plans/:id", permit("plan","update","global"), requireCsrf, staff.updatePlan);
-  routes.get("/admin/users", permit("user","read","global"), staff.users);
-  routes.post("/admin/users/:id/password-reset", requireCsrf, adminResetLimit, auth.adminPasswordReset);
-  routes.get("/admin/users/:id", permit("user","read","global"), staff.user);
-  routes.get("/admin/users/:id/signed-waivers", permit("waiver","read","global"), waiverRecords.member);
-  routes.get("/admin/users/:id/signed-waivers/:waiverId/copy", permit("waiver","read","global"), waiverRecords.memberCopy);
-  routes.patch("/admin/users/:id/signed-waivers/:waiverId/expiry", permit("waiver","update","global"), requireCsrf, waiverRecords.expiry);
-  routes.patch("/admin/users/:id/profile", permit("user","update","global"), requireCsrf, staff.profile);
-  routes.delete("/admin/users/:id/photo", permit("user","update","global"), requireCsrf, staff.removePhoto);
-  routes.get("/admin/photos", permit("user","read","global"), staff.photos);
-  routes.post("/admin/users/:id/access", permit("user_access","update","global"), requireCsrf, staff.access);
-  routes.post("/admin/users/:id/status", permit("user_access","update","global"), requireCsrf, staff.accountStatus);
-  routes.post("/admin/users/:id/conduct", permit("user_access","update","global"), requireCsrf, staff.conduct);
-  routes.get("/admin/users/:id/requirements", permit("user","read","global"), staff.requirements);
-  routes.post("/admin/users/:id/role", permit("user_role","update","global"), requireCsrf, staff.role);
-  routes.post("/admin/users/:id/entitlements", permit("entitlement","create","global"), requireCsrf, staff.issue);
-  routes.get("/admin/users/:id/entitlements/quote", permit("entitlement","create","global"), staff.quote);
+  routes.get("/admin/plans", staffPermit("plan","read"), staff.plans);
+  routes.post("/admin/plans", staffPermit("plan","create"), requireCsrf, staff.createPlan);
+  routes.patch("/admin/plans/:id", staffPermit("plan","update"), requireCsrf, staff.updatePlan);
+  routes.get("/admin/users", staffPermit("user","read"), staff.users);
+  routes.post("/admin/users/:id/password-reset", requireStaff, requireCsrf, adminResetLimit,
+    requireAdmin("Only administrators can send password reset emails."), auth.adminPasswordReset);
+  routes.get("/admin/users/:id", staffPermit("user","read"), staff.user);
+  routes.get("/admin/users/:id/signed-waivers", staffPermit("waiver","read"), waiverRecords.member);
+  routes.get("/admin/users/:id/signed-waivers/:waiverId/copy", staffPermit("waiver","read"), waiverRecords.memberCopy);
+  routes.patch("/admin/users/:id/signed-waivers/:waiverId/expiry", staffPermit("waiver","update"), requireCsrf, waiverRecords.expiry);
+  routes.patch("/admin/users/:id/profile", staffPermit("user","update"), requireCsrf, staff.profile);
+  routes.delete("/admin/users/:id/photo", staffPermit("user","update"), requireCsrf, staff.removePhoto);
+  routes.get("/admin/photos", staffPermit("user","read"), staff.photos);
+  routes.post("/admin/users/:id/access", staffPermit("user_access","update"), requireCsrf, staff.access);
+  routes.post("/admin/users/:id/status", staffPermit("user_access","update"), requireCsrf, staff.accountStatus);
+  routes.post("/admin/users/:id/conduct", staffPermit("user_access","update"), requireCsrf, staff.conduct);
+  routes.get("/admin/users/:id/requirements", staffPermit("user","read"), staff.requirements);
+  routes.post("/admin/users/:id/role", staffPermit("user_role","update"), requireCsrf, staff.role);
+  routes.post("/admin/users/:id/entitlements", staffPermit("entitlement","create"), requireCsrf, staff.issue);
+  routes.get("/admin/users/:id/entitlements/quote", staffPermit("entitlement","create"), staff.quote);
   routes.post(
     "/admin/users/:id/entitlements/:kind/:entitlementId/status",
-    permit("entitlement","update"),
+    staffPermit("entitlement","update"),
     requireCsrf,
     staff.entitlement,
   );
-  routes.get("/admin/payments", permit("payment","read","global"), staff.payments);
-  routes.post("/admin/payments/:id/status", permit("payment","update","global"), requireCsrf, staff.payment);
-  routes.get("/admin/reservations", permit("reservation","read","global"), reservations.staffList);
-  routes.get("/admin/reservations/:id", permit("reservation","read","global"), reservations.staffGet);
+  routes.get("/admin/payments", staffPermit("payment","read"), staff.payments);
+  routes.post("/admin/payments/:id/status", staffPermit("payment","update"), requireCsrf, staff.payment);
+  routes.get("/admin/reservations", staffPermit("reservation","read"), reservations.staffList);
+  routes.get("/admin/reservations/:id", staffPermit("reservation","read"), reservations.staffGet);
   // Staff bookings: a workspace path, so they run as the staff member even while a member's account is open.
-  routes.post("/admin/reservations", permit("reservation","create","global"), requireCsrf, reservations.create);
-  routes.patch("/admin/reservations/:id", permit("reservation","update","global"), requireCsrf, reservations.update);
-  routes.post("/admin/reservations/:id/cancel", permit("reservation","update","global"), requireCsrf, reservations.staffCancel);
-  routes.get("/admin/audit", permit("audit","read","global"), staff.audits);
-  routes.get("/admin/audit/actions", permit("audit","read","global"), staff.auditActions);
-  routes.get("/admin/audit/:id", permit("audit","read","global"), staff.auditRecord);
-  routes.get("/admin/compliance", permit("waiver","read","global"), permit("certification","read","global"), staff.compliance);
-  routes.get("/admin/policies", permit("policy","read","global"), staff.policies);
-  routes.post("/admin/policies", permit("policy","create","global"), requireCsrf, staff.publishPolicy);
-  routes.post("/admin/policies/:id/retire", permit("policy","update","global"), requireCsrf, staff.retirePolicy);
+  routes.post("/admin/reservations", staffPermit("reservation","create"), requireCsrf, reservations.create);
+  routes.patch("/admin/reservations/:id", staffPermit("reservation","update"), requireCsrf, reservations.update);
+  routes.post("/admin/reservations/:id/cancel", staffPermit("reservation","update"), requireCsrf, reservations.staffCancel);
+  routes.get("/admin/audit", staffPermit("audit","read"), staff.audits);
+  routes.get("/admin/audit/actions", staffPermit("audit","read"), staff.auditActions);
+  routes.get("/admin/audit/:id", staffPermit("audit","read"), staff.auditRecord);
+  routes.get("/admin/compliance", staffPermit("waiver","read"), permit("certification","read","global"), staff.compliance);
+  routes.get("/admin/policies", staffPermit("policy","read"), staff.policies);
+  routes.post("/admin/policies", staffPermit("policy","create"), requireCsrf, staff.publishPolicy);
+  routes.post("/admin/policies/:id/retire", staffPermit("policy","update"), requireCsrf, staff.retirePolicy);
   return routes;
 }

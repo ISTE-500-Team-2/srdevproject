@@ -6,8 +6,8 @@ import { Router } from 'express';
 import type { Pool } from 'pg';
 import { transaction, type Database } from './db.js';
 import { AppError, dateOfBirthField, emailField, integerId, positiveId, textField } from './domain.js';
-import { authRateLimit, authState, requireCsrf, requireStaff } from './middleware/auth.js';
-import { requirePermission } from './middleware/permissions.js';
+import { authRateLimit, authState, requireCsrf } from './middleware/auth.js';
+import { anySignedIn, requireStaffPermission } from './middleware/permissions.js';
 import { StaffModel } from './models/StaffModel.js';
 import { EligibilityModel } from './models/EligibilityModel.js';
 import { MemberModel } from './models/MemberModel.js';
@@ -151,8 +151,8 @@ export class MinorSupervision {
 
 export function minorSupervisionRoutes(pool:Pool,zone:string) {
   const r=Router();
-  r.get('/me/supervision',async(_req,res)=>res.json({data:await new MinorSupervision(pool,zone).summary(authState(res).user.id)}));
-  r.post('/me/visit/check-out',requireCsrf,async(_req,res)=>res.json({data:await transaction(pool,db=>new MinorSupervision(db,zone).checkout(authState(res).user.id))}));
+  r.get('/me/supervision',anySignedIn,async(_req,res)=>res.json({data:await new MinorSupervision(pool,zone).summary(authState(res).user.id)}));
+  r.post('/me/visit/check-out',anySignedIn,requireCsrf,async(_req,res)=>res.json({data:await transaction(pool,db=>new MinorSupervision(db,zone).checkout(authState(res).user.id))}));
   // Adult-initiated, minor-confirmed links. Lock order matches the staff route:
   // minor user row, adult user row, sponsor row, then the minor's open visit.
   const lockUser=(db:Database,id:number)=>db.query('SELECT userid FROM "user" WHERE userid=$1 FOR UPDATE',[id]);
@@ -186,8 +186,8 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
     if (counts.adult>=10 || counts.pair>=5 || counts.email>=15) throw new AppError(429,'RATE_LIMITED',limitMessage);
     return (await db.query('INSERT INTO app_minor_sponsor_attempt(adult_id,email_hash) VALUES($1,$2) RETURNING id',[adultId,emailHash])).rows[0].id as string;
   });
-  r.get('/me/minors',async(_req,res)=>res.json({data:await new MinorSupervision(pool,zone).minors(authState(res).user.id)}));
-  r.post('/me/minors/requests',requireCsrf,requestLimit,async(req,res)=>{
+  r.get('/me/minors',anySignedIn,async(_req,res)=>res.json({data:await new MinorSupervision(pool,zone).minors(authState(res).user.id)}));
+  r.post('/me/minors/requests',anySignedIn,requireCsrf,requestLimit,async(req,res)=>{
     const me=authState(res).user.id,email=emailField(req.body.email),dob=dateOfBirthField(req.body.dob);
     if (!await new MinorSupervision(pool,zone).isAdult(me)) throw new AppError(403,'ADULT_REQUIRED','Only active accounts aged 18 or older can sponsor a minor.');
     const attempt=await reserveAttempt(me,createHash('sha256').update(email.toLowerCase()).digest('hex'));
@@ -220,7 +220,7 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
       if (matched) await pool.query('UPDATE app_minor_sponsor_attempt SET matched=true WHERE id=$1',[attempt]);
     });res.status(201).json({data});
   });
-  r.post('/me/minors/requests/:id/cancel',requireCsrf,async(req,res)=>{
+  r.post('/me/minors/requests/:id/cancel',anySignedIn,requireCsrf,async(req,res)=>{
     const me=authState(res).user.id,id=positiveId(req.params.id);
     const data=await transaction(pool,async db=>{
       const found=(await db.query("SELECT minor_id FROM app_minor_sponsor_request WHERE id=$1 AND adult_id=$2 AND status='pending'",[id,me])).rows[0];
@@ -231,7 +231,7 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
       return new MinorSupervision(db,zone).minors(me);
     });res.json({data});
   });
-  r.post('/me/minors/:minorId/unlink',requireCsrf,async(req,res)=>{
+  r.post('/me/minors/:minorId/unlink',anySignedIn,requireCsrf,async(req,res)=>{
     const me=authState(res).user.id,minor=integerId(req.params.minorId,'Minor');
     const data=await transaction(pool,async db=>{
       await lockUser(db,minor);
@@ -243,7 +243,7 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
       return new MinorSupervision(db,zone).minors(me);
     });res.json({data});
   });
-  for (const action of ['accept','decline'] as const) r.post(`/me/sponsor-requests/:id/${action}`,requireCsrf,async(req,res)=>{
+  for (const action of ['accept','decline'] as const) r.post(`/me/sponsor-requests/:id/${action}`,anySignedIn,requireCsrf,async(req,res)=>{
     const me=authState(res).user.id,id=positiveId(req.params.id);
     const data=await transaction(pool,async db=>{
       const service=new MinorSupervision(db,zone);
@@ -277,8 +277,10 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
     });res.json({data});
   });
   const base='/admin/users/:id/supervision';
-  r.use(base,requireStaff,requirePermission(pool,'user','update','global'));
-  r.get(base,async(req,res)=>res.json({data:await new MinorSupervision(pool,zone).summary(positiveId(req.params.id))}));
+  // The prefix gate covers every method; each route also names the requirement (confirmed once).
+  const supervise=requireStaffPermission(pool,'user','update');
+  r.use(base,supervise);
+  r.get(base,supervise,async(req,res)=>res.json({data:await new MinorSupervision(pool,zone).summary(positiveId(req.params.id))}));
   const guardTarget = async (db:Database,actorId:number,id:number) => {
     // Match existing staff account-management policy and lock order.
     await db.query("SELECT pg_advisory_xact_lock(hashtext('arbor-staff-writes'))");
@@ -287,7 +289,7 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
     if (target.roles.some((role:string)=>role==='staff'||role==='admin') && !actor?.roles.includes('admin'))
       throw new AppError(403,'ADMIN_REQUIRED','Only administrators can manage staff accounts.');
   };
-  r.post(base,requireCsrf,async(req,res)=>{
+  r.post(base,supervise,requireCsrf,async(req,res)=>{
     const id=positiveId(req.params.id),adult=positiveId(req.body.adultId),revision=req.body.revision;
     const reason=textField(req.body.reason,'Reason',500);
     if(req.body.consent!==true) throw new AppError(400,'CONSENT_REQUIRED','Verify that the adult agrees to sponsor this minor.');
@@ -309,7 +311,7 @@ export function minorSupervisionRoutes(pool:Pool,zone:string) {
       return service.summary(id);
     });res.json({data});
   });
-  for (const action of ['check-in','check-out']) r.post(`${base}/${action}`,requireCsrf,async(req,res)=>{
+  for (const action of ['check-in','check-out']) r.post(`${base}/${action}`,supervise,requireCsrf,async(req,res)=>{
     // A desk check-in/out needs no explanation; a note is kept when staff give one.
     const note=req.body.reason;
     const reason=note==null||(typeof note==='string'&&!note.trim())

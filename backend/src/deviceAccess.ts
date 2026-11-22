@@ -16,7 +16,7 @@ import { AccessService } from "./services/AccessService.js";
 import { assertManageable } from "./services/StaffService.js";
 import { StaffModel } from "./models/StaffModel.js";
 import { authState, requireCsrf } from "./middleware/auth.js";
-import { requirePermission } from "./middleware/permissions.js";
+import { requireStaffPermission } from "./middleware/permissions.js";
 import {
   cardIdentity,
   READER_KINDS,
@@ -322,14 +322,14 @@ export function cardManagement(
   registry = new ReaderRegistry(pool, c),
 ) {
   const routes = Router(),
-    permit = requirePermission(pool, "user_access", "update");
+    permit = requireStaffPermission(pool, "user_access", "update");
   routes.use(readerManagement(pool, tz, registry));
   routes.use(readerHealthRoutes(pool));
   routes.use(accessCards(pool, tz, registry));
   // Advisory only: never inserts an access event/check-in or sends a device command.
   routes.get(
     "/admin/users/:id/access-readiness",
-    requirePermission(pool, "user", "read"),
+    requireStaffPermission(pool, "user", "read"),
     async (req, res) => {
       res.set("Cache-Control", "no-store");
       const configuredReaders = (await registry.list()).filter(
@@ -417,7 +417,7 @@ export function cardManagement(
   );
   routes.get(
     "/admin/access/overrides",
-    requirePermission(pool, "user", "read"),
+    requireStaffPermission(pool, "user", "read"),
     async (req, res) => {
       const userId = positiveId(req.query.userId);
       res.json({

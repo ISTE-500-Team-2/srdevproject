@@ -6,6 +6,7 @@ import type { Pool } from "pg";
 import { transaction, type Database } from "./db.js";
 import { AppError, positiveId, textField } from "./domain.js";
 import { authState, requireCsrf } from "./middleware/auth.js";
+import { accessGuard } from "./middleware/accessGuards.js";
 import { PermissionModel } from "./models/PermissionModel.js";
 import { UserModel } from "./models/UserModel.js";
 import { StaffModel } from "./models/StaffModel.js";
@@ -57,6 +58,13 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
       );
     return user;
   }
+  // Declared on each route. Writes check again inside their transaction, under the user-row lock,
+  // so a role or grant removed meanwhile still stops them.
+  const trainer = (action: string, kind: "catalog" | "approve" | "revoke" | "read") =>
+    accessGuard(`training ${kind}: certification:${action}`, async (_req, res, next) => {
+      await actor(pool, authState(res).user.id, action, kind);
+      next();
+    });
   const tx = <T>(work: (db: Database) => Promise<T>) =>
     transaction(pool, async (db) => {
       await db.query(
@@ -64,8 +72,7 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
       );
       return work(db);
     });
-  router.get("/training/catalog", async (_req, res) => {
-    await actor(pool, authState(res).user.id, "read", "read");
+  router.get("/training/catalog", trainer("read", "read"), async (_req, res) => {
     res.json({
       data: (
         await pool.query(
@@ -77,8 +84,7 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
   // The catalog cards' counts: how many active members are current on each certification,
   // how many of those run out within 30 days, and how many have lapsed or been revoked.
   // Certifications nobody holds are left out.
-  router.get("/training/catalog/holders", async (_req, res) => {
-    await actor(pool, authState(res).user.id, "read", "catalog");
+  router.get("/training/catalog/holders", trainer("read", "catalog"), async (_req, res) => {
     const { rows } = await pool.query(
       `SELECT certid AS id,
          COUNT(*) FILTER (WHERE valid)::int AS current,
@@ -97,8 +103,7 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
     res.json({ data: rows });
   });
   // Instructors need a narrow identity lookup, not access to the admin user API.
-  router.get("/training/members", async (req, res) => {
-    await actor(pool, authState(res).user.id, "read", "read");
+  router.get("/training/members", trainer("read", "read"), async (req, res) => {
     const search = textField(req.query.search ?? "", "Member search", 100, 2);
     const instructorsOnly = req.query.role === "instructor";
     const { rows } = await pool.query(
@@ -111,7 +116,7 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
     );
     res.json({ data: { items: rows.slice(0, 25), hasMore: rows.length > 25 } });
   });
-  router.post("/training/catalog", requireCsrf, async (req, res) => {
+  router.post("/training/catalog", requireCsrf, trainer("create", "catalog"), async (req, res) => {
     const data = await tx(async (db) => {
       const user = await actor(db, authState(res).user.id, "create", "catalog");
       const name = textField(req.body.name, "Name", 100),
@@ -155,7 +160,7 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
     });
     res.status(201).json({ data });
   });
-  router.patch("/training/catalog/:id", requireCsrf, async (req, res) => {
+  router.patch("/training/catalog/:id", requireCsrf, trainer("update", "catalog"), async (req, res) => {
     const data = await tx(async (db) => {
       const user = await actor(db, authState(res).user.id, "update", "catalog");
       const id = positiveId(req.params.id);
@@ -209,8 +214,7 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
     });
     res.json({ data });
   });
-  router.get("/training/users/:userId", async (req, res) => {
-    await actor(pool, authState(res).user.id, "read", "read");
+  router.get("/training/users/:userId", trainer("read", "read"), async (req, res) => {
     const userId = positiveId(req.params.userId);
     res.json({
       data: (
@@ -224,6 +228,7 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
   router.post(
     "/training/users/:userId/certifications/:id",
     requireCsrf,
+    trainer("create", "approve"),
     async (req, res) => {
       const data = await tx(async (db) => {
         const user = await actor(
@@ -387,6 +392,7 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
   router.post(
     "/training/users/:userId/certifications/:id/revoke",
     requireCsrf,
+    trainer("update", "revoke"),
     async (req, res) => {
       const data = await tx(async (db) => {
         const user = await actor(

@@ -5,7 +5,8 @@ import { Router } from "express";
 import type { Pool } from "pg";
 import { transaction, type Database } from "./db.js";
 import { AppError, integerId, textField } from "./domain.js";
-import { authState, requireCsrf } from "./middleware/auth.js";
+import { authState, requireCsrf, requireStaff } from "./middleware/auth.js";
+import { requireAdmin } from "./middleware/permissions.js";
 import { oneOf, optionalReasonField, pageOffset } from "./staffDomain.js";
 import { page } from "./pagination.js";
 import { StaffModel } from "./models/StaffModel.js";
@@ -100,15 +101,10 @@ const periods = { "7d": "7 days", "30d": "30 days", all: null } as const;
 
 export function serviceNoticeRoutes(pool: Pool) {
   const router = Router();
-  // Reaches every member's inbox, so only administrators can send one.
-  const administrator = (res: Parameters<typeof authState>[0]) => {
-    const { user } = authState(res);
-    if (!user.roles.includes("admin"))
-      throw new AppError(403, "ADMIN_REQUIRED", "Administrator permission is required.");
-    return user;
-  };
+  // Reaches every member's inbox, so only administrators can send or resolve one.
+  const administrator = requireAdmin("Administrator permission is required.");
   /** Open notices first, then a page of past ones filtered by when they opened and where they came from. */
-  router.get("/admin/service-notices", async (req, res) => {
+  router.get("/admin/service-notices", requireStaff, async (req, res) => {
     const period = periods[oneOf(req.query.period ?? "all", ["7d", "30d", "all"] as const, "period")];
     const source = req.query.source ? oneOf(req.query.source, ["reader", "staff"] as const, "source") : null;
     const offset = pageOffset(req.query.offset);
@@ -132,11 +128,11 @@ export function serviceNoticeRoutes(pool: Pool) {
     });
   });
   /** How many people an announcement would reach right now. */
-  router.get("/admin/service-notices/audience", async (_req, res) => {
+  router.get("/admin/service-notices/audience", requireStaff, async (_req, res) => {
     res.json({ data: { recipients: await reachable(pool, await everyone(pool)) } });
   });
-  router.post("/admin/service-notices", requireCsrf, async (req, res) => {
-    const user = administrator(res);
+  router.post("/admin/service-notices", requireStaff, requireCsrf, administrator, async (req, res) => {
+    const { user } = authState(res);
     const summary = textField(req.body.summary, "Summary", 500, 5),
       reason = optionalReasonField(req.body.reason, "Told members about a service problem");
     const data = await transaction(pool, async (db) => {
@@ -151,8 +147,8 @@ export function serviceNoticeRoutes(pool: Pool) {
     });
     res.status(201).json({ data });
   });
-  router.post("/admin/service-notices/:id/resolve", requireCsrf, async (req, res) => {
-    const user = administrator(res);
+  router.post("/admin/service-notices/:id/resolve", requireStaff, requireCsrf, administrator, async (req, res) => {
+    const { user } = authState(res);
     const id = integerId(req.params.id),
       message = textField(req.body.message, "What was fixed", 500),
       reason = optionalReasonField(req.body.reason, message.slice(0, 255));

@@ -9,7 +9,7 @@ import type { Pool } from "pg";
 import { transaction } from "./db.js";
 import { AppError, positiveId, textField } from "./domain.js";
 import { authState, requireCsrf } from "./middleware/auth.js";
-import { requirePermission } from "./middleware/permissions.js";
+import { requireStaffPermission } from "./middleware/permissions.js";
 import { PermissionModel } from "./models/PermissionModel.js";
 import { StaffModel } from "./models/StaffModel.js";
 import { assertManageable } from "./services/StaffService.js";
@@ -31,9 +31,9 @@ export function readerManagement(
   registry: ReaderRegistry,
 ) {
   const routes = Router(),
-    read = requirePermission(pool, "user", "read"),
-    write = requirePermission(pool, "user_access", "update"),
-    configure = requirePermission(pool, "reader", "update");
+    read = requireStaffPermission(pool, "user", "read"),
+    write = requireStaffPermission(pool, "user_access", "update"),
+    configure = requireStaffPermission(pool, "reader", "update");
   routes.get("/admin/access/readers", read, async (_req, res) => {
     res.json({
       data: {

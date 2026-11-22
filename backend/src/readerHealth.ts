@@ -5,7 +5,7 @@ import { Router } from "express";
 import type { Pool } from "pg";
 import type { Database } from "./db.js";
 import { AppError } from "./domain.js";
-import { requirePermission } from "./middleware/permissions.js";
+import { requireStaffPermission } from "./middleware/permissions.js";
 import { readerLastSeen, readerPresenceJoin } from "./readerRegistry.js";
 
 /** Below this signal strength readers start dropping out. */
@@ -373,7 +373,7 @@ async function summaries(db: Database, readerId: string | null) {
 
 export function readerHealthRoutes(pool: Pool) {
   const routes = Router(),
-    read = requirePermission(pool, "user", "read");
+    read = requireStaffPermission(pool, "user", "read");
   routes.get("/admin/access/reader-health", read, async (_req, res) => {
     const { now, readers } = await summaries(pool, null);
     const enabled = readers.filter((reader) => reader.status !== "disabled");

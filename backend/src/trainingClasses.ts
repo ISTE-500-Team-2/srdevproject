@@ -7,7 +7,7 @@ import type { Pool } from "pg";
 import { transaction } from "./db.js";
 import { AppError, integerId, positiveId, textField } from "./domain.js";
 import { authState, requireCsrf, requireStaff } from "./middleware/auth.js";
-import { requirePermission } from "./middleware/permissions.js";
+import { anySignedIn, requirePermission } from "./middleware/permissions.js";
 import { StaffModel } from "./models/StaffModel.js";
 import { EligibilityModel, entitlementSql } from "./models/EligibilityModel.js";
 import { ReservationModel } from "./models/ReservationModel.js";
@@ -16,8 +16,8 @@ import { classManagement } from './classManagement.js';
 export function trainingClassRoutes(pool: Pool, tz: string) {
   const r = Router();
   r.use(classManagement(pool, tz));
-  r.get('/classes/catalog',async(_req,res)=>res.json({data:(await pool.query('SELECT id,title,description,capacity,imagepath AS image,revision FROM app_class_catalog WHERE removed_at IS NULL ORDER BY id')).rows}));
-  r.get("/classes", async (_req, res) => {
+  r.get('/classes/catalog',anySignedIn,async(_req,res)=>res.json({data:(await pool.query('SELECT id,title,description,capacity,imagepath AS image,revision FROM app_class_catalog WHERE removed_at IS NULL ORDER BY id')).rows}));
+  r.get("/classes", anySignedIn, async (_req, res) => {
     const user = authState(res).user;
     // Registration checks the member's membership or day pass over the class's own time.
     const covered = entitlementSql("$1", "(v.starttime AT TIME ZONE 'UTC')", "(v.endtime AT TIME ZONE 'UTC')", "$2");
@@ -167,7 +167,7 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
       res.status(201).json({ data });
     },
   );
-  r.post("/classes/:id/enroll", requireCsrf, async (req, res) => {
+  r.post("/classes/:id/enroll", anySignedIn, requireCsrf, async (req, res) => {
     const user = authState(res).user;
     const data = await transaction(pool, async (db) => {
       await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR UPDATE', [user.id]);
@@ -239,7 +239,7 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
     });
     res.json({ data });
   });
-  r.post("/classes/:id/withdraw", requireCsrf, async (req, res) => {
+  r.post("/classes/:id/withdraw", anySignedIn, requireCsrf, async (req, res) => {
     const user = authState(res).user;
     await transaction(pool, async (db) => {
       const id = integerId(req.params.id, "Class");

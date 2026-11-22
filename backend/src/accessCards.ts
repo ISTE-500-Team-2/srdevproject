@@ -6,7 +6,7 @@ import type { Pool } from "pg";
 import { transaction, type Database } from "./db.js";
 import { AppError, positiveId, textField } from "./domain.js";
 import { authState, requireCsrf } from "./middleware/auth.js";
-import { requirePermission } from "./middleware/permissions.js";
+import { requireStaffPermission } from "./middleware/permissions.js";
 import { StaffModel } from "./models/StaffModel.js";
 import { assertManageable } from "./services/StaffService.js";
 import {
@@ -39,8 +39,8 @@ async function lockFingerprint(db: Database, hash: string) {
 }
 export function accessCards(pool: Pool, tz: string, registry: ReaderRegistry) {
   const routes = Router(),
-    read = requirePermission(pool, "user", "read"),
-    write = requirePermission(pool, "user_access", "update");
+    read = requireStaffPermission(pool, "user", "read"),
+    write = requireStaffPermission(pool, "user_access", "update");
   routes.get("/admin/access/cards", read, async (req, res) => {
     const userId = positiveId(req.query.userId);
     const data = (
