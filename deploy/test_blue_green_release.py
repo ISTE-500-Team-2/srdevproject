@@ -68,11 +68,15 @@ class PromotionTests(unittest.TestCase):
         original = config()
         candidate = blue.slot_config(original, IMAGE, 18082)
         s = candidate['services']['arbor-email-app']
-        for key in ('environment', 'env_file', 'volumes', 'networks'):
+        for key in ('env_file', 'volumes', 'networks'):
             self.assertEqual(s[key], original['services']['arbor-email-app'][key])
+        # Plus the one setting the edge in front of every slot needs.
+        self.assertEqual(s['environment'], {**original['services']['arbor-email-app']['environment'], 'TRUST_PROXY': '1'})
         self.assertEqual(s['ports'], ['127.0.0.1:18082:8080'])
         self.assertEqual(candidate['networks']['existing'], {'external': True, 'name': 'existing-network'})
         self.assertEqual(original, config())
+        operator = config(); operator['services']['arbor-email-app']['environment']['TRUST_PROXY'] = '172.18.0.1'
+        self.assertEqual(blue.slot_config(operator, IMAGE, 18082)['services']['arbor-email-app']['environment']['TRUST_PROXY'], '172.18.0.1')
 
     def test_success_prepares_before_atomic_public_switch_and_keeps_old_warm(self):
         root, original, old_route, ops, calls = self.fixture()

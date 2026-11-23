@@ -2,10 +2,11 @@
 // entitlement.
 
 import { TableScroll } from "../TableScroll";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import type { Entitlement, Page, Payment } from "../../lib/staffContracts";
 import { useApi } from "../../lib/useApi";
+import { onArrowKeys } from "../../lib/rovingFocus";
 import { dollars, shortDate, statusLabel, statusTone } from "../../lib/display";
 import { LoadState } from "../Management";
 import { KeptResults, useResultsPaging } from "../KeptResults";
@@ -14,6 +15,11 @@ import { StatusPill } from "./StatusPill";
 const PAGE_SIZE = 50;
 // Methods staff record for payments taken in person (see PaymentControls).
 const DESK_METHODS = new Set(["cash", "external_card", "bank_transfer", "other"]);
+const TABS = [
+  { id: "records", label: "Memberships & passes" },
+  { id: "payments", label: "Payments" },
+] as const;
+type Tab = (typeof TABS)[number]["id"];
 
 export function History({
   memberships,
@@ -23,14 +29,16 @@ export function History({
   passes: Entitlement[];
 }) {
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<"records" | "payments">("records");
+  const [tab, setTab] = useState<Tab>("records");
+  const ids = useId();
   return (
     <section className="panel membership-history">
       <h2 className="membership-history__heading">
         <button
           className="membership-history__toggle"
           aria-expanded={open}
-          aria-controls="membership-history-body"
+          // The body only exists while open, so only point at it then.
+          aria-controls={open ? "membership-history-body" : undefined}
           onClick={() => setOpen((v) => !v)}
         >
           <span>
@@ -42,23 +50,24 @@ export function History({
       </h2>
       {open ? (
         <div id="membership-history-body">
-          <div className="membership-tabs" role="tablist">
-            <button
-              role="tab"
-              aria-selected={tab === "records"}
-              onClick={() => setTab("records")}
-            >
-              Memberships &amp; passes
-            </button>
-            <button
-              role="tab"
-              aria-selected={tab === "payments"}
-              onClick={() => setTab("payments")}
-            >
-              Payments
-            </button>
+          {/* The arrow keys, Home and End move between the tabs (the ARIA tabs pattern); Tab moves into the panel. */}
+          <div className="membership-tabs" role="tablist" aria-label="History" onKeyDown={onArrowKeys}>
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                id={`${ids}-${t.id}`}
+                aria-selected={tab === t.id}
+                aria-controls={`${ids}-panel`}
+                tabIndex={tab === t.id ? 0 : -1}
+                onClick={() => setTab(t.id)}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
-          <div role="tabpanel">
+          <div role="tabpanel" id={`${ids}-panel`} aria-labelledby={`${ids}-${tab}`} tabIndex={0}>
             {tab === "records" ? (
               <Records memberships={memberships} passes={passes} />
             ) : (

@@ -31,6 +31,7 @@ export function RecordNeeds({
     else if (a.kind === "renew") open({ kind: "sell", renewal: a.item });
     else if (a.kind === "entitlement") open({ kind: "entitlement", item: a.item, entitlementKind: "membership" });
     else if (a.kind === "payment") open({ kind: "payment", payment: a.payment });
+    else if (a.kind === "stopRenewal") open({ kind: "stopRenewal", item: a.item });
     else open({ kind: "sponsor" });
   };
   if (!todo.length) return null;

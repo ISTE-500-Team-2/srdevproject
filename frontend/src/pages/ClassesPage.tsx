@@ -10,6 +10,7 @@ import { LoadState } from "../components/Management";
 import { Toast } from "../components/Toast";
 import { shortDate, timeOnly } from "../lib/display";
 import type { Certification, SupervisionSummary } from "../lib/contracts";
+import { ClassEditorDialog } from "../components/classes/ClassEditorDialog";
 import { ClassCatalog } from "../components/classes/ClassCatalog";
 import type { Eligibility } from "../components/classes/registrationAction";
 import { ClassDetail } from "../components/classes/ClassDetail";
@@ -24,7 +25,6 @@ import {
   registrationPrice,
   type AttendanceDraft,
   type ClassRecord,
-  type RosterPerson,
   type ScheduleSeed,
   type WorkshopTemplate,
 } from "../components/classes/classData";
@@ -39,45 +39,7 @@ const hhmm = (value: string) => {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 };
 
-/**
- * Counts roster entries still "registered" on past classes the user can see
- * rosters for. A class whose roster could not be read is listed in `failed`
- * (not counted as zero), and `retry` reads every roster again.
- */
-function usePendingAttendance(candidates: ClassRecord[], refreshToken: number) {
-  const [pending, setPending] = useState<Record<number, number>>({});
-  const [failed, setFailed] = useState<number[]>([]);
-  const [retryToken, setRetryToken] = useState(0);
-  const key = candidates.map((c) => c.id).join(",");
-  useEffect(() => {
-    if (!key) {
-      setPending({});
-      setFailed([]);
-      return;
-    }
-    let stale = false;
-    void Promise.all(
-      key.split(",").map(async (id) => {
-        try {
-          const roster = await api<RosterPerson[]>(`/classes/${id}/roster`);
-          return { id: Number(id), count: roster.filter((p) => p.status === "enrolled").length };
-        } catch {
-          return { id: Number(id), count: null };
-        }
-      }),
-    ).then((rows) => {
-      if (stale) return;
-      setPending(Object.fromEntries(rows.flatMap(({ id, count }) => (count === null ? [] : [[id, count]]))));
-      setFailed(rows.filter(({ count }) => count === null).map(({ id }) => id));
-    });
-    return () => {
-      stale = true;
-    };
-  }, [key, refreshToken, retryToken]);
-  return { pending, failed, retry: () => setRetryToken((t) => t + 1) };
-}
-
-export function ClassesPage() {
+export function ClassesPage({ workspace = false }: { workspace?: boolean }) {
   const { user } = useAuth();
   const roles = user?.roles ?? [];
   const manager = roles.some((r) => r === "admin" || r === "staff");
@@ -99,6 +61,7 @@ export function ClassesPage() {
   const [detailId, setDetailId] = useState<number | null>(null);
   const [rosterId, setRosterId] = useState<number | null>(null);
   const [cancelId, setCancelId] = useState<number | null>(null);
+  const [editing, setEditing] = useState<ClassRecord | null>(null);
   const [scheduleSeed, setScheduleSeed] = useState<ScheduleSeed | null>(null);
   const [scheduleDirty, setScheduleDirty] = useState(false);
   const [cancelReasons, setCancelReasons] = useState<Record<number, string>>({});
@@ -121,22 +84,26 @@ export function ClassesPage() {
             .sort(byStart),
     [all, manager, user?.id],
   );
-  const attendanceCandidates = useMemo(
+  // People still "registered" on recent past classes, counted by the class list itself so the
+  // page never reads a roster per class.
+  const pending = useMemo(
     () =>
-      all.filter(
-        (c) =>
-          !isCancelled(c) &&
-          hasStarted(c) &&
-          new Date(c.startsAt).getTime() > Date.now() - ATTENDANCE_WINDOW_MS &&
-          (manager || c.instructorId === user?.id),
+      Object.fromEntries(
+        all
+          .filter(
+            (c) =>
+              !isCancelled(c) &&
+              hasStarted(c) &&
+              new Date(c.startsAt).getTime() > Date.now() - ATTENDANCE_WINDOW_MS &&
+              c.pendingAttendance != null,
+          )
+          .map((c) => [c.id, c.pendingAttendance!]),
       ),
-    [all, manager, user?.id],
+    [all],
   );
-  const attendance = usePendingAttendance(attendanceCandidates, refreshToken);
-  const pending = attendance.pending;
 
   const hasUnsavedEdits =
-    scheduleDirty ||
+    Boolean(editing) || scheduleDirty ||
     Object.values(cancelReasons).some((reason) => reason.trim()) ||
     Object.values(drafts).some((d) => Object.keys(d.statuses).length > 0 || d.note.trim());
 
@@ -225,21 +192,14 @@ export function ClassesPage() {
   const cancelClass = find(cancelId);
 
   return (
-    <section className="classes-page page-enter">
+    <section className={workspace ? "classes-workspace-schedule" : "classes-page page-enter"}>
       {classes.loading || classes.error ? <LoadState {...classes} /> : null}
       {supervision.error && !supervision.data ? <LoadState loading={false} error={supervision.error} reload={supervision.reload} /> : null}
-      {classes.data && manager && attendance.failed.length ? (
-        <p role="alert" className="form-error">
-          Attendance unavailable for{" "}
-          {attendance.failed.map((id) => find(id)?.title ?? `class ${id}`).join(", ")}.{" "}
-          <button type="button" onClick={attendance.retry}>
-            Retry attendance
-          </button>
-        </p>
-      ) : null}
       {classes.data ? (
         manager ? (
           <ClassSchedule
+            workspace={workspace}
+            onEdit={setEditing}
             classes={all}
             pending={pending}
             canRecord={canRecord}
@@ -251,6 +211,7 @@ export function ClassesPage() {
                 catalogId: c.catalogId ?? undefined,
                 description: c.description,
                 instructorId: c.instructorId,
+                instructorName: c.instructor,
                 roomId: c.roomId,
                 capacity: Math.min(c.capacity, 15),
                 start: hhmm(c.startsAt),
@@ -277,6 +238,7 @@ export function ClassesPage() {
         )
       ) : null}
 
+      {editing && <ClassEditorDialog initial={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); setToast("Class saved."); refreshAll(); }} />}
       {detail ? (
         <ClassDetail
           c={detail}

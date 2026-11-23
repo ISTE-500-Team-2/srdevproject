@@ -4,6 +4,21 @@ import { MemberSelect } from "../../components/MemberSelect";
 import { shortDate } from "../../lib/display";
 import type { Course, Loaded, TrainingRecord, TrainingTarget } from "./trainingTypes";
 
+/**
+ * The record's end date, worded from the date itself: a record that isn't current can
+ * still have a renewal date ahead of it, so that date is never "Expires". When the
+ * certification itself has ended, that is why. A revoked record's date no longer
+ * applies; the revocation is shown with the record instead.
+ */
+function expiryText(r: TrainingRecord, course: Course | undefined, now = Date.now()) {
+  if (r.status === "revoked") return null;
+  if (r.expiresAt && new Date(r.expiresAt).getTime() < now) return `Expired ${shortDate(r.expiresAt, true)}`;
+  if (!r.valid && course?.endsAt && new Date(course.endsAt).getTime() < now)
+    return `Certification ended ${shortDate(course.endsAt, true)}`;
+  if (!r.expiresAt) return "No expiry recorded";
+  return `${r.valid ? "Expires" : "Would have renewed"} ${shortDate(r.expiresAt, true)}`;
+}
+
 /** Looks a member up and lists their training, with renew, record and revoke actions. */
 export function MemberTrainingRecords({
   memberId,
@@ -29,46 +44,49 @@ export function MemberTrainingRecords({
   return (
     <section className="cw-records" aria-labelledby="records-title">
       <div className="cw-row">
-        <h3 id="records-title">Member training records</h3>
+        <h2 id="records-title">Member training records</h2>
       </div>
       <MemberSelect value={memberId} onChange={onMember} />
       {memberId ? (
         <>
           <LoadState {...records} loading={records.loading && !records.data} />
           <ul className="cw-recs">
-            {current.map((r) => (
-              <li key={r.id}>
-                <div>
-                  <b>{r.name}</b>
-                  <small>
-                    {r.trainedAt ? `Trained ${shortDate(r.trainedAt, true)}` : "Training date not recorded"}
-                    {r.instructorName ? ` by ${r.instructorName}` : ""}
-                    {r.trainingMinutes ? ` · ${r.trainingMinutes} minutes verified` : ''}
-                  </small>
-                  {r.status === "revoked" && r.revokedAt ? (
-                    <small>Revoked {shortDate(r.revokedAt, true)}. New in-person training is needed before approving again.</small>
-                  ) : null}
-                </div>
-                <div>
-                  <span className={`cw-tag cw-tag--${r.valid ? "green" : r.status === "revoked" ? "red" : "amber"}`}>
-                    {r.valid ? "Current" : "Not current"} · {r.status}
-                  </span>
-                  <small>{r.expiresAt ? `${r.valid ? "Expires" : "Expired"} ${shortDate(r.expiresAt, true)}` : "No expiry recorded"}</small>
-                </div>
-                <div className="cw-recs__actions">
-                  {canApprove ? (
-                    <button type="button" className="button button--quiet cw-small" onClick={() => onRecord(r)}>
-                      {r.valid ? "Renew" : "Record new training"}
-                    </button>
-                  ) : null}
-                  {canConfigure && r.status === "active" ? (
-                    <button type="button" className="button cw-danger cw-small" onClick={() => onRevoke(r)}>
-                      Revoke
-                    </button>
-                  ) : null}
-                </div>
-              </li>
-            ))}
+            {current.map((r) => {
+              const expiry = expiryText(r, catalog?.find((c) => c.id === r.certificationId));
+              return (
+                <li key={r.id}>
+                  <div>
+                    <b>{r.name}</b>
+                    <small>
+                      {r.trainedAt ? `Trained ${shortDate(r.trainedAt, true)}` : "Training date not recorded"}
+                      {r.instructorName ? ` by ${r.instructorName}` : ""}
+                      {r.trainingMinutes ? ` · ${r.trainingMinutes} minutes verified` : ''}
+                    </small>
+                    {r.status === "revoked" && r.revokedAt ? (
+                      <small>Revoked {shortDate(r.revokedAt, true)}. New in-person training is needed before approving again.</small>
+                    ) : null}
+                  </div>
+                  <div>
+                    <span className={`cw-tag cw-tag--${r.valid ? "green" : r.status === "revoked" ? "red" : "amber"}`}>
+                      {r.valid ? "Current" : "Not current"} · {r.status}
+                    </span>
+                    {expiry ? <small>{expiry}</small> : null}
+                  </div>
+                  <div className="cw-recs__actions">
+                    {canApprove ? (
+                      <button type="button" className="button button--quiet cw-small" onClick={() => onRecord(r)}>
+                        {r.valid ? "Renew" : "Record new training"}
+                      </button>
+                    ) : null}
+                    {canConfigure && r.status === "active" ? (
+                      <button type="button" className="button cw-danger cw-small" onClick={() => onRevoke(r)}>
+                        Revoke
+                      </button>
+                    ) : null}
+                  </div>
+                </li>
+              );
+            })}
             {records.data
               ? untrained.map((c) => (
                   <li key={`new-${c.id}`}>

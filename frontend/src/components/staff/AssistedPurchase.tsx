@@ -11,15 +11,31 @@ import { useApi } from '../../lib/useApi';
 import { ActionForm, Field, LoadState } from '../Management';
 import { IssueAccess } from './IssueAccess';
 
+/**
+ * Whether the server can price this date (a real date in 2000-2099). Typing a year digit by digit
+ * passes through dates like 0002-11-20, which aren't worth a quote.
+ */
+function quotable(value: string) {
+  const parsed = /^20\d{2}-\d{2}-\d{2}$/.test(value) ? new Date(value) : null;
+  return !!parsed && !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
 export function AssistedPurchase({ heading = true, ...props }: ComponentProps<typeof IssueAccess> & { heading?: boolean }) {
   const { user, actor } = useAuth();
   const [method, setMethod] = useState(props.renewal ? 'external' : 'stripe');
   const [date, setDate] = useState(zonedDay(props.timeZone));
+  // The last complete date, which the prices on screen are for.
+  const [quoteDate, setQuoteDate] = useState(date);
   const [planId, setPlanId] = useState('');
   const purchase = useApi<{ enabled: boolean; offers: Offer[] }>(
-    method === 'stripe' ? `/admin/users/${props.id}/purchase?date=${encodeURIComponent(date)}` : null,
+    method === 'stripe' ? `/admin/users/${props.id}/purchase?date=${encodeURIComponent(quoteDate)}` : null,
+    // A new date keeps the plans on screen while they are re-priced, so the date field stays put.
+    { retainOnChange: true },
   );
   const offer = purchase.data?.offers?.find(item => item.id === Number(planId));
+  // The chosen plan, not the quote in flight, decides which fields show.
+  const kind = offer?.kind ?? props.plans.find(plan => plan.id === Number(planId))?.kind;
+  const quoting = purchase.refreshing || (kind === 'day_pass' && date !== quoteDate);
   // With card checkout off, the only way to sell here is recording an outside payment: start there.
   const [stripeOff, setStripeOff] = useState(false);
   useEffect(() => {
@@ -42,9 +58,9 @@ export function AssistedPurchase({ heading = true, ...props }: ComponentProps<ty
       {purchase.data?.enabled === false ? <p className="form-notice">Card checkout is not configured in this environment. You can record a payment already collected outside this app or an approved waiver.</p> : null}
       <ActionForm title="Card purchase" submitLabel={offer?.amountCents === 0 ? 'Issue approved free access' : 'Continue to Stripe'}
         disabled={props.disabled || purchase.loading}
-        submitDisabled={!offer || (offer.amountCents > 0 && !purchase.data?.enabled)}
+        submitDisabled={!offer || quoting || (offer.amountCents > 0 && !purchase.data?.enabled)}
         onSubmit={async form => {
-          if (!offer || purchase.loading) throw new ApiError(409, 'PRICE_CHANGED', 'Review the current price before continuing.');
+          if (!offer || purchase.loading || quoting) throw new ApiError(409, 'PRICE_CHANGED', 'Review the current price before continuing.');
           const result = await api<{ checkoutUrl?: string; issued?: boolean }>(`/admin/users/${props.id}/purchase`, {
             method: 'POST', body: { planId: offer.id, expectedRevision: offer.revision, pricingRevision: offer.pricingRevision,
               amountCents: offer.amountCents, validDate: offer.kind === 'day_pass' ? date : undefined,
@@ -63,11 +79,14 @@ export function AssistedPurchase({ heading = true, ...props }: ComponentProps<ty
             {(purchase.data?.offers ?? []).map(item => <option key={item.id} value={item.id}>{item.name} · {cents(item.amountCents)}{item.kind === 'membership' ? ' / month' : ''}</option>)}
           </select>
         </Field>
-        {offer?.kind === 'day_pass' ? <Field label={`Pass valid date (${props.timeZone})`} name="validDate">
-          <input type="date" required min={zonedDay(props.timeZone)} value={date} onChange={event => setDate(event.target.value)} />
+        {kind === 'day_pass' ? <Field label={`Pass valid date (${props.timeZone})`} name="validDate">
+          <input type="date" required min={zonedDay(props.timeZone)} value={date} onChange={event => {
+            setDate(event.target.value);
+            if (quotable(event.target.value)) setQuoteDate(event.target.value);
+          }} />
         </Field> : null}
         {offer?.kind === 'membership' && offer.amountCents > 0 ? <>
-          <p>This membership starts after payment and renews monthly at {cents(offer.amountCents)}. Future rates depend on the member’s eligibility.</p>
+          <p>This membership starts after payment and renews monthly at {cents(offer.amountCents)}. That rate stays the same for as long as this subscription runs, even if the member’s eligibility changes.</p>
           <label><input type="checkbox" name="autoRenewConsent" required /> The member has agreed to monthly automatic renewal.</label>
         </> : null}
         <p>Access is issued only after Stripe confirms payment, or after approved free access is verified. Cancelling checkout does not issue access.</p>

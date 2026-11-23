@@ -953,7 +953,10 @@ const createLanyardSimulation = (resources, settingsRef, container, homeElement)
     foilUniforms.foilFill.value.set(3, -1, 4).normalize().transformDirection(camera.matrixWorldInverse);
     foilUniforms.foilTop.value.set(0.5, 4.5, 8).normalize().transformDirection(camera.matrixWorldInverse);
     const anchorX = ((ANCHORS[s.anchor] ?? 0.5) - 0.5) * viewWidth;
-    const anchorY = viewHeight / 2 + 0.2;
+    // The strap starts a little above its box so the box's top edge hides
+    // its cut end. A home slot lower down the stage has content above it,
+    // so there the strap starts exactly at the slot's top edge instead.
+    const anchorY = viewHeight / 2 + (rest.y > 1 ? 0 : 0.2);
     const cardTop = viewHeight / 2 - viewHeight * mix(0.12, 0.42, clamp(s.strapLength, 0, 1));
     const hangTop = cardTop + (layout.hangY - layout.height / 2);
     sim.anchor.set(anchorX, anchorY, 0);
@@ -1222,7 +1225,7 @@ const createLanyardSimulation = (resources, settingsRef, container, homeElement)
  * Interaction: grab, drag and tap-to-flip the card. Returns a function that
  * removes every listener it added.
  */
-const attachLanyardInteraction = (resources, simulation, settingsRef, container, stage) => {
+const attachLanyardInteraction = (resources, simulation, settingsRef, stage) => {
   const { canvas, camera, cardGroup, bodyMesh, frontMesh, backMesh } = resources;
   const { sim, start } = simulation;
   let hovering = false;
@@ -1258,7 +1261,6 @@ const attachLanyardInteraction = (resources, simulation, settingsRef, container,
     const next = value ? 'auto' : 'none';
     if (canvas.style.pointerEvents !== next) canvas.style.pointerEvents = next;
   };
-  if (stage) container.style.pointerEvents = 'none';
   setCatching(false);
 
   const flip = point => {
@@ -1434,16 +1436,20 @@ const Lanyard = ({
     const container = containerRef.current;
     if (!container) return undefined;
 
+    // With a home element the canvas is a stage: it covers its whole box so
+    // the card can swing anywhere in it, yet rests over home. Pointer events
+    // pass through the stage except where the card is. Set that before WebGL
+    // is tried, so a device without it never gets an invisible layer over the
+    // content beneath.
+    const homeElement = home?.current ?? null;
+    const stage = homeElement ? container.offsetParent || container.parentElement || container : null;
+    if (stage) container.style.pointerEvents = 'none';
+
     const resources = createLanyardScene(container);
     if (!resources) return undefined;
 
-    // With a home element the canvas is a stage: it covers its whole box so
-    // the card can swing anywhere in it, yet rests over home. Pointer events
-    // pass through the stage except where the card is.
-    const homeElement = home?.current ?? null;
-    const stage = homeElement ? container.offsetParent || container.parentElement || container : null;
     const simulation = createLanyardSimulation(resources, settingsRef, container, homeElement);
-    const detachInteraction = attachLanyardInteraction(resources, simulation, settingsRef, container, stage);
+    const detachInteraction = attachLanyardInteraction(resources, simulation, settingsRef, stage);
     const unobserveViewport = observeLanyardViewport(container, homeElement, simulation);
 
     applyRef.current = simulation.apply;

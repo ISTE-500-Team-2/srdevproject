@@ -23,6 +23,10 @@ A standalone Pi service must connect the real UART/USB/Wi-Fi scan transport to t
 
 Tests: `python3 -m unittest discover -s deploy/reader -v`. These use simulated callbacks only; no GPIO, card reader or production endpoint is touched.
 
+## Reader health in the heartbeat
+
+Gateways add a `health.reader` report to each signed heartbeat: whether the gateway can reach the reader, milliseconds since its last authenticated answer, and, when reachable, the reader's own `ready`, `doorState`, `uptimeMs`, `firmware`, `rssi` and `address`. Only well-formed values are sent; the backend stores invalid ones as null and never fails a heartbeat over telemetry. The classic bridge reports a reader it cannot reach on its normal heartbeat; the direct gateway reports a reader that stops polling at the same rate. Staff see the result in **Reader access → Readers**. Older gateways keep working and show as Online without detail.
+
 ## Reader setup and tap enrollment
 
 Apply `027_reader_enrollment.sql` through the normal migration command before rolling out this version. Keep the existing `ACCESS_CARD_HASH_KEY` unchanged: it fingerprints NFC cards and encrypts stored reader credentials. A deployment with just this key can add its first reader in **Reader access → Readers**. `ACCESS_READERS_JSON` is optional; existing entries are imported once per ID, retaining their credentials. Later admin renames and disabled states take precedence over the environment. Removing an environment entry does not delete its reader: disable it in the admin screen.
@@ -31,7 +35,7 @@ The admin screen creates a reader ID and a one-time secret. Install both in the 
 
 Call `client.status()` every 15 seconds while idle. It is a signed heartbeat, returns `mode` (`access`, `enroll`, or `disabled`) and an optional enrollment expiry, and never grants a relay lease. Display the enrollment indicator when mode is `enroll`; a failed heartbeat must not restore a previous access grant. A reader is shown online only if an authenticated heartbeat or decision arrived within the last 45 seconds. The adapter/service owns this scheduling, just as it owns the physical scan loop.
 
-To enroll, staff choose a member and reader and start a two-minute scan session. The next **physical** tap is captured, access remains denied, and staff explicitly confirm the card and member. Changing member or leaving the workflow cancels the session when the request can reach the server; its server expiry remains the fallback. Lookup uses the same scan mode and shows current and previous assignments without assigning a card. While an assignment awaits confirmation, other taps cannot overwrite it or activate the resource.
+To enroll, staff choose a member and reader and start a two-minute scan session. The next **physical** tap is captured, access remains denied, and staff explicitly confirm the card and member. Changing member or leaving the workflow cancels the session when the request can reach the server; its server expiry remains the fallback. Lookup uses the same scan mode and shows current and previous assignments without assigning a card. While an assignment awaits confirmation, other taps cannot overwrite it or activate the resource. A scan cannot start while someone is using the reader (an unexpired grant decided in the last 10 seconds), because it would deny their next lease renewal and switch the door or machine off mid-session; the server answers `READER_IN_USE`.
 
 Updated clients send `renewal: false` for a physical tap and `renewal: true` for lease renewal. `RenewingAccessSession` does this automatically. Legacy signed decisions continue working; only legacy `checkIn: true` calls can capture an enrollment, so old idle/renewal traffic cannot enroll a card. Upgrade the adapter for reliable heartbeat status and separation of physical tap history from renewals.
 

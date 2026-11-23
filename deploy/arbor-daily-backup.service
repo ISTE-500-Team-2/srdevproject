@@ -1,0 +1,12 @@
+[Unit]
+Description=ARBOR daily public/demo database backup
+After=network-online.target
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/usr/bin/python3 /srv/arbor-full/auto-deploy/daily_backup.py --keep 14
+TimeoutStartSec=90min
+TimeoutStopSec=120
+StandardOutput=append:/srv/arbor-full/auto-deploy/daily-backup.log
+StandardError=append:/srv/arbor-full/auto-deploy/daily-backup.log

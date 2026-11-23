@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { StaffCompliance } from "./StaffCompliance";
 import type { ComplianceReport } from "../lib/staffContracts";
 
@@ -80,4 +80,57 @@ test("the Needs attention count stays the same on “Expiring in 30 days”", ()
   const reports = useApi.mock.calls.map(([path]) => path as string | null).filter((path) => path?.includes("compliance"));
   expect(reports.at(-1)).toContain("expiresWithinDays=30");
   expect(screen.getByRole("radio", { name: "Needs attention · 5" })).toBeTruthy();
+});
+
+test("revoked training reads as revoked, and a certification nobody holds yet still gets a card", () => {
+  const issues = [{ kind: "certification", name: "Laser cutting", state: "revoked", expiresAt: null }];
+  useApi.mockImplementation((path: string | null) => ({
+    data: path?.includes("compliance")
+      ? {
+          ...report,
+          users: { items: [{ ...report.users.items[0], issues }], nextOffset: null },
+          certificationBreakdown: [{ id: 9, name: "Router table", total: 0, compliant: 0, expiring: 0 }],
+        }
+      : null,
+    loading: false,
+    refreshing: false,
+    stale: false,
+    error: "",
+    reload: vi.fn(),
+  }));
+  render(<StaffCompliance />);
+  expect(screen.getByText("Revoked · Laser cutting")).toBeTruthy();
+  expect(screen.queryByText(/Not trained/)).toBeNull();
+  expect(screen.getByText("Router table")).toBeTruthy();
+  expect(screen.getByText("No holders in this view")).toBeTruthy();
+});
+
+test("search asks the server (after a pause), from the first page, so members past this page are found", () => {
+  vi.useFakeTimers();
+  try {
+    useApi.mockImplementation((path: string | null) => ({
+      data: path?.includes("compliance") ? report : null,
+      loading: false,
+      refreshing: false,
+      stale: false,
+      error: "",
+      reload: vi.fn(),
+    }));
+    render(<StaffCompliance />);
+    const reports = () => useApi.mock.calls.map(([path]) => path as string | null).filter((path) => path?.includes("compliance"));
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    expect(reports().at(-1)).toContain("offset=50");
+    fireEvent.change(screen.getByLabelText("Search members"), { target: { value: " Zelda Z " } });
+    // Not on every keystroke.
+    expect(reports().at(-1)).not.toContain("search=");
+    act(() => vi.advanceTimersByTime(200));
+    const path = new URL(reports().at(-1)!, "http://x").searchParams;
+    expect(path.get("search")).toBe("Zelda Z");
+    expect(path.get("offset")).toBe("0");
+    // The result list is what the server sent: no second, page-only filter on top.
+    expect(screen.getByRole("button", { name: "Open record for Casey Demo" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /show everyone/ })).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
 });

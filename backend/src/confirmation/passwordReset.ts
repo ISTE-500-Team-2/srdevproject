@@ -9,6 +9,12 @@ import { enqueueNotification } from '../notifications/store.js';
 import { cancelEmailChange } from './emailChange.js';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
+/**
+ * Accounts a reset link works for: active ones, and older accounts held as 'pending' because their
+ * email was never confirmed. Following the link proves the inbox, so using it confirms the email and
+ * activates the account (see RecoveryService's resetAllowed for issuing).
+ */
+const resettable = `(u.status='active' OR (u.status='pending' AND NOT u.email_confirmed))`;
 export const resetLifetimeMs = 30 * 60 * 1000;
 const invalid = () => new AppError(400, 'RESET_INVALID', 'This reset link is invalid or expired. Request a new one.');
 function digest(token: unknown) {
@@ -39,7 +45,7 @@ export async function issuePasswordReset(db: Database, userId: number, origin: s
  */
 export async function checkPasswordReset(db: Database, token: unknown) {
   const row = await db.query(`SELECT 1 FROM app_password_reset r JOIN "user" u USING(userid)
-    WHERE r.token_hash=$1 AND r.expires_at>NOW() AND u.status='active'`, [digest(token)]);
+    WHERE r.token_hash=$1 AND r.expires_at>NOW() AND ${resettable}`, [digest(token)]);
   if (!row.rows.length) throw invalid();
 }
 
@@ -50,15 +56,16 @@ export async function checkPasswordReset(db: Database, token: unknown) {
  */
 export async function consumePasswordReset(db: Database, token: unknown, password: string) {
   const tokenHash = digest(token);
-  const account = (await db.query(`SELECT u.userid,u.status FROM "user" u JOIN app_password_reset r USING(userid)
+  const account = (await db.query(`SELECT u.userid,${resettable} AS resettable FROM "user" u JOIN app_password_reset r USING(userid)
     WHERE r.token_hash=$1 FOR UPDATE OF u`, [tokenHash])).rows[0];
-  if (!account || account.status !== 'active') throw invalid();
+  if (!account?.resettable) throw invalid();
   const consumed = await db.query(`DELETE FROM app_password_reset
     WHERE userid=$1 AND token_hash=$2 AND expires_at>NOW() RETURNING userid`, [account.userid, tokenHash]);
   if (!consumed.rows.length) throw invalid();
   // A hashing/validation failure rolls back token consumption and every other change.
   const encoded = await hashPassword(password);
-  await db.query('UPDATE "user" SET password=$2,email_confirmed=true,password_changed_at=NOW() WHERE userid=$1', [account.userid, encoded]);
+  // Only active and unconfirmed 'pending' accounts get here; the link confirms the inbox either way.
+  await db.query(`UPDATE "user" SET password=$2,email_confirmed=true,status='active',password_changed_at=NOW() WHERE userid=$1`, [account.userid, encoded]);
   await db.query('DELETE FROM app_session WHERE userid=$1', [account.userid]);
   await db.query('UPDATE app_refresh_family SET revoked=true WHERE userid=$1', [account.userid]);
   await db.query('DELETE FROM app_email_confirmation WHERE userid=$1', [account.userid]);

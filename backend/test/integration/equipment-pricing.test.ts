@@ -17,7 +17,7 @@ let server: Server, created=false, admin:any, member:any, machine:any, course:an
 const start = new Date(Date.now()+3*86400000); start.setUTCHours(16,0,0,0);
 const slot = (days=0,hours=2) => ({equipmentId:machine.equipmentid,startTime:new Date(+start+days*86400000).toISOString(),endTime:new Date(+start+days*86400000+hours*3600000).toISOString()});
 const get = (path:string, actor=member) => request(server).get('/api'+path).set('Authorization','Bearer '+actor.accessToken);
-const post = (path:string,body:object={},actor=member) => request(server).post('/api'+path).set('Authorization','Bearer '+actor.accessToken).set('X-CSRF-Token',actor.csrfToken).send(body);
+const post = (path:string,body:object={},actor=member) => request(server).post('/api'+path).set('Authorization','Bearer '+actor.accessToken).set('X-CSRF-Token',actor.csrfToken).set('X-Account-Subject',String(actor.user.id)).send(body);
 const patch = (path:string,body:object) => request(server).patch('/api'+path).set('Authorization','Bearer '+admin.accessToken).set('X-CSRF-Token',admin.csrfToken).send(body);
 const quote = async(hours=2) => (await get(`/equipment/${machine.equipmentid}/quote?hours=${hours}`)).body.data;
 
@@ -120,8 +120,10 @@ test('rescheduling a waived booking keeps the waiver; a newly priced booking get
 async function waitForCollectionToBlock(editorPid: number) {
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
+    // The editor holds only the member row's share lock, so any session it blocks is waiting for
+    // that lock. Query text is not matched: pg_stat_activity truncates long member queries.
     const blocked = await pool.query(`SELECT pid FROM pg_stat_activity WHERE datname=current_database()
-      AND query LIKE '%FOR %UPDATE OF u%' AND $1=ANY(pg_blocking_pids(pid))`, [editorPid]);
+      AND wait_event_type='Lock' AND $1=ANY(pg_blocking_pids(pid))`, [editorPid]);
     if (blocked.rowCount) return;
     await new Promise(resolve => setTimeout(resolve, 10));
   }

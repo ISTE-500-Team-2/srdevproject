@@ -5,7 +5,7 @@ import { EquipmentBilling } from "../billing/equipment.js";
 import { StudioStripe, type StudioStripeConfig } from "../studios/stripe.js";
 import type { Request, Response } from "express";
 import type { Pool } from "pg";
-import { AppError, positiveId, textField } from "../domain.js";
+import { AppError, integerId, textField } from "../domain.js";
 import { authState } from "../middleware/auth.js";
 import { ReservationModel } from "../models/ReservationModel.js";
 import { ReservationService } from "../services/ReservationService.js";
@@ -19,10 +19,10 @@ export class ReservationController {
   ) {}
   private billing() { return new EquipmentBilling(this.pool, this.stripeConfig ? new StudioStripe(this.stripeConfig) : undefined, this.timeZone); }
   checkout = async (req: Request, res: Response) => {
-    res.json({data: await this.billing().checkout(authState(res).user.id, positiveId(req.params.id))});
+    res.json({data: await this.billing().checkout(authState(res).user.id, integerId(req.params.id, "Reservation"))});
   };
   cancelCheckout = async (req: Request, res: Response) => {
-    res.json({data: await this.billing().cancelPending(authState(res).user.id, positiveId(req.params.id))});
+    res.json({data: await this.billing().cancelPending(authState(res).user.id, integerId(req.params.id, "Reservation"))});
   };
   list = async (_req: Request, res: Response) => {
     await this.billing().reconcile(authState(res).user.id);
@@ -60,11 +60,11 @@ export class ReservationController {
     const userId =
       req.query.userId == null || req.query.userId === ""
         ? null
-        : positiveId(req.query.userId, "Member");
+        : integerId(req.query.userId, "Member");
     const equipmentId =
       req.query.equipmentId == null || req.query.equipmentId === ""
         ? null
-        : positiveId(req.query.equipmentId, "Equipment");
+        : integerId(req.query.equipmentId, "Equipment");
     const offset =
       req.query.offset == null || req.query.offset === ""
         ? 0
@@ -92,6 +92,12 @@ export class ReservationController {
       data: page(rows, offset),
     });
   };
+  /** One reservation as staff see it now, so a form refused as out of date can catch up. */
+  staffGet = async (req: Request, res: Response) => {
+    const reservation = await new ReservationModel(this.pool, this.timeZone).find(integerId(req.params.id, "Reservation"));
+    if (!reservation) throw new AppError(404, "NOT_FOUND", "Reservation not found.");
+    res.json({ data: reservation });
+  };
   create = async (req: Request, res: Response) => {
     res.status(201).json({
       data: await new ReservationService(this.pool, this.timeZone, this.stripeConfig ? new StudioStripe(this.stripeConfig) : undefined).create(
@@ -104,7 +110,7 @@ export class ReservationController {
     res.json({
       data: await new ReservationService(this.pool, this.timeZone).update(
         authState(res).user.id,
-        positiveId(req.params.id),
+        integerId(req.params.id, "Reservation"),
         req.body,
       ),
     });
@@ -116,7 +122,7 @@ export class ReservationController {
     res.json({
       data: await new ReservationService(this.pool, this.timeZone).cancelAny(
         authState(res).user.id,
-        positiveId(req.params.id),
+        integerId(req.params.id, "Reservation"),
         expectedRevision == null ? undefined : { expectedRevision },
       ),
     });
@@ -125,7 +131,7 @@ export class ReservationController {
     res.json({
       data: await new ReservationService(this.pool, this.timeZone).cancel(
         authState(res).user.id,
-        positiveId(req.params.id),
+        integerId(req.params.id, "Reservation"),
       ),
     });
   };

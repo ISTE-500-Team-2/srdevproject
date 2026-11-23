@@ -1,4 +1,4 @@
-import { registrationPrice, seatsLeft, type ClassRecord } from "./classData";
+import { isCancelled, registrationPrice, seatsLeft, type ClassRecord } from "./classData";
 
 /**
  * Whether the member can register. A member under 18 also needs a linked sponsoring
@@ -34,11 +34,33 @@ export const sponsorReason = (eligibility: Eligibility): SponsorBlock | null =>
     : null;
 
 /**
+ * The member's eligibility for one class. The server checks the membership or day pass over the
+ * class's own time (`myEntitled`), as registering does, so that answer wins over the page's
+ * answer for today: a day pass for the class day counts, a membership ending first does not.
+ */
+export function classEligibility(eligibility: Eligibility, c: ClassRecord): Eligibility {
+  if (sponsorReason(eligibility) || c.myEntitled == null) return eligibility;
+  return c.myEntitled ? "eligible" : "ineligible";
+}
+
+/**
+ * The page-wide answer for the access panel, built from the same per-class answers as the rows
+ * so the two never disagree: `some` when the member's membership or day pass covers some of the
+ * upcoming classes but not others. With no per-class answer (no upcoming class, or an older
+ * server) it is today's answer; a sponsor problem passes through unchanged.
+ */
+export function upcomingEligibility(eligibility: Eligibility, upcoming: ClassRecord[]): Eligibility | "some" {
+  const answers = upcoming.filter((c) => !isCancelled(c) && c.myEntitled != null).map((c) => c.myEntitled);
+  if (sponsorReason(eligibility) || !answers.length) return eligibility;
+  return answers.every(Boolean) ? "eligible" : answers.some(Boolean) ? "some" : "ineligible";
+}
+
+/**
  * The registration action a member is offered for a class that is open for registration
  * (not cancelled and not started; each view decides that itself). Checked in this order:
  * - `registered`: the member already holds a seat;
  * - `full`: no seat is left;
- * - `needs-pass`: the member needs an active membership or day pass first;
+ * - `needs-pass`: the member needs a membership or day pass covering the class time first;
  * - `register`: a Register button, `disabled` while the request runs, while the training fee
  *   is not configured, or while a sponsor problem (`blocked`) stands in the way. `again` is
  *   true when the member withdrew earlier.
@@ -71,7 +93,7 @@ export function registrationAction({
   const blocked = sponsorReason(eligibility);
   if (seatsLeft(seats) === 0) return { kind: "full", blocked };
   // sponsorReason is null for "ineligible", so nothing is lost here.
-  if (eligibility === "ineligible") return { kind: "needs-pass", blocked: null };
+  if (classEligibility(eligibility, c) === "ineligible") return { kind: "needs-pass", blocked: null };
   return {
     kind: "register",
     blocked,

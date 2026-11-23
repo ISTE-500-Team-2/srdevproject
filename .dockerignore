@@ -10,3 +10,4 @@
 **/*.tsbuildinfo
 **/.tsbuild-cache
 **/.DS_Store
+frontend/public/__proto

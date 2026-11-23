@@ -3,10 +3,13 @@ import { cleanup, fireEvent, render, screen, within, waitFor } from '@testing-li
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import App from '../../src/App';
+import { loadStaffArea } from '../../src/areas/load';
 import { createBrowserBridge } from '../../../backend/test/helpers/browserBridge';
 
 let bridge: Awaited<ReturnType<typeof createBrowserBridge>>;
-beforeAll(async () => { bridge = await createBrowserBridge(); }, 120000);
+// Compile the staff workspace here, under the hook's long timeout, so the first
+// page wait measures the app and API rather than on-demand compilation.
+beforeAll(async () => { await loadStaffArea(); bridge = await createBrowserBridge(); }, 120000);
 afterAll(async () => { cleanup(); vi.unstubAllGlobals(); await bridge?.close(); }, 30000);
 test('administrator takes equipment down, reviews and moves one booking, cancels another, and restores service', async () => {
   vi.stubGlobal('fetch', bridge.fetch);
@@ -46,6 +49,6 @@ test('administrator takes equipment down, reviews and moves one booking, cancels
   const saved = (await bridge.pool.query('SELECT equipmentid,status FROM reservation WHERE reservationid=ANY($1) ORDER BY reservationid', [bookings.map(b => b.reservationid)])).rows;
   expect(saved).toEqual([{ equipmentid: target, status: 'confirmed' }, { equipmentid: source, status: 'cancelled' }]);
   const notices = (await bridge.pool.query("SELECT kind FROM app_notification_outbox WHERE payload->>'reservationId'=ANY($1) ORDER BY kind", [bookings.map(b => String(b.reservationid))])).rows;
-  expect(notices.map(n => n.kind)).toEqual(['reservation_cancelled', 'reservation_updated']);
+  expect(notices.map(n => n.kind)).toEqual(['reservation_cancelled_by_staff', 'reservation_updated']);
   expect((await bridge.pool.query('SELECT return_note FROM app_equipment_outage WHERE equipment_id=$1', [source])).rows[0].return_note).toBe('Bearing replaced and tested');
 });

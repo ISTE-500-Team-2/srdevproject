@@ -114,6 +114,7 @@ jobs:
       - run: node --test deploy/rles-edge.test.mjs
       - run: bash -n deploy/deploy-arbor.sh
       - run: python3 deploy/test_auto_release.py
+      - run: python3 deploy/test_daily_backup.py
       - run: python3 deploy/test_blue_green_release.py
       - run: python3 deploy/test_local_frontend_release.py
       - run: python3 deploy/test_local_frontend_client.py

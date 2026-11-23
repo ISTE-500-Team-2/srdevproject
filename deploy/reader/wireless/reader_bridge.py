@@ -135,11 +135,16 @@ class BackendClient:
         except ProtocolError as error:
             raise BridgeError(error.code if error.code == 'response_too_large' else invalid) from error
 
-    def health(self):
+    def health(self, report=None):
         # Reachable HTTP health is not proof that this reader is authenticated.
         # The signed idle heartbeat also updates production's last_seen_at and
         # reads staff-controlled enrollment/disable mode, without inventing taps.
-        data, _started, _received = self.signed({'action': 'heartbeat'}, 'backend_heartbeat_invalid')
+        # The optional report says whether this gateway can reach the reader
+        # itself, so staff see a reader outage even while the gateway is up.
+        payload = {'action': 'heartbeat'}
+        if report:
+            payload['health'] = report
+        data, _started, _received = self.signed(payload, 'backend_heartbeat_invalid')
         return canonical(heartbeat_mode, data, 'backend_heartbeat_invalid') != 'disabled'
 
     def decide(self, uid):
@@ -165,6 +170,49 @@ class BackendClient:
             if result['valid_until'] <= now:
                 raise BridgeError('backend_decision_expired')
         return result
+
+
+DOOR_STATES = ('locked', 'checking', 'approved', 'denied', 'issue')
+
+
+def health_report(reachable, last_contact_ms=None, state=None, address=None):
+    """The reader's link health as this gateway observes it, for the signed heartbeat.
+
+    `state` is the reader's own authenticated report (controller state or poll).
+    Only well-formed values are forwarded; anything else is omitted, never guessed.
+    """
+    reader = {'reachable': bool(reachable)}
+    if type(last_contact_ms) in (int, float) and last_contact_ms >= 0:
+        reader['lastContactMs'] = min(int(last_contact_ms), 2**31 - 1)
+    if reachable and isinstance(state, dict):
+        if type(state.get('reader_ready')) is bool:
+            reader['ready'] = state['reader_ready']
+        if state.get('state') in DOOR_STATES:
+            reader['doorState'] = state['state']
+        uptime = state.get('uptime_ms')
+        if type(uptime) is int and 0 <= uptime <= 0xffffffff:
+            reader['uptimeMs'] = uptime
+        version = state.get('version')
+        if isinstance(version, str) and re.fullmatch(r'[A-Za-z0-9._+-]{1,64}', version):
+            reader['firmware'] = version
+        rssi = state.get('wifi_rssi')
+        if type(rssi) is int and -127 <= rssi <= 0:
+            reader['rssi'] = rssi
+        if isinstance(address, str) and re.fullmatch(r'[0-9a-fA-F:.]{2,45}', address):
+            reader['address'] = address
+    return {'reader': reader}
+
+
+def bridge_report(now, started, attempted, last_contact, last_state, address):
+    """The classic bridge's health report, or None before the reader has had a chance to answer.
+
+    Without the grace period every bridge restart would be recorded as a short outage.
+    """
+    if not attempted and now - started < 10:
+        return None
+    reachable = last_contact is not None and now - last_contact < 3
+    age_ms = None if last_contact is None else (now - last_contact) * 1000
+    return health_report(reachable, age_ms, last_state, address)
 
 
 def decision_message(state, result, now=None):
@@ -200,6 +248,9 @@ def run(config, stop):
     future = None;identity = None;handled = None;last_session = None
     heartbeat_at = health_at = 0.0;backend_ok = False;reason = 'backend_credential_missing' if backend is None else 'starting'
     last_result = None;logged = None
+    # The latest authenticated reader state and when it arrived, for health reports.
+    reader_address = urlsplit(reader.url).hostname
+    last_state = None;last_contact = None;attempted = False;started = time.monotonic()
     with ThreadPoolExecutor(max_workers=1) as executor:
         while not stop.is_set():
             state = None;reader_ok = False
@@ -207,11 +258,14 @@ def run(config, stop):
                 now = time.monotonic()
                 if backend and now >= health_at:
                     try:
-                        backend_ok = backend.health();reason = 'ready' if backend_ok else 'backend_unhealthy'
+                        backend_ok = backend.health(bridge_report(now, started, attempted, last_contact, last_state, reader_address))
+                        reason = 'ready' if backend_ok else 'backend_unhealthy'
                     except Exception:
                         backend_ok = False;reason = 'backend_unavailable'
                     health_at = now + 10
+                attempted = True
                 state = reader.state();reader_ok = True
+                last_state = state;last_contact = time.monotonic()
                 if state['session'] != last_session:
                     handled = None;last_session = state['session'];heartbeat_at = 0
                 current = (state['session'], state['scan_id'])

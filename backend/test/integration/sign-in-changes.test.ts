@@ -31,11 +31,11 @@ const login = (email: string, password: string, remember = false) =>
   request(app).post("/api/auth/login").send({ email, password, remember });
 async function register(name: string, password = "GoodPassword123!") {
   const email = `${name}@example.invalid`;
-  // Sign-up allows 10 a quarter hour per address; a fresh app keeps that budget out of these tests.
+  // Sign-up allows 30 a quarter hour per address; a fresh app keeps that budget out of these tests.
   const signup = createApp(pool, config);
   assert.equal((await request(signup).post("/api/auth/register")
     .send({ firstName: name, lastName: "Tester", email, phone: "1112223333", dob: "1990-01-01", password })).status, 202);
-  await request(signup).post("/api/auth/confirm").send({ token: await confirmationToken(pool, email) });
+  await request(signup).post("/api/auth/confirm").send({ token: await confirmationToken(pool, email), password });
   return { email, password };
 }
 const outbox = async (userId: number, kind: string) => (await pool.query(
@@ -97,9 +97,14 @@ test("a new sign-in email applies only once its link is opened", async () => {
   const ask = (body: object) => as(me).post("/me/email-change", body);
 
   assert.equal((await ask({ email: account.email.toUpperCase(), currentPassword: account.password })).body.error.code, "EMAIL_UNCHANGED");
-  const taken = await ask({ email: other.email, currentPassword: account.password });
-  assert.equal(taken.status, 409);
-  assert.equal(taken.body.error.field, "email");
+  // An address another member uses gets the same answer as any other, so nobody learns who is a
+  // member, but no link goes to it: its owner hears that someone tried to use it.
+  const taken = await ask({ email: other.email.toUpperCase(), currentPassword: account.password });
+  assert.equal(taken.status, 202, JSON.stringify(taken.body));
+  assert.deepEqual(Object.keys(taken.body.data.pendingEmail).sort(), ["email", "expiresAt"]);
+  assert.deepEqual(await outbox(me.user.id, "email_change_confirmation"), []);
+  const otherId = (await pool.query("SELECT userid FROM \"user\" WHERE email=$1", [other.email])).rows[0].userid;
+  assert.deepEqual((await outbox(otherId, "account_exists")).map((r) => r.status), ["pending"]);
   assert.equal((await ask({ email: "robin.new@example.invalid", currentPassword: "WrongPassword1!" })).body.error.code, "CURRENT_PASSWORD_INVALID");
 
   const asked = await ask({ email: "Robin.New@Example.invalid", currentPassword: account.password });
@@ -120,7 +125,22 @@ test("a new sign-in email applies only once its link is opened", async () => {
   // The link works once, and the session that asked carries on.
   assert.equal((await request(app).post("/api/auth/email-change/confirm").send({ token })).body.error.code, "EMAIL_CHANGE_INVALID");
   assert.equal((await as(me).get("/me/profile")).body.data.pendingEmail, null);
-  assert.deepEqual(await actions(me.user.id), ["profile.email_change_requested", "profile.email_changed"]);
+  assert.deepEqual(await actions(me.user.id), ["profile.email_change_requested", "profile.email_change_requested", "profile.email_changed"]);
+});
+
+// Each request sends mail, and an address in use now gets the same answer, so successes count too.
+test("each account can send ten email change requests a quarter hour, from any address", async () => {
+  const limited = createApp(pool, { ...config, trustProxy: 1 });
+  const account = await register("busy");
+  const me = take(await login(account.email, account.password));
+  const send = (address: string, path: string, body: object = {}) => request(limited).post("/api" + path)
+    .set("X-Forwarded-For", address).set("Authorization", "Bearer " + me.accessToken)
+    .set("Cookie", me.cookie).set("X-CSRF-Token", me.csrfToken).send(body);
+  for (let i = 0; i < 10; i++)
+    assert.equal((await send(`203.0.113.${i}`, "/me/email-change", { email: `busy.${i}@example.invalid`, currentPassword: account.password })).status, 202);
+  for (const [address, path, body] of [["198.51.100.7", "/me/email-change", { email: "busy.next@example.invalid", currentPassword: account.password }],
+    ["198.51.100.8", "/me/email-change/resend", {}]] as const)
+    assert.equal((await send(address, path, body)).body.error.code, "RATE_LIMITED");
 });
 
 test("the link goes to the new address and the heads-up to the old one", async () => {
@@ -180,7 +200,7 @@ test("staff in a member's account can't change that member's email or password",
     ["/me/password", { currentPassword: "x", newPassword: "BrandNewPassword9!" }],
     ["/me/email-change", { email: "alex.new@example.invalid", currentPassword: "x" }],
   ] as const) {
-    const refused = await as(admin).post(path, body);
+    const refused = await as(admin).post(path, body).set("X-Account-Subject", String(member.user.id));
     assert.equal(refused.status, 403, path);
     assert.equal(refused.body.error.code, "NOT_IN_ACCOUNT_MODE");
   }

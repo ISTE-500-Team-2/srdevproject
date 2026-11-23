@@ -8,6 +8,8 @@ export interface ComplianceFilters {
   offset: number;
   /** Only members with something missing, expired or expiring soon. */
   attention?: boolean;
+  /** Name or email contains this text, any case. Narrows the member list, not the totals. */
+  search?: string;
 }
 export const COMPLIANCE_EXPORT_LIMIT = 10000;
 
@@ -19,7 +21,7 @@ export interface ComplianceOptions {
 export interface ComplianceIssue {
   kind: "waiver" | "certification";
   name: string;
-  state: "missing" | "expired" | "expiring";
+  state: "missing" | "expired" | "revoked" | "expiring";
   expiresAt: string | null;
 }
 export interface ComplianceUser {
@@ -110,6 +112,8 @@ export class ComplianceReports {
       filters.offset,
       limit,
       filters.attention ?? false,
+      // Escaped so "%" and "_" (common in emails) match themselves, as in the member directory.
+      filters.search ? "%" + filters.search.replace(/[\\%_]/g, (c) => "\\" + c) + "%" : null,
     ];
     const query = `
       WITH report_users AS (
@@ -118,12 +122,24 @@ export class ComplianceReports {
         WHERE ($4::text='all' OR u.status=$4::text)
       ),
       current_waivers AS (
-        SELECT DISTINCT ON (name) waiverid,name,version
+        SELECT DISTINCT ON (name) waiverid,name,version,policy_scope
         FROM waiver
         WHERE isactive=true AND required=true
           AND (effectivedate IS NULL OR effectivedate<=NOW() AT TIME ZONE 'UTC')
           AND ($1::int IS NULL OR waiverid=$1)
         ORDER BY name,effectivedate DESC NULLS LAST,waiverid DESC
+      ),
+      -- Facility policies bind every member. Equipment waivers are only checked for equipment
+      -- that requires one, so they bind the members who use it: trained on it or booked on it.
+      equipment_waiver_users AS (
+        SELECT uc.userid FROM user_certifications uc
+        JOIN equipment e ON e.certid=uc.certid AND e.waiverrequired=true
+        WHERE uc.status='active'
+          AND NOT EXISTS(SELECT 1 FROM app_equipment_retirement x WHERE x.equipment_id=e.equipmentid)
+        UNION
+        SELECT r.userid FROM reservation r
+        JOIN equipment e ON e.equipmentid=r.equipmentid AND e.waiverrequired=true
+        WHERE r.status IN ('confirmed','pending') AND r.endtime>NOW() AT TIME ZONE 'UTC'
       ),
       report_certifications AS (
         SELECT certid,name,enddate FROM certifications
@@ -131,8 +147,11 @@ export class ComplianceReports {
           AND ($2::int IS NULL OR certid=$2)
           AND ($2::int IS NOT NULL OR enddate IS NULL OR enddate>=NOW() AT TIME ZONE 'UTC')
       ),
+      -- Every member and current waiver, so each waiver keeps its card even before anyone owes it;
+      -- only owed rows count towards compliance, the attention list and the card totals.
       waiver_status AS (
         SELECT ru.userid,w.waiverid,w.name,w.version,sig.signdate,sig.expires_at,
+          (w.policy_scope='facility' OR ru.userid IN (SELECT userid FROM equipment_waiver_users)) AS owed,
           (sig.userwaiverid IS NOT NULL AND (sig.expires_at IS NULL OR sig.expires_at>NOW())) AS compliant,
           (sig.expires_at IS NOT NULL AND sig.expires_at<=NOW()) AS expired,
           (sig.expires_at IS NOT NULL AND $3::int IS NOT NULL
@@ -158,15 +177,20 @@ export class ComplianceReports {
           (uc.usercertid IS NOT NULL
             AND ((uc.renewaldate IS NOT NULL AND uc.renewaldate<NOW() AT TIME ZONE 'UTC')
               OR (c.enddate IS NOT NULL AND c.enddate<NOW() AT TIME ZONE 'UTC'))) AS expired,
-          (uc.usercertid IS NOT NULL AND $3::int IS NOT NULL
+          uc.status='revoked' AS revoked,
+          -- Revoked training is already a lapse, not one coming up.
+          (uc.usercertid IS NOT NULL AND uc.status='active' AND $3::int IS NOT NULL
             AND (CASE
               WHEN uc.renewaldate IS NULL THEN c.enddate
               WHEN c.enddate IS NULL THEN uc.renewaldate
               WHEN uc.renewaldate<=c.enddate THEN uc.renewaldate
               ELSE c.enddate
             END)<=NOW() AT TIME ZONE 'UTC'+make_interval(days=>$3::int)) AS expiring
+        -- Training is per machine, not something every member owes: a member is
+        -- only measured against certifications they hold or held. Never having
+        -- trained on a machine is not a lapse; expired or revoked training is.
         FROM report_users ru CROSS JOIN report_certifications c
-        LEFT JOIN LATERAL (
+        JOIN LATERAL (
           SELECT usercertid,status,renewaldate FROM user_certifications
           WHERE userid=ru.userid AND certid=c.certid
           ORDER BY renewaldate DESC NULLS LAST,usercertid DESC LIMIT 1
@@ -184,7 +208,7 @@ export class ComplianceReports {
             'expiresAt',expires_at) ORDER BY name)
             FILTER (WHERE NOT compliant OR (expires_at IS NOT NULL
               AND expires_at<=NOW()+make_interval(days=>COALESCE($3::int,30)))) AS issues
-        FROM waiver_status GROUP BY userid
+        FROM waiver_status WHERE owed GROUP BY userid
       ),
       certification_rollup AS (
         SELECT userid,
@@ -192,7 +216,8 @@ export class ComplianceReports {
           array_agg(name ORDER BY name) FILTER (WHERE NOT compliant) AS missing,
           array_agg(name ORDER BY name) FILTER (WHERE expiring) AS expiring,
           jsonb_agg(jsonb_build_object('kind','certification','name',name,
-            'state',CASE WHEN NOT compliant AND expired THEN 'expired' WHEN NOT compliant THEN 'missing' ELSE 'expiring' END,
+            'state',CASE WHEN NOT compliant AND revoked THEN 'revoked' WHEN NOT compliant AND expired THEN 'expired'
+              WHEN NOT compliant THEN 'missing' ELSE 'expiring' END,
             'expiresAt',effective_expires_at AT TIME ZONE 'UTC') ORDER BY name)
             FILTER (WHERE NOT compliant OR (effective_expires_at IS NOT NULL
               AND effective_expires_at<=NOW() AT TIME ZONE 'UTC'+make_interval(days=>COALESCE($3::int,30)))) AS issues
@@ -215,11 +240,12 @@ export class ComplianceReports {
         SELECT * FROM user_rollup
         WHERE $3::int IS NULL OR array_length("expiringWaivers",1) IS NOT NULL OR array_length("expiringCertifications",1) IS NOT NULL
       ),
-      -- "Needs attention" narrows only the member list; the summary and
-      -- per-requirement breakdowns still describe everyone in the window.
+      -- "Needs attention" and the search narrow only the member list (and its export); the
+      -- summary and per-requirement breakdowns still describe everyone in the window.
       filtered_users AS (
         SELECT * FROM window_users
-        WHERE NOT $7::boolean OR NOT ("waiverCompliant" AND "certificationCompliant") OR jsonb_array_length(issues)>0
+        WHERE (NOT $7::boolean OR NOT ("waiverCompliant" AND "certificationCompliant") OR jsonb_array_length(issues)>0)
+          AND ($8::text IS NULL OR ("firstName" || ' ' || "lastName" || ' ' || email) ILIKE $8 ESCAPE '\\')
       ),
       summary AS (
         SELECT COUNT(*)::int AS "userCount",
@@ -237,15 +263,21 @@ export class ComplianceReports {
         COALESCE((SELECT json_agg(row_to_json(paged) ORDER BY "lastName","firstName",id)
           FROM (SELECT * FROM filtered_users ORDER BY "lastName","firstName",id LIMIT $6 OFFSET $5) paged),'[]'::json) AS users,
         COALESCE((SELECT json_agg(row_to_json(w) ORDER BY name)
-          FROM (SELECT waiverid AS id,name,version,COUNT(*)::int AS total,
-            COUNT(*) FILTER (WHERE compliant)::int AS compliant,
-            COUNT(*) FILTER (WHERE expiring)::int AS expiring
+          FROM (SELECT waiverid AS id,name,version,COUNT(*) FILTER (WHERE owed)::int AS total,
+            COUNT(*) FILTER (WHERE owed AND compliant)::int AS compliant,
+            COUNT(*) FILTER (WHERE owed AND expiring)::int AS expiring
             FROM waiver_status ws JOIN window_users fu ON fu.id=ws.userid GROUP BY waiverid,name,version) w),'[]'::json) AS "waiverBreakdown",
+        -- Every certification gets a card whenever anyone is in view, even one
+        -- nobody holds yet; its counts cover the people who hold it.
         COALESCE((SELECT json_agg(row_to_json(c) ORDER BY name)
-          FROM (SELECT certid AS id,name,COUNT(*)::int AS total,
-            COUNT(*) FILTER (WHERE compliant)::int AS compliant,
-            COUNT(*) FILTER (WHERE expiring)::int AS expiring
-            FROM certification_status cs JOIN window_users fu ON fu.id=cs.userid GROUP BY certid,name) c),'[]'::json) AS "certificationBreakdown",
+          FROM (SELECT rc.certid AS id,rc.name,COUNT(held.userid)::int AS total,
+            COUNT(held.userid) FILTER (WHERE held.compliant)::int AS compliant,
+            COUNT(held.userid) FILTER (WHERE held.expiring)::int AS expiring
+            FROM report_certifications rc
+            LEFT JOIN (SELECT cs.* FROM certification_status cs JOIN window_users fu ON fu.id=cs.userid) held
+              ON held.certid=rc.certid
+            WHERE EXISTS (SELECT 1 FROM window_users)
+            GROUP BY rc.certid,rc.name) c),'[]'::json) AS "certificationBreakdown",
         (SELECT COUNT(*)::int FROM filtered_users) AS "filteredCount"`;
     const row = (await this.db.query<ComplianceRow>(query, params)).rows[0]!;
     const summary = row.summary ?? {

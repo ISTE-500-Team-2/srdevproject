@@ -11,10 +11,13 @@ import type { Pool } from "pg";
 import type { Database } from "./db.js";
 import { AppError } from "./domain.js";
 
+/** What a reader guards; a studio reader opens one rented studio (`app_studio`). */
+export type ReaderKind = "building" | "room" | "equipment" | "studio";
+export const READER_KINDS: readonly ReaderKind[] = ["building", "room", "equipment", "studio"];
 export interface Reader {
   id: string;
   secret: string;
-  kind: "building" | "room" | "equipment";
+  kind: ReaderKind;
   resourceId?: number;
 }
 export interface DeviceConfig {
@@ -122,22 +125,27 @@ export class ReaderRegistry {
         .query(`SELECT r.id,r.name,r.kind,r.resource_id AS "resourceId",r.enabled,r.revision,
       ${readerLastSeen} AS "lastSeenAt",
       COALESCE(${readerLastSeen}>NOW()-INTERVAL '45 seconds',false) AS online,
-      COALESCE(b.name,rm.name,e.name,'Unavailable resource') AS "resourceName"
+      COALESCE(b.name,rm.name,e.name,st.name,'Unavailable resource') AS "resourceName"
       FROM app_access_reader r
       ${readerPresenceJoin}
       LEFT JOIN building b ON r.kind='building' AND b.buildingid=r.resource_id
       LEFT JOIN room rm ON r.kind='room' AND rm.roomid=r.resource_id
       LEFT JOIN equipment e ON r.kind='equipment' AND e.equipmentid=r.resource_id
+      LEFT JOIN app_studio st ON r.kind='studio' AND st.id=r.resource_id
       ${this.config?.setupGateways?.length ? "WHERE NOT EXISTS (SELECT 1 FROM app_reader_setup_job j WHERE j.reader_id=r.id AND j.status<>'complete')" : ""}
       ORDER BY r.name,r.id`)
     ).rows;
   }
 }
+// Removed machines keep their history but can't be chosen as a reader location.
+const activeEquipment =
+  "NOT EXISTS(SELECT 1 FROM app_equipment_retirement r WHERE r.equipment_id=e.equipmentid)";
 export async function accessResources(db: Database) {
   return (
     await db.query(`SELECT buildingid AS id,name,'building' AS kind FROM building
     UNION ALL SELECT roomid,name,'room' FROM room
-    UNION ALL SELECT equipmentid,name,'equipment' FROM equipment ORDER BY kind,name,id`)
+    UNION ALL SELECT equipmentid,name,'equipment' FROM equipment e WHERE ${activeEquipment}
+    UNION ALL SELECT id,name,'studio' FROM app_studio WHERE active ORDER BY kind,name,id`)
   ).rows;
 }
 export async function assertReaderTarget(
@@ -152,19 +160,32 @@ export async function assertReaderTarget(
         ? "room"
         : kind === "equipment"
           ? "equipment"
-          : null;
+          : kind === "studio"
+            ? "app_studio"
+            : null;
   if (!table)
     throw new AppError(
       400,
       "INVALID_READER",
-      "Choose a building, room or equipment.",
+      "Choose a building, room, equipment or studio.",
     );
+  const key = table === "app_studio" ? "id" : `${table}id`;
   if (
     !(
-      await db.query(`SELECT 1 FROM ${table} WHERE ${table}id=$1 FOR SHARE`, [
-        id,
-      ])
-    ).rowCount
+      await db.query(
+        // Inactive studios can't be chosen; a reader already on one stays put and refuses taps.
+        `SELECT 1 FROM ${table} WHERE ${key}=$1${table === "app_studio" ? " AND active" : ""} FOR SHARE`,
+        [id],
+      )
+    ).rowCount ||
+    // Removal locks the machine before recording it, so this later read sees a removal that was in progress.
+    (table === "equipment" &&
+      (
+        await db.query(
+          "SELECT 1 FROM app_equipment_retirement WHERE equipment_id=$1",
+          [id],
+        )
+      ).rowCount)
   )
     throw new AppError(404, "NOT_FOUND", "Reader location not found.");
 }

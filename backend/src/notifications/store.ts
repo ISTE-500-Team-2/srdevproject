@@ -6,7 +6,14 @@ import { AppError } from '../domain.js';
 import { reminderDates, validTimeZone } from './reminderTiming.js';
 import { securityKinds, type NotificationKind, type NotificationPayloads } from './templates.js';
 
-export interface NotificationPreferences { enabled: boolean; timeZone: string }
+/**
+ * `studioBookingAlerts`: whether a staff account gets the staff copy of every studio booking and
+ * cancellation. Only staff accounts are given it; leaving it out of an update keeps it as it is.
+ */
+export interface NotificationPreferences { enabled: boolean; timeZone: string; studioBookingAlerts?: boolean }
+/** Accounts that get the staff copy of studio bookings and cancellations. */
+export const STUDIO_ALERT_ROLES = ['admin', 'staff', 'super-admin'] as const;
+const studioAlertKinds: readonly NotificationKind[] = ['admin_studio_reservation_confirmed', 'admin_studio_reservation_cancelled'];
 /** A known kind's payload is typed by that kind. A kind only known at run time
  * (a plain string) takes any payload; the worker checks it before rendering. */
 export interface NotificationInput<K extends string = NotificationKind> {
@@ -17,18 +24,25 @@ export interface NotificationInput<K extends string = NotificationKind> {
 type CheckedKind<K extends string> = string extends K ? K : K extends NotificationKind ? K : never;
 export { validTimeZone };
 export async function getNotificationPreferences(db: Database, userId: number): Promise<NotificationPreferences> {
-  const { rows } = await db.query<NotificationPreferences>(`SELECT COALESCE(p.enabled,true) AS enabled,
-    COALESCE(p.time_zone,'America/New_York') AS "timeZone" FROM "user" u
-    LEFT JOIN app_notification_preferences p USING(userid) WHERE u.userid=$1`, [userId]);
-  if (!rows[0]) throw new AppError(404,'NOT_FOUND','Account not found.');
-  return rows[0];
+  const { rows } = await db.query<NotificationPreferences & { staff: boolean; alerts: boolean }>(`SELECT COALESCE(p.enabled,true) AS enabled,
+    COALESCE(p.time_zone,'America/New_York') AS "timeZone",COALESCE(p.studio_booking_alerts,true) AS alerts,
+    EXISTS(SELECT 1 FROM user_role ur JOIN role r USING(roleid) WHERE ur.userid=u.userid AND r.role=ANY($2::text[])) AS staff
+    FROM "user" u LEFT JOIN app_notification_preferences p USING(userid) WHERE u.userid=$1`, [userId,STUDIO_ALERT_ROLES]);
+  const row = rows[0];
+  if (!row) throw new AppError(404,'NOT_FOUND','Account not found.');
+  return { enabled: row.enabled, timeZone: row.timeZone, ...(row.staff && { studioBookingAlerts: row.alerts }) };
 }
 export async function updateNotificationPreferences(db: Database, userId: number, preferences: NotificationPreferences): Promise<NotificationPreferences> {
-  if (typeof preferences.enabled !== 'boolean' || !validTimeZone(preferences.timeZone))
+  const alerts = preferences.studioBookingAlerts;
+  if (typeof preferences.enabled !== 'boolean' || !validTimeZone(preferences.timeZone) || (alerts !== undefined && typeof alerts !== 'boolean'))
     throw new AppError(400,'INVALID_NOTIFICATION_PREFERENCES','Choose a valid time zone and notification preference.');
-  await db.query(`INSERT INTO app_notification_preferences(userid,enabled,time_zone) VALUES($1,$2,$3)
-    ON CONFLICT(userid) DO UPDATE SET enabled=EXCLUDED.enabled,time_zone=EXCLUDED.time_zone,updated_at=NOW()`,
-    [userId,preferences.enabled,preferences.timeZone]);
+  await db.query(`INSERT INTO app_notification_preferences(userid,enabled,time_zone,studio_booking_alerts) VALUES($1,$2,$3,COALESCE($4,true))
+    ON CONFLICT(userid) DO UPDATE SET enabled=EXCLUDED.enabled,time_zone=EXCLUDED.time_zone,
+      studio_booking_alerts=COALESCE($4,app_notification_preferences.studio_booking_alerts),updated_at=NOW()`,
+    [userId,preferences.enabled,preferences.timeZone,alerts ?? null]);
+  // Turning studio alerts off also drops the staff copies still waiting to send.
+  if (alerts === false) await db.query(`UPDATE app_notification_outbox SET status='suppressed',counts_for_sla=(counts_for_sla AND deadline_at<NOW()),updated_at=NOW()
+    WHERE userid=$1 AND status='pending' AND kind=ANY($2::text[])`,[userId,studioAlertKinds]);
   // Opting back in never resurrects notices that were intentionally suppressed.
   if (!preferences.enabled) await db.query(`UPDATE app_notification_outbox SET status='suppressed',counts_for_sla=(counts_for_sla AND deadline_at<NOW()),updated_at=NOW()
     WHERE userid=$1 AND status='pending' AND kind <> ALL($2::text[])`,[userId,securityKinds]);
@@ -40,23 +54,37 @@ export async function updateNotificationPreferences(db: Database, userId: number
       await db.query(`UPDATE app_notification_outbox SET due_at=$2,updated_at=NOW() WHERE id=$1 AND status='pending' AND attempts=0`,
         [row.id,reminderDates(new Date(row.expiresAt),preferences.timeZone).dueAt]);
   }
-  return preferences;
+  return getNotificationPreferences(db, userId);
 }
 export async function enqueueNotification<K extends string>(db: Database, input: NotificationInput<K> & { kind: CheckedKind<K> }): Promise<void> {
   if (!input.kind || !input.dedupeKey) throw new Error('Notification kind and dedupe key are required');
+  await insertOutbox(db, input.userId, input.dedupeKey, input);
+}
+/** Queues one notice for many accounts in a single statement, not one round trip each.
+ * Each account's dedupe key is the prefix followed by its user ID. */
+export async function enqueueNotifications<K extends string>(db: Database, userIds: number[],
+  input: Omit<NotificationInput<K>, 'userId' | 'dedupeKey'> & { kind: CheckedKind<K>; dedupePrefix: string }): Promise<void> {
+  if (!input.kind || !input.dedupePrefix) throw new Error('Notification kind and dedupe key are required');
+  if (userIds.length) await insertOutbox(db, userIds, input.dedupePrefix, input);
+}
+/** For a list of accounts, the dedupe key is a prefix completed with each user ID. */
+async function insertOutbox(db: Database, recipients: number | number[], dedupeKey: string,
+  input: { kind: string; payload: unknown; dueAt?: Date; deadlineAt?: Date; countsForSla?: boolean }) {
+  const many = Array.isArray(recipients);
   const dueAt = input.dueAt ?? new Date();
   // Event notices have a measurable five-minute dispatch target, not a promised delivery SLA.
   const deadlineAt = input.deadlineAt ?? new Date(dueAt.getTime()+5*60_000);
   if (!Number.isFinite(dueAt.getTime()) || !Number.isFinite(deadlineAt.getTime())) throw new Error('Invalid notification date');
-  // Legacy unverified accounts may still receive their confirmation link while held in pending status.
+  // Legacy unverified accounts may still receive their confirmation or password-reset link while held in pending status,
+  // and the notice that someone tried to sign up with their address (which points them to sign-in or a reset).
   await db.query(`INSERT INTO app_notification_outbox(userid,kind,dedupe_key,payload,due_at,deadline_at,status,counts_for_sla)
-    SELECT u.userid,$2,$3,$4::jsonb,$5,$6,
-      CASE WHEN (COALESCE(p.enabled,true) OR $2=ANY($8::text[])) AND (u.status='active' OR ($2='account_confirmation' AND u.status='pending')) THEN 'pending' ELSE 'suppressed' END,
-      $7::boolean AND (COALESCE(p.enabled,true) OR $2=ANY($8::text[])) AND (u.status='active' OR ($2='account_confirmation' AND u.status='pending'))
-    FROM "user" u LEFT JOIN app_notification_preferences p USING(userid) WHERE u.userid=$1
-    ON CONFLICT(dedupe_key) DO UPDATE SET due_at=EXCLUDED.due_at,deadline_at=EXCLUDED.deadline_at,updated_at=NOW()
+    SELECT u.userid,$2,${many ? '$3::text||u.userid' : '$3'},$4::jsonb,$5,$6,
+      CASE WHEN (COALESCE(p.enabled,true) OR $2=ANY($8::text[])) AND (u.status='active' OR ($2 IN ('account_confirmation','password_reset','account_exists') AND u.status='pending')) THEN 'pending' ELSE 'suppressed' END,
+      $7::boolean AND (COALESCE(p.enabled,true) OR $2=ANY($8::text[])) AND (u.status='active' OR ($2 IN ('account_confirmation','password_reset','account_exists') AND u.status='pending'))
+    FROM "user" u LEFT JOIN app_notification_preferences p USING(userid) WHERE ${many ? 'u.userid=ANY($1::int[])' : 'u.userid=$1'}
+    ON CONFLICT(dedupe_key) DO UPDATE SET due_at=COALESCE(EXCLUDED.worker_v2_due_at,EXCLUDED.due_at),deadline_at=EXCLUDED.deadline_at,updated_at=NOW()
     WHERE app_notification_outbox.status='pending' AND app_notification_outbox.attempts=0
-      AND EXCLUDED.payload ? 'sourceType'`,[input.userId,input.kind,input.dedupeKey,JSON.stringify(input.payload),dueAt,deadlineAt,input.countsForSla??true,securityKinds]);
+      AND EXCLUDED.payload ? 'sourceType'`,[recipients,input.kind,dedupeKey,JSON.stringify(input.payload),dueAt,deadlineAt,input.countsForSla??true,securityKinds]);
 }
 export async function notificationMetrics(
   db: Database,

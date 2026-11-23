@@ -10,6 +10,7 @@ import { PermissionModel } from "./models/PermissionModel.js";
 import { UserModel } from "./models/UserModel.js";
 import { StaffModel } from "./models/StaffModel.js";
 import { scheduleExpirationNotifications } from "./notifications/scheduler.js";
+import { queueCertificationRevoked } from "./notifications/certificationNotices.js";
 import { annualValidity } from "./annualValidity.js";
 
 const definition = `c.certid AS id,c.name,c.description,c.validity_days AS "validityDays",c.revision,
@@ -72,6 +73,28 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
         )
       ).rows,
     });
+  });
+  // The catalog cards' counts: how many active members are current on each certification,
+  // how many of those run out within 30 days, and how many have lapsed or been revoked.
+  // Certifications nobody holds are left out.
+  router.get("/training/catalog/holders", async (_req, res) => {
+    await actor(pool, authState(res).user.id, "read", "catalog");
+    const { rows } = await pool.query(
+      `SELECT certid AS id,
+         COUNT(*) FILTER (WHERE valid)::int AS current,
+         COUNT(*) FILTER (WHERE valid AND expires_at<=NOW() AT TIME ZONE 'UTC'+INTERVAL '30 days')::int AS "expiringSoon",
+         COUNT(*) FILTER (WHERE NOT valid AND status IS DISTINCT FROM 'revoked')::int AS expired,
+         COUNT(*) FILTER (WHERE status='revoked')::int AS revoked
+       FROM (SELECT uc.certid,uc.status,LEAST(uc.renewaldate,c.enddate) AS expires_at,
+           COALESCE(uc.status='active' AND (uc.renewaldate IS NULL OR uc.renewaldate>=NOW() AT TIME ZONE 'UTC')
+             AND (c.effectivedate IS NULL OR c.effectivedate<=NOW() AT TIME ZONE 'UTC')
+             AND (c.enddate IS NULL OR c.enddate>=NOW() AT TIME ZONE 'UTC'),false) AS valid
+         FROM user_certifications uc JOIN certifications c USING(certid)
+         JOIN "user" u ON u.userid=uc.userid
+         WHERE u.status='active') held
+       GROUP BY certid ORDER BY certid`,
+    );
+    res.json({ data: rows });
   });
   // Instructors need a narrow identity lookup, not access to the admin user API.
   router.get("/training/members", async (req, res) => {
@@ -374,14 +397,17 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
         );
         const userId = positiveId(req.params.userId),
           id = positiveId(req.params.id);
-        const before = (
+        // Whether the record was letting the member in: active and not past its renewal date.
+        const found = (
           await db.query(
-            "SELECT * FROM user_certifications WHERE userid=$1 AND certid=$2 FOR UPDATE",
+            `SELECT *,(status='active' AND (renewaldate IS NULL OR renewaldate>=NOW() AT TIME ZONE 'UTC')) AS app_granting
+            FROM user_certifications WHERE userid=$1 AND certid=$2 FOR UPDATE`,
             [userId, id],
           )
         ).rows[0];
-        if (!before)
+        if (!found)
           throw new AppError(404, "NOT_FOUND", "Training record not found.");
+        const { app_granting: granting, ...before } = found;
         if (
           before.revision !== positiveId(req.body.expectedRevision, "Revision")
         )
@@ -411,6 +437,10 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
           before,
           after,
         );
+        // Only a certification that was in force is news to the member. Revoking a pending,
+        // expired or already revoked record changes only the staff note.
+        if (granting)
+          await queueCertificationRevoked(db, { userid: userId, certid: id, usercertid: before.usercertid, revision: after!.revision });
         return after;
       });
       res.json({ data });
@@ -433,6 +463,13 @@ function equipmentList(value: unknown): number[] {
   return [...new Set(value.map((v) => positiveId(v, "Equipment")))];
 }
 async function linkEquipment(db: Database, id: number, ids: number[]) {
+  // An ended course can't be newly required: no one could book the equipment. Existing links stay.
+  const ended = (
+    await db.query<{ ended: boolean }>(
+      "SELECT enddate IS NOT NULL AND enddate<NOW() AT TIME ZONE 'UTC' AS ended FROM certifications WHERE certid=$1",
+      [id],
+    )
+  ).rows[0]?.ended;
   // Never clear existing associations implicitly or replace another required course.
   for (const equipmentId of ids) {
     const e = (
@@ -447,6 +484,12 @@ async function linkEquipment(db: Database, id: number, ids: number[]) {
         409,
         "CERTIFICATION_LINK_EXISTS",
         "Equipment already requires a different certification. Change that association through an explicitly reviewed policy change.",
+      );
+    if (ended && e.certid !== id)
+      throw new AppError(
+        400,
+        "INVALID_INPUT",
+        "This certification has ended, so no one could book equipment that newly required it. Link equipment to a certification that is in effect.",
       );
     await db.query("UPDATE equipment SET certid=$2 WHERE equipmentid=$1", [
       equipmentId,

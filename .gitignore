@@ -16,3 +16,7 @@ coverage/
 # Local Python reader/test artifacts
 __pycache__/
 *.pyc
+
+# Local design mock-ups. Vite publishes everything in frontend/public to the live
+# site as-is, so keep mock-ups outside it (for example under docs/).
+frontend/public/__proto/

@@ -5,7 +5,7 @@ import { Pool } from "pg";
 import request from "supertest";
 import { createApp } from "../../src/app.js";
 import { initializeDemo } from "../../src/scripts/init-demo.js";
-import { membershipTrends } from "../../src/membershipReports.js";
+import { membersEndingSoon, membershipTrends } from "../../src/membershipReports.js";
 import { notificationMetrics } from "../../src/notifications/store.js";
 const database =
   "arbor_requirements_" + randomBytes(6).toString("hex") + "_mvc_test";
@@ -67,13 +67,15 @@ test("legitimate rotations do not consume sign-in budget; refresh remains bounde
     ).status,
     401,
   );
-  // Failed sign-ins still share the original 30/15min bucket, independently.
-  for (let n = 0; n < 28; n++)
+  // Failed sign-ins have their own 30/15min budget per address; demo sign-ins and session
+  // renewals never spend it. Each attempt names another account, so the smaller per-account
+  // budget never comes into play.
+  for (let n = 0; n < 30; n++)
     assert.equal(
       (
         await browser
           .post("/api/auth/login")
-          .send({ email: "missing@example.invalid", password: "BadPassword!1" })
+          .send({ email: `missing${n}@example.invalid`, password: "BadPassword!1" })
       ).status,
       401,
     );
@@ -229,21 +231,21 @@ test("membership trends count people, not renewals, and separate confirmed cance
       period: "2026-01-01",
       newMembers: 2,
       activeMembers: 2,
-      expiringMembers: 0,
+      endedWithoutRenewingMembers: 0,
       cancelledMembers: 0,
     },
     {
       period: "2026-01-02",
       newMembers: 0,
       activeMembers: 2,
-      expiringMembers: 0,
+      endedWithoutRenewingMembers: 0,
       cancelledMembers: 1,
     },
     {
       period: "2026-01-03",
       newMembers: 0,
       activeMembers: 1,
-      expiringMembers: 1,
+      endedWithoutRenewingMembers: 1,
       cancelledMembers: 0,
     },
   ]);
@@ -262,7 +264,7 @@ test("membership trends count people, not renewals, and separate confirmed cance
         period: "",
         newMembers: 2,
         activeMembers: 2,
-        expiringMembers: 1,
+        endedWithoutRenewingMembers: 1,
         cancelledMembers: 1,
       },
     );
@@ -316,6 +318,142 @@ test("membership trends count people, not renewals, and separate confirmed cance
       assert.match(pdf, /notifications/);
     }
   }
+});
+
+test("ended without renewing leaves out periods still running and card subscriptions set to renew", async () => {
+  const tier = (
+    await pool.query("SELECT tierid FROM membership_tiers WHERE kind='membership' ORDER BY tierid LIMIT 1")
+  ).rows[0].tierid;
+  const hour = 3_600_000,
+    now = Date.now();
+  const from = new Date(now - 72 * hour),
+    to = new Date(now + 24 * hour);
+  const ended = async () =>
+    (await membershipTrends(pool, from, to, "America/New_York", "day")).reduce((n, row) => n + row.endedWithoutRenewingMembers, 0);
+  const baseline = await ended();
+  // Turning off auto-renew in the app records the date it takes effect, on a period boundary, and leaves
+  // cancel_at_period_end false. A period ending before that date still renews.
+  const member = async (
+    label: string,
+    endsInHours: number,
+    billing?: { cancelAtPeriodEnd?: boolean; cancelsHoursAfterEnd?: number; confirmed?: boolean },
+  ) => {
+    const userId = (
+      await pool.query(
+        `INSERT INTO "user"(firstname,lastname,email,password,phone,status) VALUES('Lapse',$1,$2,'not-a-login','0000000000','active') RETURNING userid`,
+        [label, `lapse-${label}-${randomBytes(3).toString("hex")}@example.invalid`],
+      )
+    ).rows[0].userid;
+    const membershipId = (
+      await pool.query(
+        `INSERT INTO user_membership(userid,tierid,startdate,end_date,status)
+         VALUES($1,$2,$3::timestamptz AT TIME ZONE 'UTC',$4::timestamptz AT TIME ZONE 'UTC','active') RETURNING membershipid`,
+        [userId, tier, new Date(now - 30 * 24 * hour), new Date(now + endsInHours * hour)],
+      )
+    ).rows[0].membershipid;
+    if (!billing) return;
+    const billingId = randomUUID(),
+      reference = "in_lapse_" + randomBytes(4).toString("hex");
+    const payment = (
+      await pool.query(
+        `INSERT INTO payment(userid,membershipid,price,paymentstatus,paymentdate,method) VALUES($1,$2,50,'paid',NOW() AT TIME ZONE 'UTC','card') RETURNING paymentid`,
+        [userId, membershipId],
+      )
+    ).rows[0].paymentid;
+    await pool.query(
+      `INSERT INTO app_membership_billing(id,userid,tierid,plan_snapshot,amount_cents,status,cancel_at_period_end,cancellation_effective_at,cancellation_confirmed)
+       VALUES($1,$2,$3,'{}',5000,'active',$4,$5,$6)`,
+      [
+        billingId,
+        userId,
+        tier,
+        billing.cancelAtPeriodEnd ?? false,
+        billing.cancelsHoursAfterEnd === undefined ? null : new Date(now + (endsInHours + billing.cancelsHoursAfterEnd) * hour),
+        billing.confirmed ?? true,
+      ],
+    );
+    await pool.query(
+      `INSERT INTO app_membership_invoice(id,billing_id,membership_id,payment_id,period_start,period_end) VALUES($1,$2,$3,$4,$5,$6)`,
+      [reference, billingId, membershipId, payment, new Date(now - 30 * 24 * hour), new Date(now + endsInHours * hour)],
+    );
+  };
+  await member("desk", -24); // ended yesterday: counted
+  await member("tonight", 2); // still running until later today
+  await member("renewing", -1, {}); // Stripe renews it; the invoice has not posted yet
+  await member("later", -1, { cancelsHoursAfterEnd: 30 * 24 }); // auto-renew ends after the next period: renews
+  await member("cancelled", -1, { cancelsHoursAfterEnd: 0 }); // auto-renew turned off in the app, ending here: counted
+  await member("unconfirmed", -1, { cancelsHoursAfterEnd: 0, confirmed: false }); // Stripe never confirmed the stop: renews
+  await member("stopped", -1, { cancelAtPeriodEnd: true }); // cancelled at period end in Stripe: counted
+  assert.equal((await ended()) - baseline, 3);
+});
+
+test("members ending soon counts only memberships running out in 30 days that nothing renews or continues", async () => {
+  const tier = (
+    await pool.query("SELECT tierid FROM membership_tiers WHERE kind='membership' ORDER BY tierid LIMIT 1")
+  ).rows[0].tierid;
+  const day = 86_400_000,
+    now = Date.now();
+  const baseline = await membersEndingSoon(pool);
+  const period = (userId: number, startsInDays: number, endsInDays: number) =>
+    pool.query(
+      `INSERT INTO user_membership(userid,tierid,startdate,end_date,status)
+       VALUES($1,$2,$3::timestamptz AT TIME ZONE 'UTC',$4::timestamptz AT TIME ZONE 'UTC','active') RETURNING membershipid`,
+      [userId, tier, new Date(now + startsInDays * day), new Date(now + endsInDays * day)],
+    );
+  const member = async (
+    label: string,
+    endsInDays: number,
+    { status = "active", next, card }: { status?: string; next?: boolean; card?: { cancelAtPeriodEnd: boolean } } = {},
+  ) => {
+    const userId = (
+      await pool.query(
+        `INSERT INTO "user"(firstname,lastname,email,password,phone,status) VALUES('Ending',$1,$2,'not-a-login','0000000000',$3) RETURNING userid`,
+        [label, `ending-${label}-${randomBytes(3).toString("hex")}@example.invalid`, status],
+      )
+    ).rows[0].userid;
+    const membershipId = (await period(userId, -20, endsInDays)).rows[0].membershipid;
+    // Renewed at the desk ahead of time: the next period starts where this one ends.
+    if (next) await period(userId, endsInDays, endsInDays + 30);
+    if (!card) return;
+    const billingId = randomUUID();
+    const payment = (
+      await pool.query(
+        `INSERT INTO payment(userid,membershipid,price,paymentstatus,paymentdate,method) VALUES($1,$2,50,'paid',NOW() AT TIME ZONE 'UTC','card') RETURNING paymentid`,
+        [userId, membershipId],
+      )
+    ).rows[0].paymentid;
+    await pool.query(
+      `INSERT INTO app_membership_billing(id,userid,tierid,plan_snapshot,amount_cents,status,cancel_at_period_end,cancellation_confirmed)
+       VALUES($1,$2,$3,'{}',5000,'active',$4,true)`,
+      [billingId, userId, tier, card.cancelAtPeriodEnd],
+    );
+    await pool.query(
+      `INSERT INTO app_membership_invoice(id,billing_id,membership_id,payment_id,period_start,period_end) VALUES($1,$2,$3,$4,$5,$6)`,
+      ["in_ending_" + randomBytes(4).toString("hex"), billingId, membershipId, payment, new Date(now - 20 * day), new Date(now + endsInDays * day)],
+    );
+  };
+  await member("desk", 10); // counted
+  await member("stopping", 5, { card: { cancelAtPeriodEnd: true } }); // card set to stop: counted
+  await member("renewing", 5, { card: { cancelAtPeriodEnd: false } }); // card set to renew: not ending
+  await member("continued", 10, { next: true }); // already renewed at the desk: not ending
+  await member("later", 40); // outside the 30 days
+  await member("ended", -1); // already ended: that is "ended without renewing", not ending soon
+  await member("closed", 10, { status: "inactive" }); // closed account, as in the active membership count
+  assert.equal((await membersEndingSoon(pool)) - baseline, 2);
+
+  const app = createApp(pool, config),
+    login = await request(app).post("/api/auth/demo").send({ role: "admin" });
+  const auth = { Authorization: "Bearer " + login.body.data.accessToken };
+  const report = await request(app).get("/api/admin/reports?from=2026-01-01&to=2026-01-03&period=daily").set(auth);
+  assert.equal(report.status, 200);
+  // Live, whatever dates the report covers.
+  assert.equal(report.body.data.compliance.membersEndingWithin30Days, baseline + 2);
+  const csv = await request(app).get("/api/admin/reports/export?from=2026-01-01&to=2026-01-03&period=daily&format=csv").set(auth);
+  assert.match(csv.body.data.content, /membersEndingWithin30Days/);
+  assert.match(csv.body.data.content, /endedWithoutRenewingMembers/);
+  assert.doesNotMatch(csv.body.data.content, /expiringMembers/);
+  const pdf = await request(app).get("/api/admin/reports/export?from=2026-01-01&to=2026-01-03&period=daily&format=pdf").set(auth);
+  assert.match(Buffer.from(pdf.body.data.content, "base64").toString(), new RegExp(`membersEndingWithin30Days: ${baseline + 2}`));
 });
 
 test("BR009 cohort excludes account and membership notices; callbacks cannot inflate counts", async () => {

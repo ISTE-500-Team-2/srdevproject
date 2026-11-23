@@ -21,8 +21,9 @@ const live = { retainOnReload: true, refreshInterval: 15000 };
 
 /** Staff Studios page: what needs recording, who's in which studio, and each studio's terms. */
 export function StaffStudios() {
-  const { user } = useAuth();
-  const admin = !!user?.roles.some((r) => ["admin", "super-admin"].includes(r));
+  // The signed-in staff member, even while a member's account is open in another tab.
+  const { user, actor } = useAuth();
+  const admin = !!(actor ?? user)?.roles.some((r) => ["admin", "super-admin"].includes(r));
   const config = useApi<{ timeZone: string }>("/config", { retainOnReload: true, reuse: true });
   const studios = useApi<{ studios: Studio[] }>("/studios", live);
   const rentals = useApi<Rental[]>("/studio-management/rentals", live);
@@ -32,7 +33,7 @@ export function StaffStudios() {
   const [picker, setPicker] = useState(false);
   const [message, setMessage] = useState("");
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 60000);
+    const timer = window.setInterval(() => setNow(Date.now()), 15000);
     return () => window.clearInterval(timer);
   }, []);
 

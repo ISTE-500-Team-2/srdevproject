@@ -49,6 +49,7 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.resetAllMocks();
+  vi.unstubAllGlobals();
   auth.user = { roles: ["member"], membership: "Monthly" };
 });
 
@@ -65,6 +66,16 @@ async function openSmall() {
 }
 const calls = (path: string) =>
   api.mock.calls.filter(([p]) => p === path).length;
+
+test("each size is a heading that holds its card's button, so heading navigation finds it", async () => {
+  mount();
+  const button = await screen.findByRole("button", { name: /^Small studios/ });
+  expect(screen.getAllByRole("heading", { level: 2 })).toContain(button.closest("h2"));
+  // The card's details stay with it, and its button opens the booking.
+  expect(button.closest("article")!.textContent).toContain("Harkonnen");
+  fireEvent.click(button);
+  expect(screen.getByRole("dialog", { name: "Reserve a small studio" })).toBeTruthy();
+});
 
 test("the member page never loads the staff studio desk", async () => {
   auth.user = { roles: ["staff"], membership: "None" };
@@ -181,6 +192,79 @@ test("an unpaid hold says there's nothing to refund instead of $0.00", async () 
   expect(screen.queryByRole("dialog", { name: "Cancel Harkonnen?" })).toBeNull();
 });
 
+const cardHold = (over: Record<string, unknown> = {}) =>
+  rental({ payment_method: "stripe_test", checkout_id: "cs_test_hold", status: "pending", payment_status: "unpaid",
+    hold_until: "2030-01-10T15:30:00Z", ...over });
+
+test("a pending card hold doesn't promise there's nothing to refund", async () => {
+  withRentals([cardHold()]);
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Cancel rental" }));
+  const dialog = screen.getByRole("dialog", { name: "Cancel Harkonnen?" });
+  expect(within(dialog).getByText(/If your card payment didn't go through, there's nothing to refund\. If it did, we'll stop/)).toBeTruthy();
+  expect(within(dialog).queryByText("You haven't paid for this hold, so there's nothing to refund.")).toBeNull();
+});
+
+test("when cancelling finds the card payment went through, the dialog shows the paid terms", async () => {
+  globalThis.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+  let rentals = [cardHold({ cancellation_policy: "no_refunds" })];
+  api.mockImplementation((path: string) => {
+    if (path === "/studios") return Promise.resolve({ studios, cardTestEnabled: true, timeZone: "UTC" });
+    if (path === "/studio-rentals") return Promise.resolve(rentals);
+    if (path === "/studio-rentals/7/cancel") {
+      // The server confirms the payment it just found and stops short of cancelling.
+      rentals = [cardHold({ cancellation_policy: "no_refunds", status: "confirmed", payment_status: "paid" })];
+      return Promise.reject(new Error("Your card payment just went through, so this rental is now booked and paid."));
+    }
+    return Promise.resolve({});
+  });
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Cancel rental" }));
+  const dialog = screen.getByRole("dialog", { name: "Cancel Harkonnen?" });
+  fireEvent.keyDown(within(dialog).getByRole("button", { name: /Hold to cancel rental/ }), { key: " " });
+  await within(dialog).findByText(/Your card payment just went through/, undefined, { timeout: 2500 });
+  expect(
+    await within(dialog).findByText("This rental's terms don't include refunds, so the $350.00 you paid won't be returned."),
+  ).toBeTruthy();
+});
+
+test("cancelling names the state it showed, so a desk payment recorded meanwhile stops it", async () => {
+  globalThis.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+  const unpaid = rental({ status: "pending", payment_status: "unpaid", hold_until: "2030-01-10T15:30:00Z",
+    cancellation_policy: "no_refunds" });
+  let rentals = [unpaid];
+  const sent: unknown[] = [];
+  api.mockImplementation((path: string, init?: { body?: unknown }) => {
+    if (path === "/studios") return Promise.resolve({ studios, cardTestEnabled: false, timeZone: "UTC" });
+    if (path === "/studio-rentals") return Promise.resolve(rentals);
+    if (path === "/studio-rentals/7/cancel") {
+      sent.push(init?.body);
+      // Staff recorded the desk payment after the dialog was drawn; the server refuses.
+      rentals = [{ ...unpaid, status: "confirmed", payment_status: "paid" }];
+      return Promise.reject(new Error("A payment for this rental was just recorded, so the refund terms you saw no longer apply."));
+    }
+    return Promise.resolve({});
+  });
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Cancel rental" }));
+  const dialog = screen.getByRole("dialog", { name: "Cancel Harkonnen?" });
+  expect(within(dialog).getByText("You haven't paid for this hold, so there's nothing to refund.")).toBeTruthy();
+  fireEvent.keyDown(within(dialog).getByRole("button", { name: /Hold to cancel rental/ }), { key: " " });
+  await within(dialog).findByText(/A payment for this rental was just recorded/, undefined, { timeout: 2500 });
+  expect(sent).toEqual([{ expectedStatus: "pending", expectedPaymentStatus: "unpaid" }]);
+  expect(
+    await within(dialog).findByText("This rental's terms don't include refunds, so the $350.00 you paid won't be returned."),
+  ).toBeTruthy();
+});
+
 const returned = "/studios?payment=returned&rental=7&session_id=cs_test_matching";
 
 test("a checkout return cannot confirm an unrelated historical or manual payment", async () => {
@@ -199,7 +283,7 @@ test("a matching paid card checkout confirms that rental even when another renta
   mount(returned);
   await screen.findByText("Payment received.");
   expect(screen.getByText("Harkonnen is booked.", { exact: false })).toBeTruthy();
-  expect(screen.getByRole("group", { name: "Booking reference 000007" })).toBeTruthy();
+  expect(screen.getByText("000007")).toBeTruthy();
 });
 
 test("a matching pending checkout stays pending rather than borrowing another paid rental", async () => {
@@ -314,24 +398,42 @@ test("a front-desk hold confirms the dates, price and booking reference", async 
   fireEvent.click(dialog.getByRole("button", { name: "Hold studio" }));
   await dialog.findByText("Harkonnen is held for you");
   expect(dialog.getByText("Jan 20 – Feb 19, 2030 · $350.00")).toBeTruthy();
-  expect(dialog.getByRole("group", { name: "Booking reference 000052" })).toBeTruthy();
+  expect(dialog.getByText("000052")).toBeTruthy();
 });
 
-test("a booking conflict reloads availability straight away", async () => {
+test("a booking conflict reloads availability straight away and explains it once", async () => {
   api.mockImplementation((path: string, init?: { body?: unknown }) => {
     if (path === "/studios")
       return Promise.resolve({ studios, cardTestEnabled: false, timeZone: "UTC" });
-    if (path === "/studio-rentals" && init?.body)
+    if (path === "/studio-rentals" && init?.body) {
+      // Another member got Harkonnen first; the reload shows it taken.
+      studios = [
+        studio(1, "Harkonnen", [
+          { starts_on: "2030-01-15", ends_on: "2030-02-15", status: "confirmed", hold_until: "" },
+        ]),
+        studio(2, "Atreides"),
+      ];
       return Promise.reject(new Error("Someone has already booked this studio."));
+    }
     return Promise.resolve([]);
   });
   mount();
   const dialog = within(await openSmall());
   const before = calls("/studios");
   fireEvent.click(dialog.getByRole("button", { name: "Sun, Jan 20, 2030" }));
-  fireEvent.click(dialog.getByRole("button", { name: "Hold studio" }));
+  const hold = dialog.getByRole("button", { name: "Hold studio" }) as HTMLButtonElement;
+  fireEvent.click(hold);
   await dialog.findByText("Someone has already booked this studio.");
   await waitFor(() => expect(calls("/studios")).toBeGreaterThan(before));
+  const harkonnen = dialog.getByRole("radio", { name: /Harkonnen/ }) as HTMLInputElement;
+  await waitFor(() => expect(harkonnen.disabled).toBe(true));
+  // The server's reason shows; the matching "just taken" line doesn't repeat it.
+  expect(dialog.getAllByRole("alert").map((a) => a.textContent)).toEqual([
+    "Someone has already booked this studio.",
+  ]);
+  expect(hold.disabled).toBe(true);
+  fireEvent.click(dialog.getByRole("radio", { name: /Atreides/ }));
+  expect(hold.disabled).toBe(false);
 });
 
 test("coming back from a still-pending card checkout asks the server to check it once", async () => {
@@ -347,4 +449,381 @@ test("leaving card checkout explains the hold is kept", async () => {
   withRentals([rental({ payment_method: "stripe_test", status: "pending", payment_status: "unpaid", hold_until: "2030-01-10T15:30:00Z" })]);
   mount("/studios?payment=cancelled");
   expect(await screen.findByText(/You left card checkout before paying\. Harkonnen stays held until/)).toBeTruthy();
+});
+
+test("a desk hold keeps its booking reference under Your rentals", async () => {
+  withRentals([rental({ id: 52, status: "pending", payment_status: "unpaid", hold_until: "2030-01-10T15:30:00Z" })]);
+  mount();
+  const current = await screen.findByRole("region", { name: "Your rentals" });
+  expect(within(current).getByText(/give them booking reference 000052/)).toBeTruthy();
+});
+
+test("a rental starting today doesn't promise a refund window", async () => {
+  mount();
+  const dialog = within(await openSmall());
+  fireEvent.click(dialog.getByRole("button", { name: "Thu, Jan 10, 2030" }));
+  expect(dialog.getByText("No refund: this rental starts today.")).toBeTruthy();
+  fireEvent.click(dialog.getByRole("button", { name: "Sun, Jan 20, 2030" }));
+  expect(dialog.getByText("Full refund if you cancel before Jan 20.")).toBeTruthy();
+});
+
+test("a taken studio says when it's next free for a full month, past back-to-back rentals", async () => {
+  studios = [
+    studio(1, "Harkonnen"),
+    studio(2, "Atreides", [
+      { starts_on: "2030-01-01", ends_on: "2030-02-01", status: "confirmed", hold_until: "" },
+      { starts_on: "2030-02-01", ends_on: "2030-03-01", status: "confirmed", hold_until: "" },
+    ]),
+  ];
+  mount();
+  const dialog = within(await openSmall());
+  fireEvent.click(dialog.getByRole("button", { name: "Sun, Jan 20, 2030" }));
+  expect((dialog.getByRole("radio", { name: /Atreides/ }) as HTMLInputElement).disabled).toBe(true);
+  expect(dialog.getByText("Next opening Mar 1")).toBeTruthy();
+  expect(dialog.queryByText(/Taken until/)).toBeNull();
+});
+
+const ownSlot = { starts_on: "2030-01-20", ends_on: "2030-02-20", status: "pending", hold_until: "2030-01-10T15:31:00Z" };
+
+test("starting card checkout doesn't reload and flash the member's own new hold as taken", async () => {
+  const assign = vi.fn();
+  vi.stubGlobal("location", { ...window.location, assign });
+  api.mockImplementation((path: string, init?: { body?: unknown }) => {
+    if (path === "/studios")
+      return Promise.resolve({ studios, cardTestEnabled: true, timeZone: "UTC" });
+    if (path === "/studio-rentals" && init?.body) {
+      // The server now holds Harkonnen for this member while checkout loads.
+      studios = [studio(1, "Harkonnen", [ownSlot]), studio(2, "Atreides")];
+      return Promise.resolve(
+        rental({ id: 52, studio_id: 1, status: "pending", payment_status: "unpaid", payment_method: "stripe_test", checkoutUrl: "https://checkout.test/52" }),
+      );
+    }
+    return Promise.resolve([]);
+  });
+  mount();
+  const dialog = within(await openSmall());
+  fireEvent.click(dialog.getByRole("button", { name: "Sun, Jan 20, 2030" }));
+  fireEvent.click(dialog.getByRole("radio", { name: /Pay now by card/ }));
+  const before = calls("/studios");
+  fireEvent.click(dialog.getByRole("button", { name: "Continue to card payment" }));
+  await waitFor(() => expect(assign).toHaveBeenCalledWith("https://checkout.test/52"));
+  await waitFor(() => expect(dialog.getByRole("button", { name: "Continue to card payment" })).toBeTruthy());
+  expect(calls("/studios")).toBe(before);
+  expect(dialog.queryByRole("alert")).toBeNull();
+});
+
+test("when the server saved a desk hold but the reply was lost, the member sees their hold and the real error", async () => {
+  let saved = false;
+  api.mockImplementation((path: string, init?: { body?: unknown }) => {
+    if (path === "/studios")
+      return Promise.resolve({
+        studios: saved ? [studio(1, "Harkonnen", [ownSlot]), studio(2, "Atreides")] : studios,
+        cardTestEnabled: false,
+        timeZone: "UTC",
+      });
+    if (path === "/studio-rentals" && init?.body) {
+      saved = true;
+      return Promise.reject(new Error("Network error"));
+    }
+    if (path === "/studio-rentals")
+      return Promise.resolve(
+        saved ? [rental({ id: 52, studio_id: 1, status: "pending", payment_status: "unpaid", hold_until: ownSlot.hold_until })] : [],
+      );
+    return Promise.resolve([]);
+  });
+  mount();
+  const dialog = within(await openSmall());
+  fireEvent.click(dialog.getByRole("button", { name: "Sun, Jan 20, 2030" }));
+  fireEvent.click(dialog.getByRole("button", { name: "Hold studio" }));
+  await dialog.findByText("Harkonnen is held for you");
+  expect(dialog.getByText("Network error")).toBeTruthy();
+  expect(dialog.getByText("000052")).toBeTruthy();
+  expect(dialog.queryByText(/just taken/)).toBeNull();
+});
+
+test("a card hold saved before checkout failed offers Finish card payment in the pop-up", async () => {
+  const assign = vi.fn();
+  vi.stubGlobal("location", { ...window.location, assign });
+  const hold = rental({ id: 52, studio_id: 1, status: "pending", payment_status: "unpaid", payment_method: "stripe_test", hold_until: ownSlot.hold_until });
+  let saved = false;
+  api.mockImplementation((path: string, init?: { body?: unknown }) => {
+    if (path === "/studios")
+      return Promise.resolve({
+        studios: saved ? [studio(1, "Harkonnen", [ownSlot]), studio(2, "Atreides")] : studios,
+        cardTestEnabled: true,
+        timeZone: "UTC",
+      });
+    if (path === "/studio-rentals" && init?.body) {
+      saved = true;
+      return Promise.reject(new Error("Card checkout couldn't start."));
+    }
+    if (path === "/studio-rentals") return Promise.resolve(saved ? [hold] : []);
+    if (path === "/studio-rentals/52/payment-status")
+      return Promise.resolve({ ...hold, checkoutUrl: "https://checkout.test/52" });
+    return Promise.resolve([]);
+  });
+  mount();
+  const dialog = within(await openSmall());
+  fireEvent.click(dialog.getByRole("button", { name: "Sun, Jan 20, 2030" }));
+  fireEvent.click(dialog.getByRole("radio", { name: /Pay now by card/ }));
+  fireEvent.click(dialog.getByRole("button", { name: "Continue to card payment" }));
+  await dialog.findByText("Harkonnen is held for you");
+  expect(dialog.getByText("Card checkout couldn't start.")).toBeTruthy();
+  expect(dialog.queryByText(/just taken/)).toBeNull();
+  fireEvent.click(dialog.getByRole("button", { name: "Finish card payment" }));
+  await waitFor(() => expect(assign).toHaveBeenCalledWith("https://checkout.test/52"));
+});
+
+function cardHoldThenFinish(finished: Record<string, unknown>) {
+  const hold = rental({ id: 52, studio_id: 1, status: "pending", payment_status: "unpaid", payment_method: "stripe_test", hold_until: ownSlot.hold_until });
+  let current: unknown = null;
+  api.mockImplementation((path: string, init?: { body?: unknown }) => {
+    const held = (current as { status?: string } | null)?.status === "pending";
+    if (path === "/studios")
+      return Promise.resolve({
+        studios: held ? [studio(1, "Harkonnen", [ownSlot]), studio(2, "Atreides")] : studios,
+        cardTestEnabled: true,
+        timeZone: "UTC",
+      });
+    if (path === "/studio-rentals" && init?.body) {
+      current = hold;
+      return Promise.reject(new Error("Card checkout couldn't start."));
+    }
+    if (path === "/studio-rentals") return Promise.resolve(current ? [current] : []);
+    if (path === "/studio-rentals/52/payment-status") {
+      current = { ...hold, ...finished };
+      return Promise.resolve(current);
+    }
+    return Promise.resolve([]);
+  });
+}
+async function finishInPopUp() {
+  mount();
+  const dialog = within(await openSmall());
+  fireEvent.click(dialog.getByRole("button", { name: "Sun, Jan 20, 2030" }));
+  fireEvent.click(dialog.getByRole("radio", { name: /Pay now by card/ }));
+  fireEvent.click(dialog.getByRole("button", { name: "Continue to card payment" }));
+  await dialog.findByText("Harkonnen is held for you");
+  fireEvent.click(dialog.getByRole("button", { name: "Finish card payment" }));
+  return dialog;
+}
+
+test("a card hold that ran out while the pop-up was open says so in the pop-up", async () => {
+  cardHoldThenFinish({ status: "expired" });
+  const dialog = await finishInPopUp();
+  await dialog.findByText(
+    "The hold ran out before payment, so Harkonnen was released. You can book it again below.",
+  );
+  // Back on the form for the same studio and date, ready to book again.
+  expect(dialog.getByRole("button", { name: "Continue to card payment" })).toBeTruthy();
+  expect(dialog.queryByText("Harkonnen is held for you")).toBeNull();
+  expect(screen.getAllByText(/The hold ran out before payment, so/)).toHaveLength(1);
+});
+
+test("a card payment still processing says so in the pop-up", async () => {
+  cardHoldThenFinish({});
+  const dialog = await finishInPopUp();
+  await dialog.findByText("Your card payment is still processing. This page updates on its own.");
+  expect(dialog.getByText("Harkonnen is held for you")).toBeTruthy();
+});
+
+const stubResizeObserver = () => {
+  globalThis.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+};
+async function holdToCancel() {
+  const open = await screen.findByRole("button", { name: "Cancel rental" });
+  open.focus();
+  fireEvent.click(open);
+  const dialog = screen.getByRole("dialog", { name: "Cancel Harkonnen?" });
+  fireEvent.keyDown(within(dialog).getByRole("button", { name: /Hold to cancel rental/ }), { key: " " });
+}
+
+test("a cancelled rental hands focus to the confirmation instead of dropping it", async () => {
+  stubResizeObserver();
+  let rentals = [rental({})];
+  api.mockImplementation((path: string, init?: { method?: string }) => {
+    if (path === "/studios")
+      return Promise.resolve({ studios, cardTestEnabled: false, timeZone: "UTC" });
+    if (path === "/studio-rentals") return Promise.resolve(rentals);
+    if (path === "/studio-rentals/7/cancel" && init?.method === "POST") {
+      rentals = [rental({ status: "cancelled", payment_status: "refund_pending", refund_cents: 35000 })];
+      return Promise.resolve(rentals[0]);
+    }
+    return Promise.resolve([]);
+  });
+  mount();
+  await holdToCancel();
+  const confirmation = await screen.findByText("Harkonnen cancelled.", {}, { timeout: 2500 });
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Your rentals" })).toBeNull());
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(confirmation);
+});
+
+test("a cancellation whose card refund fails closes the dialog and says the rental is cancelled", async () => {
+  stubResizeObserver();
+  let rentals = [rental({ payment_method: "stripe_test" })];
+  api.mockImplementation((path: string, init?: { method?: string }) => {
+    if (path === "/studios")
+      return Promise.resolve({ studios, cardTestEnabled: true, timeZone: "UTC" });
+    if (path === "/studio-rentals") return Promise.resolve(rentals);
+    if (path === "/studio-rentals/7/cancel" && init?.method === "POST") {
+      // The server commits the cancellation, then the refund call fails.
+      rentals = [rental({ payment_method: "stripe_test", status: "cancelled", payment_status: "refund_failed", refund_cents: 35000 })];
+      return Promise.reject(Object.assign(new Error("Booking cancelled; refund needs retry by staff."), { code: "REFUND_PENDING" }));
+    }
+    return Promise.resolve([]);
+  });
+  mount();
+  await holdToCancel();
+  const confirmation = await screen.findByText(
+    "Harkonnen cancelled, but the refund didn’t go through. Staff will follow up to return it to your original payment method.",
+    {},
+    { timeout: 2500 },
+  );
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(screen.queryByText(/You'll get \$350\.00 back/)).toBeNull();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(document.activeElement).toBe(confirmation);
+});
+
+test("the cancel dialog closes itself once the rental is no longer active", async () => {
+  stubResizeObserver();
+  let rentals = [rental({ status: "pending", payment_status: "unpaid", hold_until: "2030-01-10T15:30:00Z" })];
+  api.mockImplementation((path: string) => {
+    if (path === "/studios")
+      return Promise.resolve({ studios, cardTestEnabled: false, timeZone: "UTC" });
+    if (path === "/studio-rentals") return Promise.resolve(rentals);
+    return Promise.resolve([]);
+  });
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Cancel rental" }));
+  expect(screen.getByRole("dialog", { name: "Cancel Harkonnen?" })).toBeTruthy();
+  // The hold runs out while the dialog is open; the next live update shows it.
+  rentals = [rental({ status: "expired", payment_status: "unpaid", hold_until: "2030-01-10T15:30:00Z" })];
+  act(() => {
+    window.dispatchEvent(new Event("focus"));
+  });
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Cancel Harkonnen?" })).toBeNull());
+});
+
+test("a retried booking that replays a lapsed hold books again instead of claiming it is held", async () => {
+  const keys: string[] = [];
+  api.mockImplementation((path: string, init?: { body?: { requestKey: string } }) => {
+    if (path === "/studios")
+      return Promise.resolve({ studios, cardTestEnabled: false, timeZone: "UTC" });
+    if (path === "/studio-rentals" && init?.body) {
+      keys.push(init.body.requestKey);
+      // The first request's response was lost earlier; its hold has since expired.
+      if (keys.length === 1) return Promise.reject(new Error("Network error"));
+      if (keys.length === 2)
+        return Promise.resolve(rental({ id: 52, status: "expired", payment_status: "unpaid", hold_until: "2030-01-10T14:30:00Z" }));
+      return Promise.resolve(rental({ id: 53, status: "pending", payment_status: "unpaid", hold_until: "2030-01-10T15:30:00Z" }));
+    }
+    return Promise.resolve([]);
+  });
+  mount();
+  const dialog = within(await openSmall());
+  fireEvent.click(dialog.getByRole("button", { name: "Sun, Jan 20, 2030" }));
+  fireEvent.click(dialog.getByRole("button", { name: "Hold studio" }));
+  await dialog.findByText("Network error");
+  fireEvent.click(dialog.getByRole("button", { name: "Hold studio" }));
+  await dialog.findByText("Harkonnen is held for you");
+  expect(keys).toHaveLength(3);
+  expect(keys[1]).toBe(keys[0]);
+  expect(keys[2]).not.toBe(keys[0]);
+  expect(dialog.getByText("000053")).toBeTruthy();
+});
+
+test("closing the booking pop-up starts the next booking with a new request key", async () => {
+  const keys: string[] = [];
+  api.mockImplementation((path: string, init?: { body?: { requestKey: string } }) => {
+    if (path === "/studios")
+      return Promise.resolve({ studios, cardTestEnabled: false, timeZone: "UTC" });
+    if (path === "/studio-rentals" && init?.body) {
+      keys.push(init.body.requestKey);
+      return Promise.reject(new Error("Network error"));
+    }
+    return Promise.resolve([]);
+  });
+  mount();
+  let dialog = within(await openSmall());
+  fireEvent.click(dialog.getByRole("button", { name: "Sun, Jan 20, 2030" }));
+  fireEvent.click(dialog.getByRole("button", { name: "Hold studio" }));
+  await dialog.findByText("Network error");
+  fireEvent.click(dialog.getByRole("button", { name: "Close dialog" }));
+  dialog = within(await openSmall());
+  fireEvent.click(dialog.getByRole("button", { name: "Sun, Jan 20, 2030" }));
+  fireEvent.click(dialog.getByRole("button", { name: "Hold studio" }));
+  await waitFor(() => expect(keys).toHaveLength(2));
+  expect(keys[1]).not.toBe(keys[0]);
+});
+
+test("a retried booking that replays a rental paid meanwhile says it is booked instead of booking again", async () => {
+  const keys: string[] = [];
+  api.mockImplementation((path: string, init?: { body?: { requestKey: string } }) => {
+    if (path === "/studios")
+      return Promise.resolve({ studios, cardTestEnabled: false, timeZone: "UTC" });
+    if (path === "/studio-rentals" && init?.body) {
+      keys.push(init.body.requestKey);
+      if (keys.length === 1) return Promise.reject(new Error("Network error"));
+      // The lost hold was paid at the front desk while the pop-up stayed open.
+      return Promise.resolve(rental({ id: 52, hold_until: "2030-01-10T14:30:00Z" }));
+    }
+    return Promise.resolve([]);
+  });
+  mount();
+  const dialog = within(await openSmall());
+  fireEvent.click(dialog.getByRole("button", { name: "Sun, Jan 20, 2030" }));
+  fireEvent.click(dialog.getByRole("button", { name: "Hold studio" }));
+  await dialog.findByText("Network error");
+  fireEvent.click(dialog.getByRole("button", { name: "Hold studio" }));
+  const confirmation = await screen.findByText("Harkonnen is booked. It’s listed under Your rentals.");
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(keys).toEqual([keys[0], keys[0]]);
+  expect(screen.queryByText("Harkonnen is held for you")).toBeNull();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(document.activeElement).toBe(confirmation);
+});
+
+test("a retried card booking whose checkout already closed is settled and booked again, not shown as held", async () => {
+  const assign = vi.fn();
+  vi.stubGlobal("location", { assign });
+  const keys: string[] = [];
+  const card = { payment_method: "stripe_test", status: "pending", payment_status: "unpaid" };
+  api.mockImplementation((path: string, init?: { method?: string; body?: { requestKey: string } }) => {
+    if (path === "/studios")
+      return Promise.resolve({ studios, cardTestEnabled: true, timeZone: "UTC" });
+    if (path === "/studio-rentals" && init?.body) {
+      keys.push(init.body.requestKey);
+      if (keys.length === 1) return Promise.reject(new Error("Network error"));
+      // Stripe let the old checkout time out, but its webhook hasn't arrived.
+      if (keys.length === 2)
+        return Promise.resolve(rental({ ...card, id: 52, checkout_id: "cs_test_old", hold_until: "2030-01-10T14:30:00Z", checkoutUrl: null }));
+      return Promise.resolve(rental({ ...card, id: 53, hold_until: "2030-01-10T15:31:00Z", checkoutUrl: "https://checkout.stripe.com/c/new" }));
+    }
+    if (path === "/studio-rentals/52/payment-status" && init?.method === "POST")
+      return Promise.resolve(rental({ ...card, id: 52, status: "expired", checkoutUrl: null }));
+    return Promise.resolve([]);
+  });
+  try {
+    mount();
+    const dialog = within(await openSmall());
+    fireEvent.click(dialog.getByRole("button", { name: "Sun, Jan 20, 2030" }));
+    fireEvent.click(dialog.getByRole("radio", { name: /Pay now by card/ }));
+    fireEvent.click(dialog.getByRole("button", { name: "Continue to card payment" }));
+    await dialog.findByText("Network error");
+    fireEvent.click(dialog.getByRole("button", { name: "Continue to card payment" }));
+    await waitFor(() => expect(assign).toHaveBeenCalledWith("https://checkout.stripe.com/c/new"));
+    expect(keys).toHaveLength(3);
+    expect(keys[1]).toBe(keys[0]);
+    expect(keys[2]).not.toBe(keys[0]);
+    expect(calls("/studio-rentals/52/payment-status")).toBe(1);
+    expect(screen.queryByText("Harkonnen is held for you")).toBeNull();
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });

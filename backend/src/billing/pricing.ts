@@ -7,6 +7,7 @@ import {AppError,positiveId,textField} from '../domain.js';
 import {calendarDate} from '../staffDomain.js';
 import {StaffModel,type Plan} from '../models/StaffModel.js';
 import {requireActor} from '../accountPolicy.js';
+import {assertManageable} from '../services/StaffService.js';
 /** An app_billing_price row: the eligibility pricing for one plan. */
 interface BillingPriceRow {tierid:number;student_cents:number|null;partner_free:boolean;revision:number;}
 /** Eligibility pricing update; each field is validated by BillingPricing.configure. */
@@ -60,8 +61,11 @@ export class BillingPricing {
  async verifyPartner(actor:number,userid:number,body:PartnerVerificationRequest) {
   const reference=textField(body.reference,'Approved school/verification reference',255,3),until=calendarDate(body.validUntil);
   return transaction(this.pool,async db=>{
-   await requireActor(db,actor,{staff:true});
+   const operator=await requireActor(db,actor,{staff:true});
+   // Partner eligibility can make plans free, so nobody approves their own, and only administrators approve a staff account's.
+   if(actor===userid)throw new AppError(409,'SELF_CHANGE_FORBIDDEN','Another administrator must verify your school-partner eligibility.');
    if(!await new StaffModel(db).person(positiveId(userid),true))throw new AppError(404,'NOT_FOUND','Member not found.');
+   await assertManageable(db,operator,userid);
    await db.query(`INSERT INTO app_partner_eligibility(userid,reference,valid_until,verified_by) VALUES($1,$2,$3,$4)
     ON CONFLICT(userid) DO UPDATE SET reference=$2,valid_until=$3,verified_by=$4,verified_at=now()`,[userid,reference,until,actor]);
    await new StaffModel(db).audit(actor,userid,'billing.partner.verified','user',userid,reference,null,{validUntil:until});

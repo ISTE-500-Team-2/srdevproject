@@ -10,6 +10,7 @@ export function RecordAccount({
   locked,
   self,
   isAdmin,
+  timeZone,
   open,
 }: {
   person: Person;
@@ -20,8 +21,11 @@ export function RecordAccount({
   /** The viewer is this member. */
   self: boolean;
   isAdmin: boolean;
+  timeZone: string;
   open: OpenDialog;
 }) {
+  const day = (value: string) => new Date(value).toLocaleDateString("en-US", { dateStyle: "medium", timeZone });
+  const dates = [u.createdAt ? `Joined ${day(u.createdAt)}` : "", u.updatedAt ? `Last updated ${day(u.updatedAt)}` : ""].filter(Boolean);
   return (
     <section className="today-panel" id={`mr-account-${u.id}`} aria-labelledby={`mr-acc-title-${u.id}`}>
       <div className="today-panel-head">
@@ -49,6 +53,7 @@ export function RecordAccount({
           value={roleName(u.primaryRole ?? u.roles[0] ?? "member")}
           small={[
             u.roles.filter((r) => r !== u.primaryRole).map(roleName).join(", ") ? `Also ${u.roles.filter((r) => r !== u.primaryRole).map(roleName).join(", ")}` : "",
+            (u.automaticRoles ?? []).map((r) => `${roleName(r)} (automatic)`).join(", "),
             u.isStudent ? "Student" : "",
           ]
             .filter(Boolean)
@@ -79,6 +84,7 @@ export function RecordAccount({
           onChange={() => photoVersion && open({ kind: "photo", version: photoVersion })}
         />
       </dl>
+      {dates.length ? <p className="mr-dates">{dates.join(" · ")}</p> : null}
     </section>
   );
 }

@@ -31,3 +31,5 @@ import './pages/admin/changeLog.css';
 import './components/photoEditor.css';
 import './pages/reports.css';
 import './components/InfoTip.css';
+import './pages/admin/equipmentImagePicker.css';
+import './components/access/readerHealth.css';

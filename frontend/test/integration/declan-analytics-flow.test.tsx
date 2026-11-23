@@ -9,10 +9,14 @@ import {
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import App from "../../src/App";
+import { loadStaffArea } from "../../src/areas/load";
 import { zonedDay } from "../../src/lib/display";
 import { createBrowserBridge } from "../../../backend/test/helpers/browserBridge";
 let bridge: Awaited<ReturnType<typeof createBrowserBridge>>;
 beforeAll(async () => {
+  // Compile the staff workspace here, under the hook's long timeout, so the first
+  // page wait measures the app and API rather than on-demand compilation.
+  await loadStaffArea();
   bridge = await createBrowserBridge();
 }, 120000);
 afterEach(cleanup);
@@ -81,8 +85,11 @@ test("analytics uses the full settled ledger, real check-ins/classes and zero-fi
   const table = await screen.findByRole("table", {
     name: "Revenue by period (period starting date)",
   });
-  await vi.waitFor(() =>
-    expect(within(table).getAllByRole("row")).toHaveLength(2),
+  // The earlier range stays on screen until the custom range's report arrives;
+  // vi.waitFor's own 1-second default is too short for that real request.
+  await vi.waitFor(
+    () => expect(within(table).getAllByRole("row")).toHaveLength(2),
+    { timeout: 20000 },
   );
   expect(within(table).getByRole("rowheader", { name: today })).toBeTruthy();
   expect(within(table).getByText("61")).toBeTruthy();

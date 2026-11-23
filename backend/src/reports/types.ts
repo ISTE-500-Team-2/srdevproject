@@ -63,6 +63,8 @@ export interface ComplianceSummary {
   expiredTraining: number;
   trainingWithoutExpiry: number;
   activeMemberships: number;
+  /** Live: active members whose membership ends in the next 30 days with nothing to continue it. */
+  membersEndingWithin30Days: number;
   signaturesWithoutCopy: number;
   machinesWithoutTraining: string[];
 }

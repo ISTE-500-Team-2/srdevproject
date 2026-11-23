@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { ClassesPage } from './ClassesPage';
 import { api, ApiError } from '../lib/api';
 import type { SupervisionSummary } from '../lib/contracts';
-import type { ClassRecord, Course, MemberRoster, Room, RosterPerson, WorkshopTemplate } from '../components/classes/classData';
+import { longDate, sessionName, type ClassRecord, type Course, type MemberRoster, type Room, type RosterPerson, type WorkshopTemplate } from '../components/classes/classData';
 import { mockApi } from '../testing/apiMock';
 import { certification, overview } from '../testing/fixtures';
 
@@ -24,6 +24,7 @@ const HOUR = 3600000;
 let people: RosterPerson[];
 let denyRoster = false, failFor: number | null = null, entitled = true, scheduleError: ApiError | null = null;
 let certified = false;
+let memberRoster: MemberRoster;
 let supervision: SupervisionSummary | null = null;
 const course = (id: number, offsetHours: number, extra: Partial<ClassRecord> = {}): ClassRecord => ({
   id, title: `Safety ${id}`, certificationId: 7, certificationName: 'Laser cutting', instructorId: 1, instructor: 'Morgan Reyes',
@@ -47,6 +48,7 @@ beforeEach(() => {
   denyRoster = false; failFor = null; entitled = true; scheduleError = null;
   certified = false;
   supervision = null;
+  memberRoster = { items: [{ name: 'First M.' }], capacity: 3, enrolled: 2, seatsAvailable: 1, namesVisible: true };
   people = [
     { userId: 11, name: 'First Member', email: 'first@example.invalid', status: 'enrolled' },
     { userId: 12, name: 'Second Member', email: 'second@example.invalid', status: 'enrolled' },
@@ -64,12 +66,13 @@ beforeEach(() => {
       if (scheduleError) throw scheduleError;
       return {};
     }
-    if (path === '/classes') return classes;
+    // Like the server, the list counts who on each roster still has no attendance recorded.
+    if (path === '/classes') return classes.map(c => ({ pendingAttendance: people.filter(p => p.status === 'enrolled').length, ...c }));
     if (path.endsWith('/roster')) {
       if (denyRoster) throw new ApiError(403, 'FORBIDDEN', 'Roster access removed.');
       return people;
     }
-    if (path.endsWith('/member-roster')) return { items: [{ name: 'First M.' }], capacity: 3, enrolled: 2, seatsAvailable: 1 } satisfies MemberRoster;
+    if (path.endsWith('/member-roster')) return memberRoster;
     if (path === '/me/overview') return overview({ entitlement: { membership: entitled, dayPass: false } });
     if (path === '/me/supervision') return supervision;
     if (path === '/me/certifications') return certified ? [certification({ id: 7, name: 'Laser cutting', valid: true })] : [];
@@ -99,6 +102,9 @@ async function openRoster(id = 4) {
   await click(`Roster for Safety ${id}`);
   return screen.getByRole('region', { name: `Safety ${id} roster` });
 }
+/** Register buttons name the session's day, so same-titled classes can be told apart. */
+const registerFor = (id: number) => `Register for ${sessionName(classes.find(c => c.id === id)!)}`;
+const startingWith = (prefix: string) => (name: string) => name.startsWith(prefix);
 const radio = (panel: HTMLElement, person: string, label: 'Attended' | 'No show') =>
   within(within(panel).getByRole('group', { name: `Attendance for ${person}` })).getByLabelText(label);
 
@@ -109,7 +115,7 @@ test('member sees soonest classes first and registers with one click', async () 
   const rows = screen.getAllByRole('heading', { level: 3 }).filter(h => h.closest('.class-row')).map(h => h.textContent);
   expect(rows).toEqual(['Safety 5', 'Safety 6']);
   expect(screen.getByText('You can register')).toBeTruthy();
-  await click('Register for Safety 5');
+  await click(registerFor(5));
   expect(calls('/classes/5/enroll', 'POST')).toHaveLength(1);
   expect(screen.getByText(/You're registered for Safety 5/)).toBeTruthy();
 });
@@ -118,7 +124,7 @@ test('member without membership or day pass is sent to membership instead of a f
   auth.user = { id: 30, roles: ['member'] };
   entitled = false;
   await mount();
-  expect(screen.queryByRole('button', { name: 'Register for Safety 5' })).toBeNull();
+  expect(screen.queryByRole('button', { name: startingWith('Register for Safety 5') })).toBeNull();
   expect(screen.getByRole('link', { name: 'Membership or day pass needed' }).getAttribute('href')).toBe('/membership');
 });
 
@@ -126,7 +132,7 @@ test('a minor without a sponsoring adult sees why Register is off and where to l
   auth.user = { id: 31, roles: ['member'], isMinor: true };
   supervision = { isMinor: true, marker: 'Under 18', sponsor: null, sponsorEligible: false, visit: null, pendingRequests: [] };
   await mount();
-  const register = screen.getByRole('button', { name: 'Register for Safety 5: link a sponsoring adult to sign up' }) as HTMLButtonElement;
+  const register = screen.getByRole('button', { name: `${registerFor(5)}: link a sponsoring adult to sign up` }) as HTMLButtonElement;
   expect(register.disabled).toBe(true);
   expect(screen.getByText('Link a sponsoring adult to sign up')).toBeTruthy();
   expect(screen.getByRole('heading', { name: 'Link a sponsor to sign up' })).toBeTruthy();
@@ -145,12 +151,12 @@ test('a minor whose linked sponsor is inactive is told so; an active sponsor let
   await mount();
   expect(screen.getByRole('heading', { name: 'Your sponsor can’t sign you up' })).toBeTruthy();
   expect(screen.queryByRole('link', { name: 'Link a sponsor' })).toBeNull();
-  expect((screen.getByRole('button', { name: /^Register for Safety 5: your sponsoring adult/ }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole('button', { name: startingWith(`${registerFor(5)}: your sponsoring adult`) }) as HTMLButtonElement).disabled).toBe(true);
   // Staff restore the sponsor while the page stays open; the next refresh picks it up.
   supervision = { ...supervision, sponsorEligible: true };
   await act(async () => { vi.advanceTimersByTime(15000); });
   expect(await screen.findByText('You can register')).toBeTruthy();
-  await click('Register for Safety 5');
+  await click(registerFor(5));
   expect(calls('/classes/5/enroll', 'POST')).toHaveLength(1);
 });
 
@@ -165,7 +171,7 @@ test('a minor stays blocked while the sponsor check fails, with a retry', async 
   supervision = { isMinor: true, marker: 'Under 18', sponsor: { id: 7, name: 'Dana Reyes', revision: 1 }, sponsorEligible: true, visit: null, pendingRequests: [] };
   await mount();
   expect(screen.getByRole('heading', { name: 'Checking your sponsor' })).toBeTruthy();
-  expect((screen.getByRole('button', { name: /^Register for Safety 5: checking your sponsoring adult/ }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole('button', { name: startingWith(`${registerFor(5)}: checking your sponsoring adult`) }) as HTMLButtonElement).disabled).toBe(true);
   expect(screen.getByRole('alert').textContent).toContain('Sponsor check failed.');
   await act(async () => { fireEvent.click(screen.getAllByRole('button', { name: 'Details for Safety 5' })[0]!); });
   const dialog = screen.getByRole('dialog');
@@ -185,7 +191,7 @@ test('a known sponsor problem still blocks a minor while the membership check fa
   });
   supervision = { isMinor: true, marker: 'Under 18', sponsor: null, sponsorEligible: false, visit: null, pendingRequests: [] };
   await mount();
-  expect((screen.getByRole('button', { name: /^Register for Safety 5: link a sponsoring adult/ }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole('button', { name: startingWith(`${registerFor(5)}: link a sponsoring adult`) }) as HTMLButtonElement).disabled).toBe(true);
   expect(screen.getByRole('heading', { name: 'Link a sponsor to sign up' })).toBeTruthy();
 });
 
@@ -210,7 +216,7 @@ test('registering for required training shows and submits the one-time $20 fee',
   classes = [course(5, 48, { trainingFeeCents: 2000 })];
   await mount();
   expect(screen.getByText('$20.00 total for training; no extra course fee')).toBeTruthy();
-  await click('Register for Safety 5');
+  await click(registerFor(5));
   expect(calls('/classes/5/enroll', 'POST')[0][1]?.body).toEqual({ expectedTrainingFeeCents: 2000 });
 });
 
@@ -220,7 +226,7 @@ test('a certified member registering again is not charged another training fee',
   classes = [course(5, 48, { trainingFeeCents: 2000 })];
   await mount();
   expect(screen.getByText('Training fee already covered')).toBeTruthy();
-  await click('Register for Safety 5');
+  await click(registerFor(5));
   expect(calls('/classes/5/enroll', 'POST')[0][1]?.body).toEqual({ expectedTrainingFeeCents: 0 });
 });
 
@@ -236,6 +242,53 @@ test('paid training stays covered before certification approval and shows no ext
   expect(calls('/classes/5/enroll', 'POST')[0][1]?.body).toEqual({ expectedTrainingFeeCents: 0 });
 });
 
+test('a class the shop cancelled is not listed as a past class waiting for attendance', async () => {
+  auth.user = { id: 30, roles: ['member'] };
+  classes = [
+    course(5, 48),
+    course(4, -3, { myStatus: 'attended' }),
+    course(6, -2, { status: 'cancelled', myStatus: 'enrolled' }),
+    // Attendance was recorded before the class was cancelled, so it really happened and stays.
+    course(7, -4, { status: 'cancelled', myStatus: 'attended' }),
+  ];
+  await mount();
+  expect(screen.getByText('Past classes (2)')).toBeTruthy();
+  expect(screen.getByText(/^Safety 4 ·/)).toBeTruthy();
+  expect(screen.getByText(/^Safety 7 ·/)).toBeTruthy();
+  expect(screen.queryByText(/^Safety 6 ·/)).toBeNull();
+  expect(screen.queryByText('Attendance not recorded yet')).toBeNull();
+});
+
+test('creative workshop rows are not described as $0 training', async () => {
+  auth.user = { id: 30, roles: ['member'] };
+  classes = [
+    course(5, 48, { trainingFeeCents: 2000 }),
+    course(6, 72, { title: 'Resin night', certificationId: null, certificationName: 'Creative workshop', catalogId: 1, trainingFeeCents: null }),
+  ];
+  await mount();
+  const row = (title: string) => screen.getByRole('heading', { level: 3, name: title }).closest('li')!;
+  expect(within(row('Safety 5')).getByText('$20.00 total for training; no extra course fee')).toBeTruthy();
+  expect(row('Resin night').textContent).not.toMatch(/total for training|Training fee/);
+});
+
+test('screen readers hear each session\'s day, and its buttons name that day', async () => {
+  auth.user = { id: 30, roles: ['member'] };
+  const mine = course(5, 48, { title: 'Laser basics', instructorId: 9, myStatus: 'enrolled' });
+  const later = course(6, 8 * 24, { title: 'Laser basics', instructorId: 9 });
+  const taught = course(7, 72, { title: 'Wood lathe', instructorId: 30 });
+  classes = [mine, later, taught];
+  await mount();
+  // Same title twice: the decorative date rail is hidden, so the day has to be in the text.
+  const row = screen.getByRole('button', { name: `Register for Laser basics on ${longDate(later.startsAt)}` }).closest('li')!;
+  expect(within(row).getByText(longDate(later.startsAt))).toBeTruthy();
+  const details = within(row).getByRole('button', { name: 'Details for Laser basics' });
+  expect(document.getElementById(details.getAttribute('aria-describedby')!)?.textContent).toBe(longDate(later.startsAt));
+  expect(screen.getByRole('button', { name: `Withdraw from Laser basics on ${longDate(mine.startsAt)}` })).toBeTruthy();
+  const teaching = screen.getByRole('region', { name: 'Classes you teach' });
+  expect(within(teaching).getByText(new RegExp(longDate(taught.startsAt)))).toBeTruthy();
+  expect(within(teaching).getByRole('button', { name: `Roster for Wood lathe on ${longDate(taught.startsAt)}` })).toBeTruthy();
+});
+
 test('member detail shows first-name participants and no contact details', async () => {
   auth.user = { id: 30, roles: ['member'] };
   await mount();
@@ -245,30 +298,110 @@ test('member detail shows first-name participants and no contact details', async
   expect(detail.textContent).not.toMatch(/example.invalid/);
 });
 
+test('members outside a class see open seats but not who registered', async () => {
+  auth.user = { id: 30, roles: ['member'] };
+  memberRoster = { items: [], capacity: 3, enrolled: 2, seatsAvailable: 1, namesVisible: false };
+  await mount();
+  await click('Details for Safety 5');
+  const detail = screen.getByRole('region', { name: 'Safety 5 details' });
+  expect(await within(detail).findByText('Names are shown to people registered for this class.')).toBeTruthy();
+  expect(within(detail).queryByText('Nobody has registered yet.')).toBeNull();
+  expect(detail.querySelector('.class-people')).toBeNull();
+});
+
 test('staff banner counts unrecorded attendance from the roster of a started class', async () => {
   await mount();
   expect(screen.getByText(/Safety 4 .* needs attendance/)).toBeTruthy();
   expect(screen.getByText('2 people on the roster have no attendance recorded yet.')).toBeTruthy();
 });
 
-test('a roster that cannot be read is flagged as attendance unavailable, with a retry', async () => {
-  classes = [course(4, -1), course(6, -3), course(5, 48)];
-  let failing = true;
-  const served = vi.mocked(api).getMockImplementation()!;
-  mockApi(async (path, options) => {
-    if (path === '/classes/6/roster' && failing) throw new ApiError(503, 'UNAVAILABLE', 'Try again later.');
-    return served(path, options);
-  });
+test('attendance counts come with the class list, so refreshing never reads one roster per class', async () => {
+  classes = [course(4, -1), course(6, -3, { pendingAttendance: 0 }), course(5, 48)];
   await mount();
-  // The readable class still counts; the failed one is not silently treated as recorded.
-  expect(screen.getByRole('alert').textContent).toMatch(/^Attendance unavailable for Safety 6\./);
   expect(screen.getByText(/Safety 4 .* needs attendance/)).toBeTruthy();
-  expect(screen.queryByText(/Safety 6 .* needs attendance/)).toBeNull();
-  failing = false;
-  await click('Retry attendance');
-  expect(screen.queryByText(/Attendance unavailable/)).toBeNull();
-  expect(calls('/classes/6/roster').length).toBeGreaterThanOrEqual(2);
-  expect(screen.getByText('2 past classes need attendance.')).toBeTruthy();
+  await act(async () => { await vi.advanceTimersByTimeAsync(15000); window.dispatchEvent(new Event('focus')); });
+  expect(vi.mocked(api).mock.calls.filter(([path]) => String(path).endsWith('/roster'))).toHaveLength(0);
+  await act(async () => { fireEvent.click(screen.getByRole('tab', { name: /^Past/ })); });
+  const recorded = screen.getByRole('heading', { level: 3, name: 'Safety 6' }).closest('.class-table__row')!;
+  expect(within(recorded as HTMLElement).getByText('Recorded')).toBeTruthy();
+});
+
+test('an instructor sees which of their past classes still need attendance', async () => {
+  auth.user = { id: 1, roles: ['member', 'instructor'] };
+  classes = [course(4, -1), course(6, -3, { pendingAttendance: 0 }), course(5, 48)];
+  await mount();
+  const teaching = screen.getByRole('heading', { name: 'Classes you teach' }).closest('section')!;
+  expect(within(teaching).getByText('2 people need attendance')).toBeTruthy();
+  expect(within(teaching).getAllByText(/need attendance|needs attendance/)).toHaveLength(1);
+});
+
+test('a day pass for the class day lets a member register ahead, and a membership ending first does not', async () => {
+  auth.user = { id: 30, roles: ['member'] };
+  entitled = false;
+  classes = [course(5, 48, { myEntitled: true }), course(6, 96, { myEntitled: false })];
+  await mount();
+  expect(screen.getByRole('button', { name: registerFor(5) })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: startingWith('Register for Safety 6') })).toBeNull();
+  expect(screen.getAllByRole('link', { name: 'Membership or day pass needed' })).toHaveLength(1);
+  // The side panel agrees with the rows rather than with today's answer.
+  expect(screen.getByRole('heading', { name: 'You can register for some classes' })).toBeTruthy();
+  expect(screen.queryByRole('heading', { name: 'Membership or day pass needed' })).toBeNull();
+});
+
+test('class tabs move with the arrow keys, and a menu choice hands focus back to its button', async () => {
+  await mount();
+  const upcoming = screen.getByRole('tab', { name: /^Upcoming/ });
+  expect(upcoming.tabIndex).toBe(0);
+  expect(screen.getByRole('tab', { name: /^Past/ }).tabIndex).toBe(-1);
+  expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe(upcoming.id);
+  upcoming.focus();
+  await act(async () => { fireEvent.keyDown(upcoming, { key: 'ArrowRight' }); });
+  const attendance = screen.getByRole('tab', { name: /^Needs attendance/ });
+  expect(document.activeElement).toBe(attendance);
+  expect(attendance.getAttribute('aria-selected')).toBe('true');
+  await act(async () => { fireEvent.keyDown(attendance, { key: 'End' }); });
+  expect(screen.getByRole('tab', { name: /^Cancelled/ }).getAttribute('aria-selected')).toBe('true');
+  await act(async () => { fireEvent.keyDown(document.activeElement!, { key: 'Home' }); });
+  expect(screen.getByRole('tab', { name: /^Upcoming/ }).getAttribute('aria-selected')).toBe('true');
+
+  const more = screen.getByRole('button', { name: 'More actions for Safety 5' });
+  await act(async () => { fireEvent.click(more); });
+  const again = screen.getByRole('menuitem', { name: /Schedule again/ });
+  expect(document.activeElement).toBe(again);
+  await act(async () => { fireEvent.keyDown(again, { key: 'ArrowDown' }); });
+  expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: /Cancel class/ }));
+  await act(async () => { fireEvent.keyDown(document.activeElement!, { key: 'Escape' }); });
+  expect(screen.queryByRole('menu')).toBeNull();
+  expect(document.activeElement).toBe(more);
+  await act(async () => { fireEvent.click(more); });
+  await act(async () => { fireEvent.click(screen.getByRole('menuitem', { name: /Cancel class/ })); });
+  // The dialog returns focus to the button that opened it.
+  await click('Keep class');
+  expect(document.activeElement).toBe(more);
+});
+
+test('a mouse press that blurs the row menu without moving focus still runs the chosen item', async () => {
+  await mount();
+  const more = screen.getByRole('button', { name: 'More actions for Safety 5' });
+  // Safari and Firefox on Mac blur the focused item on mouse press without focusing the pressed one.
+  const press = async (target: Element) => {
+    await act(async () => { fireEvent.focusOut(document.activeElement!, { relatedTarget: null }); });
+    await act(async () => { fireEvent.click(target); });
+  };
+  await act(async () => { fireEvent.click(more); });
+  await press(screen.getByRole('menuitem', { name: /Cancel class/ }));
+  expect(screen.getByRole('button', { name: 'Keep class' })).toBeTruthy();
+  await click('Keep class');
+  // Pressing "More actions" again closes the open menu instead of reopening it.
+  await act(async () => { fireEvent.click(more); });
+  await press(more);
+  expect(screen.queryByRole('menu')).toBeNull();
+  // Focus that moves on to something outside the row's actions still closes the menu.
+  await act(async () => { fireEvent.click(more); });
+  await act(async () => {
+    fireEvent.focusOut(document.activeElement!, { relatedTarget: screen.getByRole('tab', { name: /^Upcoming/ }) });
+  });
+  expect(screen.queryByRole('menu')).toBeNull();
 });
 
 test('nobody is pre-marked; saving needs a note and only sends chosen people', async () => {
@@ -278,7 +411,9 @@ test('nobody is pre-marked; saving needs a note and only sends chosen people', a
   expect((radio(panel, 'First Member', 'No show') as HTMLInputElement).checked).toBe(false);
   fireEvent.click(radio(panel, 'First Member', 'Attended'));
   await click('Save 1 change');
-  expect(screen.getByText(/Add a verification note/)).toBeTruthy();
+  // Announced, and focus goes to the field that blocked the save.
+  expect(screen.getByRole('alert').textContent).toMatch(/Add a verification note/);
+  expect(document.activeElement).toBe(screen.getByRole('textbox', { name: /Verification note/, description: /Add a verification note/ }));
   expect(calls('/classes/4/attendance', 'POST')).toHaveLength(0);
   fireEvent.change(screen.getByLabelText(/Verification note/), { target: { value: 'Checked sign-in sheet' } });
   await click('Save 1 change');
@@ -371,6 +506,84 @@ test('a room conflict on publish is shown on the room field and keeps the form',
   expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('Evening laser');
 });
 
+test('the schedule form asks before discarding edits on Escape, a backdrop click or Cancel', async () => {
+  await mount();
+  await click('Schedule class');
+  // Nothing entered yet, so Escape just closes it.
+  await act(async () => { fireEvent.keyDown(window, { key: 'Escape' }); });
+  expect(screen.queryByRole('dialog', { name: 'Schedule a class' })).toBeNull();
+  await click('Schedule class');
+  fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Evening laser' } });
+  await act(async () => { fireEvent.keyDown(window, { key: 'Escape' }); });
+  await click('Keep editing');
+  await act(async () => { fireEvent.mouseDown(document.querySelector('.modal-backdrop')!); });
+  await click('Keep editing');
+  expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('Evening laser');
+  await act(async () => { fireEvent.click(within(screen.getByRole('dialog', { name: 'Schedule a class' })).getByRole('button', { name: 'Cancel' })); });
+  expect(screen.getByRole('dialog', { name: 'Discard unsaved changes?' })).toBeTruthy();
+  await click('Discard changes');
+  expect(screen.queryByRole('dialog', { name: 'Schedule a class' })).toBeNull();
+});
+
+test('the schedule form stays open while it is publishing', async () => {
+  await mount();
+  const served = vi.mocked(api).getMockImplementation()!;
+  mockApi((path, options) => path === '/classes' && options?.method === 'POST' ? new Promise(() => {}) : served(path, options));
+  await click('Schedule class');
+  fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Evening laser' } });
+  await act(async () => { fireEvent.submit(screen.getByRole('button', { name: 'Publish class' }).closest('form')!); });
+  expect(screen.getByRole('button', { name: 'Publishing…' })).toBeTruthy();
+  await act(async () => { fireEvent.keyDown(window, { key: 'Escape' }); });
+  expect(screen.getByRole('dialog', { name: 'Schedule a class' })).toBeTruthy();
+  expect(screen.queryByRole('dialog', { name: 'Discard unsaved changes?' })).toBeNull();
+});
+
+test('scheduling a class again shows its instructor by name, not an ID', async () => {
+  await mount();
+  await click('More actions for Safety 5');
+  await act(async () => { fireEvent.click(screen.getByRole('menuitem', { name: /Schedule again/ })); });
+  const dialog = screen.getByRole('dialog', { name: 'Schedule a class' });
+  expect(within(dialog).getByText('Morgan Reyes')).toBeTruthy();
+  expect(dialog.textContent).not.toMatch(/Instructor #/);
+  expect(dialog.querySelector<HTMLInputElement>('input[name="instructorId"]')?.value).toBe('1');
+});
+
+test('a time problem is announced on the time fields, and Publish takes the user to the time to change', async () => {
+  await mount();
+  await click('Schedule class');
+  const ends = screen.getByLabelText('Ends');
+  fireEvent.change(ends, { target: { value: '17:00' } });
+  expect(screen.getByRole('alert').textContent).toBe('End time must be after the start time.');
+  expect(ends.getAttribute('aria-invalid')).toBe('true');
+  expect(screen.getByLabelText('Starts').getAttribute('aria-invalid')).toBe('false');
+  expect(ends.getAttribute('aria-describedby')).toBe(screen.getByRole('alert').id);
+  const publish = screen.getByRole('button', { name: 'Publish class' }) as HTMLButtonElement;
+  expect(publish.disabled).toBe(false);
+  await act(async () => { fireEvent.submit(publish.closest('form')!); });
+  expect(document.activeElement).toBe(ends);
+  expect(calls('/classes', 'POST')).toHaveLength(0);
+});
+
+test('a start time that has already passed is announced on Starts, and Publish takes the user there', async () => {
+  await mount();
+  await click('Schedule class');
+  const date = screen.getByLabelText('Date') as HTMLInputElement;
+  const starts = screen.getByLabelText('Starts');
+  const ends = screen.getByLabelText('Ends');
+  // Midnight today (the earliest date the picker allows) has always passed; the length is fine.
+  fireEvent.change(date, { target: { value: date.min } });
+  fireEvent.change(starts, { target: { value: '00:00' } });
+  fireEvent.change(ends, { target: { value: '02:00' } });
+  expect(screen.getByRole('alert').textContent).toBe('Pick a start time in the future.');
+  expect(starts.getAttribute('aria-invalid')).toBe('true');
+  expect(ends.getAttribute('aria-invalid')).toBe('false');
+  expect(starts.getAttribute('aria-describedby')).toBe(screen.getByRole('alert').id);
+  const publish = screen.getByRole('button', { name: 'Publish class' });
+  await act(async () => { fireEvent.submit(publish.closest('form')!); });
+  expect(document.activeElement).toBe(starts);
+  expect(calls('/classes', 'POST')).toHaveLength(0);
+});
+
 test('cancelling sends the record revision and the staff reason', async () => {
   await mount();
   await click('More actions for Safety 5');
@@ -378,14 +591,48 @@ test('cancelling sends the record revision and the staff reason', async () => {
   expect(screen.getByText(/2 people are registered\./)).toBeTruthy();
   fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: 'Instructor out sick' } });
   const hold = screen.getByRole('button', { name: /Hold to cancel class/ });
-  // A short press does nothing; cancelling needs the full hold.
+  // A short press never cancels on its own: it only asks for a second press. The full hold cancels.
   fireEvent.keyDown(hold, { key: ' ' });
   fireEvent.keyUp(hold, { key: ' ' });
   await act(async () => { await new Promise((r) => setTimeout(r, 300)); });
   expect(calls('/classes/5/cancel', 'POST')).toHaveLength(0);
+  expect(hold.textContent).toContain('Press again to confirm');
   fireEvent.keyDown(hold, { key: ' ' });
   await act(async () => { await new Promise((r) => setTimeout(r, 1500)); });
   expect(calls('/classes/5/cancel', 'POST')[0][1]?.body).toEqual({ expectedRevision: 4, reason: 'Instructor out sick' });
+});
+
+test('a class that started while the cancel dialog was open is not cancelled, and the list refreshes', async () => {
+  await mount();
+  await click('More actions for Safety 5');
+  await act(async () => { fireEvent.click(screen.getByRole('menuitem', { name: /Cancel class/ })); });
+  fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: 'Instructor out sick' } });
+  const served = vi.mocked(api).getMockImplementation()!;
+  mockApi(async (path, options) => {
+    if (path === '/classes/5/cancel') throw new ApiError(409, 'CLASS_CLOSED', 'Only a scheduled class that hasn\'t started yet can be cancelled.');
+    return served(path, options);
+  });
+  const before = calls('/classes').length;
+  // The full hold is the only way to cancel.
+  fireEvent.keyDown(screen.getByRole('button', { name: /Hold to cancel class/ }), { key: ' ' });
+  await act(async () => { await new Promise((r) => setTimeout(r, 1500)); });
+  expect(calls('/classes/5/cancel', 'POST')).toHaveLength(1);
+  expect(screen.getByText(/already started or been cancelled/)).toBeTruthy();
+  expect(calls('/classes').length).toBeGreaterThan(before);
+});
+
+test('an instructor already teaching at that time is flagged on the Instructor field', async () => {
+  scheduleError = new ApiError(409, 'INSTRUCTOR_CONFLICT', 'This instructor is already teaching another class at this time.');
+  await mount();
+  await click('Schedule class');
+  fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Evening laser' } });
+  fireEvent.change(screen.getByLabelText(/^Counts toward/), { target: { value: '7' } });
+  fireEvent.change(screen.getByLabelText(/^Room/), { target: { value: '2' } });
+  fireEvent.change(screen.getByLabelText(/^Reason/), { target: { value: 'Demand' } });
+  await act(async () => { fireEvent.submit(screen.getByRole('button', { name: 'Publish class' }).closest('form')!); });
+  expect(screen.getByText(/already teaching another class at this time\. Pick another instructor or time\./)).toBeTruthy();
+  expect(screen.getByText('Teaching another class at this time')).toBeTruthy();
+  expect(screen.queryByText('Booked for part of this time')).toBeNull();
 });
 
 test('creative workshop details show the description without promising certification approval',async()=>{

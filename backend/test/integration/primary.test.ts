@@ -71,7 +71,7 @@ async function deskCheckIn(staff: Client, member: Client, body: string | object)
   const opened = await staff.post("/admin/account-mode", { userId: member.id });
   assert.equal(opened.status, 200, JSON.stringify(opened.body));
   staff.adoptCsrf(opened.body.data.csrfToken);
-  const response = await staff.post("/me/check-ins", body);
+  const response = await staff.post("/me/check-ins", body).set("X-Account-Subject", String(member.id));
   const closed = await staff.post("/admin/account-mode/end");
   assert.equal(closed.status, 200, JSON.stringify(closed.body));
   staff.adoptCsrf(closed.body.data.csrfToken);
@@ -952,10 +952,14 @@ test('multi-role editor preserves roles, separates student classification and ap
   // Instructor denial wins even when another role permits reservation creation; malformed body never reaches handler.
   r=await user.post('/reservations',{});assert.equal(r.status,403);assert.equal(r.body.error.code,'INSTRUCTOR_BOOKING_FORBIDDEN');
   assert.equal((await user.get('/admin/users')).status,403);
+  // Subscriber and day-pass customer follow purchases (FR-006/FR-008); nobody sets them by hand.
+  for(const body of [{role:'subscriber'},{primaryRole:'member',roles:['member','day_pass']},{primaryRole:'day_pass',roles:['day_pass']}]) {
+   r=await update(body);assert.equal(r.status,400);assert.equal(r.body.error.code,'AUTOMATIC_ROLE');
+  }
   // Legacy caller changes the primary role only, retaining additional assignments.
-  r=await update({role:'subscriber'});assert.equal(r.status,200);
+  r=await update({role:'staff'});assert.equal(r.status,200);
   current=(await user.get('/auth/session')).body.data.user;
-  assert.deepEqual(current.roles,['instructor','subscriber']);assert.equal(current.primaryRole,'subscriber');
+  assert.deepEqual(current.roles,['instructor','staff']);assert.equal(current.primaryRole,'staff');
   assert.equal((await update({primaryRole:'staff',roles:['member']})).status,400);
   assert.equal((await update({primaryRole:'member',roles:['member','member']})).status,400);
   assert.equal((await update({primaryRole:'student',roles:['student']})).status,400);
@@ -971,8 +975,11 @@ test('multi-role editor preserves roles, separates student classification and ap
 test('customer roles have personal permissions without receiving staff powers or bypassing eligibility', async () => {
  const admin=client(),user=client();await admin.demo("admin");await user.register();
  for(const role of ['member','subscriber','day_pass']) {
-  const r=await admin.post(`/admin/users/${user.id}/role`,{primaryRole:role,roles:[role],revision:(await person(admin,user.id)).user.revision,reason:'Role matrix verification'});
-  assert.equal(r.status,200);
+  // Subscriber and day-pass assignments can't be made any more (migration 062 removed the stored
+  // ones). One an older app version still writes counts as community member: personal scope only.
+  await pool.query('DELETE FROM user_role WHERE userid=$1',[user.id]);
+  await pool.query('INSERT INTO user_role(userid,roleid) SELECT $1,roleid FROM role WHERE role=$2',[user.id,role]);
+  await pool.query('UPDATE "user" SET primary_role=$2 WHERE userid=$1',[user.id,role]);
   assert.equal((await user.get('/me/overview')).status,200);
   assert.equal((await user.get('/equipment')).status,200);
   const issued=await new SessionModel(pool,config.jwtKey).create(user.id,false);
@@ -981,9 +988,9 @@ test('customer roles have personal permissions without receiving staff powers or
   assert.equal((await user.post('/reservations',{})).status,400,'authorized route reaches validation, not a privilege bypass');
  }
  // Explicit personal deny is consulted before the handler and takes effect without logging in again.
- await pool.query(`UPDATE role_permission SET isallowed=false WHERE roleid=(SELECT roleid FROM role WHERE role='day_pass') AND resourcename='equipment' AND permissionid=2`);
+ await pool.query(`UPDATE role_permission SET isallowed=false WHERE roleid=(SELECT roleid FROM role WHERE role='member') AND resourcename='equipment' AND permissionid=2`);
  assert.equal((await user.get('/equipment')).status,403);
- await pool.query(`UPDATE role_permission SET isallowed=true WHERE roleid=(SELECT roleid FROM role WHERE role='day_pass') AND resourcename='equipment' AND permissionid=2`);
+ await pool.query(`UPDATE role_permission SET isallowed=true WHERE roleid=(SELECT roleid FROM role WHERE role='member') AND resourcename='equipment' AND permissionid=2`);
 });
 
 test("bootstrap preserves removed demo administrator permissions and renamed/archived demo plans", async () => {

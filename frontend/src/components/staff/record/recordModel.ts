@@ -55,7 +55,8 @@ export interface NeedItem {
     | { kind: "entitlement"; label: string; item: Entitlement }
     | { kind: "payment"; label: string; payment: Payment }
     | { kind: "sponsor"; label: string }
-    | { kind: "renew"; label: string; item: Entitlement };
+    | { kind: "renew"; label: string; item: Entitlement }
+    | { kind: "stopRenewal"; label: string; item: Entitlement };
 }
 
 const DAY = 86_400_000;
@@ -100,7 +101,13 @@ const ROLE_NAMES: Record<string, string> = {
   admin: "Administrator",
 };
 export const roleName = (role: string) => ROLE_NAMES[role] ?? role;
-export const ROLES = Object.keys(ROLE_NAMES);
+/**
+ * FR-006/FR-008: these follow what the member has bought (the server works them out from their
+ * memberships and passes), so nobody sets them by hand.
+ */
+export const AUTOMATIC_ROLES = ["subscriber", "day_pass"];
+/** The roles staff assign by hand. */
+export const ROLES = Object.keys(ROLE_NAMES).filter((role) => !AUTOMATIC_ROLES.includes(role));
 
 /**
  * Derive the member-record headline from account/access/requirements data; this display verdict is
@@ -226,8 +233,15 @@ export function requirements(p: Person, req: MemberRequirements | null): Require
 }
 
 /** Raw database echoes the change log keeps for audits; the record shows people's actions. */
-const isNoise = (a: Audit) =>
+const isEcho = (a: Audit) =>
   /\.(insert|update|delete)$/.test(a.action) && !["app_device_access_event", "check_in"].includes(a.entityType);
+/**
+ * Check-ins staff record (at the desk, or with the member's account open) write their own row
+ * beside the database copy of the check_in row. Rows saved in one transaction share createdAt
+ * exactly, so a copy with a staff row at the same moment is a repeat. A copy on its own was
+ * written by a card tap at a reader.
+ */
+const STAFF_CHECK_INS = ["visit.check-in", "check_in.created"];
 const CHANGE_TITLES: Record<string, [string, ActivityRow["icon"], ActivityRow["tone"]?]> = {
   "user.account_suspended": ["Account put on hold", "pause", "alert"],
   "user.account_inactive": ["Account closed", "x", "alert"],
@@ -253,6 +267,8 @@ const CHANGE_TITLES: Record<string, [string, ActivityRow["icon"], ActivityRow["t
   "payment.recorded": ["Payment recorded", "receipt"],
 };
 export function activity(audit: Audit[]): ActivityRow[] {
+  const staffCheckIns = new Set(audit.filter((a) => STAFF_CHECK_INS.includes(a.action)).map((a) => a.createdAt));
+  const isNoise = (a: Audit) => isEcho(a) || (a.action === "check_in.insert" && staffCheckIns.has(a.createdAt));
   return audit.filter((a) => !isNoise(a)).map((a): ActivityRow => {
     const reason = a.reason && a.reason !== "Database change" ? a.reason : "";
     const by = a.actorName && a.actorName !== "System" ? `by ${a.actorName}` : "";
@@ -270,13 +286,14 @@ export function activity(audit: Audit[]): ActivityRow[] {
     }
     if (a.action === "visit.check-in" || a.action === "visit.check-out" || a.entityType === "check_in") {
       const out = a.action === "visit.check-out";
+      const reader = a.action === "check_in.insert";
       return {
         id: a.id,
         type: "visit",
         tone: out ? "neutral" : "ok",
         icon: out ? "logout" : "login",
-        title: out ? "Checked out" : a.entityType === "check_in" ? "Checked in at a reader" : "Checked in",
-        detail: [a.resourceName, by].filter(Boolean).join(" · ") || "Front desk",
+        title: out ? "Checked out" : reader ? "Checked in at a reader" : "Checked in",
+        detail: [a.resourceName, by].filter(Boolean).join(" · ") || (reader ? "Card tap" : "Front desk"),
         at: a.createdAt,
       };
     }
@@ -398,7 +415,19 @@ export function needs(input: {
         action: { kind: "renew", label: "Renew", item: live },
       });
   }
-  for (const pay of payments.filter((x) => x.status === "pending").slice(0, 2))
+  // Access ended (before staff had to stop renewal first), but the card still charges each month.
+  const charging = memberships.find((m) => m.autoRenews && m.status === "revoked");
+  if (charging && canManage)
+    items.push({
+      id: "charging",
+      alert: true,
+      icon: "receipt",
+      title: "Card still charged after access ended",
+      detail: `${name}’s membership access was ended, but their card still renews each month. Stop auto-renew, then refund any month they shouldn’t have paid for.`,
+      action: { kind: "stopRenewal", label: "Stop auto-renew", item: charging },
+    });
+  // A booking still in its online checkout is paid there, not at the desk.
+  for (const pay of payments.filter((x) => x.status === "pending" && !x.onlineCheckout).slice(0, 2))
     if (canManage)
       items.push({
         id: `pay-${pay.id}`,
@@ -411,10 +440,13 @@ export function needs(input: {
   return items;
 }
 
-/** Plain digits read better grouped: (585) 555-0142. Anything else is shown as typed. */
+/**
+ * Plain US digits read better grouped: (585) 555-0142. Anything else is shown as typed,
+ * including a ten-digit number with a "+" country code such as +4930123456.
+ */
 export function phoneText(phone: string) {
   const d = phone.replace(/\D/g, "");
-  if (d.length === 10) return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+  if (d.length === 10 && !phone.trim().startsWith("+")) return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
   if (d.length === 11 && d.startsWith("1")) return `(${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7)}`;
   return phone;
 }

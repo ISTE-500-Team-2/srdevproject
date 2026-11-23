@@ -5,6 +5,7 @@ import { Check, ChevronRight, Download, Search } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { apiText, errorMessage } from "../lib/api";
 import { useApi } from "../lib/useApi";
+import { onArrowKeys } from "../lib/rovingFocus";
 import type { ComplianceBreakdown, ComplianceIssue, ComplianceReport, Plan } from "../lib/staffContracts";
 import { KeptResults, useResultsPaging } from "../components/KeptResults";
 import { LoadState, Pager } from "../components/Management";
@@ -17,6 +18,8 @@ type View = "attention" | "expiring" | "everyone";
 interface ComplianceFilters {
   view: View;
   userStatus: string;
+  /** Name or email; the server searches every page, not just the one loaded. */
+  search: string;
   offset: number;
 }
 
@@ -25,13 +28,14 @@ function reportPath(filters: ComplianceFilters, format?: "csv") {
     userStatus: filters.userStatus,
     offset: String(filters.offset),
   });
+  if (filters.search) params.set("search", filters.search);
   if (filters.view === "attention") params.set("attention", "true");
   if (filters.view === "expiring") params.set("expiresWithinDays", "30");
   if (format) params.set("format", format);
   return `/admin/compliance?${params}`;
 }
 
-/** "Not signed", "Expired Oct 2" or "Expires Nov 8", with the item's name. */
+/** "Not signed", "Expired Oct 2", "Revoked" or "Expires Nov 8", with the item's name. */
 function IssueTag({ issue }: { issue: ComplianceIssue }) {
   const date = issue.expiresAt ? shortDate(issue.expiresAt) : "";
   const what =
@@ -41,7 +45,9 @@ function IssueTag({ issue }: { issue: ComplianceIssue }) {
         : "Not trained"
       : issue.state === "expired"
         ? `Expired${date ? " " + date : ""}`
-        : `Expires${date ? " " + date : " soon"}`;
+        : issue.state === "revoked"
+          ? "Revoked"
+          : `Expires${date ? " " + date : " soon"}`;
   return (
     <span className={`cw-tag cw-tag--${issue.state === "expiring" ? "amber" : "red"}`}>
       {what} · {issue.name}
@@ -62,7 +68,7 @@ function RequirementCard({ item, kind }: { item: ComplianceBreakdown; kind: stri
         <i style={{ width: `${Math.round(ratio * 100)}%` }} />
       </div>
       <small>
-        {!item.total ? "Nobody needs this yet" : `${item.compliant} of ${item.total} current`}
+        {!item.total ? (kind === "Waiver" ? "Nobody needs this yet" : "No holders in this view") : `${item.compliant} of ${item.total} current`}
         {missing ? ` · ${missing} ${kind === "Waiver" ? "haven't signed" : "not current"}` : ""}
         {item.expiring ? ` · ${item.expiring} expiring` : ""}
       </small>
@@ -71,9 +77,8 @@ function RequirementCard({ item, kind }: { item: ComplianceBreakdown; kind: stri
 }
 
 export function StaffCompliance() {
-  const [filters, setFilters] = useState<ComplianceFilters>({ view: "attention", userStatus: "active", offset: 0 });
+  const [filters, setFilters] = useState<ComplianceFilters>({ view: "attention", userStatus: "active", search: "", offset: 0 });
   const [input, setInput] = useState("");
-  const [search, setSearch] = useState("");
   const [open, setOpen] = useState<{ id: number; name: string } | null>(null);
   const [exportError, setExportError] = useState("");
   const report = useApi<ComplianceReport>(reportPath(filters), { retainOnReload: true, retainOnChange: true });
@@ -82,7 +87,12 @@ export function StaffCompliance() {
   const plans = useApi<Plan[]>("/admin/plans");
   const config = useApi<{ timeZone: string }>("/config", { reuse: true });
   useEffect(() => {
-    const timer = window.setTimeout(() => setSearch(input.trim().toLowerCase()), 200);
+    const search = input.trim();
+    // A new search starts from the first page; an unchanged one (e.g. a trailing space) keeps the page.
+    const timer = window.setTimeout(
+      () => setFilters((f) => (f.search === search ? f : { ...f, search, offset: 0 })),
+      200,
+    );
     return () => window.clearTimeout(timer);
   }, [input]);
   const set = (change: Partial<ComplianceFilters>) => setFilters((f) => ({ ...f, ...change, offset: 0 }));
@@ -94,18 +104,19 @@ export function StaffCompliance() {
       const link = document.createElement("a");
       link.href = url;
       link.download = "compliance-report.csv";
+      document.body.appendChild(link);
       link.click();
-      URL.revokeObjectURL(url);
+      link.remove();
+      // Some browsers start the download after click() returns; revoking at once can cancel it.
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (error) {
       setExportError(errorMessage(error));
     }
   };
   const data = report.data;
-  // Search narrows the page already loaded; the server pages the full list.
-  const rows = (data?.users.items ?? []).filter(
-    (u) => !search || `${u.firstName} ${u.lastName} ${u.email}`.toLowerCase().includes(search),
-  );
-  const allSet = data && filters.view === "attention" ? data.summary.userCount - data.summary.attentionUsers : 0;
+  const rows = data?.users.items ?? [];
+  // Not offered beside a search: "show everyone" would still only show the matches.
+  const allSet = data && filters.view === "attention" && !filters.search ? data.summary.userCount - data.summary.attentionUsers : 0;
 
   return (
     <section className="cw-section">
@@ -115,7 +126,11 @@ export function StaffCompliance() {
           <Download aria-hidden="true" /> Export CSV
         </button>
       </div>
-      {exportError ? <p className="form-error">{exportError}</p> : null}
+      {exportError ? (
+        <p className="form-error" role="alert">
+          {exportError}
+        </p>
+      ) : null}
       <LoadState {...report} loading={report.loading && !report.data} />
       {data ? (
         <>
@@ -134,7 +149,7 @@ export function StaffCompliance() {
           </KeptResults>
 
           <div className="cw-toolbar">
-            <div className="cw-chips" role="radiogroup" aria-label="Show">
+            <div className="cw-chips" role="radiogroup" aria-label="Show" onKeyDown={onArrowKeys}>
               {(
                 [
                   // Not the window's count: the chip reads the same on "Expiring in 30 days".
@@ -149,6 +164,7 @@ export function StaffCompliance() {
                   role="radio"
                   ref={view === "everyone" ? everyone : undefined}
                   aria-checked={filters.view === view}
+                  tabIndex={filters.view === view ? 0 : -1}
                   className="cw-chip"
                   onClick={() => set({ view })}
                 >
@@ -172,6 +188,7 @@ export function StaffCompliance() {
                 type="search"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
+                maxLength={100}
                 placeholder="Search members"
                 aria-label="Search members"
               />
@@ -214,8 +231,8 @@ export function StaffCompliance() {
               ))}
               {!rows.length ? (
                 <p className="cw-list__empty">
-                  {search
-                    ? `No members on this page match “${input}”.`
+                  {filters.search
+                    ? `No members match “${filters.search}”${filters.view === "everyone" ? "" : " in this view"}.`
                     : filters.view === "attention"
                       ? "Everyone is current. Nothing needs attention."
                       : "No members match these filters."}

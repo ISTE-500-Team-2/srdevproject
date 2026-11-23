@@ -13,6 +13,8 @@ import auto_release as release
 
 SHA = 'a' * 40
 IMAGE = 'sha256:' + 'b' * 64
+REFUND_MIGRATION = '053_checkout_refund_reconciliation.sql'
+REGISTRATION_MIGRATION = '055_pending_registration_password_confirmation.sql'
 PATHS = ['.github/workflows/mvc-verify.yml', '.github/workflows/dev-setup.yml', '.github/workflows/sponsor-hosting.yml']
 
 
@@ -175,15 +177,27 @@ class GateTests(unittest.TestCase):
 
 
 class RolloutTests(unittest.TestCase):
-    def exercise(self, failure=None):
+    def exercise(self, failure=None, *, blue_green=False):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name); original = config()
         (root / 'auto-deploy').mkdir(); release.write_json(root / 'compose.json', original)
+        if blue_green:
+            (root / 'auto-deploy/blue-green.enabled').touch()
+            (root / 'routing').mkdir()
+            release.write_json(root / 'routing/active.json', {'version': 1, 'release': 'c' * 40, 'publicPort': 8082})
+        with_online_migrations = failure in ('online', 'guard', 'registration-validation')
+        if with_online_migrations:
+            migrations = root / 'auto-deploy/releases' / SHA / 'source/database/migrations'
+            migrations.mkdir(parents=True)
+            (migrations / REFUND_MIGRATION).write_text('SELECT 1;')
+            (migrations / REGISTRATION_MIGRATION).write_text('SELECT 2;')
         calls = []
 
         def run(*args, **kwargs):
             calls.append(('run', args))
+            if blue_green and 'compose' in args and 'up' in args:
+                raise RuntimeError('Fixture reached standby startup')
             if 'pg_dump' in args:
                 if failure == 'backup':
                     raise RuntimeError('Backup failed')
@@ -201,6 +215,21 @@ class RolloutTests(unittest.TestCase):
                 raise RuntimeError('Live smoke failed')
 
         def output(*args):
+            calls.append(('output', args))
+            if 'app_pending_registration_password_confirmation' in args[-1]:
+                self.assertIn('convalidated', args[-1])
+                return 'f' if failure == 'registration-validation' and release.DATABASES[1][2] in args else 't'
+            if 'pg_constraint' in args[-1]:
+                return 'f' if failure == 'guard' else 't'
+            if 'app_migration' in args[-1] and with_online_migrations:
+                checksum = hashlib.sha256(b'SELECT 1;').hexdigest()
+                rows = [
+                    {'name': REFUND_MIGRATION, 'checksum': checksum},
+                    {'name': REGISTRATION_MIGRATION, 'checksum': hashlib.sha256(b'SELECT 2;').hexdigest()},
+                ]
+                if failure != 'online':
+                    rows.append({'name': 'online:' + REFUND_MIGRATION, 'checksum': checksum})
+                return json.dumps(rows)
             if 'rev-parse' in args:return SHA
             if 'status' in args:return ''
             return json.dumps([{'Id': IMAGE,'Config':{'Labels':{'org.opencontainers.image.revision':SHA}}}])
@@ -208,6 +237,10 @@ class RolloutTests(unittest.TestCase):
         def migration_gate(_source, _rows):
             if failure == 'migration':
                 raise RuntimeError('Missing reviewed migration')
+            if with_online_migrations:
+                original_gate(_source, _rows)
+
+        original_gate = release.verify_migrations
 
         with patch.object(release, 'run', run), patch.object(release, 'output', output), \
              patch.object(release, 'prepare_source_permissions'), \
@@ -217,7 +250,8 @@ class RolloutTests(unittest.TestCase):
              patch.object(release, 'ready', return_value=(failure != 'ci-changed')):
             try:
                 result = release.deploy(root, SHA)
-            except RuntimeError:
+            except RuntimeError as error:
+                calls.append(('error', str(error)))
                 result = None
         return root, original, calls, result
 
@@ -227,6 +261,21 @@ class RolloutTests(unittest.TestCase):
             self.assertIsNone(result)
             self.assertEqual(json.loads((root / 'compose.json').read_text()), original)
             self.assertFalse(any(c[0] == 'compose' and 'up' in c[1] for c in calls))
+
+    def test_blue_green_requires_online_completion_before_starting_standby(self):
+        for failure in ('online', 'guard', 'registration-validation'):
+            with self.subTest(failure=failure):
+                root, original, calls, result = self.exercise(failure, blue_green=True)
+                self.assertIsNone(result)
+                self.assertEqual(json.loads((root / 'compose.json').read_text()), original)
+                self.assertEqual(json.loads((root / 'routing/active.json').read_text())['publicPort'], 8082)
+                self.assertFalse(any('up' in c[1] or 'pg_dump' in c[1] for c in calls if c[0] in ('run', 'compose')))
+                self.assertTrue(any(c[0] == 'error' and 'online migration phase' in c[1] for c in calls))
+                if failure == 'registration-validation':
+                    checked = [call[1][call[1].index('-d') + 1] for call in calls
+                               if call[0] == 'output' and 'app_pending_registration_password_confirmation' in call[1][-1]]
+                    self.assertEqual(checked, [database for _, _, database in release.DATABASES])
+                    self.assertTrue(any(c[0] == 'error' and 'pending registration constraint' in c[1] for c in calls))
 
     def test_health_or_live_smoke_failure_restores_prior_compose(self):
         for failure in ('health', 'smoke'):
@@ -267,7 +316,7 @@ class RolloutTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary); directory=root/'auto-deploy'; directory.mkdir()
             release.write_json(directory/'status.json',{'deployedSha':'c'*40})
-            with patch.object(release,'main_sha',return_value=SHA),patch.object(release,'ready',return_value=False),patch.object(release,'prepare_artifact') as build,patch.object(release,'deploy') as deploy:
+            with patch.object(release,'main_sha',return_value=SHA),patch.object(release,'ready',return_value=False),patch.object(release,'prepare_artifact') as build,patch.object(release,'deploy') as deploy,patch.object(release,'CI_POLL_SECONDS',0):
                 release.tick(root);build.assert_not_called();deploy.assert_not_called()
                 (directory/'prebuild.enabled').touch()
                 release.tick(root);build.assert_called_once_with(root,SHA);deploy.assert_not_called()
@@ -281,6 +330,7 @@ class RolloutTests(unittest.TestCase):
             root=Path(temporary); directory=root/'auto-deploy'; directory.mkdir()
             release.write_json(directory/'status.json',{'deployedSha':'c'*40})
             (directory/'prebuild.enabled').touch()
+            poll_at_once=patch.object(release,'CI_POLL_SECONDS',0);poll_at_once.start();self.addCleanup(poll_at_once.stop)
             with patch.object(release,'main_sha',return_value=SHA),patch.object(release,'ready',return_value=False),patch.object(release,'prepare_artifact',side_effect=RuntimeError('PRIVATE must not enter status')) as build,patch.object(release,'deploy') as deploy:
                 release.tick(root);release.tick(root)
                 build.assert_called_once();deploy.assert_not_called()
@@ -291,6 +341,30 @@ class RolloutTests(unittest.TestCase):
             with patch.object(release,'main_sha',return_value=SHA),patch.object(release,'ready',side_effect=RuntimeError('API unavailable')),patch.object(release,'deploy') as deploy:
                 release.tick(root);deploy.assert_not_called()
                 self.assertEqual(json.loads((directory/'status.json').read_text())['stage'],'ci-status-unavailable')
+
+    def test_waiting_revision_rechecks_github_at_most_every_few_minutes(self):
+        # Unauthenticated GitHub reads are limited to 60 an hour and each check makes two.
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary); directory=root/'auto-deploy'; directory.mkdir()
+            release.write_json(directory/'status.json',{'deployedSha':'c'*40})
+            clock=[1000.0]
+            with patch.object(release,'main_sha',return_value=SHA),patch.object(release,'ready',return_value=False) as ready,patch.object(release,'deploy') as deploy,patch.object(release.time,'time',side_effect=lambda:clock[0]):
+                for _ in range(3): release.tick(root)
+                self.assertEqual(ready.call_count,1)
+                self.assertEqual(json.loads((directory/'status.json').read_text())['phase'],'waiting-for-ci')
+                clock[0]+=release.CI_POLL_SECONDS-1;release.tick(root)
+                self.assertEqual(ready.call_count,1)
+                clock[0]+=1;release.tick(root)
+                self.assertEqual(ready.call_count,2)
+                release.tick(root,retry=True)
+                self.assertEqual(ready.call_count,3,'an operator retry checks at once')
+                self.assertLessEqual(2*len(range(0,3600,release.CI_POLL_SECONDS)),60)
+            with patch.object(release,'main_sha',return_value='d'*40),patch.object(release,'ready',side_effect=RuntimeError('rate limited')) as ready,patch.object(release,'deploy') as deploy,patch.object(release.time,'time',side_effect=lambda:clock[0]):
+                release.tick(root);release.tick(root)
+                self.assertEqual(ready.call_count,1,'a new revision checks at once; an unavailable API backs off too')
+                state=json.loads((directory/'status.json').read_text())
+                self.assertEqual((state['candidateSha'],state['stage']),('d'*40,'ci-status-unavailable'))
+            deploy.assert_not_called()
 
     def test_failed_ci_never_starts_speculative_image_build(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -306,6 +380,23 @@ class RolloutTests(unittest.TestCase):
                 release.tick(root);build.assert_not_called()
                 state=json.loads((directory/'status.json').read_text())
                 self.assertIn('no automatic deletion',state['reason'])
+
+
+
+class DumpTimeoutTests(unittest.TestCase):
+    def test_only_the_database_dump_gets_the_longer_timeout(self):
+        seen = []
+
+        def fake(args, **kwargs):
+            seen.append((args, kwargs['timeout']))
+            if 'pg_dump' in args:
+                kwargs['stdout'].write(b'PGDMP fixture')
+        with tempfile.TemporaryDirectory() as temporary, patch.object(release.subprocess, 'run', fake):
+            release.dump_database('db', 'owner', 'arbor', Path(temporary) / 'arbor.dump')
+            release.run('docker', 'ps')
+        self.assertEqual(release.DUMP_TIMEOUT_SECONDS, 15 * 60)
+        self.assertEqual([('pg_dump' in a, 'pg_restore' in a, t) for a, t in seen], [
+            (True, False, release.DUMP_TIMEOUT_SECONDS), (False, True, 120), (False, False, 120)])
 
 
 if __name__ == '__main__':

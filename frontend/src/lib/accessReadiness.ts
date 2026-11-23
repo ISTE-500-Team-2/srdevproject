@@ -2,7 +2,7 @@
 
 export interface AccessReadinessResult {
   userId: number;
-  readers: { id: string; kind: 'building' | 'room' | 'equipment'; resourceId: number; name: string }[];
+  readers: { id: string; kind: 'building' | 'room' | 'equipment' | 'studio'; resourceId: number; name: string }[];
   readerId: string;
   cardAssigned: boolean;
   allowed: boolean;
@@ -24,9 +24,15 @@ export function accessReasonLabel(reason: string): string {
     ELIGIBLE: 'All access requirements passed for this reader.',
     ELIGIBILITY_EXPIRED: 'An access requirement expired. Check again.',
     RESERVATION_REQUIRED: 'A current confirmed reservation for this resource is required.',
+    STUDIO_RENTAL_REQUIRED: 'A current paid rental of this studio is required.',
     CERTIFICATION_REQUIRED: 'Required training is missing, revoked or expired.',
     RESOURCE_UNAVAILABLE: 'The resource or its building is unavailable.',
     VERIFICATION_TIMEOUT: 'Verification timed out; access has not been approved.',
+    SPONSOR_REQUIRED: 'This member is under 18. An active sponsoring adult must be linked to them and checked in at this building.',
+    SPONSOR_INELIGIBLE: 'The sponsoring adult needs an active membership or day pass and signed facility waivers.',
+    SPONSOR_BOOKING_REQUIRED: 'Staff must link this reservation to the minor’s current sponsoring adult.',
+    MINOR_CHECK_IN_REQUIRED: 'The minor must be checked in together with their sponsoring adult at this building first.',
+    BUILDING_REQUIRED: 'No arrival building was chosen for this check-in.',
   };
   return labels[reason] ?? reason.toLowerCase().replaceAll('_',' ');
 }

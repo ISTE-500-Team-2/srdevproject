@@ -5,8 +5,15 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { StaffReservations } from "./StaffReservations";
 import type { Reservation } from "../lib/contracts";
 
-const { api } = vi.hoisted(() => ({ api: vi.fn() }));
-vi.mock("../lib/api", () => ({ api, ApiError: class extends Error {}, errorMessage: (error: Error) => error.message }));
+const { api, ApiError } = vi.hoisted(() => ({
+  api: vi.fn(),
+  ApiError: class extends Error {
+    constructor(public status: number, public code: string, message: string) {
+      super(message);
+    }
+  },
+}));
+vi.mock("../lib/api", () => ({ api, ApiError, errorMessage: (error: Error) => error.message }));
 vi.mock("../components/MemberSelect", () => ({
   MemberSelect: ({ onChange }: { onChange?: (value: string) => void }) => (
     <button type="button" onClick={() => onChange?.("12")}>
@@ -41,7 +48,7 @@ beforeEach(() => {
     if (path.startsWith("/admin/reservations?")) return Promise.resolve({ items: [booking], nextOffset: null });
     if (path.startsWith("/equipment/3/quote")) return Promise.resolve(price);
     if (path === "/admin/reservations/17/cancel") return Promise.resolve({ ...booking, status: "cancelled" });
-    if (path === "/reservations" && options?.method === "POST")
+    if (path === "/admin/reservations" && options?.method === "POST")
       return Promise.resolve({ ...reservation, id: 30, startTime: options.body!.startTime, endTime: options.body!.endTime, revision: 1 });
     return Promise.reject(new Error(`Unexpected endpoint: ${path}`));
   });
@@ -165,8 +172,34 @@ test("clicking open time books that machine at that time, with taken times cross
   await waitFor(() => expect(book.disabled).toBe(false));
   fireEvent.click(book);
   expect(await screen.findByText("Booked Laser cutter for Jordan Member, 1:00–2:00 PM.")).toBeTruthy();
-  const [, options] = api.mock.calls.find(([path, o]) => path === "/reservations" && o?.method === "POST")!;
-  expect(options.body).toMatchObject({ userId: 12, equipmentId: 3, roomId: null, startTime: "2026-11-03T18:00:00.000Z", endTime: "2026-11-03T19:00:00.000Z", expectedPrice: price });
+  const [, options] = api.mock.calls.find(([path, o]) => path === "/admin/reservations" && o?.method === "POST")!;
+  expect(options.body).toMatchObject({ userId: 12, equipmentId: 3, roomId: null, startTime: "2026-11-03T18:00:00.000Z", endTime: "2026-11-03T19:00:00.000Z", expectedPrice: price, payAtDesk: true });
+});
+
+test("a paid booking is taken at the desk: it's booked now and staff are told what to collect", async () => {
+  const original = api.getMockImplementation()!;
+  api.mockImplementation((path: string, options?: { method?: string; body?: Record<string, unknown> }) =>
+    path === "/admin/reservations" && options?.method === "POST"
+      ? Promise.resolve({
+          ...reservation, id: 30, revision: 1, startTime: options.body!.startTime, endTime: options.body!.endTime,
+          status: "confirmed", paymentStatus: "pending", amountCents: null, payerId: null, priceSnapshot: price,
+        })
+      : original(path, options),
+  );
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "New reservation" }));
+  fireEvent.click(screen.getByRole("button", { name: "Pick Jordan Member" }));
+  expect(await screen.findByText(/The member pays \$25\.00 at the desk\./)).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Payments" }).getAttribute("href")).toBe("/admin/payments");
+  const onePm = (await screen.findByRole("button", { name: "1:00 PM" })) as HTMLButtonElement;
+  await waitFor(() => expect(onePm.disabled).toBe(false));
+  fireEvent.click(onePm);
+  const book = screen.getByRole("button", { name: "Book" }) as HTMLButtonElement;
+  await waitFor(() => expect(book.disabled).toBe(false));
+  fireEvent.click(book);
+  expect(await screen.findByText("Booked Laser cutter for Jordan Member, 1:00–2:00 PM. $25.00 is due at the desk.")).toBeTruthy();
+  const [, options] = api.mock.calls.find(([path, o]) => path === "/admin/reservations" && o?.method === "POST")!;
+  expect(options.body).toMatchObject({ userId: 12, payAtDesk: true, expectedPrice: price });
 });
 
 test("clicking other open time while booking starts a fresh form at that time", async () => {
@@ -221,7 +254,7 @@ test("a save that finishes after staff opened something else doesn't replace it"
   const original = api.getMockImplementation()!;
   let finish: (value: Reservation) => void = () => {};
   api.mockImplementation((path: string, options?: { method?: string }) =>
-    path === "/reservations" && options?.method === "POST"
+    path === "/admin/reservations" && options?.method === "POST"
       ? new Promise<Reservation>((resolve) => { finish = resolve; })
       : original(path, options),
   );
@@ -282,7 +315,7 @@ test("a booking form opened before equipment loads books the machine it shows", 
   await waitFor(() => expect(book.disabled).toBe(false));
   fireEvent.click(book);
   expect(await screen.findByText("Booked Laser cutter for Jordan Member, 1:00–2:00 PM.")).toBeTruthy();
-  const [, options] = api.mock.calls.find(([path, o]) => path === "/reservations" && o?.method === "POST")!;
+  const [, options] = api.mock.calls.find(([path, o]) => path === "/admin/reservations" && o?.method === "POST")!;
   expect(options.body).toMatchObject({ equipmentId: 3 });
 });
 
@@ -308,6 +341,68 @@ test("after a move, the panel keeps the saved time even when a read hasn't caugh
   // Cancelling names the time that will actually be cancelled.
   fireEvent.click(screen.getByRole("button", { name: "Cancel…" }));
   expect(screen.getByRole("group", { name: "Cancel this reservation?" }).textContent).toContain("Laser cutter 2:00–4:00 PM");
+});
+
+test("a save refused because someone else changed the reservation catches up, keeps the choices and saves on the next try", async () => {
+  const original = api.getMockImplementation()!;
+  const theirs = { ...reservation, revision: 3, startTime: "2026-11-03T16:00:00Z", endTime: "2026-11-03T18:00:00Z" };
+  const patches: Record<string, unknown>[] = [];
+  api.mockImplementation((path: string, options?: { method?: string; body?: Record<string, unknown> }) => {
+    if (path === "/admin/reservations/17" && options?.method === "PATCH") {
+      patches.push(options.body!);
+      return options.body!.expectedRevision === 3
+        ? Promise.resolve({ ...theirs, revision: 4, startTime: options.body!.startTime, endTime: options.body!.endTime })
+        : Promise.reject(new ApiError(409, "STALE_RECORD", "This reservation changed. Refresh it before saving."));
+    }
+    if (path === "/admin/reservations/17") return Promise.resolve(theirs);
+    return original(path, options);
+  });
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: /Jordan Member, 10:00 AM/ }));
+  fireEvent.click(screen.getByRole("button", { name: /Change time or machine/ }));
+  // A colleague moves it to 11 AM while this form is open.
+  booking = theirs;
+  const twoPm = (await screen.findByRole("button", { name: "2:00 PM" })) as HTMLButtonElement;
+  await waitFor(() => expect(twoPm.disabled).toBe(false));
+  fireEvent.click(twoPm);
+  const save = screen.getByRole("button", { name: "Save changes" }) as HTMLButtonElement;
+  await waitFor(() => expect(save.disabled).toBe(false));
+  fireEvent.click(save);
+  expect(
+    await screen.findByText("Someone else changed this reservation. It’s now Laser cutter, Today, Tuesday, Nov 3, 11:00 AM–1:00 PM. Your choices are kept: save again to use them."),
+  ).toBeTruthy();
+  expect(screen.getByRole("button", { name: "2:00 PM" }).getAttribute("aria-pressed")).toBe("true");
+  await waitFor(() => expect(save.disabled).toBe(false));
+  fireEvent.click(save);
+  expect(await screen.findByRole("heading", { name: "Laser cutter, 2:00–4:00 PM" })).toBeTruthy();
+  expect(patches.map((body) => body.expectedRevision)).toEqual([2, 3]);
+});
+
+test.each([
+  // What the server answers when the reservation was cancelled before the save.
+  ["cancelled before the save", "INVALID_STATUS", "Only active reservations can be modified."],
+  // Changed by someone else, then cancelled before the editor read it again.
+  ["changed and then cancelled", "STALE_RECORD", "This reservation changed. Refresh it before saving."],
+])("a save refused because the reservation was %s turns Save off", async (_case, code, message) => {
+  const original = api.getMockImplementation()!;
+  api.mockImplementation((path: string, options?: { method?: string }) => {
+    if (path === "/admin/reservations/17" && options?.method === "PATCH") return Promise.reject(new ApiError(409, code, message));
+    if (path === "/admin/reservations/17") return Promise.resolve({ ...reservation, revision: 3, status: "cancelled" });
+    return original(path, options);
+  });
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: /Jordan Member, 10:00 AM/ }));
+  fireEvent.click(screen.getByRole("button", { name: /Change time or machine/ }));
+  const twoPm = (await screen.findByRole("button", { name: "2:00 PM" })) as HTMLButtonElement;
+  await waitFor(() => expect(twoPm.disabled).toBe(false));
+  fireEvent.click(twoPm);
+  const save = screen.getByRole("button", { name: "Save changes" }) as HTMLButtonElement;
+  await waitFor(() => expect(save.disabled).toBe(false));
+  fireEvent.click(save);
+  expect(await screen.findByText("This reservation changed and can’t be changed here any more. Go back to see it.")).toBeTruthy();
+  expect(save.disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Back" }));
+  expect(await screen.findByText("Cancelled")).toBeTruthy();
 });
 
 test("when someone else moves the open reservation, the panel follows its new machine", async () => {

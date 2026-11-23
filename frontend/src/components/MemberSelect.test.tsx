@@ -3,8 +3,10 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemberSelect } from "./MemberSelect";
+import { Modal } from "./Modal";
 import { api } from "../lib/api";
-vi.mock("../lib/api", () => ({
+vi.mock("../lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/api")>()),
   api: vi.fn(),
   errorMessage: (e: Error) => e.message,
 }));
@@ -69,4 +71,99 @@ test("instructor-only searches keep their scope; errors and capped results are v
   expect(vi.mocked(api).mock.calls[0][0]).toContain("role=instructor");
   await user.click(screen.getByRole("button", { name: "Retry search" }));
   expect(await screen.findByText("More matches exist. Refine your search.")).toBeTruthy();
+});
+
+test("Enter never picks from an earlier, shorter search's matches", async () => {
+  // Longer searches answer only when released, so even a slow run can't let "jordan" land before
+  // the first Enter: that Enter sees the "jo" matches, or a search still loading.
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const searchOf = (path: string) => new URLSearchParams(path.split("?")[1]).get("search");
+  vi.mocked(api).mockImplementation(async (path) =>
+    (searchOf(path) === "jo"
+      ? { items: [{ id: 21, name: "Joan Adams", email: "joan@example.invalid" }], hasMore: false }
+      : held.then(() => ({ items: [{ id: 22, name: "Jordan Lee", email: "jordan@example.invalid" }], hasMore: false }))) as never,
+  );
+  const user = userEvent.setup();
+  render(
+    <form aria-label="Select member">
+      <MemberSelect name="userId" />
+    </form>,
+  );
+  const box = screen.getByRole("combobox", { name: "Member" });
+  await user.type(box, "jo");
+  await screen.findByRole("option", { name: /Joan Adams/ });
+  // Typed on and pressed Enter before the new search ran: "jo" matches are still listed.
+  await user.type(box, "rdan{Enter}");
+  expect(formValue("userId")).toBe("");
+  await vi.waitFor(() => expect(vi.mocked(api).mock.calls.some(([path]) => searchOf(path) === "jordan")).toBe(true));
+  release();
+  await screen.findByRole("option", { name: /Jordan Lee/ });
+  await user.keyboard("{Enter}");
+  expect(formValue("userId")).toBe("22");
+});
+
+test("Escape closes the matches, not the dialog the field is in", async () => {
+  vi.mocked(api).mockResolvedValue({ items: [{ id: 12, name: "Jordan Example", email: "jordan@example.invalid" }], hasMore: false });
+  const user = userEvent.setup();
+  const close = vi.fn();
+  render(
+    <Modal open title="Schedule a class" onClose={close}>
+      <MemberSelect name="instructorId" label="Instructor" />
+    </Modal>,
+  );
+  await user.type(screen.getByRole("combobox", { name: "Instructor" }), "Jordan");
+  await screen.findByRole("option", { name: /Jordan Example/ });
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("listbox")).toBeNull();
+  expect(close).not.toHaveBeenCalled();
+  // With the matches closed, Escape closes the dialog as usual.
+  await user.keyboard("{Escape}");
+  expect(close).toHaveBeenCalledOnce();
+});
+
+test("in an instructor-only picker, Escape also closes the suggestions without closing the dialog", async () => {
+  vi.mocked(api).mockResolvedValue({ items: [{ id: 12, name: "Jordan Example", email: "jordan@example.invalid" }], hasMore: false });
+  const user = userEvent.setup();
+  const close = vi.fn();
+  render(
+    <Modal open title="Schedule a class" onClose={close}>
+      <MemberSelect name="instructorId" label="Instructor" instructorsOnly />
+    </Modal>,
+  );
+  await user.type(screen.getByRole("combobox", { name: "Instructor" }), "Jordan");
+  await screen.findByRole("option", { name: /Jordan Example/ });
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("listbox")).toBeNull();
+  expect(close).not.toHaveBeenCalled();
+  // With the suggestions already closed, Escape closes the dialog as usual.
+  await user.keyboard("{Escape}");
+  expect(close).toHaveBeenCalledTimes(1);
+});
+
+test("after a pick, focus moves to the choice and the choice is announced", async () => {
+  vi.mocked(api).mockResolvedValue({ items: [{ id: 12, name: "Jordan Example", email: "jordan@example.invalid" }], hasMore: false });
+  const user = userEvent.setup();
+  render(
+    <Modal open title="Book equipment" onClose={() => {}}>
+      <MemberSelect name="userId" />
+      <button type="button">Book</button>
+    </Modal>,
+  );
+  await user.type(screen.getByRole("combobox", { name: "Member" }), "Jordan");
+  await screen.findByRole("option", { name: /Jordan Example/ });
+  await user.keyboard("{Enter}");
+  expect(document.activeElement).toBe(screen.getByRole("group", { name: "Member" }));
+  expect(screen.getByText("Selected Jordan Example").getAttribute("aria-live")).toBe("polite");
+  // A second or held Enter lands on the choice, not on Change, so it keeps the pick.
+  await user.keyboard("{Enter}");
+  expect(screen.queryByRole("combobox")).toBeNull();
+  // The next Tabs carry on through the form instead of jumping back to Close.
+  await user.tab();
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Change member" }));
+  await user.tab();
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Book" }));
+  // Changing the person clears the announcement, so picking the same person again is announced.
+  await user.click(screen.getByRole("button", { name: "Change member" }));
+  expect(screen.queryByText("Selected Jordan Example")).toBeNull();
 });

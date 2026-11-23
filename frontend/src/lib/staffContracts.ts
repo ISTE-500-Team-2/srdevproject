@@ -29,11 +29,19 @@ export interface Person {
   address: Record<string, string | boolean>;
   contactPreferences: Record<string, string | boolean>;
   roles: string[];
+  /** Subscriber / day-pass customer, worked out from current purchases; never set by hand. */
+  automaticRoles?: string[];
   primaryRole?: string;
   isStudent?: boolean;
   revision: number;
   /** Member directory and record reads: their photo version, null without one. */
   photoVersion?: string | null;
+  /** Whether a date of birth is recorded. Staff can add a missing one, once. */
+  dobOnFile?: boolean;
+  /** When the account was made; some legacy accounts have no date. */
+  createdAt?: string | null;
+  /** When the account record (profile, status, access, conduct or roles) last changed, if known. */
+  updatedAt?: string | null;
 }
 export interface Entitlement {
   id: number;
@@ -45,10 +53,17 @@ export interface Entitlement {
   startsAt?: string;
   endsAt?: string;
   validDate?: string;
-  plan: Partial<Plan> | null;
+  /** The plan as sold; priceBasis says why its price differs (student, school_partner), when it does. */
+  plan: (Partial<Plan> & { priceBasis?: string }) | null;
   reason: string;
   cancellationRequestedAt?: string | null;
   cardBilled?: boolean;
+  /** Card billing that will charge again: no stop has been confirmed by the payment provider. */
+  autoRenews?: boolean;
+  /** The last day of card billing once someone asked to stop it. */
+  renewalEndsAt?: string | null;
+  /** A stop was asked for but the payment provider hasn't confirmed it, so billing may still renew. */
+  renewalStopPending?: boolean;
 }
 export interface Payment {
   id: number;
@@ -66,8 +81,16 @@ export interface Payment {
   planName: string;
   /** Set for card membership payments; the Stripe invoice a refund goes through. */
   invoiceId?: string | null;
-  /** Stripe refund state for that invoice, once a refund has been asked for. */
+  /** Set for a card day pass bought online; its refund goes through this checkout. */
+  passCheckoutId?: string | null;
+  /** Set for an equipment booking paid by card online; its refund goes through this booking. */
+  equipmentReservationId?: number | null;
+  /** Stripe refund state for that invoice or checkout, once a refund has been asked for. */
   refundStatus?: string | null;
+  /** An equipment booking paid by online card checkout: the checkout settles it, not the desk. */
+  onlineCheckout?: boolean;
+  /** Who opened the booking's still-open checkout, so who can cancel it: the member, you, or another staff member. */
+  checkoutOpenedBy?: "member" | "viewer" | "staff" | null;
 }
 export interface PaymentSummary {
   count: number;
@@ -173,13 +196,13 @@ export interface ComplianceUser {
   expiringWaivers: string[];
   missingCertifications: string[];
   expiringCertifications: string[];
-  /** What's wrong, item by item: never signed/trained, expired, or expiring soon. */
+  /** What's wrong, item by item: never signed, expired, revoked, or expiring soon. */
   issues: ComplianceIssue[];
 }
 export interface ComplianceIssue {
   kind: "waiver" | "certification";
   name: string;
-  state: "missing" | "expired" | "expiring";
+  state: "missing" | "expired" | "revoked" | "expiring";
   expiresAt: string | null;
 }
 export interface ComplianceReport {

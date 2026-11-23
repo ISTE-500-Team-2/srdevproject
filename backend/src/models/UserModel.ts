@@ -3,6 +3,7 @@
 
 import type { Database } from "../db.js";
 import type { ProfileFieldPatch, ProfileFields, UserView } from "../domain.js";
+import { primaryRoleSql, storedRolesSql } from "./staff/people.js";
 
 export interface UserProfileView {
   user: Omit<UserView, "status" | "accessStatus" | "photoVersion">;
@@ -32,7 +33,7 @@ const identityProjection = `             CASE
                             WHERE ur.userid=u.userid AND r.role = 'staff') THEN 'staff'
                ELSE 'member'
              END AS role,
-             COALESCE((SELECT json_agg(r.role ORDER BY r.role) FROM user_role ur JOIN role r USING (roleid) WHERE ur.userid=u.userid), '[]') AS roles,
+             ${storedRolesSql("u")} AS roles,
              CASE WHEN EXISTS (SELECT 1 FROM user_membership um WHERE um.userid=u.userid AND um.status='active'
                                AND um.startdate <= NOW() AT TIME ZONE 'UTC' AND um.end_date > NOW() AT TIME ZONE 'UTC')
                   THEN 'Monthly' ELSE 'None' END AS membership`;
@@ -46,7 +47,7 @@ export class UserModel {
       SELECT u.userid AS id, u.firstname AS "firstName", u.lastname AS "lastName", u.email,
              (u.dob IS NOT NULL AND u.dob::date>((NOW() AT TIME ZONE $2)::date-INTERVAL '18 years')::date) AS "isMinor",
              (SELECT a.firstname||' '||a.lastname FROM app_minor_sponsor s JOIN "user" a ON a.userid=s.adult_id WHERE s.minor_id=u.userid) AS "sponsorName",
-             u.primary_role AS "primaryRole",u.is_student AS "isStudent",u.phone, COALESCE(u.status, '') AS status,u.accessstatus AS "accessStatus",
+             ${primaryRoleSql("u")} AS "primaryRole",u.is_student AS "isStudent",u.phone, COALESCE(u.status, '') AS status,u.accessstatus AS "accessStatus",
              (SELECT p.version FROM app_user_photo p WHERE p.user_id=u.userid) AS "photoVersion",
 ${identityProjection}
       FROM "user" u WHERE u.userid=$1`,

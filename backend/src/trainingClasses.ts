@@ -9,25 +9,35 @@ import { AppError, integerId, positiveId, textField } from "./domain.js";
 import { authState, requireCsrf, requireStaff } from "./middleware/auth.js";
 import { requirePermission } from "./middleware/permissions.js";
 import { StaffModel } from "./models/StaffModel.js";
-import { EligibilityModel } from "./models/EligibilityModel.js";
+import { EligibilityModel, entitlementSql } from "./models/EligibilityModel.js";
+import { ReservationModel } from "./models/ReservationModel.js";
 import { cancelTrainingPayments, enrollTrainingPayment, trainingFeeCoveredSql } from './trainingPricing.js';
+import { classManagement } from './classManagement.js';
 export function trainingClassRoutes(pool: Pool, tz: string) {
   const r = Router();
-  r.get('/classes/catalog',async(_req,res)=>res.json({data:(await pool.query('SELECT id,title,description,capacity FROM app_class_catalog ORDER BY id')).rows}));
+  r.use(classManagement(pool, tz));
+  r.get('/classes/catalog',async(_req,res)=>res.json({data:(await pool.query('SELECT id,title,description,capacity,imagepath AS image,revision FROM app_class_catalog WHERE removed_at IS NULL ORDER BY id')).rows}));
   r.get("/classes", async (_req, res) => {
     const user = authState(res).user;
+    // Registration checks the member's membership or day pass over the class's own time.
+    const covered = entitlementSql("$1", "(v.starttime AT TIME ZONE 'UTC')", "(v.endtime AT TIME ZONE 'UTC')", "$2");
     res.json({
       data: (
         await pool.query(
-          `SELECT c.id,c.title,c.certification_id AS "certificationId",COALESCE(cert.name,'Creative workshop') AS "certificationName",c.instructor_id AS "instructorId",u.firstname||' '||u.lastname AS instructor,LEAST(c.capacity,15) AS capacity,c.description,c.catalog_id AS "catalogId",CASE WHEN v.status='confirmed' THEN c.status ELSE 'cancelled' END AS status,c.revision,
+          `SELECT c.id,c.title,c.certification_id AS "certificationId",COALESCE(cert.name,'Creative workshop') AS "certificationName",c.instructor_id AS "instructorId",u.firstname||' '||u.lastname AS instructor,LEAST(c.capacity,15) AS capacity,c.description,c.catalog_id AS "catalogId",CASE WHEN v.status='confirmed' THEN c.status ELSE 'cancelled' END AS status,c.revision,c.imagepath AS image,
  cert.training_minutes AS "trainingMinutes",cert.training_fee_cents AS "trainingFeeCents",
  ${trainingFeeCoveredSql('$1', 'cert.certid')} AS "trainingFeeCovered",
  v.roomid AS "roomId",room.name AS "roomName",v.starttime AT TIME ZONE 'UTC' AS "startsAt",v.endtime AT TIME ZONE 'UTC' AS "endsAt",(SELECT COUNT(*)::int FROM app_training_enrollment e WHERE e.class_id=c.id AND e.status IN ('enrolled','attended')) AS enrolled,
- mine.status AS "myStatus",mine.training_fee_cents AS "myTrainingFeeCents",p.paymentstatus AS "myPaymentStatus"
+ mine.status AS "myStatus",mine.training_fee_cents AS "myTrainingFeeCents",p.paymentstatus AS "myPaymentStatus",
+ CASE WHEN c.status='scheduled' AND v.status='confirmed' AND v.starttime>NOW() AT TIME ZONE 'UTC'
+   THEN ${covered.membership} OR ${covered.dayPass} END AS "myEntitled",
+ -- Registrations still awaiting attendance, for the people who can open the roster.
+ CASE WHEN $3::boolean OR c.instructor_id=$1 THEN (SELECT COUNT(*)::int FROM app_training_enrollment e
+   WHERE e.class_id=c.id AND e.status='enrolled') END AS "pendingAttendance"
  FROM app_training_class c LEFT JOIN certifications cert ON cert.certid=c.certification_id JOIN reservation v ON v.reservationid=c.reservation_id JOIN room USING(roomid) JOIN "user" u ON u.userid=c.instructor_id
  LEFT JOIN app_training_enrollment mine ON mine.class_id=c.id AND mine.user_id=$1
  LEFT JOIN payment p ON p.paymentid=mine.payment_id ORDER BY v.starttime DESC LIMIT 200`,
-          [user.id],
+          [user.id, tz, user.roles.some((x) => ["staff", "admin"].includes(x))],
         )
       ).rows,
     });
@@ -48,7 +58,7 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
           reason = textField(req.body.reason, "Reason", 500);
         if (capacity>15) throw new AppError(400,'CAPACITY_LIMIT','Classes are limited to 15 participants.');
         const catalogId=req.body.catalogId == null ? null : positiveId(req.body.catalogId);
-        const catalog=catalogId ? (await db.query('SELECT * FROM app_class_catalog WHERE id=$1 FOR SHARE',[catalogId])).rows[0] : null;
+        const catalog=catalogId ? (await db.query('SELECT * FROM app_class_catalog WHERE id=$1 AND removed_at IS NULL FOR SHARE',[catalogId])).rows[0] : null;
         if (catalogId && !catalog) throw new AppError(400,'INVALID_CLASS','Choose an existing class template.');
         if (!certId && !catalog) throw new AppError(400,'CLASS_TYPE_REQUIRED','Choose a workshop template or training certification.');
         const description=textField(req.body.description ?? catalog?.description ?? '', 'Description',4000,0);
@@ -66,22 +76,12 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
             "INVALID_INPUT",
             "Schedule a future class of up to eight hours.",
           );
-        const room = (
-          await db.query(
-            "SELECT capacity,status FROM room WHERE roomid=$1 FOR UPDATE",
-            [roomId],
-          )
-        ).rows[0];
-        if (!room || room.status !== "available" || capacity > 15 || capacity > room.capacity)
-          throw new AppError(
-            400,
-            "CAPACITY_LIMIT",
-            "Classes allow at most 15 people and cannot exceed the room's capacity.",
-          );
         if (
           !(
             await db.query(
-              `SELECT u.userid FROM "user" u JOIN user_role ur USING(userid) JOIN role role USING(roleid) WHERE u.userid=$1 AND role.role='instructor' AND u.status='active' AND u.accessstatus='active'`,
+              // The lock makes classes scheduled at the same time for one instructor take turns. It is
+              // taken before the room lock, the same user-then-room order as door access and bookings.
+              `SELECT u.userid FROM "user" u JOIN user_role ur USING(userid) JOIN role role USING(roleid) WHERE u.userid=$1 AND role.role='instructor' AND u.status='active' AND u.accessstatus='active' FOR NO KEY UPDATE OF u`,
               [instructorId],
             )
           ).rowCount
@@ -90,6 +90,21 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
             400,
             "INSTRUCTOR_REQUIRED",
             "Assign an active instructor.",
+          );
+        const room = (
+          await db.query(
+            "SELECT capacity,status FROM room WHERE roomid=$1 FOR UPDATE",
+            [roomId],
+          )
+        ).rows[0];
+        if (!room || room.status !== "available")
+          throw new AppError(409, "ROOM_UNAVAILABLE", "This room is not available for classes.");
+        // A room without a seat count entered is limited only by the 15-person class cap.
+        if (capacity > 15 || (room.capacity != null && capacity > room.capacity))
+          throw new AppError(
+            400,
+            "CAPACITY_LIMIT",
+            "Classes allow at most 15 people and cannot exceed the room's capacity.",
           );
         const course = certId ? (await db.query(`SELECT certid,training_minutes FROM certifications WHERE certid=$1
           AND (effectivedate IS NULL OR effectivedate<=now() AT TIME ZONE 'UTC')
@@ -102,15 +117,30 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
           );
         if (course && (ends.getTime()-starts.getTime())/60000 < course.training_minutes)
           throw new AppError(400, 'TRAINING_DURATION', `This certification requires at least ${course.training_minutes} minutes of training.`);
+        if (await new ReservationModel(db, tz).roomOverlaps(roomId, starts, ends))
+          throw new AppError(409, "RESERVATION_CONFLICT", "That room is already reserved for part of this time.");
+        if (
+          (
+            await db.query(
+              `SELECT 1 FROM app_training_class c JOIN reservation v ON v.reservationid=c.reservation_id
+               WHERE c.instructor_id=$1 AND c.status='scheduled' AND v.status='confirmed'
+                 AND v.starttime < $3::timestamptz AT TIME ZONE 'UTC' AND v.endtime > $2::timestamptz AT TIME ZONE 'UTC' LIMIT 1`,
+              [instructorId, starts, ends],
+            )
+          ).rowCount
+        )
+          throw new AppError(409, "INSTRUCTOR_CONFLICT", "This instructor is already teaching another class at this time.");
+        // The booking belongs to the class, not to the staff member scheduling it, so the
+        // per-member room cooldown does not apply: classes can run back to back.
         const slot = (
           await db.query(
-            `INSERT INTO reservation(userid,roomid,location,starttime,endtime,status,statusdesc) VALUES($1,$2,'Instructor-led training',$3::timestamptz AT TIME ZONE 'UTC',$4::timestamptz AT TIME ZONE 'UTC','confirmed',$5) RETURNING reservationid`,
+            `INSERT INTO reservation(userid,roomid,location,starttime,endtime,status,statusdesc,cooldown_enforced) VALUES($1,$2,'Instructor-led training',$3::timestamptz AT TIME ZONE 'UTC',$4::timestamptz AT TIME ZONE 'UTC','confirmed',$5,false) RETURNING reservationid`,
             [user.id, roomId, starts, ends, reason],
           )
         ).rows[0];
         const after = (
           await db.query(
-            "INSERT INTO app_training_class(title,certification_id,instructor_id,reservation_id,capacity,created_by,catalog_id,description) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *",
+            "INSERT INTO app_training_class(title,certification_id,instructor_id,reservation_id,capacity,created_by,catalog_id,description,imagepath) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *",
             [
               title,
               certId,
@@ -118,7 +148,7 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
               slot.reservationid,
               capacity,
               user.id,
-              catalogId, description,
+              catalogId, description, catalog?.imagepath ?? null,
             ],
           )
         ).rows[0];
@@ -144,7 +174,7 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
       const id = integerId(req.params.id, "Class"),
         c = (
           await db.query(
-            `SELECT c.*,rm.buildingid AS building_id,v.status AS booking_status,v.starttime AT TIME ZONE 'UTC' AS starts FROM app_training_class c JOIN reservation v ON v.reservationid=c.reservation_id JOIN room rm ON rm.roomid=v.roomid WHERE c.id=$1 AND v.status='confirmed' FOR UPDATE OF c`,
+            `SELECT c.*,rm.buildingid AS building_id,v.status AS booking_status,v.starttime AT TIME ZONE 'UTC' AS starts,v.endtime AT TIME ZONE 'UTC' AS ends FROM app_training_class c JOIN reservation v ON v.reservationid=c.reservation_id JOIN room rm ON rm.roomid=v.roomid WHERE c.id=$1 AND v.status='confirmed' FOR UPDATE OF c`,
             [id],
           )
         ).rows[0];
@@ -152,15 +182,18 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
         throw new AppError(409, "CLASS_CLOSED", "Registration is closed.");
       if (user.status !== "active" || user.accessStatus !== "active")
         throw new AppError(403, "ACCESS_BLOCKED", "Your account is blocked.");
+      // Checked over the class's own time: a day pass for the class day counts ahead of time,
+      // and a membership that ends before the class does not.
       const e = await new EligibilityModel(db, tz).entitlement(
         user.id,
-        new Date(),
+        c.starts,
+        c.ends,
       );
       if (!e.membership && !e.dayPass)
         throw new AppError(
           403,
           "ENTITLEMENT_REQUIRED",
-          "Active membership or day pass required.",
+          "You need a membership or day pass that covers the class time.",
         );
       // Lock the member row before sponsor rows (the enrollment FK needs it anyway),
       // matching sponsor link/unlink order: user, then sponsor.
@@ -256,19 +289,36 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
     async (req, res) => {
       // Separate from the instructor roster: never select contact details,
       // account IDs or attendance history for the member response.
+      // Seats are public to members. Names are shown only to people registered
+      // for this class (plus its instructor and staff), and a classmate under 18
+      // is never named to other members. Birth date is optional on older
+      // accounts, so a classmate without one on file may be a minor: hidden too.
+      const user = authState(res).user,
+        staff = user.roles.some((x) => ["staff", "admin"].includes(x));
       const { rows } = await pool.query(
-        // Enrollment caps legacy larger classes at 15 seats; show the same limit.
-        `SELECT LEAST(c.capacity,15) AS capacity,COUNT(e.user_id)::int AS enrolled,
-          GREATEST(LEAST(c.capacity,15)-COUNT(e.user_id)::int,0) AS "seatsAvailable",
-          COALESCE(json_agg(json_build_object('name',u.firstname||' '||left(u.lastname,1)||'.')
-            ORDER BY u.firstname,u.lastname,e.user_id) FILTER(WHERE e.user_id IS NOT NULL),'[]') AS items
-         FROM app_training_class c JOIN reservation v ON v.reservationid=c.reservation_id
-         LEFT JOIN app_training_enrollment e ON e.class_id=c.id AND e.status IN ('enrolled','attended')
-         LEFT JOIN "user" u ON u.userid=e.user_id
-         WHERE c.id=$1 AND c.status='scheduled' AND v.status='confirmed'
-           AND v.starttime>NOW() AT TIME ZONE 'UTC'
-         GROUP BY c.id,c.capacity`,
-        [integerId(req.params.id, "Class")],
+        `WITH class AS (
+           -- Enrollment caps legacy larger classes at 15 seats; show the same limit.
+           SELECT c.id,LEAST(c.capacity,15) AS capacity,($3::boolean OR c.instructor_id=$2) AS privileged
+           FROM app_training_class c JOIN reservation v ON v.reservationid=c.reservation_id
+           WHERE c.id=$1 AND c.status='scheduled' AND v.status='confirmed'
+             AND v.starttime>NOW() AT TIME ZONE 'UTC'),
+         people AS (
+           SELECT e.user_id,u.firstname,u.lastname,
+             (e.user_id<>$2 AND NOT class.privileged AND (u.dob IS NULL
+               OR u.dob::date>((NOW() AT TIME ZONE $4)::date-INTERVAL '18 years')::date)) AS hidden
+           FROM class JOIN app_training_enrollment e ON e.class_id=class.id AND e.status IN ('enrolled','attended')
+           JOIN "user" u ON u.userid=e.user_id),
+         access AS (
+           SELECT class.privileged OR EXISTS(SELECT 1 FROM people WHERE user_id=$2) AS visible FROM class)
+         SELECT class.capacity,(SELECT COUNT(*)::int FROM people) AS enrolled,
+           GREATEST(class.capacity-(SELECT COUNT(*)::int FROM people),0) AS "seatsAvailable",
+           access.visible AS "namesVisible",
+           CASE WHEN access.visible THEN COALESCE((SELECT json_agg(json_build_object('name',
+             CASE WHEN p.hidden THEN 'Name hidden' ELSE p.firstname||' '||left(p.lastname,1)||'.' END)
+             ORDER BY p.hidden,p.firstname,p.lastname,p.user_id) FROM people p),'[]'::json)
+           ELSE '[]'::json END AS items
+         FROM class CROSS JOIN access`,
+        [integerId(req.params.id, "Class"), user.id, staff, tz],
       );
       if (!rows[0]) throw new AppError(404, "CLASS_ROSTER_UNAVAILABLE", "The participant list is available for upcoming scheduled classes only.");
       res.set("Cache-Control", "no-store");
@@ -389,6 +439,19 @@ export function trainingClassRoutes(pool: Pool, tz: string) {
             )
           ).rows[0];
         if (!before) throw new AppError(404, "NOT_FOUND", "Class not found.");
+        const booking = (
+          await db.query(
+            "SELECT status,starttime AT TIME ZONE 'UTC' AS starts FROM reservation WHERE reservationid=$1",
+            [before.reservation_id],
+          )
+        ).rows[0];
+        // A class that has started may have run: its attendance and unpaid fees stand.
+        if (before.status !== "scheduled" || booking?.status !== "confirmed" || booking.starts <= new Date())
+          throw new AppError(
+            409,
+            "CLASS_CLOSED",
+            "Only a scheduled class that hasn't started yet can be cancelled.",
+          );
         if (before.revision !== positiveId(req.body.expectedRevision))
           throw new AppError(
             409,

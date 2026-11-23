@@ -2,6 +2,7 @@
 
 import {BillingPricing} from './pricing.js';
 import {PassBilling} from './passes.js';
+import {EquipmentBilling} from './equipment.js';
 import {positiveId} from '../domain.js';
 import {Router} from 'express';
 import type {Pool} from 'pg';
@@ -13,6 +14,7 @@ import {requirePermission} from '../middleware/permissions.js';
 export function billingRoutes(pool:Pool,config?:StudioStripeConfig,zone='America/New_York') {
  const pricing=new BillingPricing(pool),passes=new PassBilling(pool,config?new StudioStripe(config):undefined,zone);
  const r=Router(),service=new MembershipBilling(pool,config?new StudioStripe(config):undefined);
+ const equipment=new EquipmentBilling(pool,config?new StudioStripe(config):undefined,zone);
  r.use('/me/billing',requirePermission(pool,'entitlement','read','own'));
  r.get('/me/billing',async(_req,res)=>res.json({data:{enabled:!!config,records:await service.mine(authState(res).user.id)}}));
  r.post('/me/billing/checkout',requireCsrf,async(req,res)=>res.json({data:await service.checkout(authState(res).user.id,req.body)}));
@@ -21,6 +23,9 @@ export function billingRoutes(pool:Pool,config?:StudioStripeConfig,zone='America
  r.post('/me/billing/:id/portal',paymentDetailsAreMemberOnly,requireCsrf,async(req,res)=>res.json({data:await service.portal(authState(res).user.id,String(req.params.id))}));
  r.get('/billing-management/invoices',requirePermission(pool,'payment','update','global'),async(_req,res)=>res.json({data:await service.invoices(authState(res).user.id)}));
  r.post('/billing-management/invoices/:id/refund',requirePermission(pool,'payment','update','global'),requireCsrf,async(req,res)=>res.json({data:await service.refund(authState(res).user.id,String(req.params.id),req.body.reason)}));
+ // Card day passes and equipment bookings refund through their own checkout's original payment.
+ r.post('/billing-management/passes/:id/refund',requirePermission(pool,'payment','update','global'),requireCsrf,async(req,res)=>res.json({data:await passes.staffRefund(authState(res).user.id,String(req.params.id),req.body.reason,req.body.review===true,req.body.honorVisit===true)}));
+ r.post('/billing-management/equipment/:id/refund',requirePermission(pool,'payment','update','global'),requireCsrf,async(req,res)=>res.json({data:await equipment.refund(authState(res).user.id,positiveId(req.params.id),req.body.reason)}));
  r.get('/me/billing/offers',async(req,res)=>res.json({data:await pricing.offers(authState(res).user.id,typeof req.query.date==='string'?req.query.date:undefined)}));
  r.get('/me/billing/passes',async(_req,res)=>res.json({data:await passes.mine(authState(res).user.id)}));
  r.post('/me/billing/passes/checkout',requireCsrf,async(req,res)=>res.json({data:await passes.checkout(authState(res).user.id,req.body)}));

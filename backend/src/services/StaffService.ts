@@ -9,11 +9,15 @@ import { AppError, type UserView } from "../domain.js";
 import { UserModel } from "../models/UserModel.js";
 import { ProfilePhotoModel } from "../models/ProfilePhotoModel.js";
 import { StaffModel } from "../models/StaffModel.js";
+import { billingRenewsSql } from "../models/staff/entitlements.js";
 import type { IssueInput, PlanInput } from "../staffDomain.js";
+import type { Plan } from "../models/StaffModel.js";
 import { PermissionModel } from "../models/PermissionModel.js";
 import { planInput } from "../staffDomain.js";
 import { retireSupersededPolicies } from "../policyLifecycle.js";
 import { AccessService } from "./AccessService.js";
+import { assertNoCardBillingFrom } from "../billing/openBilling.js";
+import { quote } from "../billing/pricing.js";
 import type { PolicyScope } from "../staffDomain.js";
 
 const missing = () =>
@@ -24,6 +28,25 @@ const conflict = () =>
     "STALE_RECORD",
     "This record changed. Refresh it before making another change.",
   );
+/**
+ * The version in force stays current over any version dated before it, so publishing one would
+ * retire it on the spot.
+ */
+function startsBeforeCurrent(since: Date | null | undefined, timeZone: string) {
+  const when = since
+    ? new Intl.DateTimeFormat("en-US", {
+        timeZone, year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short",
+      }).format(since)
+    : null;
+  return new AppError(
+    409,
+    "POLICY_STARTS_TOO_EARLY",
+    when
+      ? `The version now in force started ${when}. Choose a start at or after that time, or the new version would be retired as soon as it's published.`
+      : "The version now in force started later than this. Choose a later start, or the new version would be retired as soon as it's published.",
+    "effectiveAt",
+  );
+}
 const staffAccount = () =>
   new AppError(
     403,
@@ -166,16 +189,22 @@ export class StaffService {
     phone: string,
     revision: number,
     reason: string,
+    dob: string | null = null,
   ) {
     return this.write(actorId, false, "user", "update", async (model, actor) => {
       const before = await this.target(model, actor, id);
       this.expectRevision(before.revision, revision);
+      // Staff add a date of birth that was never recorded. Changing one would change who
+      // counts as a minor under existing sponsor links, so that isn't done here.
+      if (dob && before.dobOnFile)
+        throw new AppError(409, "DOB_ON_FILE", "A date of birth is already on file for this account.");
       const after = await model.updatePerson(
         id,
         firstName,
         lastName,
         phone,
         revision,
+        dob,
       );
       if (!after) throw conflict();
       await model.audit(
@@ -362,7 +391,7 @@ export class StaffService {
         throw new AppError(409, "PLAN_UNAVAILABLE", "Choose an active plan.");
       // Legacy catalog rows were not created through this API's validation.
       planInput({ ...plan });
-      let id: number;
+      let id: number, offer: Awaited<ReturnType<StaffService["deskPrice"]>>;
       if (plan.kind === "membership") {
         if (!input.startsAt || input.validDate || !plan.months)
           throw new AppError(
@@ -387,9 +416,12 @@ export class StaffService {
             "MEMBERSHIP_OVERLAP",
             "An active or suspended membership already covers part of that period. For renewal, start at the existing end time.",
           );
+        // A card subscription or checkout would charge again for these dates.
+        await assertNoCardBillingFrom(db, userId, input.startsAt, this.timeZone);
+        offer = await this.deskPrice(db, userId, plan, input, window.endsAt);
         id = await model.createMembership(
           userId,
-          plan,
+          offer.plan,
           input.startsAt,
           window.endsAt,
           actorId,
@@ -420,20 +452,41 @@ export class StaffService {
             "PASS_EXISTS",
             "An active or suspended pass already exists for that date.",
           );
+        // A desk pass would leave the member's open card checkout paying for a second one.
+        // Staff can cancel that checkout themselves from the member's account (account mode).
+        const checkoutBlock = await model.passCheckoutBlock(userId, input.validDate);
+        if (checkoutBlock === "review")
+          throw new AppError(
+            409,
+            "CHECKOUT_OPEN",
+            "The member already paid by card for this visit. Open the payment under Payments and choose Review refund before issuing access.",
+          );
+        if (checkoutBlock === "processing")
+          throw new AppError(409, "CHECKOUT_OPEN", "The member already paid by card. Wait for payment verification before issuing access.");
+        if (checkoutBlock === "open")
+          throw new AppError(
+            409,
+            "CHECKOUT_OPEN",
+            "This member has an unfinished card checkout for that date. To take payment here instead, open their account with View as, choose Cancel checkout under Membership & passes, then try again.",
+          );
         await new AccessService(db, this.timeZone).assertWaivers(userId);
+        offer = await this.deskPrice(db, userId, plan, input, input.validDate);
         id = await model.createPass(
           userId,
-          plan,
+          offer.plan,
           input.validDate,
           actorId,
           input.reason,
         );
       }
+      // Approved school-partner access is free, so there is nothing to collect.
+      const paymentStatus = offer.basis === "school_partner" ? "waived" : input.paymentStatus;
+      const amount = paymentStatus === "waived" ? "0.00" : offer.plan.price;
       const paymentId = await model.createPayment(
         userId,
         plan.kind === "membership" ? id : null,
-        input.paymentStatus === "waived" ? "0.00" : plan.price,
-        input.paymentStatus,
+        amount,
+        paymentStatus,
         input.method,
         input.reference,
         input.reason,
@@ -445,7 +498,7 @@ export class StaffService {
         id,
         userId,
         paymentId,
-        plan,
+        plan: offer.plan,
         replayed: false,
       };
       await model.audit(
@@ -470,8 +523,54 @@ export class StaffService {
       );
       await model.saveRequest(input.requestId, actorId, fingerprint, result);
       await enqueueNotification(db,{userId,kind:plan.kind === 'membership' ? 'membership_issued' : 'day_pass_issued',dedupeKey:`entitlement-issued:${plan.kind}:${id}`,payload:{membershipName:plan.name,startsAt:input.startsAt ?? input.validDate}});
-      await enqueueNotification(db,{userId,kind:input.paymentStatus === 'paid' ? 'payment_recorded' : 'payment_status_changed',dedupeKey:`payment-recorded:${paymentId}`,payload:{paymentId,amount:input.paymentStatus === 'waived' ? '0.00' : plan.price,currency:'USD',method:input.method,reference:input.reference,paymentStatus:input.paymentStatus} });
+      await enqueueNotification(db,{userId,kind:paymentStatus === 'paid' ? 'payment_recorded' : 'payment_status_changed',dedupeKey:`payment-recorded:${paymentId}`,payload:{paymentId,amount,currency:'USD',method:input.method,reference:input.reference,paymentStatus} });
       return result;
+    });
+  }
+  /**
+   * B-003: a desk sale is priced exactly like online checkout (student rate, school-partner free
+   * access), using eligibility through the access's last day. The issued plan records the price
+   * and why, as online purchases do; a waiver still records zero paid.
+   */
+  private async deskPrice(db: Database, userId: number, plan: Plan, input: Pick<IssueInput, "expectedAmountCents" | "paymentStatus"> | null, through: Date | string) {
+    const day = typeof through === "string" ? through : through.toISOString().slice(0, 10);
+    const offer = await quote(db, userId, plan, day);
+    // Staff took payment for the price on screen; never record a different one.
+    if (input?.expectedAmountCents != null && input.expectedAmountCents !== offer.amountCents)
+      throw new AppError(409, "PRICE_CHANGED", "This member's price changed. Review the new price before issuing access.");
+    // A page that didn't show the member's price (still loading, failed, or an older app version
+    // during a release) only showed the standard price. Recording anything else, or turning a
+    // recorded payment into a waiver, would misrecord what staff collected.
+    if (
+      input && input.expectedAmountCents == null &&
+      (offer.amountCents !== Math.round(Number(plan.price) * 100) ||
+        (offer.basis === "school_partner" && input.paymentStatus !== "waived"))
+    )
+      throw new AppError(409, "PRICE_CHANGED", "This member has a different price from the standard one. Reload the page, review their price, then issue access.");
+    return {
+      ...offer,
+      plan: { ...plan, price: (offer.amountCents / 100).toFixed(2), priceBasis: offer.basis },
+    };
+  }
+  /** What a desk sale of this plan would charge this member, and why. A read: no staff write lock. */
+  deskQuote(actor: UserView, userId: number, planId: number, startsAt: string | null, validDate: string | null) {
+    return transaction(this.pool, async (db) => {
+      const model = new StaffModel(db, this.timeZone);
+      if (!(await model.person(userId))) throw missing();
+      await assertManageable(db, actor, userId);
+      const plan = await model.plan(planId);
+      if (!plan || !plan.active) throw new AppError(409, "PLAN_UNAVAILABLE", "Choose an active plan.");
+      let through: Date | string;
+      if (plan.kind === "membership") {
+        if (!startsAt || !plan.months)
+          throw new AppError(400, "INVALID_INPUT", "Choose when the membership starts.");
+        through = (await model.membershipWindow(userId, startsAt, plan.months)).endsAt;
+      } else {
+        if (!validDate) throw new AppError(400, "INVALID_INPUT", "Choose the pass date.");
+        through = validDate;
+      }
+      const { amountCents, basis } = await this.deskPrice(db, userId, plan, null, through);
+      return { planId: plan.id, standardCents: Math.round(Number(plan.price) * 100), amountCents, basis };
     });
   }
   entitlementStatus(
@@ -483,8 +582,8 @@ export class StaffService {
     revision: number,
     reason: string,
   ) {
-    return this.write(actorId, false, "entitlement", "update", async (model, actor) => {
-      await this.target(model, actor, userId);
+    return this.write(actorId, false, "entitlement", "update", async (model, actor, db) => {
+      const member = await this.target(model, actor, userId);
       const before = await model.entitlement(kind, id);
       if (!before || before.userId !== userId) throw missing();
       this.expectRevision(before.revision, revision);
@@ -493,6 +592,32 @@ export class StaffService {
           409,
           "REVOKED_ENTITLEMENT",
           "Issue a new entitlement instead of restoring a revoked one.",
+        );
+      // A pass the member cancelled (and may have been refunded for) stays closed.
+      if (!["active", "suspended", "revoked"].includes(before.status))
+        throw new AppError(
+          409,
+          "ENTITLEMENT_CLOSED",
+          `This ${kind === "membership" ? "membership" : "day pass"} is ${before.status || "closed"}. Issue a new one instead of changing it.`,
+        );
+      // Ending access doesn't stop card billing, and each paid renewal would charge for a period
+      // that stays ended. Renewal has to be turned off first, which staff do from the member's
+      // record (MembershipBilling.stopRenewal) even while the account is on hold or restricted.
+      if (
+        kind === "membership" &&
+        status === "revoked" &&
+        (
+          await db.query(
+            `SELECT 1 FROM app_membership_invoice i JOIN app_membership_billing b ON b.id=i.billing_id
+            WHERE i.membership_id=$1 AND ${billingRenewsSql} LIMIT 1`,
+            [id],
+          )
+        ).rowCount
+      )
+        throw new AppError(
+          409,
+          "CARD_RENEWAL_ACTIVE",
+          `This membership still renews by card. First choose Stop auto-renew on ${member.firstName}’s membership, then end access. Billing ends on the first billing date at least 30 days away, so there may be one more charge.`,
         );
       const after = await model.changeEntitlement(
         kind,
@@ -542,6 +667,17 @@ export class StaffService {
       if (before.userId !== owner.userid) throw conflict();
       if ((await db.query('SELECT id::text FROM app_membership_invoice WHERE payment_id=$1 UNION ALL SELECT id::text FROM app_pass_checkout WHERE payment_id=$1 AND amount_cents>0 UNION ALL SELECT reservation_id::text FROM app_equipment_checkout WHERE payment_id=$1',[id])).rowCount)
         throw new AppError(409,'PROVIDER_PAYMENT','Use the Stripe billing refund workflow for this payment.');
+      // While a booking's card checkout is open, its payment is linked only from the reservation.
+      // Recording it at the desk would leave the checkout able to charge again, or let the unpaid
+      // hold cancel a booking the member paid for.
+      // Only whoever opened the checkout can cancel it: the member, or the staff member who booked for them.
+      const open = (await db.query<{ payer_id: number; userid: number }>("SELECT c.payer_id,r.userid FROM reservation r JOIN app_equipment_checkout c ON c.reservation_id=r.reservationid WHERE r.payment_id=$1 AND c.status='pending'",[id])).rows[0];
+      if (open)
+        throw new AppError(409,'PROVIDER_PAYMENT',open.payer_id===actorId
+          ? 'You opened an online card checkout for this booking, so its payment can’t be recorded at the desk. To release the booking, choose Cancel checkout under My reservations on the Equipment page; an unpaid checkout also releases it when it expires.'
+          : open.payer_id===open.userid
+            ? 'This booking is waiting for online card payment, so the member pays through its checkout. To release it instead, open the account that booked it with View as and choose Cancel checkout on the Equipment page; an unpaid checkout also releases it when it expires.'
+            : 'This booking is waiting on an online card checkout another staff member opened, so its payment can’t be recorded at the desk. They can cancel that checkout from their Equipment page; an unpaid checkout also releases it when it expires.');
       this.expectRevision(before.revision, revision);
       const transitions: Record<string, string[]> = {
         pending: ["paid", "void", "waived"],
@@ -598,9 +734,14 @@ export class StaffService {
     },
   ) {
     return this.write(actorId, true, "waiver", "create", async (model, _actor, db) => {
+      const versions = (await model.policies()).filter(policy => policy.name === input.name);
       // Omitted scope on older clients must not turn an equipment waiver's
       // replacement into a facility-wide prerequisite.
-      const previous = (await model.policies()).find(policy => policy.name === input.name);
+      const previous = versions[0];
+      // Checked up front so the admin hears when the version in force started.
+      const inForce = versions.find(policy => policy.active && (policy.effectiveAt === null || policy.effectiveAt.getTime() <= Date.now()));
+      if (inForce?.effectiveAt && Date.parse(input.effectiveAt) < inForce.effectiveAt.getTime())
+        throw startsBeforeCurrent(inForce.effectiveAt, this.timeZone);
       const after = await model.createPolicy(
         input.name,
         input.version,
@@ -628,7 +769,9 @@ export class StaffService {
         actorId,
         reason: input.reason,
       });
-      return { ...after, active: after.active && !retired.includes(after.id) };
+      // Never report success for a version that is already retired; roll it back instead.
+      if (retired.includes(after.id)) throw startsBeforeCurrent(inForce?.effectiveAt, this.timeZone);
+      return after;
     });
   }
   retirePolicy(actorId: number, id: number, reason: string) {

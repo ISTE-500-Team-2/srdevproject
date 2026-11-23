@@ -19,7 +19,7 @@ export function WorkshopCards({ workshops }: { workshops: WorkshopTemplate[] }) 
       <ul className="workshop-grid">
         {workshops.map((item) => (
           <li className="workshop-card" key={item.id}>
-            <ClassThumb certification={WORKSHOP_LABEL} photo={workshopImage(item.title)} />
+            <ClassThumb certification={WORKSHOP_LABEL} photo={item.image ? { src: item.image, cutout: false } : workshopImage(item.title)} />
             <h3>{item.title}</h3>
             <span className="status-pill status-pill--neutral">Not scheduled yet</span>
             <p>{item.description}</p>

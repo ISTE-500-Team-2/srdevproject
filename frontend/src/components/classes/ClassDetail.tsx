@@ -36,7 +36,8 @@ export function ClassDetail({
   onWithdraw: (c: ClassRecord) => void;
 }) {
   const open = !isCancelled(c) && !hasStarted(c);
-  // Members only ever see first name + last initial, never contact details.
+  // Members only ever see first name + last initial, never contact details, and only for
+  // classes they're registered for.
   const participants = useApi<MemberRoster>(open ? `/classes/${c.id}/member-roster` : null, { retainOnReload: true });
   const reloadParticipants = participants.reload;
   useEffect(() => {
@@ -92,7 +93,9 @@ export function ClassDetail({
             <h3 className="class-detail__label">Who's going</h3>
             {participants.error ? <p role="alert">{participants.error}</p> : null}
             {participants.data ? (
-              participants.data.items.length ? (
+              participants.data.enrolled > 0 && participants.data.namesVisible === false ? (
+                <p className="class-detail__muted">Names are shown to people registered for this class.</p>
+              ) : participants.data.items.length ? (
                 <ul className="class-people">
                   {participants.data.items.map((p, index) => (
                     <li key={index}>{p.name}</li>

@@ -5,6 +5,7 @@ import type { ReactElement } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { AnalyticsDashboardPage } from './AnalyticsDashboardPage';
 import { useApi } from '../lib/useApi';
+import { zoneName } from '../lib/analytics';
 vi.mock('../lib/useApi', () => ({ useApi: vi.fn() }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); vi.useRealTimers(); });
 // The links to Payments, Members and Classes need a router.
@@ -92,6 +93,14 @@ test('FR-073: the dashboard headline shows total active memberships', () => {
   vi.mocked(useApi).mockReturnValue({ data: { from: '2026-10-25', to: '2026-10-27', period: 'daily', timeZone: 'America/New_York', generatedAt: '2026-10-27T16:00:00Z', revenue: [], classes: [], visitsByDay: [], checkedInToday: [], checkedInTodayCount: 0, active: { activeUsers: 0, approvedCheckIns: 0 }, compliance: { activeMemberships: 42 }, notes: [] }, loading: false, refreshing: false, stale: false, error: '', reload: vi.fn() } as never);
   render(<AnalyticsDashboardPage />);
   expect(screen.getByText(/checked in today/).closest('p')!.textContent).toContain('42 active memberships');
+  // Nothing about to end: no third figure.
+  expect(screen.getByText(/checked in today/).closest('p')!.textContent).not.toContain('without renewal');
+});
+
+test('FR-077: the right-now line counts memberships about to end with nothing renewing them', () => {
+  vi.mocked(useApi).mockReturnValue({ data: { from: '2026-10-25', to: '2026-10-27', period: 'daily', timeZone: 'America/New_York', generatedAt: '2026-10-27T16:00:00Z', revenue: [], classes: [], visitsByDay: [], checkedInToday: [], checkedInTodayCount: 0, active: { activeUsers: 0, approvedCheckIns: 0 }, compliance: { activeMemberships: 42, membersEndingWithin30Days: 5 }, notes: [] }, loading: false, refreshing: false, stale: false, error: '', reload: vi.fn() } as never);
+  render(<AnalyticsDashboardPage />);
+  expect(screen.getByText(/checked in today/).closest('p')!.textContent).toContain('5 memberships end in the next 30 days without renewal');
 });
 
 test('the revenue axis tops out just above the tallest week instead of doubling it', () => {
@@ -114,6 +123,28 @@ test('each bar is compared with exactly its own days, 30 days earlier', () => {
   expect(screen.getByLabelText('Week of Nov 9 (partial: 2 of 7 days): $20 net, 1 receipt; 30 days earlier: $40')).toBeTruthy();
   const card = screen.getByText('Revenue by week').closest('article')!;
   expect(card.querySelector('.analytics-legend')!.textContent).toBe('Net30 days earlier');
+});
+
+test('days the previous month does not have show no comparison, not "a month earlier: $0"', () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2027-03-31T16:00:00Z'));
+  const sale = (period: string, net: string) => ({ period, category: 'Monthly', method: 'card', receipts: 1, gross: net, refunds: '0', net });
+  // This month (Mar 1-31) is compared with all of February, which ends on the 28th.
+  vi.mocked(useApi).mockImplementation((url) => {
+    if (url === '/config') return state({ timeZone: 'America/New_York' });
+    const query = new URL(String(url), 'http://test.invalid').searchParams;
+    const from = query.get('from');
+    const at = { from, to: query.get('to'), period: query.get('period') };
+    if (from === '2027-03-01') return state(report({ ...at, revenue: [sale('2027-03-28', '10.00'), sale('2027-03-30', '20.00')] }));
+    if (from === '2027-02-01') return state(report({ ...at, revenue: [sale('2027-02-28', '5.00')] }));
+    return state(null);
+  });
+  render(<AnalyticsDashboardPage />);
+  fireEvent.change(screen.getByLabelText('Date range'), { target: { value: 'month' } });
+  fireEvent.click(screen.getByRole('radio', { name: 'Daily' }));
+  expect(screen.getByLabelText('Mar 28: $10 net, 1 receipt; a month earlier: $5')).toBeTruthy();
+  expect(screen.getByLabelText('Mar 30: $20 net, 1 receipt')).toBeTruthy();
+  expect(screen.getByLabelText('Mar 31: $0 net, 0 receipts')).toBeTruthy();
 });
 
 test('"This week" compares with the same weekdays last week, not the weekend before it', () => {
@@ -239,13 +270,13 @@ test('classes: hidden when there are none; otherwise the newest six, past ones m
 
 test('members: who joined and cancelled each period, with new members as a headline number', () => {
   const memberships = [
-    { period: '2026-10-12', newMembers: 2, activeMembers: 40, expiringMembers: 0, cancelledMembers: 0 },
-    { period: '2026-10-19', newMembers: 1, activeMembers: 41, expiringMembers: 1, cancelledMembers: 1 },
-    { period: '2026-10-26', newMembers: 0, activeMembers: 41, expiringMembers: 0, cancelledMembers: 0 },
-    { period: '2026-11-02', newMembers: 3, activeMembers: 44, expiringMembers: 0, cancelledMembers: 0 },
-    { period: '2026-11-09', newMembers: 0, activeMembers: 44, expiringMembers: 0, cancelledMembers: 0 },
+    { period: '2026-10-12', newMembers: 2, activeMembers: 40, endedWithoutRenewingMembers: 0, cancelledMembers: 0 },
+    { period: '2026-10-19', newMembers: 1, activeMembers: 41, endedWithoutRenewingMembers: 1, cancelledMembers: 1 },
+    { period: '2026-10-26', newMembers: 0, activeMembers: 41, endedWithoutRenewingMembers: 0, cancelledMembers: 0 },
+    { period: '2026-11-02', newMembers: 3, activeMembers: 44, endedWithoutRenewingMembers: 0, cancelledMembers: 0 },
+    { period: '2026-11-09', newMembers: 0, activeMembers: 44, endedWithoutRenewingMembers: 0, cancelledMembers: 0 },
   ];
-  serve(report({ memberships }), report({ memberships: [{ period: '2026-09-20', newMembers: 4, activeMembers: 39, expiringMembers: 0, cancelledMembers: 0 }] }));
+  serve(report({ memberships }), report({ memberships: [{ period: '2026-09-20', newMembers: 4, activeMembers: 39, endedWithoutRenewingMembers: 0, cancelledMembers: 0 }] }));
   render(<AnalyticsDashboardPage />);
   const kpi = within(screen.getByLabelText('Headline numbers')).getByText('New members').closest('article')!;
   expect(kpi.textContent).toContain('6');
@@ -330,4 +361,75 @@ test('a one-day range compares with "the previous day", not "the previous 1 days
   expect(visits.textContent).toContain('Same as the previous day');
   expect(screen.getByLabelText('Week of Nov 9 (partial: 1 of 7 days): 2 visits; a day earlier: 2')).toBeTruthy();
   expect(document.body.textContent).not.toMatch(/\b1 days\b/);
+});
+
+test('a preset range moves on to the new day when the page is left open past midnight', () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-11-10T16:00:00Z'));
+  vi.mocked(useApi).mockImplementation((url) => (url === '/config' ? state({ timeZone: 'America/New_York' }) : state(null)));
+  const page = () => <MemoryRouter><AnalyticsDashboardPage /></MemoryRouter>;
+  const view = rtlRender(page());
+  expect(requested()).toContain('/admin/reports?from=2026-10-12&to=2026-11-10&period=weekly');
+  // The 30-second refresh renders the page again the next morning.
+  const nextDay = requestsDuring(() => {
+    vi.setSystemTime(new Date('2026-11-11T13:00:00Z'));
+    view.rerender(page());
+  });
+  expect(nextDay).toContain('/admin/reports?from=2026-10-13&to=2026-11-11&period=weekly');
+  expect(nextDay.filter((key) => key.includes('to=2026-11-10&period=weekly'))).toEqual([]);
+  // Custom dates are what staff entered, so they stay put.
+  fireEvent.change(screen.getByLabelText('Date range'), { target: { value: 'custom' } });
+  expect((screen.getByLabelText('Through') as HTMLInputElement).value).toBe('2026-11-11');
+  const dayAfter = requestsDuring(() => {
+    vi.setSystemTime(new Date('2026-11-12T13:00:00Z'));
+    view.rerender(page());
+  });
+  expect(dayAfter).toContain('/admin/reports?from=2026-10-13&to=2026-11-11&period=weekly');
+});
+
+test('the grouping switch is one Tab stop, arrow keys move it, and it only shows a grouping in use', () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-11-10T16:00:00Z'));
+  vi.mocked(useApi).mockImplementation((url) => (url === '/config' ? state({ timeZone: 'America/New_York' }) : state(null)));
+  render(<AnalyticsDashboardPage />);
+  const radios = within(screen.getByRole('radiogroup', { name: 'Group charts by' })).getAllByRole('radio');
+  const checked = () => radios.map((radio) => radio.getAttribute('aria-checked'));
+  expect(radios.map((radio) => radio.tabIndex)).toEqual([-1, 0, -1]);
+  radios[1].focus();
+  const monthly = requestsDuring(() => fireEvent.keyDown(radios[1], { key: 'ArrowRight' }));
+  expect(document.activeElement).toBe(radios[2]);
+  expect(checked()).toEqual(['false', 'false', 'true']);
+  expect(radios.map((radio) => radio.tabIndex)).toEqual([-1, -1, 0]);
+  expect(monthly).toContain('/admin/reports?from=2026-10-12&to=2026-11-10&period=monthly');
+  // The ends wrap around, as in any radio group.
+  fireEvent.keyDown(radios[2], { key: 'ArrowRight' });
+  expect(document.activeElement).toBe(radios[0]);
+  expect(checked()).toEqual(['true', 'false', 'false']);
+  fireEvent.keyDown(radios[0], { key: 'ArrowUp' });
+  expect(checked()).toEqual(['false', 'false', 'true']);
+  // A grouping the half-entered dates can't take is not shown as chosen.
+  fireEvent.change(screen.getByLabelText('Date range'), { target: { value: 'custom' } });
+  fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-01-01' } });
+  fireEvent.click(radios[1]);
+  expect(screen.getByRole('alert').textContent).toMatch(/93 days/);
+  expect(checked()).toEqual(['false', 'false', 'true']);
+});
+
+test('panel titles sit one level under the page heading', () => {
+  serve(report({ revenue: [{ period: '2026-10-26', category: 'membership', method: 'card', receipts: 6, gross: '1018.00', refunds: '95.00', net: '923.00' }] }));
+  render(<AnalyticsDashboardPage />);
+  expect(screen.getByRole('heading', { level: 1, name: 'Analytics' })).toBeTruthy();
+  expect(screen.getByRole('heading', { level: 2, name: 'Revenue by week' })).toBeTruthy();
+  expect(screen.getByRole('heading', { level: 2, name: 'Revenue by source' })).toBeTruthy();
+  expect(screen.queryAllByRole('heading', { level: 3 })).toEqual([]);
+});
+
+test("the update time is read on the facility's clock, matching the zone named beside it", () => {
+  // Kathmandu and Kolkata read 9:45 and 9:30 PM, so at least one differs from wherever the tests run.
+  const generatedAt = '2026-11-10T16:00:00Z';
+  const clock = (timeZone?: string) => new Date(generatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone });
+  const facility = ['Asia/Kathmandu', 'Asia/Kolkata'].find((zone) => clock(zone) !== clock())!;
+  serve(report({ timeZone: facility, generatedAt }));
+  render(<AnalyticsDashboardPage />);
+  expect(screen.getByText(/^Updated /).textContent).toBe(`Updated ${clock(facility)} · ${zoneName(facility)} · refreshes every 30 seconds`);
 });

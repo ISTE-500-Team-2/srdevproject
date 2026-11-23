@@ -33,6 +33,14 @@ export function publicUser(user: UserView): PublicUserView {
   const { status: _status, accessStatus: _accessStatus, ...safe } = user;
   return safe;
 }
+/** Most fields a saved address or contact-preferences object may hold. */
+const PROFILE_FIELD_LIMIT = 20;
+/**
+ * Control characters other than whitespace (tab, line breaks, form feed). PostgreSQL refuses NUL in
+ * text and JSON, and none of them belong in typed or pasted text.
+ */
+const CONTROL_CHARACTERS = /[\u0000-\u0008\u000e-\u001f\u007f]/;
+
 // PATCH semantics: omitted keys stay unchanged; blank strings or null remove a key.
 export function profileFields(value: unknown, name: string): ProfileFieldPatch {
   if (value === undefined) return {};
@@ -41,8 +49,8 @@ export function profileFields(value: unknown, name: string): ProfileFieldPatch {
   if (typeof value !== "object" || Array.isArray(value))
     throw new AppError(400, "INVALID_INPUT", `${name} must be an object.`);
   const entries = Object.entries(value as Record<string, unknown>);
-  if (entries.length > 20)
-    throw new AppError(400, "INVALID_INPUT", `${name} can contain up to 20 fields.`);
+  if (entries.length > PROFILE_FIELD_LIMIT)
+    throw new AppError(400, "INVALID_INPUT", `${name} can contain up to ${PROFILE_FIELD_LIMIT} fields.`);
   const result: ProfileFieldPatch = Object.create(null);
   for (const [key, raw] of entries) {
     const field = key.trim();
@@ -54,6 +62,8 @@ export function profileFields(value: unknown, name: string): ProfileFieldPatch {
       const text = raw.trim();
       if (text.length > 200)
         throw new AppError(400, "INVALID_INPUT", `${field} must contain 200 characters or fewer.`);
+      if (CONTROL_CHARACTERS.test(text))
+        throw new AppError(400, "INVALID_INPUT", `${field} contains a character that can't be saved.`);
       result[field] = text || null;
     } else if (raw === null) {
       result[field] = null;
@@ -63,6 +73,25 @@ export function profileFields(value: unknown, name: string): ProfileFieldPatch {
   }
   return result;
 }
+/**
+ * A patch merges into the stored fields, so the per-request cap alone would let fields pile up
+ * across saves. Refuse a patch that leaves more than the limit, unless it adds no fields (an older
+ * profile already over the limit can still be saved and trimmed).
+ */
+export function checkProfileFieldTotal(
+  stored: Record<string, unknown> | null | undefined,
+  patch: ProfileFieldPatch,
+  name: string,
+) {
+  const keys = new Set(Object.keys(stored ?? {}));
+  const before = keys.size;
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null) keys.delete(key);
+    else keys.add(key);
+  }
+  if (keys.size > PROFILE_FIELD_LIMIT && keys.size > before)
+    throw new AppError(400, "INVALID_INPUT", `${name} can contain up to ${PROFILE_FIELD_LIMIT} fields.`);
+}
 
 export class AppError extends Error {
   constructor(
@@ -71,12 +100,15 @@ export class AppError extends Error {
     message: string,
     /** The request-body property the error is about, when a form can point at it. */
     public field?: string,
+    /** `cause`: the provider or library failure behind it, logged by class and code only. */
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
   }
 }
 
-export function positiveId(value: unknown, name = "id"): number {
+/** Validate identifiers backed by PostgreSQL BIGINT (any safe positive integer). */
+export function bigintId(value: unknown, name = "id"): number {
   const n =
     typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value;
   if (typeof n !== "number" || !Number.isSafeInteger(n) || n <= 0) {
@@ -89,9 +121,12 @@ export function positiveId(value: unknown, name = "id"): number {
   return n;
 }
 
-/** Validate identifiers backed by PostgreSQL INTEGER, not BIGINT. */
-export function integerId(value: unknown, name = "id"): number {
-  const n = positiveId(value, name);
+/**
+ * Validate a positive id, revision or count. Nearly all of them are PostgreSQL INTEGER columns, so
+ * a larger value is refused here rather than failing in the database; use bigintId for BIGINT keys.
+ */
+export function positiveId(value: unknown, name = "id"): number {
+  const n = bigintId(value, name);
   if (n > 2_147_483_647) {
     throw new AppError(
       400,
@@ -102,12 +137,17 @@ export function integerId(value: unknown, name = "id"): number {
   return n;
 }
 
+/** Validate identifiers backed by PostgreSQL INTEGER, not BIGINT; the same check as positiveId. */
+export const integerId = positiveId;
+
 export function textField(
   value: unknown,
   name: string,
   max: number,
   min = 1,
 ): string {
+  if (typeof value === "string" && CONTROL_CHARACTERS.test(value))
+    throw new AppError(400, "INVALID_INPUT", `${name} contains a character that can't be saved.`);
   if (
     typeof value !== "string" ||
     value.trim().length < min ||

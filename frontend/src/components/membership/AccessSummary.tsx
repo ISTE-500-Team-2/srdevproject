@@ -19,7 +19,10 @@ import { StatusPill } from "./StatusPill";
 import { lastCancelDay } from "./dates";
 
 const closedBilling = ["canceled", "expired", "incomplete_expired"];
-const closedPass = ["cancelled", "expired"];
+// Staff revoke a pass for good; a suspended one stays listed as on hold.
+const closedPass = ["cancelled", "expired", "revoked"];
+// Subscription states where a charge failed and the member must update their card.
+const failedBilling = ["past_due", "unpaid", "incomplete", "paused"];
 
 /**
  * Keep unfinished or ongoing billing records visible; terminal subscriptions no longer offer
@@ -29,14 +32,33 @@ export function openBilling(records: Billing[]) {
   return records.filter((r) => !closedBilling.includes(r.status));
 }
 
+/** A refund that returned nothing. */
+const refundFailed = (p: BillingPass) => p.refundStatus === "failed" || p.refundStatus === "canceled";
+/** A card payment that arrived when no pass could be issued, so it is only a refund, never a booking. */
+const unissued = (p: BillingPass) => p.passIssued === false;
+const byDate = (a: BillingPass, b: BillingPass) => a.validDate.localeCompare(b.validDate);
+
 /**
- * Show today's and future nonterminal passes in date order, including checkouts whose payment is
- * still pending.
+ * Show today's and future booked passes in date order, including checkouts whose payment is still
+ * pending.
  */
 export function upcomingPasses(passes: BillingPass[], today: string) {
   return passes
-    .filter((p) => !closedPass.includes(p.status) && p.validDate >= today)
-    .sort((a, b) => a.validDate.localeCompare(b.validDate));
+    .filter((p) => !closedPass.includes(p.status) && !unissued(p) && p.validDate >= today)
+    .sort(byDate);
+}
+
+/**
+ * Refunds still open outside the bookings: payments that never became a pass, and past passes whose
+ * refund failed, which would otherwise drop off the page.
+ */
+export function openRefunds(passes: BillingPass[], today: string) {
+  return passes
+    .filter((p) => !closedPass.includes(p.status) && (
+      (unissued(p) && (p.status === "pending" || p.refundStatus || p.cancelRequested)) ||
+      (p.validDate < today && (refundFailed(p) || p.refundStatus === "needs_review"))
+    ))
+    .sort(byDate);
 }
 
 type Act = (path: string) => Promise<unknown>;
@@ -58,14 +80,41 @@ export function AccessSummary({ history, billing, passes, busy, act }: Props) {
     (m) => m.effectiveStatus === "scheduled",
   );
   const passToday = history.passes.find((p) => p.effectiveStatus === "active");
+  const nextPass = history.passes
+    .filter((p) => p.effectiveStatus === "scheduled" && p.validDate)
+    .sort((a, b) => a.validDate!.localeCompare(b.validDate!))[0];
   const records = openBilling(billing);
   const pending = records.find((r) => r.status === "pending");
   const recurring = records.find((r) => r.status !== "pending");
   const upcoming = upcomingPasses(passes, today);
+  const refunds = openRefunds(passes, today);
   const [stopping, setStopping] = useState<Billing | null>(null);
   const [cancelling, setCancelling] = useState<BillingPass | null>(null);
   const [ending, setEnding] = useState<Entitlement | null>(null);
-  const deskMembership = current && !current.cardBilled && !recurring ? current : null;
+  // FR-057: a desk (or free) membership the member can cancel themselves: running now, on hold
+  // but not yet over, or scheduled to start. Card memberships stop through auto-renew instead, but
+  // a card membership still running out doesn't hide the cancel button on a desk one.
+  const now = Date.now();
+  const notStarted = (m: Entitlement) => !!m.startsAt && new Date(m.startsAt).getTime() > now;
+  const deskMemberships = history.memberships.filter(
+    (m) =>
+      !m.cardBilled &&
+      (m.effectiveStatus === "active" ||
+        m.effectiveStatus === "scheduled" ||
+        (m.effectiveStatus === "suspended" && !!m.endsAt && new Date(m.endsAt).getTime() > now)),
+  );
+  const passRow = (p: BillingPass) => (
+    <PassRow
+      key={p.id}
+      pass={p}
+      busy={busy}
+      onCancel={() =>
+        p.status === "pending" || p.refundStatus
+          ? act(`/me/billing/passes/${p.id}/cancel`)
+          : setCancelling(p)
+      }
+    />
+  );
 
   return (
     <section className="panel membership-status" aria-labelledby="access-heading">
@@ -74,6 +123,7 @@ export function AccessSummary({ history, billing, passes, busy, act }: Props) {
         current={current}
         scheduled={scheduled}
         passToday={passToday}
+        nextPass={nextPass}
         recurring={recurring}
         pending={pending}
       />
@@ -86,41 +136,46 @@ export function AccessSummary({ history, billing, passes, busy, act }: Props) {
           onCancelCheckout={(r) => act(`/me/billing/${r.id}/cancel`)}
         />
       ) : null}
-      {deskMembership ? (
-        <div className="membership-billing">
-          {deskMembership.cancellationRequestedAt ? (
+      {deskMemberships.map((m) => (
+        <div className="membership-billing" key={m.id}>
+          {m.cancellationRequestedAt ? (
             <p className="membership-muted">
-              You cancelled this membership. Your last day is {shortDate(deskMembership.endsAt!, true)}.
+              You cancelled this membership. Your last day is {shortDate(m.endsAt!, true)}.
             </p>
           ) : (
-            <div className="membership-actions">
-              <button className="button button--quiet" disabled={busy} onClick={() => setEnding(deskMembership)}>
-                Cancel membership
-              </button>
-            </div>
+            <>
+              {notStarted(m) ? (
+                <p className="membership-muted">
+                  {m.plan?.name ?? "Membership"} starts {shortDate(m.startsAt!, true)}
+                  {m.effectiveStatus === "suspended" ? " and is on hold" : ""}.
+                </p>
+              ) : m.effectiveStatus === "suspended" ? (
+                <p className="membership-muted">{m.plan?.name ?? "Your membership"} is on hold.</p>
+              ) : null}
+              <div className="membership-actions">
+                <button className="button button--quiet" disabled={busy} onClick={() => setEnding(m)}>
+                  {notStarted(m) ? "Cancel upcoming membership" : "Cancel membership"}
+                </button>
+              </div>
+            </>
           )}
         </div>
-      ) : null}
+      ))}
       {upcoming.length ? (
         <div className="membership-passes">
           <div className="membership-passes__heading">
             <h3>Upcoming day passes</h3>
             <span>{upcoming.length} booked</span>
           </div>
-          <ul>
-            {upcoming.map((p) => (
-              <PassRow
-                key={p.id}
-                pass={p}
-                busy={busy}
-                onCancel={() =>
-                  p.status === "pending" || p.refundStatus
-                    ? act(`/me/billing/passes/${p.id}/cancel`)
-                    : setCancelling(p)
-                }
-              />
-            ))}
-          </ul>
+          <ul>{upcoming.map(passRow)}</ul>
+        </div>
+      ) : null}
+      {refunds.length ? (
+        <div className="membership-passes">
+          <div className="membership-passes__heading">
+            <h3>Day pass refunds</h3>
+          </div>
+          <ul>{refunds.map(passRow)}</ul>
         </div>
       ) : null}
 
@@ -132,8 +187,11 @@ export function AccessSummary({ history, billing, passes, busy, act }: Props) {
       >
         <p>
           Cancelling takes effect on the first billing date that's at least
-          30 days from today, so you may be charged one more time. You keep
-          studio access until then, and we'll show your last day here.
+          30 days from today, so you may be charged one more time.{" "}
+          {/* After a failed charge access has already lapsed, so don't promise it. */}
+          {stopping && failedBilling.includes(stopping.status)
+            ? "Your payment didn't go through, so you won't have studio access unless you update your payment method."
+            : "You keep studio access until then, and we'll show your last day here."}
         </p>
         <div className="membership-dialog__actions">
           <button className="button button--quiet" onClick={() => setStopping(null)}>
@@ -155,16 +213,25 @@ export function AccessSummary({ history, billing, passes, busy, act }: Props) {
 
       <Modal
         open={!!ending}
-        title="Cancel membership?"
+        title={ending && notStarted(ending) ? "Cancel upcoming membership?" : "Cancel membership?"}
         width="compact"
         onClose={() => setEnding(null)}
       >
-        <p>
-          Cancelling takes 30 days of notice. You keep studio access until
-          then, or until your current end date if that comes first, and your
-          membership won't renew. If you paid at the front desk, ask staff
-          about any refund.
-        </p>
+        {ending && notStarted(ending) ? (
+          <p>
+            Your membership starting {shortDate(ending.startsAt!, true)} will be
+            cancelled now, so it won't start. If you paid at the front desk,
+            ask staff about any refund.
+          </p>
+        ) : (
+          <p>
+            Cancelling takes 30 days of notice.{" "}
+            {ending?.effectiveStatus === "suspended"
+              ? "Your membership stays on hold until then, or until its current end date if that comes first, and it won't renew."
+              : "You keep studio access until then, or until your current end date if that comes first, and your membership won't renew."}{" "}
+            If you paid at the front desk, ask staff about any refund.
+          </p>
+        )}
         <div className="membership-dialog__actions">
           <button className="button button--quiet" onClick={() => setEnding(null)}>
             Keep membership
@@ -193,9 +260,11 @@ export function AccessSummary({ history, billing, passes, busy, act }: Props) {
           <p>
             Your day pass for {shortDate(cancelling.validDate)} will be
             cancelled.{" "}
-            {cancelling.id.startsWith("manual:")
-              ? "If you paid at the front desk, staff will refund you the same way you paid."
-              : "We'll refund the full amount to your card."}
+            {cancelling.amountCents === 0
+              ? "This pass was free, so there's nothing to refund."
+              : cancelling.id.startsWith("manual:")
+                ? "If you paid at the front desk, staff will refund you the same way you paid."
+                : "We'll refund the full amount to your card."}
           </p>
         ) : null}
         <div className="membership-dialog__actions">
@@ -224,6 +293,7 @@ function Headline({
   current,
   scheduled,
   passToday,
+  nextPass,
   recurring,
   pending,
 }: {
@@ -231,6 +301,7 @@ function Headline({
   current?: Entitlement;
   scheduled?: Entitlement;
   passToday?: Entitlement;
+  nextPass?: Entitlement;
   recurring?: Billing;
   pending?: Billing;
 }) {
@@ -267,6 +338,16 @@ function Headline({
       ? `Your membership starts ${shortDate(scheduled.startsAt)}`
       : "Your membership starts soon";
     detail = scheduled.plan?.name ?? "Membership";
+  } else if (recurring && failedBilling.includes(recurring.status)) {
+    // Incomplete is a first checkout whose payment never cleared, so there's no membership to keep yet.
+    const first = recurring.status === "incomplete";
+    icon = <CreditCard aria-hidden="true" />;
+    tone = "warn";
+    pill = first ? "Payment pending" : "Payment failed";
+    title = first
+      ? "Your first payment hasn't gone through"
+      : "Your last payment didn't go through";
+    detail = `Update your payment method to ${first ? "start" : "keep"} your membership.`;
   } else if (pending || recurring) {
     icon = <Clock aria-hidden="true" />;
     tone = "warn";
@@ -275,6 +356,12 @@ function Headline({
     detail = pending
       ? "Finish checkout to start your membership."
       : "We're waiting for your payment to clear. This page updates on its own.";
+  } else if (nextPass) {
+    icon = <CalendarCheck aria-hidden="true" />;
+    tone = "ok";
+    pill = "Booked";
+    title = `Your next day pass is ${shortDate(nextPass.validDate!)}`;
+    detail = nextPass.plan?.name ?? "Day pass";
   }
   return (
     <div className="membership-status__main">
@@ -326,28 +413,42 @@ function BillingDetails({
       </div>
     );
   const ending = r.cancellationEffectiveAt;
-  let renewal: string;
+  // A failed charge has no next charge date to promise; the member needs to fix their card.
+  const failed = failedBilling.includes(r.status);
+  // Any stop-auto-renew state still shows beside a failed payment, so "Try again" reads as retrying that.
+  let renewal: string | null = null;
   if (ending && r.cancellationConfirmed)
     renewal = `Auto-renew is off. Your last day is ${shortDate(ending, true)}.`;
   else if (ending)
     renewal = `You asked to stop auto-renew from ${shortDate(ending, true)}. We're confirming this with the payment provider.`;
   else if (r.cancelAtPeriodEnd) renewal = "Auto-renew is off.";
-  else
+  else if (!failed)
     renewal = r.currentPeriodEnd
       ? `Next charge ${cents(r.amountCents)} on ${shortDate(r.currentPeriodEnd)}`
       : `Renews automatically at ${cents(r.amountCents)} a month`;
   const renewing = !ending && !r.cancelAtPeriodEnd;
   return (
     <div className="membership-billing">
-      <p className="membership-facts">
-        <span>
-          <Repeat aria-hidden="true" />
-          {renewal}
-        </span>
-      </p>
+      {failed ? (
+        <p className="membership-facts">
+          <span>
+            <CreditCard aria-hidden="true" />
+            {r.plan.name} · {cents(r.amountCents)} a month ·{" "}
+            {r.status === "incomplete" ? "first payment not finished" : "payment failed"}
+          </span>
+        </p>
+      ) : null}
+      {renewal ? (
+        <p className="membership-facts">
+          <span>
+            <Repeat aria-hidden="true" />
+            {renewal}
+          </span>
+        </p>
+      ) : null}
       <div className="membership-actions">
         <button
-          className="button button--quiet"
+          className={failed ? "button button--primary" : "button button--quiet"}
           disabled={busy}
           onClick={() => onPortal(r)}
         >
@@ -392,15 +493,23 @@ function PassRow({
   const deadlinePassed = new Date(p.cancelBy).getTime() < Date.now();
   let note: string;
   let action: string | null = null;
-  if (p.status === "pending") {
+  if (p.refundStatus === "needs_review") {
+    note = "Refund needs staff review. Please contact the front desk.";
+  } else if (p.status === "suspended") {
+    note = "On hold. Please contact staff about this pass.";
+  } else if (p.status === "pending") {
     note = "Checkout not finished";
     action = "Cancel checkout";
-  } else if (p.refundStatus && p.refundStatus !== "succeeded") {
-    note =
-      p.refundStatus === "failed" || p.refundStatus === "canceled"
-        ? "Your refund didn't go through"
-        : "Refund in progress";
-    action = p.refundStatus === "failed" || p.refundStatus === "canceled" ? "Retry refund" : null;
+  } else if (p.refundStatus === "partial") {
+    note = "Part of this payment was refunded. Contact the front desk about any further refund.";
+  } else if ((p.refundStatus && p.refundStatus !== "succeeded") || unissued(p)) {
+    if (!refundFailed(p)) note = "Refund in progress";
+    // The server retries after the cancel-by deadline only a refund the member's own cancellation
+    // started; a staff refund of a used or late pass is staff's to retry.
+    else if (p.cancelRequested || !deadlinePassed) {
+      note = "Your refund didn't go through";
+      action = "Retry refund";
+    } else note = "Your refund didn't go through. Ask staff at the front desk about this refund.";
   } else if (deadlinePassed) {
     note = "Too late to cancel for a refund";
   } else {
@@ -415,7 +524,9 @@ function PassRow({
       </span>
       <div className="membership-pass__body">
         <strong>
-          {p.plan?.name ?? "Day pass"} · {shortDate(p.validDate)}
+          {unissued(p)
+            ? `${p.plan?.name ?? "Day pass"} payment for ${shortDate(p.validDate)} (no pass issued)`
+            : `${p.plan?.name ?? "Day pass"} · ${shortDate(p.validDate)}`}
         </strong>
         <span>{note}</span>
       </div>

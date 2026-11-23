@@ -2,6 +2,7 @@
 // sign-in throttling are separate layers.
 
 import { timingSafeEqual } from "node:crypto";
+import { isIP } from "node:net";
 import { auditContext } from "../auditContext.js";
 import type { Request, Response, NextFunction } from "express";
 import type { Pool } from "pg";
@@ -9,17 +10,21 @@ import type { AppConfig } from "../config.js";
 import { AppError, type UserView } from "../domain.js";
 import { SessionModel } from "../models/SessionModel.js";
 import { UserModel } from "../models/UserModel.js";
-import { accountModeRefusal, assertAllowedWhileActing, isWorkspacePath } from "../accountMode.js";
+import { accountModeRefusal, assertAllowedWhileActing, isWorkspacePath, isWorkspaceRole } from "../accountMode.js";
 
 export const cookieName = "arbor_refresh";
+/**
+ * The refresh cookie, or "" when there is none. Ours is host-only, so a browser holds one. A second
+ * copy can only come from another site under the same parent domain (cookie tossing), and browsers
+ * send its longer path first, so a request carrying more than one is treated as signed out rather
+ * than letting the planted cookie choose whose session this is.
+ */
 export function refreshToken(req: Request): string {
-  return (
-    (req.headers.cookie ?? "")
-      .split(";")
-      .map((s) => s.trim())
-      .find((s) => s.startsWith(`${cookieName}=`))
-      ?.slice(cookieName.length + 1) ?? ""
-  );
+  const values = (req.headers.cookie ?? "")
+    .split(";")
+    .map((s) => s.trim())
+    .filter((s) => s.startsWith(`${cookieName}=`));
+  return values.length === 1 ? values[0]!.slice(cookieName.length + 1) : "";
 }
 export function sessionToken(req: Request): string {
   const header = req.get("Authorization") ?? "";
@@ -40,12 +45,17 @@ export function requireStaff(_req: Request, res: Response, next: NextFunction) {
   const user = authState(res).user;
   const hasStaffOrAdminRole =
     Array.isArray(user.roles) &&
-    user.roles.some((role) => role === "staff" || role === "admin");
+    user.roles.some(isWorkspaceRole);
 
   if (!hasStaffOrAdminRole)
     throw new AppError(403, "STAFF_REQUIRED", "Staff permission is required.");
   next();
 }
+
+/** A request that writes to whichever account it runs as. Signing out ends the sign-in itself. */
+const changesAccount = (req: Request) =>
+  !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
+  req.path.toLowerCase().replace(/\/+$/, "") !== "/auth/logout";
 
 /**
  * Resolve current session/account data on every request, then bind the real operator separately
@@ -73,13 +83,30 @@ export function requireUser(pool: Pool, config: AppConfig) {
         "This account does not currently have access. Please see staff.",
       );
     let subject = user;
-    if (session.actingAsUserId && !isWorkspacePath(req.path)) {
+    const workspace = isWorkspacePath(req.path);
+    const accountChange = !workspace && changesAccount(req);
+    if (session.actingAsUserId && !workspace) {
       const opened = await new UserModel(pool, config.timeZone).findById(session.actingAsUserId);
       // Re-check every request: roles, suspensions and restrictions change.
-      if (accountModeRefusal(user, opened)) await sessions.setActingAs(token, null);
-      else subject = opened!;
+      const refusal = accountModeRefusal(user, opened);
+      if (refusal) {
+        await sessions.setActingAs(token, null);
+        // A change meant for the member must never quietly land on the staff member's own account.
+        if (accountChange)
+          throw new AppError(409, "ACCOUNT_MODE_CLOSED", `The account you were working in was closed, so nothing was changed. ${refusal}`);
+      } else subject = opened!;
     }
+    // The page names the account it is showing. The open account lives on the sign-in, so another
+    // tab may have opened, switched or closed one since; refuse rather than change someone else's.
+    const shown = req.get("X-Account-Subject");
+    if (accountChange && shown && shown !== String(subject.id))
+      throw new AppError(409, "ACCOUNT_CHANGED",
+        "A different account is open now than the one this page was showing, so nothing was changed. Check whose account you're in and try again.");
     if (subject !== user) assertAllowedWhileActing(req, user, subject);
+    // A tab with an older frontend might omit the subject even after another tab closed account mode.
+    if (accountChange && !shown && user.roles.some(isWorkspaceRole))
+      throw new AppError(409, "ACCOUNT_SUBJECT_REQUIRED",
+        "Reload this page, check whose account you're in, and try again. Nothing was changed.");
     res.locals.auth = {
       user: subject,
       ...(subject !== user ? { actor: user } : {}),
@@ -140,11 +167,46 @@ export function checkOrigin(config: AppConfig) {
 }
 
 /**
- * Create a bounded, process-local IP budget; separate instances let recovery and refresh avoid
- * consuming the login allowance.
+ * The budget a client address falls in. An IPv6 visitor can pick any address in the block their
+ * connection is given, often a /56 (256 /64s) at home, so a /56 shares one budget. IPv4
+ * (IPv4-mapped too) counts by address.
+ */
+export function addressBudget(ip: string | undefined): string {
+  if (!ip) return "unknown";
+  const address = ip.replace(/%.*$/, "").toLowerCase();
+  if (isIP(address) !== 6 || address.includes(".")) return address;
+  const [head = "", tail] = address.split("::");
+  const groups = head ? head.split(":") : [];
+  if (tail !== undefined) {
+    const rest = tail ? tail.split(":") : [];
+    groups.push(...Array<string>(8 - groups.length - rest.length).fill("0"), ...rest);
+  }
+  // The first 56 bits: three groups and the top half of the fourth.
+  const prefix = groups.slice(0, 4).map((group, i) => parseInt(group, 16) & (i === 3 ? 0xff00 : 0xffff));
+  // ::/56 holds loopback and the IPv4-mapped forms: single hosts, not one visitor's block.
+  return prefix.every((group) => group === 0) ? address : `${prefix.map((group) => group.toString(16)).join(":")}::/56`;
+}
+
+/**
+ * Create a bounded, process-local attempt budget. Give each route its own instance, so one
+ * endpoint's traffic never spends another's allowance. Budgets are per client address (req.ip,
+ * which is the visitor only when 'trust proxy' names the proxies in front of the app; an IPv6
+ * /56 counts as one address); `key` narrows one further, for example to one account from one
+ * address, or with `perAddress: false` names the budget on its own, across every address. With
+ * `failuresOnly`, only requests that fail count: one that succeeds hands its attempt back, so
+ * ordinary sign-ins and session renewals never use up anyone's allowance, and so does a request
+ * a budget refused (429), so retrying while limited never spends another budget on the route.
+ * Attempts still count while in flight, so parallel guesses can't overrun the limit.
  */
 export function authRateLimit(
-  options: { limit?: number; windowMs?: number; message?: string } = {},
+  options: {
+    limit?: number;
+    windowMs?: number;
+    message?: string;
+    key?: (req: Request, res: Response) => string;
+    perAddress?: boolean;
+    failuresOnly?: boolean;
+  } = {},
 ) {
   const limit = options.limit ?? 30;
   const windowMs = options.windowMs ?? 15 * 60000;
@@ -153,12 +215,33 @@ export function authRateLimit(
     const now = Date.now();
     for (const [key, value] of attempts)
       if (value.until <= now) attempts.delete(key);
-    const key = req.ip ?? "unknown";
-    const record = attempts.get(key) ?? { count: 0, until: now + windowMs };
-    if (attempts.size >= 2048 && !attempts.has(key))
-      throw new AppError(429, "RATE_LIMITED", "Please try again later.");
+    const address = addressBudget(req.ip);
+    const narrowed = options.key?.(req, res);
+    const key = narrowed === undefined ? address
+      : options.perAddress === false ? narrowed : `${address}\n${narrowed}`;
+    let record = attempts.get(key);
+    if (!record) {
+      // A full table forgets the entry with the fewest attempts (the oldest of those); refusing
+      // every newcomer would lock out the site. Never simply the oldest: anyone could flood the
+      // table with fresh keys to wipe the count they are trying to get past.
+      if (attempts.size >= 2048) {
+        let fewest: string | undefined, least = Infinity;
+        for (const [entry, value] of attempts)
+          if (value.count < least) { fewest = entry; least = value.count; }
+        attempts.delete(fewest!);
+      }
+      record = { count: 0, until: now + windowMs };
+      attempts.set(key, record);
+    }
     record.count++;
-    attempts.set(key, record);
+    if (options.failuresOnly) {
+      const counted = record;
+      res.once("finish", () => {
+        if (res.statusCode >= 400 && res.statusCode !== 429) return;
+        counted.count--;
+        if (counted.count <= 0 && attempts.get(key) === counted) attempts.delete(key);
+      });
+    }
     if (record.count > limit) {
       res.set("Retry-After", String(Math.ceil((record.until - now) / 1000)));
       throw new AppError(

@@ -10,10 +10,14 @@ import {
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import App from "../../src/App";
+import { loadStaffArea } from "../../src/areas/load";
 import { api } from "../../src/lib/api";
 import { createBrowserBridge } from "../../../backend/test/helpers/browserBridge";
 let bridge: Awaited<ReturnType<typeof createBrowserBridge>>;
 beforeAll(async () => {
+  // Compile the staff workspace here, under the hook's long timeout, so the first
+  // page wait measures the app and API rather than on-demand compilation.
+  await loadStaffArea();
   bridge = await createBrowserBridge({
     devices: {
       cardHashKey: "browser-test-card-hash-key-isolated",
@@ -110,7 +114,7 @@ test("staff training UI configures approved expiry, records actual instructor tr
     screen.getByRole("button", { name: /Hold to revoke UI printer safety/ }),
     { key: " " },
   );
-  await screen.findByText("Not current · revoked", {}, { timeout: 5000 });
+  await screen.findByText("Not current · revoked");
 });
 test("staff reports UI reads actual ledger instead of sample charts", async () => {
   await bridge.pool.query(

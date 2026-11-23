@@ -1,5 +1,7 @@
 // Staff reader configuration and diagnostics routes; the registry owns credential encryption and
-// resource targeting.
+// resource targeting. Adding, renaming, moving or turning on a reader is hardware configuration
+// (CON-001) and needs `reader:update`, which only administrators hold. Staff keep card scans and
+// may still turn a reader off, a safety action.
 
 import { randomBytes, randomUUID } from "node:crypto";
 import { Router } from "express";
@@ -8,7 +10,9 @@ import { transaction } from "./db.js";
 import { AppError, positiveId, textField } from "./domain.js";
 import { authState, requireCsrf } from "./middleware/auth.js";
 import { requirePermission } from "./middleware/permissions.js";
+import { PermissionModel } from "./models/PermissionModel.js";
 import { StaffModel } from "./models/StaffModel.js";
+import { assertManageable } from "./services/StaffService.js";
 import {
   accessResources,
   assertReaderTarget,
@@ -17,6 +21,10 @@ import {
   requireDeviceConfig,
 } from "./readerRegistry.js";
 
+// Time left on a scan by the server's clock, so a browser whose clock is off still counts
+// down correctly rather than comparing its own time with expiresAt.
+const expiresInMs = `GREATEST(0,EXTRACT(EPOCH FROM expires_at-NOW())*1000)::int AS "expiresInMs"`;
+
 export function readerManagement(
   pool: Pool,
   tz: string,
@@ -24,11 +32,18 @@ export function readerManagement(
 ) {
   const routes = Router(),
     read = requirePermission(pool, "user", "read"),
-    write = requirePermission(pool, "user_access", "update");
+    write = requirePermission(pool, "user_access", "update"),
+    configure = requirePermission(pool, "reader", "update");
   routes.get("/admin/access/readers", read, async (_req, res) => {
     res.json({
       data: {
         configured: !!registry.config,
+        // Lets the page show staff why add/turn-on controls are off instead of a failing button.
+        canConfigure: await new PermissionModel(pool).allows(
+          authState(res).user,
+          "reader",
+          "update",
+        ),
         timeZone: tz,
         readers: await registry.list(),
       },
@@ -37,45 +52,50 @@ export function readerManagement(
   routes.get("/admin/access/resources", read, async (_req, res) => {
     res.json({ data: await accessResources(pool) });
   });
-  routes.post("/admin/access/readers", write, requireCsrf, async (req, res) => {
-    requireDeviceConfig(registry.config);
-    await registry.ready();
-    const id = textField(req.body.id, "Reader ID", 64),
-      name = textField(req.body.name, "Reader name", 100);
-    if (!/^[a-zA-Z0-9_-]{1,64}$/.test(id))
-      throw new AppError(
-        400,
-        "INVALID_READER",
-        "Use letters, numbers, hyphens or underscores for the reader ID.",
-      );
-    const kind = req.body.kind,
-      resourceId = positiveId(req.body.resourceId),
-      secret = randomBytes(32).toString("hex");
-    const reason = textField(req.body.reason, "Reason", 500);
-    const data = await transaction(pool, async (db) => {
-      await assertReaderTarget(db, kind, resourceId);
-      const after = (
-        await db.query(
-          `INSERT INTO app_access_reader(id,name,kind,resource_id,secret_encrypted)
-        VALUES($1,$2,$3,$4,$5) RETURNING id,name,kind,resource_id AS "resourceId",enabled,revision`,
-          [id, name, kind, resourceId, registry.encrypt(secret)],
-        )
-      ).rows[0];
-      await new StaffModel(db, tz).audit(
-        authState(res).user.id,
-        null,
-        "access.reader_created",
-        "access_reader",
-        0,
-        reason,
-        null,
-        after,
-      );
-      return after;
-    });
-    // Shown only once on creation; list, edit and audit responses never contain it.
-    res.status(201).json({ data: { ...data, secret } });
-  });
+  routes.post(
+    "/admin/access/readers",
+    configure,
+    requireCsrf,
+    async (req, res) => {
+      requireDeviceConfig(registry.config);
+      await registry.ready();
+      const id = textField(req.body.id, "Reader ID", 64),
+        name = textField(req.body.name, "Reader name", 100);
+      if (!/^[a-zA-Z0-9_-]{1,64}$/.test(id))
+        throw new AppError(
+          400,
+          "INVALID_READER",
+          "Use letters, numbers, hyphens or underscores for the reader ID.",
+        );
+      const kind = req.body.kind,
+        resourceId = positiveId(req.body.resourceId),
+        secret = randomBytes(32).toString("hex");
+      const reason = textField(req.body.reason, "Reason", 500);
+      const data = await transaction(pool, async (db) => {
+        await assertReaderTarget(db, kind, resourceId);
+        const after = (
+          await db.query(
+            `INSERT INTO app_access_reader(id,name,kind,resource_id,secret_encrypted)
+          VALUES($1,$2,$3,$4,$5) RETURNING id,name,kind,resource_id AS "resourceId",enabled,revision`,
+            [id, name, kind, resourceId, registry.encrypt(secret)],
+          )
+        ).rows[0];
+        await new StaffModel(db, tz).audit(
+          authState(res).user.id,
+          null,
+          "access.reader_created",
+          "access_reader",
+          0,
+          reason,
+          null,
+          after,
+        );
+        return after;
+      });
+      // Shown only once on creation; list, edit and audit responses never contain it.
+      res.status(201).json({ data: { ...data, secret } });
+    },
+  );
   routes.patch(
     "/admin/access/readers/:id",
     write,
@@ -90,10 +110,15 @@ export function readerManagement(
           "INVALID_INPUT",
           "Choose whether the reader is enabled.",
         );
+      // A location is optional, so older clients that only rename or disable keep working.
+      const move =
+          req.body.kind !== undefined || req.body.resourceId !== undefined,
+        kind = move ? req.body.kind : null,
+        resourceId = move ? positiveId(req.body.resourceId) : null;
       const data = await transaction(pool, async (db) => {
         const before = (
           await db.query(
-            "SELECT id,name,enabled,revision FROM app_access_reader WHERE id=$1 FOR UPDATE",
+            `SELECT id,name,kind,resource_id AS "resourceId",enabled,revision FROM app_access_reader WHERE id=$1 FOR UPDATE`,
             [req.params.id],
           )
         ).rows[0];
@@ -103,6 +128,20 @@ export function readerManagement(
             409,
             "STALE_RECORD",
             "This reader changed. Refresh and try again.",
+          );
+        // Without reader:update, the only change allowed is turning the reader off as it is.
+        if (
+          (req.body.enabled || move || name !== before.name) &&
+          !(await new PermissionModel(db).allows(
+            authState(res).user,
+            "reader",
+            "update",
+          ))
+        )
+          throw new AppError(
+            403,
+            "PERMISSION_REQUIRED",
+            "Only an admin can add or turn on readers, or change a reader's name or location. You can turn a reader off.",
           );
         if (
           req.body.enabled &&
@@ -119,10 +158,12 @@ export function readerManagement(
             "SETUP_INCOMPLETE",
             "Finish guided setup before enabling this reader.",
           );
+        if (move) await assertReaderTarget(db, kind, resourceId!);
         const after = (
           await db.query(
-            `UPDATE app_access_reader SET name=$2,enabled=$3,revision=revision+1 WHERE id=$1 RETURNING id,name,enabled,revision`,
-            [before.id, name, req.body.enabled],
+            `UPDATE app_access_reader SET name=$2,enabled=$3,kind=COALESCE($4,kind),resource_id=COALESCE($5,resource_id),
+            revision=revision+1 WHERE id=$1 RETURNING id,name,kind,resource_id AS "resourceId",enabled,revision`,
+            [before.id, name, req.body.enabled, kind, resourceId],
           )
         ).rows[0];
         if (!after.enabled)
@@ -174,6 +215,24 @@ export function readerManagement(
             "READER_UNAVAILABLE",
             "Choose an enabled reader.",
           );
+        // A scan denies every request on its reader, lease renewals included, so starting
+        // one mid-session would cut power to a running machine or relock an open door.
+        // Readers renew once a second with leases of at most 5 seconds, so a grant decided
+        // in the last 10 seconds that has not expired means someone is using it now.
+        if (
+          (
+            await db.query(
+              `SELECT 1 FROM app_device_access_event WHERE reader_id=$1 AND allowed
+              AND created_at>NOW()-INTERVAL '10 seconds' AND expires_at>NOW() LIMIT 1`,
+              [readerId],
+            )
+          ).rowCount
+        )
+          throw new AppError(
+            409,
+            "READER_IN_USE",
+            "Someone is using this reader right now. Start the scan when they finish, or choose another reader.",
+          );
         if (
           userId &&
           !(
@@ -183,6 +242,8 @@ export function readerManagement(
           ).rowCount
         )
           throw new AppError(404, "NOT_FOUND", "Member not found.");
+        // Refuse before the scan, not after it: the assignment itself is refused for these accounts.
+        if (userId) await assertManageable(db, authState(res).user, userId);
         await db.query(
           `UPDATE app_card_enrollment SET cancelled_at=NOW() WHERE reader_id=$1 AND expires_at<=NOW()
         AND completed_at IS NULL AND cancelled_at IS NULL`,
@@ -204,7 +265,8 @@ export function readerManagement(
         return (
           await db.query(
             `INSERT INTO app_card_enrollment(id,reader_id,user_id,actor_id,purpose)
-        VALUES($1,$2,$3,$4,$5) RETURNING id,reader_id AS "readerId",user_id AS "userId",purpose,expires_at AS "expiresAt",'waiting' AS status`,
+        VALUES($1,$2,$3,$4,$5) RETURNING id,reader_id AS "readerId",user_id AS "userId",purpose,expires_at AS "expiresAt",
+        ${expiresInMs},'waiting' AS status`,
             [randomUUID(), readerId, userId, authState(res).user.id, purpose],
           )
         ).rows[0];
@@ -216,7 +278,7 @@ export function readerManagement(
     const session = (
       await pool.query(
         `SELECT id,reader_id AS "readerId",user_id AS "userId",purpose,uid_last4 AS "last4",uid_hash,
-      expires_at AS "expiresAt",CASE WHEN cancelled_at IS NOT NULL THEN 'cancelled'
+      expires_at AS "expiresAt",${expiresInMs},CASE WHEN cancelled_at IS NOT NULL THEN 'cancelled'
       WHEN completed_at IS NOT NULL AND purpose='assign' THEN 'completed'
       WHEN expires_at<=NOW() THEN 'expired' WHEN captured_at IS NOT NULL THEN 'captured' ELSE 'waiting' END AS status
       FROM app_card_enrollment WHERE id=$1 AND actor_id=$2`,

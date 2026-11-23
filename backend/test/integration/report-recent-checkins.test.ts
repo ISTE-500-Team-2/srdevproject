@@ -39,6 +39,17 @@ test('today report counts everyone and returns the latest distinct visitors befo
     assert.equal(data.checkedInToday[0].method, 'portal');
     assert.equal(new Set(data.checkedInToday.map((person: { userId: number }) => person.userId)).size, 50);
     assert.ok(data.checkedInToday.every((person: { location: string }) => !['Rejected', 'Yesterday'].includes(person.location)));
+    // A reader check-in stores the reader's id as its location; staff see the reader's name.
+    await bridge.pool.query(`INSERT INTO app_access_reader(id,name,kind,resource_id,secret_encrypted)
+      VALUES('reader-3f9a1c0b7d2e4a6f8b1c2d3e','Front door','building',1,'fixture')`);
+    await bridge.pool.query(`INSERT INTO check_in(userid,location,checkintime,status,statusdesc,origin)
+      VALUES($1,'reader-3f9a1c0b7d2e4a6f8b1c2d3e',NOW() AT TIME ZONE 'UTC','approved','Authenticated NFC eligibility decision','nfc')`, [ids[2]]);
+    data = await report();
+    assert.equal(data.checkedInTodayCount, 51);
+    assert.equal(data.checkedInToday[0].userId, ids[2]);
+    assert.equal(data.checkedInToday[0].location, 'Front door');
+    assert.equal(data.checkedInToday[0].method, 'nfc');
+    assert.equal(data.checkedInToday[1].location, 'Second visit', 'a typed-in place is shown as entered');
   } finally {
     await bridge.close();
   }

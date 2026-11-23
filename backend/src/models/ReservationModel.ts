@@ -11,7 +11,7 @@ const selection = `r.reservationid AS id,r.userid AS "userId",r.equipmentid AS "
  COALESCE(e.name,room.name) AS "equipmentName",CASE WHEN r.roomid IS NULL THEN 'equipment' ELSE 'room' END AS "resourceType",
  r.starttime AT TIME ZONE 'UTC' AS "startTime",r.endtime AT TIME ZONE 'UTC' AS "endTime",r.location,r.status,
  (SELECT c.amount_cents FROM app_equipment_checkout c WHERE c.reservation_id=r.reservationid) AS "amountCents",
- COALESCE((SELECT c.status FROM app_equipment_checkout c WHERE c.reservation_id=r.reservationid),
+ COALESCE((SELECT CASE WHEN c.refund_status='succeeded' THEN 'refunded' ELSE c.status END FROM app_equipment_checkout c WHERE c.reservation_id=r.reservationid),
    (SELECT paymentstatus FROM payment WHERE paymentid=r.payment_id)) AS "paymentStatus",
  (SELECT c.payer_id FROM app_equipment_checkout c WHERE c.reservation_id=r.reservationid) AS "payerId",
  (SELECT c.hold_until FROM app_equipment_checkout c WHERE c.reservation_id=r.reservationid) AS "holdUntil",
@@ -56,6 +56,38 @@ export type ReservationWrite = ReservationResource & {
   start: Date;
   end: Date;
 };
+
+/**
+ * Staff can't cancel or change a booking while its online checkout is open. Only the payer can
+ * cancel that checkout (from My reservations on the Equipment page), which releases the booking.
+ * The payer is the member, or the staff member who booked for them, possibly the one asking.
+ * View as opens only plain member accounts (accountModeRefusal), so staff are pointed to it only
+ * for a member's own checkout; a staff, instructor or admin account's own checkout is left to them.
+ */
+export async function pendingCheckoutRefusal(db: Database, booking: { userId: number; payerId: number | null },
+  actorId: number | undefined, action: 'cancel' | 'change') {
+  const mine = booking.payerId != null && booking.payerId === actorId;
+  const ownAccount = !mine && booking.payerId === booking.userId;
+  const member = ownAccount && !(await db.query(
+    "SELECT 1 FROM user_role ur JOIN role r USING(roleid) WHERE ur.userid=$1 AND r.role IN ('staff','admin','instructor')",
+    [booking.userId])).rowCount;
+  const message = mine
+    ? action === 'cancel'
+      ? 'You opened an online checkout for this booking, so it can’t be cancelled here. To release it, choose Cancel checkout under My reservations on the Equipment page.'
+      : 'You opened an online checkout for this booking, so it can’t be changed. Choose Cancel checkout under My reservations on the Equipment page, then book again.'
+    : member
+      ? action === 'cancel'
+        ? 'This booking is waiting for the member’s online payment, so it can’t be cancelled yet. To release it now, open the account that booked it with View as and choose Cancel checkout on the Equipment page. If they pay, you can cancel it then; if their checkout expires unpaid, the booking is released on its own.'
+        : 'This booking is waiting for the member’s online payment, so it can’t be changed yet.'
+      : ownAccount
+        ? action === 'cancel'
+          ? 'This booking is waiting on an online checkout the person who booked it opened, so it can’t be cancelled yet. They can cancel that checkout from their Equipment page; if it expires unpaid, the booking is released on its own.'
+          : 'This booking is waiting on an online checkout the person who booked it opened, so it can’t be changed yet.'
+        : action === 'cancel'
+          ? 'This booking is waiting on an online checkout another staff member opened, so it can’t be cancelled yet. They can cancel that checkout from their Equipment page; if it expires unpaid, the booking is released on its own.'
+          : 'This booking is waiting on an online checkout another staff member opened, so it can’t be changed yet.';
+  return new AppError(409, 'PAYMENT_WORKFLOW_REQUIRED', message);
+}
 
 export class ReservationModel {
   constructor(
@@ -267,11 +299,12 @@ export class ReservationModel {
     if (!rows[0]) return null;
     return (await this.db.query<ReservationRecord>(`SELECT ${selection} FROM reservation r ${joins} WHERE r.reservationid=$1`,[id])).rows[0] ?? null;
   }
-  async cancelAny(id: number): Promise<ReservationRecord | null> {
+  /** Staff cancellation; `actorId` (the staff member) only words the open-checkout refusal. */
+  async cancelAny(id: number, actorId?: number): Promise<ReservationRecord | null> {
     const before = await this.find(id, true);
     if (!before || (before.status !== 'confirmed' && before.status !== 'pending')) return null;
     if (before.paymentStatus === 'pending' && before.payerId != null)
-      throw new AppError(409, 'PAYMENT_WORKFLOW_REQUIRED', 'Cancel the pending Stripe checkout before cancelling this reservation.');
+      throw await pendingCheckoutRefusal(this.db, before, actorId, 'cancel');
     await this.db.query(
       `UPDATE reservation SET status='cancelled',statusdesc='Cancelled by staff' WHERE reservationid=$1`,
       [id],

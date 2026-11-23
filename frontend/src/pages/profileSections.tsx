@@ -1,7 +1,7 @@
 // The profile page's section frame and its read and edit pieces, shared by every section.
 
 import { Check, Pencil, type LucideIcon } from "lucide-react";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode, type Ref } from "react";
 import { errorMessage } from "../lib/api";
 
 /** A problem found before anything is sent, worded for the member. SectionForm shows it as is. */
@@ -31,7 +31,10 @@ export function Section({
           <Icon aria-hidden="true" />
         </span>
         <div>
-          <h2 id={`${id}-title`}>{title}</h2>
+          {/* Focusable so the section menu can move keyboard focus here (jumpToSection). */}
+          <h2 id={`${id}-title`} tabIndex={-1}>
+            {title}
+          </h2>
           <p>{note}</p>
         </div>
         {action}
@@ -41,21 +44,39 @@ export function Section({
   );
 }
 
-export function Detail({ label, children }: { label: string; children: ReactNode }) {
+/** `empty` replaces "Not added" while the value is still loading or couldn't be loaded. */
+export function Detail({ label, empty = "Not added", children }: { label: string; empty?: string; children: ReactNode }) {
   return (
     <div className="account-detail">
       <dt>{label}</dt>
-      <dd>{children || <span className="account-detail__empty">Not added</span>}</dd>
+      <dd>{children || <span className="account-detail__empty">{empty}</span>}</dd>
     </div>
   );
 }
 
-export function EditButton({ label, onClick }: { label: string; onClick: () => void }) {
+export function EditButton({ label, onClick, ref }: { label: string; onClick: () => void; ref?: Ref<HTMLButtonElement> }) {
   return (
-    <button type="button" className="button button--quiet account-edit" onClick={onClick} aria-label={label}>
+    <button ref={ref} type="button" className="button button--quiet account-edit" onClick={onClick} aria-label={label}>
       <Pencil aria-hidden="true" /> Edit
     </button>
   );
+}
+
+/**
+ * The button that opens a section's form disappears while the form is open. Attach the
+ * returned ref to it: when the form closes and takes keyboard focus with it, focus goes
+ * back to the button instead of falling to the top of the page.
+ */
+export function useReturnFocus(open: boolean) {
+  const opener = useRef<HTMLButtonElement>(null);
+  const wasOpen = useRef(open);
+  useEffect(() => {
+    const closed = wasOpen.current && !open;
+    wasOpen.current = open;
+    // Only when focus was lost with the form; never pull it from wherever the person went next.
+    if (closed && (!document.activeElement || document.activeElement === document.body)) opener.current?.focus();
+  }, [open]);
+  return opener;
 }
 
 /** A form that saves one section and reports its own errors. */
@@ -72,6 +93,11 @@ export function SectionForm({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const form = useRef<HTMLFormElement>(null);
+  // The button that opened this form is gone now: start keyboard focus at the first field.
+  useEffect(() => {
+    form.current?.querySelector<HTMLElement>("input:not([type=hidden]), select, textarea")?.focus();
+  }, []);
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setBusy(true);
@@ -85,7 +111,7 @@ export function SectionForm({
     }
   };
   return (
-    <form className="account-form" onSubmit={(e) => void submit(e)}>
+    <form ref={form} className="account-form" onSubmit={(e) => void submit(e)}>
       {children}
       {error ? (
         <p className="form-error" role="alert">

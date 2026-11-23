@@ -16,7 +16,8 @@ let instructorId: number, roomId: number, registration: any, initialClass: any;
 const start = new Date(Date.now() + 3 * 86400000); start.setUTCHours(16, 0, 0, 0);
 const get = (path: string, actor = member) => request(server).get('/api' + path).set('Authorization', 'Bearer ' + actor.accessToken);
 const post = (path: string, body: object = {}, actor = member) => request(server).post('/api' + path)
-  .set('Authorization', 'Bearer ' + actor.accessToken).set('X-CSRF-Token', actor.csrfToken).send(body);
+  .set('Authorization', 'Bearer ' + actor.accessToken).set('X-CSRF-Token', actor.csrfToken)
+  .set('X-Account-Subject', String(actor.user.id)).send(body);
 const payment = async (id: number) => (await pool.query('SELECT * FROM payment WHERE paymentid=$1', [id])).rows[0];
 const classBody = (day: number) => ({ title: `CNC training ${day}`, certificationId: course.id, instructorId, roomId,
   capacity: 15, startsAt: new Date(+start + day * 86400000).toISOString(),

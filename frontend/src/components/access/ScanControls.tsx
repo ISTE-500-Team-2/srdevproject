@@ -57,6 +57,17 @@ export function ScanControls({
               a card; refresh Readers to check its connection.
             </p>
           ) : null}
+          {selected ? (
+            <p className="nfc-help">
+              {/* Every reader controls a door or machine, and a scan takes it over. */}
+              Scanning here pauses {selected.resourceName} for up to two
+              minutes. The next card tapped is captured, and{" "}
+              {selected.kind === "equipment"
+                ? "the machine won’t turn on"
+                : "the door won’t open"}{" "}
+              for anyone until the scan ends.
+            </p>
+          ) : null}
           <button
             type="button"
             className="button button--primary"
@@ -77,7 +88,7 @@ export function ScanControls({
                   ? "This scan expired. Start a new scan."
                   : "This scan has ended."}
           </p>
-          {["waiting", "captured"].includes(scan.scan.status) ? (
+          {scan.counting ? (
             <p className="nfc-help">
               {scan.seconds} seconds remaining. This scan does not open a door
               or activate equipment.
@@ -88,9 +99,11 @@ export function ScanControls({
             className="button button--quiet"
             onClick={() => void scan.cancel()}
           >
-            {["waiting", "captured"].includes(scan.scan.status)
+            {scan.counting
               ? "Cancel scan"
-              : "Start over"}
+              : scan.scan.status === "captured"
+                ? "Scan another card"
+                : "Start over"}
           </button>
         </>
       )}

@@ -50,6 +50,11 @@
 .class-search input::placeholder {
   color: #8c7f77;
 }
+/* The input drops its own ring, so the underline shows focus. */
+.class-search:focus-within {
+  border-bottom-color: var(--focus-ring);
+  box-shadow: 0 1px 0 var(--focus-ring);
+}
 
 /* Certification filter chips */
 .class-filters {
@@ -203,9 +208,10 @@
   background: rgba(255, 253, 250, 0.5);
   box-shadow: none;
 }
+/* The dashed edge and Cancelled pill mark the row; its text stays readable. */
 .class-row--cancelled h3,
 .class-row--cancelled .class-meta {
-  color: #9a8c84;
+  color: var(--ink-soft);
 }
 .class-row--cancelled .class-thumb {
   filter: grayscale(1);
@@ -406,6 +412,10 @@
 .your-classes .button {
   justify-self: start;
   margin-top: 8px;
+}
+.your-classes .status-pill {
+  justify-self: start;
+  margin-top: 4px;
 }
 .your-classes__past {
   margin-top: 14px;
@@ -1235,6 +1245,16 @@
   .class-table__row > .seat-meter {
     grid-column: 2;
   }
+  /* Actions sit beside the class name and the status beside the seats, so neither drops into the date column. */
+  .class-table__actions {
+    grid-row: 1;
+    grid-column: 3;
+  }
+  .class-table__row > :nth-child(6) {
+    grid-row: 2;
+    grid-column: 3;
+    justify-self: end;
+  }
 }
 
 @media (max-width: 900px) {
@@ -1313,8 +1333,13 @@
     padding: 14px;
   }
   .class-table__row > .seat-meter,
+  .class-table__row > :nth-child(6),
   .class-table__actions {
+    grid-row: auto;
     grid-column: 1 / -1;
+  }
+  .class-table__row > :nth-child(6) {
+    justify-self: start;
   }
   .class-table__actions {
     justify-content: stretch;
@@ -1347,3 +1372,40 @@
   width: 280px;
   flex: none;
 }
+
+/* Staff class catalog shares the class imagery and editor with the member catalog. */
+.class-tab[aria-pressed="true"] { border-bottom-color: var(--ink); color: var(--ink); }
+.classes-management .workshop-card footer { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.class-form .eq-image { display: block; }
+.class-form .eq-image__link input { display: block; width: 100%; margin-top: 8px; }
+
+/* Keep both workspace views mounted so switching tabs preserves search and schedule filters. */
+.classes-management__panel { padding-top: 28px; }
+.classes-management__panel[hidden] { display: none; }
+.classes-management .classes-head { flex-wrap: wrap; align-items: center; gap: 20px; }
+.classes-management .classes-head > div:first-child { flex: 1 1 260px; min-width: 0; }
+.classes-management .classes-head h2 { margin: 0; font-size: var(--text-xl); line-height: 1.25; }
+.classes-management .classes-head p { margin: 8px 0 0; max-width: 65ch; color: var(--ink-soft); }
+.classes-management .classes-head__tools { flex: 1 1 380px; min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
+.classes-management .classes-head__tools .class-search { flex: 1 1 180px; width: auto; min-width: 0; max-width: 320px; }
+.class-editor-removal { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--border); }
+.class-editor-removal h3 { margin: 0; }
+.class-editor-removal p { color: var(--ink-soft); }
+@media (max-width: 760px) {
+  .classes-management .classes-head > div:first-child,
+  .classes-management .classes-head__tools,
+  .classes-management .classes-head__tools .class-search { flex-basis: auto; max-width: none; width: 100%; }
+}
+/* Auto margins on a grid child otherwise size the whole page to its active view's contents. */
+.classes-management { width: 100%; min-width: 0; }
+
+/* Keep adjacent scheduling controls aligned even when only one field has help text. */
+.class-form__pair,
+.class-form__times { align-items: start; }
+.class-form .class-field { align-content: start; min-width: 0; }
+.class-form .class-field > input,
+.class-form .class-field > select { height: 46px; box-sizing: border-box; }
+/* The instructor picker fills the same column as the other scheduling fields. */
+.class-form .class-field--picker .member-select { width: 100%; max-width: none; }
+.class-form .class-field--picker .member-select__field { height: 46px; box-sizing: border-box; }
+.class-form .class-field--picker .member-select__field input { min-height: 0; height: 100%; }

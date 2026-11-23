@@ -114,7 +114,9 @@ export function visitPoints(
 /**
  * What the same days added up to one comparison period earlier. Only the days of
  * the bar that are inside the range count, so a two-day last week is compared
- * with two days, never with a full week.
+ * with two days, never with a full week. Undefined when none of the bar's days
+ * has an earlier day to compare with (March 29-31 against February), so the bar
+ * shows no comparison rather than an earlier total of zero.
  */
 export function earlierTotal(
   start: string,
@@ -122,13 +124,13 @@ export function earlierTotal(
   range: { from: string; to: string },
   earlier: { from: string; to: string },
   daily: Map<string, number>,
-) {
+): number | undefined {
   const offset = dayCount(earlier.from, range.from);
   const end = nextBucket(start, period);
-  let total = 0;
+  let total: number | undefined;
   for (let date = start > range.from ? start : range.from; date < end && date <= range.to; date = shiftDay(date, 1)) {
     const then = shiftDay(date, -offset);
-    if (then >= earlier.from && then <= earlier.to) total += daily.get(then) ?? 0;
+    if (then >= earlier.from && then <= earlier.to) total = (total ?? 0) + (daily.get(then) ?? 0);
   }
   return total;
 }

@@ -82,7 +82,30 @@ function ActionGroup({ title, actions, tone }: { title: string; actions: Action[
   );
 }
 
-const expired = (status: string) => /expired|revoked|lapsed/i.test(status);
+/**
+ * Why a certification no longer counts, or null while it does. `valid` covers the renewal date
+ * (status stays "active" after it passes), so it alone says whether the training lapsed. It also
+ * turns false while the certification itself is retired or not yet in effect: that is "not
+ * current", as on the Certifications page, not expired.
+ */
+const lapse = (item: Certification) =>
+  item.valid
+    ? null
+    : item.status === "revoked"
+      ? "revoked"
+      : item.renewalDate && Date.parse(item.renewalDate) < Date.now()
+        ? "expired"
+        : "not current";
+
+/** A summary row whose records failed to load: say so, and offer another try. */
+function RowFailed({ what, reload }: { what: string; reload: () => void }) {
+  return (
+    <>
+      <strong className="account-snapshot__bad" role="alert">Couldn’t load {what}</strong>
+      <button type="button" className="text-button" onClick={reload}>Retry</button>
+    </>
+  );
+}
 
 /**
  * What staff see on the member site's home page while they have someone's
@@ -139,7 +162,7 @@ export function AccountHomePage() {
     .filter((item) => item.status === "confirmed" && Date.parse(item.startTime) > now)
     .sort((a, b) => Date.parse(a.startTime) - Date.parse(b.startTime))[0];
   const lastVisit = o?.recentCheckIns[0];
-  const lapsed = (certifications.data ?? []).filter((item) => expired(item.status));
+  const lapsed = (certifications.data ?? []).filter((item) => lapse(item));
 
   const problems: { title: string; detail: string; action?: ReactNode }[] = [];
   if (o && !o.entitlement.membership && !o.entitlement.dayPass)
@@ -155,12 +178,19 @@ export function AccountHomePage() {
         ? "Sign them from Certifications & Waivers."
         : `${user.firstName} has to sign these in their own account.`,
     });
-  for (const item of lapsed)
+  for (const item of lapsed) {
+    const why = lapse(item);
     problems.push({
-      title: `${own ? "Your" : `${user.firstName}'s`} ${item.name} certification is ${item.status.toLowerCase()}.`,
-      detail: "Machines that need it stay locked until an instructor signs it off again.",
-      action: <Link className="button button--quiet account-heads__action" to="/classes">Find a class</Link>,
+      title: `${own ? "Your" : `${user.firstName}'s`} ${item.name} certification is ${why}.`,
+      // A class can renew lapsed training, but not a certification that isn't offered right now.
+      ...(why === "not current"
+        ? { detail: "Machines that need it stay locked while this certification isn't in effect." }
+        : {
+            detail: "Machines that need it stay locked until an instructor signs it off again.",
+            action: <Link className="button button--quiet account-heads__action" to="/classes">Find a class</Link>,
+          }),
     });
+  }
 
   const onBehalf: Action[] = [
     { icon: Drill, title: "Book equipment", detail: own ? "Machines you're certified on" : `Machines ${user.firstName} is certified on`, to: "/equipment" },
@@ -205,6 +235,40 @@ export function AccountHomePage() {
 
   return (
     <div className="account-home page-enter">
+      <div className="account-ask">
+        <h1>What would you like to do?</h1>
+        <p className="account-ask__intro">
+          {own
+            ? `You're on the member site as ${roleLabel(actor).toLowerCase()} ${actor.firstName}. Pick something to do.`
+            : `Pick an action for ${user.firstName}. Member actions open the same pages ${user.firstName} uses, filled in for their account.`}
+        </p>
+        {checkIn.message ? (
+          <p className={checkIn.failed ? "form-error" : "form-notice"} role={checkIn.failed ? "alert" : "status"}>
+            {checkIn.message}
+          </p>
+        ) : null}
+        {reset.message ? (
+          <p className={reset.failed ? "form-error" : "form-notice"} role={reset.failed ? "alert" : "status"}>
+            {reset.message}
+          </p>
+        ) : null}
+        {problems.map((problem) => (
+          <div className="account-heads" key={problem.title}>
+            <TriangleAlert aria-hidden="true" />
+            <div>
+              <strong>{problem.title}</strong>
+              <p>{problem.detail}</p>
+            </div>
+            {problem.action}
+          </div>
+        ))}
+        {!own && o && <CheckInBuilding buildings={o.buildings} buildingId={overview.buildingId}
+          onChange={overview.selectBuilding} disabled={checkIn.busy} />}
+        <ActionGroup title={own ? "For you" : `On ${first}'s behalf`} actions={onBehalf} />
+        <ActionGroup title={isAdmin ? "Admin tools" : "Staff tools"} actions={tools} tone="tools" />
+        <ActionGroup title={isAdmin ? "Needs an instructor" : "Needs an instructor or admin"} actions={locked} tone="locked" />
+      </div>
+      {/* After the page's heading in reading order; the stylesheet still shows it first, beside the actions. */}
       <aside className="panel account-snapshot" aria-label={own ? "Your account" : `${user.firstName}'s account`}>
         <div className="account-snapshot__head">
           <AccountPhoto person={user} className="admin-avatar admin-avatar--large" />
@@ -254,11 +318,13 @@ export function AccountHomePage() {
             <dd className="account-snapshot__tags">
               {certifications.data?.length ? (
                 certifications.data.map((item) => (
-                  <span key={item.id} className={`status-pill status-pill--${expired(item.status) ? "warn" : "neutral"}`}>
+                  <span key={item.id} className={`status-pill status-pill--${lapse(item) ? "warn" : "neutral"}`}>
                     {item.name}
-                    {expired(item.status) ? ", expired" : ""}
+                    {lapse(item) ? `, ${lapse(item)}` : ""}
                   </span>
                 ))
+              ) : certifications.error ? (
+                <RowFailed what="certifications" reload={certifications.reload} />
               ) : (
                 <strong>{certifications.data ? "None yet" : "…"}</strong>
               )}
@@ -272,6 +338,8 @@ export function AccountHomePage() {
                   <strong>{nextBooking.equipmentName}</strong>
                   <span>{dateTime(nextBooking.startTime)}</span>
                 </>
+              ) : bookings.error ? (
+                <RowFailed what="bookings" reload={bookings.reload} />
               ) : (
                 <strong>{bookings.data ? "None" : "…"}</strong>
               )}
@@ -292,39 +360,6 @@ export function AccountHomePage() {
           </div>
         </dl>
       </aside>
-      <div className="account-ask">
-        <h1>What would you like to do?</h1>
-        <p className="account-ask__intro">
-          {own
-            ? `You're on the member site as ${roleLabel(actor).toLowerCase()} ${actor.firstName}. Pick something to do.`
-            : `Pick an action for ${user.firstName}. Member actions open the same pages ${user.firstName} uses, filled in for their account.`}
-        </p>
-        {checkIn.message ? (
-          <p className={checkIn.failed ? "form-error" : "form-notice"} role={checkIn.failed ? "alert" : "status"}>
-            {checkIn.message}
-          </p>
-        ) : null}
-        {reset.message ? (
-          <p className={reset.failed ? "form-error" : "form-notice"} role={reset.failed ? "alert" : "status"}>
-            {reset.message}
-          </p>
-        ) : null}
-        {problems.map((problem) => (
-          <div className="account-heads" key={problem.title}>
-            <TriangleAlert aria-hidden="true" />
-            <div>
-              <strong>{problem.title}</strong>
-              <p>{problem.detail}</p>
-            </div>
-            {problem.action}
-          </div>
-        ))}
-        {!own && o && <CheckInBuilding buildings={o.buildings} buildingId={overview.buildingId}
-          onChange={overview.selectBuilding} disabled={checkIn.busy} />}
-        <ActionGroup title={own ? "For you" : `On ${first}'s behalf`} actions={onBehalf} />
-        <ActionGroup title={isAdmin ? "Admin tools" : "Staff tools"} actions={tools} tone="tools" />
-        <ActionGroup title={isAdmin ? "Needs an instructor" : "Needs an instructor or admin"} actions={locked} tone="locked" />
-      </div>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 // Staff section metadata drives routes, navigation, required permissions and legacy tab redirects
 // from one registry.
 
+import { ClassManagementPage } from "./ClassManagementPage";
 import { EquipmentManagementPage } from "./EquipmentManagementPage";
 import type { ComponentType } from "react";
 import { adminNavGroups, type AdminNavSection, type AdminSectionPath } from "../../components/admin/adminNavigation";
@@ -25,6 +26,7 @@ const pages: Record<AdminSectionPath, ComponentType> = {
   members: StaffUsers,
   certifications: AdminCertificationsPage,
   equipment: EquipmentManagementPage,
+  classes: ClassManagementPage,
   reservations: StaffReservations,
   studios: StaffStudios,
   access: AccessManagementPage,

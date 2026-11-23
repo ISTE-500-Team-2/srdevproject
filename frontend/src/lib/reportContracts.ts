@@ -49,13 +49,15 @@ export type Report = {
   }[];
   active: { activeUsers: number; approvedCheckIns: number };
   visitsByDay: { day: string; visits: number; people: number }[];
-  checkedInToday: { userId: number; name: string; location: string; at: string; method: "nfc" | "portal"; photoVersion?: string | null }[];
+  checkedInToday: { userId: number; name: string; location: string; at: string; method: "nfc" | "portal" | "desk"; photoVersion?: string | null }[];
   checkedInTodayCount: number;
   compliance: {
     activeAccounts: number;
     restrictedAccounts: number;
     expiredTraining: number;
     activeMemberships: number;
+    /** Live, whatever the report dates: memberships ending in the next 30 days that nothing renews or continues. */
+    membersEndingWithin30Days: number;
     trainingWithoutExpiry: number;
     signaturesWithoutCopy: number;
     machinesWithoutTraining: string[];
@@ -70,7 +72,7 @@ export type Report = {
     period: string;
     newMembers: number;
     activeMembers: number;
-    expiringMembers: number;
+    endedWithoutRenewingMembers: number;
     cancelledMembers: number;
   }[];
   notifications: {

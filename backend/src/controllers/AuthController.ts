@@ -42,6 +42,22 @@ function signupField<T>(field: string, read: () => T): T {
   }
 }
 
+/**
+ * Sign-up phone: formatting such as '+1 (410) 555-0182' is accepted, and the digits are kept after any
+ * leading '+', as the profile saves them, so an international number isn't later taken for a US one.
+ * Free text, or fewer than 7 or more than 15 digits, is refused, and the result must fit 15 characters.
+ */
+function signupPhone(value: unknown): string {
+  const typed = textField(value, 'Phone', 20);
+  const digits = typed.replace(/\D/g, '');
+  if (!/^\+?[\d\s().-]+$/.test(typed) || digits.length < 7 || digits.length > 15)
+    throw new AppError(400, 'INVALID_INPUT', 'Enter a phone number with 7 to 15 digits, e.g. (410) 555-0182.');
+  const saved = (typed.startsWith('+') ? '+' : '') + digits;
+  if (saved.length > 15)
+    throw new AppError(400, 'INVALID_INPUT', 'That phone number is too long. After a leading +, use at most 14 digits.');
+  return saved;
+}
+
 export class AuthController {
   private dummyHash = hashPassword(randomBytes(32).toString('hex'));
   private recovery: RecoveryService;
@@ -121,16 +137,16 @@ export class AuthController {
     const email = emailField(req.body.email);
     const password = passwordField(req.body.password);
     const account = await new UserModel(this.pool).credentials(email);
-    // Temporary requests never become members until inbox confirmation.
-    if (!account) {
-      const pending = (await this.pool.query('SELECT password_hash FROM app_pending_registration WHERE email=$1 AND expires_at>NOW()', [email])).rows[0];
-      if (pending && await verifyPassword(password,pending.password_hash))
-        throw new AppError(403,'EMAIL_CONFIRMATION_REQUIRED','Confirm your email before signing in.');
-    }
+    // Temporary requests never become members until inbox confirmation. Every path compares
+    // exactly one hash, so response time doesn't reveal whether an account or sign-up exists.
+    const pending = account ? undefined
+      : (await this.pool.query('SELECT password_hash FROM app_pending_registration WHERE email=$1 AND expires_at>NOW()', [email])).rows[0];
     const valid = await verifyPassword(
       password,
-      account?.password ?? (await this.dummyHash),
+      account?.password ?? pending?.password_hash ?? (await this.dummyHash),
     );
+    if (!account && pending && valid)
+      throw new AppError(403,'EMAIL_CONFIRMATION_REQUIRED','Confirm your email before signing in.');
     if (!account || !valid)
       throw new AppError(
         401,
@@ -164,7 +180,7 @@ export class AuthController {
     const input = {
       firstName: signupField('firstName', () => textField(req.body.firstName, 'First name', 50)),
       lastName: signupField('lastName', () => textField(req.body.lastName, 'Last name', 50)),
-      phone: signupField('phone', () => textField(req.body.phone, 'Phone', 15)),
+      phone: signupField('phone', () => signupPhone(req.body.phone)),
       // The shared validator uses the same address identity rules as login and recovery.
       email: signupField('email', () => emailField(req.body.email)),
       dob: signupField('dob', () => dateOfBirthField(req.body.dob)),
@@ -172,27 +188,9 @@ export class AuthController {
     };
     // Public registrations remain temporary requests until an inbox token is consumed.
     await pruneRegistrations(this.pool);
-
-    try {
-      await transaction(this.pool, db => stageRegistration(db, { ...input, timeZone },
-        this.config.notifications?.appOrigin ?? this.config.allowedOrigins[0]!));
-    } catch (error) {
-      if (
-        typeof error === 'object' &&
-        error !== null &&
-        'code' in error &&
-        error.code === '23505'
-      ) {
-        throw new AppError(
-          409,
-          'EMAIL_ALREADY_REGISTERED',
-          'An account with that email address already exists.',
-          'email',
-        );
-      }
-
-      throw error;
-    }
+    // Same answer whether or not the address already has an account: its owner is emailed instead.
+    await transaction(this.pool, db => stageRegistration(db, { ...input, timeZone },
+      this.config.notifications?.appOrigin ?? this.config.allowedOrigins[0]!));
     const notification = renderNotificationTemplate('accountCreation', {
       firstName: input.firstName,
       email: input.email,
@@ -201,9 +199,13 @@ export class AuthController {
     res.status(202).json({data:{confirmationRequired:true,email:input.email,emailSendingEnabled:!!this.config.notifications,notification}});
   };
   confirm = async (req: Request,res: Response) => {
+    // The link proves the inbox and the password proves who signed up (see consumeRegistration).
+    const password = req.body.password;
+    if (typeof password !== 'string' || !password)
+      throw new AppError(400, 'INVALID_INPUT', 'Enter the password you chose when you signed up.', 'password');
     const { session, notification } = await transaction(this.pool,async db => {
       // Existing confirmation links remain usable; new sign-ups allocate their account here.
-      const userId=await consumeRegistration(db,req.body.token) ?? await consumeEmailConfirmation(db,req.body.token);
+      const userId=await consumeRegistration(db,req.body.token,password) ?? await consumeEmailConfirmation(db,req.body.token,password);
       const session = await new SessionModel(db,this.config.jwtKey,this.config.accessTokenSeconds,this.config.refreshTokenSeconds,this.config.timeZone).create(userId,false);
       const user = await new UserModel(db,this.config.timeZone).findById(userId);
       const notification = renderNotificationTemplate('accountCreation', {

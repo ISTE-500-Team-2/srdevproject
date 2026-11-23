@@ -27,7 +27,7 @@ async function register(name:string):Promise<Session>{
   const email=`${name}@example.invalid`;
   const input={firstName:name,lastName:'Tester',email,phone:'1112223333',dob:'1990-01-01',password:'GoodPassword123!'};
   assert.equal((await request(app).post('/api/auth/register').send(input)).status,202);
-  return (await request(app).post('/api/auth/confirm').send({token:await confirmationToken(pool,email)})).body.data;
+  return (await request(app).post('/api/auth/confirm').send({token:await confirmationToken(pool,email),password:input.password})).body.data;
 }
 const audits=async(action:string)=>(await pool.query(
   'SELECT actor_id AS "actorId",subject_id AS "subjectId" FROM app_staff_audit WHERE action=$1 ORDER BY id',[action])).rows;
@@ -78,16 +78,19 @@ test('changes made in an open account are logged under the staff member',async()
   assert.deepEqual(await audits('check_in.created'),[]);
   // Staff check themselves in at a reader too; the web route needs another member's account open.
   await as(admin).post('/admin/account-mode/end');
-  const own=await as(admin).post('/me/check-ins',{roomId:room});
+  const own=await as(admin).post('/me/check-ins',{roomId:room}).set('X-Account-Subject',String(admin.user.id));
   assert.equal(own.status,403);assert.equal(own.body.error.code,'CHECK_IN_AT_READER');
   await as(admin).post('/admin/account-mode',{userId:admin.user.id});
-  const ownAccount=await as(admin).post('/me/check-ins',{roomId:room});
+  const ownAccount=await as(admin).post('/me/check-ins',{roomId:room}).set('X-Account-Subject',String(admin.user.id));
   assert.equal(ownAccount.status,403);assert.equal(ownAccount.body.error.code,'CHECK_IN_AT_READER');
   await as(admin).post('/admin/account-mode/end');
   await as(admin).post('/admin/account-mode',{userId:member.user.id});
-  const onBehalf=await as(admin).post('/me/check-ins',{roomId:room});
+  const onBehalf=await as(admin).post('/me/check-ins',{roomId:room}).set('X-Account-Subject',String(member.user.id));
   assert.equal(onBehalf.status,201,JSON.stringify(onBehalf.body));
   assert.equal(await checkIns(),before+1);
+  // It is staff at the front desk, so the Today board shows it as a desk check-in, not the member's own.
+  assert.deepEqual((await pool.query('SELECT origin,statusdesc FROM check_in WHERE checkinid=$1',[onBehalf.body.data.id])).rows,
+    [{origin:'desk',statusdesc:'Checked in at the front desk'}]);
   assert.deepEqual(await audits('check_in.created'),[{actorId:admin.user.id,subjectId:member.user.id}]);
   // The automatic database row for the new check-in names the admin too.
   const inserted=await pool.query(`SELECT actor_id AS "actorId" FROM app_staff_audit WHERE action='check_in.insert' ORDER BY id DESC LIMIT 1`);
@@ -96,32 +99,35 @@ test('changes made in an open account are logged under the staff member',async()
 
 test('signatures and personal settings stay with the member',async()=>{
   await as(admin).post('/admin/account-mode',{userId:member.user.id});
-  const sign=await as(admin).post('/me/waivers/1/sign',{});
+  const headers={'X-Account-Subject':String(member.user.id)};
+  const sign=await as(admin).post('/me/waivers/1/sign',{}).set(headers);
   assert.equal(sign.status,403);assert.equal(sign.body.error.code,'NOT_IN_ACCOUNT_MODE');
-  const profile=await as(admin).patch('/me/profile',{firstName:'Changed'});
+  const profile=await as(admin).patch('/me/profile',{firstName:'Changed'}).set(headers);
   assert.equal(profile.status,403);assert.equal(profile.body.error.code,'NOT_IN_ACCOUNT_MODE');
-  const notifications=await as(admin).patch('/me/notifications',{});
+  const notifications=await as(admin).patch('/me/notifications',{}).set(headers);
   assert.equal(notifications.status,403);
 });
 
 test('path spelling can not route around account-mode limits',async()=>{
   await as(admin).post('/admin/account-mode',{userId:member.user.id});
+  const headers={'X-Account-Subject':String(member.user.id)};
   // Express matches these spellings to the same routes.
   for(const path of ['/ME/WAIVERS/1/SIGN','/me/waivers/1/sign/','/Me/Waivers/1/Sign/'])
-    assert.equal((await as(admin).post(path,{accepted:true})).status,403,path);
+    assert.equal((await as(admin).post(path,{accepted:true}).set(headers)).status,403,path);
   for(const path of ['/ME/PROFILE','/me/profile/','/me/NOTIFICATIONS'])
-    assert.equal((await as(admin).patch(path,{firstName:'Changed'})).status,403,path);
+    assert.equal((await as(admin).patch(path,{firstName:'Changed'}).set(headers)).status,403,path);
   assert.equal((await pool.query('SELECT firstname FROM "user" WHERE userid=$1',[member.user.id])).rows[0].firstname!=='Changed',true);
 });
 
 test('payment details and unlisted changes stay with the member',async()=>{
   await as(admin).post('/admin/account-mode',{userId:member.user.id});
-  const portal=await as(admin).post('/me/billing/1/portal',{});
+  const headers={'X-Account-Subject':String(member.user.id)};
+  const portal=await as(admin).post('/me/billing/1/portal',{}).set(headers);
   assert.equal(portal.status,403);assert.equal(portal.body.error.code,'NOT_IN_ACCOUNT_MODE');
-  const portalShout=await as(admin).post('/ME/BILLING/1/PORTAL/',{});
+  const portalShout=await as(admin).post('/ME/BILLING/1/PORTAL/',{}).set(headers);
   assert.equal(portalShout.status,403);
   // Writes that aren't a listed member action are refused before any route runs.
-  const unlisted=await as(admin).post('/me/billing/offers',{});
+  const unlisted=await as(admin).post('/me/billing/offers',{}).set(headers);
   assert.equal(unlisted.status,403);assert.equal(unlisted.body.error.code,'NOT_IN_ACCOUNT_MODE');
   // Reads still work.
   assert.equal((await as(admin).get('/me/overview')).status,200);
@@ -149,7 +155,7 @@ test('only plain member accounts can be opened, and only by staff',async()=>{
   const ownAccount=await as(admin).post('/admin/account-mode',{userId:admin.user.id});
   assert.equal(ownAccount.status,200);
   // Your own account carries no restrictions.
-  assert.notEqual((await as(admin).patch('/me/notifications',{})).body.error?.code,'NOT_IN_ACCOUNT_MODE');
+  assert.equal((await as(admin).patch('/me/notifications',{enabled:true,timeZone:'America/New_York'}).set('X-Account-Subject',String(admin.user.id))).status,200);
 });
 
 test('closing the account returns to the staff identity and is logged',async()=>{
@@ -175,6 +181,62 @@ test('an account that becomes restricted closes itself on the next request',asyn
   assert.equal(session.body.data.actingAs,null);
   const stored=await pool.query('SELECT acting_as_userid FROM app_refresh_family f JOIN app_session s ON s.family_id=f.id WHERE s.userid=$1',[admin.user.id]);
   assert.ok(stored.rows.every(row=>row.acting_as_userid===null));
+});
+
+// Previously the change went ahead as the staff member, on their own account, and reported success.
+test('a change meant for an account that became restricted is refused, not made on the staff account',async()=>{
+  const target=await register('restrictedwrite');
+  await as(admin).post('/admin/account-mode',{userId:target.user.id});
+  await pool.query(`UPDATE "user" SET accessstatus='suspended' WHERE userid=$1`,[target.user.id]);
+  const response=await as(admin).post('/reservations',{}).set('X-Account-Subject',String(target.user.id));
+  assert.equal(response.status,409);
+  assert.equal(response.body.error.code,'ACCOUNT_MODE_CLOSED');
+  assert.equal((await as(admin).get('/auth/session')).body.data.actingAs,null);
+  // Back in their own account, the staff member's own changes go through as usual.
+  assert.equal((await as(admin).post('/reservations',{}).set('X-Account-Subject',String(admin.user.id))).body.error.code,'INVALID_INPUT');
+});
+
+test('older tabs must reload before making staff account changes, even after account mode closes',async()=>{
+  assert.equal((await as(staff).post('/admin/account-mode',{userId:member.user.id})).status,200);
+  try {
+    for (const headers of [{}, {'X-Account-Subject': ''}]) {
+      const legacy=await as(staff).post('/reservations',{}).set(headers);
+      assert.equal(legacy.status,409,JSON.stringify(legacy.body));
+      assert.equal(legacy.body.error.code,'ACCOUNT_SUBJECT_REQUIRED');
+      assert.match(legacy.body.error.message,/reload/i);
+    }
+  } finally {
+    assert.equal((await as(staff).post('/admin/account-mode/end')).status,200);
+  }
+  const legacy=await as(staff).post('/reservations',{});
+  assert.equal(legacy.status,409,JSON.stringify(legacy.body));
+  assert.equal(legacy.body.error.code,'ACCOUNT_SUBJECT_REQUIRED');
+  const stale=await as(staff).post('/reservations',{}).set('X-Account-Subject',String(member.user.id));
+  assert.equal(stale.status,409);
+  assert.equal(stale.body.error.code,'ACCOUNT_CHANGED');
+  assert.equal((await as(member).post('/reservations',{})).body.error.code,'INVALID_INPUT');
+});
+
+test('a change from a tab showing a different account than the open one is refused',async()=>{
+  const target=await register('othertab');
+  await as(admin).post('/admin/account-mode',{userId:target.user.id});
+  try {
+    // A tab still showing the staff member's own account or a different member's.
+    for (const id of [admin.user.id,member.user.id]) {
+      const stale=await as(admin).post('/reservations',{}).set('X-Account-Subject',String(id));
+      assert.equal(stale.status,409);
+      assert.equal(stale.body.error.code,'ACCOUNT_CHANGED');
+    }
+    // The tab showing the open account proceeds to the route's own checks.
+    assert.equal((await as(admin).post('/reservations',{}).set('X-Account-Subject',String(target.user.id))).body.error.code,'INVALID_INPUT');
+    // Reads follow the open account; workspace requests are always the staff member's own.
+    assert.equal((await as(admin).get('/auth/session').set('X-Account-Subject',String(admin.user.id))).status,200);
+    assert.equal((await as(admin).patch(`/admin/users/${target.user.id}/profile`,{}).set('X-Account-Subject',String(admin.user.id))).body.error?.code===`ACCOUNT_CHANGED`,false);
+  } finally {
+    assert.equal((await as(admin).post('/admin/account-mode/end').set('X-Account-Subject',String(target.user.id))).status,200);
+  }
+  // A member's own tab naming themselves is unaffected.
+  assert.equal((await as(member).post('/reservations',{}).set('X-Account-Subject',String(member.user.id))).body.error.code,'INVALID_INPUT');
 });
 
 test('staff-assisted checkout scopes prices and purchases to the selected member and records the staff initiator', async () => {

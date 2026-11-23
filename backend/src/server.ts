@@ -9,16 +9,29 @@ import { createApp } from './app.js';
 import { startNotificationRuntime } from './notifications/runtime.js';
 import { startPolicyRuntime } from './policyLifecycle.js';
 import { EquipmentBilling } from './billing/equipment.js';
+import { PassBilling } from './billing/passes.js';
 import { startEquipmentReconciliation } from './equipmentReconciliation.js';
+import { startReaderLeaseCompaction } from './readerLeaseCompaction.js';
 import { StudioStripe } from './studios/stripe.js';
+import { StudioService } from './studios/service.js';
+import { startStudioHoldReconciliation } from './studios/holdReconciliation.js';
 
 const config = readConfig();
 const pool = createPool();
 await pool.query('SELECT 1 FROM app_session LIMIT 1');
+// Reports and bookings convert dates in SQL as well, so the database must know the zone too.
+await pool.query('SELECT NOW() AT TIME ZONE $1', [config.timeZone]).catch((error) => {
+  if (error?.code === '22023') throw new Error(`The database does not recognize APP_TIME_ZONE ${config.timeZone}`);
+  throw error;
+});
 const notifications = startNotificationRuntime(pool, config.notifications);
 const policies = startPolicyRuntime(pool);
-const equipmentPayments = startEquipmentReconciliation(new EquipmentBilling(pool,
-  config.studioStripe ? new StudioStripe(config.studioStripe) : undefined, config.timeZone));
+const stripe = config.studioStripe ? new StudioStripe(config.studioStripe) : undefined;
+const equipmentPayments = startEquipmentReconciliation(
+  new EquipmentBilling(pool, stripe, config.timeZone), undefined, new PassBilling(pool, stripe, config.timeZone));
+const studioHolds = startStudioHoldReconciliation(new StudioService(pool, config.timeZone,
+  config.studioStripe ? new StudioStripe(config.studioStripe) : undefined));
+const readerLeases = startReaderLeaseCompaction(pool);
 const frontend = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../frontend/dist',
@@ -35,6 +48,6 @@ const server = createApp(pool, config, frontend).listen(
 );
 for (const signal of ['SIGINT', 'SIGTERM'])
   process.on(signal, () => {
-    server.close(() => void Promise.all([notifications.stop(), policies.stop(), equipmentPayments.stop()]).then(() => pool.end()).finally(() => process.exit(0)));
+    server.close(() => void Promise.all([notifications.stop(), policies.stop(), equipmentPayments.stop(), studioHolds.stop(), readerLeases.stop()]).then(() => pool.end()).finally(() => process.exit(0)));
     setTimeout(() => process.exit(1), 10000).unref();
   });

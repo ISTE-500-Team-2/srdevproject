@@ -15,6 +15,12 @@ export interface MembershipRecord {
   revision: number;
   cancellationRequestedAt: Date | null;
   cardBilled: boolean;
+  /** Card billing that will charge again: no stop has been confirmed by the payment provider. */
+  autoRenews: boolean;
+  /** The last day of card billing once someone asked to stop it. */
+  renewalEndsAt: Date | null;
+  /** A stop was asked for but the payment provider hasn't confirmed it, so billing may still renew. */
+  renewalStopPending: boolean;
   startsAt: Date | null;
   endsAt: Date | null;
   plan: PlanSnapshot;
@@ -44,11 +50,23 @@ export interface MembershipWindow {
   overlap: boolean;
 }
 
+// Keep the original expiry for sessions created before the visit deadline was enforced.
+const legacyPassCheckoutPayBy = (zone: string) =>
+  `LEAST(created_at+INTERVAL '23 hours',GREATEST((valid_date+1)::timestamp AT TIME ZONE ${zone},created_at+INTERVAL '45 minutes'))`;
+
 function entitlementTable(kind: EntitlementKind) {
   return kind === "membership"
     ? { table: "user_membership", key: "membershipid" }
     : { table: "day_pass", key: "dayid" };
 }
+
+/**
+ * SQL that is true while an app_membership_billing row (alias `b`) will still charge again. A stop counts
+ * only once the payment provider confirms it: the last day is saved before the provider is asked, and that
+ * request can fail, leaving the subscription renewing.
+ */
+export const billingRenewsSql = `(b.status NOT IN ('canceled','incomplete_expired','expired') AND NOT b.cancel_at_period_end
+  AND NOT (b.cancellation_effective_at IS NOT NULL AND b.cancellation_confirmed))`;
 
 /** Memberships and day passes held by members. */
 export class EntitlementRepository {
@@ -61,24 +79,35 @@ export class EntitlementRepository {
       await this.db.query<MembershipRecord>(
         `SELECT m.membershipid AS id,m.userid AS "userId",m.tierid AS "planId",m.status,m.statusdesc AS reason,m.revision,m.cancellation_requested_at AS "cancellationRequestedAt",
       EXISTS(SELECT 1 FROM app_membership_invoice i WHERE i.membership_id=m.membershipid) AS "cardBilled",
+      COALESCE(${billingRenewsSql},false) AS "autoRenews",b.cancellation_effective_at AS "renewalEndsAt",
+      COALESCE(${billingRenewsSql} AND b.cancellation_effective_at IS NOT NULL,false) AS "renewalStopPending",
       m.startdate AT TIME ZONE 'UTC' AS "startsAt",m.end_date AT TIME ZONE 'UTC' AS "endsAt",
       COALESCE(m.plan_snapshot,jsonb_build_object('name',t.tiername,'price',t.tierprice::text,'benefits',t.benefits)) AS plan,
       CASE WHEN m.status<>'active' THEN m.status WHEN m.end_date<=NOW() AT TIME ZONE 'UTC' THEN 'expired'
         WHEN m.startdate>NOW() AT TIME ZONE 'UTC' THEN 'scheduled' ELSE 'active' END AS "effectiveStatus"
-      FROM user_membership m LEFT JOIN membership_tiers t USING(tierid) WHERE m.userid=$1 ORDER BY m.startdate DESC,m.membershipid DESC LIMIT 100`,
+      FROM user_membership m LEFT JOIN membership_tiers t USING(tierid)
+      LEFT JOIN LATERAL (SELECT b.status,b.cancellation_effective_at,b.cancellation_confirmed,b.cancel_at_period_end FROM app_membership_invoice i
+        JOIN app_membership_billing b ON b.id=i.billing_id WHERE i.membership_id=m.membershipid LIMIT 1) b ON true
+      WHERE m.userid=$1 ORDER BY m.startdate DESC,m.membershipid DESC LIMIT 100`,
         [userId],
       )
     ).rows;
   }
-  async passes(userId: number): Promise<DayPassRecord[]> {
+  async passes(userId: number, memberHistory = false): Promise<DayPassRecord[]> {
     return (
       await this.db.query<DayPassRecord>(
         `SELECT d.dayid AS id,d.userid AS "userId",d.tierid AS "planId",d.status,d.statusdesc AS reason,d.revision,
       to_char(d.validdate,'YYYY-MM-DD') AS "validDate",d.paymentid AS "paymentId",d.plan_snapshot AS plan,
       CASE WHEN d.status<>'active' THEN d.status WHEN d.validdate::date<(NOW() AT TIME ZONE $2)::date THEN 'expired'
         WHEN d.validdate::date>(NOW() AT TIME ZONE $2)::date THEN 'scheduled' ELSE 'active' END AS "effectiveStatus"
-      FROM day_pass d WHERE d.userid=$1 ORDER BY d.validdate DESC,d.dayid DESC LIMIT 100`,
-        [userId, this.timeZone],
+      FROM day_pass d WHERE d.userid=$1 AND (NOT $3 OR NOT EXISTS (
+        -- An audit-only pass is created by the reviewer in the same transaction as the review.
+        SELECT 1 FROM app_pass_checkout c JOIN app_staff_audit a ON a.subject_id=c.userid
+        WHERE c.pass_id=d.dayid AND a.action='billing.refund.reviewed' AND a.entity_type='payment'
+          AND a.after_state->>'checkoutId'=c.id::text AND a.actor_id=d.issued_by
+          AND a.created_at=d.purchasedate AT TIME ZONE 'UTC'
+      )) ORDER BY d.validdate DESC,d.dayid DESC LIMIT 100`,
+        [userId, this.timeZone, memberHistory],
       )
     ).rows;
   }
@@ -103,6 +132,32 @@ export class EntitlementRepository {
         [userId, startsAt, months, this.timeZone],
       )
     ).rows[0]!;
+  }
+  /** When a new card session stops taking payment, capped at the end of the visit date. */
+  async newPassCheckoutPayBy(date: string, start: Date): Promise<Date> {
+    return (
+      await this.db.query<{ payBy: Date }>(
+        `SELECT LEAST($2::timestamptz+INTERVAL '23 hours',($1::date+1)::timestamp AT TIME ZONE $3) AS "payBy"`,
+        [date, start, this.timeZone],
+      )
+    ).rows[0]!.payBy;
+  }
+  /** Why online checkout blocks a separate desk payment for this date. */
+  async passCheckoutBlock(userId: number, date: string): Promise<"review" | "processing" | "open" | undefined> {
+    return (
+      await this.db.query<{ reason: "review" | "processing" | "open" }>(
+        `SELECT CASE WHEN refund_needs_review THEN 'review' WHEN payment_id IS NOT NULL OR refund_reconcile_after IS NOT NULL THEN 'processing' ELSE 'open' END AS reason
+      FROM app_pass_checkout WHERE userid=$1 AND valid_date=$2::date AND (
+        pass_id IS NULL AND payment_intent IS NOT NULL AND refund_status IS DISTINCT FROM 'succeeded'
+          AND (refund_needs_review OR refund_reconcile_after IS NOT NULL)
+        OR refund_needs_review AND status='pending'
+        OR status='pending' AND (payment_id IS NOT NULL OR refund_reconcile_after IS NOT NULL OR checkout_id IS NOT NULL AND
+          now()<COALESCE(checkout_expires_at,CASE WHEN checkout_has_expiry THEN ${legacyPassCheckoutPayBy("$3")}
+            ELSE created_at+INTERVAL '24 hours' END))
+      ) ORDER BY refund_needs_review DESC LIMIT 1`,
+        [userId, date, this.timeZone],
+      )
+    ).rows[0]?.reason;
   }
   async passExists(userId: number, date: string): Promise<boolean> {
     return (
@@ -145,12 +200,13 @@ export class EntitlementRepository {
     date: string,
     actorId: number,
     reason: string,
+    status: "active" | "cancelled" = "active",
   ): Promise<number> {
     return (
       await this.db.query<{ id: number }>(
         `INSERT INTO day_pass(userid,tierid,validdate,purchasedate,status,statusdesc,plan_snapshot,issued_by)
-      VALUES($1,$2,$3::date,NOW() AT TIME ZONE 'UTC','active',$4,$5,$6) RETURNING dayid AS id`,
-        [userId, plan.id, date, reason, JSON.stringify(plan), actorId],
+      VALUES($1,$2,$3::date,NOW() AT TIME ZONE 'UTC',$7,$4,$5,$6) RETURNING dayid AS id`,
+        [userId, plan.id, date, reason, JSON.stringify(plan), actorId, status],
       )
     ).rows[0]!.id;
   }

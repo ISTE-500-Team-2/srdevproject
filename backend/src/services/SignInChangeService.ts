@@ -11,7 +11,7 @@ import { enqueueNotification } from '../notifications/store.js';
 import { SessionModel, tokenHash, type IssuedSession } from '../models/SessionModel.js';
 import { StaffModel } from '../models/StaffModel.js';
 import {
-  cancelEmailChange, consumeEmailChange, emailTaken, issueEmailChange, pendingEmailChange, type PendingEmail,
+  cancelEmailChange, consumeEmailChange, issueEmailChange, pendingEmailChange, type PendingEmail,
 } from '../confirmation/emailChange.js';
 
 const wrongPassword = () =>
@@ -91,9 +91,7 @@ export class SignInChangeService {
       const account = await this.lockAccount(db, userId, checked);
       if (account.email.toLowerCase() === email)
         throw new AppError(400, 'EMAIL_UNCHANGED', 'That’s already your email.', 'email');
-      // Sign-up says the same thing about an address that's in use.
-      if (await emailTaken(db, email, userId))
-        throw new AppError(409, 'EMAIL_ALREADY_REGISTERED', 'An account with that email address already exists.', 'email');
+      // An address that's in use gets the same answer as any other, as on sign-up (issueEmailChange).
       // Asking again for the same address is a resend; a different one (a typo fixed) replaces it at
       // once, and the current address hears about each address asked for.
       const sameAddress = (await pendingEmailChange(db, userId))?.email === email;
@@ -111,8 +109,6 @@ export class SignInChangeService {
       const account = (await db.query<{ email: string }>('SELECT email FROM "user" WHERE userid=$1 FOR UPDATE', [userId])).rows[0]!;
       const pending = await pendingEmailChange(db, userId);
       if (!pending) throw new AppError(404, 'NOT_FOUND', 'There’s no email change waiting to be confirmed.');
-      if (await emailTaken(db, pending.email, userId))
-        throw new AppError(409, 'EMAIL_ALREADY_REGISTERED', 'An account with that email address already exists.', 'email');
       await this.throttle(db, userId);
       return issueEmailChange(db, userId, account.email, pending.email, this.origin, { notifyCurrent: false });
     });

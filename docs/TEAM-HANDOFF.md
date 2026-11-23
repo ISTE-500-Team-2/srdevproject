@@ -128,10 +128,10 @@ All endpoints are under `/api`. Responses use `{data: ...}`; failures use `{erro
 | --- | --- |
 | `GET /plans` | Active offers for a signed-in member |
 | `GET /me/memberships` | Own latest 100 memberships and 100 passes |
-| `GET /me/payments?offset=0` | Own paginated payment records; supplied user IDs do not change ownership |
+| `GET /me/payments?offset=0` | Own paginated payment records; optional `status=paid` returns only paid ones (any other status is a 400); supplied user IDs do not change ownership |
 | `GET /admin/users?search=...&offset=0` | Staff search; 50 records/page |
 | `GET /admin/users/:id` | Profile, recent entitlements/payments/audits/check-ins |
-| `PATCH /admin/users/:id/profile` | Names/phone; current `revision` required |
+| `PATCH /admin/users/:id/profile` | Names/phone, plus an optional `dob` that only fills a missing date of birth (409 `DOB_ON_FILE` if one is recorded); current `revision` required |
 | `POST /admin/users/:id/access` | Facility status; current `revision` required |
 | `POST /admin/users/:id/role` | Administrator-only role update; current `revision` |
 | `POST /admin/users/:id/entitlements` | Issue plan with UUIDv4 `requestId`, membership `startsAt` or pass `validDate`, payment record details and reason |
@@ -164,6 +164,8 @@ The migration runner records SHA-256 checksums and is transactional. Do not edit
 Existing user IDs, memberships, payment history and signatures are preserved. The corrected demo seeder no longer replenishes a demo user's expired/revoked membership, restores a removed demo admin role, or recreates renamed/archived sample offers on restart. New demo fixtures are development-only and guarded by database naming and environment checks.
 
 Before any future migration of the actual team database: back up, inspect legacy status names, password formats, date semantics, duplicate emails/policies/waivers and reservation overlaps. This branch has **not** been applied to that original data. A code rollback does not undo migration 002 or later business changes; database restoration is an explicit separate operation, not an automatic startup action.
+
+Migration 061 adds each account's "Last updated" date (FR-023). For existing accounts it is approximate: it is filled from the latest staff account change in the change log (profile, account status, facility access, conduct flag or roles), else the sign-up date. A member's own profile edits before that release were logged only as generic database changes, indistinguishable from password and email-confirmation housekeeping, so they aren't counted; a backfilled date can be earlier than the real last change, never later. Changes after the release are stamped exactly. The backfill pauses the audit capture trigger on `"user"` so it doesn't add a change-log row per account.
 
 ### This deployment and rollback checkpoint
 

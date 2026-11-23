@@ -68,6 +68,15 @@ poll PostgreSQL; they do not send empty requests to Brevo. This reduces queue
 polling latency, not provider or inbox delivery time. Retry/backoff rules and
 daily sending quotas are unchanged.
 
+Each tick sends due mail to one person, such as a password reset, before an
+administrator's announcement to every account, even one still sending after its
+hour has passed. Within each group the nearest deadline goes first. The
+announcement is queued in one statement with a one-hour deadline; personal mail
+and reader alerts to staff keep five minutes. A tick keeps sending while full
+batches of 20 come back, for up to three quarters of an interval, so the next
+tick is not skipped. It stops early after a retryable rejection or an
+unconfirmed send.
+
 The worker scans expiration sources at startup and daily, and dispatches every
 minute by default. It schedules at 09:00 in the user's zone **eight calendar days**
 before expiration, leaving retry time before the strict seven-elapsed-day deadline.
@@ -104,12 +113,29 @@ from reader checks and admin notices. Automatic system-issue detection covers si
 readers only; notices target active accounts and respect opt-out. Preferences have
 authenticated GET/PATCH endpoints at `/api/me/notifications`; PATCH retains normal CSRF protection.
 
+Training notices (FR-048): a member whose own equipment booking, or resumed online
+payment, is refused for missing or expired training gets a `certification_required`
+email naming the equipment and certification, with a link to Classes. It is queued in
+its own transaction after the refusal rolls back, at most once per member,
+certification and studio day; a notice that fails to queue is logged and the refusal
+is unchanged. Staff booking for someone else see the refusal and mail no one. Staff
+revoking a certification queues `certification_revoked` in the same transaction; the
+staff reason stays private, so the email says to contact the studio.
+
+Studio booking alerts (NFR-003): staff and administrators get a staff copy of every
+studio booking and cancellation. Profile → Notifications shows them a separate
+"Studio booking alerts" switch (`studioBookingAlerts`, returned only for staff
+accounts; migration `060_staff_studio_booking_alerts.sql`, default on). Turning it off
+stops those copies, including pending ones, and leaves all their other email alone.
+
 Scheduler supports certification renewal/end dates, explicit waiver expiration,
 and membership expiration. Membership expiry is not an auto-renewal charge;
-recurring-billing notices come from the separate billing flow.
+recurring-billing notices come from the separate billing flow, and a card
+subscription period that Stripe will renew gets no expiry reminder. Once a member
+turns off auto-renew, the period ending on its cancellation date gets one.
 
 Templates also cover sources not yet wired: account-creation failure, account
-closure, certification changes and role changes. A template alone does not
+closure, the staff copy of a certification revocation and role changes. A template alone does not
 mean that event is wired. Account-creation failures may have no persisted user to
 target; no unsolicited notice is sent to arbitrary failed-registration addresses.
 
@@ -118,8 +144,10 @@ target; no unsolicited notice is sent to arbitrary failed-registration addresses
 New accounts remain pending until a single-use confirmation link is consumed.
 Existing accounts remain confirmed. Tokens expire after 24 hours (an implementation
 default), are stored hashed, and are sent in a URL fragment. The page explicitly
-POSTs confirmation so a mail scanner's GET cannot consume the link. Confirmation
-creates the login session. Resend and email correction require the pending account's
+POSTs confirmation so a mail scanner's GET cannot consume the link. The page also
+asks for the password chosen at sign-up and the server checks it, so a link from a
+stranger's sign-up of the same address (it still lands in the owner's inbox) can never
+create the account with the stranger's password. Confirmation creates the login session. Resend and email correction require the pending account's
 password, have a 60-second cooldown and invalidate older links. Email-off environments
 show that delivery is disabled; demo users remain available without registration.
 

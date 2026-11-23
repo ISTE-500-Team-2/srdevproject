@@ -6,6 +6,12 @@ import { AppError } from './domain.js';
 import { StaffModel } from './models/StaffModel.js';
 import { auditContext } from './auditContext.js';
 
+/** Bookings run 1–24 whole hours and their total may not pass $100,000. */
+export const MAX_BOOKING_HOURS = 24;
+export const MAX_BOOKING_CENTS = 10_000_000;
+/** Card payments start at $0.50, so a paid booking must reach that in its shortest length. */
+export const MIN_CARD_PAYMENT_CENTS = 50;
+
 export interface EquipmentPrice {
   currency: 'USD'; hours: number; hourlyRateCents: number; equipmentCents: number;
   trainingFeeCents: number; totalCents: number; certificationId: number | null;
@@ -17,7 +23,7 @@ export interface EquipmentPrice {
  * not the same as free.
  */
 export async function equipmentPrice(db: Database, equipmentId: number, hours: number): Promise<EquipmentPrice | null> {
-  if (!Number.isInteger(hours) || hours < 1 || hours > 24)
+  if (!Number.isInteger(hours) || hours < 1 || hours > MAX_BOOKING_HOURS)
     throw new AppError(400, 'INVALID_INPUT', 'Choose 1–24 whole hours.');
   const row = (await db.query(`SELECT round(e.hourlyrate*100)::int AS rate,e.certid,c.revision
     FROM equipment e LEFT JOIN certifications c USING(certid)
@@ -27,7 +33,7 @@ export async function equipmentPrice(db: Database, equipmentId: number, hours: n
     return null; // Preserve existing unpriced legacy bookings; never invent a zero rate.
   }
   const total = row.rate * hours;
-  if (!Number.isSafeInteger(total) || total < 0 || total > 10000000)
+  if (!Number.isSafeInteger(total) || total < 0 || total > MAX_BOOKING_CENTS)
     throw new AppError(409, 'INVALID_PRICE', 'The booking amount is outside the supported range.');
   return { currency: 'USD', hours, hourlyRateCents: row.rate, equipmentCents: row.rate * hours,
     // Retain this field for historical reservation snapshots and older clients.
@@ -40,9 +46,28 @@ export async function equipmentPrice(db: Database, equipmentId: number, hours: n
  */
 export function reviewEquipmentPrice(current: EquipmentPrice | null, expected: unknown) {
   if (expected === undefined && !current?.trainingFeeCents) return; // Older clients remain usable for ordinary bookings.
+  if (current === null && expected === null) return; // Reviewed as unpriced, still unpriced.
   if (!current || !expected || typeof expected !== 'object' ||
       Object.entries(current).some(([key, value]) => (expected as Record<string, unknown>)[key] !== value))
     throw new AppError(409, 'PRICE_CHANGED', 'The booking price changed. Refresh and review the breakdown before confirming.');
+}
+
+/**
+ * Lock the booking and refuse a price or member its payment can't follow: a settled payment of
+ * another amount, or a pending charge with no price. Writes nothing, so a move preview can ask too.
+ */
+export async function checkReservationPrice(db: Database, reservationId: number, userId: number, price: EquipmentPrice | null) {
+  const before = (await db.query('SELECT payment_id,price_snapshot FROM reservation WHERE reservationid=$1 FOR UPDATE', [reservationId])).rows[0];
+  if (!before) throw new AppError(404, 'NOT_FOUND', 'Reservation not found.');
+  const payment = before.payment_id ? await new StaffModel(db).payment(before.payment_id) : null;
+  const amount = price ? (price.totalCents / 100).toFixed(2) : null;
+  if (payment?.status === 'paid') {
+    if (payment.userId !== userId || payment.amount !== amount)
+      throw new AppError(409, 'PAYMENT_SETTLED', 'This booking has a settled payment. Record the appropriate refund before changing its price or member.');
+  } else if (payment?.status === 'pending' && amount === null) {
+    throw new AppError(409, 'PRICE_NOT_CONFIGURED', 'Configure a price before moving a billed booking.');
+  }
+  return { before, payment, amount };
 }
 
 /**
@@ -51,15 +76,8 @@ export function reviewEquipmentPrice(current: EquipmentPrice | null, expected: u
  */
 export async function saveReservationPrice(db: Database, reservationId: number, userId: number,
   actorId: number, price: EquipmentPrice | null, name: string, createPayment = true) {
-  const before = (await db.query('SELECT payment_id,price_snapshot FROM reservation WHERE reservationid=$1 FOR UPDATE', [reservationId])).rows[0];
-  if (!before) throw new AppError(404, 'NOT_FOUND', 'Reservation not found.');
-  const payment = before.payment_id ? await new StaffModel(db).payment(before.payment_id) : null;
-  const amount = price ? (price.totalCents / 100).toFixed(2) : null;
-  if (payment?.status === 'paid') {
-    if (payment.userId !== userId || payment.amount !== amount)
-      throw new AppError(409, 'PAYMENT_SETTLED', 'This booking has a settled payment. Record the appropriate refund before changing its price or member.');
-  } else if (payment?.status === 'pending') {
-    if (amount === null) throw new AppError(409, 'PRICE_NOT_CONFIGURED', 'Configure a price before moving a billed booking.');
+  const { before, payment, amount } = await checkReservationPrice(db, reservationId, userId, price);
+  if (payment?.status === 'pending') {
     await db.query(`UPDATE payment SET userid=$2,price=$3,paymentstatus=$4,revision=revision+1,updated_at=now()
       WHERE paymentid=$1`, [payment.id, userId, amount, price!.totalCents === 0 ? 'waived' : 'pending']);
   }

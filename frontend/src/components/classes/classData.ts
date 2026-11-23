@@ -13,6 +13,7 @@ export type ClassRecord = {
   trainingFeeCovered?: boolean;
   myTrainingFeeCents?: number | null;
   myPaymentStatus?: string | null;
+  image?: string | null;
   description?: string;
   catalogId?: number | null;
   instructorId: number;
@@ -26,15 +27,23 @@ export type ClassRecord = {
   startsAt: string;
   endsAt: string;
   myStatus: string | null;
+  /**
+   * Whether the member's membership or day pass covers this class's time; null once the class
+   * has started or closed. Older servers leave it out.
+   */
+  myEntitled?: boolean | null;
+  /** Registrations with no attendance recorded yet; only for staff and the class's instructor. */
+  pendingAttendance?: number | null;
 };
 export type RosterPerson = { userId: number; name: string; email: string; status: string };
-export type MemberRoster = { items: { name: string }[]; capacity: number; enrolled: number; seatsAvailable: number };
+/** Names are only sent to people registered for the class (and its instructor and staff). */
+export type MemberRoster = { items: { name: string }[]; capacity: number; enrolled: number; seatsAvailable: number; namesVisible?: boolean };
 export type Room = { id: number; name: string; location: string; capacity: number | null; status: string };
 export type Course = { id: number; name: string; validityDays: number | null; trainingMinutes?: number; trainingFeeCents?: number | null };
 /** Attendance choices a manager has made but not saved yet, per class. */
 export type AttendanceDraft = { statuses: Record<number, "attended" | "no_show">; note: string };
 /** A creative workshop the shop runs; staff schedule sessions from it. */
-export type WorkshopTemplate = { id: number; title: string; description: string; capacity: number };
+export type WorkshopTemplate = { id: number; title: string; description: string; capacity: number; image?: string | null; revision?: number };
 /** Values used to open the schedule form, e.g. when scheduling a class again. */
 export type ScheduleSeed = Partial<{
   title: string;
@@ -42,6 +51,8 @@ export type ScheduleSeed = Partial<{
   description: string;
   certificationId: number;
   instructorId: number;
+  /** Shown for the seeded instructor, so staff see a name rather than an ID. */
+  instructorName: string;
   roomId: number;
   capacity: number;
   start: string;
@@ -58,6 +69,7 @@ export function registrationPrice(c: ClassRecord, certified: boolean) {
 
 export const isCancelled = (c: ClassRecord) => c.status === "cancelled";
 export const hasStarted = (c: ClassRecord, now = Date.now()) => new Date(c.startsAt).getTime() <= now;
+export const hasEnded = (c: ClassRecord, now = Date.now()) => new Date(c.endsAt).getTime() <= now;
 export const seatsLeft = (c: { capacity: number; enrolled: number }) => Math.max(0, c.capacity - c.enrolled);
 export const byStart = (a: ClassRecord, b: ClassRecord) => a.startsAt.localeCompare(b.startsAt);
 
@@ -72,6 +84,8 @@ export function dateParts(value: string) {
 export const timeRange = (c: ClassRecord) => `${timeOnly(c.startsAt)} – ${timeOnly(c.endsAt)}`;
 export const longDate = (value: string) =>
   new Date(value).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+/** Names one session for buttons, so same-titled classes on different days can be told apart. */
+export const sessionName = (c: Pick<ClassRecord, "title" | "startsAt">) => `${c.title} on ${longDate(c.startsAt)}`;
 export const monthLabel = (value: string) =>
   new Date(value).toLocaleDateString("en-US", { month: "long", year: "numeric" });
 export function seatText(c: { capacity: number; enrolled: number }) {
@@ -114,9 +128,10 @@ export function workshopImage(title: string): ClassPhoto {
  * training by certification, else a shop photo.
  */
 export function classPhoto(
-  c: Pick<ClassRecord, "title" | "certificationId" | "certificationName" | "catalogId">,
+  c: Pick<ClassRecord, "title" | "certificationId" | "certificationName" | "catalogId" | "image">,
   workshops: WorkshopTemplate[] = [],
 ): ClassPhoto {
+  if (c.image) return { src: c.image, cutout: false };
   if (isWorkshop(c)) return workshopImage(workshops.find((w) => w.id === c.catalogId)?.title ?? c.title);
   return classImage(c.certificationName) ?? { src: "/assets/printing-class.webp", cutout: false };
 }

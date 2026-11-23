@@ -26,6 +26,13 @@ DATABASES = (('arbor-email-db', 'arbor_email', 'arbor_email_dev'),
 # local_frontend_release.py (as ops.MAIN_PUSH_WORKFLOWS); install both together.
 MAIN_PUSH_WORKFLOWS = ('.github/workflows/mvc-verify.yml', '.github/workflows/dev-setup.yml',
                        '.github/workflows/sponsor-hosting.yml')
+# GitHub allows 60 unauthenticated API reads an hour per address and each CI check uses two.
+# The timer ticks about once a minute, so recheck the same waiting revision at most this often.
+CI_POLL_SECONDS = 240
+REFUND_MIGRATION = '053_checkout_refund_reconciliation.sql'
+REGISTRATION_MIGRATION = '055_pending_registration_password_confirmation.sql'
+# pg_dump of a whole database can outgrow run()'s two-minute default; only the dump gets longer.
+DUMP_TIMEOUT_SECONDS = 15 * 60
 
 
 class ReleaseCheckError(RuntimeError):
@@ -211,6 +218,10 @@ def verify_migrations(source, rows):
             raise RuntimeError('Reviewed migration is required before rollout: ' + file.name)
         if existing[file.name] != hashlib.sha256(file.read_bytes()).hexdigest():
             raise RuntimeError('Migration checksum mismatch: ' + file.name)
+        # The online runner records this checkpoint only after its indexes,
+        # constraint work, cleanup and backfill have finished.
+        if file.name == REFUND_MIGRATION and existing.get('online:' + file.name) != existing[file.name]:
+            raise RuntimeError('Complete the reviewed online migration phase before rollout')
 
 
 def prepare_source_permissions(source):
@@ -297,15 +308,34 @@ def backup_databases(release, source):
         rows = json.loads(output('docker', 'exec', container, 'psql', '-U', user, '-d', database,
             '-Atc', 'SELECT coalesce(json_agg(t),\'[]\'::json) FROM (SELECT name,checksum FROM app_migration) t'))
         verify_migrations(source, rows)
+        if (source / 'database/migrations' / REFUND_MIGRATION).is_file():
+            guard_removed = output('docker', 'exec', container, 'psql', '-X', '-U', user, '-d', database,
+                '-Atc', "SELECT NOT EXISTS (SELECT 1 FROM pg_constraint "
+                        "WHERE conrelid='public.app_equipment_checkout'::regclass "
+                        "AND conname='app_equipment_checkout_refund_online_pending')")
+            require(guard_removed == 't', 'Complete the reviewed online migration phase before rollout: refund write guard remains')
+        if (source / 'database/migrations' / REGISTRATION_MIGRATION).is_file():
+            password_check_validated = output('docker', 'exec', container, 'psql', '-X', '-U', user, '-d', database,
+                '-Atc', "SELECT EXISTS (SELECT 1 FROM pg_constraint "
+                        "WHERE conrelid=to_regclass('public.app_pending_registration') "
+                        "AND conname='app_pending_registration_password_confirmation' AND convalidated)")
+            require(password_check_validated == 't',
+                    'Complete the reviewed online migration phase before rollout: pending registration constraint needs validation')
     for container, user, database in DATABASES:
-        backup = release / (database + '.dump')
-        with backup.open('wb') as stream:
-            backup.chmod(0o600)
-            run('docker', 'exec', container, 'pg_dump', '-U', user, '-d', database,
-                '--format=custom', '--no-owner', stdout=stream)
-        require(backup.stat().st_size > 0, 'Empty backup')
-        with backup.open('rb') as stream:
-            run('docker', 'exec', '-i', container, 'pg_restore', '--list', stdin=stream, stdout=subprocess.DEVNULL)
+        dump_database(container, user, database, release / (database + '.dump'))
+
+
+# One owner-only custom-format dump, accepted only once pg_restore can read its table of contents.
+# Shared with daily_backup.py so scheduled backups match release backups exactly.
+def dump_database(container, user, database, backup):
+    with backup.open('wb') as stream:
+        backup.chmod(0o600)
+        run('docker', 'exec', container, 'pg_dump', '-U', user, '-d', database,
+            '--format=custom', '--no-owner', stdout=stream, timeout=DUMP_TIMEOUT_SECONDS)
+    require(backup.stat().st_size > 0, 'Empty backup')
+    # Listing reads only the archive's table of contents, so it keeps the default timeout.
+    with backup.open('rb') as stream:
+        run('docker', 'exec', '-i', container, 'pg_restore', '--list', stdin=stream, stdout=subprocess.DEVNULL)
 
 
 def deploy(root, sha):
@@ -376,7 +406,7 @@ def tick(root, retry=False):
         return
     sha = main_sha()
     if state.get('candidateSha') != sha:
-        for name in ('stage', 'stageStartedAt', 'stages', 'ci', 'preparedSha', 'preparationFailedSha'):
+        for name in ('stage', 'stageStartedAt', 'stages', 'ci', 'ciCheckedAt', 'preparedSha', 'preparationFailedSha'):
             state.pop(name, None)
     state['candidateSha'] = sha
     if sha == state.get('deployedSha'):
@@ -384,6 +414,14 @@ def tick(root, retry=False):
     elif sha == state.get('failedSha') and not retry:
         state['phase'] = 'blocked'
     else:
+        # A new revision or an operator retry checks at once; a revision still waiting backs off.
+        now = time.time()
+        checked = state.get('ciCheckedAt')
+        if (not retry and state.get('phase') == 'waiting-for-ci' and isinstance(checked, (int, float))
+                and 0 <= now - checked < CI_POLL_SECONDS):
+            write_json(state_file, state)
+            return
+        state['ciCheckedAt'] = now
         detail = {}
         try:
             ci_ready = ready(sha, detail)

@@ -10,6 +10,7 @@ import { ReaderRegistry } from '../../src/readerRegistry.js';
 import { SessionModel } from '../../src/models/SessionModel.js';
 import { deviceDecision } from '../../src/deviceAccess.js';
 import { waiverAcceptance } from '../helpers/waiver.js';
+import { dataUrl, jpeg } from '../helpers/photos.js';
 
 const database = `arbor_maintenance_${randomBytes(6).toString('hex')}_mvc_test`;
 const admin = new Pool(), pool = new Pool({ database });
@@ -73,6 +74,51 @@ test('catalog creation, edits and retirement are admin-only, versioned, and pres
   assert.equal((await get('/admin/equipment')).body.data.some((e: { id: number }) => e.id === id), false);
   assert.equal((await pool.query('SELECT 1 FROM reservation WHERE reservationid=$1', [reserved.id])).rows.length, 1);
   assert.equal((await pool.query('SELECT 1 FROM equipment WHERE equipmentid=$1', [id])).rows.length, 1);
+});
+
+test('equipment uploads persist with the catalog, can be reused, and are served as public images', async () => {
+  const bytes = jpeg(640, 480);
+  const fields = { name: 'Photo test laser', type: 'Laser', location: 'Shop', image: '', imageUpload: dataUrl('image/jpeg', bytes), rate: 0, certId: null, waiverRequired: false };
+  const saved = await post('/admin/equipment', fields);
+  assert.equal(saved.status, 201, JSON.stringify(saved.body));
+  const id = saved.body.data.id;
+  const detail = (await get(`/admin/equipment/${id}`)).body.data;
+  assert.match(detail.imagePath, /^\/api\/equipment-images\/[A-Za-z0-9_-]{22}$/);
+  assert.equal(detail.image, detail.imagePath);
+  const image = await request(app).get(detail.imagePath);
+  assert.equal(image.status, 200);
+  assert.equal(image.headers['content-type'], 'image/jpeg');
+  assert.match(image.headers['cache-control'] ?? '', /immutable/);
+  assert.deepEqual(image.body, bytes);
+  const options = (await get('/admin/equipment/catalog-options')).body.data;
+  assert.ok(options.images.some((item: { path: string }) => item.path === detail.imagePath));
+  assert.ok(options.images.some((item: { path: string; label: string }) => item.path === '/assets/3d-printer.webp' && item.label === '3D printer'));
+  const reused = await post('/admin/equipment', { ...fields, name: 'Reused photo', image: detail.imagePath, imageUpload: undefined });
+  assert.equal(reused.status, 201);
+  assert.equal((await get(`/admin/equipment/${reused.body.data.id}`)).body.data.image, detail.imagePath);
+  assert.equal((await post('/admin/equipment', { ...fields, name: 'Same upload' })).status, 201);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM app_equipment_image')).rows[0].n, 1, 'identical uploads are stored once');
+  // A fresh application instance still serves the bytes from PostgreSQL.
+  const restarted = createApp(pool, { jwtKey, port: 8080, host: '127.0.0.1', secureCookies: false, demoLogin: true, allowedOrigins: [], timeZone: tz });
+  assert.deepEqual((await request(restarted).get(detail.imagePath)).body, bytes);
+  const stale = await request(app).put(`/api/admin/equipment/${id}`).set('Authorization', 'Bearer ' + administrator.accessToken)
+    .set('X-CSRF-Token', administrator.csrfToken).send({ ...fields, imageUpload: dataUrl('image/jpeg', jpeg(600, 400)), expectedRevision: 999 });
+  assert.equal(stale.status, 409);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM app_equipment_image')).rows[0].n, 1, 'a rejected edit never stores the upload');
+});
+
+test('equipment image uploads reject invalid bytes, oversized files, missing CSRF and non-admins', async () => {
+  const fields = { name: 'Invalid photo', type: 'Laser', location: 'Shop', image: '', rate: 0, certId: null, waiverRequired: false };
+  const valid = { ...fields, imageUpload: dataUrl('image/jpeg', jpeg(640, 480)) };
+  assert.equal((await post('/admin/equipment', valid, staff)).status, 403);
+  assert.equal((await post('/admin/equipment', valid, member)).status, 403);
+  assert.equal((await request(app).post('/api/admin/equipment').set('Authorization', 'Bearer ' + administrator.accessToken).send(valid)).status, 403);
+  for (const imageUpload of ['data:image/svg+xml;base64,PHN2Zz4=', 'data:image/jpeg;base64,YmFk', dataUrl('image/jpeg', jpeg(1600, 1200)), dataUrl('image/jpeg', jpeg(640, 480, Buffer.alloc(65500)))]) {
+    const rejected = await post('/admin/equipment', { ...fields, imageUpload });
+    assert.equal(rejected.status, 400, JSON.stringify(rejected.body));
+  }
+  assert.equal((await request(app).get('/api/equipment-images/not-an-image')).status, 404);
+  assert.equal((await request(app).get('/api/equipment-images/AAAAAAAAAAAAAAAAAAAAAA')).status, 404);
 });
 async function machine(name = 'Maintenance machine', status = 'available') {
   return (await pool.query('INSERT INTO equipment(name,status,hourlyrate,waiverrequired) VALUES($1,$2,12,false) RETURNING equipmentid', [name, status])).rows[0].equipmentid as number;

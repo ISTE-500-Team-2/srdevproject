@@ -89,3 +89,11 @@ test('authorization loss clears retained content rather than silently showing st
  const {result}=renderHook(()=>useApi('/admin/users/1',{retainOnReload:true}));await act(async()=>{});
  act(()=>result.current.reload());await act(async()=>{});expect(result.current.data).toBeNull();expect(result.current.error).toBeTruthy();expect(result.current.loading).toBe(false);
 });
+test('a failed read reports the server code with its message, and the next read clears both',async()=>{
+ const missing=Object.assign(new ApiError(404,'READER_NOT_FOUND','Reader not found.'),{status:404,code:'READER_NOT_FOUND',message:'Reader not found.'});
+ api.mockRejectedValueOnce(missing).mockResolvedValueOnce({ok:true});
+ const {result}=renderHook(()=>useApi('/admin/users/1/access-readiness'));await act(async()=>{});
+ expect(result.current.error).toBe('Reader not found.');expect(result.current.errorCode).toBe('READER_NOT_FOUND');
+ act(()=>result.current.reload());await act(async()=>{});
+ expect(result.current.error).toBe('');expect(result.current.errorCode).toBeUndefined();
+});

@@ -26,6 +26,19 @@ export type TrainingRecord = {
   trainingMinutes?: number | null;
 };
 
+/**
+ * How many active members hold a certification, as /training/catalog/holders returns it.
+ * `expiringSoon` is the part of `current` that runs out within 30 days; `expired` counts
+ * training that is no longer current for any reason other than a revocation.
+ */
+export type CertificationHolders = {
+  id: number;
+  current: number;
+  expiringSoon: number;
+  expired: number;
+  revoked: number;
+};
+
 /** The certification editor: a new certification has no saved record to start from. */
 export type CourseEditor = { mode: "new" } | { mode: "edit"; course: Course };
 

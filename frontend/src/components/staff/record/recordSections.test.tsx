@@ -1,13 +1,17 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { NfcCard } from "../../../lib/nfc";
 import type { MemberRequirements, Person } from "../../../lib/staffContracts";
 import { RecordCards } from "./RecordCards";
+import { RecordMembership } from "./RecordMembership";
 import { RecordSupervision } from "./RecordSupervision";
 import { DeskAction, RequirementList } from "./RecordVerdict";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 const person = (over: Partial<Person> = {}) =>
   ({
@@ -109,4 +113,30 @@ test("supervised use lists only unlocks that are neither ended nor revoked", () 
   expect(screen.queryByText("Paint room")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "End" }));
   expect(open).toHaveBeenCalledWith({ kind: "endSupervision", override: overrides[0] });
+});
+
+test("supervised use drops an unlock and its End button the moment it ends, without a refresh", async () => {
+  vi.useFakeTimers();
+  const overrides = [
+    { id: 1, kind: "equipment", resourceName: "Lathe", endsAt: new Date(Date.now() + 60_000).toISOString(), reason: "Watching", revokedAt: null },
+  ];
+  render(<RecordSupervision person={person()} overrides={overrides} canManage open={vi.fn()} />);
+  expect(screen.getByRole("button", { name: "End" })).toBeTruthy();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(61_000);
+  });
+  expect(screen.queryByText("Lathe")).toBeNull();
+  expect(screen.queryByRole("button", { name: "End" })).toBeNull();
+});
+
+test("B-003: the current membership shows why it was sold at its price", () => {
+  const later = (days: number) => new Date(Date.now() + days * 86400000).toISOString();
+  const membership = { userId: 14, planId: 1, revision: 1, reason: "", cardBilled: false, id: 1, status: "active", effectiveStatus: "active", startsAt: later(-2), endsAt: later(28) };
+  const show = (plan: { name: string; price: string; priceBasis?: string }) =>
+    render(<RecordMembership person={person()} memberships={[{ ...membership, plan }]} passes={[]} canManage allEarlier showAllEarlier={vi.fn()} open={vi.fn()} />);
+  show({ name: "Monthly", price: "30.00", priceBasis: "student" });
+  expect(screen.getByText("$30.00 a month · student price · paid at the desk")).toBeTruthy();
+  cleanup();
+  show({ name: "Monthly", price: "50.00", priceBasis: "standard" });
+  expect(screen.getByText("$50.00 a month · paid at the desk")).toBeTruthy();
 });

@@ -9,6 +9,9 @@ not deploy. The gateway, database containers, volumes, credentials and Pi stay p
 
 1. A user-level systemd timer checks main about once a minute, after the previous
    check/release finishes. Idle checks use `git ls-remote`, not GitHub API polling.
+   While a new SHA waits for CI, its GitHub check status is read at most every
+   four minutes (unauthenticated reads are limited to 60 an hour, two per check),
+   so a release can start up to four minutes after its checks pass.
 2. A new SHA must pass application verification, sponsor-container rehearsal,
    Docker developer smoke and the Linux/macOS/Windows launcher tests. All checks
    must be from GitHub Actions on the exact SHA; successful main push workflows
@@ -24,6 +27,12 @@ not deploy. The gateway, database containers, volumes, credentials and Pi stay p
 4. Read-only migration/checksum verification runs against both existing databases.
    **It never applies migrations, seeds, recreates volumes or resets data.** If a
    release needs a migration, an operator must review and authorize it separately.
+   For migrations 045 to 055, use the guarded owner script for the numbered
+   SQL, then run the post-commit online phase, including validation of the 055
+   pending-registration constraint. The deployer checks that validation before
+   starting standby. Keep cutover paused until both databases pass verification
+   and the reader compaction grant is in place.
+   [Migration procedure](prewarmed-production-releases.md#applying-migrations-045-to-055)
 5. Fresh public/demo database dumps must succeed and pass `pg_restore --list`.
    This establishes readable archives, not a complete recovery test.
 6. Localhost-only canaries (18082/18081) use the new image with email disabled.
@@ -103,6 +112,66 @@ verification, demo update, promotion-gate recheck, public promotion and live
 verification. Stage history stays bounded and owner-only. Preparation and cutover
 metrics remain separate; faster CI/preparation is not a claim of zero CI wait.
 
+## Daily database backups
+
+Release dumps only exist when a release happens. A second user-level timer,
+`arbor-daily-backup.timer`, backs up the same public and demo databases once a
+day at about 03:30 (server time; `Persistent=true` catches up after the VM was
+off). `deploy/daily_backup.py` uses the deployer's own dump step
+(`auto_release.dump_database`: `pg_dump --format=custom --no-owner` as the owner
+inside each database container, then `pg_restore --list` must read it), so a
+daily dump is the same kind of archive as a release dump.
+
+- Each run writes `/srv/arbor-full/auto-deploy/daily-backups/<UTC stamp>/`
+  with one `<database>.dump` per database (folder 0700, files 0600). It is built
+  as `<stamp>.partial` and renamed only once every database has been dumped and
+  checked; a failed or interrupted run leaves nothing half-written.
+- Only after a successful run, the oldest daily folders beyond `--keep` (14 in
+  the installed service) are deleted. Release dumps under `releases/` and any
+  other folder are never touched.
+- It takes the same `deployment.lock` as the release deployer. While a release
+  holds it, the backup waits up to 40 minutes, then gives up; while the backup
+  holds it, the release timer simply tries again a minute later.
+- It does not run while `auto-deploy/PAUSED` exists (an operator is working on the
+  databases and takes their own backups), or with less than 2 GiB free. Nothing
+  is deleted to make room.
+- A skipped run exits 75 and a failed run exits 1, so either shows as a failed
+  unit. `auto-deploy/daily-backup.json` records the last success and the last
+  problem; details are in `auto-deploy/daily-backup.log`.
+
+```sh
+systemctl --user list-timers arbor-daily-backup.timer
+cat /srv/arbor-full/auto-deploy/daily-backup.json
+tail -40 /srv/arbor-full/auto-deploy/daily-backup.log
+ls /srv/arbor-full/auto-deploy/daily-backups/
+# Take one now, for example after a skipped day (waits for a running release):
+systemctl --user start arbor-daily-backup.service
+```
+
+Fourteen days of both dumps stay on the VM's disk; check `df -h /srv` after the
+first few runs. These are readable archives on the same VM, not an off-site copy
+or a restore test.
+
+### Install the daily backup timer
+
+Not installed automatically. As `student` on the VM, from a checkout of the
+merged revision (not the immutable release checkout):
+
+```sh
+cp -p /srv/arbor-full/auto-deploy/auto_release.py /srv/arbor-full/auto-deploy/auto_release.py.before-daily-backup
+install -m 0600 deploy/auto_release.py deploy/daily_backup.py /srv/arbor-full/auto-deploy/
+install -m 0644 deploy/arbor-daily-backup.service deploy/arbor-daily-backup.timer ~/.config/systemd/user/
+python3 -m py_compile /srv/arbor-full/auto-deploy/daily_backup.py
+systemctl --user daemon-reload
+systemctl --user start arbor-daily-backup.service   # first backup now; check the log
+systemctl --user enable --now arbor-daily-backup.timer
+```
+
+`daily_backup.py` imports the installed `auto_release.py`, so install both from
+the same revision, under the usual controller-installation rules below (keep the
+`local-frontend-tools` copy of `auto_release.py` identical). Install while no
+release is running, for example with the release timer stopped.
+
 ## Pause, recover and retry
 
 ```sh
@@ -114,6 +183,29 @@ systemctl --user stop arbor-auto-release.timer
 Each release keeps `previous-compose.json` and two database dumps under
 `/srv/arbor-full/auto-deploy/releases/<SHA>/`. Old images and archives are retained;
 there is no automatic deletion policy. Monitor disk space before many releases.
+`PAUSED` also holds the [daily database backup](#daily-database-backups); take one
+by hand after resuming if a day was skipped.
+
+Keep applied migrations in place during application rollback. The previous release
+cannot confirm or resend a usable link for staged sign-ups created, replaced or
+resent by the new release. Those members can continue once the password-aware
+release returns, or sign up again if their request has expired.
+
+**Studio readers (migration 057).** Releases before studio readers treat a reader
+kind they don't know as equipment, so a studio reader would check the equipment
+item that happens to share its number. Before rolling the application back past
+the release that added studio readers, turn every studio reader off: in the
+staff **Readers** list, choose **Manage** on each reader whose location is a
+studio and turn it off, or run this against each affected database with the
+owner connection:
+
+```sql
+UPDATE app_access_reader SET enabled=false,revision=revision+1 WHERE kind='studio' AND enabled;
+```
+
+Also remove any `"kind": "studio"` entries from `ACCESS_READERS_JSON` in the
+environment the previous release will start with. Turned-off readers stay off
+when the release returns; an administrator turns each one back on afterwards.
 
 For an operator-directed manual rollback, keep the timer paused, restore the
 recorded previous Compose file (save the current one first), then run:

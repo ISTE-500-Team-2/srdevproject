@@ -29,11 +29,18 @@ export async function documentText(file: File): Promise<string> {
     // mammoth is only needed here, so it loads on first use.
     const mammoth = await import("mammoth");
     const bytes = await file.arrayBuffer();
-    // The browser build reads `arrayBuffer`; the Node build (tests) reads `buffer`.
-    const { value } = await mammoth.extractRawText({
-      arrayBuffer: bytes,
-      buffer: new Uint8Array(bytes),
-    } as unknown as { arrayBuffer: ArrayBuffer });
+    let value: string;
+    try {
+      // The browser build reads `arrayBuffer`; the Node build (tests) reads `buffer`.
+      ({ value } = await mammoth.extractRawText({
+        arrayBuffer: bytes,
+        buffer: new Uint8Array(bytes),
+      } as unknown as { arrayBuffer: ArrayBuffer }));
+    } catch (error) {
+      // A renamed .doc or PDF, a damaged file or a password-protected one: the raw
+      // unzip error means nothing to an admin, so say what to do instead.
+      throw new Error("This Word file could not be read. Re-save it as .docx from Word, upload a PDF, or paste the wording.", { cause: error });
+    }
     const text = tidy(value);
     if (!text) throw new Error("That document has no text in it.");
     return text;

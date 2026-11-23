@@ -19,6 +19,7 @@ import { authState, requireCsrf } from "./middleware/auth.js";
 import { requirePermission } from "./middleware/permissions.js";
 import {
   cardIdentity,
+  READER_KINDS,
   ReaderRegistry,
   readerColumns,
   requireDeviceConfig,
@@ -26,20 +27,33 @@ import {
   type DeviceConfig,
 } from "./readerRegistry.js";
 import { readerManagement } from "./readerManagement.js";
+import { parseHealthReport, readerHealthRoutes, recordHealth } from "./readerHealth.js";
+import { errorIdentifier } from "./logSafety.js";
 import { accessCards } from "./accessCards.js";
 import { DEFAULT_BUILDING_ID } from "./facility.js";
 export type { Reader, DeviceConfig } from "./readerRegistry.js";
-export function readDeviceConfig(): DeviceConfig | undefined {
-  if (!process.env.ACCESS_READERS_JSON && !process.env.ACCESS_CARD_HASH_KEY)
+/**
+ * An env file line such as `ACCESS_READERS_JSON=` arrives as an empty string, which means
+ * "not set" here rather than invalid JSON. Errors name the setting, never its value.
+ */
+function jsonList(env: NodeJS.ProcessEnv, name: string): unknown {
+  const raw = env[name]?.trim();
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw Error(`${name} must be a JSON array, or left blank when not used`);
+  }
+}
+export function readDeviceConfig(env: NodeJS.ProcessEnv = process.env): DeviceConfig | undefined {
+  if (!env.ACCESS_READERS_JSON?.trim() && !env.ACCESS_CARD_HASH_KEY)
     return undefined;
-  const readers = JSON.parse(process.env.ACCESS_READERS_JSON ?? "[]"),
-    cardHashKey = process.env.ACCESS_CARD_HASH_KEY ?? "";
-  if (
-    cardHashKey.length < 32 ||
-    !Array.isArray(readers) ||
-    readers.length > 100
-  )
-    throw Error("Invalid device access configuration");
+  const readers = jsonList(env, "ACCESS_READERS_JSON"),
+    cardHashKey = env.ACCESS_CARD_HASH_KEY ?? "";
+  if (cardHashKey.length < 32)
+    throw Error("ACCESS_CARD_HASH_KEY must contain at least 32 characters");
+  if (!Array.isArray(readers) || readers.length > 100)
+    throw Error("ACCESS_READERS_JSON must be a JSON array of at most 100 readers");
   const ids = new Set();
   for (const r of readers) {
     if (
@@ -48,20 +62,20 @@ export function readDeviceConfig(): DeviceConfig | undefined {
       ids.has(r.id) ||
       typeof r.secret !== "string" ||
       r.secret.length < 32 ||
-      !["building", "room", "equipment"].includes(r.kind) ||
+      !READER_KINDS.includes(r.kind) ||
       ((r.kind !== "building" || r.resourceId !== undefined) &&
         (!Number.isSafeInteger(r.resourceId) || r.resourceId < 1))
     )
-      throw Error("Invalid reader configuration");
+      throw Error("Invalid reader entry in ACCESS_READERS_JSON");
     ids.add(r.id);
   }
-  const setupGateways = JSON.parse(process.env.ACCESS_SETUP_GATEWAYS_JSON ?? "[]");
+  const setupGateways = jsonList(env, "ACCESS_SETUP_GATEWAYS_JSON");
   if (!Array.isArray(setupGateways) || setupGateways.length > 20
       || setupGateways.some((g: any) => !g || typeof g.id !== "string"
         || !/^[a-zA-Z0-9_-]{1,64}$/.test(g.id) || typeof g.name !== "string"
         || !g.name.trim() || g.name.length > 100 || typeof g.secret !== "string"
         || g.secret.length < 32) || new Set(setupGateways.map((g: any) => g.id)).size !== setupGateways.length)
-    throw Error("Invalid reader setup gateway configuration");
+    throw Error("Invalid gateway entry in ACCESS_SETUP_GATEWAYS_JSON");
   return { readers, cardHashKey, setupGateways };
 }
 /**
@@ -159,7 +173,25 @@ export function deviceDecision(
         reservationId: null,
       });
       if (body.action === "heartbeat") {
-        await db.query('UPDATE app_access_reader SET last_seen_at=NOW() WHERE id=$1', [reader.id]);
+        // The gateway's view of the reader itself; absent from older gateways.
+        const health = parseHealthReport(body.health);
+        // last_seen_at means the reader itself is alive: outage notices and the
+        // staff scan controls rely on that. A gateway reporting an unreachable
+        // reader is alive, but its reader is not.
+        if (!health || health.reachable)
+          await db.query('UPDATE app_access_reader SET last_seen_at=NOW() WHERE id=$1', [reader.id]);
+        // Telemetry must never cost a reader its access decisions, so a failed
+        // write is rolled back on its own and the heartbeat still succeeds.
+        if (health) {
+          await db.query("SAVEPOINT reader_health");
+          try {
+            await recordHealth(db, reader.id, health);
+            await db.query("RELEASE SAVEPOINT reader_health");
+          } catch (error) {
+            await db.query("ROLLBACK TO SAVEPOINT reader_health");
+            console.error("Reader health not recorded", { readerId: reader.id, ...errorIdentifier(error) });
+          }
+        }
         return {
           eventId: body.eventId,
           readerId: reader.id,
@@ -237,7 +269,9 @@ export function deviceDecision(
           [
             card!.user_id,
             reader.kind === "room" ? reader.resourceId : null,
-            reader.id,
+            // Staff and members read this as where the check-in happened, so store the
+            // building, room or equipment name as desk check-ins do, never the reader ID.
+            ("location" in verdict ? verdict.location : null) ?? reader.name,
             verdict.buildingId,
             reader.kind === "equipment" ? reader.resourceId : null,
             verdict.reservationId,
@@ -290,6 +324,7 @@ export function cardManagement(
   const routes = Router(),
     permit = requirePermission(pool, "user_access", "update");
   routes.use(readerManagement(pool, tz, registry));
+  routes.use(readerHealthRoutes(pool));
   routes.use(accessCards(pool, tz, registry));
   // Advisory only: never inserts an access event/check-in or sends a device command.
   routes.get(
@@ -445,11 +480,30 @@ export function cardManagement(
             "RESOURCE_UNAVAILABLE",
             "This resource is unavailable.",
           );
+        // A class's booking is held by whoever scheduled it but never admits them (AccessService),
+        // so it can't carry an override. While a class has the room, nobody else can book it either.
+        if (
+          (
+            await db.query(
+              `SELECT 1 FROM reservation r JOIN app_training_class c ON c.reservation_id=r.reservationid
+              WHERE r.${key}=$1 AND r.status IN ('confirmed','pending') AND r.starttime<$2::timestamptz AT TIME ZONE 'UTC'
+              AND r.endtime>NOW() AT TIME ZONE 'UTC' LIMIT 1`,
+              [id, ends],
+            )
+          ).rowCount
+        )
+          throw new AppError(
+            409,
+            "CLASS_IN_PROGRESS",
+            "A class has this room booked now. Its instructor and registered students can already open it; register the member for the class to let them in.",
+          );
         const current = (
           await db.query<{ id: number; endsAt: Date }>(
-            `SELECT reservationid AS id,endtime AT TIME ZONE 'UTC' AS "endsAt" FROM reservation
+            `SELECT reservationid AS id,endtime AT TIME ZONE 'UTC' AS "endsAt" FROM reservation r
             WHERE userid=$1 AND ${key}=$2 AND status='confirmed' AND starttime<=NOW() AT TIME ZONE 'UTC'
-            AND endtime>NOW() AT TIME ZONE 'UTC' ORDER BY endtime LIMIT 1 FOR UPDATE`,
+            AND endtime>NOW() AT TIME ZONE 'UTC'
+            AND NOT EXISTS (SELECT 1 FROM app_training_class c WHERE c.reservation_id=r.reservationid)
+            ORDER BY endtime LIMIT 1 FOR UPDATE`,
             [userId, id],
           )
         ).rows[0];
@@ -526,6 +580,13 @@ export function cardManagement(
           throw new AppError(404, "NOT_FOUND", "Override not found.");
         await assertManageable(db, authState(res).user, before.user_id);
         if (before.revoked_at) return before;
+        // A finished session stays as it happened: never cancel its booking after the fact.
+        if (new Date(before.ends_at).getTime() <= Date.now())
+          throw new AppError(
+            409,
+            "OVERRIDE_ENDED",
+            "This supervised use already ended. Nothing was changed.",
+          );
         if (before.owns_reservation) {
           const cancelled = (
             await db.query(
