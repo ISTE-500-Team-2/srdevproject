@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="340" viewBox="0 0 1200 340" role="img" aria-labelledby="title desc">
+  <title id="title">Account relationships in ARBOR</title>
+  <desc id="desc">One member account links to zero or more memberships, payments, reservations, and waiver signatures. Each child record belongs to one account. This is a simplified relationship map.</desc>
+  <rect width="1200" height="340" fill="white"/>
+  <g fill="none" stroke="#9cae9f" stroke-width="3">
+    <path d="M600 108 V160 M150 160 H1050 M150 160 V206 M450 160 V206 M750 160 V206 M1050 160 V206"/>
+  </g>
+  <rect x="440" y="20" width="320" height="88" rx="12" fill="#17422f"/>
+  <g font-family="Arial, sans-serif" text-anchor="middle">
+    <text x="600" y="56" fill="white" font-size="25" font-weight="bold">Member account</text>
+    <text x="600" y="85" fill="#e1eae2" font-size="19">user · one</text>
+    <g fill="#f1f5ef" stroke="#9cae9f" stroke-width="2">
+      <rect x="20" y="206" width="260" height="90" rx="10"/>
+      <rect x="320" y="206" width="260" height="90" rx="10"/>
+      <rect x="620" y="206" width="260" height="90" rx="10"/>
+      <rect x="920" y="206" width="260" height="90" rx="10"/>
+    </g>
+    <g fill="#263d32" font-size="23" font-weight="bold">
+      <text x="150" y="241">Memberships</text><text x="450" y="241">Payments</text>
+      <text x="750" y="241">Reservations</text><text x="1050" y="241">Waiver signatures</text>
+    </g>
+    <g fill="#526558" font-size="18">
+      <text x="150" y="273">user_membership · 0..many</text><text x="450" y="273">payment · 0..many</text>
+      <text x="750" y="273">reservation · 0..many</text><text x="1050" y="273">user_waiver · 0..many</text>
+    </g>
+    <text x="600" y="329" fill="#526558" font-size="17">Simplified account links · each child record belongs to one account</text>
+  </g>
+</svg>

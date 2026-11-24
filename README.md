@@ -75,6 +75,10 @@ ARBOR works today, but a few launch steps are still open. Check these against th
   equivalent Ubuntu server, first administrator, backups and recovery. No AI
   assistant required.
 - [Team handoff](docs/TEAM-HANDOFF.md) walks through membership and access workflows.
+- [Database overview](docs/SPONSOR-DATABASE-OVERVIEW.md) explains the records,
+  relationships, migration behavior, and procedures for the next maintainer
+  ([Word](docs/print/ARBOR-Database-Overview.docx),
+  [PDF](docs/print/ARBOR-Database-Overview.pdf)).
 - [Email notifications](docs/EMAIL-NOTIFICATIONS.md) covers sender, worker and
   notification setup.
 - [Guided reader setup](docs/reader-guided-setup.md) connects a new reader from the

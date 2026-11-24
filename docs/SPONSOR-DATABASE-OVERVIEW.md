@@ -2,7 +2,8 @@
 
 **Prepared for:** The Collaboratory  
 **Prepared by:** Team ARBOR · RIT Senior Development Project  
-**Date:** November 18, 2026  
+**Date:** November 23, 2026
+
 **Status:** Sponsor review draft
 
 ## 1. Purpose and business value
@@ -45,11 +46,11 @@ The original schema defines the core business records. Versioned migrations exte
 
 ### Main relationships
 
-One member can have multiple memberships, payments, reservations, signatures, and check-ins. A reservation links a member to an equipment item or room. A signed-waiver record links the member to a particular policy version. A certification assignment links the member to a training requirement; classes and enrollment records support the training workflow.
+![One account links to many memberships, payments, reservations, and waiver signatures.](assets/database-account-map.svg)
 
-Shared definitions, such as membership plans and certification types, are stored separately from individual member assignments. This reduces repeated data and supports consistent updates. Issued plans also retain snapshots so later pricing changes do not silently rewrite the terms recorded for an earlier issuance. Selected snapshots and document payloads use PostgreSQL's JSONB format alongside the relational tables. [3, 4]
+This simplified map shows one account with zero or more related records. Payments can also reference a membership, reservations connect to equipment or rooms, and waiver signatures identify a policy version. Members also have check-in history and certification assignments; classes and enrollments support their training workflow.
 
-Staff reports use these linked records to review memberships, payments, usage, and missing or expiring waivers and certifications. Reports reflect the data and filters available in the application; they depend on staff keeping source records accurate.
+Shared definitions, such as membership plans and certification types, are separate from individual assignments to reduce repeated data and support consistent updates. Issued plans retain snapshots so later pricing changes do not rewrite earlier terms. Selected snapshots and document payloads use PostgreSQL's JSONB format alongside the relational tables. [3, 4]
 
 <!-- pagebreak -->
 
@@ -83,9 +84,26 @@ Waiver versions and member signatures are retained separately. A dedicated signe
 
 ### Controlled schema changes
 
-Schema changes are delivered through versioned SQL migration files. The migration runner applies pending files in filename order, records a SHA-256 checksum for each file, and rejects changes to an already applied migration. A database lock prevents simultaneous migration runs, and the migration work runs in a transaction. This provides a repeatable record of an installation's schema history. [5]
+Schema changes are delivered through versioned SQL migration files. The migration runner applies pending numbered SQL files in filename order, records a SHA-256 checksum for each file, and rejects changes to an already applied migration. The numbered SQL changes and their migration-history entries commit together in one transaction. A session-level advisory lock prevents simultaneous migration runs. [5]
+
+After that transaction commits, the runner completes online database changes outside the transaction while retaining the same advisory lock. If this online phase fails, the committed SQL changes and history remain in place. A retry verifies the stored checksums and attempts the online work again, even when no numbered SQL files are pending. Operators must review the command result and application health before accepting an update; committed migration-history rows alone do not prove the online phase completed. [5]
 
 The legacy creation scripts include destructive statements, and the insert script loads synthetic data. Existing installations must follow the documented migration or recovery path. A new sponsor installation starts without sample member and business records. [1, 2, 3]
+
+### Starting point for the next database maintainer
+
+Confirm that the incoming maintainer can access the repository and check out the selected reviewed release using [Sponsor Handoff, Section 4](SPONSOR-HANDOFF.md#4-install-the-tools-and-obtain-the-reviewed-software). Record the release commit, environment, technical owner, and support contact before making database changes. The procedures below run on the intended sponsor server from the repository root.
+
+| Task | Procedure and expected check |
+| --- | --- |
+| Initialize an empty database | Follow [Section 6, Path A](SPONSOR-HANDOFF.md#path-a--genuinely-new-studio-database): `bash docs/hosting/arbor.sh initialize-new`. Use only an intended empty installation; the helper refuses existing public tables and does not load sample business records. |
+| Restore existing records | Follow [Section 6, Path B](SPONSOR-HANDOFF.md#path-b--move-or-recover-existing-records): `restore-new` with a verified archive and matching release/history. Compare member counts, memberships, policies, certifications, and recent transactions with the source before approving any required migrations. |
+| Apply a reviewed update | Follow [Section 12](SPONSOR-HANDOFF.md#12-updates-and-rollback): preserve a recoverable backup, record the current version, review compatibility, build the selected release, and use the helper's `migrate` command when required. Verify completion of both migration phases, service health, and critical workflows. |
+| Verify recovery | Follow [Section 11, Prove you can recover](SPONSOR-HANDOFF.md#prove-you-can-recover): restore into a separate empty installation with email and hardware integrations disabled. Check linked member records, payments, waivers and signed copies, permissions, and migration history. Record the archive, release, operator, date, and observed outcome. |
+
+For staff training, use the [Team Handoff walkthrough](TEAM-HANDOFF.md#suggested-end-to-end-walkthrough) as the basis for issuing memberships and recording external payments. Pair it with [Sponsor Handoff, Section 9](SPONSOR-HANDOFF.md#9-configure-the-studio-and-rehearse-the-workflows) to rehearse waiver and training eligibility checks on the selected release. Record which staff completed each workflow and any unresolved issues. Earlier walkthroughs describe their recorded project version; confirm current screens and behavior during rehearsal.
+
+<!-- pagebreak -->
 
 ### Backups and recovery
 
@@ -119,6 +137,8 @@ This document was prepared from repository code and recorded evidence. Database 
 
 ### Decisions and checks before operational acceptance
 
+Staff reports use linked records to review memberships, payments, usage, and missing or expiring waivers and certifications. Verify representative reports during acceptance: results depend on accurate source records and the application's available filters.
+
 | Item | Required sponsor or operator outcome |
 | --- | --- |
 | Records and ownership | Confirm the authoritative source, records to preserve, hosting owner, and authorized operators. |
@@ -127,17 +147,33 @@ This document was prepared from repository code and recorded evidence. Database 
 | Payments | Recognize that staff-recorded payments document external transactions. Stripe is restricted to test mode in this release; database billing records do not establish live card processing. |
 | Final acceptance | Verify migrated records, staff/member permissions, reports, and representative workflows. Accept physical reader behavior separately on site. |
 
+Use the [Sponsor Handoff launch checklist](SPONSOR-HANDOFF.md#10-launch-checklist) to record the rollout owner, rollback decision owner and trigger, restore rehearsal operator/date/release, staff training completion, ongoing support owner, and incoming maintainer's verified repository access. These are required handoff records; this revision does not establish that the team has assigned or completed them.
+
+<!-- pagebreak -->
+
+## 6. Maintaining this overview
+
+The editable source is [SPONSOR-DATABASE-OVERVIEW.md](SPONSOR-DATABASE-OVERVIEW.md). Update this source when schema behavior, operational procedures, release limits, or verification evidence changes, then regenerate the [Word copy](print/ARBOR-Database-Overview.docx) and [PDF copy](print/ARBOR-Database-Overview.pdf). Keep dated software evidence distinct from acceptance on the sponsor's server and physical readers.
+
+From the repository root, run:
+
+```sh
+node docs/print/build-database-overview.mjs
+```
+
+The [build instructions](print/DATABASE-OVERVIEW-BUILD.md) describe browser requirements, output files, clickable repository references, and review checks. The builder uses the Markdown and account diagram as its inputs; edit those inputs instead of changing the generated copies independently.
+
 ### Repository references
 
 Paths below identify the implementation and evidence supporting this overview. Dates identify the recorded checks, not a new certification of the current deployment.
 
-1. `README.md` — project scope, architecture, and release limits.
-2. `docs/SPONSOR-HANDOFF.md`; `docs/hosting/compose.yml`; `docs/hosting/arbor.sh` — installation, private networking, backups, and recovery.
-3. `ddl/collaboratory-db-create.sql` — base business tables and relationships.
-4. `database/migrations/` — application extensions, integrity constraints, auditing, annual validity, and signed copies.
-5. `backend/src/db.ts`; `backend/src/scripts/migrate.ts` — transactions and migration control.
-6. `docs/rbac.md`; `backend/src/passwords.ts` — permissions and password hashing.
-7. `docs/UNIFIED-ENVIRONMENT.md` — environment inventory and proposed cutover safeguards.
-8. `docs/PRIMARY-VERIFICATION.md` — September 8, 2026 verification.
-9. `docs/hosting/VALIDATION.md` — October 16, 2026 local hosting validation.
-10. `docs/reviews/load-testing-2026-11-11/README.md` and `results.json` — November 11, 2026 software acceptance results.
+1. [README.md](../README.md) — project scope, architecture, and release limits.
+2. [Sponsor Handoff](SPONSOR-HANDOFF.md), [hosting template](hosting/compose.yml), and [operations helper](hosting/arbor.sh) — installation, private networking, backups, and recovery.
+3. [Base database schema](../ddl/collaboratory-db-create.sql) — base business tables and relationships.
+4. [Database migrations](../database/migrations/) — application extensions, integrity constraints, auditing, annual validity, and signed copies.
+5. [Database transactions](../backend/src/db.ts), [migration runner](../backend/src/scripts/migrate.ts), and [online migrations](../backend/src/scripts/online-migrations.ts) — transaction boundaries and migration control.
+6. [Role-based access](rbac.md) and [password hashing](../backend/src/passwords.ts) — permissions and password storage.
+7. [Unified environment proposal](UNIFIED-ENVIRONMENT.md) — environment inventory and proposed cutover safeguards.
+8. [Primary verification](PRIMARY-VERIFICATION.md) — September 8, 2026 verification.
+9. [Hosting validation](hosting/VALIDATION.md) — October 16, 2026 local hosting validation.
+10. [Load-testing report](reviews/load-testing-2026-11-11/README.md) and [results](reviews/load-testing-2026-11-11/results.json) — November 11, 2026 software acceptance results.
