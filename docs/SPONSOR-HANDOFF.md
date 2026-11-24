@@ -339,6 +339,12 @@ blockers, not items to silently check off.
 
 ## 10. Launch checklist
 
+- [ ] Rollout owner, selected release, launch window, and rollout steps recorded.
+- [ ] Rollback decision owner, failure triggers, recovery target, and decision route recorded.
+- [ ] Incoming database maintainer can access the repository and check out the selected release; review the [database overview](SPONSOR-DATABASE-OVERVIEW.md).
+- [ ] Restore rehearsal evidence records who performed it, when, the archive, selected release, and observed results on the intended hosting setup.
+- [ ] Staff training record names the trainer and staff who completed membership issuance, external payment recording, and waiver/training checks using the [Team Handoff walkthrough](TEAM-HANDOFF.md#suggested-end-to-end-walkthrough) and section 9.
+- [ ] Ongoing support owner and contact/escalation route recorded, including database updates, backups, recovery, and staff questions.
 - [ ] Sponsor owns hosting, billing, domain and email; recovery access is documented.
 - [ ] Reviewed release and image label recorded; cost approved.
 - [ ] Valid HTTPS; only web ports public; SSH restricted; demo login disabled.
