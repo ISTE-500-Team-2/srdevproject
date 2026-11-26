@@ -306,7 +306,7 @@ test("class capacity is transactional, room conflicts preserved, and instructors
     endsAt: new Date(Date.now() + 90000000).toISOString(),
     reason: "Scheduled instructor-led training",
   };
-  let r = await post("/classes", body);
+  const r = await post("/classes", body);
   assert.equal(r.status, 201, JSON.stringify(r.body));
   classId = r.body.data.id;
   assert.equal(

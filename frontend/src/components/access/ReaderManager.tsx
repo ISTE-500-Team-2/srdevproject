@@ -7,7 +7,6 @@ import { api, ApiError, errorMessage } from "../../lib/api";
 import { editingFormRef } from "../../lib/editingForms";
 import { useApi } from "../../lib/useApi";
 import {
-  facilityTime,
   type AccessReader,
   type AccessResource,
   type ReaderHealthBoard as HealthBoard,

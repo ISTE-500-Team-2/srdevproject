@@ -59,6 +59,15 @@ export class MemberModel {
       )
     ).rows;
   }
+  /** The staff record's check-in history: the latest 50, with their status. */
+  async checkInHistory(userId: number) {
+    return (
+      await this.db.query(
+        `SELECT checkinid AS id,location,status,checkintime AT TIME ZONE 'UTC' AS "checkedInAt" FROM check_in WHERE userid=$1 ORDER BY checkintime DESC LIMIT 50`,
+        [userId],
+      )
+    ).rows;
+  }
   /**
    * `origin` is 'desk' when staff check a member in, the only web check-in now: members tap their
    * NFC tag at a reader. 'portal' is how web check-ins were stored before migration 051.

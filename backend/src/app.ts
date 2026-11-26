@@ -11,7 +11,7 @@ import express, { type ErrorRequestHandler, type Request, type RequestHandler, t
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Pool } from 'pg';
-import type { AppConfig } from './config.js';
+import { stripeModeOf, type AppConfig } from './config.js';
 import { AppError } from './domain.js';
 import { checkOrigin } from './middleware/auth.js';
 import { apiRoutes } from './routes.js';
@@ -68,7 +68,8 @@ export function createApp(
   app.use((_req, _res, next) => auditContext.run({}, next));
   app.disable('x-powered-by');
   // Behind the configured proxies req.ip is the visitor, not the proxy (sign-in limits use it).
-  if (config.trustProxy !== undefined) app.set('trust proxy', config.trustProxy);
+  // Always set: one hop unless configured, matching TRUST_PROXY's default (see readConfig).
+  app.set('trust proxy', config.trustProxy ?? 1);
   app.use(compression({ filter: shouldCompress }));
   app.use((_req, res, next) => {
     res.set('X-Content-Type-Options', 'nosniff');
@@ -87,7 +88,7 @@ export function createApp(
   });
   app.post('/api/devices/decision',express.raw({type:'application/json',limit:'2kb'}),deviceDecision(pool,config.timeZone,config.devices,readers));
   app.post('/api/devices/setup/poll',express.raw({type:'application/json',limit:'16kb'}),readerSetupPoll(pool,readers));
-  app.post('/api/webhooks/stripe-studios',express.raw({type:'application/json',limit:'96kb'}),studioWebhook(pool,config.timeZone,config.studioStripe));
+  app.post('/api/webhooks/stripe-studios',express.raw({type:'application/json',limit:'96kb'}),studioWebhook(pool,config.timeZone,config.studioStripe,stripeModeOf(config)));
   app.use(
     '/api/webhooks/brevo',
     express.json({ limit: '64kb' }),

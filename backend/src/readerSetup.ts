@@ -12,8 +12,9 @@ import type { Pool } from "pg";
 import { transaction } from "./db.js";
 import { AppError, positiveId, textField } from "./domain.js";
 import { authState, requireCsrf } from "./middleware/auth.js";
-import { requirePermission } from "./middleware/permissions.js";
+import { requireStaffPermission } from "./middleware/permissions.js";
 import { StaffModel } from "./models/StaffModel.js";
+import { ReaderSetupRepository } from "./models/access/readerSetup.js";
 import {
   assertReaderTarget,
   ReaderRegistry,
@@ -126,19 +127,10 @@ export function readerSetupPoll(
         throw new AppError(400, "INVALID_REPORT", "Invalid setup update.");
     }
     const data = await transaction(pool, async (db) => {
-      await db.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
-        "reader-setup:" + id,
-      ]);
-      await db.query(
-        "INSERT INTO app_reader_setup_gateway(id) VALUES($1) ON CONFLICT(id) DO NOTHING",
-        [id],
-      );
-      const previous = (
-        await db.query(
-          "SELECT last_report_stamp,last_report_id FROM app_reader_setup_gateway WHERE id=$1 FOR UPDATE",
-          [id],
-        )
-      ).rows[0];
+      const setup = new ReaderSetupRepository(db);
+      await setup.lockGateway(id);
+      await setup.registerGateway(id);
+      const previous = await setup.lockLastReport(id);
       if (
         Number(stamp) <= Number(previous.last_report_stamp) ||
         previous.last_report_id === body.eventId
@@ -148,51 +140,26 @@ export function readerSetupPoll(
           "REPLAYED_REPORT",
           "Send a new gateway report.",
         );
-      await db.query(
-        "UPDATE app_reader_setup_gateway SET last_seen_at=NOW(),last_report_stamp=$2,last_report_id=$3 WHERE id=$1",
-        [id, stamp, body.eventId],
-      );
+      await setup.recordReport(id, stamp, body.eventId);
       for (const d of body.devices)
-        await db.query(
-          `INSERT INTO app_reader_setup_device(gateway_id,device_id,model,firmware,transport)
-        VALUES($1,$2,$3,$4,$5) ON CONFLICT(gateway_id,device_id) DO UPDATE
-        SET model=EXCLUDED.model,firmware=EXCLUDED.firmware,transport=EXCLUDED.transport,last_seen_at=NOW()`,
-          [id, d.id, d.model, d.firmware ?? null, d.transport],
-        );
-      await db.query(
-        `UPDATE app_reader_setup_job SET status='expired',payload_encrypted=NULL,updated_at=NOW()
-        WHERE gateway_id=$1 AND status NOT IN ('complete','failed','cancelled','expired') AND expires_at<=NOW()`,
-        [id],
-      );
+        await setup.saveDevice(id, d.id, d.model, d.firmware ?? null, d.transport);
+      await setup.expireGatewayJobs(id);
       for (const u of body.updates) {
-        const job = (
-          await db.query(
-            "SELECT * FROM app_reader_setup_job WHERE id=$1 AND gateway_id=$2 FOR UPDATE",
-            [u.id, id],
-          )
-        ).rows[0];
+        const job = await setup.lockGatewayJob(u.id, id);
         if (!job) continue;
         if (terminal.includes(job.status)) {
           if (
             ["cancelled", "expired", "failed"].includes(job.status) &&
             u.errorCode === "recovery_required"
           )
-            await db.query(
-              "UPDATE app_reader_setup_job SET error_code='recovery_required',updated_at=NOW() WHERE id=$1 AND error_code IS DISTINCT FROM 'recovery_required'",
-              [job.id],
-            );
+            await setup.markRecoveryRequired(job.id);
           continue;
         }
         if (u.status === "complete") {
           // A Pi claim alone cannot enable access: this NEW credential must have
           // already authenticated a real heartbeat. PN532 readiness is separately
           // attested by the bound, authenticated provisioning gateway.
-          const reader = (
-            await db.query(
-              "SELECT last_seen_at,enabled,revision FROM app_access_reader WHERE id=$1 FOR UPDATE",
-              [job.reader_id],
-            )
-          ).rows[0];
+          const reader = await setup.lockSetupReader(job.reader_id);
           if (
             u.readerReady !== true ||
             !reader?.last_seen_at ||
@@ -201,57 +168,24 @@ export function readerSetupPoll(
           ) {
             // Not verified yet: keep checking and let the Pi report again. Refusing the whole
             // poll would also roll back this Pi's presence and every other reader's progress.
-            await db.query(
-              "UPDATE app_reader_setup_job SET status='verifying',updated_at=NOW() WHERE id=$1 AND status<>'verifying'",
-              [job.id],
-            );
+            await setup.markVerifying(job.id);
             continue;
           }
           if (reader.enabled || reader.revision !== 1) {
-            await db.query(
-              "UPDATE app_reader_setup_job SET status='failed',error_code='verification_failed',payload_encrypted=NULL,updated_at=NOW() WHERE id=$1",
-              [job.id],
-            );
+            await setup.failVerification(job.id);
             continue; // A staff edit wins; do not block this Pi's other jobs.
           }
-          await db.query(
-            "UPDATE app_access_reader SET enabled=true,revision=revision+1 WHERE id=$1",
-            [job.reader_id],
-          );
+          await setup.enableReader(job.reader_id);
           // Setting a device up again replaces its pairing, so the reader it was set up as
           // before no longer has a device. Turn that one off now, not when setup starts, so a
           // failed attempt leaves the working reader as it was.
-          const retired = (
-            await db.query(
-              `UPDATE app_access_reader r SET enabled=false,revision=r.revision+1 FROM app_reader_setup_job j
-              WHERE j.reader_id=r.id AND j.device_id=$1 AND j.status='complete' AND j.id<>$2 AND r.enabled
-              RETURNING r.id`,
-              [job.device_id, job.id],
-            )
-          ).rows.map((r) => r.id);
-          if (retired.length)
-            await db.query(
-              "UPDATE app_card_enrollment SET cancelled_at=NOW() WHERE reader_id=ANY($1) AND completed_at IS NULL AND cancelled_at IS NULL",
-              [retired],
-            );
+          const retired = await setup.retireEarlierReaders(job.device_id, job.id);
+          if (retired.length) await setup.cancelEnrollments(retired);
         }
         if (["cancelled", "expired"].includes(u.status)) continue; // Admin/server-owned transitions.
-        await db.query(
-          `UPDATE app_reader_setup_job SET status=$2,error_code=$3,updated_at=NOW(),
-          payload_encrypted=CASE WHEN $2 IN ('complete','failed') THEN NULL ELSE payload_encrypted END
-          WHERE id=$1 AND (status IS DISTINCT FROM $2 OR error_code IS DISTINCT FROM $3)`,
-          [u.id, u.status, u.errorCode ?? null],
-        );
+        await setup.applyUpdate(u.id, u.status, u.errorCode ?? null);
       }
-      const jobs = (
-        await db.query(
-          `SELECT j.*,r.secret_encrypted FROM app_reader_setup_job j
-        JOIN app_access_reader r ON r.id=j.reader_id WHERE j.gateway_id=$1
-        AND (j.status NOT IN ('complete','failed','cancelled','expired') OR j.updated_at>NOW()-INTERVAL '1 day')
-        ORDER BY (j.status IN ('complete','failed','cancelled','expired')),j.created_at DESC LIMIT 64`,
-          [id],
-        )
-      ).rows;
+      const jobs = await setup.gatewayJobs(id);
       return {
         eventId: body.eventId,
         gatewayId: id,
@@ -280,10 +214,10 @@ export function readerSetupRoutes(
   registry: ReaderRegistry,
 ) {
   const routes = Router(),
-    read = requirePermission(pool, "user", "read"),
+    read = requireStaffPermission(pool, "user", "read"),
     // Guided setup ends with the gateway turning the new reader on, so starting or cancelling
     // it is hardware configuration (CON-001): administrators only, like adding a reader.
-    configure = requirePermission(pool, "reader", "update");
+    configure = requireStaffPermission(pool, "reader", "update");
   routes.get("/admin/access/reader-setup", read, async (_req, res) => {
     const gateways = registry.config?.setupGateways ?? [];
     // With no installed gateway, do not pretend to scan the browser's LAN.
@@ -293,38 +227,14 @@ export function readerSetupRoutes(
       });
       return;
     }
-    await pool.query(`UPDATE app_reader_setup_job SET status='expired',payload_encrypted=NULL,updated_at=NOW()
-      WHERE status NOT IN ('complete','failed','cancelled','expired') AND expires_at<=NOW()`);
+    const setup = new ReaderSetupRepository(pool);
+    await setup.expireJobs();
     const ids = gateways.map((g) => g.id);
-    const live = (
-      await pool.query(
-        "SELECT id,last_seen_at AS \"lastSeenAt\",last_seen_at>NOW()-INTERVAL '15 seconds' AS online FROM app_reader_setup_gateway WHERE id=ANY($1)",
-        [ids],
-      )
-    ).rows;
+    const live = await setup.gateways(ids);
     // A device that finished setup stays listed, named after the reader it is set up as, so
     // it can be set up again after a Wi-Fi change, a reset or a move.
-    const devices = (
-      await pool.query(
-        `SELECT d.gateway_id AS "gatewayId",d.device_id AS id,d.model,d.firmware,d.transport,
-      d.last_seen_at AS "lastSeenAt",d.last_seen_at>NOW()-INTERVAL '12 seconds' AS connected,
-      (SELECT r.name FROM app_reader_setup_job j JOIN app_access_reader r ON r.id=j.reader_id
-        WHERE j.device_id=d.device_id AND j.status='complete' ORDER BY j.created_at DESC LIMIT 1) AS "readerName"
-      FROM app_reader_setup_device d WHERE d.gateway_id=ANY($1)
-      ORDER BY d.gateway_id,d.device_id`,
-        [ids],
-      )
-    ).rows;
-    const jobs = (
-      await pool.query(
-        `SELECT j.id,j.gateway_id AS "gatewayId",j.device_id AS "deviceId",j.reader_id AS "readerId",r.name,
-      CASE WHEN j.expires_at<=NOW() AND j.status NOT IN ('complete','failed','cancelled','expired') THEN 'expired' ELSE j.status END AS status,
-      j.error_code AS "errorCode",j.updated_at AS "updatedAt",j.expires_at AS "expiresAt"
-      FROM app_reader_setup_job j JOIN app_access_reader r ON r.id=j.reader_id WHERE j.gateway_id=ANY($1)
-      ORDER BY j.created_at DESC LIMIT 64`,
-        [ids],
-      )
-    ).rows;
+    const devices = await setup.devices(ids);
+    const jobs = await setup.jobs(ids);
     res.json({
       data: {
         configured: true,
@@ -380,14 +290,8 @@ export function readerSetupRoutes(
           "Enter a Wi-Fi name (up to 32 bytes) and password (up to 63 bytes).",
         );
       const data = await transaction(pool, async (db) => {
-        const device = (
-          await db.query(
-            `SELECT d.* FROM app_reader_setup_device d JOIN app_reader_setup_gateway g ON g.id=d.gateway_id
-        WHERE d.gateway_id=$1 AND d.device_id=$2 AND d.last_seen_at>NOW()-INTERVAL '12 seconds'
-        AND g.last_seen_at>NOW()-INTERVAL '15 seconds' FOR UPDATE OF d`,
-            [gatewayId, detectedId],
-          )
-        ).rows[0];
+        const setup = new ReaderSetupRepository(db);
+        const device = await setup.lockLiveDevice(gatewayId, detectedId);
         if (!device)
           throw new AppError(
             409,
@@ -401,13 +305,7 @@ export function readerSetupRoutes(
             "Connect this reader to the Pi by USB to securely finish setup.",
           );
         // A finished setup does not block another: completing the new one retires that reader.
-        const existing = (
-          await db.query(
-            `SELECT id FROM app_reader_setup_job WHERE gateway_id=$1 AND device_id=$2
-        AND status NOT IN ('complete','failed','cancelled','expired')`,
-            [gatewayId, detectedId],
-          )
-        ).rows[0];
+        const existing = await setup.unfinishedJob(gatewayId, detectedId);
         if (existing)
           throw new AppError(
             409,
@@ -418,19 +316,19 @@ export function readerSetupRoutes(
         const id = randomUUID(),
           readerId = "reader-" + randomUUID().replaceAll("-", "").slice(0, 24),
           secret = randomBytes(32).toString("hex");
-        await db.query(
-          `INSERT INTO app_access_reader(id,name,kind,resource_id,secret_encrypted,enabled) VALUES($1,$2,$3,$4,$5,false)`,
-          [readerId, name, kind, resourceId, registry.encrypt(secret)],
+        await setup.createReader(
+          readerId,
+          name,
+          kind,
+          resourceId,
+          registry.encrypt(secret),
         );
-        await db.query(
-          `INSERT INTO app_reader_setup_job(id,gateway_id,device_id,reader_id,payload_encrypted) VALUES($1,$2,$3,$4,$5)`,
-          [
-            id,
-            gatewayId,
-            detectedId,
-            readerId,
-            registry.encrypt(JSON.stringify({ ssid, password, reuseWifi })),
-          ],
+        await setup.createJob(
+          id,
+          gatewayId,
+          detectedId,
+          readerId,
+          registry.encrypt(JSON.stringify({ ssid, password, reuseWifi })),
         );
         await new StaffModel(db, timeZone).audit(
           authState(res).user.id,
@@ -455,12 +353,8 @@ export function readerSetupRoutes(
       if (!uuid.test(String(req.params.id)))
         throw new AppError(400, "INVALID_SETUP", "Choose a current setup.");
       await transaction(pool, async (db) => {
-        const job = (
-          await db.query(
-            "SELECT * FROM app_reader_setup_job WHERE id=$1 FOR UPDATE",
-            [req.params.id],
-          )
-        ).rows[0];
+        const setup = new ReaderSetupRepository(db);
+        const job = await setup.lockJob(req.params.id);
         if (!job) throw new AppError(404, "NOT_FOUND", "Setup not found.");
         if (job.status === "complete")
           throw new AppError(
@@ -469,14 +363,8 @@ export function readerSetupRoutes(
             "This reader is already connected. Manage it from Readers.",
           );
         if (["cancelled", "expired", "failed"].includes(job.status)) return;
-        await db.query(
-          "UPDATE app_reader_setup_job SET status='cancelled',payload_encrypted=NULL,updated_at=NOW() WHERE id=$1",
-          [job.id],
-        );
-        await db.query(
-          "UPDATE app_access_reader SET enabled=false WHERE id=$1",
-          [job.reader_id],
-        );
+        await setup.cancelJob(job.id);
+        await setup.disableReader(job.reader_id);
         await new StaffModel(db, timeZone).audit(
           authState(res).user.id,
           null,

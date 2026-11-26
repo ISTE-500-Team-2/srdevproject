@@ -429,7 +429,7 @@ test('a minor can replay a created studio rental after the sponsor leaves; new r
  await assert.rejects(studios.create(kid,{...body,startDate:'2030-03-31',requestKey:randomUUID()}),{code:'SPONSOR_REQUIRED'});
 });
 test("staff can move a minor's booking while the sponsor is away; the sponsor link is kept",async()=>{
- const {parent,kid,kidSession}=await family();
+ const {parent,kidSession}=await family();
  const space=await fixtureRoom('Staff move room'),start=Date.now()+86400000,at=(ms:number)=>new Date(ms).toISOString();
  const booked=await post(kidSession,'/reservations',{roomId:space,startTime:at(start),endTime:at(start+3600000)});
  assert.equal(booked.status,201,JSON.stringify(booked.body));

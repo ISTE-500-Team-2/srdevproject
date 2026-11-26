@@ -8,6 +8,7 @@ import type { Billing, Offer } from "../../lib/billingContracts";
 import type { Entitlement, Plan } from "../../lib/staffContracts";
 import type { Waiver } from "../../lib/contracts";
 import { useApi } from "../../lib/useApi";
+import type { StripeMode } from "../../lib/stripeMode";
 import { cents, dollars, shortDate } from "../../lib/display";
 import { lastCancelDate, lastCancelDay } from "./dates";
 import { errorMessage } from "../../lib/api";
@@ -30,6 +31,8 @@ export function canCheckout(o: Offer) {
 interface Props {
   plans: Plan[];
   billingEnabled: boolean;
+  /** The server's Stripe mode; only test mode shows the test-card notice. */
+  billingMode?: StripeMode;
   billing: Billing[];
   memberships: Entitlement[];
   /** The member's facility access. A member on hold is refused quotes and purchases. */
@@ -40,7 +43,7 @@ interface Props {
   run: (path: string, body: unknown, done: (result: Record<string, unknown>) => string) => void;
 }
 
-export function PlanCards({ plans, billingEnabled, billing, memberships, accessStatus, today, busy, post, run }: Props) {
+export function PlanCards({ plans, billingEnabled, billingMode, billing, memberships, accessStatus, today, busy, post, run }: Props) {
   const [date, setDate] = useState("");
   // The server refuses quotes and purchases while access is on hold; send those members to the desk.
   const active = accessStatus === "active";
@@ -86,7 +89,7 @@ export function PlanCards({ plans, billingEnabled, billing, memberships, accessS
               ? "Claim your approved free access here. Paid plans and passes are sold at the front desk."
               : "Sign up or buy a pass at the front desk."}
         </p>
-        {payByCard ? (
+        {payByCard && billingMode === "test" ? (
           <p className="membership-test-note">
             Payments are in test mode, so you won't be charged. Use card
             4242 4242 4242 4242 with any future expiry date.

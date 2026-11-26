@@ -91,7 +91,7 @@ async function within<T>(promise:Promise<T>,ms:number,message:string):Promise<T>
  finally{clearTimeout(timer);}
 }
 for(const kind of ['membership','day_pass'] as const)test(`concurrent staff and online ${kind} issuance cannot create duplicate access`,async()=>{
- const plan=kind==='membership'?monthly:day,date='2035-01-01',model=new StaffModel(pool);
+ const plan=kind==='membership'?monthly:day,date='2035-01-01';
  // Pause the online path after its overlap check, while it holds the per-member lock.
  const method=kind==='membership'?'createMembership':'createPass',original=StaffModel.prototype[method];
  let entered!:()=>void,release!:()=>void;const ready=new Promise<void>(r=>entered=r),gate=new Promise<void>(r=>release=r);

@@ -3,7 +3,7 @@
 import { Router } from "express";
 import type { Pool } from "pg";
 import { AppError } from "./domain.js";
-import { requirePermission } from "./middleware/permissions.js";
+import { requireStaffPermission } from "./middleware/permissions.js";
 import { reportCsv } from "./reports/csv.js";
 import { reportPdf } from "./reports/pdf.js";
 import { loadReport, parseReportRequest } from "./reports/service.js";
@@ -12,7 +12,7 @@ export function reportRoutes(pool: Pool, tz: string) {
   const r = Router();
   r.get(
     ["/admin/reports", "/admin/reports/export"],
-    requirePermission(pool, "audit", "read"),
+    requireStaffPermission(pool, "audit", "read"),
     async (req, res) => {
       const request = parseReportRequest(req.query);
       const data = await loadReport(pool, tz, request);

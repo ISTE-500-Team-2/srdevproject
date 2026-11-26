@@ -19,7 +19,8 @@ const passes = new PassBilling(pool, provider);
 const stripe = stripeMock(provider);
 
 // A small Stripe stand-in: refunds per payment intent (newest first) and idempotent creates.
-let refunds: Refund[] = [], hidden = new Set<string>(), nextStatus: Stripe.Refund['status'] = 'failed';
+const refunds: Refund[] = [];
+let hidden = new Set<string>(), nextStatus: Stripe.Refund['status'] = 'failed';
 // Stripe's list and single-refund reads are not always in step: these overlay a lagging view of one refund.
 const listLag = new Map<string, Refund>(), readLag = new Map<string, Refund>();
 const keys: string[] = [], byKey = new Map<string, Refund>();

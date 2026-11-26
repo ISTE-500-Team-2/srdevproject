@@ -37,10 +37,12 @@ test('a blank time zone uses the default, and a mistyped one stops startup', () 
     assert.throws(() => configWith({ APP_TIME_ZONE: zone }), /APP_TIME_ZONE/, zone);
 });
 
-test('TRUST_PROXY names a hop count or proxy addresses, and never every hop', () => {
-  assert.equal(configWith({}).trustProxy, undefined);
-  assert.equal(configWith({ TRUST_PROXY: '1' }).trustProxy, 1);
+test('TRUST_PROXY names a hop count (one by default) or proxy addresses, and never every hop', () => {
+  assert.equal(configWith({}).trustProxy, 1);
+  assert.equal(configWith({ TRUST_PROXY: ' ' }).trustProxy, 1);
+  assert.equal(configWith({ TRUST_PROXY: '0' }).trustProxy, 0);
+  assert.equal(configWith({ TRUST_PROXY: '2' }).trustProxy, 2);
   assert.deepEqual(configWith({ TRUST_PROXY: 'loopback, 172.18.0.0/16, ::1' }).trustProxy, ['loopback', '172.18.0.0/16', '::1']);
-  for (const value of ['true', '0', '11', 'proxy.example', '1.5'])
+  for (const value of ['true', '-1', '11', 'proxy.example', '1.5', '1e1'])
     assert.throws(() => configWith({ TRUST_PROXY: value }), /TRUST_PROXY/, value);
 });

@@ -11,6 +11,7 @@ import { AppError, type UserView } from "../domain.js";
 import { SessionModel } from "../models/SessionModel.js";
 import { UserModel } from "../models/UserModel.js";
 import { accountModeRefusal, assertAllowedWhileActing, isWorkspacePath, isWorkspaceRole } from "../accountMode.js";
+import { accessGuard } from "./accessGuards.js";
 
 export const cookieName = "arbor_refresh";
 /**
@@ -41,7 +42,8 @@ export interface AuthState {
 export const authState = (res: Response): AuthState =>
   res.locals.auth as AuthState;
 
-export function requireStaff(_req: Request, res: Response, next: NextFunction) {
+/** Any staff or admin role. Also mounted on the whole /admin prefix, as a second line of defense. */
+export const requireStaff = accessGuard("staff", function requireStaff(_req: Request, res: Response, next: NextFunction) {
   const user = authState(res).user;
   const hasStaffOrAdminRole =
     Array.isArray(user.roles) &&
@@ -50,7 +52,7 @@ export function requireStaff(_req: Request, res: Response, next: NextFunction) {
   if (!hasStaffOrAdminRole)
     throw new AppError(403, "STAFF_REQUIRED", "Staff permission is required.");
   next();
-}
+});
 
 /** A request that writes to whichever account it runs as. Signing out ends the sign-in itself. */
 const changesAccount = (req: Request) =>
@@ -68,7 +70,7 @@ export function requireUser(pool: Pool, config: AppConfig) {
     config.accessTokenSeconds,
     config.refreshTokenSeconds,
   );
-  return async (req: Request, res: Response, next: NextFunction) => {
+  return accessGuard("signed in", async (req: Request, res: Response, next: NextFunction) => {
     const token = sessionToken(req);
     const session = await sessions.find(token);
     const user = session
@@ -120,7 +122,7 @@ export function requireUser(pool: Pool, config: AppConfig) {
       if (subject !== user) context.actingForId = subject.id;
     }
     next();
-  };
+  });
 }
 
 /**
@@ -166,37 +168,75 @@ export function checkOrigin(config: AppConfig) {
   };
 }
 
-/**
- * The budget a client address falls in. An IPv6 visitor can pick any address in the block their
- * connection is given, often a /56 (256 /64s) at home, so a /56 shares one budget. IPv4
- * (IPv4-mapped too) counts by address.
- */
-export function addressBudget(ip: string | undefined): string {
-  if (!ip) return "unknown";
-  const address = ip.replace(/%.*$/, "").toLowerCase();
-  if (isIP(address) !== 6 || address.includes(".")) return address;
-  const [head = "", tail] = address.split("::");
+/** The eight 16-bit groups of a valid IPv6 address (lowercase, no zone), dotted IPv4 tail included. */
+function ipv6Groups(address: string): number[] {
+  const dotted = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(address);
+  const text = dotted
+    ? address.slice(0, dotted.index) +
+      `${((Number(dotted[1]) << 8) | Number(dotted[2])).toString(16)}:${((Number(dotted[3]) << 8) | Number(dotted[4])).toString(16)}`
+    : address;
+  const [head = "", tail] = text.split("::");
   const groups = head ? head.split(":") : [];
   if (tail !== undefined) {
     const rest = tail ? tail.split(":") : [];
     groups.push(...Array<string>(8 - groups.length - rest.length).fill("0"), ...rest);
   }
-  // The first 56 bits: three groups and the top half of the fourth.
-  const prefix = groups.slice(0, 4).map((group, i) => parseInt(group, 16) & (i === 3 ? 0xff00 : 0xffff));
-  // ::/56 holds loopback and the IPv4-mapped forms: single hosts, not one visitor's block.
-  return prefix.every((group) => group === 0) ? address : `${prefix.map((group) => group.toString(16)).join(":")}::/56`;
+  return groups.map((group) => parseInt(group, 16));
+}
+
+/** Unspecified, private (RFC 1918), carrier-grade NAT, loopback or link-local IPv4. */
+function nonPublicIPv4(address: string): boolean {
+  const [a = 0, b = 0] = address.split(".").map(Number);
+  return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b < 128) ||
+    (a === 169 && b === 254) || (a === 172 && b >= 16 && b < 32) || (a === 192 && b === 168);
 }
 
 /**
+ * The budget a client address falls in, or undefined when the visitor's real address is unknown:
+ * missing, loopback, private, carrier-grade NAT, link-local or unique-local. Those name a proxy, a
+ * Docker bridge or a network seen from inside, so one of them can stand for many people (behind a
+ * proxy that hides visitors, the whole site), and counting it would let a few bad attempts lock
+ * them all out. An IPv6 visitor can pick any address in the block their connection is given,
+ * often a /56 (256 /64s) at home, so a /56 shares one budget. IPv4 counts by address, written
+ * plainly or IPv4-mapped.
+ */
+export function addressBudget(ip: string | undefined): string | undefined {
+  const address = (ip ?? "").replace(/%.*$/, "").toLowerCase();
+  const family = isIP(address);
+  if (family === 4) return nonPublicIPv4(address) ? undefined : address;
+  if (family !== 6) return undefined;
+  const groups = ipv6Groups(address);
+  if (groups.slice(0, 5).every((group) => group === 0) && groups[5] === 0xffff) {
+    const ipv4 = [groups[6]! >> 8, groups[6]! & 255, groups[7]! >> 8, groups[7]! & 255].join(".");
+    return nonPublicIPv4(ipv4) ? undefined : ipv4;
+  }
+  // Unspecified (::) and loopback (::1); unique-local fc00::/7; link-local fe80::/10 and the
+  // retired site-local fec0::/10.
+  if (groups.slice(0, 7).every((group) => group === 0) && groups[7]! <= 1) return undefined;
+  if ((groups[0]! & 0xfe00) === 0xfc00 || (groups[0]! & 0xff80) === 0xfe80) return undefined;
+  // The first 56 bits: three groups and the top half of the fourth.
+  const prefix = groups.slice(0, 4).map((group, i) => group & (i === 3 ? 0xff00 : 0xffff));
+  // The rest of ::/56 holds single-host forms (IPv4-compatible), not one visitor's block.
+  return prefix.every((group) => group === 0) ? address : `${prefix.map((group) => group.toString(16)).join(":")}::/56`;
+}
+
+/** The most entries one budget holds, so memory stays bounded however many keys arrive. */
+export const maxBudgetEntries = 2048;
+
+/**
  * Create a bounded, process-local attempt budget. Give each route its own instance, so one
- * endpoint's traffic never spends another's allowance. Budgets are per client address (req.ip,
- * which is the visitor only when 'trust proxy' names the proxies in front of the app; an IPv6
- * /56 counts as one address); `key` narrows one further, for example to one account from one
- * address, or with `perAddress: false` names the budget on its own, across every address. With
- * `failuresOnly`, only requests that fail count: one that succeeds hands its attempt back, so
- * ordinary sign-ins and session renewals never use up anyone's allowance, and so does a request
- * a budget refused (429), so retrying while limited never spends another budget on the route.
- * Attempts still count while in flight, so parallel guesses can't overrun the limit.
+ * endpoint's traffic never spends another's allowance. Without `key`, the budget is per client
+ * address (req.ip, which is the visitor only when 'trust proxy' names the proxies in front of the
+ * app; an IPv6 /56 counts as one address). `key` names an identifier, such as one account, and
+ * narrows the budget to that identifier from that address; with `perAddress: false` it names the
+ * budget on its own, across every address. No budget is ever shared by everyone: when the
+ * visitor's address is unknown (see addressBudget) an address budget does not apply, and an
+ * address-and-identifier budget counts the identifier alone. A request without an identifier
+ * (`key` returns "") is counted by address only. With `failuresOnly`, only requests that fail
+ * count: one that succeeds hands its attempt back, so ordinary sign-ins and session renewals
+ * never use up anyone's allowance, and so does a request a budget refused (429), so retrying
+ * while limited never spends another budget on the route. Attempts still count while in flight,
+ * so parallel guesses can't overrun the limit.
  */
 export function authRateLimit(
   options: {
@@ -211,20 +251,26 @@ export function authRateLimit(
   const limit = options.limit ?? 30;
   const windowMs = options.windowMs ?? 15 * 60000;
   const attempts = new Map<string, { count: number; until: number }>();
+  /** This request's entry, or undefined when no budget applies (its address is unknown). */
+  const budgetKey = (req: Request, res: Response) => {
+    const address = addressBudget(req.ip);
+    const identifier = options.key?.(req, res) || undefined;
+    if (identifier === undefined)
+      return address === undefined || (options.key && options.perAddress === false) ? undefined : `@${address}`;
+    return address === undefined || options.perAddress === false ? `#${identifier}` : `@${address}\n${identifier}`;
+  };
   return (req: Request, res: Response, next: NextFunction) => {
     const now = Date.now();
     for (const [key, value] of attempts)
       if (value.until <= now) attempts.delete(key);
-    const address = addressBudget(req.ip);
-    const narrowed = options.key?.(req, res);
-    const key = narrowed === undefined ? address
-      : options.perAddress === false ? narrowed : `${address}\n${narrowed}`;
+    const key = budgetKey(req, res);
+    if (key === undefined) return next();
     let record = attempts.get(key);
     if (!record) {
       // A full table forgets the entry with the fewest attempts (the oldest of those); refusing
       // every newcomer would lock out the site. Never simply the oldest: anyone could flood the
       // table with fresh keys to wipe the count they are trying to get past.
-      if (attempts.size >= 2048) {
+      if (attempts.size >= maxBudgetEntries) {
         let fewest: string | undefined, least = Infinity;
         for (const [entry, value] of attempts)
           if (value.count < least) { fewest = entry; least = value.count; }

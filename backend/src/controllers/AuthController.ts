@@ -77,19 +77,20 @@ export class AuthController {
     notification?: NotificationTemplate,
     verifiedPasswordHash?: string,
   ) {
-    const user = await new UserModel(this.pool,this.config.timeZone).findById(userId);
+    const users = new UserModel(this.pool,this.config.timeZone);
+    const user = await users.findById(userId);
     if (!user || user.status !== 'active' || user.accessStatus !== 'active')
       throw new AppError(
         403,
         'ACCOUNT_INACTIVE',
         'This account does not currently have access. Please see staff.',
       );
-    const confirmation = await this.pool.query('SELECT email_confirmed FROM "user" WHERE userid=$1',[userId]);
+    const confirmation = await users.emailConfirmation(userId);
     const context = auditContext.getStore();
     if (context) context.actorId = userId;
-    if (!confirmation.rows[0]?.email_confirmed) throw new AppError(403,'EMAIL_CONFIRMATION_REQUIRED','Confirm your email before signing in.');
+    if (!confirmation?.email_confirmed) throw new AppError(403,'EMAIL_CONFIRMATION_REQUIRED','Confirm your email before signing in.');
     const session = await transaction(this.pool, async db => {
-      const locked = (await db.query('SELECT password FROM "user" WHERE userid=$1 FOR SHARE', [userId])).rows[0];
+      const locked = await new UserModel(db).lockedPassword(userId);
       // A reset may finish after password verification but before session creation.
       // Recheck under the same account lock used by reset and keep it until commit.
       if (verifiedPasswordHash && locked?.password !== verifiedPasswordHash)
@@ -140,7 +141,7 @@ export class AuthController {
     // Temporary requests never become members until inbox confirmation. Every path compares
     // exactly one hash, so response time doesn't reveal whether an account or sign-up exists.
     const pending = account ? undefined
-      : (await this.pool.query('SELECT password_hash FROM app_pending_registration WHERE email=$1 AND expires_at>NOW()', [email])).rows[0];
+      : await new UserModel(this.pool).pendingCredentials(email);
     const valid = await verifyPassword(
       password,
       account?.password ?? pending?.password_hash ?? (await this.dummyHash),
@@ -155,13 +156,13 @@ export class AuthController {
       );
     // Legacy unverified accounts retain their recovery flow after migration removes active status.
     if (!account.emailConfirmed) {
-      const row = (await this.pool.query('SELECT status FROM "user" WHERE userid=$1',[account.id])).rows[0];
+      const row = await new UserModel(this.pool).status(account.id);
       if (row && ['active','pending'].includes(row.status))
         throw new AppError(403,'EMAIL_CONFIRMATION_REQUIRED','Confirm your email before signing in.');
     }
     if (needsPasswordUpgrade(account.password) && Buffer.byteLength(password,'utf8') <= 72) {
       const upgraded = await hashPassword(password);
-      const update = await this.pool.query('UPDATE "user" SET password=$1 WHERE userid=$2 AND password=$3',[upgraded,account.id,account.password]);
+      const update = await new UserModel(this.pool).upgradePassword(account.id,upgraded,account.password);
       if (update.rowCount) account.password = upgraded;
       else {
         // Another login may have upgraded the same legacy hash. Accept its hash

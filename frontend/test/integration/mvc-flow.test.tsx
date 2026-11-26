@@ -91,7 +91,7 @@ test('signup form creates an account with DOB and the new password policy', asyn
     { name: 'Email unavailable' },
     { timeout: 20000 },
   );
-  expect((await bridge.pool.query('SELECT 1 FROM \"user\" WHERE email=$1',[email])).rowCount).toBe(0);
+  expect((await bridge.pool.query('SELECT 1 FROM "user" WHERE email=$1',[email])).rowCount).toBe(0);
   const token = await confirmationToken(bridge.pool, email);
   cleanup();
   mount('/confirm-email#' + token);

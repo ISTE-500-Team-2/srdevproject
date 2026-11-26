@@ -3,6 +3,7 @@
 
 import {readDeviceConfig,type DeviceConfig} from './deviceAccess.js';
 import {readStudioStripeConfig,type StudioStripeConfig} from './studios/stripe.js';
+import {readStripeMode,type StripeMode} from './stripeMode.js';
 import { readJwtKey } from './jwtKey.js';
 import { readNotificationConfig, type NotificationConfig } from './notifications/config.js';
 import { validTimeZone } from './notifications/reminderTiming.js';
@@ -11,6 +12,8 @@ import { isIP } from 'node:net';
 export interface AppConfig {
   devices?: DeviceConfig;
   studioStripe?: StudioStripeConfig;
+  /** STRIPE_MODE, known even when Stripe is not configured. Omitted means test. */
+  stripeMode?: StripeMode;
   port: number;
   host: string;
   secureCookies: boolean;
@@ -22,7 +25,7 @@ export interface AppConfig {
   refreshTokenSeconds?: number;
   notifications?: NotificationConfig;
   brevoWebhookToken?: string;
-  /** Express 'trust proxy': how many proxy hops, or which proxy addresses, may name the client. */
+  /** Express 'trust proxy': how many proxy hops, or which proxy addresses, may name the client. Default 1. */
   trustProxy?: number | string[];
 }
 
@@ -33,20 +36,23 @@ function lifetime(name: string, fallback: number, max: number) {
 }
 /**
  * The proxies in front of the app, so sign-in limits count each visitor rather than the proxy.
- * A hop count, or addresses/subnets (Express's loopback, linklocal and uniquelocal names too).
- * Unset trusts no proxy. Trusting every hop ('true') would let any client pick its own address.
+ * A hop count (0 to 10), or addresses/subnets (Express's loopback, linklocal and uniquelocal
+ * names too). Unset or blank means 1: production always runs behind one proxy (the RLES edge, or
+ * Caddy for a sponsor install). Use 0 only when browsers reach the app directly. Trusting every
+ * hop ('true') would let any client pick its own address.
  */
-function trustProxy(): number | string[] | undefined {
+function trustProxy(): number | string[] {
   const value = process.env.TRUST_PROXY?.trim();
-  if (!value) return undefined;
+  if (!value) return 1;
+  const invalid = () => new Error('Invalid TRUST_PROXY: use a hop count from 0 to 10, or proxy addresses');
   if (/^\d+$/.test(value)) {
     const hops = Number(value);
-    if (hops < 1 || hops > 10) throw new Error('Invalid TRUST_PROXY');
+    if (hops > 10) throw invalid();
     return hops;
   }
   const entries = value.split(',').map((entry) => entry.trim());
   if (entries.some((entry) => !['loopback', 'linklocal', 'uniquelocal'].includes(entry) && !isIP(entry.replace(/\/\d{1,3}$/, ''))))
-    throw new Error('Invalid TRUST_PROXY');
+    throw invalid();
   return entries;
 }
 /**
@@ -73,6 +79,7 @@ export function readConfig(): AppConfig {
   return {
     devices: readDeviceConfig(),
     studioStripe: readStudioStripeConfig(),
+    stripeMode: readStripeMode(),
     notifications: readNotificationConfig(),
     brevoWebhookToken,
     jwtKey: readJwtKey(),
@@ -94,3 +101,7 @@ export function readConfig(): AppConfig {
         ],
   };
 }
+
+/** The payment mode the app runs in: the configured adapter's, else STRIPE_MODE, else test. */
+export const stripeModeOf = (config: Pick<AppConfig, 'studioStripe' | 'stripeMode'>): StripeMode =>
+  config.studioStripe?.mode ?? config.stripeMode ?? 'test';

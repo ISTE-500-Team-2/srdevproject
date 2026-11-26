@@ -91,11 +91,9 @@ export class MemberController {
     );
     const updated = await transaction(this.pool, async (db) => {
       const userId = authState(res).user.id;
-      await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR UPDATE', [
-        userId,
-      ]);
-      const model = new UserModel(db, this.timeZone),
-        before = await model.profile(userId);
+      const model = new UserModel(db, this.timeZone);
+      await model.lockForUpdate(userId);
+      const before = await model.profile(userId);
       // Checked against what is stored, under the row lock: each save merges into it.
       checkProfileFieldTotal(before?.address, address, "Address");
       checkProfileFieldTotal(before?.contactPreferences, contactPreferences, "Contact preferences");

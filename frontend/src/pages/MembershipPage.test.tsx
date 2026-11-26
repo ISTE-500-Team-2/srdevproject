@@ -20,6 +20,7 @@ const offer = (plan: typeof monthly | typeof dayPass, amountCents: number, basis
 
 interface Data {
   enabled?: boolean;
+  mode?: "test" | "live";
   records?: unknown[];
   memberships?: unknown[];
   historyPasses?: unknown[];
@@ -43,7 +44,7 @@ function mount(d: Data = {}, url = "/membership") {
         ? (d.offersByDate?.[new URLSearchParams(path.split("?")[1]).get("date") ?? ""] ?? d.offers ?? [offer(monthly, 5000), offer(dayPass, 1500)])
       : path === '/me/waivers?scope=facility' ? (d.policies ?? [{ id: 1, name: 'Terms of Service', signed: true, scope: 'facility' }])
       : path === "/me/billing/passes" ? (d.passesError ? null : d.passes ?? [])
-      : path === "/me/billing" ? { enabled: d.enabled ?? true, records: d.records ?? [] }
+      : path === "/me/billing" ? { enabled: d.enabled ?? true, mode: d.mode ?? "test", records: d.records ?? [] }
       : path === "/me/memberships" ? { memberships: d.memberships ?? [], passes: d.historyPasses ?? [], timeZone: "America/New_York", accessStatus: d.accessStatus ?? "active" }
       : path === "/plans" ? [monthly, dayPass]
       : { items: [], nextOffset: null };
@@ -77,6 +78,15 @@ test("membership checkout needs consent in the confirm step and sends only the s
     method: "POST",
     body: { planId: 1, expectedRevision: 2, autoRenewConsent: true, pricingRevision: 4, amountCents: 5000 },
   });
+});
+
+test("the test-card notice shows only when Stripe is in test mode", () => {
+  mount({ mode: "test" });
+  expect(screen.getByText(/Payments are in test mode, so you won't be charged/)).toBeTruthy();
+  cleanup();
+  mount({ mode: "live" });
+  expect(screen.getByText("Pay by card here, or at the front desk.")).toBeTruthy();
+  expect(screen.queryByText(/test mode|won't be charged|4242/)).toBeNull();
 });
 
 test("without online billing, plans still show and point to the front desk", () => {

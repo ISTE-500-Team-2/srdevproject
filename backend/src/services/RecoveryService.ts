@@ -88,10 +88,11 @@ export class RecoveryService {
     ]);
   }
 
-  /** Administrator request: every refusal is reported, and the request is audited. */
-  async adminPasswordReset(actor: { id: number; roles: string[] }, subject: unknown) {
-    if (!actor.roles.includes('admin'))
-      throw new AppError(403, 'ADMIN_REQUIRED', 'Only administrators can send password reset emails.');
+  /**
+   * Administrator request: every refusal is reported, and the request is audited. The route
+   * requires the admin role before this runs.
+   */
+  async adminPasswordReset(actor: { id: number }, subject: unknown) {
     const id = positiveId(subject);
     await transaction(this.pool, async db => {
       const account = (await db.query<ResetAccount>('SELECT userid,status,email_confirmed FROM "user" WHERE userid=$1 FOR UPDATE', [id])).rows[0];

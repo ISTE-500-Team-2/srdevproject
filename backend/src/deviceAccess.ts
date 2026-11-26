@@ -15,15 +15,16 @@ import {
 import { AccessService } from "./services/AccessService.js";
 import { assertManageable } from "./services/StaffService.js";
 import { StaffModel } from "./models/StaffModel.js";
+import { AccessCardRepository } from "./models/access/cards.js";
+import { DeviceDecisionRepository } from "./models/access/deviceDecisions.js";
+import { AccessOverrideRepository } from "./models/access/overrides.js";
 import { authState, requireCsrf } from "./middleware/auth.js";
-import { requirePermission } from "./middleware/permissions.js";
+import { requireStaffPermission } from "./middleware/permissions.js";
 import {
   cardIdentity,
   READER_KINDS,
   ReaderRegistry,
-  readerColumns,
   requireDeviceConfig,
-  type StoredReader,
   type DeviceConfig,
 } from "./readerRegistry.js";
 import { readerManagement } from "./readerManagement.js";
@@ -112,15 +113,14 @@ export function deviceDecision(
     let body: any;
     try { body = JSON.parse(req.body.toString('utf8')); } catch { /* report after authentication */ }
     const decision = await accessTransaction(pool, async (db) => {
+      const decisions = new DeviceDecisionRepository(db);
       // Taps share the row, while disable/enrollment/credential changes retain
       // exclusive locks. Never upgrade a shared lock to write last_seen_at:
       // signed tap events already supply presence, without serializing grants.
-      const reader = (
-        await db.query<StoredReader>(
-          `SELECT ${readerColumns} FROM app_access_reader WHERE id=$1 ${body?.action === 'heartbeat' ? 'FOR UPDATE' : 'FOR SHARE'}`,
-          [readerId],
-        )
-      ).rows[0];
+      const reader = await decisions.lockReader(
+        readerId,
+        body?.action === 'heartbeat' ? 'FOR UPDATE' : 'FOR SHARE',
+      );
       if (!reader) throw authError();
       const expected = createHmac(
         "sha256",
@@ -151,13 +151,7 @@ export function deviceDecision(
         (body.action !== undefined && body.action !== "heartbeat")
       )
         throw new AppError(400, "INVALID_INPUT", "Invalid reader operation.");
-      const enrollment = (
-        await db.query(
-          `SELECT id,purpose,captured_at,expires_at FROM app_card_enrollment
-        WHERE reader_id=$1 AND cancelled_at IS NULL AND completed_at IS NULL AND expires_at>NOW() FOR UPDATE`,
-          [reader.id],
-        )
-      ).rows[0];
+      const enrollment = await decisions.lockOpenEnrollment(reader.id);
       const mode = !reader.enabled
         ? "disabled"
         : enrollment
@@ -178,8 +172,7 @@ export function deviceDecision(
         // last_seen_at means the reader itself is alive: outage notices and the
         // staff scan controls rely on that. A gateway reporting an unreachable
         // reader is alive, but its reader is not.
-        if (!health || health.reachable)
-          await db.query('UPDATE app_access_reader SET last_seen_at=NOW() WHERE id=$1', [reader.id]);
+        if (!health || health.reachable) await decisions.markSeen(reader.id);
         // Telemetry must never cost a reader its access decisions, so a failed
         // write is rolled back on its own and the heartbeat still succeeds.
         if (health) {
@@ -201,21 +194,9 @@ export function deviceDecision(
         };
       }
       const { hash, last4 } = cardIdentity(body.uid, config);
-      if (
-        (
-          await db.query(
-            "SELECT id FROM app_device_access_event WHERE reader_id=$1 AND request_id=$2",
-            [reader.id, body.eventId],
-          )
-        ).rowCount
-      )
+      if (await decisions.recordedEvents(reader.id, body.eventId))
         throw new AppError(409, "REPLAYED_EVENT", "Use a fresh event ID.");
-      const card = (
-        await db.query(
-          "SELECT id,user_id,active FROM app_access_card WHERE uid_hash=$1 ORDER BY active DESC,id DESC LIMIT 1 FOR SHARE",
-          [hash],
-        )
-      ).rows[0];
+      const card = await decisions.lockCard(hash);
       // New clients distinguish scans from renewals. Legacy check-ins are scans;
       // legacy renewals cannot consume the next-card enrollment slot.
       const physicalTap =
@@ -225,11 +206,7 @@ export function deviceDecision(
       if (!reader.enabled) verdict = deny("READER_DISABLED");
       else if (enrollment) {
         if (physicalTap && !enrollment.captured_at) {
-          await db.query(
-            `UPDATE app_card_enrollment SET uid_hash=$2,uid_last4=$3,captured_at=NOW(),
-            completed_at=CASE WHEN purpose='lookup' THEN NOW() ELSE NULL END WHERE id=$1`,
-            [enrollment.id, hash, last4],
-          );
+          await decisions.captureEnrollment(enrollment.id, hash, last4);
           verdict = deny("ENROLLMENT_CAPTURED");
         } else verdict = deny("ENROLLMENT_WAITING");
       } else
@@ -237,45 +214,34 @@ export function deviceDecision(
           card && !card.active
             ? deny("CARD_REVOKED")
             : await evaluateReaderAccess(db, timeZone, reader, card?.user_id, body.renewal === true || body.checkIn !== true);
-      const saved = (
-        await db.query(
-          `INSERT INTO app_device_access_event(reader_id,request_id,user_id,target_kind,target_id,allowed,reason,expires_at,uid_hash,uid_last4,card_id,is_tap)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-        ON CONFLICT(reader_id,request_id) DO NOTHING RETURNING id`,
-          [
-            reader.id,
-            body.eventId,
-            card?.user_id ?? null,
-            reader.kind,
-            reader.resourceId,
-            verdict.allowed,
-            verdict.reason,
-            verdict.expiresAt,
-            hash,
-            last4,
-            card?.id ?? null,
-            body.renewal !== true,
-          ],
-        )
-      ).rows[0];
+      const saved = await decisions.recordDecision(
+        reader.id,
+        body.eventId,
+        card?.user_id ?? null,
+        reader.kind,
+        reader.resourceId,
+        verdict.allowed,
+        verdict.reason,
+        verdict.expiresAt,
+        hash,
+        last4,
+        card?.id ?? null,
+        body.renewal !== true,
+      );
       // Shared reader locks allow simultaneous duplicate events to reach the
       // unique index. Roll back the loser, including any enrollment changes.
       if (!saved) throw new AppError(409, 'REPLAYED_EVENT', 'Use a fresh event ID.');
       if (verdict.allowed && body.checkIn === true && body.renewal !== true) {
         await new MinorSupervision(db,timeZone).startVisit(card!.user_id,verdict.buildingId ?? DEFAULT_BUILDING_ID);
-        await db.query(
-          `INSERT INTO check_in(userid,roomid,location,buildingid,equipmentid,reservationid,checkintime,status,statusdesc,origin)
-          VALUES($1,$2,$3,$4,$5,$6,NOW() AT TIME ZONE 'UTC','approved','Authenticated NFC eligibility decision','nfc')`,
-          [
-            card!.user_id,
-            reader.kind === "room" ? reader.resourceId : null,
-            // Staff and members read this as where the check-in happened, so store the
-            // building, room or equipment name as desk check-ins do, never the reader ID.
-            ("location" in verdict ? verdict.location : null) ?? reader.name,
-            verdict.buildingId,
-            reader.kind === "equipment" ? reader.resourceId : null,
-            verdict.reservationId,
-          ],
+        await decisions.recordCheckIn(
+          card!.user_id,
+          reader.kind === "room" ? reader.resourceId : null,
+          // Staff and members read this as where the check-in happened, so store the
+          // building, room or equipment name as desk check-ins do, never the reader ID.
+          ("location" in verdict ? verdict.location : null) ?? reader.name,
+          verdict.buildingId,
+          reader.kind === "equipment" ? reader.resourceId : null,
+          verdict.reservationId,
         );
       }
       return {
@@ -322,14 +288,14 @@ export function cardManagement(
   registry = new ReaderRegistry(pool, c),
 ) {
   const routes = Router(),
-    permit = requirePermission(pool, "user_access", "update");
+    permit = requireStaffPermission(pool, "user_access", "update");
   routes.use(readerManagement(pool, tz, registry));
   routes.use(readerHealthRoutes(pool));
   routes.use(accessCards(pool, tz, registry));
   // Advisory only: never inserts an access event/check-in or sends a device command.
   routes.get(
     "/admin/users/:id/access-readiness",
-    requirePermission(pool, "user", "read"),
+    requireStaffPermission(pool, "user", "read"),
     async (req, res) => {
       res.set("Cache-Control", "no-store");
       const configuredReaders = (await registry.list()).filter(
@@ -361,14 +327,8 @@ export function cardManagement(
         throw new AppError(404, "READER_NOT_FOUND", "Reader not found.");
       try {
         const data = await accessTransaction(pool, async (db) => {
-          if (
-            !(
-              await db.query(
-                'SELECT userid FROM "user" WHERE userid=$1 FOR SHARE',
-                [userId],
-              )
-            ).rowCount
-          )
+          const cards = new AccessCardRepository(db);
+          if (!(await cards.lockMember(userId)))
             throw new AppError(404, "NOT_FOUND", "User not found.");
           const readers = configuredReaders.map((r) => ({
             id: r.id,
@@ -376,12 +336,7 @@ export function cardManagement(
             resourceId: r.resourceId,
             name: r.name,
           }));
-          const cardAssigned = !!(
-            await db.query(
-              "SELECT id FROM app_access_card WHERE user_id=$1 AND active=true FOR SHARE",
-              [userId],
-            )
-          ).rowCount;
+          const cardAssigned = !!(await cards.activeCards(userId));
           const verdict = await evaluateReaderAccess(
             db,
             tz,
@@ -417,19 +372,11 @@ export function cardManagement(
   );
   routes.get(
     "/admin/access/overrides",
-    requirePermission(pool, "user", "read"),
+    requireStaffPermission(pool, "user", "read"),
     async (req, res) => {
       const userId = positiveId(req.query.userId);
       res.json({
-        data: (
-          await pool.query(
-            `SELECT o.id,o.target_kind AS kind,o.target_id AS "resourceId",o.ends_at AS "endsAt",o.reason,o.revoked_at AS "revokedAt",
-              COALESCE(e.name,r.name,'Unavailable resource') AS "resourceName" FROM app_access_override o
-              LEFT JOIN equipment e ON o.target_kind='equipment' AND e.equipmentid=o.target_id
-              LEFT JOIN room r ON o.target_kind='room' AND r.roomid=o.target_id WHERE o.user_id=$1 ORDER BY o.id DESC LIMIT 100`,
-            [userId],
-          )
-        ).rows,
+        data: await new AccessOverrideRepository(pool).forMember(userId),
       });
     },
   );
@@ -464,14 +411,8 @@ export function cardManagement(
       const data = await transaction(pool, async (db) => {
         await new AccessService(db, tz).assertActiveUser(userId);
         await assertManageable(db, authState(res).user, userId);
-        const table = kind === "room" ? "room" : "equipment",
-          key = kind === "room" ? "roomid" : "equipmentid";
-        const resource = (
-          await db.query<{ name: string; status: string }>(
-            `SELECT name,status FROM ${table} WHERE ${key}=$1 FOR UPDATE`,
-            [id],
-          )
-        ).rows[0];
+        const overrides = new AccessOverrideRepository(db);
+        const resource = await overrides.lockResource(kind, id);
         if (!resource)
           throw new AppError(404, "NOT_FOUND", "Resource not found.");
         if (resource.status !== "available")
@@ -482,41 +423,22 @@ export function cardManagement(
           );
         // A class's booking is held by whoever scheduled it but never admits them (AccessService),
         // so it can't carry an override. While a class has the room, nobody else can book it either.
-        if (
-          (
-            await db.query(
-              `SELECT 1 FROM reservation r JOIN app_training_class c ON c.reservation_id=r.reservationid
-              WHERE r.${key}=$1 AND r.status IN ('confirmed','pending') AND r.starttime<$2::timestamptz AT TIME ZONE 'UTC'
-              AND r.endtime>NOW() AT TIME ZONE 'UTC' LIMIT 1`,
-              [id, ends],
-            )
-          ).rowCount
-        )
+        if (await overrides.classBookings(kind, id, ends))
           throw new AppError(
             409,
             "CLASS_IN_PROGRESS",
             "A class has this room booked now. Its instructor and registered students can already open it; register the member for the class to let them in.",
           );
-        const current = (
-          await db.query<{ id: number; endsAt: Date }>(
-            `SELECT reservationid AS id,endtime AT TIME ZONE 'UTC' AS "endsAt" FROM reservation r
-            WHERE userid=$1 AND ${key}=$2 AND status='confirmed' AND starttime<=NOW() AT TIME ZONE 'UTC'
-            AND endtime>NOW() AT TIME ZONE 'UTC'
-            AND NOT EXISTS (SELECT 1 FROM app_training_class c WHERE c.reservation_id=r.reservationid)
-            ORDER BY endtime LIMIT 1 FOR UPDATE`,
-            [userId, id],
-          )
-        ).rows[0];
+        const current = await overrides.lockCurrentReservation(userId, kind, id);
         const reservation =
           current ??
-          (
-            await db.query<{ id: number; endsAt: Date }>(
-              `INSERT INTO reservation(userid,${key},location,starttime,endtime,status,statusdesc)
-           VALUES($1,$2,$3,NOW() AT TIME ZONE 'UTC',$4::timestamptz AT TIME ZONE 'UTC','confirmed','Staff supervised access')
-           RETURNING reservationid AS id,endtime AT TIME ZONE 'UTC' AS "endsAt"`,
-              [userId, id, resource.name.slice(0, 100), ends],
-            )
-          ).rows[0]!;
+          (await overrides.createReservation(
+            userId,
+            kind,
+            id,
+            resource.name.slice(0, 100),
+            ends,
+          ));
         // Reader access for a minor requires the booking linked to their present sponsor.
         if (!current) await new MinorSupervision(db, tz).recordBooking(userId, reservation.id);
         if (!current)
@@ -533,21 +455,16 @@ export function cardManagement(
         const effectiveEnd = new Date(
           Math.min(ends.getTime(), reservation.endsAt.getTime()),
         );
-        const after = (
-          await db.query(
-            "INSERT INTO app_access_override(user_id,target_kind,target_id,ends_at,reason,created_by,reservationid,owns_reservation) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *",
-            [
-              userId,
-              kind,
-              id,
-              effectiveEnd,
-              reason,
-              authState(res).user.id,
-              reservation.id,
-              !current,
-            ],
-          )
-        ).rows[0];
+        const after = await overrides.create(
+          userId,
+          kind,
+          id,
+          effectiveEnd,
+          reason,
+          authState(res).user.id,
+          reservation.id,
+          !current,
+        );
         await new StaffModel(db, tz).audit(
           authState(res).user.id,
           userId,
@@ -569,13 +486,9 @@ export function cardManagement(
     requireCsrf,
     async (req, res) => {
       const data = await transaction(pool, async (db) => {
+        const overrides = new AccessOverrideRepository(db);
         const id = positiveId(req.params.id),
-          before = (
-            await db.query(
-              "SELECT * FROM app_access_override WHERE id=$1 FOR UPDATE",
-              [id],
-            )
-          ).rows[0];
+          before = await overrides.lock(id);
         if (!before)
           throw new AppError(404, "NOT_FOUND", "Override not found.");
         await assertManageable(db, authState(res).user, before.user_id);
@@ -588,12 +501,10 @@ export function cardManagement(
             "This supervised use already ended. Nothing was changed.",
           );
         if (before.owns_reservation) {
-          const cancelled = (
-            await db.query(
-              "UPDATE reservation SET status='cancelled',revision=revision+1 WHERE reservationid=$1 AND userid=$2 AND status='confirmed' RETURNING reservationid AS id",
-              [before.reservationid, before.user_id],
-            )
-          ).rows[0];
+          const cancelled = await overrides.cancelReservation(
+            before.reservationid,
+            before.user_id,
+          );
           if (cancelled)
             await new StaffModel(db, tz).audit(
               authState(res).user.id,
@@ -606,12 +517,7 @@ export function cardManagement(
               cancelled,
             );
         }
-        const after = (
-          await db.query(
-            "UPDATE app_access_override SET revoked_at=NOW() WHERE id=$1 RETURNING *",
-            [id],
-          )
-        ).rows[0];
+        const after = await overrides.revoke(id);
         await new StaffModel(db, tz).audit(
           authState(res).user.id,
           before.user_id,

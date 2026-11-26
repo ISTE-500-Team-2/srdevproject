@@ -46,6 +46,7 @@ jobs:
             backend/package-lock.json
             frontend/package-lock.json
       - run: npm ci --prefix backend
+      - run: npm run lint --prefix backend
       - run: npm run check --prefix backend
       - run: npm run test:integration --prefix backend
       - name: Verify concurrent reader and validation performance
@@ -91,6 +92,7 @@ jobs:
       - run: npm ci --prefix backend
       - run: npm ci --prefix frontend
       - run: python3 deploy/test_frontend_type_cache.py
+      - run: npm run lint --prefix frontend
       - run: npm run check --prefix frontend
       - run: npm run test:integration --prefix frontend
   deployment:

@@ -93,3 +93,13 @@ send real email. Do not mix its URL with the launcher instructions above.
 - Do not delete volumes or run destructive DDL to fix a generic request error.
 
 Focused launcher tests: `npm run test:dev`. No email is sent by these tests.
+
+## Lint and formatting
+
+CI runs `npm run lint` in `backend/` and `frontend/` (ESLint) and fails on any error.
+Run it before you push; warnings, mostly older uses of `any`, don't fail the build.
+
+Prettier is set up (`.prettierrc.json` at the repo root) but not enforced, because
+reformatting every file at once would conflict with work in progress. Format the files
+you change: `npm run format -- src/path/to/file.ts`, or turn on format-on-save in
+your editor. Vendored `reactbits/` components, SQL and docs are excluded.

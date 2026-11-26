@@ -1,5 +1,5 @@
 import {afterAll,beforeAll,expect,test,vi} from 'vitest';
-import {cleanup,fireEvent,render,screen,within,waitFor} from '@testing-library/react';
+import {cleanup,render,screen,within,waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {MemoryRouter} from 'react-router-dom';
 import App from '../../src/App';

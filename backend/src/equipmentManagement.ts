@@ -5,33 +5,33 @@ import { Router } from 'express';
 import type { Pool } from 'pg';
 import { AppError, integerId, positiveId } from './domain.js';
 import { authState, requireCsrf } from './middleware/auth.js';
-import { requirePermission } from './middleware/permissions.js';
+import { requirePermission, requireStaffPermission } from './middleware/permissions.js';
 import { EquipmentMaintenanceService } from './services/EquipmentMaintenanceService.js';
 import { ReservationService } from './services/ReservationService.js';
 import { ReservationModel } from './models/ReservationModel.js';
 import { EquipmentCatalogService } from './services/EquipmentCatalogService.js';
 
-/** Mounted after requireStaff. Member/account-mode requests cannot enter here. */
+/** Mounted after the /admin staff gate, and every route also names staff status itself. */
 export function equipmentManagement(pool: Pool, timeZone: string) {
   const routes = Router();
   const equipment = new EquipmentMaintenanceService(pool, timeZone);
   const catalog = new EquipmentCatalogService(pool, timeZone);
   const reservations = new ReservationService(pool, timeZone);
-  const read = requirePermission(pool, 'equipment', 'read');
-  const update = requirePermission(pool, 'equipment', 'update');
+  const read = requireStaffPermission(pool, 'equipment', 'read');
+  const update = requireStaffPermission(pool, 'equipment', 'update');
   const book = requirePermission(pool, 'reservation', 'update');
   routes.get('/admin/equipment', read, async (_req, res) => res.json({ data: await equipment.list() }));
   routes.get('/admin/equipment/catalog-options', read, async (_req, res) => res.json({ data: await catalog.options(authState(res).user) }));
-  routes.post('/admin/equipment', requirePermission(pool, 'equipment', 'create'), requireCsrf, async (req, res) => {
+  routes.post('/admin/equipment', requireStaffPermission(pool, 'equipment', 'create'), requireCsrf, async (req, res) => {
     res.status(201).json({ data: await catalog.save(authState(res).user.id, null, req.body) });
   });
   routes.put('/admin/equipment/:id', update, requireCsrf, async (req, res) => {
     res.json({ data: await catalog.save(authState(res).user.id, integerId(req.params.id, 'Equipment'), req.body) });
   });
-  routes.get('/admin/equipment/:id/removal-blockers', requirePermission(pool, 'equipment', 'delete'), async (req, res) => {
+  routes.get('/admin/equipment/:id/removal-blockers', requireStaffPermission(pool, 'equipment', 'delete'), async (req, res) => {
     res.json({ data: await catalog.blockers(integerId(req.params.id, 'Equipment')) });
   });
-  routes.delete('/admin/equipment/:id', requirePermission(pool, 'equipment', 'delete'), requireCsrf, async (req, res) => {
+  routes.delete('/admin/equipment/:id', requireStaffPermission(pool, 'equipment', 'delete'), requireCsrf, async (req, res) => {
     res.json({ data: await catalog.remove(authState(res).user.id, integerId(req.params.id, 'Equipment'), req.body) });
   });
   routes.get('/admin/equipment/:id', read, async (req, res) => res.json({ data: await equipment.detail(integerId(req.params.id, 'Equipment'), authState(res).user) }));

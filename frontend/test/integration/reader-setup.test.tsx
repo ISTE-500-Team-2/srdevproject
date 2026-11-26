@@ -94,7 +94,7 @@ test("real React → Express → PostgreSQL onboarding: USB detection, generated
   await user.click(
     await screen.findByRole("button", { name: "Set up ESP32-C3 mini" }),
   );
-  let dialog = within(screen.getByRole("dialog"));
+  const dialog = within(screen.getByRole("dialog"));
   await user.type(dialog.getByLabelText("Reader name"), "Workshop mini");
   const resource = (
     await bridge.pool.query(

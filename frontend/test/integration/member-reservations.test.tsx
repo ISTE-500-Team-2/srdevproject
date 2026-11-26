@@ -31,7 +31,6 @@ test('member finds grouped equipment, avoids occupied slots and cooldown, and ca
  await user.type(await screen.findByRole('searchbox',{name:'Find equipment'}),'3d print');
  await user.click(await screen.findByRole('button',{name:/^3D Printer/}));
  const start=new Date(Date.now()+3*86400000);start.setHours(14,0,0,0);
- const local=(d:Date)=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
  const choose=async(d:Date)=>{await screen.findByLabelText('Start time');pickStart(screen,d);};
  await choose(start);
  await user.selectOptions(screen.getByLabelText('Duration'),'2');

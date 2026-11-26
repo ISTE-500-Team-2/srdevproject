@@ -8,6 +8,7 @@ import { MonthCalendar } from "../MonthCalendar";
 import { Modal } from "../Modal";
 import { BookingReference } from "./BookingReference";
 import type { Rental, Studio } from "../../lib/studioContracts";
+import { useStripeMode } from "../../lib/stripeMode";
 import {
   addDays,
   nextMonth,
@@ -68,6 +69,8 @@ export function StudioBooking({
   const [month, setMonth] = useState(opening.slice(0, 7));
   const [studioId, setStudioId] = useState<number | null>(null);
   const [method, setMethod] = useState<"manual" | "stripe_test">("manual");
+  // "No real charge" only in test mode; unknown until /config loads, so it never shows early.
+  const stripeMode = useStripeMode();
   const end = nextMonth(start);
   const choice = studios.find((s) => s.id === studioId) ?? null;
   // The member's own rental for exactly this choice (a card checkout they started, or a booking
@@ -266,7 +269,11 @@ export function StudioBooking({
                       />
                       <span>
                         <strong>Pay now by card</strong>
-                        <small>{cardEnabled ? "Test mode — no real charge." : "Not available right now. Pay at the front desk instead."}</small>
+                        {!cardEnabled ? (
+                          <small>Not available right now. Pay at the front desk instead.</small>
+                        ) : stripeMode === "test" ? (
+                          <small>Test mode — no real charge.</small>
+                        ) : null}
                       </span>
                     </label>
                   )}

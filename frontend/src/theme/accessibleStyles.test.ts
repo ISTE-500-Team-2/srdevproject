@@ -178,7 +178,7 @@ describe('motion', () => {
     parse('components/reactbits/HoldButton.css').walkAtRules('media', (media) => {
       if (!REDUCED.test(media.params)) return;
       media.walkRules((rule) => {
-        if (rule.selector.includes('hold-button__fill')) rule.walkDecls(/^transition/, (decl) => void transitions.push(rule.selector));
+        if (rule.selector.includes('hold-button__fill')) rule.walkDecls(/^transition/, () => void transitions.push(rule.selector));
       });
     });
     expect(transitions).toEqual([]);

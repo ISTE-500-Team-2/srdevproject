@@ -34,7 +34,7 @@ export async function pdfText(bytes: Uint8Array): Promise<string> {
     return text;
   } catch (error) {
     if (error instanceof Error && error.name === "PasswordException")
-      throw new Error("This PDF is password-protected. Upload an unlocked copy to import its text.");
+      throw new Error("This PDF is password-protected. Upload an unlocked copy to import its text.", { cause: error });
     if (error instanceof Error && ["InvalidPDFException", "UnknownErrorException"].includes(error.name))
       throw new Error("This PDF could not be read. Try a new PDF export, a Word document, or paste the wording.", { cause: error });
     throw error;

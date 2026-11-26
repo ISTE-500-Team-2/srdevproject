@@ -24,7 +24,7 @@ let app: ReturnType<typeof createApp>,
   memberToken: string,
   memberId: number,
   otherId: number,
-  actorId: number;
+  _actorId: number;
 let created = false;
 const csrf = new Map<string, string>();
 before(async () => {
@@ -57,7 +57,7 @@ before(async () => {
   for (const session of [a, m])
     csrf.set(session.accessToken, session.csrfToken);
   token = a.accessToken;
-  actorId = a.user.id;
+  _actorId = a.user.id;
   memberToken = m.accessToken;
   memberId = m.user.id;
   otherId = await new UserModel(pool).create({

@@ -32,7 +32,8 @@ let created = false, member: number, admin: number, dayPlan: number;
 // A small Stripe stand-in: sessions by id, refunds per payment intent (newest first), idempotent creates.
 const sessions = new Map<string, Session>();
 let sessionParams: Stripe.Checkout.SessionCreateParams[] = [];
-let refunds: Refund[] = [], refundKeys: string[] = [], nextRefund: Stripe.Refund['status'] = 'succeeded';
+const refunds: Refund[] = [];
+let refundKeys: string[] = [], nextRefund: Stripe.Refund['status'] = 'succeeded';
 let lostRefundResponse = false;
 const byKey = new Map<string, Refund>();
 stripe.checkoutSessionCreate(async params => {

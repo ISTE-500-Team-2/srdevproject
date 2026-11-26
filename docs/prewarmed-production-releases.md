@@ -49,8 +49,9 @@ yet. To use another value, set `TRUST_PROXY` in the public service's
 `environment` in `compose.json`; Compose prefers that over an environment file.
 
 The new edge names every visitor as the front proxy (172.16.1.254) until
-`GATEWAY_TRUST_FORWARDED_FOR=1` is set in its environment, so sign-in limits still
-share one budget, as today. Set it only after checking on the host that the front
+`GATEWAY_TRUST_FORWARDED_FOR=1` is set in its environment. That address is private, so
+the app treats the visitor's address as unknown and counts sign-in attempts per account
+only; no budget is shared by the whole site. Set it only after checking on the host that the front
 proxy appends the visitor's address to `X-Forwarded-For` or replaces the header
 (for example, send a request through the public address with a made-up
 `X-Forwarded-For: 192.0.2.1` and capture what reaches the edge: the last entry must

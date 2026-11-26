@@ -6,7 +6,8 @@ The later [equipment payment integration](equipment-payments.md) adds server-pri
 hourly equipment Checkout using this same Stripe test configuration and signed
 webhook, with migration 035.
 
-PR #22 was merged on September 29; the implementation remains test-mode-only.
+PR #22 was merged on September 29. Payments run in Stripe test mode unless an
+operator explicitly sets `STRIPE_MODE=live`; see [test and live mode](#test-and-live-mode).
 The October 26 follow-up is described in
 [paid day-pass acceptance](payment-sandbox-acceptance-20261026.md). Its waiver and
 card-only fixes require review and deployment; a passing sandbox rehearsal does
@@ -66,8 +67,8 @@ Source: [project requirements](https://docs.google.com/spreadsheets/d/184RKIAmph
 1. Apply additive migrations 012 and 013 before deploying matching code. Do not
    edit already-applied migrations or enroll existing accounts in automatic billing.
 2. Configure `STRIPE_TEST_SECRET_KEY` (`sk_test_` or scoped `rk_test_`),
-   `STRIPE_STUDIO_WEBHOOK_SECRET`, and the exact HTTPS `APP_ORIGIN`. Live keys and
-   events remain rejected. Secrets do not belong in Git.
+   `STRIPE_STUDIO_WEBHOOK_SECRET`, and the exact HTTPS `APP_ORIGIN`. In the default
+   test mode, live keys and events remain rejected. Secrets do not belong in Git.
 3. In Staff Plans, configure approved student prices (blank = standard rate),
    school-partner free-plan flags, and a verification reference/expiry for each
    eligible member. A past expiry revokes eligibility for future claims.
@@ -83,6 +84,37 @@ Events: `checkout.session.completed`, `checkout.session.expired`,
 `invoice.payment_failed`, `invoice.upcoming`, `refund.created`, `refund.updated`,
 `refund.failed`. Restricted credentials also need portal-configuration creation
 permission for the application-owned payment-method-only portal.
+
+## Test and live mode
+
+`STRIPE_MODE` chooses which Stripe mode the whole app takes payments in:
+memberships, day passes, equipment, studios, refunds and the shared webhook.
+
+| `STRIPE_MODE` | Accepted key in `STRIPE_TEST_SECRET_KEY` | Rejected at runtime |
+| --- | --- | --- |
+| unset, blank or `test` (default) | `sk_test_` or `rk_test_` | live-mode checkouts, events, subscriptions, invoices and payments (`LIVE_PAYMENT_FORBIDDEN`) |
+| `live` | `sk_live_` or `rk_live_` | test-mode checkouts, events, subscriptions, invoices and payments (`TEST_PAYMENT_FORBIDDEN`) |
+
+Any other value (including `LIVE` or `production`) stops the server at startup,
+even when Stripe is otherwise disabled. A key from the other mode also stops
+startup. The key setting keeps its historical name in both modes. Webhook signing
+secrets (`whsec_`) carry no mode, so they are checked the same way in both.
+
+Live mode is fail-closed and off by default. Setting it is not enough to go live.
+Before switching, all of these are required:
+
+- the sponsor's written approval to take real card payments;
+- approved live prices for every plan, pass, studio and machine (prices in the app
+  are charged as configured; the test-phase amounts are not approved prices);
+- a **live-mode** webhook endpoint in the Stripe Dashboard pointing at
+  `POST /api/webhooks/stripe-studios` with the event list above, and its live
+  `whsec_` secret in `STRIPE_STUDIO_WEBHOOK_SECRET` (test endpoints never receive
+  live events);
+- a live secret or restricted key with the same permissions as the test key.
+
+Switching back to test mode needs a test key and the test webhook secret again.
+Checkouts, subscriptions and refunds created in one mode are rejected in the other,
+so let in-flight payments finish (or reconcile them in Stripe) before switching.
 
 ## Verification evidence
 
@@ -182,7 +214,8 @@ isolated PostgreSQL tests with mocked Stripe responses, not real-provider runs.
 
 Review PR #22 and use permanent sandbox webhook routing before offering Checkout.
 Back up the DB, apply migrations, then release frontend/backend together. This
-change does not enable live payments or approve real prices. Retain the old image
+change does not enable live payments or approve real prices; live payments need
+`STRIPE_MODE=live` and the approvals listed under [test and live mode](#test-and-live-mode). Retain the old image
 and config; disable new checkout and reconcile in-flight events if rolling back.
 Never drop payment, eligibility or audit records as a rollback.
 

@@ -6,7 +6,8 @@ import type { Pool } from "pg";
 import type { AppConfig } from "./config.js";
 import { AppError, publicUser, type UserView } from "./domain.js";
 import { transaction } from "./db.js";
-import { authState, requireCsrf } from "./middleware/auth.js";
+import { authState, requireCsrf, requireStaff } from "./middleware/auth.js";
+import { AccountModeAuditModel } from "./models/AccountModeAuditModel.js";
 import { SessionModel } from "./models/SessionModel.js";
 import { UserModel } from "./models/UserModel.js";
 
@@ -111,7 +112,7 @@ export function accountModeView(user: UserView, actor?: UserView) {
 
 export function accountModeRoutes(pool: Pool, config: AppConfig) {
   const routes = Router();
-  routes.post("/admin/account-mode", requireCsrf, async (req, res) => {
+  routes.post("/admin/account-mode", requireStaff, requireCsrf, async (req, res) => {
     const userId = Number(req.body.userId);
     if (!Number.isSafeInteger(userId) || userId < 1)
       throw new AppError(400, "INVALID_INPUT", "Choose a member account to open.");
@@ -122,25 +123,19 @@ export function accountModeRoutes(pool: Pool, config: AppConfig) {
     await transaction(pool, async (db) => {
       await new SessionModel(db, config.jwtKey, config.accessTokenSeconds, config.refreshTokenSeconds, config.timeZone)
         .setActingAs(token, subject!.id);
-      await db.query(
-        `INSERT INTO app_staff_audit(actor_id,subject_id,action,entity_type,entity_id,reason) VALUES($1,$2,'account_mode.opened','user',$2,'Opened from the staff workspace')`,
-        [actor.id, subject!.id],
-      );
+      await new AccountModeAuditModel(db).opened(actor.id, subject!.id);
     });
     res.set("Cache-Control", "no-store");
     res.json({ data: { ...accountModeView(subject!, actor), csrfToken } });
   });
-  routes.post("/admin/account-mode/end", requireCsrf, async (_req, res) => {
+  routes.post("/admin/account-mode/end", requireStaff, requireCsrf, async (_req, res) => {
     const { user: actor, token, csrfToken } = authState(res);
     await transaction(pool, async (db) => {
       const sessions = new SessionModel(db, config.jwtKey, config.accessTokenSeconds, config.refreshTokenSeconds, config.timeZone);
       const open = await sessions.find(token);
       await sessions.setActingAs(token, null);
       if (open?.actingAsUserId)
-        await db.query(
-          `INSERT INTO app_staff_audit(actor_id,subject_id,action,entity_type,entity_id,reason) VALUES($1,$2,'account_mode.closed','user',$2,'Returned to the staff workspace')`,
-          [actor.id, open.actingAsUserId],
-        );
+        await new AccountModeAuditModel(db).closed(actor.id, open.actingAsUserId);
     });
     res.set("Cache-Control", "no-store");
     res.json({ data: { ...accountModeView(actor), csrfToken } });

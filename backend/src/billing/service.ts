@@ -14,9 +14,10 @@ import {transaction, type Database} from '../db.js';
 import {AppError, positiveId, textField} from '../domain.js';
 import {requireActor} from '../accountPolicy.js';
 import {StudioStripe} from '../studios/stripe.js';
+import {assertStripeMode,inStripeMode,modeOf,paymentLabels} from '../stripeMode.js';
 import {StaffModel, type Plan} from '../models/StaffModel.js';
 import {billingRenewsSql} from '../models/staff/entitlements.js';
-import {OVERLAPPING_CARD_PAYMENT_NOTE} from '../models/staff/payments.js';
+import {overlappingCardPaymentNote} from '../models/staff/payments.js';
 import {reasonField} from '../staffDomain.js';
 import {assertManageable} from '../services/StaffService.js';
 interface BillingRecord {id:string;userid:number;tierid:number;plan_snapshot:Plan;amount_cents:number;checkout_id:string|null;subscription_id:string|null;customer_id:string|null;status:string;created_at:Date;cancellation_effective_at:Date|null;}
@@ -83,7 +84,7 @@ export class MembershipBilling {
         line_items:[{quantity:1,price_data:{currency:'usd',unit_amount:row.amount_cents,
           recurring:{interval:'month'},product_data:{name:row.plan_snapshot.name}}}],
       },{idempotencyKey:'membership-checkout:'+row.id});
-    if(session.livemode) throw new AppError(400,'LIVE_PAYMENT_FORBIDDEN','Test payments only.');
+    assertStripeMode(modeOf(this.stripe),session.livemode);
     await this.pool.query('UPDATE app_membership_billing SET checkout_id=$2 WHERE id=$1 AND checkout_id IS NULL',[row.id,session.id]);
     if(session.status==='expired') {
       await this.pool.query("UPDATE app_membership_billing SET status='expired' WHERE id=$1 AND status='pending'",[row.id]);
@@ -106,7 +107,7 @@ export class MembershipBilling {
         const current=(await db.query<BillingRecord>('SELECT * FROM app_membership_billing WHERE id=$1 FOR UPDATE',[row.id])).rows[0]!;
         if(current.cancellation_effective_at)return Math.floor(new Date(current.cancellation_effective_at).getTime()/1000);
         const canonical=await provider.sdk.subscriptions.retrieve(subscriptionId);
-        if(canonical.livemode)throw new AppError(400,'LIVE_PAYMENT_FORBIDDEN','Test subscriptions only.');
+        assertStripeMode(modeOf(this.stripe),canonical.livemode,'subscriptions');
         const requested=Math.floor(Date.now()/1000);
         const date=cancellationBoundary(canonical.items.data[0]!.current_period_end,canonical.billing_cycle_anchor,requested);
         await db.query('UPDATE app_membership_billing SET cancellation_requested_at=to_timestamp($2),cancellation_effective_at=to_timestamp($3) WHERE id=$1',[row.id,requested,date]);
@@ -173,7 +174,7 @@ export class MembershipBilling {
     return {url:s.url};
   }
   async syncSubscription(db:Database, sub:Stripe.Subscription) {
-    if(sub.livemode) throw new AppError(400,'LIVE_PAYMENT_FORBIDDEN','Test events only.');
+    assertStripeMode(modeOf(this.stripe),sub.livemode,'events');
     // First-class subscription ID is primary; metadata is only the initial
     // Checkout-to-subscription binding for a server-created pending row.
     let r=(await db.query<BillingRecord>('SELECT * FROM app_membership_billing WHERE subscription_id=$1 FOR UPDATE',[sub.id])).rows[0];
@@ -193,7 +194,7 @@ export class MembershipBilling {
     return {...r,subscription_id:sub.id,customer_id:customer};
   }
   async invoicePaid(db:Database, invoice:Stripe.Invoice, row:BillingRecord) {
-    if(invoice.livemode||invoice.status!=='paid'||invoice.currency!=='usd'||
+    if(!inStripeMode(modeOf(this.stripe),invoice.livemode)||invoice.status!=='paid'||invoice.currency!=='usd'||
        objectId(invoice.customer)!==row.customer_id||objectId(invoice.parent?.subscription_details?.subscription)!==row.subscription_id||invoice.amount_paid!==row.amount_cents||
        !['subscription_create','subscription_cycle'].includes(invoice.billing_reason??''))
       throw new AppError(400,'PAYMENT_MISMATCH','Invoice needs reconciliation; no membership was issued.');
@@ -222,7 +223,7 @@ export class MembershipBilling {
     const held=(await db.query<{status:string;statusdesc:string|null}>(`SELECT m.status,m.statusdesc FROM app_membership_invoice i
       JOIN user_membership m ON m.membershipid=i.membership_id WHERE i.billing_id=$1 ORDER BY i.period_start DESC LIMIT 1`,[row.id])).rows[0];
     const model=new StaffModel(db);
-    const membership=await model.createMembership(row.userid,row.plan_snapshot,from.toISOString(),to,row.userid,'Stripe test invoice '+invoice.id);
+    const membership=await model.createMembership(row.userid,row.plan_snapshot,from.toISOString(),to,row.userid,paymentLabels(modeOf(this.stripe)).invoiceNote+' '+invoice.id);
     const carried=held&&(held.status==='suspended'||held.status==='revoked')?held:null;
     let chargedAfterEnd=false;
     if(carried) {
@@ -240,12 +241,12 @@ export class MembershipBilling {
           'Card renewal charged for a membership whose access was ended. Stop auto-renew on the member’s record and consider a refund.',null,after);
     }
     const payment=await model.createPayment(row.userid,membership,(row.amount_cents/100).toFixed(2),'paid','card',invoice.id,
-      overlap.length?OVERLAPPING_CARD_PAYMENT_NOTE:'Stripe test recurring membership',row.userid);
+      overlap.length?overlappingCardPaymentNote(modeOf(this.stripe)):paymentLabels(modeOf(this.stripe)).membershipNote,row.userid);
     await db.query('INSERT INTO app_membership_invoice(id,billing_id,membership_id,payment_id,period_start,period_end) VALUES($1,$2,$3,$4,$5,$6)',[invoice.id,row.id,membership,payment,from,to]);
     if(overlap.length) await model.audit(row.userid,row.userid,'billing.membership_overlap_flagged','payment',payment,
       'Card membership charge covers dates another membership already covers',null,{invoiceId:invoice.id,membershipId:membership,overlaps:overlap});
     await enqueueNotification(db,{userId:row.userid,kind:'payment_receipt',dedupeKey:'membership-receipt:'+invoice.id,
-      payload:{amount:(row.amount_cents/100).toFixed(2),currency:'USD',reference:invoice.id,paymentId:payment,method:'Card (test mode)',membershipName:row.plan_snapshot.name,startsAt:from.toISOString(),endsAt:to.toISOString(),
+      payload:{amount:(row.amount_cents/100).toFixed(2),currency:'USD',reference:invoice.id,paymentId:payment,method:paymentLabels(modeOf(this.stripe)).card,membershipName:row.plan_snapshot.name,startsAt:from.toISOString(),endsAt:to.toISOString(),
         // The receipt doesn't read as access granted when staff paused or ended it, and says when
         // another membership already covered some of these dates.
         ...(carried||overlap.length?{instructions:[
@@ -277,7 +278,7 @@ export class MembershipBilling {
       if(!r.payment_intent) {
         const payments=await sdk.invoicePayments.list({invoice:id,status:'paid',limit:100});
         const p=payments.data[0];
-        if(payments.has_more||payments.data.length!==1||!p||p.livemode||p.currency!=='usd'||p.amount_paid!==r.amount_cents||p.payment.type!=='payment_intent')
+        if(payments.has_more||payments.data.length!==1||!p||!inStripeMode(modeOf(this.stripe),p.livemode)||p.currency!=='usd'||p.amount_paid!==r.amount_cents||p.payment.type!=='payment_intent')
           throw new AppError(409,'RECONCILE_REQUIRED','Invoice needs original-payment reconciliation in Stripe.');
         r.payment_intent=objectId(p.payment.payment_intent)??null;
         if(!r.payment_intent) throw new AppError(409,'RECONCILE_REQUIRED','Original payment is missing.');
@@ -305,7 +306,7 @@ export class MembershipBilling {
     if(f.status==='succeeded') {
       await db.query("UPDATE payment SET paymentstatus='refunded',updated_at=now(),revision=revision+1 WHERE paymentid=$1",[r.payment_id]);
       await enqueueNotification(db,{userId:r.userid,kind:'payment_refunded',dedupeKey:'membership-refund:'+r.id+':'+f.id,
-        payload:{reference:f.id,amount:(f.amount/100).toFixed(2),currency:'USD',method:'Original card (test mode)'}});
+        payload:{reference:f.id,amount:(f.amount/100).toFixed(2),currency:'USD',method:paymentLabels(modeOf(this.stripe)).originalCard}});
     }
     if(failed) {
       // The charge remains paid, but the attempted refund did not return money.
@@ -328,7 +329,7 @@ export class MembershipBilling {
         const invoiceId=objectId(payment.invoice);
         const r=(await db.query<Omit<InvoiceRecord,'userid'>>(`SELECT i.*,b.amount_cents FROM app_membership_invoice i JOIN app_membership_billing b ON b.id=i.billing_id WHERE i.id=$1 FOR UPDATE OF i`,[invoiceId])).rows[0];
         if(!r)continue;
-        if(linked.data.length!==1||payment.livemode||payment.currency!=='usd'||payment.amount_paid!==r.amount_cents||payment.payment.type!=='payment_intent'||objectId(payment.payment.payment_intent)!==pi||r.payment_intent&&r.payment_intent!==pi)
+        if(linked.data.length!==1||!inStripeMode(modeOf(this.stripe),payment.livemode)||payment.currency!=='usd'||payment.amount_paid!==r.amount_cents||payment.payment.type!=='payment_intent'||objectId(payment.payment.payment_intent)!==pi||r.payment_intent&&r.payment_intent!==pi)
           throw new AppError(409,'RECONCILE_REQUIRED','Refund invoice mapping does not match its original payment.');
         await db.query('UPDATE app_membership_invoice SET payment_intent=$2 WHERE id=$1',[r.id,pi]);
         record=r;
@@ -358,7 +359,7 @@ export class MembershipBilling {
     await this.applyRefund(db,current);
   }
   async webhook(event:Stripe.Event) {
-    if(event.livemode) throw new AppError(400,'LIVE_PAYMENT_FORBIDDEN','Test events only.');
+    assertStripeMode(modeOf(this.stripe),event.livemode,'events');
     const sdk=this.provider().sdk;
     await providerTransaction(this.pool,async db=>{
       if(!(await db.query('INSERT INTO app_membership_stripe_event(id) VALUES($1) ON CONFLICT DO NOTHING RETURNING id',[event.id])).rowCount) return;

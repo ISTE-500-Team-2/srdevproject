@@ -9,7 +9,9 @@ import type { Pool } from "pg";
 import { AppError, integerId } from "../domain.js";
 import { authState, requireCsrf } from "../middleware/auth.js";
 import { StudioService } from "./service.js";
+import { PaymentSecurityEventModel } from "../models/PaymentSecurityEventModel.js";
 import { StudioStripe, type StudioStripeConfig } from "./stripe.js";
+import { modeOf, paymentLabels, type StripeMode } from "../stripeMode.js";
 export function studioRoutes(
   pool: Pool,
   zone: string,
@@ -115,6 +117,7 @@ export function studioWebhook(
   pool: Pool,
   zone: string,
   config?: StudioStripeConfig,
+  mode: StripeMode = modeOf(config),
 ) {
   let invalidSignatureRecordedAt = -Infinity;
   return async (req: Request, res: Response) => {
@@ -122,7 +125,7 @@ export function studioWebhook(
       throw new AppError(
         503,
         "PAYMENTS_UNAVAILABLE",
-        "Stripe test payments are not configured.",
+        paymentLabels(mode).unavailable,
       );
     const provider = new StudioStripe(config);
     let event;
@@ -137,7 +140,7 @@ export function studioWebhook(
       const now = Date.now();
       if (now - invalidSignatureRecordedAt >= INVALID_SIGNATURE_WINDOW_MS) {
         invalidSignatureRecordedAt = now;
-        await pool.query("INSERT INTO app_payment_security_event(kind) VALUES('stripe.invalid_signature')");
+        await new PaymentSecurityEventModel(pool).recordInvalidStripeSignature();
       }
       throw new AppError(
         400,

@@ -85,8 +85,12 @@ test('ownership, cancellation and out-of-order subscription event preserve cance
  const effective=sub.cancel_at;await service.cancel(userid,row.id);assert.equal(sub.cancel_at,effective);
  assert.equal((await pool.query('SELECT * FROM app_membership_invoice')).rowCount,2);
 });
-test('reject live events and invoice/customer/amount mismatches without recording success',async()=>{
+test('reject events from the other Stripe mode and invoice/customer/amount mismatches without recording success',async()=>{
  await assert.rejects(service.webhook({...event('evt_live','invoice.paid',invoice),livemode:true}),{code:'LIVE_PAYMENT_FORBIDDEN'});
+ // Live mode mirrors the rule: a test-mode event is refused before anything is recorded.
+ const live=new MembershipBilling(pool,new StudioStripe({key:'sk_live_fixture',webhookSecret:'whsec_fixture',origin:'http://localhost',mode:'live'}));
+ await assert.rejects(live.webhook(event('evt_test_in_live','invoice.paid',invoice)),{code:'TEST_PAYMENT_FORBIDDEN'});
+ assert.equal((await pool.query("SELECT * FROM app_membership_stripe_event WHERE id IN ('evt_live','evt_test_in_live')")).rowCount,0);
  const original=invoice;
  invoice={...invoice,id:'in_wrong',customer:'cus_wrong'};
  await assert.rejects(service.webhook(event('evt_wrong','invoice.paid',invoice)),{code:'PAYMENT_MISMATCH'});

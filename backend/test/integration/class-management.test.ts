@@ -12,7 +12,7 @@ import { initializeDemo } from '../../src/scripts/init-demo.js';
 const database = `arbor_class_management_${randomBytes(5).toString('hex')}_mvc_test`;
 const owner = new Pool({ idleTimeoutMillis: 1000 }), pool = new Pool({ database, idleTimeoutMillis: 1000 });
 let server: Server, created = false, admin: any, member: any;
-let workshop: number, trainingRoom: number, projectRoom: number, first: number, second: number;
+let workshop: number, trainingRoom: number, _projectRoom: number, first: number, _second: number;
 const HOUR = 3600000, DAY = 24 * HOUR;
 // 16:00 UTC is the same calendar day in New York, the facility's zone.
 const day = new Date(Date.now() + 3 * DAY); day.setUTCHours(16, 0, 0, 0);
@@ -50,9 +50,9 @@ before(async () => {
   member = (await request(server).post('/api/auth/demo').send({ role: 'member' })).body.data;
   workshop = (await pool.query('SELECT id FROM app_class_catalog ORDER BY id LIMIT 1')).rows[0].id;
   trainingRoom = (await pool.query("SELECT roomid FROM room WHERE name='Training Room'")).rows[0].roomid;
-  projectRoom = (await pool.query("SELECT roomid FROM room WHERE name='Project Room A'")).rows[0].roomid;
+  _projectRoom = (await pool.query("SELECT roomid FROM room WHERE name='Project Room A'")).rows[0].roomid;
   first = await instructor('class-rules-first@example.invalid');
-  second = await instructor('class-rules-second@example.invalid');
+  _second = await instructor('class-rules-second@example.invalid');
 });
 after(async () => {
   if (server) await new Promise<void>((resolve, reject) => { server.close(e => e ? reject(e) : resolve()); server.closeAllConnections(); });

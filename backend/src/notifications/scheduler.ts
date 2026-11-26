@@ -39,7 +39,7 @@ export async function scheduleExpirationNotifications(db:Database,now=new Date()
   return rows.length;
 }
 /** Recheck source immediately before dispatch: renewal/revocation cancels stale notices. */
-export async function expirationSourceCurrent(db:Database,userId:number,payload:Record<string,unknown>,now:Date):Promise<boolean> {
+export async function expirationSourceCurrent(db:Database,userId:number,payload:Record<string,unknown>,_now:Date):Promise<boolean> {
   if(!payload.sourceType)return true;
   if(!Number.isSafeInteger(payload.sourceId) || typeof payload.expiresAt!=='string')return false;
   const expiry=new Date(payload.expiresAt);

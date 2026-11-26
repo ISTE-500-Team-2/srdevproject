@@ -35,6 +35,19 @@ export class EquipmentModel {
       )
     ).rows;
   }
+  /** Open outages and those that ended today in `timeZone`: the public summary, not the staff maintenance view. */
+  async currentOutages(timeZone: string) {
+    return (await this.db.query<{ equipmentId: number; reason: string; expectedBack: string | null; startedAt: Date; endedAt: Date | null }>(`SELECT equipment_id AS "equipmentId",reason,
+      expected_back::text AS "expectedBack",started_at AS "startedAt",ended_at AS "endedAt"
+      FROM app_equipment_outage WHERE ended_at IS NULL OR ended_at >= date_trunc('day', NOW() AT TIME ZONE $1) AT TIME ZONE $1`, [timeZone])).rows;
+  }
+  /** Booked intervals still running or to come, with no member identity or booking details. */
+  async occupiedIntervals() {
+    return (await this.db.query<{ equipmentId: number; startTime: Date; endTime: Date }>(`SELECT equipmentid AS "equipmentId",
+      starttime AT TIME ZONE 'UTC' AS "startTime", endtime AT TIME ZONE 'UTC' AS "endTime"
+      FROM reservation WHERE equipmentid IS NOT NULL AND status IN ('pending','confirmed')
+      AND endtime + interval '15 minutes' > clock_timestamp() AT TIME ZONE 'UTC'`)).rows;
+  }
   async findForUpdate(id: number): Promise<EquipmentRecord | null> {
     return (
       (

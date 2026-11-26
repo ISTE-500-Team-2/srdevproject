@@ -6,8 +6,10 @@ import type { Pool } from "pg";
 import { transaction, type Database } from "./db.js";
 import { AppError, positiveId, textField } from "./domain.js";
 import { authState, requireCsrf } from "./middleware/auth.js";
-import { requirePermission } from "./middleware/permissions.js";
+import { requireStaffPermission } from "./middleware/permissions.js";
 import { StaffModel } from "./models/StaffModel.js";
+import { AccessCardRepository } from "./models/access/cards.js";
+import { CardEnrollmentRepository } from "./models/access/enrollments.js";
 import { assertManageable } from "./services/StaffService.js";
 import {
   cardIdentity,
@@ -16,15 +18,8 @@ import {
   requireDeviceConfig,
 } from "./readerRegistry.js";
 
-const publicCard = 'id,user_id,label,active,revision,uid_last4 AS "last4"';
 async function assertUnassigned(db: Database, hash: string) {
-  const current = (
-    await db.query(
-      `SELECT u.firstname || ' ' || u.lastname AS name,c.label
-    FROM app_access_card c JOIN "user" u ON u.userid=c.user_id WHERE c.uid_hash=$1 AND c.active`,
-      [hash],
-    )
-  ).rows[0];
+  const current = await new AccessCardRepository(db).activeHolder(hash);
   if (current)
     throw new AppError(
       409,
@@ -32,29 +27,13 @@ async function assertUnassigned(db: Database, hash: string) {
       `This card is already assigned to ${current.name} (${current.label}). Revoke that assignment before reissuing it.`,
     );
 }
-async function lockFingerprint(db: Database, hash: string) {
-  // Serialize assignment/reactivation across members; the partial unique index
-  // remains the final guard. A collision only serializes unrelated operations.
-  await db.query("SELECT pg_advisory_xact_lock(hashtext($1))", [hash]);
-}
 export function accessCards(pool: Pool, tz: string, registry: ReaderRegistry) {
   const routes = Router(),
-    read = requirePermission(pool, "user", "read"),
-    write = requirePermission(pool, "user_access", "update");
+    read = requireStaffPermission(pool, "user", "read"),
+    write = requireStaffPermission(pool, "user_access", "update");
   routes.get("/admin/access/cards", read, async (req, res) => {
     const userId = positiveId(req.query.userId);
-    const data = (
-      await pool.query(
-        `SELECT c.id,c.label,c.active,c.revision,c.uid_last4 AS "last4",c.assigned_at AS "assignedAt",
-      a.firstname || ' ' || a.lastname AS "assignedBy",tap.created_at AS "lastUsedAt",tap.reader_name AS "lastReader"
-      FROM app_access_card c LEFT JOIN "user" a ON a.userid=c.assigned_by
-      LEFT JOIN LATERAL (SELECT e.created_at,COALESCE(r.name,e.reader_id) AS reader_name
-        FROM app_device_access_event e LEFT JOIN app_access_reader r ON r.id=e.reader_id
-        WHERE e.card_id=c.id AND e.is_tap AND e.allowed ORDER BY e.created_at DESC,e.id DESC LIMIT 1) tap ON true
-      WHERE c.user_id=$1 ORDER BY c.active DESC,c.id DESC`,
-        [userId],
-      )
-    ).rows;
+    const data = await new AccessCardRepository(pool).memberCards(userId);
     res.json({ data });
   });
   routes.post(
@@ -62,14 +41,12 @@ export function accessCards(pool: Pool, tz: string, registry: ReaderRegistry) {
     read,
     requireCsrf,
     async (req, res) => {
+      const cards = new AccessCardRepository(pool);
       let hash: string;
       if (req.body.eventId !== undefined) {
-        const event = (
-          await pool.query(
-            "SELECT uid_hash FROM app_device_access_event WHERE id=$1",
-            [positiveId(req.body.eventId)],
-          )
-        ).rows[0];
+        const event = await cards.eventFingerprint(
+          positiveId(req.body.eventId),
+        );
         if (!event?.uid_hash)
           throw new AppError(
             404,
@@ -82,14 +59,7 @@ export function accessCards(pool: Pool, tz: string, registry: ReaderRegistry) {
           req.body.uid,
           requireDeviceConfig(registry.config),
         ).hash;
-      const data = (
-        await pool.query(
-          `SELECT c.id,c.user_id AS "userId",u.firstname || ' ' || u.lastname AS "memberName",
-      c.label,c.active,c.uid_last4 AS "last4",c.assigned_at AS "assignedAt" FROM app_access_card c JOIN "user" u ON u.userid=c.user_id
-      WHERE c.uid_hash=$1 ORDER BY c.active DESC,c.id DESC LIMIT 20`,
-          [hash],
-        )
-      ).rows;
+      const data = await cards.lookup(hash);
       res.json({ data });
     },
   );
@@ -106,25 +76,15 @@ export function accessCards(pool: Pool, tz: string, registry: ReaderRegistry) {
       reason = textField(req.body.reason, "Reason", 500);
     const actor = authState(res).user.id;
     const data = await transaction(pool, async (db) => {
-      if (
-        !(
-          await db.query(
-            'SELECT userid FROM "user" WHERE userid=$1 FOR SHARE',
-            [userId],
-          )
-        ).rowCount
-      )
+      const cards = new AccessCardRepository(db),
+        enrollments = new CardEnrollmentRepository(db);
+      if (!(await cards.lockMember(userId)))
         throw new AppError(404, "NOT_FOUND", "Member not found.");
       await assertManageable(db, authState(res).user, userId);
       let hash: string, last4: string, sessionId: string | undefined;
       if (req.body.enrollmentId !== undefined) {
         sessionId = enrollmentId(req.body.enrollmentId);
-        const session = (
-          await db.query(
-            `SELECT * FROM app_card_enrollment WHERE id=$1 AND actor_id=$2 FOR UPDATE`,
-            [sessionId, actor],
-          )
-        ).rows[0];
+        const session = await enrollments.lockForAssignment(sessionId, actor);
         if (
           !session ||
           session.user_id !== userId ||
@@ -142,15 +102,10 @@ export function accessCards(pool: Pool, tz: string, registry: ReaderRegistry) {
         hash = session.uid_hash;
         last4 = session.uid_last4;
       } else ({ hash, last4 } = cardIdentity(req.body.uid, config));
-      await lockFingerprint(db, hash);
+      await cards.lockFingerprint(hash);
       if (req.body.replaceCardId !== undefined) {
         const oldId = positiveId(req.body.replaceCardId);
-        const before = (
-          await db.query(
-            `SELECT ${publicCard} FROM app_access_card WHERE id=$1 AND user_id=$2 FOR UPDATE`,
-            [oldId, userId],
-          )
-        ).rows[0];
+        const before = await cards.lockMemberCard(oldId, userId);
         if (
           !before?.active ||
           before.revision !== positiveId(req.body.expectedRevision)
@@ -160,12 +115,7 @@ export function accessCards(pool: Pool, tz: string, registry: ReaderRegistry) {
             "STALE_RECORD",
             "The card being replaced changed. Refresh and review it before trying again.",
           );
-        const after = (
-          await db.query(
-            `UPDATE app_access_card SET active=false,revision=revision+1 WHERE id=$1 RETURNING ${publicCard}`,
-            [oldId],
-          )
-        ).rows[0];
+        const after = await cards.deactivate(oldId);
         await new StaffModel(db, tz).audit(
           actor,
           userId,
@@ -178,12 +128,7 @@ export function accessCards(pool: Pool, tz: string, registry: ReaderRegistry) {
         );
       }
       await assertUnassigned(db, hash);
-      const after = (
-        await db.query(
-          `INSERT INTO app_access_card(user_id,uid_hash,uid_last4,label,assigned_by) VALUES($1,$2,$3,$4,$5) RETURNING ${publicCard}`,
-          [userId, hash, last4, label, actor],
-        )
-      ).rows[0];
+      const after = await cards.assign(userId, hash, last4, label, actor);
       await new StaffModel(db, tz).audit(
         actor,
         userId,
@@ -194,11 +139,7 @@ export function accessCards(pool: Pool, tz: string, registry: ReaderRegistry) {
         null,
         after,
       );
-      if (sessionId)
-        await db.query(
-          "UPDATE app_card_enrollment SET completed_at=NOW() WHERE id=$1",
-          [sessionId],
-        );
+      if (sessionId) await enrollments.complete(sessionId);
       return after;
     });
     res.status(201).json({ data });
@@ -213,23 +154,14 @@ export function accessCards(pool: Pool, tz: string, registry: ReaderRegistry) {
           revision = positiveId(req.body.expectedRevision),
           reason = textField(req.body.reason, "Reason", 500);
         const data = await transaction(pool, async (db) => {
+          const cards = new AccessCardRepository(db);
           if (action === "reactivate") {
             requireDeviceConfig(registry.config);
-            const card = (
-              await db.query(
-                "SELECT uid_hash FROM app_access_card WHERE id=$1",
-                [id],
-              )
-            ).rows[0];
+            const card = await cards.fingerprint(id);
             if (!card) throw new AppError(404, "NOT_FOUND", "Card not found.");
-            await lockFingerprint(db, card.uid_hash);
+            await cards.lockFingerprint(card.uid_hash);
           }
-          const before = (
-            await db.query(
-              `SELECT ${publicCard},uid_hash FROM app_access_card WHERE id=$1 FOR UPDATE`,
-              [id],
-            )
-          ).rows[0];
+          const before = await cards.lockCard(id);
           if (!before) throw new AppError(404, "NOT_FOUND", "Card not found.");
           await assertManageable(db, authState(res).user, before.user_id);
           const active = action === "reactivate";
@@ -246,12 +178,7 @@ export function accessCards(pool: Pool, tz: string, registry: ReaderRegistry) {
               "This card changed. The latest cards have been loaded; review them and try again.",
             );
           if (active) await assertUnassigned(db, before.uid_hash);
-          const after = (
-            await db.query(
-              `UPDATE app_access_card SET active=$2,revision=revision+1 WHERE id=$1 RETURNING ${publicCard}`,
-              [id, active],
-            )
-          ).rows[0];
+          const after = await cards.setActive(id, active);
           const { uid_hash: _hash, ...safeBefore } = before;
           await new StaffModel(db, tz).audit(
             authState(res).user.id,

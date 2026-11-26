@@ -122,11 +122,20 @@ test('only canonical paid state confirms; duplicate and stale events issue one p
   await assert.rejects(service.update(member, result.id, {expectedRevision: 1}), {code: 'STAFF_REQUIRED'});
 });
 
-test('price, identity, currency and live mode mismatches cannot confirm a reservation', async () => {
+test('price, identity, currency and Stripe mode mismatches cannot confirm a reservation', async () => {
   const result = await service.create(member, booking());
   const session = paid(await sessionFor(result.id));
   for (const change of [{amount_total: 1}, {currency: 'eur'}, {client_reference_id: '0'}, {livemode: true}, {id: 'cs_other'}])
     await assert.rejects(billing.apply({...session, ...change}), {code: 'PAYMENT_MISMATCH'});
+  assert.equal((await state(result.id)).status, 'pending');
+  // Live mode mirrors the rule: a paid test-mode session or event cannot confirm the booking.
+  const live = new EquipmentBilling(pool, new StudioStripe({key: 'sk_live_equipment_fake', webhookSecret: 'whsec_equipment_fake',
+    origin: 'http://localhost:8080', mode: 'live'}));
+  await assert.rejects(live.apply(session), {code: 'PAYMENT_MISMATCH'});
+  await assert.rejects(live.webhook({id: 'evt_test_in_live', type: 'checkout.session.completed', livemode: false, data: {object: session}} as any),
+    {code: 'TEST_PAYMENT_FORBIDDEN'});
+  await assert.rejects(billing.webhook({id: 'evt_live_in_test', type: 'checkout.session.completed', livemode: true, data: {object: session}} as any),
+    {code: 'LIVE_PAYMENT_FORBIDDEN'});
   assert.equal((await state(result.id)).status, 'pending');
   // Restore unpaid state for the next reconciliation.
   Object.assign(session, {status: 'open', payment_status: 'unpaid'});
@@ -547,4 +556,42 @@ test('a checkout staff opened for a member is released by that staff member, so 
   // Once that staff member cancels it, nothing is open and the note goes away.
   await billing.cancelPending(opener, result.id);
   assert.equal((await listed(admin)).checkoutOpenedBy, null);
+});
+
+test('receipts and payment notes say "test mode" only in test mode', async () => {
+  const liveProvider = new StudioStripe({key: 'sk_live_equipment_fake', webhookSecret: 'whsec_equipment_fake', origin: 'http://localhost:8080', mode: 'live'});
+  mock.method(liveProvider.sdk.refunds, 'list', async () => ({object: 'list', data: [], has_more: false, url: '/v1/refunds'}));
+  const live = new EquipmentBilling(pool, liveProvider);
+  const testBooking = await service.create(member, booking());
+  await billing.apply(paid(await sessionFor(testBooking.id)));
+  const liveBooking = await service.create(member, booking());
+  await live.apply({...paid(await sessionFor(liveBooking.id)), livemode: true});
+  const recorded = async (id: number) => (await pool.query(`SELECT p.note,o.payload->>'method' AS method FROM app_equipment_checkout c
+    JOIN payment p ON p.paymentid=c.payment_id JOIN app_notification_outbox o ON o.dedupe_key='equipment-receipt:'||c.reservation_id
+    WHERE c.reservation_id=$1`, [id])).rows[0];
+  assert.deepEqual(await recorded(testBooking.id), {note: 'Online equipment reservation (Stripe test mode)', method: 'Card (test mode)'});
+  assert.deepEqual(await recorded(liveBooking.id), {note: 'Online equipment reservation (Stripe)', method: 'Card'});
+  assert.equal((await state(liveBooking.id)).status, 'confirmed');
+});
+
+test('the app tells the browser its Stripe mode, and the webhook names the mode when Stripe is off', async () => {
+  const base = {port: 8080, host: '127.0.0.1', secureCookies: false, demoLogin: true,
+    allowedOrigins: ['http://localhost:8080'], timeZone: 'America/New_York', jwtKey: randomBytes(32)};
+  const liveConfig = {...provider.config, key: 'sk_live_equipment_fake', mode: 'live' as const};
+  const cases: [Partial<Parameters<typeof createApp>[1]>, 'test' | 'live'][] = [
+    [{}, 'test'], [{stripeMode: 'test'}, 'test'], [{stripeMode: 'live'}, 'live'],
+    [{studioStripe: provider.config}, 'test'], [{studioStripe: liveConfig, stripeMode: 'live'}, 'live']];
+  for (const [config, mode] of cases) {
+    const app = createApp(pool, {...base, ...config});
+    assert.equal((await request(app).get('/api/config')).body.data.stripeMode, mode);
+    const agent = request.agent(app);
+    const login = await agent.post('/api/auth/demo').send({role: 'member'});
+    assert.equal(login.status, 200, login.text);
+    const billingConfig = (await agent.get('/api/me/billing').set('Authorization', 'Bearer ' + login.body.data.accessToken)).body.data;
+    assert.deepEqual([billingConfig.enabled, billingConfig.mode], [!!config.studioStripe, config.studioStripe ? mode : 'test']);
+    if (config.studioStripe) continue;
+    const webhook = await request(app).post('/api/webhooks/stripe-studios').set('Content-Type', 'application/json').send('{}');
+    assert.equal(webhook.status, 503);
+    assert.equal(webhook.body.error.message, mode === 'live' ? 'Stripe payments are not configured.' : 'Stripe test payments are not configured.');
+  }
 });

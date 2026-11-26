@@ -19,7 +19,6 @@ import {
   freeFor,
   money,
   nextOpening,
-  policy,
   rentalRange,
   SIZE_ORDER,
   sizeKey,

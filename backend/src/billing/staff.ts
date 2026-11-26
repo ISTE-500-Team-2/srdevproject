@@ -6,12 +6,13 @@ import type { Pool } from 'pg';
 import { AppError, positiveId } from '../domain.js';
 import { transaction } from '../db.js';
 import { authState, requireCsrf, requireStaff } from '../middleware/auth.js';
-import { requirePermission } from '../middleware/permissions.js';
+import { requirePermission, requireStaffPermission } from '../middleware/permissions.js';
 import { StaffModel } from '../models/StaffModel.js';
 import { BillingPricing } from './pricing.js';
 import { MembershipBilling } from './service.js';
 import { PassBilling } from './passes.js';
 import { StudioStripe, type StudioStripeConfig } from '../studios/stripe.js';
+import { modeOf } from '../stripeMode.js';
 
 /** Staff checkout uses the member's prices, payment lifecycle and webhook verification. */
 export function staffPurchaseRoutes(pool: Pool, config?: StudioStripeConfig, zone = 'America/New_York') {
@@ -33,12 +34,15 @@ export function staffPurchaseRoutes(pool: Pool, config?: StudioStripeConfig, zon
       throw new AppError(409, 'MEMBER_RESTRICTED', `This member’s access is ${target.accessStatus}. Restore it before selling a plan or pass.`);
     next();
   };
-  routes.use(path, requireStaff, requirePermission(pool, 'entitlement', 'create', 'global'), member);
-  routes.get(path, async (req, res) => {
+  // The prefix gate runs the target checks before Express picks a method; each route also names its
+  // own requirement (already confirmed by then, so it costs nothing).
+  const sell = requireStaffPermission(pool, 'entitlement', 'create');
+  routes.use(path, sell, member);
+  routes.get(path, sell, async (req, res) => {
     const id = positiveId(req.params.id);
-    res.json({ data: { enabled: !!config, offers: await pricing.offers(id, typeof req.query.date === 'string' ? req.query.date : undefined) } });
+    res.json({ data: { enabled: !!config, mode: modeOf(config), offers: await pricing.offers(id, typeof req.query.date === 'string' ? req.query.date : undefined) } });
   });
-  routes.post(path, requireCsrf, async (req, res) => {
+  routes.post(path, sell, requireCsrf, async (req, res) => {
     const id = positiveId(req.params.id), actor = authState(res).user;
     const plan = await new StaffModel(pool).plan(positiveId(req.body.planId));
     if (!plan?.active) throw new AppError(400, 'INVALID_PLAN', 'Choose an active plan.');

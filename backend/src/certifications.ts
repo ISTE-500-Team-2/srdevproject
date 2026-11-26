@@ -6,6 +6,8 @@ import type { Pool } from "pg";
 import { transaction, type Database } from "./db.js";
 import { AppError, positiveId, textField } from "./domain.js";
 import { authState, requireCsrf } from "./middleware/auth.js";
+import { accessGuard } from "./middleware/accessGuards.js";
+import { CertificationModel } from "./models/CertificationModel.js";
 import { PermissionModel } from "./models/PermissionModel.js";
 import { UserModel } from "./models/UserModel.js";
 import { StaffModel } from "./models/StaffModel.js";
@@ -13,17 +15,6 @@ import { scheduleExpirationNotifications } from "./notifications/scheduler.js";
 import { queueCertificationRevoked } from "./notifications/certificationNotices.js";
 import { annualValidity } from "./annualValidity.js";
 
-const definition = `c.certid AS id,c.name,c.description,c.validity_days AS "validityDays",c.revision,
- c.training_fee_cents AS "trainingFeeCents",c.training_minutes AS "trainingMinutes",
- c.effectivedate AT TIME ZONE 'UTC' AS "effectiveAt",c.enddate AT TIME ZONE 'UTC' AS "endsAt",
- COALESCE((SELECT json_agg(e.equipmentid ORDER BY e.equipmentid) FROM equipment e WHERE e.certid=c.certid),'[]') AS "equipmentIds"`;
-const record = `uc.usercertid AS id,uc.userid AS "userId",uc.certid AS "certificationId",c.name,uc.status,uc.revision,uc.training_minutes AS "trainingMinutes",
- uc.renewaldate AT TIME ZONE 'UTC' AS "expiresAt",uc.trained_at AS "trainedAt",uc.approved_at AS "approvedAt",
- uc.approved_by AS "approvedBy",a.firstname||' '||a.lastname AS "instructorName",uc.training_source AS source,
- uc.verified_in_person AS "verifiedInPerson",uc.verification_reference AS "verificationReference",uc.revoked_at AS "revokedAt",
- (uc.status='active' AND (uc.renewaldate IS NULL OR uc.renewaldate>=NOW() AT TIME ZONE 'UTC')
- AND (c.effectivedate IS NULL OR c.effectivedate<=NOW() AT TIME ZONE 'UTC')
- AND (c.enddate IS NULL OR c.enddate>=NOW() AT TIME ZONE 'UTC')) AS valid`;
 export function certificationRoutes(pool: Pool, timeZone: string) {
   const router = Router();
   async function actor(
@@ -32,7 +23,7 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
     action: string,
     kind: "catalog" | "approve" | "revoke" | "read",
   ) {
-    await db.query('SELECT userid FROM "user" WHERE userid=$1 FOR SHARE', [id]);
+    await new CertificationModel(db).shareUser(id);
     const user = await new UserModel(db, timeZone).findById(id);
     if (!user || user.status !== "active" || user.accessStatus !== "active")
       throw new AppError(
@@ -57,61 +48,34 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
       );
     return user;
   }
+  // Declared on each route. Writes check again inside their transaction, under the user-row lock,
+  // so a role or grant removed meanwhile still stops them.
+  const trainer = (action: string, kind: "catalog" | "approve" | "revoke" | "read") =>
+    accessGuard(`training ${kind}: certification:${action}`, async (_req, res, next) => {
+      await actor(pool, authState(res).user.id, action, kind);
+      next();
+    });
   const tx = <T>(work: (db: Database) => Promise<T>) =>
     transaction(pool, async (db) => {
-      await db.query(
-        "SELECT pg_advisory_xact_lock(hashtext('arbor-certification-writes'))",
-      );
+      await new CertificationModel(db).lockWrites();
       return work(db);
     });
-  router.get("/training/catalog", async (_req, res) => {
-    await actor(pool, authState(res).user.id, "read", "read");
-    res.json({
-      data: (
-        await pool.query(
-          `SELECT ${definition} FROM certifications c ORDER BY c.name,c.certid`,
-        )
-      ).rows,
-    });
+  router.get("/training/catalog", trainer("read", "read"), async (_req, res) => {
+    res.json({ data: await new CertificationModel(pool).catalog() });
   });
-  // The catalog cards' counts: how many active members are current on each certification,
-  // how many of those run out within 30 days, and how many have lapsed or been revoked.
-  // Certifications nobody holds are left out.
-  router.get("/training/catalog/holders", async (_req, res) => {
-    await actor(pool, authState(res).user.id, "read", "catalog");
-    const { rows } = await pool.query(
-      `SELECT certid AS id,
-         COUNT(*) FILTER (WHERE valid)::int AS current,
-         COUNT(*) FILTER (WHERE valid AND expires_at<=NOW() AT TIME ZONE 'UTC'+INTERVAL '30 days')::int AS "expiringSoon",
-         COUNT(*) FILTER (WHERE NOT valid AND status IS DISTINCT FROM 'revoked')::int AS expired,
-         COUNT(*) FILTER (WHERE status='revoked')::int AS revoked
-       FROM (SELECT uc.certid,uc.status,LEAST(uc.renewaldate,c.enddate) AS expires_at,
-           COALESCE(uc.status='active' AND (uc.renewaldate IS NULL OR uc.renewaldate>=NOW() AT TIME ZONE 'UTC')
-             AND (c.effectivedate IS NULL OR c.effectivedate<=NOW() AT TIME ZONE 'UTC')
-             AND (c.enddate IS NULL OR c.enddate>=NOW() AT TIME ZONE 'UTC'),false) AS valid
-         FROM user_certifications uc JOIN certifications c USING(certid)
-         JOIN "user" u ON u.userid=uc.userid
-         WHERE u.status='active') held
-       GROUP BY certid ORDER BY certid`,
-    );
+  // The catalog cards' counts (see CertificationModel.holderCounts).
+  router.get("/training/catalog/holders", trainer("read", "catalog"), async (_req, res) => {
+    const rows = await new CertificationModel(pool).holderCounts();
     res.json({ data: rows });
   });
   // Instructors need a narrow identity lookup, not access to the admin user API.
-  router.get("/training/members", async (req, res) => {
-    await actor(pool, authState(res).user.id, "read", "read");
+  router.get("/training/members", trainer("read", "read"), async (req, res) => {
     const search = textField(req.query.search ?? "", "Member search", 100, 2);
     const instructorsOnly = req.query.role === "instructor";
-    const { rows } = await pool.query(
-      `SELECT u.userid AS id,u.firstname||' '||u.lastname AS name,u.email
-       FROM "user" u WHERE strpos(lower(u.firstname||' '||u.lastname||' '||u.email),lower($1))>0
-       AND (NOT $2::boolean OR (u.status='active' AND u.accessstatus='active' AND EXISTS
-         (SELECT 1 FROM user_role ur JOIN role r USING(roleid) WHERE ur.userid=u.userid AND r.role='instructor')))
-       ORDER BY u.lastname,u.firstname,u.userid LIMIT 26`,
-      [search, instructorsOnly],
-    );
+    const rows = await new CertificationModel(pool).searchMembers(search, instructorsOnly);
     res.json({ data: { items: rows.slice(0, 25), hasMore: rows.length > 25 } });
   });
-  router.post("/training/catalog", requireCsrf, async (req, res) => {
+  router.post("/training/catalog", requireCsrf, trainer("create", "catalog"), async (req, res) => {
     const data = await tx(async (db) => {
       const user = await actor(db, authState(res).user.id, "create", "catalog");
       const name = textField(req.body.name, "Name", 100),
@@ -125,22 +89,11 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
       const reason = textField(req.body.reason, "Approval/reference", 500);
       const pricing = trainingPricing(req.body);
       const equipmentIds = equipmentList(req.body.equipmentIds);
-      const id = (
-        await db.query(
-          "SELECT COALESCE(MAX(certid),0)+1 AS id FROM certifications",
-        )
-      ).rows[0]!.id;
-      await db.query(
-        "INSERT INTO certifications(certid,name,description,effectivedate,validity_days,training_fee_cents,training_minutes) VALUES($1,$2,$3,NOW() AT TIME ZONE 'UTC',$4,$5,$6)",
-        [id, name, description, days, pricing.fee, pricing.minutes],
-      );
+      const certifications = new CertificationModel(db);
+      const id = await certifications.nextId();
+      await certifications.create(id, name, description, days, pricing.fee, pricing.minutes);
       await linkEquipment(db, id, equipmentIds);
-      const after = (
-        await db.query(
-          `SELECT ${definition} FROM certifications c WHERE certid=$1`,
-          [id],
-        )
-      ).rows[0];
+      const after = await certifications.definition(id);
       await new StaffModel(db, timeZone).audit(
         user.id,
         null,
@@ -155,16 +108,12 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
     });
     res.status(201).json({ data });
   });
-  router.patch("/training/catalog/:id", requireCsrf, async (req, res) => {
+  router.patch("/training/catalog/:id", requireCsrf, trainer("update", "catalog"), async (req, res) => {
     const data = await tx(async (db) => {
       const user = await actor(db, authState(res).user.id, "update", "catalog");
       const id = positiveId(req.params.id);
-      const before = (
-        await db.query(
-          `SELECT ${definition} FROM certifications c WHERE certid=$1 FOR UPDATE`,
-          [id],
-        )
-      ).rows[0];
+      const certifications = new CertificationModel(db);
+      const before = await certifications.lockDefinition(id);
       if (!before)
         throw new AppError(404, "NOT_FOUND", "Certification not found.");
       if (before.revision !== positiveId(req.body.expectedRevision, "Revision"))
@@ -183,18 +132,10 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
         ),
         reason = textField(req.body.reason, "Reason", 500);
       const pricing = trainingPricing(req.body, before);
-      await db.query(
-        "UPDATE certifications SET name=$2,description=$3,validity_days=$4,training_fee_cents=$5,training_minutes=$6,revision=revision+1 WHERE certid=$1",
-        [id, name, description, days, pricing.fee, pricing.minutes],
-      );
-      await db.query("SELECT app_backfill_certification_expiry($1)", [id]);
+      await certifications.update(id, name, description, days, pricing.fee, pricing.minutes);
+      await certifications.backfillExpiry(id);
       await linkEquipment(db, id, equipmentList(req.body.equipmentIds));
-      const after = (
-        await db.query(
-          `SELECT ${definition} FROM certifications c WHERE certid=$1`,
-          [id],
-        )
-      ).rows[0];
+      const after = await certifications.definition(id);
       await new StaffModel(db, timeZone).audit(
         user.id,
         null,
@@ -209,21 +150,14 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
     });
     res.json({ data });
   });
-  router.get("/training/users/:userId", async (req, res) => {
-    await actor(pool, authState(res).user.id, "read", "read");
+  router.get("/training/users/:userId", trainer("read", "read"), async (req, res) => {
     const userId = positiveId(req.params.userId);
-    res.json({
-      data: (
-        await pool.query(
-          `SELECT ${record} FROM user_certifications uc JOIN certifications c USING(certid) LEFT JOIN "user" a ON a.userid=uc.approved_by WHERE uc.userid=$1 ORDER BY c.name`,
-          [userId],
-        )
-      ).rows,
-    });
+    res.json({ data: await new CertificationModel(pool).memberRecords(userId) });
   });
   router.post(
     "/training/users/:userId/certifications/:id",
     requireCsrf,
+    trainer("create", "approve"),
     async (req, res) => {
       const data = await tx(async (db) => {
         const user = await actor(
@@ -243,12 +177,8 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
         const target = await new UserModel(db, timeZone).findById(userId);
         if (!target || target.status !== "active")
           throw new AppError(404, "NOT_FOUND", "Active member not found.");
-        const cert = (
-          await db.query(
-            "SELECT *, effectivedate AT TIME ZONE 'UTC' AS effectivedate,enddate AT TIME ZONE 'UTC' AS enddate FROM certifications WHERE certid=$1 FOR SHARE",
-            [id],
-          )
-        ).rows[0];
+        const certifications = new CertificationModel(db);
+        const cert = await certifications.shareCertification(id);
         if (!cert)
           throw new AppError(404, "NOT_FOUND", "Certification not found.");
         if (
@@ -297,13 +227,7 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
             500,
           ),
           reason = textField(req.body.reason, "Reason", 500);
-        const before =
-          (
-            await db.query(
-              "SELECT * FROM user_certifications WHERE userid=$1 AND certid=$2 FOR UPDATE",
-              [userId, id],
-            )
-          ).rows[0] ?? null;
+        const before = await certifications.lockTraining(userId, id);
         if (before) await actor(db, user.id, "update", "approve");
         if (before?.revoked_at && trainedAt <= new Date(before.revoked_at))
           throw new AppError(
@@ -340,15 +264,8 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
           );
         const recordId =
           before?.usercertid ??
-          (
-            await db.query(
-              "SELECT COALESCE(MAX(usercertid),0)+1 AS id FROM user_certifications",
-            )
-          ).rows[0]!.id;
-        await db.query(
-          `INSERT INTO user_certifications(usercertid,userid,certid,renewaldate,status,statusdesc,trained_at,approved_at,approved_by,verification_reference,training_source,verified_in_person,training_minutes)
-    VALUES($1,$2,$3,$4::timestamptz AT TIME ZONE 'UTC','active',$5,$6,NOW(),$7,$8,$9,true,$10)
-    ON CONFLICT(userid,certid) DO UPDATE SET renewaldate=EXCLUDED.renewaldate,status='active',statusdesc=EXCLUDED.statusdesc,trained_at=EXCLUDED.trained_at,approved_at=NOW(),approved_by=EXCLUDED.approved_by,verification_reference=EXCLUDED.verification_reference,training_source=EXCLUDED.training_source,verified_in_person=true,training_minutes=EXCLUDED.training_minutes,revision=user_certifications.revision+1`,
+          (await certifications.nextTrainingId());
+        await certifications.approve(
           [
             recordId,
             userId,
@@ -362,12 +279,7 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
             completedMinutes,
           ],
         );
-        const after = (
-          await db.query(
-            `SELECT ${record} FROM user_certifications uc JOIN certifications c USING(certid) LEFT JOIN "user" a ON a.userid=uc.approved_by WHERE uc.userid=$1 AND uc.certid=$2`,
-            [userId, id],
-          )
-        ).rows[0];
+        const after = await certifications.memberRecord(userId, id);
         await new StaffModel(db, timeZone).audit(
           user.id,
           userId,
@@ -387,6 +299,7 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
   router.post(
     "/training/users/:userId/certifications/:id/revoke",
     requireCsrf,
+    trainer("update", "revoke"),
     async (req, res) => {
       const data = await tx(async (db) => {
         const user = await actor(
@@ -398,13 +311,8 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
         const userId = positiveId(req.params.userId),
           id = positiveId(req.params.id);
         // Whether the record was letting the member in: active and not past its renewal date.
-        const found = (
-          await db.query(
-            `SELECT *,(status='active' AND (renewaldate IS NULL OR renewaldate>=NOW() AT TIME ZONE 'UTC')) AS app_granting
-            FROM user_certifications WHERE userid=$1 AND certid=$2 FOR UPDATE`,
-            [userId, id],
-          )
-        ).rows[0];
+        const certifications = new CertificationModel(db);
+        const found = await certifications.lockTrainingForRevoke(userId, id);
         if (!found)
           throw new AppError(404, "NOT_FOUND", "Training record not found.");
         const { app_granting: granting, ...before } = found;
@@ -421,12 +329,7 @@ export function certificationRoutes(pool: Pool, timeZone: string) {
           "Incident/retraining reason",
           500,
         );
-        const after = (
-          await db.query(
-            "UPDATE user_certifications SET status='revoked',revoked_at=NOW(),statusdesc=$3,revision=revision+1 WHERE userid=$1 AND certid=$2 RETURNING *",
-            [userId, id, reason],
-          )
-        ).rows[0];
+        const after = await certifications.revoke(userId, id, reason);
         await new StaffModel(db, timeZone).audit(
           user.id,
           userId,
@@ -464,20 +367,11 @@ function equipmentList(value: unknown): number[] {
 }
 async function linkEquipment(db: Database, id: number, ids: number[]) {
   // An ended course can't be newly required: no one could book the equipment. Existing links stay.
-  const ended = (
-    await db.query<{ ended: boolean }>(
-      "SELECT enddate IS NOT NULL AND enddate<NOW() AT TIME ZONE 'UTC' AS ended FROM certifications WHERE certid=$1",
-      [id],
-    )
-  ).rows[0]?.ended;
+  const certifications = new CertificationModel(db);
+  const ended = await certifications.hasEnded(id);
   // Never clear existing associations implicitly or replace another required course.
   for (const equipmentId of ids) {
-    const e = (
-      await db.query(
-        "SELECT certid FROM equipment WHERE equipmentid=$1 FOR UPDATE",
-        [equipmentId],
-      )
-    ).rows[0];
+    const e = await certifications.lockEquipment(equipmentId);
     if (!e) throw new AppError(404, "NOT_FOUND", "Equipment not found.");
     if (e.certid != null && e.certid !== id)
       throw new AppError(
@@ -491,9 +385,6 @@ async function linkEquipment(db: Database, id: number, ids: number[]) {
         "INVALID_INPUT",
         "This certification has ended, so no one could book equipment that newly required it. Link equipment to a certification that is in effect.",
       );
-    await db.query("UPDATE equipment SET certid=$2 WHERE equipmentid=$1", [
-      equipmentId,
-      id,
-    ]);
+    await certifications.requireForEquipment(equipmentId, id);
   }
 }
