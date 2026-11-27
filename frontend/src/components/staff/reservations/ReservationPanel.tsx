@@ -418,7 +418,7 @@ export function ReservationEditor({
             {machines.length ? null : <option value="">Loading equipment…</option>}
             {machines.map((m) => (
               <option key={m.id} value={m.id} disabled={m.status !== "available" && String(m.id) !== equipmentId}>
-                {m.name} ({m.type}){m.status !== "available" ? ", out of service" : ""}
+                {m.name} ({m.type}){m.status !== "available" ? ", out of service" : ""}{m.hidden ? ", hidden from members" : ""}
               </option>
             ))}
           </select>

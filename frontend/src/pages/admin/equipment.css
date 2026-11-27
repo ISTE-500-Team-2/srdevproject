@@ -9,6 +9,14 @@
 .eq-workspace .eq-eyebrow,.admin-section .admin-page-eyebrow { font-size: var(--text-2xs); font-weight: 600; letter-spacing: .12em; line-height: 1.5; text-transform: uppercase; color: #80634f; margin: 0 0 6px; }
 .eq-pill { display: inline-flex; align-items: center; gap: 6px; width: fit-content; border: 1px solid #c5cdb9; background: #f0f3e9; color: #47583b; font-size: var(--text-xs); line-height: 1.2; padding: 6px 10px; border-radius: 30px; white-space: nowrap; }
 .eq-pill--down { color: #8b421e; background: #fcf0e4; border-color: #e8c5a5; }
+/* Hidden from members: a neutral mark beside the status, never a status of its own. */
+.eq-pill--hidden { color: #5d5148; background: #f1ece6; border-color: #d6cabe; }
+.eq-pill svg, .eq-tag-hidden svg { width: 14px; height: 14px; flex: none; }
+.eq-detail-head .eq-pill--hidden { margin-top: 10px; }
+.eq-mp-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.eq-tag-hidden { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; padding: 1px 6px; border: 1px solid #b5a69a; border-radius: 4px; color: #6b5a4e; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; vertical-align: 2px; }
+.eq-tag-hidden svg { width: 12px; height: 12px; }
+.eq-actions__error { flex-basis: 100%; margin: 0; }
 .eq-workspace svg { width: 17px; height: 17px; flex-shrink: 0; }
 .eq-toolbar { margin-bottom: 16px; }
 .eq-search { position: relative; flex: 1; min-width: 160px; }
@@ -169,6 +177,8 @@
 :root[data-theme="dark"] .eq-pill, :root[data-theme="dark"] .eq-pill--free { color: #a9e3b3; background: rgba(143, 220, 155, 0.12); border-color: rgba(143, 220, 155, 0.32); }
 :root[data-theme="dark"] .eq-pill--booked { color: #ffc98a; background: rgba(247, 150, 29, 0.14); border-color: rgba(247, 150, 29, 0.38); }
 :root[data-theme="dark"] .eq-pill--down { color: #f5b4a8; background: rgba(242, 144, 127, 0.14); border-color: rgba(242, 144, 127, 0.38); }
+:root[data-theme="dark"] .eq-pill--hidden { color: var(--ink-soft); background: rgba(255, 232, 210, 0.06); border-color: rgba(255, 232, 210, 0.26); }
+:root[data-theme="dark"] .eq-tag-hidden { color: var(--ink-soft); border-color: rgba(255, 232, 210, 0.32); }
 :root[data-theme="dark"] .eq-pill--past { color: var(--ink-soft); background: transparent; border-color: rgba(255, 232, 210, 0.18); }
 /* The selected row and its panel share one copper outline (the selection accent, muted to
    about 3:1 against the glass so it stands apart from the beige lines without shouting) over frosted glass: a light tint in light

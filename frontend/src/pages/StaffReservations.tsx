@@ -87,7 +87,7 @@ function Workspace({ zone, now }: { zone: string; now: number }) {
     return () => window.clearTimeout(timer);
   }, [search]);
 
-  const equipment = useApi<LiveEquipment[]>("/equipment", refresh);
+  const equipment = useApi<LiveEquipment[]>("/equipment?include=hidden", refresh);
   const machines = equipment.data ?? [];
   const dayBookings = useDayBookings(day, refresh);
   const eveBookings = useDayBookings(previousDay(day), refresh);

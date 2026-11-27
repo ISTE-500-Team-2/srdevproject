@@ -34,6 +34,9 @@ export function equipmentManagement(pool: Pool, timeZone: string) {
   routes.delete('/admin/equipment/:id', requirePermission(pool, 'equipment', 'delete'), requireCsrf, async (req, res) => {
     res.json({ data: await catalog.remove(authState(res).user.id, integerId(req.params.id, 'Equipment'), req.body) });
   });
+  routes.post('/admin/equipment/:id/visibility', update, requireCsrf, async (req, res) => {
+    res.json({ data: await catalog.setHidden(authState(res).user.id, integerId(req.params.id, 'Equipment'), req.body) });
+  });
   routes.get('/admin/equipment/:id', read, async (req, res) => res.json({ data: await equipment.detail(integerId(req.params.id, 'Equipment'), authState(res).user) }));
   for (const action of ['outage', 'restore'] as const) routes.post(`/admin/equipment/:id/${action}`, update, requireCsrf, async (req, res) => {
     res.json({ data: await equipment.change(authState(res).user.id, integerId(req.params.id, 'Equipment'), req.body, action === 'restore') });

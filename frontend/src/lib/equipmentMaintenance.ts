@@ -12,6 +12,8 @@ export interface ManagedEquipment {
   id: number; name: string; type: string; rate: number | null; image: string; status: string;
   location: string; certification: string | null; availabilityRevision: number; outage: Outage | null;
   activeReaderLeases?: number;
+  /** Hidden from members: out of their catalog and not bookable by them. Staff still manage it. */
+  hidden: boolean;
 }
 export interface EquipmentDetail extends ManagedEquipment {
   /** Stored image (null when the stock picture is shown), certification and waiver rules, for the editor. */
