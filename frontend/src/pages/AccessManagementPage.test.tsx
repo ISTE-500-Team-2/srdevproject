@@ -161,7 +161,7 @@ function mount(path = "/admin/access?member=12") {
 }
 async function manual() {
   await userEvent.click(
-    await screen.findByRole("button", { name: "Enter a card ID manually" }),
+    await screen.findByRole("button", { name: /Type the card ID instead/ }),
   );
 }
 async function fillAssignment() {
@@ -320,7 +320,7 @@ test("staff see a staff account's cards but can't change them; an administrator 
     expect(screen.getByText("Only an administrator can change staff accounts.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Revoke Blue card" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Replace Blue card" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Enter a card ID manually" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Type the card ID instead/ })).toBeNull();
     cleanup();
     auth.actor = { id: 2, roles: ["admin"] };
     mount();

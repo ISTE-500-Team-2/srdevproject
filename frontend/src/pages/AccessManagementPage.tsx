@@ -12,6 +12,7 @@ import { AccessReadiness } from "../components/staff/AccessReadiness";
 import { MemberCards } from "../components/access/MemberCards";
 import { ReaderManager } from "../components/access/ReaderManager";
 import { CardLookup } from "../components/access/CardLookup";
+import { READER_POLL_MS } from "../components/access/ScanControls";
 import { TapHistory } from "../components/access/TapHistory";
 import { RecentTaps } from "../components/access/RecentTaps";
 
@@ -33,8 +34,10 @@ export function AccessManagementPage() {
   const detail = useApi<{ user: Person }>(
     member ? `/admin/users/${member}` : null,
   );
+  // Find a card scans with a reader picker, which needs readers' current online state.
   const setup = useApi<ReaderSetup>("/admin/access/readers", {
     retainOnReload: true,
+    refreshInterval: view === "lookup" ? READER_POLL_MS : 0,
   });
   // Readers change while another section is open, for example when a guided setup finishes:
   // reload them on each switch instead of showing the list fetched when the page opened.

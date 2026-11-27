@@ -3189,9 +3189,46 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 .nfc-card__suffix { font-variant-numeric: tabular-nums; font-weight: 600; }
 .nfc-help { display: block; font-size: var(--text-base-sm); color: var(--ink-soft); line-height: 1.45; }
 .nfc-assignment { border-top: 1px solid var(--border); padding-top: 1.2rem; display: grid; gap: 1rem; }
-.nfc-steps { display: flex; flex-wrap: wrap; gap: .6rem 2rem; padding-left: 1.4rem; margin: 0; color: var(--ink-soft); }
-.nfc-steps li::marker { font-weight: 700; color: var(--bronze); }
+/* Three-step progress: the current step is filled, finished steps get a check-coloured ring. */
+.nfc-steps { display: flex; align-items: center; gap: .5rem; list-style: none; padding: 0; margin: 0; color: var(--ink-soft); font-size: var(--text-base-sm); }
+.nfc-steps li { display: flex; align-items: center; gap: .5rem; white-space: nowrap; }
+.nfc-steps li + li::before { content: ""; width: 1.75rem; height: 1px; background: var(--border); margin-right: .1rem; }
+.nfc-steps span { display: grid; place-items: center; width: 1.5rem; height: 1.5rem; border-radius: 50%; border: 1px solid var(--border); font-size: .8rem; font-weight: 700; }
+.nfc-steps [aria-current] { color: var(--ink); font-weight: 600; }
+.nfc-steps [aria-current] span { background: var(--espresso); border-color: var(--espresso); color: var(--paper); }
+.nfc-steps [data-done] span { border-color: var(--status-done); color: var(--status-done); }
+:root[data-theme='dark'] .nfc-steps [aria-current] span { background: var(--orange); border-color: var(--orange); color: #241006; }
+
+/* Reader picker: one row per reader, status on the right. Offline readers can't take a scan. */
+.nfc-readers { display: grid; gap: .5rem; min-width: 0; margin: 0; padding: 0; border: 0; }
+.nfc-readers legend { padding: 0; margin-bottom: .5rem; font-weight: 700; }
+.nfc-reader { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 11px 14px; border: 1px solid var(--border); border-radius: var(--radius-small); background: var(--surface-raised); cursor: pointer; }
+.nfc-reader input { margin: 0; width: 17px; height: 17px; accent-color: var(--orange); }
+.nfc-reader__text { display: grid; gap: 1px; min-width: 0; }
+.nfc-reader__text strong { font-weight: 600; overflow-wrap: anywhere; }
+.nfc-reader__text small { color: var(--ink-soft); font-size: var(--text-sm); }
+.nfc-reader__status { display: inline-flex; align-items: center; gap: 6px; color: var(--status-done); font-size: var(--text-sm); font-weight: 600; white-space: nowrap; }
+.nfc-reader__status i { width: 8px; height: 8px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 18%, transparent); }
+.nfc-reader:has(input:checked) { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+:root[data-theme='dark'] .nfc-reader:has(input:checked) { border-color: var(--orange); box-shadow: inset 0 0 0 1px var(--orange); }
+.nfc-reader[data-offline] { cursor: not-allowed; background: transparent; border-style: dashed; }
+.nfc-reader[data-offline] .nfc-reader__text, .nfc-reader[data-offline] input { opacity: .55; }
+.nfc-reader[data-offline] .nfc-reader__status { color: var(--muted); font-weight: 500; }
+.nfc-reader[data-offline] .nfc-reader__status i { box-shadow: none; }
+.nfc-scan__note, .nfc-scan__offline { display: flex; gap: 8px; align-items: flex-start; margin: 0; color: var(--ink-soft); font-size: var(--text-sm); line-height: 1.45; }
+.nfc-scan__note svg, .nfc-scan__offline svg { flex: none; width: 16px; height: 16px; margin-top: 1px; }
+.nfc-scan__offline { padding: 10px 12px; border-radius: var(--radius-small); background: var(--surface-sunken); color: var(--ink); }
+.nfc-scan__offline svg { color: var(--bronze); }
+.nfc-manual-link { justify-self: center; min-height: 36px; padding: 0 4px; border: 0; background: none; color: var(--ink-soft); font: inherit; font-size: var(--text-base-sm); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.nfc-manual-link:hover:not(:disabled) { color: var(--ink); }
+@media (max-width: 520px) {
+  .nfc-steps li:not([aria-current]) { font-size: 0; gap: 0; }
+  .nfc-reader { grid-template-columns: 20px minmax(0, 1fr); }
+  .nfc-reader__status { grid-column: 2; }
+}
 .nfc-scan { display: grid; gap: .8rem; max-width: 38rem; }
+.modal-card .nfc-assignment { border-top: 0; padding-top: 0; }
+.modal-card .nfc-scan { max-width: none; }
 .nfc-scan__state { border-left: 4px solid var(--bronze); padding: .75rem; background: var(--paper); margin: 0; font-weight: 600; }
 .nfc-page .management-form, .nfc-section .management-form { margin: 0; gap: 1rem; max-width: 42rem; }
 .nfc-section fieldset, .nfc-page fieldset, .nfc-reader-form fieldset { display: grid; gap: 1rem; border: 0; padding: 0; margin: 0; min-width: 0; }
@@ -3338,3 +3375,4 @@ a.nfc-recent__row:focus-visible { outline: 2px solid var(--bronze); outline-offs
 }
 .room-card .reservation-card__title svg { color: var(--bronze); flex: none; }
 .room-card--closed { cursor: default; opacity: .7; }
+:root[data-theme='dark'] .nfc-reader input { color-scheme: dark; }

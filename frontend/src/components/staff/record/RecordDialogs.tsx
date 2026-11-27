@@ -10,6 +10,7 @@ import type { SupervisionSummary } from "../../../lib/contracts";
 import type { Entitlement, Payment, Person, Plan } from "../../../lib/staffContracts";
 import { useApi } from "../../../lib/useApi";
 import { AssignCard } from "../../access/MemberCards";
+import { READER_POLL_MS } from "../../access/ScanControls";
 import { MemberSelect } from "../../MemberSelect";
 import { Modal } from "../../Modal";
 import { AssistedPurchase } from "../AssistedPurchase";
@@ -605,14 +606,19 @@ function RolesDialog({
 }
 
 function AssignDialog({ person, replacement, onClose, onDone }: { person: Person; replacement: NfcCard | null; onClose: () => void; onDone: (m: string) => void }) {
-  const setup = useApi<ReaderSetup>("/admin/access/readers");
+  // Re-read while open so readers going on or offline show up; a failed re-read keeps the
+  // list (and any scan in progress) on screen rather than swapping it for the error.
+  const setup = useApi<ReaderSetup>("/admin/access/readers", {
+    retainOnReload: true,
+    refreshInterval: READER_POLL_MS,
+  });
   const name = `${person.firstName} ${person.lastName}`;
   // A tapped card arrives by polling, not a change event; closing would release the scan.
   const [captured, setCaptured] = useState(false);
   return (
     <DraftModal open width="regular" title={replacement ? `Replace ${replacement.label}` : "Assign an NFC card"} onClose={onClose} dirty={captured} className="mr-dialog mr-dialog--scan">
       {replacement ? <p className="mr-dialog__lead">{replacement.label} keeps working until the new card is saved.</p> : null}
-      {setup.error ? (
+      {setup.error && !setup.data ? (
         <p role="alert" className="form-error">
           {setup.error}{" "}
           <button type="button" className="today-link" onClick={setup.reload}>

@@ -56,15 +56,71 @@ test("the reader picker warns that a scan pauses the door or machine it controls
       ]}
     />,
   );
-  expect(
-    screen.getByText(/Scanning here pauses Main building/).textContent,
-  ).toContain("the door won’t open for anyone until the scan ends");
-  fireEvent.change(screen.getByLabelText("Reader for this scan"), {
-    target: { value: "laser" },
+  expect(screen.getByText(/While scanning/).textContent).toBe(
+    "While scanning, the Main building door won’t open for anyone (up to 2 minutes).",
+  );
+  fireEvent.click(screen.getByRole("radio", { name: /Laser reader/ }));
+  expect(screen.getByText(/While scanning/).textContent).toBe(
+    "While scanning, Laser cutter won’t turn on for anyone (up to 2 minutes).",
+  );
+});
+
+test("an offline reader is listed last and can't be picked", () => {
+  render(
+    <Harness
+      readers={[
+        reader({
+          id: "attic",
+          name: "Attic reader",
+          online: false,
+          lastSeenAt: new Date(Date.now() - 3 * 3_600_000).toISOString(),
+        }),
+        reader(),
+      ]}
+    />,
+  );
+  const radios = screen.getAllByRole<HTMLInputElement>("radio");
+  expect(radios.map((r) => r.value)).toEqual(["front", "attic"]);
+  expect(radios[0]!.checked).toBe(true);
+  expect(radios[1]!.disabled).toBe(true);
+  expect(screen.getByText("Offline · 3 hours ago")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Start card scan" })).toBeTruthy();
+});
+
+test("with every reader offline there is no scan to start", () => {
+  render(<Harness readers={[reader({ online: false })]} />);
+  expect(screen.getByRole("status").textContent).toContain(
+    "No reader is online right now",
+  );
+  expect(screen.queryByRole("button", { name: "Start card scan" })).toBeNull();
+  expect(screen.getByText("Never connected")).toBeTruthy();
+});
+
+test("a reader plugged in while the picker is open becomes the choice", () => {
+  const { rerender } = render(<Harness readers={[reader({ online: false })]} />);
+  expect(screen.queryByRole("button", { name: "Start card scan" })).toBeNull();
+  rerender(<Harness readers={[reader()]} />);
+  expect(screen.getByRole<HTMLInputElement>("radio", { name: /Front door/ }).checked).toBe(true);
+  expect(screen.getByRole("button", { name: "Start card scan" })).toBeTruthy();
+});
+
+test("a chosen reader that drops offline stays chosen instead of the scan moving elsewhere", () => {
+  const laser = reader({
+    id: "laser",
+    name: "Laser reader",
+    kind: "equipment",
+    resourceName: "Laser cutter",
   });
-  expect(
-    screen.getByText(/Scanning here pauses Laser cutter/).textContent,
-  ).toContain("the machine won’t turn on for anyone until the scan ends");
+  const { rerender } = render(<Harness readers={[reader(), laser]} />);
+  fireEvent.click(screen.getByRole("radio", { name: /Laser reader/ }));
+  rerender(<Harness readers={[reader(), { ...laser, online: false }]} />);
+  expect(screen.getByRole<HTMLInputElement>("radio", { name: /Laser reader/ }).checked).toBe(true);
+  expect(screen.getByRole("status").textContent).toBe(
+    "Laser reader just went offline. Pick another reader, or enter the card ID by hand.",
+  );
+  expect(screen.queryByRole("button", { name: "Start card scan" })).toBeNull();
+  fireEvent.click(screen.getByRole("radio", { name: /Front door/ }));
+  expect(screen.getByRole("button", { name: "Start card scan" })).toBeTruthy();
 });
 
 test("a computer whose clock runs fast still gets the scan's full time", async () => {
