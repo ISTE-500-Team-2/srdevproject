@@ -13,6 +13,7 @@ import { refreshReuseGraceSeconds, tokenHash } from '../../src/models/SessionMod
 import { SessionModel } from '../../src/models/SessionModel.js';
 import { transaction } from '../../src/db.js';
 import { initializeDemo } from '../../src/scripts/init-demo.js';
+import { passwordCost } from '../../src/passwords.js';
 
 const database = 'arbor_jwt_' + randomBytes(6).toString('hex') + '_mvc_test';
 const admin = new Pool({ connectionTimeoutMillis: 5000 });
@@ -413,6 +414,8 @@ test('legacy scrypt credentials upgrade after successful login; configurable exp
   assert.equal(login.status,200);
   const claims=decodeJwt(browserToken(login));
   assert.equal(claims.exp!-claims.iat!,60);
-  assert.match((await pool.query('SELECT password FROM "user" WHERE userid=$1',[a.userId])).rows[0].password,/^\$2b\$12\$/);
+  // Upgraded to bcrypt at the configured cost (12 for real accounts, lowered only in tests).
+  assert.ok((await pool.query('SELECT password FROM "user" WHERE userid=$1',[a.userId])).rows[0].password
+    .startsWith(`$2b$${String(passwordCost()).padStart(2,'0')}$`));
   assert.ok((login.headers['set-cookie'] as unknown as string[]).some((c:string)=>c.includes('Max-Age=3600')));
 });
